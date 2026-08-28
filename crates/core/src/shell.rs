@@ -6,7 +6,7 @@
 use gpui::{prelude::FluentBuilder as _, *};
 
 use gpui_component::{
-    ActiveTheme, IconName, TitleBar,
+    ActiveTheme, Icon, IconName, TitleBar,
     breadcrumb::{Breadcrumb, BreadcrumbItem},
     button::{Button, ButtonVariants},
     h_flex,
@@ -104,12 +104,26 @@ impl Render for DashboardShell {
                             .collapsible(SidebarCollapsible::Icon)
                             .collapsed(sidebar_collapsed)
                             .header(
-                                SidebarHeader::new().child(
-                                    h_flex()
-                                        .items_center()
-                                        .gap_2()
-                                        .child(div().text_size(px(15.)).child("Dashboard")),
-                                ),
+                                // Brand: icon box always; wordmark only when
+                                // expanded (in the icon rail the text would clip).
+                                SidebarHeader::new()
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .rounded(cx.theme().radius)
+                                            .bg(cx.theme().primary)
+                                            .text_color(cx.theme().primary_foreground)
+                                            .size_8()
+                                            .flex_shrink_0()
+                                            .child(
+                                                Icon::new(IconName::GalleryVerticalEnd).size_4(),
+                                            ),
+                                    )
+                                    .when(!sidebar_collapsed, |this| {
+                                        this.child(div().text_size(px(15.)).child("Dashboard"))
+                                    }),
                             )
                             .children(nav_menu_items(&self.registry, &page, cx)),
                     )
