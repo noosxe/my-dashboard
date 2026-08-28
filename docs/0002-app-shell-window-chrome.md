@@ -23,7 +23,7 @@ change while the doc is Draft.
 
 | # | Question | Options | My recommendation |
 | --- | --- | --- | --- |
-| Q1 | **Window chrome style** | (a) custom frameless `TitleBar` (gpui-component); (b) native OS titlebar | **(a)** — one themed look on all 3 OSes; production-proven (Longbridge Pro); Linux gets drag/right-click menu/double-click-maximize for free; macOS keeps native traffic lights |
+| Q1 | **Window chrome style** | (a) custom frameless `TitleBar` (gpui-component); (b) native OS titlebar | **(a)** — one themed look on all 3 OSes; production-proven (Longbridge Pro); **tiling-WM-safe — see note T1**; macOS keeps native traffic lights |
 | Q2 | **Default window geometry** | default size / min size | **1280×800 default, centered; min 900×600** (dashboard content wants width) |
 | Q3 | **Window title text** | shown in title bar, taskbar, WM lists | **"Dashboard"** (short, human) — repo name stays `my-dashboard` |
 | Q4 | **`app_id`** (Wayland/X11 identity) | reverse-DNS string; affects taskbar grouping, future `.desktop` entry | **`com.noosxe.my-dashboard`** (matches your GitHub org) |
@@ -32,6 +32,15 @@ change while the doc is Draft.
 | Q7 | **Close button behavior** | (a) close = quit; (b) minimize-to-tray someday | **(a)** plain quit; `TitleBar::on_close_window` hook exists when (b) becomes real |
 | Q8 | **Resizable / fullscreen** | defaults: resizable yes, no custom fullscreen handling | Keep defaults (no extra code in 0002) |
 | Q9 | **Body placeholder until 0003** | (a) keep centered hello-world content; (b) static wireframe grid of module cards | **(a)** — least code, replaced anyway in 0003; (b) only if you want a visual target now |
+
+**T1 — tiling WMs (Q1):** on compositors that provide no titlebar (Hyprland, sway, i3…)
+the app *always* renders its own strip — client-side decorations are part of our window
+surface, so we never end up titlebar-less. Upstream's `TitleBar` additionally adapts at
+runtime (verified in `title_bar.rs` source): it skips its own min/max/close buttons when the
+WM insists on server-side decorations (no duplicates), and on tiling WMs it draws close
+always + min/max only if the compositor honors them (`window.window_controls()`), with
+right-click → WM window menu and double-click → maximize. The "native" option (b) is the
+one that yields *no titlebar at all* on tiling WMs.
 
 ## 3. Verified upstream facts (2026-08-28)
 
@@ -63,7 +72,13 @@ docs `components/title-bar.md` (via Context7), zed `crates/gpui/src/window.rs`
    ```
 3. **TitleBar behavior is per-OS adaptive**: macOS native traffic lights; Windows
    and Linux custom control buttons with manual event handling; Linux additionally
-   supports right-click context menu and double-click maximize/restore.
+   supports right-click context menu and double-click maximize/restore. Verified in
+   `title_bar.rs`: the component reads `window.window_decorations()` — under
+   server-side decorations (X11 w/o compositor; a Wayland compositor granting server
+   mode) it skips its own buttons to avoid a duplicate control set, and under
+   client-side decorations (tiling WMs) it renders them, gated per-capability via
+   `window.window_controls()` ("a tiling compositor may support neither minimize nor
+   maximize; close is always ours to offer").
 4. **Custom close behavior** hook exists:
    `TitleBar::new().on_close_window(|_, window, cx| { …; window.remove_window(); })`
    — primarily for Linux (Q7 future use).
