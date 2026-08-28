@@ -126,6 +126,17 @@ in this phase — `Button::tooltip("Close")` (verified: `button.rs:341`).*
     `type_complexity` happy). `IconName` is not `Copy` (clone it).
     `AsyncApp::update` returns `()` (no shutdown Result to check). `App::new`
     requires `FnOnce(&mut Context<T>)`. `Div` has no `z_index`.
+    **Unfocused-window updates on Wayland** (empirically isolated on Hyprland):
+    compositors can withhold `wl_surface` frame callbacks from unfocused-
+    but-visible windows, which parks gpui's Wayland frame loop in
+    `AwaitingCallback` — entity `notify()` marks the window dirty but no draw
+    is delivered until refocus. `request_animation_frame` is render-phase-
+    only (panics from a service task). The working pattern: **modules
+    capture `window.window_handle()` in `init` and call
+    `window_handle.update(cx, |_, window, _| window.refresh()).ok()` after
+    each state write** — the force-render path presents without compositor
+    callbacks. Verified by render-tracing: zero unfocused renders before,
+    ~1/s after.
 
 ## 4. Design
 
