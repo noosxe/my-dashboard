@@ -1,6 +1,6 @@
 # 0003 — Phase 2: Multi-module Architecture (Module Trait, Registry, Navigation)
 
-- **Status:** Draft (awaiting owner review of §2)
+- **Status:** Accepted (owner merged design PR #8 2026-08-28 — §2 recommendations stand per the silence rule)
 - **Date:** 2026-08-28
 - **Phase:** 2 (Framework)
 - **Depends on:** 0001 (Implemented, PR #1), 0002 (Implemented, PR #4)
@@ -115,6 +115,17 @@ in this phase — `Button::tooltip("Close")` (verified: `button.rs:341`).*
     empty/loading/error states; "summary region or card that exposes the
     count, representative results, meaningful state, and a clear next action"
     — our overview-card pattern is this, verbatim.
+12. **API corrections found at implementation** (doc listings updated where
+    affected): `Sidebar` children are **typed** — `content: Vec<E: SidebarItem>`
+    — so a sidebar holds one homogeneous child type; our v1 sidebar is a flat
+    `Sidebar<SidebarMenuItem>` (Home first, then modules) instead of the §2 Q3
+    menu+`SidebarGroup` mix (group headers return with real modules).
+    `Breadcrumb`/`BreadcrumbItem` live under `gpui_component::breadcrumb::`,
+    not the crate root. `Crumb.on_click` is `Arc` (not `Box`) — the shell clones
+    it into render closures each frame (`CrumbAction` alias keeps clippy's
+    `type_complexity` happy). `IconName` is not `Copy` (clone it).
+    `AsyncApp::update` returns `()` (no shutdown Result to check). `App::new`
+    requires `FnOnce(&mut Context<T>)`. `Div` has no `z_index`.
 
 ## 4. Design
 

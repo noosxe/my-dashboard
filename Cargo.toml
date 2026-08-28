@@ -1,6 +1,11 @@
 [workspace]
 resolver = "3"
-members = ["crates/app"]
+members = [
+    "crates/app",
+    "crates/core",
+    "crates/modules/clock",
+    "crates/modules/notes",
+]
 
 [workspace.package]
 version = "0.1.0"
@@ -13,6 +18,10 @@ gpui = { git = "https://github.com/zed-industries/zed" }
 gpui_platform = { git = "https://github.com/zed-industries/zed", features = ["font-kit"] }
 gpui-component = { git = "https://github.com/longbridge/gpui-component" }
 gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
+dashboard-core = { path = "crates/core" }
+dashboard-module-clock = { path = "crates/modules/clock" }
+dashboard-module-notes = { path = "crates/modules/notes" }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 # Keep debug info cheap in dev builds.
 [profile.dev]
