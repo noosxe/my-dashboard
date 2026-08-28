@@ -115,18 +115,28 @@ impl Render for DashboardShell {
                     )
                     // Content column: chrome row (toggle + breadcrumb) + page.
                     .child(
+                        // Content column: mirrors sidebar_story.rs — h_full +
+                        // overflow_hidden so nothing below can push the
+                        // chrome row around.
                         v_flex()
+                            .h_full()
                             .flex_1()
                             .min_w_0()
                             .min_h_0()
+                            .overflow_hidden()
                             .child(
+                                // Chrome row: fixed height, pinned to the
+                                // top; breadcrumb truncates instead of wrapping.
                                 h_flex()
+                                    .id("chrome-row")
+                                    .h_9()
                                     .items_center()
                                     .gap_2()
-                                    .p_2()
+                                    .px_2()
+                                    .flex_shrink_0()
                                     .border_b_1()
                                     .border_color(cx.theme().border)
-                                    .flex_shrink_0()
+                                    .overflow_hidden()
                                     .child(
                                         SidebarToggleButton::new()
                                             .collapsed(sidebar_collapsed)
@@ -136,50 +146,63 @@ impl Render for DashboardShell {
                                             })),
                                     )
                                     .child(
-                                        Breadcrumb::new()
-                                            .child(BreadcrumbItem::new("Home").on_click(
-                                                cx.listener(|this, _, _, cx| {
-                                                    this.nav.update(cx, |nav, cx| {
-                                                        nav.go(Page::Home, cx)
-                                                    });
-                                                }),
-                                            ))
-                                            .when_some(current_module.clone(), |this, m| {
-                                                this.child(BreadcrumbItem::new(m.1).on_click(
-                                                    cx.listener(move |this, _, _, cx| {
+                                        div().min_w_0().flex_1().overflow_hidden().child(
+                                            Breadcrumb::new()
+                                                .child(BreadcrumbItem::new("Home").on_click(
+                                                    cx.listener(|this, _, _, cx| {
                                                         this.nav.update(cx, |nav, cx| {
-                                                            nav.go(Page::Module(m.0.clone()), cx)
+                                                            nav.go(Page::Home, cx)
                                                         });
                                                     }),
                                                 ))
-                                            })
-                                            .children(crumbs.iter().map(|(label, on_click)| {
-                                                let mut item = BreadcrumbItem::new(label.clone());
-                                                if let Some(f) = on_click.clone() {
-                                                    item = item.on_click(move |_, window, cx| {
-                                                        f(window, cx)
-                                                    });
-                                                }
-                                                item
-                                            })),
+                                                .when_some(current_module.clone(), |this, m| {
+                                                    this.child(BreadcrumbItem::new(m.1).on_click(
+                                                        cx.listener(move |this, _, _, cx| {
+                                                            this.nav.update(cx, |nav, cx| {
+                                                                nav.go(
+                                                                    Page::Module(m.0.clone()),
+                                                                    cx,
+                                                                )
+                                                            });
+                                                        }),
+                                                    ))
+                                                })
+                                                .children(crumbs.iter().map(
+                                                    |(label, on_click)| {
+                                                        let mut item =
+                                                            BreadcrumbItem::new(label.clone());
+                                                        if let Some(f) = on_click.clone() {
+                                                            item = item.on_click(
+                                                                move |_, window, cx| f(window, cx),
+                                                            );
+                                                        }
+                                                        item
+                                                    },
+                                                )),
+                                        ),
                                     ),
                             )
                             .child(
-                                // Page content: home grid or the module's
-                                // (kept-alive) main page view.
-                                match &page {
-                                    Page::Home => div().flex_1().child(home::render(
-                                        &self.registry,
-                                        &self.nav,
-                                        cx,
-                                    )),
-                                    Page::Module(id) => match self.registry.get(id) {
-                                        Some(entry) => {
-                                            div().flex_1().relative().child(entry.main_page.clone())
-                                        }
-                                        None => div().flex_1().child("Unknown module"),
-                                    },
-                                },
+                                // Page host: bounded flex column that fills the
+                                // rest and clips (modules scroll internally).
+                                v_flex()
+                                    .id("page")
+                                    .flex_1()
+                                    .min_h_0()
+                                    .w_full()
+                                    .overflow_hidden()
+                                    .child(match &page {
+                                        Page::Home => home::render(&self.registry, &self.nav, cx)
+                                            .into_any_element(),
+                                        Page::Module(id) => match self.registry.get(id) {
+                                            Some(entry) => {
+                                                entry.main_page.clone().into_any_element()
+                                            }
+                                            None => {
+                                                div().child("Unknown module").into_any_element()
+                                            }
+                                        },
+                                    }),
                             ),
                     )
                     // Titlebar-less mode (0002 D7): ghost close, now with the
