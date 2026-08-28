@@ -22,7 +22,7 @@ cross-platform, multi-modular universal personal dashboard built with Rust and
 
 | Doc | Title | Status |
 | --- | --- | --- |
-| [0001](0001-bootstrap-hello-world.md) | Phase 0 — Bootstrap: Hello World gpui-component Application | Draft |
+| [0001](0001-bootstrap-hello-world.md) | Phase 0 — Bootstrap: Hello World gpui-component Application | Implemented (PR #1) |
 
 ## Planned docs (roadmap, not yet written)
 
