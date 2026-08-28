@@ -41,6 +41,9 @@ pub fn render(
         .gap_4()
         .p_4()
         .flex_1()
+        .min_h_0()
+        // Scroll (not push) when wrapped cards exceed the viewport.
+        .overflow_y_scroll()
         .children(cards)
 }
 
