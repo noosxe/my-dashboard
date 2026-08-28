@@ -40,6 +40,9 @@ pub fn render(
         .flex_wrap()
         // h_flex() defaults to items_center — cards must start at the top.
         .items_start()
+        // Multi-line wrapping: lines themselves are placed by align-content
+        // (default Stretch distributes leftover space) — pack them from top.
+        .content_start()
         .gap_4()
         .p_4()
         .flex_1()
