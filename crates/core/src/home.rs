@@ -38,6 +38,8 @@ pub fn render(
     h_flex()
         .id("home-grid")
         .flex_wrap()
+        // h_flex() defaults to items_center — cards must start at the top.
+        .items_start()
         .gap_4()
         .p_4()
         .flex_1()
