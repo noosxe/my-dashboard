@@ -29,18 +29,28 @@ impl Module for ClockModule {
         }
     }
 
-    fn init(_nav: &Entity<Navigator>, _window: &mut Window, cx: &mut App) -> ModuleEntry {
+    fn init(_nav: &Entity<Navigator>, window: &mut Window, cx: &mut App) -> ModuleEntry {
         // 1. State entity.
         let state = cx.new(|_| ClockState { now: Local::now() });
 
         // 2. Service: 1 s background timer — the module's whole backend.
         let timer_state = state.clone();
+        let window_handle = window.window_handle();
         cx.spawn(async move |cx| {
             loop {
                 cx.background_executor()
                     .timer(std::time::Duration::from_secs(1))
                     .await;
                 cx.update(|cx| timer_state.update(cx, |s, _| s.now = Local::now()));
+                // Wayland compositors (e.g. Hyprland) can withhold frame
+                // callbacks from unfocused surfaces, which stalls
+                // notify-driven redraws — the state advances but the visuals
+                // freeze until refocus. Forcing a refresh routes the draw
+                // through gpui's force-render path, which presents without
+                // waiting for compositor callbacks.
+                window_handle
+                    .update(cx, |_, window, _| window.refresh())
+                    .ok();
             }
         })
         .detach();
