@@ -1,0 +1,18 @@
+[package]
+name = "dashboard-app"
+description = "Universal personal dashboard — application shell"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "dashboard"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+gpui.workspace = true
+gpui_platform.workspace = true
+gpui-component.workspace = true
+gpui-component-assets.workspace = true

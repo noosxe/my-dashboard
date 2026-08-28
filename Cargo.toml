@@ -1,0 +1,31 @@
+[workspace]
+resolver = "3"
+members = ["crates/app"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+
+[workspace.dependencies]
+anyhow = "1"
+gpui = { git = "https://github.com/zed-industries/zed" }
+gpui_platform = { git = "https://github.com/zed-industries/zed", features = ["font-kit"] }
+gpui-component = { git = "https://github.com/longbridge/gpui-component" }
+gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
+
+# Keep debug info cheap in dev builds.
+[profile.dev]
+debug = "limited"
+
+# Optimize hot-path crates even in dev builds — mirrors upstream gpui-component's
+# own workspace tuning; makes dev builds render smoothly instead of stuttering.
+[profile.dev.package]
+gpui = { opt-level = 3 }
+gpui_platform = { opt-level = 3 }
+gpui_macros = { opt-level = 3 }
+taffy = { opt-level = 3 }
+rustybuzz = { opt-level = 3 }
+ttf-parser = { opt-level = 3 }
+resvg = { opt-level = 3 }
+smol = { opt-level = 3 }
