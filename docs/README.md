@@ -17,6 +17,19 @@ cross-platform, multi-modular universal personal dashboard built with Rust and
   recorded inline; sweeping cross-cutting decisions may later be split into an `adr/`
   sub-directory if the volume justifies it.
 - **Language:** "MUST / SHOULD / MAY" per RFC 2119.
+- **UI design authority:** all UI work follows the gpui-component [Design
+  Guides](https://longbridge.github.io/gpui-component/docs/design-guides)
+  (normative: **must** = correctness constraint, **should** = default needing a
+  concrete reason to override, **may** = optional). Key obligations for this
+  project: semantic theme colors from `cx.theme()` (no raw hex/rgb at call
+  sites), the shared spacing scale (~2/4/8/12/16/24/32 px) and typography scale
+  via tokens, component `Size`/density tiers instead of one-off heights, one
+  icon family with tooltips on icon-only buttons, distinct interaction states
+  (hover/focus/selected/disabled/loading/error), desktop command surfaces
+  (menus/actions/keybindings) over hover-only toolbars, and designed
+  empty/loading/error states for every module surface. The guide ships in our
+  pinned gpui-component rev (`website/docs/design-guides.md` @ `1081d2b`);
+  the live page is canonical. Design docs cite it as **[DG]**.
 
 ## Index
 
