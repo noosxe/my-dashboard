@@ -23,10 +23,10 @@ cross-platform, multi-modular universal personal dashboard built with Rust and
 | Doc | Title | Status |
 | --- | --- | --- |
 | [0001](0001-bootstrap-hello-world.md) | Phase 0 — Bootstrap: Hello World gpui-component Application | Implemented (PR #1) |
+| [0002](0002-app-shell-window-chrome.md) | Phase 1 — Application Shell & Window Chrome | Draft — open questions in §2 |
 
 ## Planned docs (roadmap, not yet written)
 
-- 0002 — Application shell & window chrome (TitleBar, window sizing/centering, theme setup)
 - 0003 — Multi-module architecture (module trait, registry, dynamic layout)
 - 0004 — State management & persistence (settings, layout serialization)
 - 0005 — Build, packaging & distribution per OS
