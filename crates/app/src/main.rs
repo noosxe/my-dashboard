@@ -1,9 +1,9 @@
-mod shell;
-
 use gpui::*;
 use gpui_component::{ActiveTheme, Root, TitleBar};
 
-use shell::{DashboardShell, ToggleTitleBar};
+use dashboard_core::{DashboardShell, ModuleRegistry, Navigator, ToggleTitleBar};
+use dashboard_module_clock::ClockModule;
+use dashboard_module_notes::NotesModule;
 
 // Identity & geometry — decisions from docs/0002 §2; single place to tune.
 const APP_ID: &str = "com.noosxe.my-dashboard";
@@ -18,7 +18,7 @@ fn main() {
             // MUST be called before using any gpui-component features.
             gpui_component::init(cx);
 
-            // Chrome toggle (D7): ctrl-shift-t switches titlebar-less ⇄ full bar.
+            // Chrome toggle (0002 D7): ctrl-shift-t switches titlebar-less ⇄ full bar.
             cx.bind_keys([KeyBinding::new("ctrl-shift-t", ToggleTitleBar, None)]);
 
             let window_options = WindowOptions {
@@ -40,8 +40,15 @@ fn main() {
 
             cx.spawn(async move |cx| {
                 cx.open_window(window_options, |window, cx| {
-                    let view = cx.new(|_| DashboardShell::new());
-                    cx.new(|cx| Root::new(view, window, cx).bg(cx.theme().background))
+                    // Navigation state, then modules (registry order = sidebar
+                    // + home-grid order — docs/0003 §4.2).
+                    let nav = cx.new(|_| Navigator::new());
+                    let registry = ModuleRegistry::new()
+                        .with::<ClockModule>(&nav, window, cx)
+                        .with::<NotesModule>(&nav, window, cx);
+
+                    let shell = cx.new(|cx| DashboardShell::new(registry, nav, cx));
+                    cx.new(|cx| Root::new(shell, window, cx).bg(cx.theme().background))
                 })
                 .expect("Failed to open window");
             })

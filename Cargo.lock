@@ -1372,10 +1372,40 @@ name = "dashboard-app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "dashboard-core",
+ "dashboard-module-clock",
+ "dashboard-module-notes",
  "gpui",
  "gpui-component",
  "gpui-component-assets",
  "gpui_platform",
+]
+
+[[package]]
+name = "dashboard-core"
+version = "0.1.0"
+dependencies = [
+ "gpui",
+ "gpui-component",
+]
+
+[[package]]
+name = "dashboard-module-clock"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "dashboard-core",
+ "gpui",
+ "gpui-component",
+]
+
+[[package]]
+name = "dashboard-module-notes"
+version = "0.1.0"
+dependencies = [
+ "dashboard-core",
+ "gpui",
+ "gpui-component",
 ]
 
 [[package]]

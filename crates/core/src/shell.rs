@@ -1,0 +1,233 @@
+//! App shell (docs/0003 §4.5): 0002's window chrome + sidebar navigation.
+//!
+//! Layout mirrors `sidebar_story.rs`: `Sidebar` on the left, content column
+//! with `SidebarToggleButton` left of the `Breadcrumb`, page below.
+
+use gpui::{prelude::FluentBuilder as _, *};
+
+use gpui_component::{
+    ActiveTheme, IconName, TitleBar,
+    breadcrumb::{Breadcrumb, BreadcrumbItem},
+    button::{Button, ButtonVariants},
+    h_flex,
+    sidebar::{Sidebar, SidebarCollapsible, SidebarHeader, SidebarMenuItem, SidebarToggleButton},
+    v_flex,
+};
+
+use crate::home;
+use crate::nav::{CrumbAction, Navigator, Page};
+use crate::registry::ModuleRegistry;
+
+actions!(dashboard, [ToggleTitleBar]);
+
+/// Default chrome state (0002 D7): titlebar-less on Linux, full bar elsewhere.
+#[cfg(target_os = "linux")]
+const DEFAULT_TITLEBAR: bool = false;
+#[cfg(not(target_os = "linux"))]
+const DEFAULT_TITLEBAR: bool = true;
+
+pub struct DashboardShell {
+    registry: ModuleRegistry,
+    nav: Entity<Navigator>,
+    show_titlebar: bool,
+}
+
+impl DashboardShell {
+    pub fn new(registry: ModuleRegistry, nav: Entity<Navigator>, cx: &mut Context<Self>) -> Self {
+        cx.observe(&nav, |_, _, cx| cx.notify()).detach();
+        Self {
+            registry,
+            nav,
+            show_titlebar: DEFAULT_TITLEBAR,
+        }
+    }
+
+    fn toggle_titlebar(
+        &mut self,
+        _: &ToggleTitleBar,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.show_titlebar = !self.show_titlebar;
+        cx.notify();
+    }
+}
+
+impl Render for DashboardShell {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Snapshot nav state (crumbs hold Arc'd closures — cloneable).
+        let nav = self.nav.read(cx);
+        let page = nav.page.clone();
+        let sidebar_collapsed = nav.sidebar_collapsed;
+        let crumbs: Vec<(SharedString, Option<CrumbAction>)> = nav
+            .crumbs()
+            .iter()
+            .map(|c| (c.label.clone(), c.on_click.clone()))
+            .collect();
+
+        let current_module = match &page {
+            Page::Module(id) => self
+                .registry
+                .get(id)
+                .map(|e| (e.meta.id.clone(), e.meta.title.clone())),
+            Page::Home => None,
+        };
+
+        v_flex()
+            .size_full()
+            .key_context("Dashboard")
+            .on_action(cx.listener(Self::toggle_titlebar))
+            .when(self.show_titlebar, |this| {
+                this.child(
+                    // 0002: custom per-OS adaptive title bar, reserved right slot.
+                    TitleBar::new().child(
+                        h_flex()
+                            .w_full()
+                            .pr_2()
+                            .justify_between()
+                            .child("Dashboard")
+                            .child(div()),
+                    ),
+                )
+            })
+            .child(
+                h_flex()
+                    .relative()
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
+                    // Sidebar (Q4): wordmark header; flat menu — Home first,
+                    // then modules (Sidebar children are typed Vec<E>, so a
+                    // SidebarGroup would exclude the standalone Home item).
+                    .child(
+                        Sidebar::new("app-sidebar")
+                            .collapsible(SidebarCollapsible::Icon)
+                            .collapsed(sidebar_collapsed)
+                            .header(
+                                SidebarHeader::new().child(
+                                    h_flex()
+                                        .items_center()
+                                        .gap_2()
+                                        .child(div().text_size(px(15.)).child("Dashboard")),
+                                ),
+                            )
+                            .children(nav_menu_items(&self.registry, &page, cx)),
+                    )
+                    // Content column: chrome row (toggle + breadcrumb) + page.
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .min_h_0()
+                            .child(
+                                h_flex()
+                                    .items_center()
+                                    .gap_2()
+                                    .p_2()
+                                    .border_b_1()
+                                    .border_color(cx.theme().border)
+                                    .flex_shrink_0()
+                                    .child(
+                                        SidebarToggleButton::new()
+                                            .collapsed(sidebar_collapsed)
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.nav
+                                                    .update(cx, |nav, cx| nav.toggle_sidebar(cx));
+                                            })),
+                                    )
+                                    .child(
+                                        Breadcrumb::new()
+                                            .child(BreadcrumbItem::new("Home").on_click(
+                                                cx.listener(|this, _, _, cx| {
+                                                    this.nav.update(cx, |nav, cx| {
+                                                        nav.go(Page::Home, cx)
+                                                    });
+                                                }),
+                                            ))
+                                            .when_some(current_module.clone(), |this, m| {
+                                                this.child(BreadcrumbItem::new(m.1).on_click(
+                                                    cx.listener(move |this, _, _, cx| {
+                                                        this.nav.update(cx, |nav, cx| {
+                                                            nav.go(Page::Module(m.0.clone()), cx)
+                                                        });
+                                                    }),
+                                                ))
+                                            })
+                                            .children(crumbs.iter().map(|(label, on_click)| {
+                                                let mut item = BreadcrumbItem::new(label.clone());
+                                                if let Some(f) = on_click.clone() {
+                                                    item = item.on_click(move |_, window, cx| {
+                                                        f(window, cx)
+                                                    });
+                                                }
+                                                item
+                                            })),
+                                    ),
+                            )
+                            .child(
+                                // Page content: home grid or the module's
+                                // (kept-alive) main page view.
+                                match &page {
+                                    Page::Home => div().flex_1().child(home::render(
+                                        &self.registry,
+                                        &self.nav,
+                                        cx,
+                                    )),
+                                    Page::Module(id) => match self.registry.get(id) {
+                                        Some(entry) => {
+                                            div().flex_1().relative().child(entry.main_page.clone())
+                                        }
+                                        None => div().flex_1().child("Unknown module"),
+                                    },
+                                },
+                            ),
+                    )
+                    // Titlebar-less mode (0002 D7): ghost close, now with the
+                    // [DG]-required tooltip (Q7).
+                    .when(!self.show_titlebar, |this| {
+                        this.child(
+                            div().absolute().top_1().right_1().child(
+                                Button::new("close")
+                                    .ghost()
+                                    .icon(IconName::Close)
+                                    .tooltip("Close")
+                                    .on_click(|_, window, _| window.remove_window()),
+                            ),
+                        )
+                    }),
+            )
+    }
+}
+
+/// Home + module main-page entries as one flat sidebar menu (see the shell
+/// render note: `Sidebar` children are `Vec<E>`, so mixing a standalone menu
+/// with a labeled group is not possible).
+fn nav_menu_items(
+    registry: &ModuleRegistry,
+    page: &Page,
+    cx: &mut Context<DashboardShell>,
+) -> Vec<SidebarMenuItem> {
+    let home = SidebarMenuItem::new("Home")
+        .icon(IconName::LayoutDashboard)
+        .active(*page == Page::Home)
+        .on_click(cx.listener(|this, _, _, cx| {
+            this.nav.update(cx, |nav, cx| nav.go(Page::Home, cx));
+        }));
+
+    let modules = registry.entries().iter().map(|entry| {
+        let id = entry.meta.id.clone();
+        let active = *page == Page::Module(id.clone());
+        let mut item = SidebarMenuItem::new(entry.meta.title.clone())
+            .active(active)
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.nav
+                    .update(cx, |nav, cx| nav.go(Page::Module(id.clone()), cx));
+            }));
+        if let Some(icon) = entry.meta.icon.clone() {
+            item = item.icon(icon);
+        }
+        item
+    });
+
+    std::iter::once(home).chain(modules).collect()
+}
