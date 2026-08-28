@@ -1,6 +1,6 @@
 # 0002 — Phase 1: Application Shell & Window Chrome
 
-- **Status:** Draft — **awaiting review of §2 open questions**
+- **Status:** Accepted (owner review 2026-08-28 — all §2 recommendations approved; titlebar-less mode added)
 - **Date:** 2026-08-28
 - **Phase:** 1 (Shell)
 - **Depends on:** 0001 (Implemented, PR #1)
@@ -16,10 +16,11 @@ chrome, app identity (title + Wayland `app_id`), and a code structure ready to h
 the module system (0003). The shell is the frame the dashboard lives in — it should
 be settled before modules land.
 
-## 2. Open questions — NEEDS YOUR INPUT
+## 2. Decisions (owner review 2026-08-28)
 
-Each item has a recommendation; defaults are used in §5 listings and are trivial to
-change while the doc is Draft.
+All recommendations below were reviewed and accepted; the values feed the §5
+listings directly. The one substantive addition from review: a titlebar-less mode
+(D7), triggered by the owner running Hyprland titlebar-less everywhere.
 
 | # | Question | Options | My recommendation |
 | --- | --- | --- | --- |
@@ -41,6 +42,22 @@ WM insists on server-side decorations (no duplicates), and on tiling WMs it draw
 always + min/max only if the compositor honors them (`window.window_controls()`), with
 right-click → WM window menu and double-click → maximize. The "native" option (b) is the
 one that yields *no titlebar at all* on tiling WMs.
+
+**D7 — titlebar-less mode (added at review):** the shell carries a runtime
+chrome toggle, because the owner runs most apps titlebar-less on Hyprland:
+
+- `ToggleTitleBar` gpui action, bound to **`ctrl-shift-t`** (context-free binding; the
+  pattern — `actions!` + `cx.bind_keys` + `on_action(cx.listener(..))` — verified in
+  upstream's gpui skill `references/action.md`).
+- Default state: **titlebar-less on Linux** (owner's daily driver), full title bar on
+  macOS/Windows (`cfg`-selected const; persistence lands in 0004 so the choice is
+  remembered).
+- In titlebar-less mode a **small ghost close button** overlays the top-right of the
+  body (hover-highlighted `Button` + `X` icon → `window.remove_window()`) — the "lazy
+  close" affordance; everything else stays WM/keyboard territory.
+- Trade-off accepted: no drag strip / right-click WM menu / dbl-click maximize while
+  titlebar-less (Hyprland users manage windows by keybind anyway); toggle restores
+  the full strip at any time.
 
 ## 3. Verified upstream facts (2026-08-28)
 
@@ -134,7 +151,7 @@ mod shell;
 use gpui::*;
 use gpui_component::{Root, TitleBar};
 
-use shell::DashboardShell;
+use shell::{DashboardShell, ToggleTitleBar};
 
 // Identity & geometry — answers to 0002 §2 (Q2–Q4); single place to tune.
 const APP_ID: &str = "com.noosxe.my-dashboard";
@@ -148,6 +165,9 @@ fn main() {
         .run(move |cx| {
             // MUST be called before using any gpui-component features.
             gpui_component::init(cx);
+
+            // Chrome toggle (D7): ctrl-shift-t switches titlebar-less ⇄ full bar.
+            cx.bind_keys([KeyBinding::new("ctrl-shift-t", ToggleTitleBar, None)]);
 
             let window_options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
@@ -182,41 +202,82 @@ fn main() {
 
 ```rust
 use gpui::*;
-use gpui_component::{TitleBar, h_flex, v_flex};
+use gpui_component::{
+    IconName, TitleBar,
+    button::{Button, ButtonVariants},
+    h_flex, v_flex,
+};
 
-pub struct DashboardShell;
+actions!(dashboard, [ToggleTitleBar]);
+
+/// Default chrome state (D7): titlebar-less on Linux (owner runs Hyprland),
+/// full title bar elsewhere. Persisted choice arrives in 0004.
+#[cfg(target_os = "linux")]
+const DEFAULT_TITLEBAR: bool = false;
+#[cfg(not(target_os = "linux"))]
+const DEFAULT_TITLEBAR: bool = true;
+
+pub struct DashboardShell {
+    show_titlebar: bool,
+}
 
 impl DashboardShell {
     pub fn new() -> Self {
-        Self
+        Self { show_titlebar: DEFAULT_TITLEBAR }
+    }
+
+    fn toggle_titlebar(&mut self, _: &ToggleTitleBar, cx: &mut Context<Self>) {
+        self.show_titlebar = !self.show_titlebar;
+        cx.notify();
     }
 }
 
 impl Render for DashboardShell {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .size_full()
-            .child(
-                // Custom chrome; per-OS adaptive (traffic lights / buttons,
-                // drag, right-click menu, double-click maximize on Linux).
-                TitleBar::new().child(
-                    h_flex()
-                        .w_full()
-                        .pr_2()
-                        .justify_between()
-                        .child("Dashboard")
-                        // Reserved right-side slot (0002 §2 Q6) — fill in 0003+.
-                        .child(div()),
-                ),
-            )
+            .key_context("Dashboard")
+            .on_action(cx.listener(Self::toggle_titlebar))
+            .when(self.show_titlebar, |this| {
+                this.child(
+                    // Custom chrome; per-OS adaptive (traffic lights / buttons,
+                    // drag, right-click menu, double-click maximize on Linux).
+                    TitleBar::new().child(
+                        h_flex()
+                            .w_full()
+                            .pr_2()
+                            .justify_between()
+                            .child("Dashboard")
+                            // Reserved right-side slot (Q6) — fill in 0003+.
+                            .child(div()),
+                    ),
+                )
+            })
             .child(
                 // Body placeholder — becomes the module host in 0003.
                 h_flex()
                     .id("window-body")
-                    .size_full()
+                    .relative()
+                    .flex_1()
+                    .w_full()
                     .items_center()
                     .justify_center()
-                    .child("Hello, World!"),
+                    .child("Hello, World!")
+                    // Titlebar-less mode (D7): ghost close button, top-right.
+                    .when(!self.show_titlebar, |this| {
+                        this.child(
+                            div()
+                                .absolute()
+                                .top_1()
+                                .right_1()
+                                .child(
+                                    Button::new("close")
+                                        .ghost()
+                                        .icon(IconName::X)
+                                        .on_click(|_, window, _| window.remove_window()),
+                                ),
+                        )
+                    }),
             )
     }
 }
@@ -232,6 +293,10 @@ No `Cargo.toml` changes: everything used here comes from the existing deps.
       maximize).
 - [ ] WM/taskbar shows title "Dashboard"; Wayland taskbar groups by
       `com.noosxe.my-dashboard` (verify with `hyprctl`/`kdotool`/taskbar tooltip).
+- [ ] `ctrl-shift-t` toggles chrome at runtime: full `TitleBar` ⇄ titlebar-less
+      (default on Linux is titlebar-less, per D7).
+- [ ] Titlebar-less mode shows the ghost close button (top-right, hover
+      highlight) and it quits the app; the keybinding restores the full bar.
 - [ ] Close button quits the app cleanly (no lingering process).
 - [ ] All content colors come from `cx.theme()` — shell renders correctly in the
       default theme mode (and the second mode, if Q5 = follow-system).
