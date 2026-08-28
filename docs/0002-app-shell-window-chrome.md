@@ -111,6 +111,13 @@ docs `components/title-bar.md` (via Context7), zed `crates/gpui/src/window.rs`
    `.surface`, `.foreground`, `.border`, `.primary`, `.muted`, `.destructive`.
    (System-appearance sync mechanism to be confirmed at implementation — Q5.)
 
+8. **API corrections found at implementation** (doc listings updated to match):
+   `Context::listener` handlers take 4 args — `(&mut T, &E, &mut Window, &mut
+   Context<T>)`; `when()` requires `gpui::prelude::FluentBuilder as _` in scope;
+   `IconName` variants are generated from shipped asset filenames (no `X` — use
+   `IconName::Close`, backed by `close.svg`); `TitlebarOptions.title` is a
+   `SharedString` (`.into()`); `size()` takes `Pixels` (`size(px(..), px(..))`).
+
 ## 4. Design
 
 ### 4.1 Structure (inside `crates/app` — no new crates yet)
@@ -149,7 +156,7 @@ host and new files/crates grow from there.
 mod shell;
 
 use gpui::*;
-use gpui_component::{Root, TitleBar};
+use gpui_component::{ActiveTheme, Root, TitleBar};
 
 use shell::{DashboardShell, ToggleTitleBar};
 
@@ -172,13 +179,13 @@ fn main() {
             let window_options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
                     None,
-                    size(DEFAULT_SIZE.0, DEFAULT_SIZE.1),
+                    size(px(DEFAULT_SIZE.0), px(DEFAULT_SIZE.1)),
                     cx,
                 ))),
-                window_min_size: Some(size(MIN_SIZE.0, MIN_SIZE.1)),
+                window_min_size: Some(size(px(MIN_SIZE.0), px(MIN_SIZE.1))),
                 app_id: Some(APP_ID.into()), // inner string type per locked gpui rev
                 titlebar: Some(TitlebarOptions {
-                    title: Some(WINDOW_TITLE.to_owned()),
+                    title: Some(WINDOW_TITLE.into()),
                     ..TitleBar::title_bar_options()
                 }),
                 // Required on macOS for correct custom-titlebar behavior.
@@ -201,7 +208,7 @@ fn main() {
 **`crates/app/src/shell.rs`**
 
 ```rust
-use gpui::*;
+use gpui::{prelude::FluentBuilder as _, *};
 use gpui_component::{
     IconName, TitleBar,
     button::{Button, ButtonVariants},
@@ -226,7 +233,7 @@ impl DashboardShell {
         Self { show_titlebar: DEFAULT_TITLEBAR }
     }
 
-    fn toggle_titlebar(&mut self, _: &ToggleTitleBar, cx: &mut Context<Self>) {
+    fn toggle_titlebar(&mut self, _: &ToggleTitleBar, _window: &mut Window, cx: &mut Context<Self>) {
         self.show_titlebar = !self.show_titlebar;
         cx.notify();
     }
@@ -273,7 +280,7 @@ impl Render for DashboardShell {
                                 .child(
                                     Button::new("close")
                                         .ghost()
-                                        .icon(IconName::X)
+                                        .icon(IconName::Close)
                                         .on_click(|_, window, _| window.remove_window()),
                                 ),
                         )
