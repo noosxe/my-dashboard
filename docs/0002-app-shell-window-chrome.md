@@ -1,6 +1,7 @@
 # 0002 — Phase 1: Application Shell & Window Chrome
 
-- **Status:** Accepted (owner review 2026-08-28 — all §2 recommendations approved; titlebar-less mode added)
+- **Status:** Implemented (PR [#4](https://github.com/noosxe/my-dashboard/pull/4), merged 2026-08-28; owner-verified locally)
+- **Implementation record:** rebase-merged as f1c285b; all §6 gates passed (human checks confirmed on Hyprland); API corrections in §3.8
 - **Date:** 2026-08-28
 - **Phase:** 1 (Shell)
 - **Depends on:** 0001 (Implemented, PR #1)
