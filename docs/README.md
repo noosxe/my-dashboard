@@ -27,6 +27,26 @@ cross-platform, multi-modular universal personal dashboard built with Rust and
 
 ## Planned docs (roadmap, not yet written)
 
-- 0003 — Multi-module architecture (module trait, registry, dynamic layout)
-- 0004 — State management & persistence (settings, layout serialization)
+### 0003 — Multi-module architecture (module trait, registry, navigation)
+
+Core requirements (owner, 2026-08-28 — drive the design, not decisions):
+
+- **Module = domain unit**: a module owns its service layer (e.g. GitHub API
+  client, polling, cache), its state (one gpui entity), and two presentation
+  faces: an **overview section** on the home page and a **main page**.
+- **Pages**: a module may provide multiple pages. Its **main page** is the nav
+  entry point; other pages are reachable from it if needed (module-internal
+  navigation, surfaced in the breadcrumb).
+- **Home page**: fixed layout (not user-reorderable in v1) but **responsive**
+  across window sizes — must degrade gracefully from full-screen to narrow
+  tiling-WM widths.
+- **App navigation**: gpui-component `Sidebar` shell, exactly the layout of
+  `crates/story/src/stories/sidebar_story.rs` (verified at rev 1081d2b):
+  `Sidebar` (Header / Groups / Menu+sub-items / Footer) + content column
+  whose top row is `SidebarToggleButton` **left of a `Breadcrumb`**; menu
+  clicks update the active page (the story's `last_active_item` pattern).
+  Default `SidebarCollapsible::Icon` (collapse-to-rail for tiling WMs).
+- Registry stays compile-time (static registration in `main.rs`).
+
+### 0004 — State management & persistence (settings, layout serialization)
 - 0005 — Build, packaging & distribution per OS
