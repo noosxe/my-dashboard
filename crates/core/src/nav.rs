@@ -52,8 +52,14 @@ impl Default for Navigator {
 }
 
 impl Navigator {
-    pub fn new() -> Self {
-        Self::default()
+    /// `sidebar_collapsed` seeds from persisted shell state (docs/0004
+    /// §4.3); `default()` keeps `false`.
+    pub fn new(sidebar_collapsed: bool) -> Self {
+        Self {
+            sidebar_collapsed,
+            page: Page::Home,
+            crumbs: Vec::new(),
+        }
     }
 
     /// Switch top-level page (clears crumbs — sub-pages do not survive

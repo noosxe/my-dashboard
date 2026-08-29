@@ -1385,8 +1385,12 @@ dependencies = [
 name = "dashboard-core"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "dirs",
  "gpui",
  "gpui-component",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1406,6 +1410,7 @@ dependencies = [
  "dashboard-core",
  "gpui",
  "gpui-component",
+ "serde",
 ]
 
 [[package]]

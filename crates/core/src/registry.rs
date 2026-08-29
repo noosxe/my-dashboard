@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use gpui::{App, SharedString, Window};
 
 use crate::nav::Navigator;
+use crate::paths::AppPaths;
 use crate::{Module, ModuleEntry};
 
 pub struct ModuleRegistry {
@@ -32,9 +33,10 @@ impl ModuleRegistry {
         mut self,
         nav: &gpui::Entity<Navigator>,
         window: &mut Window,
+        paths: &AppPaths,
         cx: &mut App,
     ) -> Self {
-        let entry = M::init(nav, window, cx);
+        let entry = M::init(nav, window, paths, cx);
         self.index.insert(entry.meta.id.clone(), self.entries.len());
         self.entries.push(entry);
         self

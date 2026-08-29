@@ -9,6 +9,7 @@ use gpui::*;
 
 use gpui_component::{ActiveTheme, h_flex, v_flex};
 
+use dashboard_core::AppPaths;
 use dashboard_core::Module;
 use dashboard_core::module::{ModuleEntry, ModuleMeta};
 use dashboard_core::nav::Navigator;
@@ -29,7 +30,12 @@ impl Module for ClockModule {
         }
     }
 
-    fn init(_nav: &Entity<Navigator>, window: &mut Window, cx: &mut App) -> ModuleEntry {
+    fn init(
+        _nav: &Entity<Navigator>,
+        window: &mut Window,
+        _paths: &AppPaths,
+        cx: &mut App,
+    ) -> ModuleEntry {
         // 1. State entity.
         let state = cx.new(|_| ClockState { now: Local::now() });
 
