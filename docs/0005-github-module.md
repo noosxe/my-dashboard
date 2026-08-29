@@ -1,6 +1,6 @@
 # 0005 — GitHub Module (Notifications, Repositories, Pull Requests)
 
-- **Status:** Draft
+- **Status:** Accepted (owner merged PR [#15](https://github.com/noosxe/my-dashboard/pull/15) 2026-08-29 — Q1–Q4 pre-approved in conversation, Q5–Q10 per the silence rule)
 - **Date:** 2026-08-29
 - **Depends on:** 0003 (module contract, navigator), 0004 (paths, persistence
   primitives), 0002 (shell chrome, D7-as-superseded decoration rule)
