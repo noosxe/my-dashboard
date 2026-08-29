@@ -13,7 +13,8 @@ const DEFAULT_SIZE: (f32, f32) = (1280., 800.);
 const MIN_SIZE: (f32, f32) = (900., 600.);
 
 /// Asset source: gpui-component's embedded set + our own icons (the GitHub
-/// mark — the default set has none, docs/0005 §3.4).
+/// Asset source: gpui-component's embedded set + our own icons (GitHub mark;
+/// private-repo lock — both octicons, @primer/octicons 19.33.0).
 struct AppAssets;
 
 impl gpui::AssetSource for AppAssets {
@@ -21,6 +22,11 @@ impl gpui::AssetSource for AppAssets {
         if path == "icons/github.svg" {
             return Ok(Some(std::borrow::Cow::Borrowed(
                 include_bytes!("../assets/icons/github.svg",) as &[u8],
+            )));
+        }
+        if path == "icons/lock.svg" {
+            return Ok(Some(std::borrow::Cow::Borrowed(
+                include_bytes!("../assets/icons/lock.svg",) as &[u8],
             )));
         }
         gpui_component_assets::Assets.load(path)
