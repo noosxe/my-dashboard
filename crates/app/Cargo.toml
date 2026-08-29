@@ -19,3 +19,4 @@ gpui-component-assets.workspace = true
 dashboard-core.workspace = true
 dashboard-module-clock.workspace = true
 dashboard-module-notes.workspace = true
+dashboard-module-github.workspace = true

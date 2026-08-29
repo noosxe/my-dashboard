@@ -1,27 +1,26 @@
 //! GitHub module (docs/0005) — first real data module.
 //!
-//! Layer status (implementation in progress on PR branch):
-//! - `auth`  — OAuth device flow state machine + keychain token store (done)
-//! - `http`  — injectable transport + ureq client (done)
-//! - `api`   — payload structs + endpoint builders (done)
-//! - service — poll loops, ETag caches (next)
-//! - UI      — two-column page + home card (next; placeholders registered
-//!   below so the module is live in the shell from this commit)
-//!
-//! `ModuleMeta.icon` stays `None` for now: the default icon set has no
-//! GitHub mark (docs/0005 §3.4); the card/page will draw the bundled SVG,
-//! the sidebar renders label-only until a custom-icon path exists in core.
+//! Layers: `auth` (device flow + keychain), `http` (injectable transport +
+//! ureq client), `api` (payloads + endpoints), `service` (state entity,
+//! tick loop, caches, connect orchestration), `card`/`page` (the two
+//! faces). `ModuleMeta.icon` stays `None`: the default icon set has no
+//! GitHub mark (docs/0005 §3.4) — card and page draw the bundled SVG
+//! (`icons/github.svg`, served by the app's asset source), the sidebar
+//! renders label-only until core supports custom icons.
 
+//!
+//! Deep gpui builder trees in page.rs need macro-expansion headroom.
+#![recursion_limit = "512"]
 pub mod api;
 pub mod auth;
+pub mod card;
 pub mod http;
+pub mod page;
 pub mod service;
 
 use std::sync::Arc;
 
 use gpui::*;
-
-use gpui_component::ActiveTheme;
 
 use dashboard_core::Module;
 use dashboard_core::module::{ModuleEntry, ModuleMeta};
@@ -50,54 +49,27 @@ impl Module for GithubModule {
     ) -> ModuleEntry {
         let window_handle = window.window_handle();
 
-        // Keychain-backed token slot + shared client + cache root.
+        // Keychain-backed token slot + shared client + cache root (0005 Q3/Q6).
         let store: Arc<dyn TokenStore> = Arc::new(KeyringTokenStore);
         let shared_token: SharedToken = Arc::new(std::sync::RwLock::new(None));
         let client: Arc<dyn Http> = Arc::new(UreqClient::new(shared_token.clone()));
         let cache = GithubCache::new(paths);
 
-        // The single state entity; seeds from last-known caches (Q6) and
+        // The single state entity — seeds from last-known caches and
         // resolves auth from the keychain.
         let state = cx.new(|_| GithubState::new(client, store, shared_token, cache));
 
         // 60 s service loop — self-gates on auth/rate-limit state and
-        // refreshes per tick (0003 §3.12 pattern).
+        // refreshes per tick (0003 §3.12 pattern, docs/0005 Q8).
         spawn_tick_loop(state.clone(), window_handle, cx);
 
-        // Placeholder faces — replaced by card.rs/page.rs in the UI layer;
-        // they hold the state entity alive in the meantime.
-        let overview = cx.new(|_| StubView {
-            state: state.clone(),
-            text: "GitHub card — UI lands next".into(),
-        });
-        let main_page = cx.new(|_| StubView {
-            state: state.clone(),
-            text: "GitHub — UI lands next".into(),
-        });
+        let overview = cx.new(|cx| card::GithubCard::new(state.clone(), _nav.clone(), cx));
+        let main_page = cx.new(|cx| page::GithubPage::new(state, cx));
+
         ModuleEntry {
             meta: Self::meta(),
             overview: overview.into(),
             main_page: main_page.into(),
         }
-    }
-}
-
-/// Temporary stand-in view (replaced by card.rs/page.rs); holds the state
-/// entity alive.
-struct StubView {
-    #[allow(dead_code)] // lifecycle only — real views observe this entity
-    state: Entity<service::GithubState>,
-    text: SharedString,
-}
-
-impl Render for StubView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .size_full()
-            .flex()
-            .items_center()
-            .justify_center()
-            .text_color(cx.theme().muted_foreground)
-            .child(self.text.clone())
     }
 }
