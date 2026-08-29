@@ -60,7 +60,14 @@ fn main() {
                         .with::<NotesModule>(&nav, window, paths, cx);
 
                     let shell = cx.new(|cx| {
-                        DashboardShell::new(registry, nav, shell_state, Some(shell_state_path), cx)
+                        DashboardShell::new(
+                            registry,
+                            nav,
+                            shell_state,
+                            Some(shell_state_path),
+                            window,
+                            cx,
+                        )
                     });
                     cx.new(|cx| Root::new(shell, window, cx).bg(cx.theme().background))
                 })
