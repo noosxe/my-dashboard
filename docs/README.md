@@ -38,6 +38,7 @@ cross-platform, multi-modular universal personal dashboard built with Rust and
 | [0001](0001-bootstrap-hello-world.md) | Phase 0 — Bootstrap: Hello World gpui-component Application | Implemented (PR #1) |
 | [0002](0002-app-shell-window-chrome.md) | Phase 1 — Application Shell & Window Chrome | Implemented (PR #4) |
 | [0003](0003-multi-module-architecture.md) | Phase 2 — Multi-module Architecture (Module Trait, Registry, Navigation) | Implemented (PR #9) |
+| [0004](0004-state-persistence.md) | Phase 3 — State Management & Persistence (XDG / native dirs) | Draft (PR pending) |
 
 ## Planned docs (roadmap, not yet written)
 
@@ -62,5 +63,6 @@ Core requirements (owner, 2026-08-28 — drive the design, not decisions):
   Default `SidebarCollapsible::Icon` (collapse-to-rail for tiling WMs).
 - Registry stays compile-time (static registration in `main.rs`).
 
-### 0004 — State management & persistence (settings, layout serialization)
-- 0005 — Build, packaging & distribution per OS
+- ~~0004 — State management & persistence~~ → being written, see doc 0004 above
+- 0005 — First real module: GitHub (auth/token storage, API client, polling)
+- 0006 — Build, packaging & distribution per OS
