@@ -11,7 +11,7 @@
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::{
-    ActiveTheme, Sizable as _, ThemeStyled as _,
+    ActiveTheme, Icon, Sizable as _, ThemeStyled as _,
     avatar::Avatar,
     badge::Badge,
     button::{Button, ButtonVariants},
@@ -22,7 +22,7 @@ use gpui_component::{
 };
 
 use crate::api;
-use crate::card::github_mark;
+use crate::card::{REPO_LOCK, github_mark};
 use crate::service::{
     AuthStatus, ConnectPhase, FetchSpec, GithubState, Kind, run_spec, start_connect,
 };
@@ -170,7 +170,9 @@ impl GithubPage {
                     .items_center()
                     .child(div().truncate().child(repo.name.clone()))
                     .when(repo.private, |row| {
-                        row.child(Badge::new().xsmall().child("private"))
+                        // GitHub's own list treatment: small muted lock glyph,
+                        // no text badge.
+                        row.child(private_lock(theme.muted_foreground))
                     }),
             )
             .into_any_element()
@@ -473,10 +475,18 @@ impl GithubPage {
                     v_flex()
                         .gap_1()
                         .child(
-                            div()
-                                .text_base()
-                                .font_weight(FontWeight::MEDIUM)
-                                .child(repo.full_name.clone()),
+                            h_flex()
+                                .gap_1p5()
+                                .items_center()
+                                .child(
+                                    div()
+                                        .text_base()
+                                        .font_weight(FontWeight::MEDIUM)
+                                        .child(repo.full_name.clone()),
+                                )
+                                .when(repo.private, |row| {
+                                    row.child(private_lock(cx.theme().muted_foreground))
+                                }),
                         )
                         .child(
                             div()
@@ -542,6 +552,11 @@ impl GithubPage {
     }
 }
 
+/// Private-repo indicator: octicon lock-16 at 12 px in the muted color —
+/// the same treatment as github.com's own repo lists (glyph only, no text).
+fn private_lock(color: gpui::Hsla) -> Icon {
+    Icon::empty().path(REPO_LOCK).size_3().text_color(color)
+}
 fn muted_cell(text: &str, cx: &Context<GithubPage>) -> AnyElement {
     div()
         .px_2()
