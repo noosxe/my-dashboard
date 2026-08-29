@@ -3,6 +3,7 @@ use gpui_component::{ActiveTheme, Root, TitleBar};
 
 use dashboard_core::{AppPaths, DashboardShell, ModuleRegistry, Navigator, ShellState, load_json};
 use dashboard_module_clock::ClockModule;
+use dashboard_module_github::GithubModule;
 use dashboard_module_notes::NotesModule;
 
 // Identity & geometry — decisions from docs/0002 §2; single place to tune.
@@ -11,9 +12,28 @@ const WINDOW_TITLE: &str = "Dashboard";
 const DEFAULT_SIZE: (f32, f32) = (1280., 800.);
 const MIN_SIZE: (f32, f32) = (900., 600.);
 
+/// Asset source: gpui-component's embedded set + our own icons (the GitHub
+/// mark — the default set has none, docs/0005 §3.4).
+struct AppAssets;
+
+impl gpui::AssetSource for AppAssets {
+    fn load(&self, path: &str) -> anyhow::Result<Option<std::borrow::Cow<'static, [u8]>>> {
+        if path == "icons/github.svg" {
+            return Ok(Some(std::borrow::Cow::Borrowed(
+                include_bytes!("../assets/icons/github.svg",) as &[u8],
+            )));
+        }
+        gpui_component_assets::Assets.load(path)
+    }
+
+    fn list(&self, path: &str) -> anyhow::Result<Vec<gpui::SharedString>> {
+        gpui_component_assets::Assets.list(path)
+    }
+}
+
 fn main() {
     gpui_platform::application()
-        .with_assets(gpui_component_assets::Assets)
+        .with_assets(AppAssets)
         .run(move |cx| {
             // MUST be called before using any gpui-component features.
             gpui_component::init(cx);
@@ -52,7 +72,8 @@ fn main() {
                     let nav = cx.new(|_| Navigator::new(shell_state.sidebar_collapsed));
                     let registry = ModuleRegistry::new()
                         .with::<ClockModule>(&nav, window, paths, cx)
-                        .with::<NotesModule>(&nav, window, paths, cx);
+                        .with::<NotesModule>(&nav, window, paths, cx)
+                        .with::<GithubModule>(&nav, window, paths, cx);
 
                     let shell = cx.new(|cx| {
                         DashboardShell::new(

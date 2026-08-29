@@ -169,6 +169,8 @@ pub enum Kind {
     SelectedPrs,
     /// One repo's open-PR count for the card (list length only, §6.1).
     PrCount,
+    /// Repo-scoped unread notifications for the Notifications GroupBox.
+    RepoNotifications,
 }
 
 #[derive(Clone, Debug)]
@@ -296,6 +298,7 @@ impl Kind {
             Kind::Repos => "repos",
             Kind::Notifications => "notifications",
             Kind::SelectedPrs => "prs",
+            Kind::RepoNotifications => "repo-notifs",
             Kind::PrCount => "pr-count",
         }
     }
@@ -317,6 +320,8 @@ pub struct GithubState {
     pub open_pr_counts: BTreeMap<String, usize>,
     /// Selected repo's open PRs (full payloads for the PR GroupBox).
     pub prs: BTreeMap<String, Vec<PullRequest>>,
+    /// Selected repo's unread notifications (repo-scoped endpoint).
+    pub repo_notifications: BTreeMap<String, Vec<Notification>>,
     /// `owner/repo` of the selected repo (session-only, not persisted).
     pub selected: Option<String>,
     /// Rate-limit pause: UTC epoch seconds until requests resume (Q9).
@@ -371,6 +376,7 @@ impl GithubState {
                 .flatten()
                 .unwrap_or_default(),
             prs: BTreeMap::new(),
+            repo_notifications: BTreeMap::new(),
             selected: None,
             rate_limited_until: None,
             needs_bootstrap: false,
@@ -423,6 +429,12 @@ impl GithubState {
                 api::pulls_url(&owner, &repo, 1),
                 Some(MAX_PAGES),
             ));
+            specs.push(self.spec_ident(
+                Kind::RepoNotifications,
+                Some(&full_name),
+                api::repo_notifications_url(&owner, &repo, 1),
+                Some(2),
+            ));
         }
         if tick % PR_WALK_EVERY == 0 {
             for repo in self.repos.iter().take(PR_WALK_REPO_CAP) {
@@ -443,12 +455,12 @@ impl GithubState {
         specs
     }
 
-    fn spec(&self, kind: Kind, url: String, max_pages: Option<u32>) -> FetchSpec {
+    pub(crate) fn spec(&self, kind: Kind, url: String, max_pages: Option<u32>) -> FetchSpec {
         self.spec_ident(kind, None, url, max_pages)
     }
 
     /// `spec` with an identity — per-repo kinds key their ETags per repo.
-    fn spec_ident(
+    pub(crate) fn spec_ident(
         &self,
         kind: Kind,
         ident: Option<&str>,
@@ -538,6 +550,17 @@ impl GithubState {
                 (None, _) => eprintln!("[github] prs spec without ident"),
                 (_, Err(e)) => eprintln!("[github] prs payload: {e}"),
             },
+            Kind::RepoNotifications => match (
+                result.ident.as_deref(),
+                serde_json::from_str::<Vec<Notification>>(body),
+            ) {
+                (Some(id), Ok(items)) => {
+                    self.cache.put(&format!("notifs-{}", slug(id)), &items);
+                    self.repo_notifications.insert(id.to_string(), items);
+                }
+                (None, _) => eprintln!("[github] repo-notifs spec without ident"),
+                (_, Err(e)) => eprintln!("[github] repo-notifs payload: {e}"),
+            },
             Kind::PrCount => match (
                 result.ident.as_deref(),
                 serde_json::from_str::<Vec<PullRequest>>(body),
@@ -606,6 +629,7 @@ impl GithubState {
         self.notifications.clear();
         self.open_pr_counts.clear();
         self.prs.clear();
+        self.repo_notifications.clear();
         self.etags.clear();
         self.selected = None;
         self.rate_limited_until = None;
@@ -629,6 +653,7 @@ fn etag_key(kind: Kind, ident: Option<&str>) -> String {
         (Kind::Repos, _) => "repos".into(),
         (Kind::Notifications, _) => "notifications".into(),
         (Kind::SelectedPrs, Some(id)) => format!("prs:{id}"),
+        (Kind::RepoNotifications, Some(id)) => format!("rn:{id}"),
         (Kind::PrCount, Some(id)) => format!("prc:{id}"),
         (_, None) => "unknown".into(),
     }
@@ -1036,6 +1061,23 @@ mod tests {
     fn slug_is_filename_safe() {
         assert_eq!(slug("owner/repo.name-x"), "owner__repo.name-x");
         assert_eq!(slug("weird/name~!"), "weird__name__");
+    }
+
+    #[test]
+    fn age_buckets() {
+        assert_eq!(crate::page::relative_age(None), "");
+        let now = chrono::Utc::now();
+        assert_eq!(crate::page::relative_age(Some(&now.to_rfc3339())), "now");
+        let hours_ago = (chrono::Utc::now() - chrono::Duration::hours(2)).to_rfc3339();
+        assert_eq!(crate::page::relative_age(Some(&hours_ago)), "2h");
+    }
+
+    #[test]
+    fn full_name_splits_on_first_slash() {
+        assert_eq!(
+            crate::page::split_full_name("o/r"),
+            ("o".to_string(), "r".to_string())
+        );
     }
 
     #[test]

@@ -273,6 +273,13 @@ Unknown fields ignored (serde default) — forward compatible. GitHub payloads a
 
 ## 8. Testing
 
+- **Gate quirk:** clippy on `--all-targets` needs `RUST_MIN_STACK=67108864`
+  (the page's gpui builder trees overflow clippy's default stack), and
+  `lib.rs` carries `#![recursion_limit = "4096"]` for the same reason.
+  The page's two pure-function tests live in `service.rs`'s test module:
+  a rustc quirk (recursion error while expanding `#[test]`) triggers when
+  they sit in the same file as the deep builder types.
+
 - **Unit (mocked `Http`):** device-flow state machine (pending/slow_down/
   expired/denied/success), pagination follow (short-page stop), ETag
   round-trip + 304 handling, rate-limit header parsing + pause-until-reset,
