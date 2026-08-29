@@ -1,9 +1,7 @@
 use gpui::*;
 use gpui_component::{ActiveTheme, Root, TitleBar};
 
-use dashboard_core::{
-    AppPaths, DashboardShell, ModuleRegistry, Navigator, ShellState, ToggleTitleBar, load_json,
-};
+use dashboard_core::{AppPaths, DashboardShell, ModuleRegistry, Navigator, ShellState, load_json};
 use dashboard_module_clock::ClockModule;
 use dashboard_module_notes::NotesModule;
 
@@ -19,9 +17,6 @@ fn main() {
         .run(move |cx| {
             // MUST be called before using any gpui-component features.
             gpui_component::init(cx);
-
-            // Chrome toggle (0002 D7): ctrl-shift-t switches titlebar-less ⇄ full bar.
-            cx.bind_keys([KeyBinding::new("ctrl-shift-t", ToggleTitleBar, None)]);
 
             let window_options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
