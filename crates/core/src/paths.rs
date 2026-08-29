@@ -1,0 +1,186 @@
+//! OS-appropriate storage roots (docs/0004 §4.1).
+//!
+//! Linux: the four XDG roots (`$XDG_{CONFIG,DATA,STATE,CACHE}_HOME`).
+//! macOS: native locations — config/data in `~/Library/Application
+//! Support`, cache in `~/Library/Caches`; state has no native slot
+//! (`dirs::state_dir()` is `None` there), so it falls back to the data
+//! root (owner decision 0004 Q2 — native locations, not Zed's
+//! `~/.local/state` deviation).
+//!
+//! `DASHBOARD_STATE_DIR` redirects all roots under itself
+//! (`{root}/{config,data,state,cache}`) for tests, dev runs and Nix
+//! isolation — same shape as Zed's `set_custom_data_dir`.
+
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+
+const APP_DIR_NAME: &str = "my-dashboard";
+const STATE_DIR_ENV: &str = "DASHBOARD_STATE_DIR";
+
+pub struct AppPaths {
+    config: PathBuf,
+    data: PathBuf,
+    state: PathBuf,
+    cache: PathBuf,
+}
+
+impl AppPaths {
+    /// Resolve once at startup, before any entity is built. Panics only
+    /// if the OS cannot answer where the user's home is — same stance
+    /// as Zed's `crates/paths`.
+    pub fn init() -> &'static AppPaths {
+        static PATHS: OnceLock<AppPaths> = OnceLock::new();
+        PATHS.get_or_init(|| {
+            let override_dir = std::env::var_os(STATE_DIR_ENV).filter(|v| !v.is_empty());
+            Self::resolve(override_dir.map(PathBuf::from))
+        })
+    }
+
+    /// Pure core (unit-testable without touching process env).
+    fn resolve(custom_root: Option<PathBuf>) -> AppPaths {
+        if let Some(root) = custom_root {
+            return AppPaths {
+                config: root.join("config"),
+                data: root.join("data"),
+                state: root.join("state"),
+                cache: root.join("cache"),
+            };
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            // Native mapping (0004 Q2): Application Support holds both
+            // config and data; state has no macOS convention → data root.
+            let app_support = dirs::data_local_dir()
+                .expect("failed to resolve ~/Library/Application Support")
+                .join(APP_DIR_NAME);
+            AppPaths {
+                config: app_support.clone(),
+                data: app_support.clone(),
+                state: app_support,
+                cache: dirs::cache_dir()
+                    .expect("failed to resolve ~/Library/Caches")
+                    .join(APP_DIR_NAME),
+            }
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            // XDG platforms (Linux; sane stand-ins anywhere else if ever
+            // compiled). `state_dir()` is Linux-only in `dirs`, hence the
+            // data-root fallback for the non-macOS/non-XDG remainder.
+            let state_root = dirs::state_dir()
+                .or_else(dirs::data_local_dir)
+                .expect("failed to resolve XDG state home");
+            AppPaths {
+                config: dirs::config_dir()
+                    .expect("failed to resolve XDG config home")
+                    .join(APP_DIR_NAME),
+                data: dirs::data_local_dir()
+                    .expect("failed to resolve XDG data home")
+                    .join(APP_DIR_NAME),
+                state: state_root.join(APP_DIR_NAME),
+                cache: dirs::cache_dir()
+                    .expect("failed to resolve XDG cache home")
+                    .join(APP_DIR_NAME),
+            }
+        }
+    }
+
+    pub fn config_dir(&self) -> &Path {
+        &self.config
+    }
+
+    pub fn data_dir(&self) -> &Path {
+        &self.data
+    }
+
+    pub fn state_dir(&self) -> &Path {
+        &self.state
+    }
+
+    pub fn cache_dir(&self) -> &Path {
+        &self.cache
+    }
+
+    /// Shell UI state file (`<state>/shell.json`, docs/0004 §4.3).
+    pub fn shell_state_file(&self) -> PathBuf {
+        self.state.join("shell.json")
+    }
+
+    /// Per-module data directory `<data>/modules/<sanitized-id>/`,
+    /// created on demand. Ids are stable module keys, not user input,
+    /// but sanitize anyway so a bad id can never escape the root.
+    pub fn module_data_dir(&self, id: &str) -> PathBuf {
+        let dir = self.data.join("modules").join(sanitize_id(id));
+        if let Err(err) = std::fs::create_dir_all(&dir) {
+            eprintln!(
+                "dashboard: failed to create module data dir {}: {err}",
+                dir.display()
+            );
+        }
+        dir
+    }
+}
+
+/// `[A-Za-z0-9-]`; everything else collapses to `-`.
+fn sanitize_id(id: &str) -> String {
+    let sanitized: String = id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    if sanitized.is_empty() {
+        "module".into()
+    } else {
+        sanitized
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn env_override_redirects_all_roots() {
+        let paths = AppPaths::resolve(Some(PathBuf::from("/tmp/dash-test-root")));
+        assert_eq!(paths.config_dir(), Path::new("/tmp/dash-test-root/config"));
+        assert_eq!(paths.data_dir(), Path::new("/tmp/dash-test-root/data"));
+        assert_eq!(paths.state_dir(), Path::new("/tmp/dash-test-root/state"));
+        assert_eq!(paths.cache_dir(), Path::new("/tmp/dash-test-root/cache"));
+    }
+
+    #[test]
+    fn shell_state_file_lives_in_state_root() {
+        let paths = AppPaths::resolve(Some(PathBuf::from("/tmp/dash-test-root")));
+        assert_eq!(
+            paths.shell_state_file(),
+            Path::new("/tmp/dash-test-root/state/shell.json")
+        );
+    }
+
+    #[test]
+    fn module_data_dir_is_sanitized_and_created() {
+        let root = std::env::temp_dir().join(format!("dash-paths-test-{}", std::process::id()));
+        let paths = AppPaths::resolve(Some(root.clone()));
+        let dir = paths.module_data_dir("../notes evil/..");
+        assert!(dir.starts_with(root.join("data/modules")));
+        assert_eq!(
+            dir.file_name().unwrap().to_str().unwrap(),
+            "---notes-evil---"
+        );
+        assert!(dir.is_dir(), "module data dir must be created on demand");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn empty_id_sanitizes_to_module() {
+        assert_eq!(sanitize_id(""), "module");
+        assert_eq!(sanitize_id("---"), "---");
+    }
+}

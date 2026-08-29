@@ -165,6 +165,29 @@ real home. Empty/unset = normal OS locations.
    (`crates/core/src/nav.rs`), `DashboardShell.show_titlebar`
    (`crates/core/src/shell.rs`, OS-dependent default per 0002 D7).
 
+
+### 3.1 Implementation corrections (added during implementation)
+
+1. **gpui tasks cannot be cancelled** — `Task` has no cancel and dropping
+   detaches. Q6's "cancelled/rescheduled" is realized as a generation
+   counter (`DebouncedSave`): each schedule bumps it; after the delay
+   only the latest schedule writes (superseded timers no-op). Same
+   trailing-edge semantics, ≤1 write per quiet window.
+2. **`gen` is a reserved keyword** in edition 2024.
+3. **`cx.subscribe` callbacks are windowless** (`&mut T`, event,
+   `&mut Context`) while `InputState::set_value` requires `&mut Window`
+   — Enter-to-add bridges via `AnyWindowHandle::update` captured at
+   construction (the 0003 §3.12 clock pattern).
+4. **The single-line input at rev `1081d2b2` is `Input` + `InputState`**
+   (`gpui_component::input::{Input, InputEvent, InputState}`); the old
+   `TextInput` was refactored away. Events via subscribe:
+   `InputEvent::{Change, PressEnter{..}, Focus, Blur}`.
+5. **`Button` variants (`.primary()`/`.ghost()`) are in `ButtonVariants`**
+   (trait import required; icon-only buttons still need `.tooltip(...)`
+   per [DG]).
+6. `Context<'a, T>` satisfies `AnyWindowHandle::update`'s context bound —
+   window access from entity contexts works (refines 0003 §3.12's
+   note that `AsyncApp::update` returns `()`).
 ## 4. Design
 
 ### 4.1 `dashboard-core/src/paths.rs`

@@ -8,6 +8,7 @@ use gpui::{AnyView, App, SharedString, Window};
 use gpui_component::IconName;
 
 use crate::nav::Navigator;
+use crate::paths::AppPaths;
 
 /// Static identity — known before instantiation; drives sidebar, home grid
 /// and navigation keys.
@@ -37,5 +38,10 @@ pub trait Module: 'static {
     /// Runs once at startup: build the state entity, spawn services
     /// (timers/network — services write only to the state entity), and
     /// return the two views.
-    fn init(nav: &gpui::Entity<Navigator>, window: &mut Window, cx: &mut App) -> ModuleEntry;
+    fn init(
+        nav: &gpui::Entity<Navigator>,
+        window: &mut Window,
+        paths: &AppPaths,
+        cx: &mut App,
+    ) -> ModuleEntry;
 }

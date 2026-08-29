@@ -1,7 +1,9 @@
 use gpui::*;
 use gpui_component::{ActiveTheme, Root, TitleBar};
 
-use dashboard_core::{DashboardShell, ModuleRegistry, Navigator, ToggleTitleBar};
+use dashboard_core::{
+    AppPaths, DashboardShell, ModuleRegistry, Navigator, ShellState, ToggleTitleBar, load_json,
+};
 use dashboard_module_clock::ClockModule;
 use dashboard_module_notes::NotesModule;
 
@@ -40,14 +42,26 @@ fn main() {
 
             cx.spawn(async move |cx| {
                 cx.open_window(window_options, |window, cx| {
+                    // Storage roots first (docs/0004): one resolution,
+                    // before any entity exists.
+                    let paths = AppPaths::init();
+                    let shell_state_path = paths.shell_state_file();
+                    let shell_state: ShellState = load_json(&shell_state_path)
+                        .inspect_err(|err| eprintln!("dashboard: shell state load failed: {err}"))
+                        .ok()
+                        .flatten()
+                        .unwrap_or_default();
+
                     // Navigation state, then modules (registry order = sidebar
                     // + home-grid order — docs/0003 §4.2).
-                    let nav = cx.new(|_| Navigator::new());
+                    let nav = cx.new(|_| Navigator::new(shell_state.sidebar_collapsed));
                     let registry = ModuleRegistry::new()
-                        .with::<ClockModule>(&nav, window, cx)
-                        .with::<NotesModule>(&nav, window, cx);
+                        .with::<ClockModule>(&nav, window, paths, cx)
+                        .with::<NotesModule>(&nav, window, paths, cx);
 
-                    let shell = cx.new(|cx| DashboardShell::new(registry, nav, cx));
+                    let shell = cx.new(|cx| {
+                        DashboardShell::new(registry, nav, shell_state, Some(shell_state_path), cx)
+                    });
                     cx.new(|cx| Root::new(shell, window, cx).bg(cx.theme().background))
                 })
                 .expect("Failed to open window");

@@ -17,6 +17,11 @@ use gpui_component::{
 use crate::home;
 use crate::nav::{CrumbAction, Navigator, Page};
 use crate::registry::ModuleRegistry;
+use crate::store::DebouncedSave;
+
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+use std::time::Duration;
 
 actions!(dashboard, [ToggleTitleBar]);
 
@@ -26,19 +31,52 @@ const DEFAULT_TITLEBAR: bool = false;
 #[cfg(not(target_os = "linux"))]
 const DEFAULT_TITLEBAR: bool = true;
 
+/// Persisted shell UI state (docs/0004 §4.3) → `<state>/shell.json`.
+/// `show_titlebar: None` (absent/older file) keeps the OS default from
+/// 0002 D7.
+#[derive(Serialize, Deserialize, Default)]
+pub struct ShellState {
+    pub sidebar_collapsed: bool,
+    pub show_titlebar: Option<bool>,
+}
+
 pub struct DashboardShell {
     registry: ModuleRegistry,
     nav: Entity<Navigator>,
     show_titlebar: bool,
+    save: Option<DebouncedSave>,
 }
 
 impl DashboardShell {
-    pub fn new(registry: ModuleRegistry, nav: Entity<Navigator>, cx: &mut Context<Self>) -> Self {
+    /// `state` seeds the toggles (docs/0004 §4.3); `state_path` arms
+    /// debounced persistence (`None` disables saving — tests).
+    pub fn new(
+        registry: ModuleRegistry,
+        nav: Entity<Navigator>,
+        state: ShellState,
+        state_path: Option<PathBuf>,
+        cx: &mut Context<Self>,
+    ) -> Self {
         cx.observe(&nav, |_, _, cx| cx.notify()).detach();
         Self {
             registry,
             nav,
-            show_titlebar: DEFAULT_TITLEBAR,
+            show_titlebar: state.show_titlebar.unwrap_or(DEFAULT_TITLEBAR),
+            save: state_path.map(|p| DebouncedSave::new(p, Duration::from_millis(500))),
+        }
+    }
+
+    /// Snapshot both toggles and schedule the debounced save.
+    fn save_state(&mut self, cx: &Context<Self>) {
+        if let Some(save) = &self.save {
+            let sidebar_collapsed = self.nav.read(cx).sidebar_collapsed;
+            save.schedule(
+                ShellState {
+                    sidebar_collapsed,
+                    show_titlebar: Some(self.show_titlebar),
+                },
+                cx,
+            );
         }
     }
 
@@ -49,6 +87,7 @@ impl DashboardShell {
         cx: &mut Context<Self>,
     ) {
         self.show_titlebar = !self.show_titlebar;
+        self.save_state(cx);
         cx.notify();
     }
 }
@@ -166,6 +205,7 @@ impl Render for DashboardShell {
                                             .on_click(cx.listener(|this, _, _, cx| {
                                                 this.nav
                                                     .update(cx, |nav, cx| nav.toggle_sidebar(cx));
+                                                this.save_state(cx);
                                             })),
                                     )
                                     .child(
