@@ -44,6 +44,18 @@ always + min/max only if the compositor honors them (`window.window_controls()`)
 right-click → WM window menu and double-click → maximize. The "native" option (b) is the
 one that yields *no titlebar at all* on tiling WMs.
 
+**D7 — SUPERSEDED (2026-08-29, owner decision in 0004 PR #13):** the runtime chrome
+toggle, the `ctrl-shift-t` binding and the ghost close button are all removed.
+Chrome is now **decoration-driven** — resolved per render from
+`window.window_decorations()`: `Client` → the app draws the full title bar
+(gpui-component renders min/max/close there); `Server` → the app draws nothing at
+all, no X button — the server owns decorations (KWin/X11 WM bars provide controls;
+native macOS bar provides traffic lights; on decoration-less servers like Hyprland,
+window management stays keybind territory). No compositor detection, no guessing
+which WM actually draws. Empirically zero boot flash on Hyprland: the decoration
+answer arrives with the initial surface configure, before the first frame.
+The historical D7 text below is kept for the record.
+
 **D7 — titlebar-less mode (added at review):** the shell carries a runtime
 chrome toggle, because the owner runs most apps titlebar-less on Hyprland:
 

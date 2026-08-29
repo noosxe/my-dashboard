@@ -5,10 +5,11 @@
 
 use gpui::{prelude::FluentBuilder as _, *};
 
+use gpui::Decorations;
+
 use gpui_component::{
     ActiveTheme, Icon, IconName, TitleBar,
     breadcrumb::{Breadcrumb, BreadcrumbItem},
-    button::{Button, ButtonVariants},
     h_flex,
     sidebar::{Sidebar, SidebarCollapsible, SidebarMenuItem, SidebarToggleButton},
     v_flex,
@@ -23,27 +24,18 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::Duration;
 
-actions!(dashboard, [ToggleTitleBar]);
-
-/// Default chrome state (0002 D7): titlebar-less on Linux, full bar elsewhere.
-#[cfg(target_os = "linux")]
-const DEFAULT_TITLEBAR: bool = false;
-#[cfg(not(target_os = "linux"))]
-const DEFAULT_TITLEBAR: bool = true;
-
 /// Persisted shell UI state (docs/0004 §4.3) → `<state>/shell.json`.
-/// `show_titlebar: None` (absent/older file) keeps the OS default from
-/// 0002 D7.
+/// (Chrome itself is no longer persisted — see the render-time
+/// decoration logic below; older files with a `show_titlebar` field
+/// load fine, serde ignores unknown fields.)
 #[derive(Serialize, Deserialize, Default)]
 pub struct ShellState {
     pub sidebar_collapsed: bool,
-    pub show_titlebar: Option<bool>,
 }
 
 pub struct DashboardShell {
     registry: ModuleRegistry,
     nav: Entity<Navigator>,
-    show_titlebar: bool,
     /// Grabs keyboard focus at boot so window-level key bindings
     /// (`ctrl-shift-t`) dispatch through this node — gpui bubbles key
     /// actions from the focused node UP, and with nothing focused the
@@ -54,12 +46,12 @@ pub struct DashboardShell {
 }
 
 impl DashboardShell {
-    /// `state` seeds the toggles (docs/0004 §4.3); `state_path` arms
-    /// debounced persistence (`None` disables saving — tests).
+    /// `state` seeds the sidebar toggle (docs/0004 §4.3); `state_path`
+    /// arms debounced persistence (`None` disables saving — tests).
     pub fn new(
         registry: ModuleRegistry,
         nav: Entity<Navigator>,
-        state: ShellState,
+        _state: ShellState,
         state_path: Option<PathBuf>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -67,46 +59,41 @@ impl DashboardShell {
         cx.observe(&nav, |_, _, cx| cx.notify()).detach();
         let focus_handle = cx.focus_handle();
         // Boot focus: without a focused node, key actions dispatch from
-        // the tree root and never reach this shell's `on_action`s
-        // (owner-verified bug on Hyprland — ctrl-shift-t was dead).
+        // the tree root and never reach this shell's handlers
+        // (owner-verified bug on Hyprland — a 0002 keybind was dead
+        // from first launch).
         window.focus(&focus_handle, cx);
         Self {
             registry,
             nav,
-            show_titlebar: state.show_titlebar.unwrap_or(DEFAULT_TITLEBAR),
             focus_handle,
             save: state_path.map(|p| DebouncedSave::new(p, Duration::from_millis(500))),
         }
     }
 
-    /// Snapshot both toggles and schedule the debounced save.
+    /// Snapshot the sidebar toggle and schedule the debounced save.
     fn save_state(&mut self, cx: &Context<Self>) {
         if let Some(save) = &self.save {
             let sidebar_collapsed = self.nav.read(cx).sidebar_collapsed;
-            save.schedule(
-                ShellState {
-                    sidebar_collapsed,
-                    show_titlebar: Some(self.show_titlebar),
-                },
-                cx,
-            );
+            save.schedule(ShellState { sidebar_collapsed }, cx);
         }
-    }
-
-    fn toggle_titlebar(
-        &mut self,
-        _: &ToggleTitleBar,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.show_titlebar = !self.show_titlebar;
-        self.save_state(cx);
-        cx.notify();
     }
 }
 
 impl Render for DashboardShell {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Chrome is decoration-driven (owner decision, 0004 PR #13 —
+        // supersedes 0002 D7's runtime toggle): if the window is
+        // client-decorated the app owns the whole chrome (full title
+        // bar; gpui-component renders min/max/close there); if the
+        // server owns decorations we draw nothing — KWin/X11/native
+        // macOS bars provide controls, and on decoration-less servers
+        // (Hyprland) window management stays keybind territory.
+        // Resolved per render: the Wayland decoration answer arrives
+        // asynchronously with the first configure, which triggers a
+        // redraw, so this tracks the live state with no observer wiring.
+        let client_decorated = matches!(window.window_decorations(), Decorations::Client { .. });
+
         // Snapshot nav state (crumbs hold Arc'd closures — cloneable).
         let nav = self.nav.read(cx);
         let page = nav.page.clone();
@@ -129,11 +116,10 @@ impl Render for DashboardShell {
             .id("dashboard-shell")
             .track_focus(&self.focus_handle)
             .size_full()
-            .key_context("Dashboard")
-            .on_action(cx.listener(Self::toggle_titlebar))
-            .when(self.show_titlebar, |this| {
+            .when(client_decorated, |this| {
                 this.child(
-                    // 0002: custom per-OS adaptive title bar, reserved right slot.
+                    // Custom title bar; gpui-component draws min/max/
+                    // close at the right edge on client-decorated Linux.
                     TitleBar::new().child(
                         h_flex()
                             .w_full()
@@ -282,20 +268,7 @@ impl Render for DashboardShell {
                                         },
                                     }),
                             ),
-                    )
-                    // Titlebar-less mode (0002 D7): ghost close, now with the
-                    // [DG]-required tooltip (Q7).
-                    .when(!self.show_titlebar, |this| {
-                        this.child(
-                            div().absolute().top_1().right_1().child(
-                                Button::new("close")
-                                    .ghost()
-                                    .icon(IconName::Close)
-                                    .tooltip("Close")
-                                    .on_click(|_, window, _| window.remove_window()),
-                            ),
-                        )
-                    }),
+                    ),
             )
     }
 }

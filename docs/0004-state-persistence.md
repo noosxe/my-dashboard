@@ -16,9 +16,9 @@ later modules (0005 GitHub module first) build on.
    roots per OS (XDG on Linux, native equivalents on macOS; Windows out
    of scope this phase per owner).
 2. Atomic, debounced JSON persistence primitives (`store` layer).
-3. Persist the two existing shell toggles: sidebar collapsed
-   (`Navigator.sidebar_collapsed`) and titlebar mode
-   (`DashboardShell.show_titlebar`) → state dir.
+3. Persist the sidebar toggle (`Navigator.sidebar_collapsed`) → state dir.
+   (The titlebar toggle was removed in review — decoration-driven chrome;
+   see §4.3 and the 0002 D7 supersession note.)
 4. Extend the module contract with a per-module data directory; wire the
    Notes module to persist its notes → data dir (first real user data).
 5. A `DASHBOARD_STATE_DIR` env override for dev/tests/Nix purity.
@@ -204,6 +204,21 @@ real home. Empty/unset = normal OS locations.
    is broken on this Hyprland 0.56.2 build (Lua IPC parser); argless
    dispatchers (`cyclenext`) still work — cycle until `activewindow`
    matches, then inject keys with `nix shell nixpkgs#wtype`.
+8. **Chrome became decoration-driven (owner decision, this PR's review)** —
+   the `ctrl-shift-t` toggle, `ToggleTitleBar` action, `show_titlebar`
+   persistence and the titlebar-less ghost close button are all removed.
+   Rule: `Client` → app draws full title bar (gpui-component's
+   `WindowControls` render min/max/close there, capability-gated);
+   `Server` → app draws nothing at all. Platform facts verified in gpui
+   source: the platform default `window_decorations()` impl returns
+   `Server` (macOS → native bar with traffic lights does the work; no
+   custom bar needed there); X11 returns `Server` unless the WM supports
+   CSD; Wayland compositor answers via `zxdg_toplevel_decoration`
+   Configure (gpui requests no preference). Zero boot flash verified on
+   Hyprland — the decoration answer rides the initial surface configure,
+   before the first frame. `ShellState` shrank accordingly; the boot-focus
+   fix from item 7 stays (window.focus at init, keyboard hygiene for
+   future bindings).
 ## 4. Design
 
 ### 4.1 `dashboard-core/src/paths.rs`
@@ -261,15 +276,18 @@ no dead ends).
 `state/my-dashboard/shell.json`:
 
 ```json
-{ "sidebar_collapsed": false, "show_titlebar": false }
+{ "sidebar_collapsed": false }
 ```
 
-- `DashboardShell` (which already owns `show_titlebar` and observes nav)
-  gains a `ShellState` struct (serde) + load in `main.rs` before the
-  shell entity is built; values seed `Navigator::sidebar_collapsed` and
-  `DashboardShell::show_titlebar` over their 0002 defaults.
-- Both toggle handlers call `save_debounced` (500 ms) with the snapshot.
-- Missing/corrupt file → 0002 D7 defaults (titlebar-less on Linux).
+- Chrome is no longer persisted at all (owner decision in this PR's
+  review, superseding 0002 D7: chrome is decoration-driven, resolved
+  per render from `window.window_decorations()` — Client → full title
+  bar; Server → nothing, not even a close X). `ShellState` shrank to
+  the sidebar toggle; older files with a `show_titlebar` field still
+  load (serde ignores unknown fields).
+- The sidebar toggle handler calls `save_debounced` (500 ms) with the
+  snapshot.
+- Missing/corrupt file → defaults (sidebar expanded).
 
 ### 4.4 Module data (data root) + Notes wiring
 
@@ -285,7 +303,7 @@ no dead ends).
 
 | Data | Root | File | Trigger |
 | --- | --- | --- | --- |
-| sidebar + titlebar toggles | state | `shell.json` | toggle handlers, 500 ms debounce |
+| sidebar toggle | state | `shell.json` | sidebar toggle handler, 500 ms debounce |
 | notes content | data | `modules/notes/notes.json` | note mutations, 500 ms debounce |
 | (future) user settings | config | `settings.json` | first real setting (0005+) |
 | (future) tokens/secrets | TBD | — | 0005 decision |
