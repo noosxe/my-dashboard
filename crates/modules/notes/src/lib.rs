@@ -23,7 +23,7 @@ use gpui_component::{
 use serde::{Deserialize, Serialize};
 
 use dashboard_core::Module;
-use dashboard_core::module::{ModuleEntry, ModuleMeta};
+use dashboard_core::module::{ModuleEntry, ModuleIcon, ModuleMeta};
 use dashboard_core::nav::{Crumb, Navigator};
 use dashboard_core::paths::AppPaths;
 use dashboard_core::store::{DebouncedSave, load_json};
@@ -35,7 +35,7 @@ impl Module for NotesModule {
         ModuleMeta {
             id: "notes".into(),
             title: "Notes".into(),
-            icon: Some(IconName::BookOpen),
+            icon: Some(ModuleIcon::BuiltIn(IconName::BookOpen)),
         }
     }
 

@@ -3,12 +3,10 @@
 //! Layers: `auth` (device flow + keychain), `http` (injectable transport +
 //! ureq client), `api` (payloads + endpoints), `service` (state entity,
 //! tick loop, caches, connect orchestration), `card`/`page` (the two
-//! faces). `ModuleMeta.icon` stays `None`: the default icon set has no
-//! GitHub mark (docs/0005 §3.4) — card and page draw the bundled SVG
-//! (`icons/github.svg`, served by the app's asset source), the sidebar
-//! renders label-only until core supports custom icons.
-
-//!
+//! faces). `ModuleMeta.icon` is `Some(ModuleIcon::Custom("icons/github.svg"))`:
+//! core supports custom sidebar icons via asset paths, so the GitHub mark
+//! renders in the sidebar, the home card and the module page alike — one
+//! bundled SVG, served by the app's asset source.
 //! Deep gpui builder trees in page.rs need macro-expansion headroom.
 #![recursion_limit = "512"]
 pub mod api;
@@ -23,10 +21,11 @@ use std::sync::Arc;
 use gpui::*;
 
 use dashboard_core::Module;
-use dashboard_core::module::{ModuleEntry, ModuleMeta};
+use dashboard_core::module::{ModuleEntry, ModuleIcon, ModuleMeta};
 use dashboard_core::nav::Navigator;
 
 use crate::auth::{KeyringTokenStore, TokenStore};
+use crate::card::GITHUB_MARK;
 use crate::http::{Http, SharedToken, UreqClient};
 use crate::service::{GithubCache, GithubState, spawn_tick_loop};
 
@@ -37,7 +36,7 @@ impl Module for GithubModule {
         ModuleMeta {
             id: "github".into(),
             title: "GitHub".into(),
-            icon: None,
+            icon: Some(ModuleIcon::Custom(GITHUB_MARK.into())),
         }
     }
 

@@ -7,7 +7,7 @@ use gpui::{prelude::FluentBuilder as _, *};
 
 use gpui_component::{ActiveTheme, Icon, h_flex, v_flex};
 
-use crate::module::ModuleEntry;
+use crate::module::{ModuleEntry, ModuleIcon};
 use crate::nav::{Navigator, Page};
 use crate::registry::ModuleRegistry;
 
@@ -63,7 +63,10 @@ struct CardColors {
 fn card(entry: &ModuleEntry, nav: Entity<Navigator>, colors: CardColors) -> impl IntoElement {
     let id = entry.meta.id.clone();
     let title = entry.meta.title.clone();
-    let icon = entry.meta.icon.clone();
+    let icon = entry.meta.icon.as_ref().map(|i| match i {
+        ModuleIcon::BuiltIn(name) => name.clone().into(),
+        ModuleIcon::Custom(path) => Icon::empty().path(path.clone()),
+    });
     let overview = entry.overview.clone();
 
     v_flex()

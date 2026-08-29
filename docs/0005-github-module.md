@@ -113,7 +113,9 @@ consent screen the user approves.
 - `cx.open_url(&str)` exists (gpui `app.rs:1493`) — opens the verification
   URL and PR/notification links.
 - **No GitHub icon** in the bundled icon set at this rev — the app bundles
-  its own GitHub-mark SVG via its asset source.
+  its own GitHub-mark SVG via its asset source. *(Post-merge: core grew
+  `ModuleIcon::Custom` asset-path icons, so the mark now renders in the
+  sidebar too — same bundled SVG.)*
 
 ## 4. Design decisions
 
