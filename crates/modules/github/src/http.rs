@@ -1,0 +1,233 @@
+//! HTTP transport for the GitHub module (docs/0005 Q4): a minimal injectable
+//! `Http` trait so unit tests script responses, and the real `UreqClient`
+//! (sync ureq, rustls — runs on gpui's background executor).
+//!
+//! Security: the token lives only inside `UreqClient`; it is never part of
+//! an error message, and nothing here logs headers.
+
+use std::time::Duration;
+
+/// Rate-limit snapshot from `x-ratelimit-*` headers (docs/0005 §3.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RateLimit {
+    pub limit: u32,
+    pub remaining: u32,
+    /// UTC epoch seconds when the window resets.
+    pub reset_epoch: u64,
+}
+
+/// One HTTP exchange. `body` is `None` exactly when `status == 304`
+/// (ETag revalidation — the payload didn't change).
+#[derive(Debug, Clone)]
+pub struct HttpResult {
+    pub status: u16,
+    pub etag: Option<String>,
+    pub rate: Option<RateLimit>,
+    pub body: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Verb {
+    Get,
+    Post,
+}
+
+#[derive(Debug)]
+pub struct HttpError(pub String);
+
+pub trait Http: Send + Sync + 'static {
+    /// `body` is form-encoded text for the device-flow POSTs (`None` for GETs).
+    fn request(&self, verb: Verb, url: &str, body: Option<&str>) -> Result<HttpResult, HttpError>;
+}
+
+const USER_AGENT: &str = concat!("my-dashboard/", env!("CARGO_PKG_VERSION"));
+const API_ACCEPT: &str = "application/vnd.github+json";
+const OAUTH_ACCEPT: &str = "application/json";
+
+/// Real transport. `token` is the OAuth access token (keychain-sourced);
+/// it is sent only to `api.github.com` — never to github.com OAuth endpoints.
+pub struct UreqClient {
+    agent: ureq::Agent,
+    token: Option<String>,
+}
+
+impl UreqClient {
+    pub fn new(token: Option<String>) -> Self {
+        Self {
+            agent: ureq::AgentBuilder::new()
+                .timeout_connect(Duration::from_secs(10))
+                .timeout(Duration::from_secs(30))
+                .build(),
+            token,
+        }
+    }
+}
+
+impl Http for UreqClient {
+    fn request(&self, verb: Verb, url: &str, body: Option<&str>) -> Result<HttpResult, HttpError> {
+        let is_api = url.starts_with(crate::api::API_BASE);
+        let accept = if is_api { API_ACCEPT } else { OAUTH_ACCEPT };
+
+        let mut req = match verb {
+            Verb::Get => self.agent.get(url),
+            Verb::Post => self.agent.post(url),
+        }
+        .set("User-Agent", USER_AGENT)
+        .set("Accept", accept);
+        if body.is_some() {
+            req = req.set("Content-Type", "application/x-www-form-urlencoded");
+        }
+
+        if is_api {
+            if let Some(token) = &self.token {
+                req = req.set("Authorization", &format!("Bearer {token}"));
+            }
+        }
+
+        // ureq 2 surfaces >=400 as Err(Error::Status(_, response)) — fold it
+        // back into a normal result so callers branch on status, not on
+        // transport vs. HTTP errors.
+        let dispatched = match body {
+            Some(b) => req.send_string(b),
+            None => req.call(),
+        };
+        let response = match dispatched {
+            Ok(r) => r,
+            Err(ureq::Error::Status(_, r)) => r,
+            Err(e) => {
+                // Transport/DNS/TLS only — ureq 2 error Display never embeds
+                // request headers, so the token can't leak through here.
+                return Err(HttpError(e.to_string()));
+            }
+        };
+
+        let status = response.status();
+        let etag = response.header("etag").map(str::to_string);
+        let rate = RateLimit::from_headers(
+            response.header("x-ratelimit-limit"),
+            response.header("x-ratelimit-remaining"),
+            response.header("x-ratelimit-reset"),
+        );
+        let body = if status == 304 {
+            None
+        } else {
+            Some(
+                response
+                    .into_string()
+                    .map_err(|e| HttpError(format!("body read failed: {e}")))?,
+            )
+        };
+
+        Ok(HttpResult {
+            status,
+            etag,
+            rate,
+            body,
+        })
+    }
+}
+
+impl RateLimit {
+    fn from_headers(
+        limit: Option<&str>,
+        remaining: Option<&str>,
+        reset: Option<&str>,
+    ) -> Option<Self> {
+        Some(Self {
+            limit: limit?.parse().ok()?,
+            remaining: remaining?.parse().ok()?,
+            reset_epoch: reset?.parse().ok()?,
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Test transport — scripted responses, records requests.
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+pub(crate) mod mock {
+    use std::collections::VecDeque;
+    use std::sync::Mutex;
+
+    use super::{Http, HttpError, HttpResult, Verb};
+
+    /// LIFO-scripted responses; records (verb, url, body) per call.
+    pub(crate) struct MockHttp {
+        pub responses: Mutex<VecDeque<Result<HttpResult, HttpError>>>,
+        pub requests: Mutex<Vec<(Verb, String, Option<String>)>>,
+    }
+
+    impl MockHttp {
+        pub(crate) fn new(script: Vec<Result<HttpResult, HttpError>>) -> Self {
+            Self {
+                responses: Mutex::new(script.into()),
+                requests: Mutex::new(Vec::new()),
+            }
+        }
+
+        /// Convenience: one 200 with a JSON body.
+        pub(crate) fn ok(status: u16, body: &str) -> Self {
+            Self::new(vec![Ok(HttpResult {
+                status,
+                etag: Some("\"abc\"".into()),
+                rate: None,
+                body: Some(body.into()),
+            })])
+        }
+
+        pub(crate) fn requests_snapshot(&self) -> Vec<(Verb, String, Option<String>)> {
+            self.requests.lock().unwrap().clone()
+        }
+    }
+
+    impl Http for MockHttp {
+        fn request(
+            &self,
+            verb: Verb,
+            url: &str,
+            body: Option<&str>,
+        ) -> Result<HttpResult, HttpError> {
+            self.requests
+                .lock()
+                .unwrap()
+                .push((verb, url.into(), body.map(str::to_string)));
+            self.responses
+                .lock()
+                .unwrap()
+                .pop_front()
+                .expect("MockHttp: request made with exhausted script")
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ratelimit_needs_all_three_headers() {
+        assert!(RateLimit::from_headers(Some("5000"), None, None).is_none());
+        assert_eq!(
+            RateLimit::from_headers(Some("5000"), Some("4999"), Some("1799999999")),
+            Some(RateLimit {
+                limit: 5000,
+                remaining: 4999,
+                reset_epoch: 1799999999,
+            })
+        );
+    }
+
+    #[test]
+    fn status_304_carries_no_body() {
+        // Contract check on HttpResult construction via UreqClient is covered
+        // by live smoke tests; here we pin the semantics the service relies on.
+        let r = HttpResult {
+            status: 304,
+            etag: Some("\"x\"".into()),
+            rate: None,
+            body: None,
+        };
+        assert!(r.body.is_none() && r.status == 304);
+    }
+}

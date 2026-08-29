@@ -5,6 +5,7 @@ members = [
     "crates/core",
     "crates/modules/clock",
     "crates/modules/notes",
+    "crates/modules/github",
 ]
 
 [workspace.package]
@@ -21,10 +22,16 @@ gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
 dashboard-core = { path = "crates/core" }
 dashboard-module-clock = { path = "crates/modules/clock" }
 dashboard-module-notes = { path = "crates/modules/notes" }
+dashboard-module-github = { path = "crates/modules/github" }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 dirs = "6"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# GitHub module: sync HTTP on the background executor (rustls 0.23 shared with
+# the zed tree) + OS keychain (zbus Secret Service on Linux, Security.framework
+# on macOS — both stacks already in the lockfile).
+ureq = { version = "2", default-features = false, features = ["tls", "json", "gzip"] }
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 
 # Keep debug info cheap in dev builds.
 [profile.dev]
