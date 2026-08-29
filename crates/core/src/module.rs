@@ -10,6 +10,15 @@ use gpui_component::IconName;
 use crate::nav::Navigator;
 use crate::paths::AppPaths;
 
+/// Sidebar icon source for a module. `BuiltIn` covers gpui-component's fixed
+/// `IconName` set; `Custom` names an SVG asset path resolved through the
+/// app's `AssetSource` — how brand marks (e.g. GitHub's octicon) reach the
+/// sidebar despite not existing in the default set.
+pub enum ModuleIcon {
+    BuiltIn(IconName),
+    Custom(SharedString),
+}
+
 /// Static identity — known before instantiation; drives sidebar, home grid
 /// and navigation keys.
 pub struct ModuleMeta {
@@ -17,8 +26,8 @@ pub struct ModuleMeta {
     pub id: SharedString,
     /// Display title ("Clock") — sidebar item + breadcrumb.
     pub title: SharedString,
-    /// Sidebar icon from the default set; `None` renders a label-only item.
-    pub icon: Option<IconName>,
+    /// Sidebar icon; `None` renders a label-only item.
+    pub icon: Option<ModuleIcon>,
 }
 
 /// What a module hands to the registry: identity + its two views, both

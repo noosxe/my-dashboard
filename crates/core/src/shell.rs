@@ -16,6 +16,7 @@ use gpui_component::{
 };
 
 use crate::home;
+use crate::module::ModuleIcon;
 use crate::nav::{CrumbAction, Navigator, Page};
 use crate::registry::ModuleRegistry;
 use crate::store::DebouncedSave;
@@ -297,8 +298,11 @@ fn nav_menu_items(
                 this.nav
                     .update(cx, |nav, cx| nav.go(Page::Module(id.clone()), cx));
             }));
-        if let Some(icon) = entry.meta.icon.clone() {
-            item = item.icon(icon);
+        if let Some(icon) = &entry.meta.icon {
+            item = item.icon(match icon {
+                ModuleIcon::BuiltIn(name) => name.clone().into(),
+                ModuleIcon::Custom(path) => Icon::empty().path(path.clone()),
+            });
         }
         item
     });
