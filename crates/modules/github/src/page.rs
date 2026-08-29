@@ -11,7 +11,7 @@
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::{
-    ActiveTheme, Sizable as _,
+    ActiveTheme, Sizable as _, ThemeStyled as _,
     avatar::Avatar,
     badge::Badge,
     button::{Button, ButtonVariants},
@@ -324,11 +324,9 @@ impl GithubPage {
                             .right_0()
                             .max_h(px(280.))
                             .overflow_y_scroll()
-                            .rounded_sm()
-                            .border_1()
-                            .border_color(theme.border)
-                            .bg(theme.background)
-                            .shadow_lg()
+                            // Floating-surface semantic token — same paint
+                            // path as gpui-component's own popup menus.
+                            .popover_style(cx)
                             .p_1()
                             .children(logins.iter().map(|login| {
                                 let login: SharedString = login.clone();
