@@ -131,7 +131,7 @@ fn default_expires() -> u64 {
 
 pub fn start_device_flow(http: &dyn Http) -> Result<DeviceFlowStart, AuthError> {
     let body = form_encode(&[("client_id", CLIENT_ID), ("scope", SCOPES)]);
-    let result = http.request(Verb::Post, DEVICE_CODE_URL, Some(&body))?;
+    let result = http.request(Verb::Post, DEVICE_CODE_URL, Some(&body), None)?;
     let parsed: StartResponse = parse_json(&result)?;
     if parsed.device_code.is_empty() || parsed.user_code.is_empty() {
         return Err(AuthError::Malformed(
@@ -168,7 +168,7 @@ pub fn poll_token(http: &dyn Http, device_code: &str, interval_secs: u64) -> Pol
         ("device_code", device_code),
         ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
     ]);
-    let result = match http.request(Verb::Post, TOKEN_URL, Some(&body)) {
+    let result = match http.request(Verb::Post, TOKEN_URL, Some(&body), None) {
         Ok(r) => r,
         Err(HttpError(m)) => return PollOutcome::Network(m),
     };
@@ -251,8 +251,13 @@ impl MockTokenStore {
             slot: std::sync::Mutex::new(None),
         }
     }
-}
 
+    pub(crate) fn with(token: String) -> Self {
+        Self {
+            slot: std::sync::Mutex::new(Some(token)),
+        }
+    }
+}
 #[cfg(test)]
 impl TokenStore for MockTokenStore {
     fn save(&self, token: &str) -> Result<(), String> {
@@ -307,7 +312,8 @@ mod tests {
         assert_eq!(start.interval_secs, 5);
         assert_eq!(start.expires_in_secs, 900);
 
-        let (verb, url, body) = http.requests_snapshot().remove(0);
+        let recorded = http.recorded().remove(0);
+        let (verb, url, body) = (recorded.verb, recorded.url, recorded.body);
         assert_eq!(verb, Verb::Post);
         assert_eq!(url, DEVICE_CODE_URL);
         let body = body.unwrap();
