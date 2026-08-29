@@ -134,7 +134,7 @@ Q5–Q10 stand per the silence rule on merge.
   Secret Service is reachable on a Linux box: **designed error state**
   ("no keyring service available — start gnome-keyring or an compatible
   agent"), **no file fallback** (owner policy: tokens never in files).
-- **Q4 — HTTP client: `ureq` 3.x** (sync, rustls 0.23 — same major already
+- **Q4 — HTTP client: `ureq` 2.x** (sync, rustls 0.23 — same major already
   in the lockfile). Called exclusively on `cx.background_executor`; no
   async runtime in the app. `serde`/`serde_json` for payloads (in tree).
   Client injectable via a small `Http` trait so unit tests stub it.
@@ -269,7 +269,7 @@ struct Subject    { title: String, r#type: String, url: String }
 struct RepoRef    { full_name: String }
 ```
 
-Unknown fields ignored (serde default) — forward compatible. `#[serde(rename_all = "camelCase")]` where the API uses camelCase (`avatarUrl`, `htmlUrl`).
+Unknown fields ignored (serde default) — forward compatible. GitHub payloads are snake_case (`avatar_url`, `html_url`) — no rename attributes needed; only `subject.type` is renamed (Rust keyword).
 
 ## 8. Testing
 

@@ -4,19 +4,19 @@
 //! ignored (serde default), and fields we merely display are `Option` where a
 //! repo might omit them. GitHub's JSON is snake_case — no rename needed.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 pub const API_BASE: &str = "https://api.github.com";
 
 /// `GET /user` — the authenticated account (personal org entry, docs/0005 Q10).
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
     pub login: String,
     pub avatar_url: String,
 }
 
 /// `GET /user/orgs` item.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Org {
     pub login: String,
     #[allow(dead_code)] // consumed by the org dropdown UI layer
@@ -25,7 +25,7 @@ pub struct Org {
     pub description: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Owner {
     pub login: String,
     #[allow(dead_code)] // PR row avatars (UI layer)
@@ -33,7 +33,7 @@ pub struct Owner {
 }
 
 /// `GET /user/repos` item (covers personal + org repos in one endpoint).
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Repo {
     pub id: u64,
     pub name: String,
@@ -47,7 +47,7 @@ pub struct Repo {
 }
 
 /// `GET /repos/{owner}/{repo}/pulls?state=open` item.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PullRequest {
     pub id: u64,
     pub number: u64,
@@ -61,7 +61,7 @@ pub struct PullRequest {
 }
 
 /// `GET /notifications` / repo-scoped item.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Notification {
     pub id: String,
     pub subject: Subject,
@@ -71,7 +71,7 @@ pub struct Notification {
     pub unread: bool,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Subject {
     pub title: String,
     /// GitHub calls this `type` ("PullRequest", "Issue", …) — renamed.
@@ -79,7 +79,7 @@ pub struct Subject {
     pub kind: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RepoRef {
     #[allow(dead_code)] // grouping labels (UI layer)
     pub full_name: String,

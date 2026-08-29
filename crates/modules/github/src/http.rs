@@ -2,10 +2,16 @@
 //! `Http` trait so unit tests script responses, and the real `UreqClient`
 //! (sync ureq, rustls — runs on gpui's background executor).
 //!
-//! Security: the token lives only inside `UreqClient`; it is never part of
-//! an error message, and nothing here logs headers.
+//! Security: the token lives in a shared slot owned by the service and is
+//! only read per-request by the client; it is sent exclusively to
+//! `api.github.com` and never appears in error messages or logs.
 
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
+
+/// Token slot shared between the service (writes on connect/sign-out) and
+/// the client (reads per request).
+pub type SharedToken = Arc<RwLock<Option<String>>>;
 
 /// Rate-limit snapshot from `x-ratelimit-*` headers (docs/0005 §3.3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,23 +42,30 @@ pub enum Verb {
 pub struct HttpError(pub String);
 
 pub trait Http: Send + Sync + 'static {
-    /// `body` is form-encoded text for the device-flow POSTs (`None` for GETs).
-    fn request(&self, verb: Verb, url: &str, body: Option<&str>) -> Result<HttpResult, HttpError>;
+    /// `body` is form-encoded text for the device-flow POSTs (`None` for
+    /// GETs); `etag` becomes `If-None-Match` (conditional GET, §3.3).
+    fn request(
+        &self,
+        verb: Verb,
+        url: &str,
+        body: Option<&str>,
+        etag: Option<&str>,
+    ) -> Result<HttpResult, HttpError>;
 }
 
 const USER_AGENT: &str = concat!("my-dashboard/", env!("CARGO_PKG_VERSION"));
 const API_ACCEPT: &str = "application/vnd.github+json";
 const OAUTH_ACCEPT: &str = "application/json";
 
-/// Real transport. `token` is the OAuth access token (keychain-sourced);
-/// it is sent only to `api.github.com` — never to github.com OAuth endpoints.
+/// Real transport. Sync by design (docs/0005 Q4): calls run on gpui's
+/// background executor, never on the main thread.
 pub struct UreqClient {
     agent: ureq::Agent,
-    token: Option<String>,
+    token: SharedToken,
 }
 
 impl UreqClient {
-    pub fn new(token: Option<String>) -> Self {
+    pub fn new(token: SharedToken) -> Self {
         Self {
             agent: ureq::AgentBuilder::new()
                 .timeout_connect(Duration::from_secs(10))
@@ -64,7 +77,13 @@ impl UreqClient {
 }
 
 impl Http for UreqClient {
-    fn request(&self, verb: Verb, url: &str, body: Option<&str>) -> Result<HttpResult, HttpError> {
+    fn request(
+        &self,
+        verb: Verb,
+        url: &str,
+        body: Option<&str>,
+        etag: Option<&str>,
+    ) -> Result<HttpResult, HttpError> {
         let is_api = url.starts_with(crate::api::API_BASE);
         let accept = if is_api { API_ACCEPT } else { OAUTH_ACCEPT };
 
@@ -74,14 +93,16 @@ impl Http for UreqClient {
         }
         .set("User-Agent", USER_AGENT)
         .set("Accept", accept);
-        if body.is_some() {
-            req = req.set("Content-Type", "application/x-www-form-urlencoded");
-        }
-
         if is_api {
-            if let Some(token) = &self.token {
+            if let Some(token) = self.token.read().ok().and_then(|t| t.clone()) {
                 req = req.set("Authorization", &format!("Bearer {token}"));
             }
+        }
+        if let Some(tag) = etag {
+            req = req.set("If-None-Match", tag);
+        }
+        if body.is_some() {
+            req = req.set("Content-Type", "application/x-www-form-urlencoded");
         }
 
         // ureq 2 surfaces >=400 as Err(Error::Status(_, response)) — fold it
@@ -152,10 +173,19 @@ pub(crate) mod mock {
 
     use super::{Http, HttpError, HttpResult, Verb};
 
-    /// LIFO-scripted responses; records (verb, url, body) per call.
+    /// A request the mock observed.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub(crate) struct Recorded {
+        pub verb: Verb,
+        pub url: String,
+        pub body: Option<String>,
+        pub etag: Option<String>,
+    }
+
+    /// LIFO-scripted responses; records every request.
     pub(crate) struct MockHttp {
         pub responses: Mutex<VecDeque<Result<HttpResult, HttpError>>>,
-        pub requests: Mutex<Vec<(Verb, String, Option<String>)>>,
+        pub requests: Mutex<Vec<Recorded>>,
     }
 
     impl MockHttp {
@@ -166,7 +196,7 @@ pub(crate) mod mock {
             }
         }
 
-        /// Convenience: one 200 with a JSON body.
+        /// Convenience: one response with a body and no rate headers.
         pub(crate) fn ok(status: u16, body: &str) -> Self {
             Self::new(vec![Ok(HttpResult {
                 status,
@@ -176,7 +206,7 @@ pub(crate) mod mock {
             })])
         }
 
-        pub(crate) fn requests_snapshot(&self) -> Vec<(Verb, String, Option<String>)> {
+        pub(crate) fn recorded(&self) -> Vec<Recorded> {
             self.requests.lock().unwrap().clone()
         }
     }
@@ -187,11 +217,14 @@ pub(crate) mod mock {
             verb: Verb,
             url: &str,
             body: Option<&str>,
+            etag: Option<&str>,
         ) -> Result<HttpResult, HttpError> {
-            self.requests
-                .lock()
-                .unwrap()
-                .push((verb, url.into(), body.map(str::to_string)));
+            self.requests.lock().unwrap().push(Recorded {
+                verb,
+                url: url.into(),
+                body: body.map(str::to_string),
+                etag: etag.map(str::to_string),
+            });
             self.responses
                 .lock()
                 .unwrap()
@@ -220,8 +253,7 @@ mod tests {
 
     #[test]
     fn status_304_carries_no_body() {
-        // Contract check on HttpResult construction via UreqClient is covered
-        // by live smoke tests; here we pin the semantics the service relies on.
+        // Contract check the service relies on.
         let r = HttpResult {
             status: 304,
             etag: Some("\"x\"".into()),
