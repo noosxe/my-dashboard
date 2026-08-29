@@ -261,6 +261,10 @@ impl GithubPage {
             .into_any_element()
     }
 
+    /// Org dropdown trigger. The open menu itself renders at the page root
+    /// (see `render_org_overlay`) — gpui has no z-index: later children
+    /// paint above earlier ones, so a menu nested in this column would be
+    /// painted over by the repo rows below it (owner-reported).
     fn render_org_dropdown(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let logins: Vec<SharedString> = self
             .state
@@ -272,85 +276,99 @@ impl GithubPage {
         let current: SharedString = self
             .effective_org(cx)
             .unwrap_or_else(|| "Organization…".into());
-        let open = self.orgs_open;
         let theme = cx.theme().clone();
 
         div()
-            .id("org-dropdown")
-            .relative()
+            .id("org-trigger")
+            .w_full()
+            .px_2()
+            .py_1p5()
+            .rounded_sm()
+            .border_1()
+            .border_color(theme.border)
+            .cursor_pointer()
+            .text_sm()
+            .hover(|s| s.bg(theme.accent.opacity(0.06)))
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.orgs_open = !this.orgs_open;
+                cx.notify();
+            }))
+            .child(
+                h_flex().justify_between().items_center().child(
+                    div()
+                        .when(logins.is_empty(), |t| t.text_color(theme.muted_foreground))
+                        .child(current),
+                ),
+            )
+            .into_any_element()
+    }
+
+    /// Backdrop + open org menu, rendered as the LAST child of the page
+    /// root so it paints above both columns. The backdrop catches every
+    /// outside click (including the right column) to close the menu.
+    /// Geometry: left column is p_2 (8 px) wide-padded, 280 px wide, and
+    /// the trigger ends ~40 px from the page top — so the menu sits at
+    /// top 42, left 8, width 264.
+    fn render_org_overlay(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let logins: Vec<SharedString> = self
+            .state
+            .read(cx)
+            .orgs
+            .iter()
+            .map(|o| o.login.clone().into())
+            .collect();
+        let theme = cx.theme().clone();
+
+        div()
+            .id("org-overlay")
+            .absolute()
+            .inset_0()
             .child(
                 div()
-                    .id("org-trigger")
-                    .w_full()
-                    .px_2()
-                    .py_1p5()
-                    .rounded_sm()
-                    .border_1()
-                    .border_color(theme.border)
+                    .id("org-backdrop")
+                    .absolute()
+                    .inset_0()
                     .cursor_pointer()
-                    .text_sm()
-                    .hover(|s| s.bg(theme.accent.opacity(0.06)))
                     .on_click(cx.listener(|this, _, _, cx| {
-                        this.orgs_open = !this.orgs_open;
+                        this.orgs_open = false;
                         cx.notify();
-                    }))
-                    .child(
-                        h_flex().justify_between().items_center().child(
-                            div()
-                                .when(logins.is_empty(), |t| t.text_color(theme.muted_foreground))
-                                .child(current),
-                        ),
-                    ),
+                    })),
             )
-            .when(open, |wrapper| {
-                wrapper
-                    .child(
+            .child(
+                v_flex()
+                    .id("org-menu")
+                    .absolute()
+                    .top(px(42.))
+                    .left(px(8.))
+                    .w(px(264.))
+                    .max_h(px(280.))
+                    .overflow_y_scroll()
+                    // Floating-surface semantic token — same paint path as
+                    // gpui-component's own popup menus.
+                    .popover_style(cx)
+                    .p_1()
+                    .children(logins.iter().map(|login| {
+                        let login: SharedString = login.clone();
+                        let login_for_click = login.clone();
                         div()
-                            .id("org-backdrop")
-                            .absolute()
-                            .inset_0()
+                            .id(SharedString::from(format!("org-{login}")))
+                            .px_2()
+                            .py_1p5()
+                            .rounded_sm()
+                            .text_sm()
                             .cursor_pointer()
-                            .on_click(cx.listener(|this, _, _, cx| {
+                            .hover(|s| s.bg(theme.accent.opacity(0.08)))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.org = Some(login_for_click.clone());
                                 this.orgs_open = false;
+                                // Switching orgs clears the selection —
+                                // the selected repo belongs to another org.
+                                this.state.update(cx, |s, _| s.selected = None);
                                 cx.notify();
-                            })),
-                    )
-                    .child(
-                        v_flex()
-                            .id("org-menu")
-                            .absolute()
-                            .top_8()
-                            .left_0()
-                            .right_0()
-                            .max_h(px(280.))
-                            .overflow_y_scroll()
-                            // Floating-surface semantic token — same paint
-                            // path as gpui-component's own popup menus.
-                            .popover_style(cx)
-                            .p_1()
-                            .children(logins.iter().map(|login| {
-                                let login: SharedString = login.clone();
-                                let login_for_click = login.clone();
-                                div()
-                                    .id(SharedString::from(format!("org-{login}")))
-                                    .px_2()
-                                    .py_1p5()
-                                    .rounded_sm()
-                                    .text_sm()
-                                    .cursor_pointer()
-                                    .hover(|s| s.bg(theme.accent.opacity(0.08)))
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.org = Some(login_for_click.clone());
-                                        this.orgs_open = false;
-                                        // Switching orgs clears the selection —
-                                        // the selected repo belongs to another org.
-                                        this.state.update(cx, |s, _| s.selected = None);
-                                        cx.notify();
-                                    }))
-                                    .child(login.clone())
-                            })),
-                    )
-            })
+                            }))
+                            .child(login.clone())
+                    })),
+            )
             .into_any_element()
     }
 }
@@ -392,11 +410,13 @@ impl Render for GithubPage {
 
         let left = self.render_left_column(&repos, cx);
         let right = self.render_right_column(&selected_repo, &prs, &repo_notifs, cx);
-        h_flex()
-            .size_full()
-            .child(left)
-            .child(right)
-            .into_any_element()
+        // Root is the stacking context: the org overlay is appended last so
+        // it paints above both columns (gpui paint order = child order).
+        let mut root = h_flex().size_full().relative().child(left).child(right);
+        if self.orgs_open {
+            root = root.child(self.render_org_overlay(cx));
+        }
+        root.into_any_element()
     }
 }
 
