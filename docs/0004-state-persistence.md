@@ -1,6 +1,6 @@
 # 0004 — Phase 3: State Management & Persistence (XDG / native dirs)
 
-- **Status:** Draft
+- **Status:** Accepted (owner merged PR #11 2026-08-29 — Q1–Q8 recommendations stand per the silence rule)
 - **Date:** 2026-08-29
 - **Phase:** 3 (Foundations for real modules)
 

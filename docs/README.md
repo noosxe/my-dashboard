@@ -38,7 +38,7 @@ cross-platform, multi-modular universal personal dashboard built with Rust and
 | [0001](0001-bootstrap-hello-world.md) | Phase 0 — Bootstrap: Hello World gpui-component Application | Implemented (PR #1) |
 | [0002](0002-app-shell-window-chrome.md) | Phase 1 — Application Shell & Window Chrome | Implemented (PR #4) |
 | [0003](0003-multi-module-architecture.md) | Phase 2 — Multi-module Architecture (Module Trait, Registry, Navigation) | Implemented (PR #9) |
-| [0004](0004-state-persistence.md) | Phase 3 — State Management & Persistence (XDG / native dirs) | Draft (PR pending) |
+| [0004](0004-state-persistence.md) | Phase 3 — State Management & Persistence (XDG / native dirs) | Accepted (PR #11) — implementing |
 
 ## Planned docs (roadmap, not yet written)
 
