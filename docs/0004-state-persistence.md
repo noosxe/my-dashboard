@@ -188,6 +188,22 @@ real home. Empty/unset = normal OS locations.
 6. `Context<'a, T>` satisfies `AnyWindowHandle::update`'s context bound —
    window access from entity contexts works (refines 0003 §3.12's
    note that `AsyncApp::update` returns `()`).
+7. **Window-level key bindings were dead from first launch (0002
+   regression surfaced by owner on Hyprland)**: gpui dispatches key
+   actions from the focused node UP the dispatch tree; with nothing
+   focused, dispatch starts at the tree root and no `on_action` on a
+   descendant fires — `ctrl-shift-t` did nothing regardless of window
+   focus state. Fix: the shell root is now a focusable node
+   (`.id(..).track_focus(&focus_handle)`) and grabs keyboard focus at
+   boot (`window.focus(..)` in `DashboardShell::new`); inner elements
+   (Notes input) still take focus normally, and bubbling then reaches
+   the shell's handlers. Verified end-to-end with synthetic input
+   (`wtype` + Hyprland focus cycling): action fires, toggle persists.
+
+   Tooling note for this dev box: `hyprctl dispatch <d> <colon-arg>`
+   is broken on this Hyprland 0.56.2 build (Lua IPC parser); argless
+   dispatchers (`cyclenext`) still work — cycle until `activewindow`
+   matches, then inject keys with `nix shell nixpkgs#wtype`.
 ## 4. Design
 
 ### 4.1 `dashboard-core/src/paths.rs`

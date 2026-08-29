@@ -44,6 +44,12 @@ pub struct DashboardShell {
     registry: ModuleRegistry,
     nav: Entity<Navigator>,
     show_titlebar: bool,
+    /// Grabs keyboard focus at boot so window-level key bindings
+    /// (`ctrl-shift-t`) dispatch through this node — gpui bubbles key
+    /// actions from the focused node UP, and with nothing focused the
+    /// dispatch starts at the tree root, skipping every `on_action`
+    /// below it.
+    focus_handle: FocusHandle,
     save: Option<DebouncedSave>,
 }
 
@@ -55,13 +61,20 @@ impl DashboardShell {
         nav: Entity<Navigator>,
         state: ShellState,
         state_path: Option<PathBuf>,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         cx.observe(&nav, |_, _, cx| cx.notify()).detach();
+        let focus_handle = cx.focus_handle();
+        // Boot focus: without a focused node, key actions dispatch from
+        // the tree root and never reach this shell's `on_action`s
+        // (owner-verified bug on Hyprland — ctrl-shift-t was dead).
+        window.focus(&focus_handle, cx);
         Self {
             registry,
             nav,
             show_titlebar: state.show_titlebar.unwrap_or(DEFAULT_TITLEBAR),
+            focus_handle,
             save: state_path.map(|p| DebouncedSave::new(p, Duration::from_millis(500))),
         }
     }
@@ -113,6 +126,8 @@ impl Render for DashboardShell {
         };
 
         v_flex()
+            .id("dashboard-shell")
+            .track_focus(&self.focus_handle)
             .size_full()
             .key_context("Dashboard")
             .on_action(cx.listener(Self::toggle_titlebar))
