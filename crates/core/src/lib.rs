@@ -5,6 +5,7 @@ pub mod module;
 pub mod nav;
 pub mod paths;
 pub mod registry;
+pub mod settings;
 pub mod shell;
 pub mod store;
 

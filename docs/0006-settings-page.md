@@ -191,6 +191,29 @@ All paths relative to the gpui-component checkout.
 - GitHub module state entity (auth status, account login) — the v1 module
   page reads it; `AuthStatus` is already an enum with `Connected{..}`.
 
+### 3.6 Corrections found during implementation
+
+- **`ThemeMode` is `Light | Dark` only** at this rev — there is no
+  `System` variant (§4.4's proposal assumed one). The Appearance mode
+  control ships as **Light/Dark**; system-following is parked (it would
+  need our own window-appearance observation + `sync_system_appearance`
+  wiring).
+- **Named-theme application verified** (was flagged "verify at
+  implementation"): copy the config into the `Theme` global's
+  light/dark slot matching the config's own mode, then `Theme::change` —
+  the upstream color-theme story's exact sequence — followed by
+  `cx.refresh_windows()` so setter closures (which have no window)
+  restyle every view. `SettingItem` field Reset All calls the field's
+  `set_value` with `default_value`, so it flows through our setters and
+  persists.
+- **`keywords` exist only on `SettingItem`** (not pages/groups) — search
+  terms go on items; page-level findability comes from the title.
+- **About page versioning**: core cannot read the app crate's
+  `CARGO_PKG_VERSION`, so `settings::set_app_info(name, version)` passes
+  it in from `main` (OnceLock).
+- The module settings provider receives `(&mut Window, &mut App)`; the
+  GitHub page uses the `&App` to read its state entity when building the
+  page, so rows are live on every settings render.
 ## 4. Design
 
 ### 4.1 Entry point
@@ -265,12 +288,12 @@ impl Render for SettingsPage {
   signature changes.
 
 ### 4.4 App pages (v1, pending Q2/Q5/Q6)
-- **Appearance** (`AppearanceSettings` global, core-owned):
-  - Group "Theme": `switch`-free — one `dropdown` (System/Light/Dark →
-    `Theme::change`), one `scrollable_dropdown` of theme names from
-    `ThemeRegistry::themes()` (sorted); setters write `AppSettings` +
-    apply immediately. Getters read live `Theme` state so the UI reflects
-    external changes (e.g. system flip).
+- **Appearance** (`AppSettings` global, core-owned):
+  - Group "Theme": one `dropdown` (Light/Dark — no `System` in
+    `ThemeMode`, see §3.6 → `Theme::change`), one `scrollable_dropdown` of
+    theme names from `ThemeRegistry::themes()` (sorted); setters write
+    `AppSettings` + apply immediately. Getters read live `Theme` state so
+    the UI reflects the current selection on every rebuild.
   - Boot restore: after `gpui_component::init` in `main.rs`, load
     `AppSettings` and apply mode + theme before the window opens content.
 - **About** (static-ish, rebuilt per render):

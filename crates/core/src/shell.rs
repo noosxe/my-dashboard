@@ -8,10 +8,12 @@ use gpui::{prelude::FluentBuilder as _, *};
 use gpui::Decorations;
 
 use gpui_component::{
-    ActiveTheme, Icon, IconName, TitleBar,
+    ActiveTheme, Collapsible as _, Icon, IconName, Selectable as _, TitleBar,
     breadcrumb::{Breadcrumb, BreadcrumbItem},
+    button::{Button, ButtonVariants as _},
     h_flex,
-    sidebar::{Sidebar, SidebarCollapsible, SidebarMenuItem, SidebarToggleButton},
+    setting::Settings,
+    sidebar::{Sidebar, SidebarCollapsible, SidebarFooter, SidebarMenuItem, SidebarToggleButton},
     v_flex,
 };
 
@@ -19,8 +21,8 @@ use crate::home;
 use crate::module::ModuleIcon;
 use crate::nav::{CrumbAction, Navigator, Page};
 use crate::registry::ModuleRegistry;
+use crate::settings as app_settings;
 use crate::store::DebouncedSave;
-
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -110,7 +112,7 @@ impl Render for DashboardShell {
                 .registry
                 .get(id)
                 .map(|e| (e.meta.id.clone(), e.meta.title.clone())),
-            Page::Home => None,
+            Page::Home | Page::Settings => None,
         };
 
         v_flex()
@@ -175,7 +177,29 @@ impl Render for DashboardShell {
                                         this.child(div().text_size(px(15.)).child("Dashboard"))
                                     }),
                             )
-                            .children(nav_menu_items(&self.registry, &page, cx)),
+                            .children(nav_menu_items(&self.registry, &page, cx))
+                            // Settings entry point (docs/0006 §4.1): gear in
+                            // the sidebar footer, present in expanded and
+                            // icon-rail modes; selected state tracks the page.
+                            .footer(
+                                SidebarFooter::new()
+                                    .selected(page == Page::Settings)
+                                    .collapsed(sidebar_collapsed)
+                                    .child(
+                                        h_flex().w_full().justify_center().child(
+                                            Button::new("open-settings")
+                                                .ghost()
+                                                .icon(IconName::Settings)
+                                                .when(!sidebar_collapsed, |b| b.label("Settings"))
+                                                .tooltip("Settings")
+                                                .on_click(cx.listener(|this, _, _, cx| {
+                                                    this.nav.update(cx, |nav, cx| {
+                                                        nav.go(Page::Settings, cx)
+                                                    });
+                                                })),
+                                        ),
+                                    ),
+                            ),
                     )
                     // Content column: chrome row (toggle + breadcrumb) + page.
                     .child(
@@ -232,6 +256,9 @@ impl Render for DashboardShell {
                                                         }),
                                                     ))
                                                 })
+                                                .when(page == Page::Settings, |this| {
+                                                    this.child(BreadcrumbItem::new("Settings"))
+                                                })
                                                 .children(crumbs.iter().map(
                                                     |(label, on_click)| {
                                                         let mut item =
@@ -267,6 +294,30 @@ impl Render for DashboardShell {
                                                 div().child("Unknown module").into_any_element()
                                             }
                                         },
+                                        // Settings (docs/0006 §4.2): app pages
+                                        // (core-owned) + module pages, fed to the
+                                        // library's `Settings` shell. Pages rebuilt
+                                        // per render from live state (the upstream
+                                        // story's intended pattern).
+                                        Page::Settings => {
+                                            let modules = self
+                                                .registry
+                                                .entries()
+                                                .iter()
+                                                .map(|e| {
+                                                    (e.meta.icon.clone(), e.meta.title.clone())
+                                                })
+                                                .collect::<Vec<_>>();
+                                            let mut pages = vec![
+                                                app_settings::appearance_page(cx),
+                                                app_settings::about_page(&modules),
+                                            ];
+                                            pages.extend(self.registry.settings_pages(window, cx));
+                                            div()
+                                                .size_full()
+                                                .child(Settings::new("app-settings").pages(pages))
+                                                .into_any_element()
+                                        }
                                     }),
                             ),
                     ),

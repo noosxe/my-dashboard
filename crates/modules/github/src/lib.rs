@@ -15,13 +15,15 @@ pub mod card;
 pub mod http;
 pub mod page;
 pub mod service;
+pub mod settings;
 
+use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::*;
 
 use dashboard_core::Module;
-use dashboard_core::module::{ModuleEntry, ModuleIcon, ModuleMeta};
+use dashboard_core::module::{ModuleEntry, ModuleIcon, ModuleMeta, SettingsProvider};
 use dashboard_core::nav::Navigator;
 
 use crate::auth::{KeyringTokenStore, TokenStore};
@@ -63,12 +65,20 @@ impl Module for GithubModule {
         spawn_tick_loop(state.clone(), window_handle, cx);
 
         let overview = cx.new(|cx| card::GithubCard::new(state.clone(), _nav.clone(), cx));
-        let main_page = cx.new(|cx| page::GithubPage::new(state, cx));
+        let main_page = cx.new(|cx| page::GithubPage::new(state.clone(), cx));
+
+        // Settings subpage (docs/0006 §4.3): the provider captures the
+        // state entity and rebuilds the page per settings render, so
+        // values are always live.
+        let settings_state = state.clone();
+        let settings: SettingsProvider =
+            Rc::new(move |_window, cx| Some(settings::page(&settings_state, cx)));
 
         ModuleEntry {
             meta: Self::meta(),
             overview: overview.into(),
             main_page: main_page.into(),
+            settings: Some(settings),
         }
     }
 }

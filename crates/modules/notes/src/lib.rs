@@ -70,6 +70,7 @@ impl Module for NotesModule {
             main_page: cx
                 .new(|cx| NotesPage::new(state, nav.clone(), window, cx))
                 .into(),
+            settings: None,
         }
     }
 }

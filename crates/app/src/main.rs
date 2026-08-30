@@ -44,6 +44,12 @@ fn main() {
             // MUST be called before using any gpui-component features.
             gpui_component::init(cx);
 
+            // Storage roots + persisted app settings (theme restore —
+            // docs/0006 §4.4) before any window or module exists.
+            let paths = AppPaths::init();
+            dashboard_core::settings::init(Some(paths.settings_file()), cx);
+            dashboard_core::settings::set_app_info("Dashboard", env!("CARGO_PKG_VERSION"));
+
             let window_options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
                     None,
@@ -65,7 +71,8 @@ fn main() {
                 cx.open_window(window_options, |window, cx| {
                     // Storage roots first (docs/0004): one resolution,
                     // before any entity exists.
-                    let paths = AppPaths::init();
+                    // Storage roots were resolved before the window (docs/
+                    // 0004); here they seed the shell state path.
                     let shell_state_path = paths.shell_state_file();
                     let shell_state: ShellState = load_json(&shell_state_path)
                         .inspect_err(|err| eprintln!("dashboard: shell state load failed: {err}"))
