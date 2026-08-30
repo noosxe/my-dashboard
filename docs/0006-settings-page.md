@@ -1,6 +1,6 @@
 # 0006 — Settings (app settings shell, module-provided subpages)
 
-- **Status:** Accepted (owner merged PR [#20](https://github.com/noosxe/my-dashboard/pull/20) `08315af` 2026-08-29; open questions Q1–Q6 resolved at implementation review — proposals stand unless overridden there)
+- **Status:** Implemented (owner merged PR [#22](https://github.com/noosxe/my-dashboard/pull/22) `a44edde` 2026-08-30 — §3.6/§4.4 reflect the as-built state: per-slot light/dark palettes orthogonal to mode, bundled Catppuccin Mocha as factory dark, System/Light/Dark mode with implicit persistence, Storage group dropped; window-surface Root-baked-style fix `e6c5a51`)
 - **Date:** 2026-08-29
 - **Depends on:** 0003 (module contract, registry, navigator), 0004 (paths,
   persistence primitives, debounced saves), 0002 (shell chrome)
