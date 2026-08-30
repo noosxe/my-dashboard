@@ -88,6 +88,14 @@ fn main() {
                         .with::<NotesModule>(&nav, window, paths, cx)
                         .with::<GithubModule>(&nav, window, paths, cx);
 
+                    // Live system-appearance follow (docs/0006 §3.6): while
+                    // the mode is implicit (System), OS appearance changes
+                    // re-apply the theme. The subscription lives as long as
+                    // the window — keep it registered for the app lifetime.
+                    let appearance_sub = window.observe_window_appearance(
+                        dashboard_core::settings::sync_window_appearance,
+                    );
+                    std::mem::forget(appearance_sub);
                     let shell = cx.new(|cx| {
                         DashboardShell::new(
                             registry,
