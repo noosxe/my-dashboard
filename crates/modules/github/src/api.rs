@@ -43,8 +43,6 @@ pub struct Repo {
     #[serde(default)]
     pub private: bool,
     #[allow(dead_code)] // "recently pushed" ordering hint (UI layer)
-    #[serde(default)] // header click → browser (UI layer)
-    pub html_url: String,
     pub pushed_at: Option<String>,
 }
 

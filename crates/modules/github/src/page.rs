@@ -487,15 +487,16 @@ impl GithubPage {
                                 .gap_1p5()
                                 .items_center()
                                 .cursor_pointer()
-                                // Same affordance as PR rows: the repo title
-                                // links to the repo on github.com.
                                 .hover(|s| s.underline())
+                                // Same affordance as PR rows: the repo title
+                                // links to the repo on github.com. URL is
+                                // derived from full_name — cache-proof (no
+                                // dependency on html_url being present in
+                                // last-known payloads).
                                 .on_click({
-                                    let url = repo.html_url.clone();
+                                    let full_name = repo.full_name.clone();
                                     move |_, _, cx| {
-                                        if !url.is_empty() {
-                                            cx.open_url(&url);
-                                        }
+                                        cx.open_url(&format!("https://github.com/{full_name}"))
                                     }
                                 })
                                 .child(
