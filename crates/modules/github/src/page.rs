@@ -330,6 +330,9 @@ impl GithubPage {
                     .id("org-backdrop")
                     .absolute()
                     .inset_0()
+                    // Swallow the click: closing on outside-click must not
+                    // also activate the repo row underneath.
+                    .occlude()
                     .cursor_pointer()
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.orgs_open = false;
@@ -340,6 +343,10 @@ impl GithubPage {
                 v_flex()
                     .id("org-menu")
                     .absolute()
+                    // Same reason as the backdrop: without a blocking hitbox,
+                    // gpui dispatches the click to the repo row under the
+                    // menu too (owner-reported click-through).
+                    .occlude()
                     .top(px(42.))
                     .left(px(8.))
                     .w(px(264.))
