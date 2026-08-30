@@ -1373,9 +1373,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "dashboard-core",
- "dashboard-module-clock",
  "dashboard-module-github",
- "dashboard-module-notes",
  "gpui",
  "gpui-component",
  "gpui-component-assets",
@@ -1395,16 +1393,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dashboard-module-clock"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "dashboard-core",
- "gpui",
- "gpui-component",
-]
-
-[[package]]
 name = "dashboard-module-github"
 version = "0.1.0"
 dependencies = [
@@ -1416,16 +1404,6 @@ dependencies = [
  "serde",
  "serde_json",
  "ureq",
-]
-
-[[package]]
-name = "dashboard-module-notes"
-version = "0.1.0"
-dependencies = [
- "dashboard-core",
- "gpui",
- "gpui-component",
- "serde",
 ]
 
 [[package]]
