@@ -2,7 +2,6 @@
 //! prompt otherwise — every [DG] state designed.
 
 use gpui::*;
-use gpui_component::h_flex;
 use gpui_component::{ActiveTheme, Sizable as _, button::Button, spinner::Spinner, v_flex};
 
 use dashboard_core::nav::{Navigator, Page};
@@ -61,13 +60,6 @@ impl Render for GithubCard {
                             .size_full()
                             .justify_center()
                             .gap_2()
-                            .child(
-                                h_flex()
-                                    .gap_2()
-                                    .items_center()
-                                    .child(github_mark(cx))
-                                    .child(div().font_weight(FontWeight::MEDIUM).child("GitHub")),
-                            )
                             .child(
                                 div()
                                     .text_color(cx.theme().muted_foreground)
