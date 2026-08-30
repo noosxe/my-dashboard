@@ -24,7 +24,6 @@ use gpui_component::{
 use serde::{Deserialize, Serialize};
 
 use crate::module::ModuleIcon;
-use crate::paths::AppPaths;
 use crate::store::{DebouncedSave, load_json};
 
 /// Bundled dark palette: Catppuccin Mocha with the sapphire accent
@@ -354,19 +353,6 @@ impl SettingFieldElement for OpenPathField {
     }
 }
 
-fn open_folder_row(id: &'static str, label: &str, path: &std::path::Path) -> SettingItem {
-    let url = format!("file://{}", path.display());
-    let label = label.to_string();
-    SettingItem::new(
-        label.clone(),
-        SettingField::element(OpenPathField {
-            id: id.into(),
-            label: label.into(),
-            url,
-        }),
-    )
-}
-
 /// The core-owned About subpage (docs/0006 §4.4). `modules` is a snapshot
 /// of the registry (icon + title), taken by the shell per render.
 pub fn about_page(modules: &[(Option<ModuleIcon>, gpui::SharedString)]) -> SettingPage {
@@ -447,29 +433,6 @@ pub fn about_page(modules: &[(Option<ModuleIcon>, gpui::SharedString)]) -> Setti
             .description("Source, issues and design docs.")
             .keywords(["source", "github", "issues"]),
         ]))
-        .group(SettingGroup::new().title("Storage").items(vec![
-                open_folder_row(
-                    "open-state",
-                    "State folder",
-                    AppPaths::init().state_dir(),
-                )
-                .description("UI state and app settings (settings.json).")
-                .keywords(["settings", "xdg", "state"]),
-                open_folder_row(
-                    "open-data",
-                    "Data folder",
-                    AppPaths::init().data_dir(),
-                )
-                .description("Module data (notes, GitHub last-known cache).")
-                .keywords(["modules", "cache", "data"]),
-                open_folder_row(
-                    "open-cache",
-                    "Cache folder",
-                    AppPaths::init().cache_dir(),
-                )
-                .description("Ephemeral caches.")
-                .keywords(["tmp", "cache"]),
-            ]))
 }
 
 /// The brand mark: primary-colored rounded box with the gallery icon —
