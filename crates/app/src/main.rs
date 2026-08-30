@@ -1,5 +1,5 @@
 use gpui::*;
-use gpui_component::{ActiveTheme, Root, TitleBar};
+use gpui_component::{Root, TitleBar};
 
 use dashboard_core::{AppPaths, DashboardShell, ModuleRegistry, Navigator, ShellState, load_json};
 use dashboard_module_clock::ClockModule;
@@ -106,7 +106,12 @@ fn main() {
                             cx,
                         )
                     });
-                    cx.new(|cx| Root::new(shell, window, cx).bg(cx.theme().background))
+                    // No .bg() refinement here: Root already paints the live
+                    // theme background + foreground every frame; a style
+                    // refinement is baked at window construction and would
+                    // freeze the pre-portal (light) palette over every later
+                    // Theme::change — see gpui-component root.rs render().
+                    cx.new(|cx| Root::new(shell, window, cx))
                 })
                 .expect("Failed to open window");
             })
