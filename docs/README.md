@@ -67,4 +67,8 @@ Core requirements (owner, 2026-08-28 — drive the design, not decisions):
 
 - ~~0004 — State management & persistence~~ → implemented (PR #13)
 - 0005 — First real module: GitHub → design drafted, see doc 0005 above
-- 0006 — Build, packaging & distribution per OS
+- ~~0006~~ — Settings page (number reused; see doc 0006 above). Build,
+  packaging & distribution per OS moves to a new number when written
+- 0007 — File-based color themes (user themes dir, hot reload via
+  `ThemeRegistry::watch_dir`) — proposed, upstream basis verified in
+  PR #22; requires a design doc
