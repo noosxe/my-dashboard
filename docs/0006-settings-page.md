@@ -193,11 +193,21 @@ All paths relative to the gpui-component checkout.
 
 ### 3.6 Corrections found during implementation
 
-- **`ThemeMode` is `Light | Dark` only** at this rev — there is no
-  `System` variant (§4.4's proposal assumed one). The Appearance mode
-  control ships as **Light/Dark**; system-following is parked (it would
-  need our own window-appearance observation + `sync_system_appearance`
-  wiring).
+- **Mode is System/Light/Dark; the mode persists only on a manual
+  choice** (owner request, landed with the Mocha iteration). `ThemeMode`
+  has no `System` variant, so **"System" is a pseudo-value** of the
+  dropdown (`MODE_SYSTEM`), not a mode:
+  - selecting System clears `theme_mode` (→ `None`, un-persists) and
+    calls `Theme::sync_system_appearance`; Light/Dark persist as before;
+  - **first boot** with no saved mode applies the OS appearance via
+    `sync_system_appearance(None, cx)` — pre-window, the platform
+    fallback decides (`cx.window_appearance()`; xdg-desktop-portal on
+    Linux). Nothing is written until the user picks a mode;
+  - **live follow**: each window registers `observe_window_appearance`
+    → `settings::sync_window_appearance`, which re-syncs only while
+    `theme_mode` is `None` — explicit Light/Dark ignore OS changes;
+  - Reset All restores `System` (the Mode field's `default_value`), i.e.
+    back to implicit following.
 - **Named-theme application verified** (was flagged "verify at
   implementation"): copy the config into the `Theme` global's
   light/dark slot matching the config's own mode, then `Theme::change` —
@@ -220,7 +230,7 @@ All paths relative to the gpui-component checkout.
   renders Mocha. An explicitly picked theme still overrides it, and the
   theme picker is deliberately not resettable (Reset All would
   force-apply a theme and flip the mode).
-  GitHub page uses the `&App` to read its state entity when building the
+- The module settings provider receives `(&mut Window, &mut App)`; the
   page, so rows are live on every settings render.
 ## 4. Design
 
@@ -297,13 +307,17 @@ impl Render for SettingsPage {
 
 ### 4.4 App pages (v1, pending Q2/Q5/Q6)
 - **Appearance** (`AppSettings` global, core-owned):
-  - Group "Theme": one `dropdown` (Light/Dark — no `System` in
-    `ThemeMode`, see §3.6 → `Theme::change`), one `scrollable_dropdown` of
-    theme names from `ThemeRegistry::themes()` (sorted); setters write
-    `AppSettings` + apply immediately. Getters read live `Theme` state so
-    the UI reflects the current selection on every rebuild.
+  - Group "Theme": one `dropdown` (**System/Light/Dark** — "System" is
+    a pseudo-value, see §3.6; Light/Dark → `Theme::change`), one
+    `scrollable_dropdown` of theme names from `ThemeRegistry::themes()`
+    (sorted); setters write `AppSettings` + apply immediately. The Mode
+    getter reads the saved `theme_mode` (`None` → "System") so the
+    dropdown reflects the choice, not just the effective mode; the
+    theme getter reads live `Theme` state.
   - Boot restore: after `gpui_component::init` in `main.rs`, load
-    `AppSettings` and apply mode + theme before the window opens content.
+    `AppSettings`: saved theme name installs into its mode slot, then
+    the saved mode applies — or, with none, the OS appearance
+    (`sync_system_appearance`) — all before the window opens content.
 - **About** (static-ish, rebuilt per render):
   - Group "Application": version row (`SettingItem::render` — name +
     `CARGO_PKG_VERSION`), module list row (icons + titles from the

@@ -11,7 +11,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use gpui::{App, Global, IntoElement, ParentElement as _, SharedString, Styled as _, div};
+use gpui::{App, Global, IntoElement, ParentElement as _, SharedString, Styled as _, Window, div};
 use gpui_component::{
     ActiveTheme, Icon, IconName, Sizable as _, Theme, ThemeMode, ThemeRegistry,
     button::Button,
@@ -122,27 +122,33 @@ fn install_bundled_theme(cx: &mut App) {
 // Theme application (docs/0006 §4.4)
 // ---------------------------------------------------------------------------
 
-/// Persisted theme name (`"light"`/`"dark"`); anything else → `Light`,
-/// matching `ThemeMode`'s own default.
-fn parse_mode(name: &str) -> ThemeMode {
+/// Dropdown value meaning "follow the OS appearance"; while selected,
+/// the mode is deliberately not persisted — first boot and `System` both
+/// derive from the platform (xdg-desktop-portal on Linux).
+pub const MODE_SYSTEM: &str = "system";
+
+fn parse_mode_opt(name: &str) -> Option<ThemeMode> {
     if name.eq_ignore_ascii_case("dark") {
-        ThemeMode::Dark
+        Some(ThemeMode::Dark)
+    } else if name.eq_ignore_ascii_case("light") {
+        Some(ThemeMode::Light)
     } else {
-        ThemeMode::Light
+        None
     }
 }
 
-/// Install a named registry theme into the active mode slot and apply it.
-/// Returns `false` (with a stderr note) for names the registry doesn't
-/// know — hand-edited or stale settings degrade to the current theme.
-fn apply_named_theme(name: &str, cx: &mut App) -> bool {
+/// Install a named registry theme into the slot matching its mode — no
+/// mode change, no refresh. Returns the config's mode.
+/// Unknown names return `None` (stderr note; hand-edited or stale
+/// settings degrade to the current theme).
+fn install_named_theme(name: &str, cx: &mut App) -> Option<ThemeMode> {
     let Some(config) = ThemeRegistry::global(cx).themes().get(name).cloned() else {
         eprintln!("dashboard: unknown theme name in settings: {name:?}");
-        return false;
+        return None;
     };
     // Pattern from the upstream theme picker (color_theme_story.rs): the
-    // config lands in the slot matching ITS mode, then `Theme::change`
-    // applies the slot for the (config's) mode and syncs the base layer.
+    // config lands in the slot matching ITS mode; `Theme::change` then
+    // applies the slot and syncs the base layer.
     let theme_mode = config.mode;
     let theme = Theme::global_mut(cx);
     if theme_mode.is_dark() {
@@ -150,20 +156,33 @@ fn apply_named_theme(name: &str, cx: &mut App) -> bool {
     } else {
         theme.light_theme = config;
     }
+    Some(theme_mode)
+}
+
+/// Apply a named theme now (slot install + switch to its own mode).
+fn apply_named_theme(name: &str, cx: &mut App) -> bool {
+    let Some(theme_mode) = install_named_theme(name, cx) else {
+        return false;
+    };
     Theme::change(theme_mode, None, cx);
     true
 }
 
-/// Boot-time restore: named theme first (its config carries a mode), then
-/// the explicit mode override. Both are idempotent no-ops at defaults.
+/// Boot-time restore: a saved theme name installs into its mode slot
+/// (per-slot — the mode below decides which slot is live), then the
+/// saved mode applies — or, with no saved mode (first boot / `System`),
+/// the OS appearance. All idempotent at defaults.
 fn apply_saved_theme(cx: &mut App) {
     let name = cx.global::<AppSettings>().theme_name.clone();
     let mode = cx.global::<AppSettings>().theme_mode.clone();
     if let Some(name) = name {
-        apply_named_theme(&name, cx);
+        install_named_theme(&name, cx);
     }
-    if let Some(mode) = mode {
-        Theme::change(parse_mode(&mode), None, cx);
+    match mode.as_deref().and_then(parse_mode_opt) {
+        Some(mode) => Theme::change(mode, None, cx),
+        // No window yet — the platform fallback decides
+        // (`cx.window_appearance()`, xdg-desktop-portal on Linux).
+        None => Theme::sync_system_appearance(None, cx),
     }
 }
 
@@ -176,14 +195,35 @@ fn persist(cx: &mut App) {
     }
 }
 
-/// Switch light/dark and persist. `cx.refresh_windows` re-styles every
-/// view against the new global (the setter closures have no window).
+/// Mode-switch entry point for the dropdown. `system` clears the saved
+/// mode (back to implicit follow) and re-syncs; light/dark persist.
+/// `cx.refresh_windows` re-styles every view against the new global (the
+/// setter closures have no window).
 pub(crate) fn set_theme_mode(name: &str, cx: &mut App) {
-    let mode = parse_mode(name);
+    if name == MODE_SYSTEM {
+        cx.global_mut::<AppSettings>().theme_mode = None;
+        persist(cx);
+        // No window here — the platform fallback decides the appearance.
+        Theme::sync_system_appearance(None, cx);
+        cx.refresh_windows();
+        return;
+    }
+    let Some(mode) = parse_mode_opt(name) else {
+        return;
+    };
     Theme::change(mode, None, cx);
     cx.global_mut::<AppSettings>().theme_mode = Some(mode.name().to_string());
     persist(cx);
     cx.refresh_windows();
+}
+
+/// Live system-appearance follow, wired per-window from the shell: while
+/// the mode is implicit (`System`), OS appearance changes re-apply the
+/// theme. Explicit Light/Dark choices ignore appearance changes.
+pub fn sync_window_appearance(window: &mut Window, cx: &mut App) {
+    if cx.global::<AppSettings>().theme_mode.is_none() {
+        Theme::sync_system_appearance(Some(window), cx);
+    }
 }
 
 /// Select a named registry theme and persist. The theme's own mode wins
@@ -225,16 +265,23 @@ pub fn appearance_page(cx: &App) -> SettingPage {
                 "Mode",
                 SettingField::dropdown(
                     vec![
+                        (MODE_SYSTEM.into(), "System".into()),
                         ("light".into(), "Light".into()),
                         ("dark".into(), "Dark".into()),
                     ],
-                    |cx: &App| gpui::SharedString::from(cx.theme().mode.name()),
+                    |cx: &App| {
+                        cx.global::<AppSettings>()
+                            .theme_mode
+                            .clone()
+                            .unwrap_or_else(|| MODE_SYSTEM.to_string())
+                            .into()
+                    },
                     |value: gpui::SharedString, cx: &mut App| set_theme_mode(&value, cx),
                 )
-                .default_value("light"),
+                .default_value(MODE_SYSTEM),
             )
-            .description("Light or dark appearance.")
-            .keywords(["dark", "light", "mode", "night"]),
+            .description("Follow the OS appearance, or force light or dark.")
+            .keywords(["system", "dark", "light", "mode", "night"]),
             SettingItem::new(
                 "Theme",
                 SettingField::scrollable_dropdown(
@@ -438,12 +485,18 @@ mod tests {
     }
 
     #[test]
-    fn parse_mode_defaults_to_light() {
-        assert!(matches!(parse_mode("dark"), ThemeMode::Dark));
-        assert!(matches!(parse_mode("DARK"), ThemeMode::Dark));
-        assert!(matches!(parse_mode("light"), ThemeMode::Light));
-        assert!(matches!(parse_mode("bogus"), ThemeMode::Light));
-        assert!(matches!(parse_mode(""), ThemeMode::Light));
+    fn parse_mode_opt_matches_dropdown_values() {
+        assert!(matches!(parse_mode_opt("dark"), Some(ThemeMode::Dark)));
+        assert!(matches!(parse_mode_opt("DARK"), Some(ThemeMode::Dark)));
+        assert!(matches!(parse_mode_opt("light"), Some(ThemeMode::Light)));
+        // `system` is not a mode — selecting it clears the saved mode.
+        assert!(parse_mode_opt("system").is_none());
+        assert!(parse_mode_opt("").is_none());
+        assert!(parse_mode_opt("bogus").is_none());
+        // Boot restore: absent/garbage saved values fall back to implicit
+        // system-following (`and_then(parse_mode_opt)` in apply_saved_theme).
+        let none: Option<String> = None;
+        assert!(none.as_deref().and_then(parse_mode_opt).is_none());
     }
 
     #[test]
