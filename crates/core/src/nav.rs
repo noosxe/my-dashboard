@@ -11,6 +11,9 @@ use gpui::{App, Context, SharedString, Window};
 pub enum Page {
     Home,
     Module(SharedString),
+    /// App settings (docs/0006) — hosted by the shell, subpage selection
+    /// lives inside the `Settings` component, not in nav state.
+    Settings,
 }
 
 /// Back-navigation callback stored in a [`Crumb`] (`Arc` so the shell can

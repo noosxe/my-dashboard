@@ -77,6 +77,7 @@ pub fn save_json_atomic<T: Serialize>(path: &Path, value: &T) -> anyhow::Result<
 ///
 /// Held by the entity whose state is being saved; call `schedule` from
 /// mutation handlers.
+#[derive(Clone)]
 pub struct DebouncedSave {
     path: PathBuf,
     delay: Duration,

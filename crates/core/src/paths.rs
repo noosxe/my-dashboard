@@ -103,11 +103,15 @@ impl AppPaths {
         &self.cache
     }
 
+    /// App settings file (`<state>/settings.json`, docs/0006 §4.4).
+    pub fn settings_file(&self) -> PathBuf {
+        self.state.join("settings.json")
+    }
+
     /// Shell UI state file (`<state>/shell.json`, docs/0004 §4.3).
     pub fn shell_state_file(&self) -> PathBuf {
         self.state.join("shell.json")
     }
-
     /// Per-module data directory `<data>/modules/<sanitized-id>/`,
     /// created on demand. Ids are stable module keys, not user input,
     /// but sanitize anyway so a bad id can never escape the root.
@@ -116,6 +120,20 @@ impl AppPaths {
         if let Err(err) = std::fs::create_dir_all(&dir) {
             eprintln!(
                 "dashboard: failed to create module data dir {}: {err}",
+                dir.display()
+            );
+        }
+        dir
+    }
+
+    /// Per-module settings directory `<state>/modules/<sanitized-id>/`
+    /// (docs/0006 Q3) — settings are user state, not data; mirror of
+    /// [`Self::module_data_dir`], created on demand.
+    pub fn module_state_dir(&self, id: &str) -> PathBuf {
+        let dir = self.state.join("modules").join(sanitize_id(id));
+        if let Err(err) = std::fs::create_dir_all(&dir) {
+            eprintln!(
+                "dashboard: failed to create module state dir {}: {err}",
                 dir.display()
             );
         }
@@ -162,6 +180,29 @@ mod tests {
             paths.shell_state_file(),
             Path::new("/tmp/dash-test-root/state/shell.json")
         );
+    }
+
+    #[test]
+    fn settings_file_lives_in_state_root() {
+        let paths = AppPaths::resolve(Some(PathBuf::from("/tmp/dash-test-root")));
+        assert_eq!(
+            paths.settings_file(),
+            Path::new("/tmp/dash-test-root/state/settings.json")
+        );
+    }
+
+    #[test]
+    fn module_state_dir_mirrors_data_dir_layout() {
+        let root = std::env::temp_dir().join(format!("dash-paths-test-{}", std::process::id()));
+        let paths = AppPaths::resolve(Some(root.clone()));
+        let dir = paths.module_state_dir("../notes evil/..");
+        assert!(dir.starts_with(root.join("state/modules")));
+        assert_eq!(
+            dir.file_name().unwrap().to_str().unwrap(),
+            "---notes-evil---"
+        );
+        assert!(dir.is_dir(), "module state dir must be created on demand");
+        std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]

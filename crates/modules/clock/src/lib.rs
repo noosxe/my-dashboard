@@ -66,6 +66,7 @@ impl Module for ClockModule {
             meta: Self::meta(),
             overview: cx.new(|cx| ClockOverview::new(state.clone(), cx)).into(),
             main_page: cx.new(|cx| ClockPage::new(state.clone(), cx)).into(),
+            settings: None,
         }
     }
 }
