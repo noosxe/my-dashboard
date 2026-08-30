@@ -27,6 +27,13 @@ use crate::module::ModuleIcon;
 use crate::paths::AppPaths;
 use crate::store::{DebouncedSave, load_json};
 
+/// Bundled dark palette: Catppuccin Mocha with the sapphire accent
+/// (docs/0006 §3.6). Installed into the registry at boot and made the
+/// app's dark-mode look by occupying the `Theme` global's dark slot —
+/// plain "Dark" mode (dropdown or persisted mode) then uses it without
+/// requiring a persisted theme name.
+pub const CATPPUCCIN_MOCHA: &str = include_str!("../assets/themes/catppuccin-mocha.json");
+pub const CATPPUCCIN_MOCHA_NAME: &str = "Catppuccin Mocha";
 // ---------------------------------------------------------------------------
 // Values + persistence
 // ---------------------------------------------------------------------------
@@ -75,12 +82,40 @@ pub fn init(path: Option<PathBuf>, cx: &mut App) {
             save: DebouncedSave::new(path, Duration::from_millis(500)),
         });
     }
+    install_bundled_theme(cx);
     apply_saved_theme(cx);
 }
 
 /// App name + version for the About page (from the app crate).
 pub fn set_app_info(name: &'static str, version: &'static str) {
     let _ = APP_INFO.set((name, version));
+}
+
+/// Register bundled themes and install Mocha as the dark-mode palette:
+/// the config takes the `Theme` global's dark slot, so every plain switch
+/// to dark (dropdown or persisted mode, with or without a persisted
+/// theme name) renders Catppuccin Mocha. A user-picked theme still
+/// overrides it (set_theme writes the same slot).
+fn install_bundled_theme(cx: &mut App) {
+    let registry = ThemeRegistry::global_mut(cx);
+    if let Err(err) = registry.load_themes_from_str(CATPPUCCIN_MOCHA) {
+        eprintln!("dashboard: failed to load bundled theme: {err}");
+        return;
+    }
+    let Some(config) = ThemeRegistry::global(cx)
+        .themes()
+        .get(CATPPUCCIN_MOCHA_NAME)
+        .cloned()
+    else {
+        return;
+    };
+    let mode = cx.theme().mode;
+    Theme::global_mut(cx).dark_theme = config;
+    // If the app is currently dark, re-apply so Mocha takes effect now
+    // (boot restore with a persisted dark mode runs after this).
+    if mode.is_dark() {
+        Theme::change(mode, None, cx);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -207,7 +242,9 @@ pub fn appearance_page(cx: &App) -> SettingPage {
                     |cx: &App| cx.theme().theme_name().clone(),
                     |value: gpui::SharedString, cx: &mut App| set_theme(&value, cx),
                 )
-                .default_value("Default"),
+                // Not resettable: Reset All would force-apply a theme and
+                // flip mode — theme choice is not a "factory default"
+                // concept here (mode alone is).
             )
             .description("Color palette for the selected mode.")
             .keywords(["colors", "palette", "colorscheme"]),
@@ -407,5 +444,24 @@ mod tests {
         assert!(matches!(parse_mode("light"), ThemeMode::Light));
         assert!(matches!(parse_mode("bogus"), ThemeMode::Light));
         assert!(matches!(parse_mode(""), ThemeMode::Light));
+    }
+
+    #[test]
+    fn bundled_catppuccin_mocha_is_valid_dark_theme() {
+        let value: serde_json::Value = serde_json::from_str(CATPPUCCIN_MOCHA).unwrap();
+        let theme = &value["themes"][0];
+        assert_eq!(theme["name"], "Catppuccin Mocha");
+        assert_eq!(theme["mode"], "dark");
+        // Sapphire accent drives the control surfaces.
+        assert_eq!(theme["colors"]["primary.background"], "#74c7ec");
+        assert_eq!(theme["colors"]["ring"], "#74c7ec");
+        // Mocha base/mantle/text on the app shell.
+        assert_eq!(theme["colors"]["background"], "#1e1e2e");
+        assert_eq!(theme["colors"]["sidebar.background"], "#181825");
+        assert_eq!(theme["colors"]["foreground"], "#cdd6f4");
+        // It parses against the library's schema (same path as boot).
+        let set: gpui_component::ThemeSet = serde_json::from_str(CATPPUCCIN_MOCHA).unwrap();
+        assert_eq!(set.themes.len(), 1);
+        assert!(set.themes[0].mode.is_dark());
     }
 }
