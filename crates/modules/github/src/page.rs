@@ -483,8 +483,21 @@ impl GithubPage {
                         .gap_1()
                         .child(
                             h_flex()
+                                .id("repo-link")
                                 .gap_1p5()
                                 .items_center()
+                                .cursor_pointer()
+                                // Same affordance as PR rows: the repo title
+                                // links to the repo on github.com.
+                                .hover(|s| s.underline())
+                                .on_click({
+                                    let url = repo.html_url.clone();
+                                    move |_, _, cx| {
+                                        if !url.is_empty() {
+                                            cx.open_url(&url);
+                                        }
+                                    }
+                                })
                                 .child(
                                     div()
                                         .text_base()
