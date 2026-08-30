@@ -3,8 +3,6 @@ resolver = "3"
 members = [
     "crates/app",
     "crates/core",
-    "crates/modules/clock",
-    "crates/modules/notes",
     "crates/modules/github",
 ]
 
@@ -20,8 +18,6 @@ gpui_platform = { git = "https://github.com/zed-industries/zed", features = ["fo
 gpui-component = { git = "https://github.com/longbridge/gpui-component" }
 gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
 dashboard-core = { path = "crates/core" }
-dashboard-module-clock = { path = "crates/modules/clock" }
-dashboard-module-notes = { path = "crates/modules/notes" }
 dashboard-module-github = { path = "crates/modules/github" }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 dirs = "6"
