@@ -70,5 +70,5 @@ Core requirements (owner, 2026-08-28 — drive the design, not decisions):
 - ~~0006~~ — Settings page (number reused; see doc 0006 above). Build,
   packaging & distribution per OS moves to a new number when written
 - 0007 — File-based color themes (user themes dir, hot reload via
-  `ThemeRegistry::watch_dir`) — proposed, upstream basis verified in
-  PR #22; requires a design doc
+  `ThemeRegistry::watch_dir`) — proposed, tracked in #23; requires a
+  design doc (upstream basis verified in PR #22)
