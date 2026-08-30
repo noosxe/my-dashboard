@@ -81,11 +81,11 @@ Settings are user state, not data. `0004` puts module *data* under
   density story?
 
 ### Q6 — About page contents
-- **Proposal:** app name + `CARGO_PKG_VERSION`, module list (from the
-  registry, with icons), "Open state folder" / "Open data folder" buttons
-  (`SettingFieldElement`-style custom fields calling `cx.open_url` on the
-  folder paths — same launcher as PR links; exact `file://` handling on
-  Linux verified at implementation time), repo link.
+- **Decision:** app name + `CARGO_PKG_VERSION`, module list (from the
+  registry, with icons), repo link — a `SettingFieldElement`-style
+  custom field calling `cx.open_url`. Folder-open rows (state/data/
+  cache) were dropped pre-merge: no operational need — the paths are
+  XDG-stable and documented in docs/0004.
   License texts NOT bundled in v1 (link instead).
 - **Your call:** anything else you want on it?
 
@@ -329,8 +329,8 @@ impl Render for SettingsPage {
     `CARGO_PKG_VERSION`), module list row (icons + titles from the
     registry), links row (`SettingFieldElement`-style buttons: repository
     URL, license).
-  - Group "Storage": "Open state folder" / "Open data folder" /
-    "Open cache folder" — same `cx.open_url` mechanism as PR links.
+  - (No Storage group: folder-open rows were dropped pre-merge at owner
+    request — see Q6.)
 - App-level persistence (pending Q3 shape, app-owned part): `AppSettings`
   global + `state/settings.json` via `DebouncedSave`; loaded in
   `main.rs` beside `ShellState`:
