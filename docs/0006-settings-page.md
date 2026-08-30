@@ -1,6 +1,6 @@
 # 0006 — Settings (app settings shell, module-provided subpages)
 
-- **Status:** Draft (PR #20)
+- **Status:** Accepted (owner merged PR [#20](https://github.com/noosxe/my-dashboard/pull/20) `08315af` 2026-08-29; open questions Q1–Q6 resolved at implementation review — proposals stand unless overridden there)
 - **Date:** 2026-08-29
 - **Depends on:** 0003 (module contract, registry, navigator), 0004 (paths,
   persistence primitives, debounced saves), 0002 (shell chrome)
