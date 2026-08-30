@@ -212,6 +212,14 @@ All paths relative to the gpui-component checkout.
   `CARGO_PKG_VERSION`, so `settings::set_app_info(name, version)` passes
   it in from `main` (OnceLock).
 - The module settings provider receives `(&mut Window, &mut App)`; the
+- **Bundled dark palette (owner request):** `Catppuccin Mocha` (sapphire
+  accent) ships at `crates/core/assets/themes/catppuccin-mocha.json`, is
+  registered into the `ThemeRegistry` at boot, and is installed into the
+  `Theme` global's **dark slot** — so every plain switch to Dark (dropdown
+  or persisted `theme_mode`, with or without a persisted theme name)
+  renders Mocha. An explicitly picked theme still overrides it, and the
+  theme picker is deliberately not resettable (Reset All would
+  force-apply a theme and flip the mode).
   GitHub page uses the `&App` to read its state entity when building the
   page, so rows are live on every settings render.
 ## 4. Design
