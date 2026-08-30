@@ -43,11 +43,15 @@ pub const CATPPUCCIN_MOCHA_NAME: &str = "Catppuccin Mocha";
 /// fields degrade to library defaults, never errors.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppSettings {
-    /// `"light"` / `"dark"` (`ThemeMode::name()`); `None` = library default.
+    /// The live appearance (`System` is implicit: `None`); see `MODE_SYSTEM`.
     pub theme_mode: Option<String>,
-    /// A `ThemeRegistry` theme name (e.g. `"Default Dark"`); `None` =
-    /// library default.
-    pub theme_name: Option<String>,
+    /// Palette of the **light** slot — a light-mode `ThemeRegistry` name
+    /// (e.g. `"Default Light"`); `None` = library default.
+    pub theme_name_light: Option<String>,
+    /// Palette of the **dark** slot — a dark-mode `ThemeRegistry` name
+    /// (e.g. the bundled `"Catppuccin Mocha"`); `None` = factory dark
+    /// (Mocha, installed by [`install_bundled_theme`]).
+    pub theme_name_dark: Option<String>,
 }
 
 impl Global for AppSettings {}
@@ -91,11 +95,10 @@ pub fn set_app_info(name: &'static str, version: &'static str) {
     let _ = APP_INFO.set((name, version));
 }
 
-/// Register bundled themes and install Mocha as the dark-mode palette:
-/// the config takes the `Theme` global's dark slot, so every plain switch
-/// to dark (dropdown or persisted mode, with or without a persisted
-/// theme name) renders Catppuccin Mocha. A user-picked theme still
-/// overrides it (set_theme writes the same slot).
+/// Register bundled themes and install Mocha as the factory dark palette:
+/// the config takes the `Theme` global's dark slot, so a fresh boot with
+/// the OS in dark renders Catppuccin Mocha. A persisted dark palette or
+/// slot picker choice overrides it (same slot).
 fn install_bundled_theme(cx: &mut App) {
     let registry = ThemeRegistry::global_mut(cx);
     if let Err(err) = registry.load_themes_from_str(CATPPUCCIN_MOCHA) {
@@ -137,46 +140,44 @@ fn parse_mode_opt(name: &str) -> Option<ThemeMode> {
     }
 }
 
-/// Install a named registry theme into the slot matching its mode — no
-/// mode change, no refresh. Returns the config's mode.
-/// Unknown names return `None` (stderr note; hand-edited or stale
-/// settings degrade to the current theme).
-fn install_named_theme(name: &str, cx: &mut App) -> Option<ThemeMode> {
+/// Install a named registry theme into one specific slot — no mode
+/// change, no refresh. Returns `false` for unknown names or configs
+/// whose own mode doesn't match the target slot (stderr note; hand-edited
+/// or stale settings degrade to the current palette).
+fn install_slot_theme(mode: ThemeMode, name: &str, cx: &mut App) -> bool {
     let Some(config) = ThemeRegistry::global(cx).themes().get(name).cloned() else {
         eprintln!("dashboard: unknown theme name in settings: {name:?}");
-        return None;
+        return false;
     };
+    if config.mode != mode {
+        eprintln!("dashboard: theme {name:?} is not a {} palette", mode.name());
+        return false;
+    }
     // Pattern from the upstream theme picker (color_theme_story.rs): the
-    // config lands in the slot matching ITS mode; `Theme::change` then
-    // applies the slot and syncs the base layer.
-    let theme_mode = config.mode;
+    // config lands in its slot; `Theme::change` then applies the live
+    // slot and syncs the base layer.
     let theme = Theme::global_mut(cx);
-    if theme_mode.is_dark() {
+    if mode.is_dark() {
         theme.dark_theme = config;
     } else {
         theme.light_theme = config;
     }
-    Some(theme_mode)
-}
-
-/// Apply a named theme now (slot install + switch to its own mode).
-fn apply_named_theme(name: &str, cx: &mut App) -> bool {
-    let Some(theme_mode) = install_named_theme(name, cx) else {
-        return false;
-    };
-    Theme::change(theme_mode, None, cx);
     true
 }
 
-/// Boot-time restore: a saved theme name installs into its mode slot
-/// (per-slot — the mode below decides which slot is live), then the
-/// saved mode applies — or, with no saved mode (first boot / `System`),
-/// the OS appearance. All idempotent at defaults.
+/// Boot-time restore: saved palettes install into their slots (light and
+/// dark independently), then the saved mode applies — or, with no saved
+/// mode (first boot / `System`), the OS appearance. All idempotent at
+/// defaults.
 fn apply_saved_theme(cx: &mut App) {
-    let name = cx.global::<AppSettings>().theme_name.clone();
+    let light = cx.global::<AppSettings>().theme_name_light.clone();
+    let dark = cx.global::<AppSettings>().theme_name_dark.clone();
     let mode = cx.global::<AppSettings>().theme_mode.clone();
-    if let Some(name) = name {
-        install_named_theme(&name, cx);
+    if let Some(name) = light {
+        install_slot_theme(ThemeMode::Light, &name, cx);
+    }
+    if let Some(name) = dark {
+        install_slot_theme(ThemeMode::Dark, &name, cx);
     }
     match mode.as_deref().and_then(parse_mode_opt) {
         Some(mode) => Theme::change(mode, None, cx),
@@ -226,17 +227,26 @@ pub fn sync_window_appearance(window: &mut Window, cx: &mut App) {
     }
 }
 
-/// Select a named registry theme and persist. The theme's own mode wins
-/// (the picker switches both together), mirroring the upstream picker.
-pub(crate) fn set_theme(name: &str, cx: &mut App) {
-    if apply_named_theme(name, cx) {
-        let mode_name = cx.theme().mode.name().to_string();
-        let values = cx.global_mut::<AppSettings>();
-        values.theme_name = Some(name.to_string());
-        values.theme_mode = Some(mode_name);
-        persist(cx);
-        cx.refresh_windows();
+/// Set the palette of one slot (light or dark) and persist it. Never
+/// touches the live mode: if that slot is currently displayed it is
+/// re-applied, otherwise the change lands silently until the mode
+/// switches (mode and palette are orthogonal).
+pub(crate) fn set_theme_slot(mode: ThemeMode, name: &str, cx: &mut App) {
+    if !install_slot_theme(mode, name, cx) {
+        return;
     }
+    let live_mode = cx.theme().mode;
+    if live_mode == mode {
+        Theme::change(mode, None, cx);
+    }
+    let values = cx.global_mut::<AppSettings>();
+    if mode.is_dark() {
+        values.theme_name_dark = Some(name.to_string());
+    } else {
+        values.theme_name_light = Some(name.to_string());
+    }
+    persist(cx);
+    cx.refresh_windows();
 }
 
 // ---------------------------------------------------------------------------
@@ -247,16 +257,23 @@ pub(crate) fn set_theme(name: &str, cx: &mut App) {
 pub fn appearance_page(cx: &App) -> SettingPage {
     // Registry content is static per boot (defaults + ./themes dir watched
     // by the library, if ever used) — rebuilt per render, cheap.
-    let themes: Vec<(String, String)> = ThemeRegistry::global(cx)
-        .sorted_themes()
-        .into_iter()
-        .map(|t| (t.name.to_string(), t.name.to_string()))
-        .collect();
-    let theme_options: Vec<(gpui::SharedString, gpui::SharedString)> = themes
-        .iter()
-        .map(|(name, label)| (name.clone().into(), label.clone().into()))
-        .collect();
-
+    let options = |mode: ThemeMode| -> Vec<(gpui::SharedString, gpui::SharedString)> {
+        ThemeRegistry::global(cx)
+            .sorted_themes()
+            .into_iter()
+            .filter(|t| t.mode == mode)
+            .map(|t| {
+                let name = t.name.to_string();
+                (name.clone().into(), name.into())
+            })
+            .collect()
+    };
+    let light_options = options(ThemeMode::Light);
+    let dark_options = options(ThemeMode::Dark);
+    let default_light = ThemeRegistry::global(cx)
+        .default_light_theme()
+        .name
+        .to_string();
     SettingPage::new("Appearance")
         .icon(Icon::new(IconName::Palette))
         .description("Theme mode and color palette.")
@@ -283,18 +300,32 @@ pub fn appearance_page(cx: &App) -> SettingPage {
             .description("Follow the OS appearance, or force light or dark.")
             .keywords(["system", "dark", "light", "mode", "night"]),
             SettingItem::new(
-                "Theme",
+                "Light palette",
                 SettingField::scrollable_dropdown(
-                    theme_options,
-                    |cx: &App| cx.theme().theme_name().clone(),
-                    |value: gpui::SharedString, cx: &mut App| set_theme(&value, cx),
+                    light_options,
+                    |cx: &App| cx.theme().light_theme.name.clone(),
+                    |value: gpui::SharedString, cx: &mut App| {
+                        set_theme_slot(ThemeMode::Light, &value, cx)
+                    },
                 )
-                // Not resettable: Reset All would force-apply a theme and
-                // flip mode — theme choice is not a "factory default"
-                // concept here (mode alone is).
+                .default_value(default_light.as_str()),
             )
-            .description("Color palette for the selected mode.")
-            .keywords(["colors", "palette", "colorscheme"]),
+            .description("Color palette applied in light mode.")
+            .keywords(["light", "palette", "colors", "colorscheme"]),
+            SettingItem::new(
+                "Dark palette",
+                SettingField::scrollable_dropdown(
+                    dark_options,
+                    |cx: &App| cx.theme().dark_theme.name.clone(),
+                    |value: gpui::SharedString, cx: &mut App| {
+                        set_theme_slot(ThemeMode::Dark, &value, cx)
+                    },
+                )
+                // Factory dark = the bundled Mocha (install_bundled_theme).
+                .default_value(CATPPUCCIN_MOCHA_NAME),
+            )
+            .description("Color palette applied in dark mode.")
+            .keywords(["dark", "palette", "mocha", "colors", "colorscheme"]),
         ])])
 }
 
@@ -463,12 +494,14 @@ mod tests {
     fn app_settings_roundtrip() {
         let values = AppSettings {
             theme_mode: Some("dark".into()),
-            theme_name: Some("Default Dark".into()),
+            theme_name_light: Some("Default Light".into()),
+            theme_name_dark: Some("Catppuccin Mocha".into()),
         };
         let json = serde_json::to_string(&values).unwrap();
         let back: AppSettings = serde_json::from_str(&json).unwrap();
         assert_eq!(back.theme_mode.as_deref(), Some("dark"));
-        assert_eq!(back.theme_name.as_deref(), Some("Default Dark"));
+        assert_eq!(back.theme_name_light.as_deref(), Some("Default Light"));
+        assert_eq!(back.theme_name_dark.as_deref(), Some("Catppuccin Mocha"));
     }
 
     #[test]
@@ -478,7 +511,11 @@ mod tests {
         let back: AppSettings =
             serde_json::from_str(r#"{"theme_mode":"light","future_field":42}"#).unwrap();
         assert_eq!(back.theme_mode.as_deref(), Some("light"));
-        assert!(back.theme_name.is_none());
+        // Legacy pre-split files: `theme_name` is dropped like any unknown
+        // field; the palettes fall back to factory (Mocha dark, stock light).
+        let legacy: AppSettings = serde_json::from_str(r#"{"theme_name":"Default Dark"}"#).unwrap();
+        assert!(legacy.theme_name_light.is_none());
+        assert!(legacy.theme_name_dark.is_none());
 
         let empty: AppSettings = serde_json::from_str("{}").unwrap();
         assert_eq!(empty, AppSettings::default());
