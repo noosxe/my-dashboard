@@ -222,16 +222,21 @@ All paths relative to the gpui-component checkout.
   `CARGO_PKG_VERSION`, so `settings::set_app_info(name, version)` passes
   it in from `main` (OnceLock).
 - The module settings provider receives `(&mut Window, &mut App)`; the
+  GitHub page reads its state entity through `&App` when building the
+  page, so rows are live on every settings render.
 - **Bundled dark palette (owner request):** `Catppuccin Mocha` (sapphire
   accent) ships at `crates/core/assets/themes/catppuccin-mocha.json`, is
   registered into the `ThemeRegistry` at boot, and is installed into the
-  `Theme` global's **dark slot** — so every plain switch to Dark (dropdown
-  or persisted `theme_mode`, with or without a persisted theme name)
-  renders Mocha. An explicitly picked theme still overrides it, and the
-  theme picker is deliberately not resettable (Reset All would
-  force-apply a theme and flip the mode).
-- The module settings provider receives `(&mut Window, &mut App)`; the
-  page, so rows are live on every settings render.
+  `Theme` global's **dark slot** — the factory dark palette. A persisted
+  `theme_name_dark` or a Dark-palette picker choice overrides it.
+- **Slot palettes, orthogonal mode (owner request):** the single theme
+  picker became two pickers — **Light palette** and **Dark palette** —
+  whose options are filtered by the theme's own mode. A choice writes
+  only that slot (`install_slot_theme`) and persists `theme_name_light`
+  / `theme_name_dark`; it never flips the mode. Both pickers are
+  resettable (factory: the registry's default light / the bundled
+  Mocha) — Reset All flows through the setters, which re-apply the
+  slot only if it is the live one.
 ## 4. Design
 
 ### 4.1 Entry point
@@ -308,16 +313,17 @@ impl Render for SettingsPage {
 ### 4.4 App pages (v1, pending Q2/Q5/Q6)
 - **Appearance** (`AppSettings` global, core-owned):
   - Group "Theme": one `dropdown` (**System/Light/Dark** — "System" is
-    a pseudo-value, see §3.6; Light/Dark → `Theme::change`), one
-    `scrollable_dropdown` of theme names from `ThemeRegistry::themes()`
-    (sorted); setters write `AppSettings` + apply immediately. The Mode
-    getter reads the saved `theme_mode` (`None` → "System") so the
-    dropdown reflects the choice, not just the effective mode; the
-    theme getter reads live `Theme` state.
+    a pseudo-value, see §3.6; Light/Dark → `Theme::change`) and two
+    `scrollable_dropdown` **slot palettes** — "Light palette" / "Dark
+    palette", options filtered by each theme's own mode (see §3.6);
+    setters write `AppSettings` + apply immediately. The Mode getter
+    reads the saved `theme_mode` (`None` → "System") so the dropdown
+    reflects the choice, not just the effective mode; palette getters
+    read the live `Theme` slots.
   - Boot restore: after `gpui_component::init` in `main.rs`, load
-    `AppSettings`: saved theme name installs into its mode slot, then
-    the saved mode applies — or, with none, the OS appearance
-    (`sync_system_appearance`) — all before the window opens content.
+    `AppSettings`: saved palettes install into their slots (light/dark
+    independently), then the saved mode applies — or, with none, the OS
+    appearance (`sync_system_appearance`) — before the window opens.
 - **About** (static-ish, rebuilt per render):
   - Group "Application": version row (`SettingItem::render` — name +
     `CARGO_PKG_VERSION`), module list row (icons + titles from the
@@ -332,8 +338,9 @@ impl Render for SettingsPage {
   ```rust
   #[derive(Serialize, Deserialize, Default)]
   pub struct AppSettings {
-      pub theme_mode: Option<String>,  // "system" | "light" | "dark"
-      pub theme_name: Option<String>,
+      pub theme_mode: Option<String>,       // "system" | "light" | "dark"
+      pub theme_name_light: Option<String>, // light-slot palette
+      pub theme_name_dark: Option<String>,  // dark-slot palette
   }
   ```
   (serde defaults everywhere → forward-compatible; unknown fields ignored.)
