@@ -8,8 +8,12 @@
 //! `~/.local/state` deviation).
 //!
 //! `DASHBOARD_STATE_DIR` redirects all roots under itself
-//! (`{root}/{config,data,state,cache}`) for tests, dev runs and Nix
-//! isolation — same shape as Zed's `set_custom_data_dir`.
+//! (`{root}/{config,data,state,cache,runtime}`) for tests, dev runs and
+//! Nix isolation — same shape as Zed's `set_custom_data_dir`.
+//!
+//! The runtime root (docs/0010 D2) is the volatile per-user slot for the
+//! debug bridge's socket + token: `$XDG_RUNTIME_DIR/my-dashboard` on Linux,
+//! with the state root as fallback when the session has no runtime dir.
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -22,6 +26,7 @@ pub struct AppPaths {
     data: PathBuf,
     state: PathBuf,
     cache: PathBuf,
+    runtime: PathBuf,
 }
 
 impl AppPaths {
@@ -44,6 +49,7 @@ impl AppPaths {
                 data: root.join("data"),
                 state: root.join("state"),
                 cache: root.join("cache"),
+                runtime: root.join("runtime"),
             };
         }
 
@@ -54,13 +60,17 @@ impl AppPaths {
             let app_support = dirs::data_local_dir()
                 .expect("failed to resolve ~/Library/Application Support")
                 .join(APP_DIR_NAME);
+            let cache = dirs::cache_dir()
+                .expect("failed to resolve ~/Library/Caches")
+                .join(APP_DIR_NAME);
             AppPaths {
                 config: app_support.clone(),
                 data: app_support.clone(),
-                state: app_support,
-                cache: dirs::cache_dir()
-                    .expect("failed to resolve ~/Library/Caches")
-                    .join(APP_DIR_NAME),
+                state: app_support.clone(),
+                cache,
+                // No macOS runtime convention either — state-root fallback
+                // (docs/0010 D2; macOS support is deferred anyway).
+                runtime: app_support.join("runtime"),
             }
         }
 
@@ -72,6 +82,14 @@ impl AppPaths {
             let state_root = dirs::state_dir()
                 .or_else(dirs::data_local_dir)
                 .expect("failed to resolve XDG state home");
+            let state = state_root.join(APP_DIR_NAME);
+            // Volatile per-user slot (docs/0010 D2): XDG runtime dir when the
+            // session provides one (SSH sessions sometimes don't), state
+            // root otherwise.
+            let runtime = std::env::var_os("XDG_RUNTIME_DIR")
+                .filter(|v| !v.is_empty())
+                .map(|v| PathBuf::from(v).join(APP_DIR_NAME))
+                .unwrap_or_else(|| state.join("runtime"));
             AppPaths {
                 config: dirs::config_dir()
                     .expect("failed to resolve XDG config home")
@@ -79,10 +97,11 @@ impl AppPaths {
                 data: dirs::data_local_dir()
                     .expect("failed to resolve XDG data home")
                     .join(APP_DIR_NAME),
-                state: state_root.join(APP_DIR_NAME),
+                state,
                 cache: dirs::cache_dir()
                     .expect("failed to resolve XDG cache home")
                     .join(APP_DIR_NAME),
+                runtime,
             }
         }
     }
@@ -109,6 +128,12 @@ impl AppPaths {
 
     pub fn cache_dir(&self) -> &Path {
         &self.cache
+    }
+
+    /// Volatile per-user root for the debug bridge socket + token
+    /// (docs/0010 D2). Created by the debug server on demand.
+    pub fn runtime_dir(&self) -> &Path {
+        &self.runtime
     }
 
     /// App settings file (`<state>/settings.json`, docs/0006 §4.4).
@@ -173,6 +198,10 @@ mod tests {
         assert_eq!(paths.data_dir(), Path::new("/tmp/dash-test-root/data"));
         assert_eq!(paths.state_dir(), Path::new("/tmp/dash-test-root/state"));
         assert_eq!(paths.cache_dir(), Path::new("/tmp/dash-test-root/cache"));
+        assert_eq!(
+            paths.runtime_dir(),
+            Path::new("/tmp/dash-test-root/runtime")
+        );
     }
 
     #[test]

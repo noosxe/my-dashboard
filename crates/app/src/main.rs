@@ -48,6 +48,19 @@ fn main() {
             let paths = AppPaths::init();
             std::mem::forget(dashboard_core::logging::init(paths));
 
+            // Agent Debug Bridge (docs/0010, #45): Unix-socket debug
+            // server — starts with the app; failures are logged and
+            // non-fatal by design (the bridge must never take the app
+            // down with it). Off entirely when the feature is absent.
+            #[cfg(feature = "debug-tools")]
+            if let Some(socket) = dashboard_debug::start(cx) {
+                log::info!(
+                    target: "dashboard_app",
+                    "debug bridge listening on {}",
+                    socket.display()
+                );
+            }
+
             // MUST be called before using any gpui-component features.
             gpui_component::init(cx);
 

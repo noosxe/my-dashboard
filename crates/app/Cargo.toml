@@ -19,3 +19,10 @@ gpui-component.workspace = true
 gpui-component-assets.workspace = true
 dashboard-core.workspace = true
 dashboard-module-github.workspace = true
+dashboard-debug = { workspace = true, optional = true }
+
+[features]
+# Agent Debug Bridge (docs/0010 D1): on by default so `cargo run` always
+# serves; release packaging can drop it.
+default = ["debug-tools"]
+debug-tools = ["dep:dashboard-debug"]

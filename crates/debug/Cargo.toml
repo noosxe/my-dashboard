@@ -1,0 +1,18 @@
+[package]
+name = "dashboard-debug"
+description = "Agent Debug Bridge — in-process socket server + protocol (docs/0010)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+gpui.workspace = true
+dashboard-core.workspace = true
+log.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+# Unbounded channel for socket-thread → main-thread job marshalling (D3);
+# `unbounded_send` is callable from plain threads, the receiver is awaited
+# on the foreground executor.
+futures = "0.3"

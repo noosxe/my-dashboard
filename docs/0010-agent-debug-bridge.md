@@ -140,8 +140,8 @@ ptrace, no re-launch dance.
   "params": {...}}` / `{"id": n, "result": {...}}` /
   `{"id": n, "error": {"code": c, "message": m}}`.
 - Auth: first line MUST be
-  `{"id": 0, "method": "auth", "params": {"token": "…"}}`; the server
-  closes the connection on mismatch. The token is defense-in-depth (the
+  `{"id": 0, "method": "auth", "params": {"token": "…"}}`; on mismatch the server
+  answers `4001` and closes. The token is defense-in-depth (the
   socket is same-user anyway) and an explicit opt-in handshake.
 
 ### D3 — Threading: socket thread → mpsc → main-thread executor
@@ -188,10 +188,10 @@ zero cost until first use.
 | Method | Params | Result |
 |---|---|---|
 | `tree.dump` | `{window?}` | merged tree JSON (D4) |
-| `input.dispatch` | `{window?, event}` (below) | `{propagate, default_prevented}` (from `DispatchEventResult`) |
+| `input.dispatch` | `{window?, event}` (below) | `{propagate, default_prevented}` for pointer/scroll/`key_up` (`DispatchEventResult`); `{handled}` for `key_down` (the `dispatch_keystroke` outcome — its ime wrapper doesn't expose the result struct) |
 | `input.click_node` | `{window?, node: accesskit_id, button? = "left", click_count? = 1}` | `{ok: true}` |
 | `input.focus_node` | `{window?, node}` | `{ok: true}` |
-| `window.list` | `{}` | `[{id, title, bounds, viewport, scale_factor}]` |
+| `window.list` | `{}` | `[{id, bounds, viewport, scale_factor}]` — `title` arrives with #46 (a11y root label; gpui has no public title getter, only `set_window_title`) |
 | `window.geometry` | `{window?}` | one entry of the above |
 | `app.logs` | `{since?, limit? = 200}` | `{lines, next_cursor}` (D8) |
 
