@@ -9,7 +9,7 @@
 //!
 //! Tolerance follows [DG] per-repo degradation: node lists parse per item —
 //! a null/malformed repo (permission error, deleted mid-flight) is skipped
-//! with a stderr note, never failing the whole snapshot.
+//! with a warning, never failing the whole snapshot.
 
 use serde::{Deserialize, Serialize};
 
@@ -434,7 +434,7 @@ struct IssueNode {
     url: String,
 }
 
-/// Parse a list of raw nodes tolerantly: per-item failures log to stderr
+/// Parse a list of raw nodes tolerantly: per-item failures log a warning
 /// and degrade that item alone ([DG] — never the whole snapshot).
 fn parse_nodes<T: serde::de::DeserializeOwned>(values: &[serde_json::Value]) -> Vec<T> {
     values
@@ -442,7 +442,7 @@ fn parse_nodes<T: serde::de::DeserializeOwned>(values: &[serde_json::Value]) -> 
         .filter_map(|v| match serde_json::from_value::<T>(v.clone()) {
             Ok(node) => Some(node),
             Err(e) => {
-                eprintln!("[github] snapshot: skipping malformed node: {e}");
+                log::warn!("snapshot: skipping malformed node: {e}");
                 None
             }
         })

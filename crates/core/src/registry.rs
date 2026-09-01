@@ -38,6 +38,7 @@ impl ModuleRegistry {
         cx: &mut App,
     ) -> Self {
         let entry = M::init(nav, window, paths, cx);
+        log::debug!("module installed: {}", entry.meta.id);
         self.index.insert(entry.meta.id.clone(), self.entries.len());
         self.entries.push(entry);
         self

@@ -39,14 +39,29 @@ fn main() {
         .with_assets(AppAssets)
         .run(move |cx| {
             // MUST be called before using any gpui-component features.
+
+            // Storage roots + the app logger (docs/0008 D5) — logging
+            // starts before anything else can emit, so every later
+            // event (settings restore, modules, fetches) lands in the
+            // file. The handle is leaked: dropping it mid-run would shut
+            // the writers down while the app is still going.
+            let paths = AppPaths::init();
+            std::mem::forget(dashboard_core::logging::init(paths));
+
+            // MUST be called before using any gpui-component features.
             gpui_component::init(cx);
 
-            // Storage roots + persisted app settings (theme restore —
-            // docs/0006 §4.4) before any window or module exists.
-            let paths = AppPaths::init();
+            // Persisted app settings (theme restore — docs/0006 §4.4)
+            // before any window or module exists.
             dashboard_core::settings::init(Some(paths.settings_file()), cx);
             dashboard_core::settings::set_app_info("Dashboard", env!("CARGO_PKG_VERSION"));
-
+            log::info!(
+                target: "dashboard_app",
+                "dashboard {} starting: data={}, state={}",
+                env!("CARGO_PKG_VERSION"),
+                paths.data_dir().display(),
+                paths.state_dir().display(),
+            );
             let window_options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
                     None,
@@ -72,7 +87,7 @@ fn main() {
                     // 0004); here they seed the shell state path.
                     let shell_state_path = paths.shell_state_file();
                     let shell_state: ShellState = load_json(&shell_state_path)
-                        .inspect_err(|err| eprintln!("dashboard: shell state load failed: {err}"))
+                        .inspect_err(|err| log::warn!("shell state load failed: {err}"))
                         .ok()
                         .flatten()
                         .unwrap_or_default();
@@ -109,6 +124,7 @@ fn main() {
                     cx.new(|cx| Root::new(shell, window, cx))
                 })
                 .expect("Failed to open window");
+                log::info!(target: "dashboard_app", "window opened");
             })
             .detach();
         });

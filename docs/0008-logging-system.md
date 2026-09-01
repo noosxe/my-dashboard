@@ -97,9 +97,9 @@ default. `RUST_LOG` (flexi/env_logger syntax) overrides the whole spec
 when set; a parse failure falls back to the default with a stderr note
 — **logging misconfiguration never blocks boot**. Because
 `try_with_env()` alone logs nothing when the variable is unset (§3
-trap), init reads the variable and dispatches to a spec-based
-constructor; exact constructor names pinned at implementation against
-0.31.10 docs.
+trap), init reads the variable itself and dispatches to
+`Logger::try_with_str` (pinned: spec-string constructor,
+`FlexiLoggerError::Parse` on malformed input).
 
 ### D4 — Storage location: `AppPaths::logs_dir()` = `data_dir()/logs`
 
@@ -180,8 +180,9 @@ the pre-logger boot path and the fallback ladder.
 
 ## 7. Acceptance criteria
 
-- Fresh launch writes `<data_dir>/logs/dashboard.log` with the boot
-  info lines; closing the app leaves a complete file
+- Fresh launch writes `<data_dir>/logs/dashboard_rCURRENT.log` (the live
+  file under `Naming::Numbers`; rotated files are `dashboard_r0000N.log`)
+  with the boot info lines; closing the app leaves a complete file
 - Run from a terminal: error/warn/info mirror to stderr; `RUST_LOG=
   dashboard_module_github=debug` shows fetch request/response lines
 - A gpui warning (e.g. forced by a broken asset path) appears in the

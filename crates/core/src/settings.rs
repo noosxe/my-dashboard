@@ -75,7 +75,7 @@ static APP_INFO: std::sync::OnceLock<(&'static str, &'static str)> = std::sync::
 pub fn init(path: Option<PathBuf>, cx: &mut App) {
     let values = path.as_deref().and_then(|p| {
         load_json::<AppSettings>(p)
-            .inspect_err(|err| eprintln!("dashboard: app settings load failed: {err}"))
+            .inspect_err(|err| log::warn!("app settings load failed: {err}"))
             .ok()
             .flatten()
     });
@@ -101,7 +101,7 @@ pub fn set_app_info(name: &'static str, version: &'static str) {
 fn install_bundled_theme(cx: &mut App) {
     let registry = ThemeRegistry::global_mut(cx);
     if let Err(err) = registry.load_themes_from_str(CATPPUCCIN_MOCHA) {
-        eprintln!("dashboard: failed to load bundled theme: {err}");
+        log::warn!("failed to load bundled theme: {err}");
         return;
     }
     let Some(config) = ThemeRegistry::global(cx)
@@ -145,11 +145,11 @@ fn parse_mode_opt(name: &str) -> Option<ThemeMode> {
 /// or stale settings degrade to the current palette).
 fn install_slot_theme(mode: ThemeMode, name: &str, cx: &mut App) -> bool {
     let Some(config) = ThemeRegistry::global(cx).themes().get(name).cloned() else {
-        eprintln!("dashboard: unknown theme name in settings: {name:?}");
+        log::warn!("unknown theme name in settings: {name:?}");
         return false;
     };
     if config.mode != mode {
-        eprintln!("dashboard: theme {name:?} is not a {} palette", mode.name());
+        log::warn!("theme {name:?} is not a {} palette", mode.name());
         return false;
     }
     // Pattern from the upstream theme picker (color_theme_story.rs): the
@@ -184,6 +184,18 @@ fn apply_saved_theme(cx: &mut App) {
         // (`cx.window_appearance()`, xdg-desktop-portal on Linux).
         None => Theme::sync_system_appearance(None, cx),
     }
+    // docs/0008 §5: what the boot restore settled on (values, not a
+    // palette dump — names only).
+    let values = cx.global::<AppSettings>();
+    log::debug!(
+        "theme applied: mode={}, light={}, dark={}",
+        mode.as_deref().unwrap_or("system"),
+        values.theme_name_light.as_deref().unwrap_or("(default)"),
+        values
+            .theme_name_dark
+            .as_deref()
+            .unwrap_or("(bundled mocha)"),
+    );
 }
 
 /// Schedule a debounced write of the current values (no-op without a

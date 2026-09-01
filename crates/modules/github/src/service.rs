@@ -126,7 +126,7 @@ impl GithubCache {
 
     fn save_etags(&self, etags: &BTreeMap<String, String>) {
         if let Err(e) = store::save_json_atomic(&self.etags_path(), etags) {
-            eprintln!("[github] etag cache write failed: {e}");
+            log::warn!("etag cache write failed: {e}");
         }
     }
 
@@ -139,7 +139,7 @@ impl GithubCache {
             let _ = std::fs::create_dir_all(parent);
         }
         if let Err(e) = store::save_json_atomic(&self.last_known_path(rel), value) {
-            eprintln!("[github] last-known write failed ({rel}): {e}");
+            log::warn!("last-known write failed ({rel}): {e}");
         }
     }
 
@@ -233,6 +233,12 @@ fn run_rest(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
         };
         // ETag revalidation applies to page 1 only: 304 there means the
         // whole list is unchanged; mid-walk 304s keep what we collected.
+        log::debug!(
+            "fetch {}: page {page} (etag sent: {})",
+            spec.kind.kind_name(),
+            spec.etag.is_some() && page == 1
+        );
+        let sent_at = Instant::now();
         match http.request(
             Verb::Get,
             &page_url,
@@ -247,6 +253,15 @@ fn run_rest(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
                 status = result.status;
                 etag = result.etag;
                 rate = result.rate;
+                log::debug!(
+                    "fetch {}: page {page} → {} in {}ms",
+                    spec.kind.kind_name(),
+                    status,
+                    sent_at.elapsed().as_millis()
+                );
+                if status == 304 {
+                    log::debug!("fetch {}: unchanged (ETag 304)", spec.kind.kind_name());
+                }
                 if status != 200 {
                     break;
                 }
@@ -257,8 +272,8 @@ fn run_rest(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
                 if count == 0 && !body.trim().starts_with('[') {
                     // Non-array payload (error object) — surfaced below as
                     // a status the caller can act on.
-                    eprintln!(
-                        "[github] {}: non-array payload at page {page}",
+                    log::warn!(
+                        "{}: non-array payload at page {page}",
                         spec.kind.kind_name()
                     );
                     break;
@@ -325,8 +340,13 @@ fn run_snapshot(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
         .and_then(|c| c.as_str())
         .map(str::to_string);
 
-    for _ in 0..gql::SNAPSHOT_MAX_PAGES {
+    for page_no in 1..=gql::SNAPSHOT_MAX_PAGES {
         let variables = serde_json::json!({ "cursor": cursor });
+        log::debug!(
+            "fetch snapshot: page {page_no} (cursor: {})",
+            cursor.as_deref().unwrap_or("none")
+        );
+        let sent_at = Instant::now();
         match http.post_graphql(gql::GLOBAL_SNAPSHOT_QUERY, &variables) {
             Err(HttpError(m)) => {
                 network = Some(m);
@@ -335,6 +355,11 @@ fn run_snapshot(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
             Ok(result) => {
                 status = result.status;
                 rate = result.rate;
+                log::debug!(
+                    "fetch snapshot: page {page_no} → {} in {}ms",
+                    status,
+                    sent_at.elapsed().as_millis()
+                );
                 if status != 200 {
                     break;
                 }
@@ -345,7 +370,7 @@ fn run_snapshot(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
                 let value: Value = match serde_json::from_str(&body) {
                     Ok(v) => v,
                     Err(e) => {
-                        eprintln!("[github] snapshot: malformed page: {e}");
+                        log::warn!("snapshot: malformed page: {e}");
                         break;
                     }
                 };
@@ -432,11 +457,18 @@ fn run_repo_snapshot(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
     let mut body = None;
     let (owner, name) = split_full_name(spec.ident.as_deref().unwrap_or_default());
     let variables = serde_json::json!({ "owner": owner, "name": name });
+    log::debug!("fetch repo-snapshot: {}/{}", owner, name);
+    let sent_at = Instant::now();
     match http.post_graphql(gql::REPO_SNAPSHOT_QUERY, &variables) {
         Err(HttpError(m)) => network = Some(m),
         Ok(result) => {
             status = result.status;
             rate = result.rate;
+            log::debug!(
+                "fetch repo-snapshot: → {} in {}ms",
+                status,
+                sent_at.elapsed().as_millis()
+            );
             if status == 200 {
                 body = result.body;
             }
@@ -566,6 +598,12 @@ impl GithubState {
     pub fn plan_tick(&mut self, tick: u64) -> Vec<FetchSpec> {
         // Gate first: a rate-limit pause (or auth loss) defers bootstrap
         // too — the flag survives until the window passes.
+        if let Some(until) = self.rate_limited_until {
+            if now_epoch() >= until {
+                self.rate_limited_until = None;
+                log::info!("rate-limit window passed — resuming fetches");
+            }
+        }
         if self.gated() {
             return Vec::new();
         }
@@ -654,30 +692,45 @@ impl GithubState {
     /// stderr note — never a dialog.
     pub fn apply(&mut self, result: SpecResult) {
         if let Some(m) = result.network {
-            eprintln!("[github] {}: network error: {m}", result.kind.kind_name());
+            log::warn!("{}: network error: {m}", result.kind.kind_name());
             return;
         }
         match result.status {
             200 => {}
-            304 => return, // unchanged — stale data stays, nothing to do
+            304 => {
+                log::debug!("{}: unchanged (ETag 304)", result.kind.kind_name());
+                return; // unchanged — stale data stays, nothing to do
+            }
             401 => {
+                log::warn!(
+                    "{}: token rejected (401) — reconnect required",
+                    result.kind.kind_name()
+                );
                 self.auth = AuthStatus::TokenRejected;
                 return;
             }
             _ => {
                 if result.rate.is_some_and(|r| r.remaining == 0) {
                     self.rate_limited_until = result.rate.map(|r| r.reset_epoch);
+                    log::warn!(
+                        "{}: rate-limited (HTTP {}) — paused until epoch {}",
+                        result.kind.kind_name(),
+                        result.status,
+                        self.rate_limited_until.unwrap_or(0)
+                    );
+                } else {
+                    log::warn!("{}: HTTP {}", result.kind.kind_name(), result.status);
                 }
-                eprintln!(
-                    "[github] {}: HTTP {}",
-                    result.kind.kind_name(),
-                    result.status
-                );
                 return;
             }
         }
         if result.rate.is_some_and(|r| r.remaining == 0) {
             self.rate_limited_until = result.rate.map(|r| r.reset_epoch);
+            log::warn!(
+                "{}: rate-limited — paused until epoch {}",
+                result.kind.kind_name(),
+                self.rate_limited_until.unwrap_or(0)
+            );
         }
         let Some(body) = result.body.as_deref() else {
             return;
@@ -688,16 +741,18 @@ impl GithubState {
                 match serde_json::from_str::<gql::Envelope<gql::SnapshotData>>(body) {
                     Ok(env) => {
                         for e in &env.errors {
-                            eprintln!("[github] snapshot: {}", e.message);
+                            log::warn!("snapshot: {}", e.message);
                         }
                         let Some(data) = env.data else {
-                            return; // data null — stale data stays (docs/0007 §6)
+                            log::warn!("snapshot: data null — keeping last-known");
+                            return; // stale data stays (docs/0007 §6)
                         };
                         if let Some(rl) = &data.rate_limit {
                             if rl.remaining <= 0 {
                                 self.rate_limited_until = Some(rl.reset_epoch());
-                                eprintln!(
-                                    "[github] snapshot: GraphQL point budget exhausted; pausing"
+                                log::warn!(
+                                    "snapshot: GraphQL point budget exhausted — paused until {}",
+                                    rl.reset_at
                                 );
                             }
                         }
@@ -718,43 +773,48 @@ impl GithubState {
                         // One concise landing note — the owner's log
                         // verification point (docs/0007 §8).
                         let open_prs: i64 = self.repos.iter().map(|r| r.prs.total_count).sum();
-                        eprintln!(
-                            "[github] snapshot applied: {} repos, {} open PRs",
+                        log::info!(
+                            "snapshot applied: {} repos, {} open PRs",
                             self.repos.len(),
                             open_prs
                         );
                     }
-                    Err(e) => eprintln!("[github] snapshot payload: {e}"),
+                    Err(e) => log::warn!("snapshot payload: {e}"),
                 }
             }
             Kind::RepoSnapshot => {
                 match serde_json::from_str::<gql::Envelope<gql::RepoSnapshotData>>(body) {
                     Ok(env) => {
                         for e in &env.errors {
-                            eprintln!("[github] repo-snapshot: {}", e.message);
+                            log::warn!("repo-snapshot: {}", e.message);
                         }
                         match env.data.and_then(|d| d.repository) {
                             Some(value) => match gql::repo_from_value(&value) {
                                 Some(repo) => {
+                                    let prs = repo.prs.total_count;
+                                    let ident = result.ident.clone().unwrap_or_default();
                                     self.merge_repos(vec![repo], false);
                                     self.persist_snapshot();
+                                    log::info!("repo-snapshot applied: {ident}, {prs} open PRs");
                                 }
                                 None => {
-                                    eprintln!("[github] repo-snapshot: malformed repository node");
+                                    log::warn!("repo-snapshot: malformed repository node");
                                 }
                             },
-                            None => eprintln!(
-                                "[github] repo-snapshot: repository null — keeping last-known"
-                            ),
+                            None => {
+                                log::warn!("repo-snapshot: repository null — keeping last-known")
+                            }
                         }
                     }
-                    Err(e) => eprintln!("[github] repo-snapshot payload: {e}"),
+                    Err(e) => log::warn!("repo-snapshot payload: {e}"),
                 }
             }
             Kind::Notifications => match serde_json::from_str::<Vec<Notification>>(body) {
                 Ok(items) => {
                     self.cache.put("notifications", &items);
+                    let unread = items.iter().filter(|n| n.unread).count();
                     self.notifications = items;
+                    log::debug!("notifications applied: {} unread", unread);
                     // Docs/0007 D6: after the open-time fetch, the repo
                     // GroupBox derives from the global list.
                     if let Some(sel) = self.selected.clone() {
@@ -767,7 +827,7 @@ impl GithubState {
                         self.repo_notifications.insert(sel, derived);
                     }
                 }
-                Err(e) => eprintln!("[github] notifications payload: {e}"),
+                Err(e) => log::warn!("notifications payload: {e}"),
             },
             Kind::RepoNotifications => match (
                 result.ident.as_deref(),
@@ -775,10 +835,14 @@ impl GithubState {
             ) {
                 (Some(id), Ok(items)) => {
                     self.cache.put(&format!("notifs-{}", slug(id)), &items);
+                    log::debug!(
+                        "repo-notifications applied: {id}, {} unread",
+                        items.iter().filter(|n| n.unread).count()
+                    );
                     self.repo_notifications.insert(id.to_string(), items);
                 }
-                (None, _) => eprintln!("[github] repo-notifs spec without ident"),
-                (_, Err(e)) => eprintln!("[github] repo-notifs payload: {e}"),
+                (None, _) => log::warn!("repo-notifs spec without ident"),
+                (_, Err(e)) => log::warn!("repo-notifs payload: {e}"),
             },
         }
 
@@ -926,7 +990,18 @@ pub fn spawn_tick_loop(state: Entity<GithubState>, window: AnyWindowHandle, cx: 
 
             let (client, specs) =
                 cx.update(|cx| state.update(cx, |s, _| (s.client.clone(), s.plan_tick(tick))));
-
+            log::trace!(
+                "tick {tick}: {}",
+                if specs.is_empty() {
+                    "gated — nothing planned".to_string()
+                } else {
+                    specs
+                        .iter()
+                        .map(|s| s.kind.kind_name())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                }
+            );
             for spec in specs {
                 let client = client.clone();
                 let result = cx
@@ -967,7 +1042,13 @@ pub fn start_connect(state: Entity<GithubState>, window: AnyWindowHandle, cx: &m
             }
         };
 
-        // Step 2 — show the code, open the verification page once.
+        // Step 2 — show the code, open the verification page once. The
+        // user code itself is never logged (docs/0008 D7).
+        log::info!(
+            "device flow started (approval pending, poll every {}s, expires in {}s)",
+            start.interval_secs,
+            start.expires_in_secs
+        );
         cx.update(|cx| {
             state.update(cx, |s, _| {
                 s.auth = AuthStatus::ConnectFlow(ConnectPhase::AwaitApproval {
@@ -999,6 +1080,7 @@ pub fn start_connect(state: Entity<GithubState>, window: AnyWindowHandle, cx: &m
             };
             match outcome {
                 PollOutcome::Token(token) => {
+                    log::info!("token acquired — connected");
                     let saved = cx.update(|cx| state.update(cx, |s, _| s.install_token(token)));
                     match saved {
                         Ok(()) => {}
@@ -1047,6 +1129,9 @@ fn set_connect_phase(
 ) {
     cx.update(|cx| {
         state.update(cx, |s, _| {
+            if let ConnectPhase::Failed(why) = &phase {
+                log::warn!("connect flow failed: {why}");
+            }
             s.auth = AuthStatus::ConnectFlow(phase);
         });
     });
@@ -1055,6 +1140,7 @@ fn set_connect_phase(
 
 /// Sign-out orchestration (Q5): state wipe + refresh.
 pub fn sign_out_now(state: Entity<GithubState>, window: AnyWindowHandle, cx: &mut App) {
+    log::info!("signed out — token and caches cleared");
     state.update(cx, |s, _| s.sign_out());
     let _ = window.update(cx, |_, window, _| window.refresh());
 }
