@@ -51,6 +51,15 @@ pub trait Http: Send + Sync + 'static {
         body: Option<&str>,
         etag: Option<&str>,
     ) -> Result<HttpResult, HttpError>;
+
+    /// GraphQL transport (docs/0007 D5): POST the query + variables to
+    /// `api.github.com/graphql` as JSON with the bearer token. No ETag /
+    /// conditional path — GraphQL has none upstream.
+    fn post_graphql(
+        &self,
+        query: &str,
+        variables: &serde_json::Value,
+    ) -> Result<HttpResult, HttpError>;
 }
 
 const USER_AGENT: &str = concat!("my-dashboard/", env!("CARGO_PKG_VERSION"));
@@ -122,30 +131,60 @@ impl Http for UreqClient {
             }
         };
 
-        let status = response.status();
-        let etag = response.header("etag").map(str::to_string);
-        let rate = RateLimit::from_headers(
-            response.header("x-ratelimit-limit"),
-            response.header("x-ratelimit-remaining"),
-            response.header("x-ratelimit-reset"),
-        );
-        let body = if status == 304 {
-            None
-        } else {
-            Some(
-                response
-                    .into_string()
-                    .map_err(|e| HttpError(format!("body read failed: {e}")))?,
-            )
-        };
-
-        Ok(HttpResult {
-            status,
-            etag,
-            rate,
-            body,
-        })
+        finish(response)
     }
+
+    fn post_graphql(
+        &self,
+        query: &str,
+        variables: &serde_json::Value,
+    ) -> Result<HttpResult, HttpError> {
+        let body = serde_json::json!({ "query": query, "variables": variables }).to_string();
+        let mut req = self
+            .agent
+            .post(crate::gql::GRAPHQL_ENDPOINT)
+            .set("User-Agent", USER_AGENT)
+            .set("Accept", API_ACCEPT)
+            .set("Content-Type", "application/json");
+        if let Some(token) = self.token.read().ok().and_then(|t| t.clone()) {
+            req = req.set("Authorization", &format!("Bearer {token}"));
+        }
+        let response = match req.send_string(&body) {
+            Ok(r) => r,
+            Err(ureq::Error::Status(_, r)) => r,
+            Err(e) => return Err(HttpError(e.to_string())),
+        };
+        finish(response)
+    }
+}
+
+/// Shared response finishing: fold >=400 back into a normal result, pull
+/// ETag + rate-limit headers, and keep the 304-no-body contract. GraphQL
+/// responses carry no useful ETag (no conditional path) but do keep the
+/// rate-limit headers, which `finish` harvests the same way.
+fn finish(response: ureq::Response) -> Result<HttpResult, HttpError> {
+    let status = response.status();
+    let etag = response.header("etag").map(str::to_string);
+    let rate = RateLimit::from_headers(
+        response.header("x-ratelimit-limit"),
+        response.header("x-ratelimit-remaining"),
+        response.header("x-ratelimit-reset"),
+    );
+    let body = if status == 304 {
+        None
+    } else {
+        Some(
+            response
+                .into_string()
+                .map_err(|e| HttpError(format!("body read failed: {e}")))?,
+        )
+    };
+    Ok(HttpResult {
+        status,
+        etag,
+        rate,
+        body,
+    })
 }
 
 impl RateLimit {
@@ -224,6 +263,28 @@ pub(crate) mod mock {
                 url: url.into(),
                 body: body.map(str::to_string),
                 etag: etag.map(str::to_string),
+            });
+            self.responses
+                .lock()
+                .unwrap()
+                .pop_front()
+                .expect("MockHttp: request made with exhausted script")
+        }
+
+        fn post_graphql(
+            &self,
+            query: &str,
+            variables: &serde_json::Value,
+        ) -> Result<HttpResult, HttpError> {
+            self.requests.lock().unwrap().push(Recorded {
+                verb: Verb::Post,
+                url: crate::gql::GRAPHQL_ENDPOINT.into(),
+                // Record the serialized request body so tests can assert
+                // on query + variables.
+                body: Some(
+                    serde_json::json!({ "query": query, "variables": variables }).to_string(),
+                ),
+                etag: None,
             });
             self.responses
                 .lock()

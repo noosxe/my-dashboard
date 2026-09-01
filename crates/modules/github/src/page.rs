@@ -23,6 +23,7 @@ use gpui_component::{
 
 use crate::api;
 use crate::card::{REPO_LOCK, github_mark};
+use crate::gql;
 use crate::service::{
     AuthStatus, ConnectPhase, FetchSpec, GithubState, Kind, run_spec, start_connect,
 };
@@ -58,7 +59,7 @@ impl GithubPage {
     }
 
     /// Repos under the effective org (all repos before orgs are loaded).
-    fn visible_repos(&self, cx: &Context<Self>) -> Vec<api::Repo> {
+    fn visible_repos(&self, cx: &Context<Self>) -> Vec<gql::Repo> {
         let state = self.state.read(cx);
         match self.effective_org(cx) {
             Some(org) => state
@@ -77,46 +78,27 @@ impl GithubPage {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.state
-            .update(cx, |s, _| s.selected = Some(full_name.to_string()));
-        let specs = self.selected_specs(cx);
+        // Docs/0007 D6: the view paints immediately from the in-memory
+        // snapshot; these specs are the edge-freshness repo-scoped
+        // snapshot plus the one-shot repo notifications fetch.
+        let specs = self.state.update(cx, |s, _| {
+            s.selected = Some(full_name.to_string());
+            s.repo_open_specs(&full_name)
+        });
         self.run_specs(specs, window, cx);
     }
 
-    /// Specs for the selected repo: open PRs + repo-scoped notifications.
-    fn selected_specs(&mut self, cx: &mut Context<Self>) -> Vec<FetchSpec> {
-        self.state.update(cx, |s, _| {
-            let Some(full_name) = s.selected.clone() else {
-                return Vec::new();
-            };
-            let (owner, name) = split_full_name(&full_name);
-            vec![
-                s.spec_ident(
-                    Kind::SelectedPrs,
-                    Some(&full_name),
-                    api::pulls_url(&owner, &name, 1),
-                    Some(10),
-                ),
-                s.spec_ident(
-                    Kind::RepoNotifications,
-                    Some(&full_name),
-                    api::repo_notifications_url(&owner, &name, 1),
-                    Some(2),
-                ),
-            ]
-        })
-    }
-
-    /// Manual refresh (Q7): lists + notifications + selected-repo data, now.
+    /// Manual refresh (Q7): notifications + a fresh global snapshot, now.
     fn refresh_now(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let mut specs = self.state.update(cx, |s, _| {
             vec![
                 s.spec(Kind::Notifications, api::notifications_url(1), Some(10)),
-                s.spec(Kind::Repos, api::repos_url(1), None),
-                s.spec(Kind::Orgs, api::orgs_url(1), None),
+                s.snapshot_spec(),
             ]
         });
-        specs.extend(self.selected_specs(cx));
+        if let Some(full_name) = self.state.read(cx).selected.clone() {
+            specs.extend(self.state.update(cx, |s, _| s.repo_open_specs(&full_name)));
+        }
         self.run_specs(specs, window, cx);
     }
 
@@ -143,7 +125,7 @@ impl GithubPage {
         .detach();
     }
 
-    fn render_repo_row(&self, repo: &api::Repo, cx: &mut Context<Self>) -> AnyElement {
+    fn render_repo_row(&self, repo: &gql::Repo, cx: &mut Context<Self>) -> AnyElement {
         let full_name: SharedString = repo.full_name.clone().into();
         let selected = self
             .state
@@ -153,7 +135,7 @@ impl GithubPage {
             .is_some_and(|s| s == repo.full_name);
         let theme = cx.theme().clone();
         div()
-            .id(SharedString::from(format!("repo-{}", repo.id)))
+            .id(SharedString::from(format!("repo-{}", repo.key)))
             .px_2()
             .py_1p5()
             .rounded_sm()
@@ -178,10 +160,10 @@ impl GithubPage {
             .into_any_element()
     }
 
-    fn render_pr_row(&self, pr: &api::PullRequest, cx: &Context<Self>) -> AnyElement {
-        let url = pr.html_url.clone();
+    fn render_pr_row(&self, pr: &gql::PullRequest, cx: &Context<Self>) -> AnyElement {
+        let url = pr.url.clone();
         div()
-            .id(SharedString::from(format!("pr-{}", pr.id)))
+            .id(SharedString::from(format!("pr-{}", pr.key)))
             .px_2()
             .py_1p5()
             .rounded_sm()
@@ -215,16 +197,18 @@ impl GithubPage {
                         h_flex()
                             .gap_2()
                             .items_center()
-                            .when_some(pr.user.as_ref(), |row, user| {
+                            .when_some(pr.author.as_ref(), |row, author| {
                                 row.child(
                                     h_flex()
                                         .gap_1()
                                         .items_center()
-                                        .child(Avatar::new().src(user.avatar_url.clone()).xsmall())
+                                        .child(
+                                            Avatar::new().src(author.avatar_url.clone()).xsmall(),
+                                        )
                                         .child(
                                             div()
                                                 .text_color(cx.theme().muted_foreground)
-                                                .child(user.login.clone()),
+                                                .child(author.login.clone()),
                                         ),
                                 )
                             })
@@ -396,8 +380,10 @@ impl Render for GithubPage {
             let prs = state
                 .selected
                 .as_ref()
-                .and_then(|f| state.prs.get(f))
-                .cloned()
+                // Docs/0007 D2: repo views paint from the in-memory
+                // global snapshot — every repo's PRs are already here.
+                .and_then(|f| state.repos.iter().find(|r| &r.full_name == f))
+                .map(|r| r.prs.nodes.clone())
                 .unwrap_or_default();
             let notifs = state
                 .selected
@@ -430,7 +416,7 @@ impl Render for GithubPage {
 }
 
 impl GithubPage {
-    fn render_left_column(&mut self, repos: &[api::Repo], cx: &mut Context<Self>) -> AnyElement {
+    fn render_left_column(&mut self, repos: &[gql::Repo], cx: &mut Context<Self>) -> AnyElement {
         v_flex()
             .w(px(280.))
             .flex_none()
@@ -460,8 +446,8 @@ impl GithubPage {
     /// Right column — independently scrollable (docs/0005 §6.3).
     fn render_right_column(
         &mut self,
-        selected_repo: &Option<api::Repo>,
-        prs: &[api::PullRequest],
+        selected_repo: &Option<gql::Repo>,
+        prs: &[gql::PullRequest],
         repo_notifs: &[api::Notification],
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -705,14 +691,6 @@ fn connect_panel(auth: &AuthStatus, cx: &mut Context<GithubPage>) -> AnyElement 
         );
     }
     panel.into_any_element()
-}
-
-pub(crate) fn split_full_name(full_name: &str) -> (String, String) {
-    let mut parts = full_name.splitn(2, '/');
-    (
-        parts.next().unwrap_or_default().to_string(),
-        parts.next().unwrap_or_default().to_string(),
-    )
 }
 
 /// "2h" / "3d" / "now" from an RFC-3339 timestamp.

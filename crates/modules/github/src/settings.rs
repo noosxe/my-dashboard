@@ -18,8 +18,8 @@ use gpui_component::{
     v_flex,
 };
 
-use crate::api;
 use crate::card::{GITHUB_MARK, github_mark};
+use crate::gql;
 use crate::service::{self, AuthStatus, ConnectPhase, GithubState};
 
 /// Build the module's settings page from the live state entity.
@@ -107,7 +107,7 @@ pub fn page(state: &Entity<GithubState>, cx: &App) -> SettingPage {
 
 /// One-line human summary of the current auth state (mirrors the module
 /// page's connect panel).
-fn status_strings(auth: &AuthStatus, user: Option<&api::User>) -> (String, String) {
+fn status_strings(auth: &AuthStatus, user: Option<&gql::User>) -> (String, String) {
     match auth {
         AuthStatus::Connected => match user {
             Some(user) => (format!("@{}", user.login), "Signed in.".into()),

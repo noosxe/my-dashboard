@@ -1,6 +1,14 @@
-//! Service layer (docs/0005 Q6, Q7, Q9): one state entity written by a
-//! 60-second tick loop; ETag + last-known caches under the 0004 cache root;
-//! 401/403 handling per the [DG] states matrix.
+//! Service layer (docs/0005 Q6, Q7, Q9; docs/0007): one state entity
+//! written by a 60-second tick loop.
+//!
+//! Fetching model (docs/0007 D6): one **global GraphQL snapshot** per
+//! bootstrap + every 5th tick (viewer + orgs + all repos with PR/issue
+//! data and exact counts), global REST notifications every tick, and a
+//! repo-scoped snapshot + one-shot repo notifications when a repo view
+//! opens. ETag revalidation survives only on the REST notifications path;
+//! last-known caches under the 0004 cache root persist the snapshot
+//! (`snapshot-v2`) and notifications. 401/403 handling per the [DG]
+//! states matrix.
 //!
 //! Split of responsibilities:
 //! - pure state machinery here (`plan_tick`, `run_spec`, `apply`) —
@@ -17,29 +25,24 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use gpui::AnyWindowHandle;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde_json::Value;
 
 use dashboard_core::AppPaths;
 use dashboard_core::store;
 use gpui::App;
 use gpui::Entity;
 
-use crate::api::{self, Notification, Org, PullRequest, Repo, User};
+use crate::api::{self, Notification};
 use crate::auth::{AuthError, PollOutcome, TokenStore, poll_token, start_device_flow};
+use crate::gql::{self, Org, Repo, User};
 use crate::http::{Http, HttpError, RateLimit, SharedToken, Verb};
 
 /// Tick cadence (docs/0005 Q7): the first beat runs immediately on open;
-/// afterwards notifications + selected-repo PRs every tick, PR-count walk
-/// every 5th tick, orgs/repos every 10th. Bootstrap (open with a token,
-/// or a fresh connect) additionally walks PR counts over the known repo
-/// list — or defers that walk one tick when the list is still empty.
+/// afterwards notifications every tick, the global snapshot every 5th.
 pub const TICK: Duration = Duration::from_secs(60);
-const PR_WALK_EVERY: u64 = 5;
-const REPO_LIST_EVERY: u64 = 10;
-/// Page cap: repos list stops at page 1 (100 repos — doc §10.2); PR walks
-/// paginate up to here.
+const SNAPSHOT_EVERY: u64 = 5;
+/// Page cap for the REST notifications pagination (docs/0005 §7).
 const MAX_PAGES: u32 = 10;
-/// Card-walk repo cap (doc §10.2).
-const PR_WALK_REPO_CAP: usize = 100;
 
 // ---------------------------------------------------------------------------
 // Auth status
@@ -81,6 +84,7 @@ impl AuthStatus {
 // Last-known + ETag caches (Q6) — transient data under the cache root.
 // ---------------------------------------------------------------------------
 
+#[derive(Clone)]
 pub struct GithubCache {
     root: PathBuf,
 }
@@ -164,15 +168,14 @@ fn slug(full_name: &str) -> String {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
-    User,
-    Orgs,
-    Repos,
+    /// The global GraphQL snapshot (docs/0007 D1/D2/D4).
+    Snapshot,
+    /// Global unread notifications (REST + ETag — the only GraphQL-less
+    /// data left, docs/0007 §1).
     Notifications,
-    /// Selected repo's open PRs (full payloads, shown in the GroupBox).
-    SelectedPrs,
-    /// One repo's open-PR count for the card (list length only, §6.1).
-    PrCount,
-    /// Repo-scoped unread notifications for the Notifications GroupBox.
+    /// Repo-scoped snapshot on view open (docs/0007 D6).
+    RepoSnapshot,
+    /// Repo-scoped unread notifications — fetched once per open (D6).
     RepoNotifications,
 }
 
@@ -184,10 +187,14 @@ pub struct FetchSpec {
     /// `owner/repo` for the per-repo kinds.
     pub ident: Option<String>,
     pub max_pages: u32,
+    /// GraphQL variables (JSON) — `None` for REST specs.
+    pub variables: Option<Value>,
 }
 
-/// What a background run hands back to the main thread. The body is raw
+/// What a background run hands back to the main thread. `body` is raw
 /// JSON — parsed during `apply` so the background side stays type-free.
+/// `cursor` is the repos continuation cursor after a capped snapshot run
+/// (docs/0007 §5): `None` for REST kinds and completed runs.
 pub struct SpecResult {
     pub kind: Kind,
     pub ident: Option<String>,
@@ -196,11 +203,21 @@ pub struct SpecResult {
     pub rate: Option<RateLimit>,
     pub body: Option<String>,
     pub network: Option<String>,
+    pub cursor: Option<String>,
 }
 
-/// Run one spec to completion (paginating as needed). Sync — runs on the
-/// background executor.
+/// Run one spec to completion. Sync — runs on the background executor.
 pub fn run_spec(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
+    match spec.kind {
+        Kind::Snapshot => run_snapshot(http, spec),
+        Kind::RepoSnapshot => run_repo_snapshot(http, spec),
+        Kind::Notifications | Kind::RepoNotifications => run_rest(http, spec),
+    }
+}
+
+/// REST GET with page stitching + page-1 ETag revalidation (docs/0005
+/// §3.3) — notifications only now.
+fn run_rest(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
     let mut bodies: Vec<String> = Vec::new();
     let mut page: u32 = 1;
     let mut status = 0u16;
@@ -234,12 +251,7 @@ pub fn run_spec(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
                     break;
                 }
                 let body = result.body.unwrap_or_default();
-                if spec.kind == Kind::User {
-                    // Single-object payload — no array checks, no pages.
-                    bodies.push(body);
-                    break;
-                }
-                let count = serde_json::from_str::<Vec<serde_json::Value>>(&body)
+                let count = serde_json::from_str::<Vec<Value>>(&body)
                     .map(|v| v.len())
                     .unwrap_or(0);
                 if count == 0 && !body.trim().starts_with('[') {
@@ -290,19 +302,165 @@ pub fn run_spec(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
         rate,
         body,
         network,
+        cursor: None,
+    }
+}
+
+/// The global snapshot (docs/0007 D4/D5): up to `SNAPSHOT_MAX_PAGES`
+/// repos pages per run, cursor-following; the pages stitch into one body
+/// so `apply` lands the snapshot as a single atomic unit. A run that hits
+/// the page cap hands its cursor back for the next snapshot tick.
+fn run_snapshot(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
+    let mut status = 0u16;
+    let mut rate = None;
+    let mut network = None;
+    let mut raw_first: Option<String> = None;
+    let mut datas: Vec<Value> = Vec::new();
+    let mut errors: Vec<Value> = Vec::new();
+    let mut next_cursor: Option<String> = None;
+    let mut cursor = spec
+        .variables
+        .as_ref()
+        .and_then(|v| v.get("cursor"))
+        .and_then(|c| c.as_str())
+        .map(str::to_string);
+
+    for _ in 0..gql::SNAPSHOT_MAX_PAGES {
+        let variables = serde_json::json!({ "cursor": cursor });
+        match http.post_graphql(gql::GLOBAL_SNAPSHOT_QUERY, &variables) {
+            Err(HttpError(m)) => {
+                network = Some(m);
+                break;
+            }
+            Ok(result) => {
+                status = result.status;
+                rate = result.rate;
+                if status != 200 {
+                    break;
+                }
+                let body = result.body.unwrap_or_default();
+                if raw_first.is_none() {
+                    raw_first = Some(body.clone());
+                }
+                let value: Value = match serde_json::from_str(&body) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        eprintln!("[github] snapshot: malformed page: {e}");
+                        break;
+                    }
+                };
+                if let Some(errs) = value.get("errors").and_then(|e| e.as_array()) {
+                    errors.extend(errs.iter().cloned());
+                }
+                let Some(data) = value.get("data").filter(|d| !d.is_null()).cloned() else {
+                    break;
+                };
+                let repos = &data["viewer"]["repositories"];
+                let has_next = repos["pageInfo"]["hasNextPage"].as_bool().unwrap_or(false);
+                next_cursor = has_next
+                    .then(|| repos["pageInfo"]["endCursor"].as_str().map(str::to_string))
+                    .flatten();
+                datas.push(data);
+                match &next_cursor {
+                    Some(c) => cursor = Some(c.clone()),
+                    None => break,
+                }
+            }
+        }
+    }
+
+    let body = if network.is_none() && status == 200 {
+        Some(stitch_pages(datas, errors, raw_first))
+    } else {
+        None
+    };
+
+    SpecResult {
+        kind: spec.kind,
+        ident: None,
+        status,
+        etag: None,
+        rate,
+        body,
+        network,
+        cursor: next_cursor,
+    }
+}
+
+/// Stitch snapshot pages into one body: concat `repositories.nodes` across
+/// pages, keep the last page's `pageInfo`, and attach any accumulated
+/// `errors[]` so `apply` can log them (docs/0007 §6).
+fn stitch_pages(mut datas: Vec<Value>, errors: Vec<Value>, raw_first: Option<String>) -> String {
+    if datas.is_empty() {
+        // No usable pages — pass the first raw body through so `apply`
+        // sees the envelope (typically `data: null` + `errors[]`).
+        return raw_first.unwrap_or_else(|| serde_json::json!({ "data": null }).to_string());
+    }
+    let mut base = serde_json::json!({ "data": datas.remove(0) });
+    if datas.is_empty() && errors.is_empty() {
+        return base.to_string();
+    }
+    let data = &mut base["data"];
+    let mut nodes = data["viewer"]["repositories"]["nodes"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    for page in &datas {
+        nodes.extend(
+            page["viewer"]["repositories"]["nodes"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default(),
+        );
+    }
+    if let Some(last) = datas.last() {
+        data["viewer"]["repositories"]["pageInfo"] =
+            last["viewer"]["repositories"]["pageInfo"].clone();
+    }
+    data["viewer"]["repositories"]["nodes"] = Value::Array(nodes);
+    if !errors.is_empty() {
+        base["errors"] = Value::Array(errors);
+    }
+    base.to_string()
+}
+
+/// Repo-scoped snapshot (docs/0007 D6): one GraphQL call, body passthrough.
+fn run_repo_snapshot(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
+    let mut status = 0u16;
+    let mut rate = None;
+    let mut network = None;
+    let mut body = None;
+    let (owner, name) = split_full_name(spec.ident.as_deref().unwrap_or_default());
+    let variables = serde_json::json!({ "owner": owner, "name": name });
+    match http.post_graphql(gql::REPO_SNAPSHOT_QUERY, &variables) {
+        Err(HttpError(m)) => network = Some(m),
+        Ok(result) => {
+            status = result.status;
+            rate = result.rate;
+            if status == 200 {
+                body = result.body;
+            }
+        }
+    }
+    SpecResult {
+        kind: spec.kind,
+        ident: spec.ident.clone(),
+        status,
+        etag: None,
+        rate,
+        body,
+        network,
+        cursor: None,
     }
 }
 
 impl Kind {
     fn kind_name(&self) -> &'static str {
         match self {
-            Kind::User => "user",
-            Kind::Orgs => "orgs",
-            Kind::Repos => "repos",
+            Kind::Snapshot => "snapshot",
             Kind::Notifications => "notifications",
-            Kind::SelectedPrs => "prs",
+            Kind::RepoSnapshot => "repo-snapshot",
             Kind::RepoNotifications => "repo-notifs",
-            Kind::PrCount => "pr-count",
         }
     }
 }
@@ -316,25 +474,23 @@ pub struct GithubState {
     pub user: Option<User>,
     /// Org entries for the dropdown; the personal account is first (Q10).
     pub orgs: Vec<Org>,
+    /// Every repo with its open-PR/issue summaries (docs/0007 D2) — the
+    /// single source for card counts, repo lists, and repo views.
     pub repos: Vec<Repo>,
-    /// Global unread notifications (card count + repo grouping).
+    /// Global unread notifications (card count + repo derivation).
     pub notifications: Vec<Notification>,
-    /// `owner/repo` → open PR count (card total; PrCount walk).
-    pub open_pr_counts: BTreeMap<String, usize>,
-    /// Selected repo's open PRs (full payloads for the PR GroupBox).
-    pub prs: BTreeMap<String, Vec<PullRequest>>,
-    /// Selected repo's unread notifications (repo-scoped endpoint).
+    /// Selected repo's unread notifications — fetched once at open, then
+    /// derived from the global list (docs/0007 D6).
     pub repo_notifications: BTreeMap<String, Vec<Notification>>,
     /// `owner/repo` of the selected repo (session-only, not persisted).
     pub selected: Option<String>,
+    /// Repos continuation cursor after a capped snapshot run (docs/0007
+    /// §5); `None` = the next snapshot starts from the top.
+    pub repo_cursor: Option<String>,
     /// Rate-limit pause: UTC epoch seconds until requests resume (Q9).
     pub rate_limited_until: Option<u64>,
-    /// Set when a connect flow should fetch identity + lists on next tick.
+    /// Set when a connect flow should fetch the snapshot on next tick.
     pub needs_bootstrap: bool,
-    /// Set when the next tick should also walk per-repo PR counts — used
-    /// by bootstrap when the repo list is still empty (fresh connect);
-    /// the walk then rides the tick after Repos land.
-    pub needs_pr_walk: bool,
     pub(crate) etags: BTreeMap<String, String>,
     pub(crate) client: Arc<dyn Http>,
     pub(crate) store: Arc<dyn TokenStore>,
@@ -363,30 +519,25 @@ impl GithubState {
             Err(e) => AuthStatus::KeychainError(e),
         };
         let seeded = auth.connected() || matches!(auth, AuthStatus::TokenRejected);
+        let snapshot: Option<gql::SnapshotCache> = seeded
+            .then(|| cache.load(gql::SNAPSHOT_CACHE_KEY))
+            .flatten();
         Self {
-            user: seeded.then(|| cache.load("user")).flatten(),
-            orgs: seeded
-                .then(|| cache.load("orgs"))
-                .flatten()
+            user: snapshot.as_ref().and_then(|s| s.user.clone()),
+            orgs: snapshot
+                .as_ref()
+                .map(|s| s.orgs.clone())
                 .unwrap_or_default(),
-            repos: seeded
-                .then(|| cache.load("repos"))
-                .flatten()
-                .unwrap_or_default(),
+            repos: snapshot.map(|s| s.repos).unwrap_or_default(),
             notifications: seeded
                 .then(|| cache.load("notifications"))
                 .flatten()
                 .unwrap_or_default(),
-            open_pr_counts: seeded
-                .then(|| cache.load("pr-counts"))
-                .flatten()
-                .unwrap_or_default(),
-            prs: BTreeMap::new(),
             repo_notifications: BTreeMap::new(),
             selected: None,
+            repo_cursor: None,
             rate_limited_until: None,
             needs_bootstrap: false,
-            needs_pr_walk: false,
             auth,
             etags,
             client,
@@ -408,81 +559,64 @@ impl GithubState {
         }
     }
 
-    /// Plan this tick's work (Q7). Consumes `needs_bootstrap`.
+    /// Plan this tick's work (docs/0007 D6). Consumes `needs_bootstrap`.
     pub fn plan_tick(&mut self, tick: u64) -> Vec<FetchSpec> {
         if self.needs_bootstrap && self.auth.connected() {
             self.needs_bootstrap = false;
-            let mut specs = vec![
-                self.spec(Kind::User, api::user_url(), None),
-                self.spec(Kind::Orgs, api::orgs_url(1), None),
-                self.spec(Kind::Repos, api::repos_url(1), None),
+            return vec![
+                self.snapshot_spec(),
                 self.spec(Kind::Notifications, api::notifications_url(1), None),
             ];
-            // Fresh PR counts on open/connect: the boot-seeded cache list
-            // can walk right away; an empty list (fresh connect) defers
-            // the walk one tick, right after Repos land.
-            if self.repos.is_empty() {
-                self.needs_pr_walk = true;
-            } else {
-                specs.extend(self.pr_walk_specs());
-            }
-            return specs;
         }
         if self.gated() {
             return Vec::new();
         }
-        let mut specs = Vec::new();
-        specs.push(self.spec(
+        let mut specs = vec![self.spec(
             Kind::Notifications,
             api::notifications_url(1),
             Some(MAX_PAGES),
-        ));
-        if let Some(full_name) = self.selected.clone() {
-            let (owner, repo) = split_full_name(&full_name);
-            specs.push(self.spec_ident(
-                Kind::SelectedPrs,
-                Some(&full_name),
-                api::pulls_url(&owner, &repo, 1),
-                Some(MAX_PAGES),
-            ));
-            specs.push(self.spec_ident(
-                Kind::RepoNotifications,
-                Some(&full_name),
-                api::repo_notifications_url(&owner, &repo, 1),
-                Some(2),
-            ));
-        }
-        if tick % PR_WALK_EVERY == 0 {
-            specs.extend(self.pr_walk_specs());
-        }
-        if tick % REPO_LIST_EVERY == 0 {
-            specs.push(self.spec(Kind::Orgs, api::orgs_url(1), None));
-            specs.push(self.spec(Kind::Repos, api::repos_url(1), None));
-        }
-        if self.needs_pr_walk {
-            self.needs_pr_walk = false;
-            specs.extend(self.pr_walk_specs());
+        )];
+        if tick % SNAPSHOT_EVERY == 0 {
+            specs.push(self.snapshot_spec());
         }
         specs
     }
 
-    /// Per-repo open-PR counts over the known repos (capped) — the walk
-    /// behind `PR_WALK_EVERY`, bootstrap, and `needs_pr_walk`.
-    fn pr_walk_specs(&self) -> Vec<FetchSpec> {
-        self.repos
-            .iter()
-            .take(PR_WALK_REPO_CAP)
-            .map(|repo| {
-                let full_name = repo.full_name.clone();
-                let (owner, name) = split_full_name(&full_name);
-                self.spec_ident(
-                    Kind::PrCount,
-                    Some(&full_name),
-                    api::pulls_url(&owner, &name, 1),
-                    Some(1),
-                )
-            })
-            .collect()
+    /// The global snapshot spec, continuing from `repo_cursor` when a
+    /// previous run was capped (docs/0007 §5).
+    pub(crate) fn snapshot_spec(&self) -> FetchSpec {
+        FetchSpec {
+            kind: Kind::Snapshot,
+            url: gql::GRAPHQL_ENDPOINT.to_string(),
+            etag: None,
+            ident: None,
+            max_pages: 1,
+            variables: Some(serde_json::json!({ "cursor": self.repo_cursor })),
+        }
+    }
+
+    /// Work fired when a repo view opens (docs/0007 D6): the
+    /// edge-freshness repo-scoped snapshot plus the one-shot repo-scoped
+    /// notifications fetch. Later ticks update the GroupBox from the
+    /// global list instead.
+    pub(crate) fn repo_open_specs(&self, full_name: &str) -> Vec<FetchSpec> {
+        let (owner, name) = split_full_name(full_name);
+        vec![
+            FetchSpec {
+                kind: Kind::RepoSnapshot,
+                url: gql::GRAPHQL_ENDPOINT.to_string(),
+                etag: None,
+                ident: Some(full_name.to_string()),
+                max_pages: 1,
+                variables: Some(serde_json::json!({ "owner": owner, "name": name })),
+            },
+            self.spec_ident(
+                Kind::RepoNotifications,
+                Some(full_name),
+                api::repo_notifications_url(&owner, &name, 1),
+                Some(2),
+            ),
+        ]
     }
 
     pub(crate) fn spec(&self, kind: Kind, url: String, max_pages: Option<u32>) -> FetchSpec {
@@ -503,6 +637,7 @@ impl GithubState {
             url,
             ident: ident.map(str::to_string),
             max_pages: max_pages.unwrap_or(1),
+            variables: None,
         }
     }
 
@@ -541,44 +676,82 @@ impl GithubState {
         };
 
         match result.kind {
-            Kind::User => match serde_json::from_str::<User>(body) {
-                Ok(v) => {
-                    self.cache.put("user", &v);
-                    self.user = Some(v);
+            Kind::Snapshot => {
+                match serde_json::from_str::<gql::Envelope<gql::SnapshotData>>(body) {
+                    Ok(env) => {
+                        for e in &env.errors {
+                            eprintln!("[github] snapshot: {}", e.message);
+                        }
+                        let Some(data) = env.data else {
+                            return; // data null — stale data stays (docs/0007 §6)
+                        };
+                        if let Some(rl) = &data.rate_limit {
+                            if rl.remaining <= 0 {
+                                self.rate_limited_until = Some(rl.reset_epoch());
+                                eprintln!(
+                                    "[github] snapshot: GraphQL point budget exhausted; pausing"
+                                );
+                            }
+                        }
+                        // One snapshot, one atomic apply (docs/0007 D4).
+                        self.user = Some(User {
+                            login: data.viewer.login.clone(),
+                            avatar_url: data.viewer.avatar_url.clone(),
+                        });
+                        self.apply_orgs(gql::orgs_from_values(&data.viewer.organizations.nodes));
+                        if let Some(page) = data.viewer.repositories {
+                            let completed = result.cursor.is_none();
+                            let incoming: Vec<Repo> =
+                                page.nodes.iter().filter_map(gql::repo_from_value).collect();
+                            self.merge_repos(incoming, completed);
+                            self.repo_cursor = result.cursor.clone();
+                        }
+                        self.persist_snapshot();
+                    }
+                    Err(e) => eprintln!("[github] snapshot payload: {e}"),
                 }
-                Err(e) => eprintln!("[github] user payload: {e}"),
-            },
-            Kind::Orgs => match serde_json::from_str::<Vec<Org>>(body) {
-                Ok(orgs) => {
-                    self.apply_orgs(orgs);
-                    self.cache.put("orgs", &self.orgs);
+            }
+            Kind::RepoSnapshot => {
+                match serde_json::from_str::<gql::Envelope<gql::RepoSnapshotData>>(body) {
+                    Ok(env) => {
+                        for e in &env.errors {
+                            eprintln!("[github] repo-snapshot: {}", e.message);
+                        }
+                        match env.data.and_then(|d| d.repository) {
+                            Some(value) => match gql::repo_from_value(&value) {
+                                Some(repo) => {
+                                    self.merge_repos(vec![repo], false);
+                                    self.persist_snapshot();
+                                }
+                                None => {
+                                    eprintln!("[github] repo-snapshot: malformed repository node");
+                                }
+                            },
+                            None => eprintln!(
+                                "[github] repo-snapshot: repository null — keeping last-known"
+                            ),
+                        }
+                    }
+                    Err(e) => eprintln!("[github] repo-snapshot payload: {e}"),
                 }
-                Err(e) => eprintln!("[github] orgs payload: {e}"),
-            },
-            Kind::Repos => match serde_json::from_str::<Vec<Repo>>(body) {
-                Ok(repos) => {
-                    self.cache.put("repos", &repos);
-                    self.repos = repos;
-                }
-                Err(e) => eprintln!("[github] repos payload: {e}"),
-            },
+            }
             Kind::Notifications => match serde_json::from_str::<Vec<Notification>>(body) {
                 Ok(items) => {
                     self.cache.put("notifications", &items);
                     self.notifications = items;
+                    // Docs/0007 D6: after the open-time fetch, the repo
+                    // GroupBox derives from the global list.
+                    if let Some(sel) = self.selected.clone() {
+                        let derived: Vec<Notification> = self
+                            .notifications
+                            .iter()
+                            .filter(|n| n.repository.full_name == sel)
+                            .cloned()
+                            .collect();
+                        self.repo_notifications.insert(sel, derived);
+                    }
                 }
                 Err(e) => eprintln!("[github] notifications payload: {e}"),
-            },
-            Kind::SelectedPrs => match (
-                result.ident.as_deref(),
-                serde_json::from_str::<Vec<PullRequest>>(body),
-            ) {
-                (Some(id), Ok(prs)) => {
-                    self.cache.put(&format!("prs-{}", slug(id)), &prs);
-                    self.prs.insert(id.to_string(), prs);
-                }
-                (None, _) => eprintln!("[github] prs spec without ident"),
-                (_, Err(e)) => eprintln!("[github] prs payload: {e}"),
             },
             Kind::RepoNotifications => match (
                 result.ident.as_deref(),
@@ -591,27 +764,34 @@ impl GithubState {
                 (None, _) => eprintln!("[github] repo-notifs spec without ident"),
                 (_, Err(e)) => eprintln!("[github] repo-notifs payload: {e}"),
             },
-            Kind::PrCount => match (
-                result.ident.as_deref(),
-                serde_json::from_str::<Vec<PullRequest>>(body),
-            ) {
-                (Some(id), Ok(prs)) => {
-                    let count = prs.len();
-                    self.open_pr_counts.insert(id.to_string(), count);
-                    self.cache.put("pr-counts", &self.open_pr_counts);
-                }
-                (None, _) => eprintln!("[github] pr-count spec without ident"),
-                (_, Err(e)) => eprintln!("[github] pr-count payload: {e}"),
-            },
         }
 
         // ETag keyed by logical resource (kind + ident), not raw URL, so
-        // pagination page-1 etags stay stable.
-        if let Some(etag) = &result.etag {
-            self.etags
-                .insert(etag_key(result.kind, result.ident.as_deref()), etag.clone());
+        // pagination page-1 etags stay stable. GraphQL kinds have no
+        // conditional path — never stored.
+        if matches!(result.kind, Kind::Notifications | Kind::RepoNotifications) {
+            if let Some(etag) = &result.etag {
+                self.etags
+                    .insert(etag_key(result.kind, result.ident.as_deref()), etag.clone());
+            }
+            self.cache.save_etags(&self.etags);
         }
-        self.cache.save_etags(&self.etags);
+    }
+
+    /// Merge snapshot repos into the list (docs/0007 D4): a completed run
+    /// (`prune`) saw the whole list and replaces it; a capped run overlays
+    /// its batch and keeps repos from earlier pages.
+    fn merge_repos(&mut self, incoming: Vec<Repo>, prune: bool) {
+        if prune {
+            self.repos = incoming;
+            return;
+        }
+        let keys: std::collections::BTreeSet<String> =
+            incoming.iter().map(|r| r.key.clone()).collect();
+        let mut merged = incoming;
+        let old = std::mem::take(&mut self.repos);
+        merged.extend(old.into_iter().filter(|r| !keys.contains(&r.key)));
+        self.repos = merged;
     }
 
     /// Org list for the dropdown: the personal account first (Q10).
@@ -627,11 +807,24 @@ impl GithubState {
         };
     }
 
-    /// Card totals (§6.1): unread notifications + Σ open PR counts.
+    /// Persist the snapshot to `snapshot-v2` (docs/0007 D7) — atomic
+    /// writes + quarantine via the 0004 store primitives.
+    fn persist_snapshot(&self) {
+        let snapshot = gql::SnapshotCache {
+            schema: 2,
+            user: self.user.clone(),
+            orgs: self.orgs.clone(),
+            repos: self.repos.clone(),
+        };
+        self.cache.put(gql::SNAPSHOT_CACHE_KEY, &snapshot);
+    }
+
+    /// Card totals (§6.1): unread notifications + Σ open-PR counts — now
+    /// exact via `totalCount` (docs/0007 §1).
     pub fn card_counts(&self) -> (usize, usize) {
         let unread = self.notifications.iter().filter(|n| n.unread).count();
-        let prs = self.open_pr_counts.values().sum();
-        (unread, prs)
+        let prs: i64 = self.repos.iter().map(|r| r.prs.total_count).sum();
+        (unread, prs.max(0) as usize)
     }
 
     /// Connect flow success path: store the token everywhere it lives.
@@ -657,14 +850,12 @@ impl GithubState {
         self.orgs.clear();
         self.repos.clear();
         self.notifications.clear();
-        self.open_pr_counts.clear();
-        self.prs.clear();
         self.repo_notifications.clear();
         self.etags.clear();
         self.selected = None;
+        self.repo_cursor = None;
         self.rate_limited_until = None;
         self.needs_bootstrap = false;
-        self.needs_pr_walk = false;
         self.auth = AuthStatus::Disconnected;
     }
 }
@@ -679,14 +870,10 @@ fn split_full_name(full_name: &str) -> (String, String) {
 
 fn etag_key(kind: Kind, ident: Option<&str>) -> String {
     match (kind, ident) {
-        (Kind::User, _) => "user".into(),
-        (Kind::Orgs, _) => "orgs".into(),
-        (Kind::Repos, _) => "repos".into(),
         (Kind::Notifications, _) => "notifications".into(),
-        (Kind::SelectedPrs, Some(id)) => format!("prs:{id}"),
         (Kind::RepoNotifications, Some(id)) => format!("rn:{id}"),
-        (Kind::PrCount, Some(id)) => format!("prc:{id}"),
         (_, None) => "unknown".into(),
+        _ => "unknown".into(),
     }
 }
 
@@ -869,12 +1056,36 @@ mod tests {
         )
     }
 
+    fn make_state_at(http: Arc<MockHttp>, cache: GithubCache) -> GithubState {
+        let shared: SharedToken = Arc::new(std::sync::RwLock::new(Some("t0k".into())));
+        let client: Arc<dyn Http> = http;
+        GithubState::new(
+            client,
+            Arc::new(MockTokenStore::with("t0k".into())),
+            shared,
+            cache,
+        )
+    }
+
     fn repo(full_name: &str) -> Repo {
-        let name = full_name.split('/').nth(1).unwrap_or(full_name);
-        serde_json::from_str(&format!(
-            r#"{{"id":1,"name":"{name}","full_name":"{full_name}","owner":{{"login":"o","avatar_url":"a"}},"private":false}}"#
-        ))
-        .unwrap()
+        Repo {
+            key: full_name.into(),
+            database_id: Some(1),
+            name: full_name.split('/').nth(1).unwrap_or(full_name).into(),
+            full_name: full_name.into(),
+            owner: gql::Owner { login: "o".into() },
+            description: None,
+            private: false,
+            pushed_at: None,
+            prs: gql::PrSummary {
+                total_count: 0,
+                nodes: vec![],
+            },
+            issues: gql::IssueSummary {
+                total_count: 0,
+                nodes: vec![],
+            },
+        }
     }
 
     fn ok(body: &str, etag: &str) -> Result<HttpResult, HttpError> {
@@ -890,80 +1101,77 @@ mod tests {
         })
     }
 
+    fn gql_ok(body: &str) -> Result<HttpResult, HttpError> {
+        Ok(HttpResult {
+            status: 200,
+            etag: None,
+            rate: None,
+            body: Some(body.into()),
+        })
+    }
+
     fn one_notification() -> &'static str {
         r#"[{"id":"1","unread":true,"subject":{"title":"t","type":"Issue","url":"u"},"repository":{"full_name":"o/r"}}]"#
     }
 
-    #[test]
-    fn bootstrap_walks_cached_repos_immediately() {
-        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
-        state.auth = AuthStatus::Connected;
-        state.repos = vec![repo("o/a"), repo("o/b")];
-        state.needs_bootstrap = true;
+    // --- GraphQL page/response builders -------------------------------
 
-        let specs = state.plan_tick(1);
-        assert_eq!(
-            specs.iter().filter(|s| s.kind == Kind::PrCount).count(),
-            2,
-            "boot-seeded repo list must walk in the bootstrap tick",
-        );
-        assert!(!state.needs_pr_walk, "no deferred walk when repos exist");
+    fn gql_page(has_next: bool, end_cursor: &str, repos_json: &str) -> String {
+        format!(
+            r#"{{"data":{{"rateLimit":{{"cost":2,"remaining":4950,"resetAt":"2030-01-01T00:00:00Z"}},
+                "viewer":{{"login":"noosxe","avatarUrl":"https://a/me.png",
+                "organizations":{{"nodes":[{{"login":"acme","avatarUrl":"https://a/o.png"}}]}},
+                "repositories":{{"totalCount":9,
+                "pageInfo":{{"hasNextPage":{has_next},"endCursor":"{end_cursor}"}},
+                "nodes":[{repos_json}]}}}}}},"errors":[]}}"#
+        )
     }
 
-    #[test]
-    fn bootstrap_defers_pr_walk_when_repo_list_is_empty() {
-        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
-        state.auth = AuthStatus::Connected;
-        state.needs_bootstrap = true;
-
-        let specs = state.plan_tick(1);
-        assert!(
-            specs.iter().all(|s| s.kind != Kind::PrCount),
-            "nothing to walk before Repos land",
-        );
-        assert!(state.needs_pr_walk);
-
-        // Repos land (as after tick 1's apply): the next tick walks,
-        // exactly once.
-        state.repos = vec![repo("o/a")];
-        let specs = state.plan_tick(2);
-        assert_eq!(specs.iter().filter(|s| s.kind == Kind::PrCount).count(), 1,);
-        assert!(!state.needs_pr_walk);
-
-        // Tick 3 is not a PR_WALK tick and the flag is consumed.
-        let specs = state.plan_tick(3);
-        assert!(specs.iter().all(|s| s.kind != Kind::PrCount));
+    fn repo_node(full_name: &str, pr_total: i64, prs_json: &str) -> String {
+        format!(
+            r#"{{"databaseId":7,"name":"{}","nameWithOwner":"{full_name}",
+                "description":null,"isPrivate":false,"pushedAt":"2026-09-01T00:00:00Z",
+                "owner":{{"login":"o"}},
+                "pullRequests":{{"totalCount":{pr_total},"nodes":[{prs_json}]}},
+                "issues":{{"totalCount":0,"nodes":[]}}}}"#,
+            full_name.split('/').nth(1).unwrap_or(full_name)
+        )
     }
 
-    #[test]
-    fn bootstrap_plan_fetches_identity_and_lists_then_clears() {
-        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
-        state.auth = AuthStatus::Connected;
-        state.needs_bootstrap = true;
-
-        let specs = state.plan_tick(1);
-        assert_eq!(
-            specs.iter().map(|s| s.kind).collect::<Vec<_>>(),
-            vec![Kind::User, Kind::Orgs, Kind::Repos, Kind::Notifications]
-        );
-        // Bootstrap consumed — a later tick plans the regular cadence.
-        assert!(state.plan_tick(2).len() <= 2);
+    fn pr_node(number: i64) -> String {
+        format!(
+            r#"{{"databaseId":{number},"number":{number},"title":"t","isDraft":false,
+                "state":"OPEN","author":{{"login":"x","avatarUrl":"a"}},
+                "updatedAt":"u","url":"https://github.com/o/r/pull/{number}"}}"#
+        )
     }
 
-    fn make_disconnected() -> GithubState {
+    fn snapshot_result(body: &str, cursor: Option<&str>) -> SpecResult {
+        SpecResult {
+            kind: Kind::Snapshot,
+            ident: None,
+            status: 200,
+            etag: None,
+            rate: None,
+            body: Some(body.into()),
+            network: None,
+            cursor: cursor.map(str::to_string),
+        }
+    }
+
+    // --- Tick planning (docs/0007 D6) ---------------------------------
+
+    #[test]
+    fn disconnected_and_rate_limited_are_gated() {
+        // No token in the keychain — genuinely disconnected.
         let shared: SharedToken = Arc::new(std::sync::RwLock::new(None));
         let client: Arc<dyn Http> = Arc::new(MockHttp::new(vec![]));
-        GithubState::new(
+        let mut state = GithubState::new(
             client,
             Arc::new(MockTokenStore::empty()),
             shared,
             GithubCache::at_tmp("disconnected"),
-        )
-    }
-
-    #[test]
-    fn disconnected_and_rate_limited_are_gated() {
-        let mut state = make_disconnected();
+        );
         assert!(state.plan_tick(1).is_empty());
 
         state.auth = AuthStatus::Connected;
@@ -974,6 +1182,269 @@ mod tests {
         state.rate_limited_until = Some(0);
         assert!(!state.plan_tick(1).is_empty());
     }
+    #[test]
+    fn plan_tick_cadence_table() {
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.auth = AuthStatus::Connected;
+
+        // Bootstrap: snapshot + notifications, then the flag is consumed.
+        state.needs_bootstrap = true;
+        let specs = state.plan_tick(1);
+        assert_eq!(
+            specs.iter().map(|s| s.kind).collect::<Vec<_>>(),
+            vec![Kind::Snapshot, Kind::Notifications]
+        );
+        assert!(!state.needs_bootstrap);
+
+        // Ticks 2–4: notifications only.
+        for tick in 2..=4 {
+            assert_eq!(
+                state
+                    .plan_tick(tick)
+                    .iter()
+                    .map(|s| s.kind)
+                    .collect::<Vec<_>>(),
+                vec![Kind::Notifications]
+            );
+        }
+
+        // 5th tick adds the snapshot.
+        assert_eq!(
+            state
+                .plan_tick(5)
+                .iter()
+                .map(|s| s.kind)
+                .collect::<Vec<_>>(),
+            vec![Kind::Notifications, Kind::Snapshot]
+        );
+
+        // No per-tick repo-scoped fetches anymore.
+        state.selected = Some("o/r".into());
+        let specs = state.plan_tick(6);
+        assert!(specs.iter().all(|s| s.kind == Kind::Notifications));
+    }
+
+    #[test]
+    fn snapshot_spec_carries_continuation_cursor() {
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.repo_cursor = Some("c9".into());
+        let spec = state.snapshot_spec();
+        assert_eq!(spec.variables.unwrap()["cursor"], "c9");
+
+        state.repo_cursor = None;
+        let spec = state.snapshot_spec();
+        assert!(spec.variables.unwrap()["cursor"].is_null());
+    }
+
+    // --- Snapshot run + apply ------------------------------------------
+
+    #[test]
+    fn run_snapshot_follows_cursor_and_stitches() {
+        let http = Arc::new(MockHttp::new(vec![
+            gql_ok(&gql_page(true, "c2", &repo_node("o/a", 1, &pr_node(1)))),
+            gql_ok(&gql_page(false, "unused", &repo_node("o/b", 0, ""))),
+        ]));
+        let state = make_state(http.clone());
+        let spec = state.snapshot_spec();
+
+        let result = run_spec(&*http, &spec);
+        assert_eq!(result.status, 200);
+        assert!(result.cursor.is_none(), "completed run resets cursor");
+
+        // Both requests went to the GraphQL endpoint with the right
+        // cursor variables.
+        let recorded = http.recorded();
+        assert_eq!(recorded.len(), 2);
+        assert!(
+            recorded[0]
+                .body
+                .as_ref()
+                .unwrap()
+                .contains("\"cursor\":null")
+        );
+        assert!(
+            recorded[1]
+                .body
+                .as_ref()
+                .unwrap()
+                .contains("\"cursor\":\"c2\"")
+        );
+
+        // Stitched body carries both repos in one atomic unit.
+        let parsed: Value = serde_json::from_str(result.body.as_deref().unwrap()).unwrap();
+        let nodes = parsed["data"]["viewer"]["repositories"]["nodes"]
+            .as_array()
+            .unwrap();
+        assert_eq!(nodes.len(), 2);
+    }
+
+    #[test]
+    fn run_snapshot_caps_pages_and_returns_cursor() {
+        let page = || gql_ok(&gql_page(true, "cx", &repo_node("o/a", 0, "")));
+        let http = Arc::new(MockHttp::new(vec![page(), page(), page(), page()]));
+        let state = make_state(http.clone());
+
+        let result = run_spec(&*http, &state.snapshot_spec());
+        assert_eq!(http.recorded().len(), gql::SNAPSHOT_MAX_PAGES as usize);
+        assert_eq!(result.cursor.as_deref(), Some("cx"));
+    }
+
+    #[test]
+    fn apply_snapshot_sets_user_orgs_repos_and_prunes() {
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.auth = AuthStatus::Connected;
+        state.repos = vec![repo("o/gone")];
+
+        let body = gql_page(
+            false,
+            "unused",
+            &format!(
+                "{},{}",
+                repo_node("o/a", 1, &pr_node(1)),
+                repo_node("o/b", 0, "")
+            ),
+        );
+        state.apply(snapshot_result(&body, None));
+
+        // User + orgs (personal first, Q10).
+        assert_eq!(state.user.as_ref().unwrap().login, "noosxe");
+        assert_eq!(state.orgs[0].login, "noosxe");
+        assert_eq!(state.orgs[1].login, "acme");
+
+        // Completed run prunes repos absent from the list (docs/0007 D4).
+        let names: Vec<&str> = state.repos.iter().map(|r| r.full_name.as_str()).collect();
+        assert_eq!(names, vec!["o/a", "o/b"]);
+
+        // PR data lands with composite keys (D3).
+        let a = state.repos.iter().find(|r| r.full_name == "o/a").unwrap();
+        assert_eq!(a.prs.total_count, 1);
+        assert_eq!(a.prs.nodes[0].key, "o/a#1");
+
+        // Persisted: the cache round-trips through snapshot-v2.
+        let loaded: gql::SnapshotCache = state
+            .cache
+            .load(gql::SNAPSHOT_CACHE_KEY)
+            .expect("snapshot persisted");
+        assert_eq!(loaded.schema, 2);
+        assert_eq!(loaded.repos.len(), 2);
+        assert_eq!(loaded.user.as_ref().unwrap().login, "noosxe");
+    }
+
+    #[test]
+    fn apply_snapshot_capped_run_keeps_earlier_repos() {
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.repos = vec![repo("o/a"), repo("o/b")];
+
+        let body = gql_page(true, "c2", &repo_node("o/c", 0, ""));
+        state.apply(snapshot_result(&body, Some("c2")));
+
+        // Continuation batch overlays; earlier pages survive.
+        let mut names: Vec<&str> = state.repos.iter().map(|r| r.full_name.as_str()).collect();
+        names.sort();
+        assert_eq!(names, vec!["o/a", "o/b", "o/c"]);
+        assert_eq!(state.repo_cursor.as_deref(), Some("c2"));
+    }
+
+    #[test]
+    fn apply_snapshot_partial_errors_still_applies_data() {
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.repos = vec![repo("o/old")];
+
+        let body = format!(
+            r#"{{"data":{{"viewer":{{"login":"noosxe","avatarUrl":"a",
+                "organizations":{{"nodes":[]}},
+                "repositories":{{"totalCount":1,"pageInfo":{{"hasNextPage":false}},
+                "nodes":[{}]}}}}}},"errors":[{{"message":"Some field failed"}}]}}"#,
+            repo_node("o/a", 0, "")
+        );
+        state.apply(snapshot_result(&body, None));
+        assert_eq!(state.repos.len(), 1);
+        assert_eq!(state.repos[0].full_name, "o/a");
+    }
+
+    #[test]
+    fn apply_snapshot_data_null_keeps_stale() {
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.repos = vec![repo("o/a")];
+        state.apply(snapshot_result(
+            r#"{"data":null,"errors":[{"message":"boom"}]}"#,
+            None,
+        ));
+        assert_eq!(state.repos.len(), 1);
+    }
+
+    #[test]
+    fn apply_snapshot_rate_limit_zero_gates() {
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.auth = AuthStatus::Connected;
+        let body = r#"{"data":{"rateLimit":{"cost":2,"remaining":0,"resetAt":"2030-01-01T00:00:00Z"},
+            "viewer":{"login":"noosxe","avatarUrl":"a","organizations":{"nodes":[]},
+            "repositories":{"totalCount":0,"nodes":[]}}}}"#;
+        state.apply(snapshot_result(body, None));
+        assert_eq!(state.rate_limited_until, Some(1_893_456_000));
+        assert!(state.plan_tick(5).is_empty());
+    }
+
+    // --- Repo-scoped snapshot -------------------------------------------
+
+    #[test]
+    fn repo_open_specs_shape() {
+        let state = make_state(Arc::new(MockHttp::new(vec![])));
+        let specs = state.repo_open_specs("o/r");
+        assert_eq!(specs.len(), 2);
+        assert_eq!(specs[0].kind, Kind::RepoSnapshot);
+        assert_eq!(specs[0].variables.as_ref().unwrap()["owner"], "o");
+        assert_eq!(specs[0].variables.as_ref().unwrap()["name"], "r");
+        assert_eq!(specs[1].kind, Kind::RepoNotifications);
+        assert!(specs[1].url.contains("/repos/o/r/notifications"));
+    }
+
+    #[test]
+    fn apply_repo_snapshot_merges_single_repo() {
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.repos = vec![repo("o/a"), repo("o/r")];
+
+        let result = SpecResult {
+            kind: Kind::RepoSnapshot,
+            ident: Some("o/r".into()),
+            status: 200,
+            etag: None,
+            rate: None,
+            body: Some(format!(
+                r#"{{"data":{{"repository":{}}}}}"#,
+                repo_node("o/r", 3, &pr_node(7))
+            )),
+            network: None,
+            cursor: None,
+        };
+        state.apply(result);
+
+        assert_eq!(state.repos.len(), 2, "merge — no prune, no dupes");
+        let r = state.repos.iter().find(|r| r.full_name == "o/r").unwrap();
+        assert_eq!(r.prs.total_count, 3);
+        assert_eq!(r.prs.nodes[0].key, "o/r#7");
+    }
+
+    #[test]
+    fn apply_repo_snapshot_null_repository_keeps_stale() {
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.repos = vec![repo("o/r")];
+        let result = SpecResult {
+            kind: Kind::RepoSnapshot,
+            ident: Some("o/r".into()),
+            status: 200,
+            etag: None,
+            rate: None,
+            body: Some(r#"{"data":{"repository":null}}"#.into()),
+            network: None,
+            cursor: None,
+        };
+        state.apply(result);
+        assert_eq!(state.repos.len(), 1);
+        assert_eq!(state.repos[0].prs.total_count, 0);
+    }
+
+    // --- Notifications (REST) + derivation ------------------------------
 
     #[test]
     fn apply_notifications_updates_state_etag_and_cache() {
@@ -989,6 +1460,33 @@ mod tests {
         // The next conditional fetch carries If-None-Match.
         let spec2 = state.spec(Kind::Notifications, api::notifications_url(1), Some(2));
         assert_eq!(spec2.etag.as_deref(), Some("\"etag-1\""));
+    }
+
+    #[test]
+    fn apply_notifications_derives_selected_repo_group() {
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.selected = Some("o/r".into());
+        let both = r#"[
+            {"id":"1","unread":true,"subject":{"title":"t","type":"Issue","url":"u"},
+             "repository":{"full_name":"o/r"}},
+            {"id":"2","unread":true,"subject":{"title":"t2","type":"Issue","url":"u"},
+             "repository":{"full_name":"o/other"}}]"#;
+        state.apply(SpecResult {
+            kind: Kind::Notifications,
+            ident: None,
+            status: 200,
+            etag: None,
+            rate: None,
+            body: Some(both.into()),
+            network: None,
+            cursor: None,
+        });
+        // Global list holds both; the selected repo's GroupBox derives its
+        // slice (docs/0007 D6).
+        assert_eq!(state.notifications.len(), 2);
+        let derived = state.repo_notifications.get("o/r").unwrap();
+        assert_eq!(derived.len(), 1);
+        assert_eq!(derived[0].id, "1");
     }
 
     #[test]
@@ -1042,95 +1540,54 @@ mod tests {
         let mut state = make_state(http.clone());
         state.auth = AuthStatus::Connected;
 
-        let spec = state.spec(Kind::Repos, api::repos_url(1), None);
+        let spec = state.spec(Kind::Notifications, api::notifications_url(1), None);
         state.apply(run_spec(&*http, &spec));
         assert_eq!(state.rate_limited_until, Some(9_999_999_999));
         assert!(state.plan_tick(1).is_empty());
     }
 
-    #[test]
-    fn pr_count_and_selected_prs_paginate() {
-        let full_page = format!(
-            "[{}]",
-            (0..100)
-                .map(|i| format!(
-                    r#"{{"id":{i},"number":{i},"title":"t","draft":false,"user":{{"login":"x","avatar_url":"a"}},"html_url":"u"}}"#
-                ))
-                .collect::<Vec<_>>()
-                .join(",")
-        );
-        let http = Arc::new(MockHttp::new(vec![
-            // PrCount: one short page.
-            ok(
-                r#"[{"id":1,"number":1,"title":"a","draft":false,"user":{"login":"x","avatar_url":"a"},"html_url":"u"}]"#,
-                "\"p1\"",
-            ),
-            // SelectedPrs: full page then short page.
-            ok(&full_page, "\"p2a\""),
-            ok(
-                r#"[{"id":500,"number":101,"title":"last","draft":true,"user":{"login":"x","avatar_url":"a"},"html_url":"u"}]"#,
-                "\"p2b\"",
-            ),
-        ]));
-        let mut state = make_state(http.clone());
-        state.auth = AuthStatus::Connected;
-        state.repos = vec![repo("o/r")];
-
-        state.apply(run_spec(
-            &*http,
-            &state.spec_ident(
-                Kind::PrCount,
-                Some("o/r"),
-                api::pulls_url("o", "r", 1),
-                Some(1),
-            ),
-        ));
-        assert_eq!(state.open_pr_counts.get("o/r"), Some(&1));
-
-        state.apply(run_spec(
-            &*http,
-            &state.spec_ident(
-                Kind::SelectedPrs,
-                Some("o/r"),
-                api::pulls_url("o", "r", 1),
-                Some(10),
-            ),
-        ));
-        assert_eq!(state.prs.get("o/r").unwrap().len(), 101);
-        assert!(state.prs.get("o/r").unwrap()[100].draft);
-    }
+    // --- Card + persistence ----------------------------------------------
 
     #[test]
-    fn orgs_list_has_the_personal_account_first() {
-        let http = Arc::new(MockHttp::new(vec![
-            ok(r#"{"login":"noosxe","avatar_url":"a"}"#, "\"u\""),
-            ok(r#"[{"login":"acme","avatar_url":"a"}]"#, "\"o\""),
-        ]));
-        let mut state = make_state(http.clone());
-        state.auth = AuthStatus::Connected;
-
-        state.apply(run_spec(
-            &*http,
-            &state.spec(Kind::User, api::user_url(), None),
-        ));
-        state.apply(run_spec(
-            &*http,
-            &state.spec(Kind::Orgs, api::orgs_url(1), None),
-        ));
-
-        assert_eq!(state.orgs[0].login, "noosxe");
-        assert_eq!(state.orgs[1].login, "acme");
-    }
-
-    #[test]
-    fn card_counts_sum_unread_and_pr_counts() {
+    fn card_counts_sum_exact_totals() {
         let mut state = make_state(Arc::new(MockHttp::new(vec![])));
-        state.open_pr_counts.insert("o/a".into(), 3);
-        state.open_pr_counts.insert("o/b".into(), 4);
+        let mut big = repo("o/big");
+        big.prs.total_count = 250; // >100 open PRs — exact now (docs/0007 §1)
+        let mut small = repo("o/small");
+        small.prs.total_count = 4;
+        state.repos = vec![big, small];
         state.notifications =
             serde_json::from_str::<Vec<Notification>>(one_notification()).unwrap();
-        assert_eq!(state.card_counts(), (1, 7));
+        assert_eq!(state.card_counts(), (1, 254));
     }
+
+    #[test]
+    fn snapshot_v2_seeds_a_new_state() {
+        let cache = GithubCache::at_tmp("seed");
+        let mut state = make_state_at(Arc::new(MockHttp::new(vec![])), cache.clone());
+        state.user = Some(User {
+            login: "noosxe".into(),
+            avatar_url: "a".into(),
+        });
+        state.apply_orgs(vec![Org {
+            login: "acme".into(),
+            avatar_url: "oa".into(),
+            description: None,
+        }]);
+        let mut r = repo("o/a");
+        r.prs.total_count = 2;
+        state.repos = vec![r];
+        state.persist_snapshot();
+
+        // A fresh state over the same cache root seeds instantly (Q6).
+        let seeded = make_state_at(Arc::new(MockHttp::new(vec![])), cache);
+        assert_eq!(seeded.user.as_ref().unwrap().login, "noosxe");
+        assert_eq!(seeded.orgs.len(), 2);
+        assert_eq!(seeded.repos.len(), 1);
+        assert_eq!(seeded.repos[0].prs.total_count, 2);
+    }
+
+    // --- Misc ------------------------------------------------------------
 
     #[test]
     fn slug_is_filename_safe() {
@@ -1149,10 +1606,7 @@ mod tests {
 
     #[test]
     fn full_name_splits_on_first_slash() {
-        assert_eq!(
-            crate::page::split_full_name("o/r"),
-            ("o".to_string(), "r".to_string())
-        );
+        assert_eq!(split_full_name("o/r"), ("o".to_string(), "r".to_string()));
     }
 
     #[test]
@@ -1167,10 +1621,12 @@ mod tests {
         );
         state.auth = AuthStatus::Connected;
         state.repos = vec![repo("o/r")];
+        state.repo_cursor = Some("c1".into());
 
         state.sign_out();
         assert_eq!(state.auth, AuthStatus::Disconnected);
         assert!(state.repos.is_empty());
+        assert!(state.repo_cursor.is_none());
         assert!(shared.read().unwrap().is_none());
     }
 }

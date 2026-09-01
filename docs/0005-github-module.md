@@ -4,6 +4,14 @@
 - **Depends on:** 0003 (module contract, navigator), 0004 (paths, persistence
   primitives), 0002 (shell chrome, D7-as-superseded decoration rule)
 
+
+> **Amended by 0007 (PR-era note):** the REST fetching model described in
+> §3.3, §7 and parts of §5 is superseded by the GraphQL global snapshot
+>(docs/0007): user/orgs/repos/PR-walk/selected-PR fetches moved to one
+> GraphQL query; notifications stay REST (no GraphQL API upstream);
+> auth (§3.1–§3.2), UI specification (§6) and the degradation matrix are
+> unchanged. 0007 is the authority for the fetching model; this doc
+> remains the authority for everything else.
 ## 1. Summary
 
 The first real data module, and the first consumer of everything 0003/0004
