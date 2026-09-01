@@ -12,7 +12,8 @@ Working rules for AI agents in this repository. Follow precisely.
 ## Documentation
 
 - **Every feature must be reflected in the docs.** The design docs in `docs/` are the source of truth and must always be up to date with the shipped behavior when a PR lands.
-- Design docs are numbered (`docs/NNNN-slug.md`) and follow the lifecycle Draft → Accepted → Implemented.
+- Design docs are numbered (`docs/NNNN-slug.md`).
+- **No docs lifecycle.** There is no draft/accepted/implemented state tracking: docs are written and sent with the PR that carries them (the design-doc PR for big features, the implementation PR for small ones), and **a merged PR means the docs are accepted**. Never open separate status-flip PRs after implementation.
 
 ## Feature workflow
 
