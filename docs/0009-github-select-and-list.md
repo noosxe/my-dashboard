@@ -233,6 +233,15 @@ repo filtering (returns first org / all repos when no orgs exist).
   and constructs with a real Window.
 - Existing 66 tests untouched (no service changes).
 
+  > **Implementation note (implementation PR):** the tests module must
+  > NOT `use super::*` — page.rs glob-imports `gpui::*`, which re-exports
+  > a `test` proc macro (`gpui/src/gpui.rs:110` at the pinned rev
+  > `1081d2b`); it shadows the builtin `#[test]` attribute and the
+  > expansion infinitely recurses, stack-overflowing rustc's proc-macro
+  > server (SIGSEGV, no diagnostic). Import test fixtures selectively
+  > instead — service.rs never hit this because it imports gpui items
+  > one by one.
+
 ## 5. Acceptance criteria
 
 - No `render_org_*` / `render_repo_row` / `orgs_open` remain in
