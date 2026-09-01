@@ -555,12 +555,17 @@ impl GithubPage {
                     .small()
                     .w_full(),
             )
+            // The List is a direct flex child with flex_1 — the blessed
+            // upstream usage (list_story.rs): wrapping it in an extra
+            // flex_1 div makes the List's size_full() resolve against a
+            // flex-derived height and the whole list collapses to zero.
             .child(
-                div().flex_1().min_h_0().child(
-                    List::new(&self.repo_list)
-                        .search_placeholder("Filter repositories…")
-                        .small(),
-                ),
+                List::new(&self.repo_list)
+                    .search_placeholder("Filter repositories…")
+                    .small()
+                    .flex_1()
+                    .min_h_0()
+                    .w_full(),
             )
             .into_any_element()
     }
