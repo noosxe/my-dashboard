@@ -39,7 +39,7 @@ cross-platform, multi-modular universal personal dashboard built with Rust and
 | [0004](0004-state-persistence.md) | Phase 3 — State Management & Persistence (XDG / native dirs) (PR #13) |
 | [0005](0005-github-module.md) | Phase 4 — GitHub Module (device-flow auth, keychain, notifications + PRs) (PR #17) |
 | [0006](0006-settings-page.md) | Settings (app settings shell, module-provided subpages) (PR #22) |
-| [0007](0007-github-graphql-global-snapshot.md) | GitHub Module: GraphQL Global Snapshot (repos, PRs, issues) (#28) |
+| [0007](0007-github-graphql-global-snapshot.md) | GitHub Module: GraphQL Global Snapshot (repos, PRs, issues) (PR #32) |
 
 ## Planned docs (roadmap, not yet written)
 
