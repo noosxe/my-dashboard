@@ -39,6 +39,7 @@ cross-platform, multi-modular universal personal dashboard built with Rust and
 | [0004](0004-state-persistence.md) | Phase 3 — State Management & Persistence (XDG / native dirs) (PR #13) |
 | [0005](0005-github-module.md) | Phase 4 — GitHub Module (device-flow auth, keychain, notifications + PRs) (PR #17) |
 | [0006](0006-settings-page.md) | Settings (app settings shell, module-provided subpages) (PR #22) |
+| [0007](0007-github-graphql-global-snapshot.md) | GitHub Module: GraphQL Global Snapshot (repos, PRs, issues) (#28) |
 
 ## Planned docs (roadmap, not yet written)
 
@@ -67,6 +68,6 @@ Core requirements (owner, 2026-08-28 — drive the design, not decisions):
 - 0005 — First real module: GitHub → design drafted, see doc 0005 above
 - ~~0006~~ — Settings page (number reused; see doc 0006 above). Build,
   packaging & distribution per OS moves to a new number when written
-- 0007 — File-based color themes (user themes dir, hot reload via
-  `ThemeRegistry::watch_dir`) — proposed, tracked in #23; requires a
-  design doc (upstream basis verified in PR #22)
+- File-based color themes (user themes dir, hot reload via
+  `ThemeRegistry::watch_dir`) — proposed, tracked in #23; takes the next
+  free number when written (upstream basis verified in PR #22)
