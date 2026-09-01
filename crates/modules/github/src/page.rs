@@ -72,7 +72,7 @@ impl GithubPage {
                 this.org = Some(login.clone());
                 this.state.update(cx, |s, _| s.selected = None);
                 this.synced_repos.clear();
-                this.sync_from_state(cx);
+                this.sync_from_state_in(window, cx);
                 this.repo_list.update(cx, |list, cx| {
                     list.set_query("", window, cx);
                 });
@@ -103,7 +103,7 @@ impl GithubPage {
         cx.observe(&state, |this, _, cx| this.sync_from_state(cx))
             .detach();
 
-        let mut page = Self {
+        let page = Self {
             state,
             org: None,
             org_select,
@@ -112,8 +112,16 @@ impl GithubPage {
             synced_orgs: Vec::new(),
             synced_repos: Vec::new(),
         };
-        // Seed from whatever the state already holds (last-known caches).
-        page.sync_from_state(cx);
+        // Seed from whatever the state already holds (last-known
+        // caches) — but NOT here: Module::init runs inside
+        // `cx.open_window`'s build closure, before the window handle is
+        // registered (gpui `App::open_window` inserts it only after
+        // `build_root_view` returns), so `window.update` would fail
+        // here and the failure would be invisible. `defer_in` runs at
+        // the end of the current effect cycle, window in hand.
+        cx.defer_in(window, |this, window, cx| {
+            this.sync_from_state_in(window, cx);
+        });
         page
     }
 
@@ -144,11 +152,22 @@ impl GithubPage {
         }
     }
 
-    /// Compare-first sync of the Select/List entities from the state
-    /// (0009 D6). `set_items`-style APIs need `&mut Window`, which an
-    /// `cx.observe` closure lacks — hence the stored handle. The result
-    /// is discarded: the window may already be closing.
+    /// Observer entry (0009 D6): `cx.observe` has no window, so go
+    /// through the stored handle. A failed update (window closing)
+    /// leaves the guards below stale — the next observer pass retries.
     fn sync_from_state(&mut self, cx: &mut Context<Self>) {
+        let window = self.window;
+        let page = cx.entity();
+        let _ = window.update(cx, |_, window, cx| {
+            page.update(cx, |this, cx| this.sync_from_state_in(window, cx));
+        });
+    }
+
+    /// Compare-first sync of the Select/List entities from the state
+    /// (0009 D6). The `synced_*` guards are committed only AFTER the
+    /// entity updates ran — a sync that never reached a window is not
+    /// recorded as done.
+    fn sync_from_state_in(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let logins: Vec<SharedString> = self
             .state
             .read(cx)
@@ -157,38 +176,38 @@ impl GithubPage {
             .map(|o| o.login.clone().into())
             .collect();
         if logins != self.synced_orgs {
-            self.synced_orgs = logins.clone();
-            self.org = next_org_selection(self.org.as_deref(), &logins);
-            let select = self.org_select.clone();
-            let choice = self.org.clone();
-            let _ = self.window.update(cx, |_, window, cx| {
-                select.update(cx, |s, cx| {
-                    s.set_items(SearchableVec::from(logins), window, cx);
-                    if let Some(value) = choice {
-                        s.set_selected_value(&value, window, cx);
-                    }
-                });
+            let choice = next_org_selection(self.org.as_deref(), &logins);
+            self.org_select.update(cx, |s, cx| {
+                s.set_items(SearchableVec::from(logins.clone()), window, cx);
+                if let Some(value) = &choice {
+                    s.set_selected_value(value, window, cx);
+                }
             });
+            self.org = choice;
+            self.synced_orgs = logins.clone();
+            log::debug!(
+                "org select synced: {} orgs, selected: {:?}",
+                self.synced_orgs.len(),
+                self.org
+            );
         }
 
         let repos = self.visible_repos(cx);
         let keys: Vec<String> = repos.iter().map(|r| r.full_name.clone()).collect();
         if keys != self.synced_repos {
-            self.synced_repos = keys;
             let selected = self.state.read(cx).selected.clone();
             let position = selected
                 .as_deref()
                 .and_then(|f| repos.iter().position(|r| r.full_name == f))
                 .map(IndexPath::new);
-            let list = self.repo_list.clone();
-            let _ = self.window.update(cx, |_, window, cx| {
-                list.update(cx, |l, cx| {
-                    l.delegate_mut().set_repos(repos);
-                    // Non-scrolling selection sync: keep the highlight on
-                    // the selected repo without yanking the viewport.
-                    l.set_selected_index(position, window, cx);
-                });
+            self.repo_list.update(cx, |l, cx| {
+                l.delegate_mut().set_repos(repos);
+                // Non-scrolling selection sync: keep the highlight on
+                // the selected repo without yanking the viewport.
+                l.set_selected_index(position, window, cx);
             });
+            self.synced_repos = keys.clone();
+            log::debug!("repo list synced: {} repos", self.synced_repos.len());
         }
 
         cx.notify();
