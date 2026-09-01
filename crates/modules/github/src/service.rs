@@ -796,18 +796,27 @@ impl GithubState {
 
     /// Merge snapshot repos into the list (docs/0007 D4): a completed run
     /// (`prune`) saw the whole list and replaces it; a capped run overlays
-    /// its batch and keeps repos from earlier pages.
+    /// its batch and keeps repos from earlier pages. Either way the list
+    /// ends in composite last-activity order (issue #35): the connection
+    /// comes back `PUSHED_AT DESC`, which ignores PR/issue activity, and
+    /// a repo-open refresh must not move the row. Ties break by key so
+    /// identical activity is a stable order.
     fn merge_repos(&mut self, incoming: Vec<Repo>, prune: bool) {
         if prune {
             self.repos = incoming;
-            return;
+        } else {
+            let keys: std::collections::BTreeSet<String> =
+                incoming.iter().map(|r| r.key.clone()).collect();
+            let mut merged = incoming;
+            let old = std::mem::take(&mut self.repos);
+            merged.extend(old.into_iter().filter(|r| !keys.contains(&r.key)));
+            self.repos = merged;
         }
-        let keys: std::collections::BTreeSet<String> =
-            incoming.iter().map(|r| r.key.clone()).collect();
-        let mut merged = incoming;
-        let old = std::mem::take(&mut self.repos);
-        merged.extend(old.into_iter().filter(|r| !keys.contains(&r.key)));
-        self.repos = merged;
+        self.repos.sort_by(|a, b| {
+            b.last_activity()
+                .cmp(&a.last_activity())
+                .then_with(|| a.key.cmp(&b.key))
+        });
     }
 
     /// Org list for the dropdown: the personal account first (Q10).
@@ -1084,6 +1093,10 @@ mod tests {
     }
 
     fn repo(full_name: &str) -> Repo {
+        repo_at(full_name, None)
+    }
+
+    fn repo_at(full_name: &str, pushed_at: Option<&str>) -> Repo {
         Repo {
             key: full_name.into(),
             database_id: Some(1),
@@ -1092,7 +1105,7 @@ mod tests {
             owner: gql::Owner { login: "o".into() },
             description: None,
             private: false,
-            pushed_at: None,
+            pushed_at: pushed_at.map(str::to_string),
             prs: gql::PrSummary {
                 total_count: 0,
                 nodes: vec![],
@@ -1144,16 +1157,41 @@ mod tests {
     }
 
     fn repo_node(full_name: &str, pr_total: i64, prs_json: &str) -> String {
+        repo_node_ts(full_name, "2026-09-01T00:00:00Z", pr_total, prs_json, "")
+    }
+
+    fn repo_node_ts(
+        full_name: &str,
+        pushed_at: &str,
+        pr_total: i64,
+        prs_json: &str,
+        issues_json: &str,
+    ) -> String {
         format!(
             r#"{{"databaseId":7,"name":"{}","nameWithOwner":"{full_name}",
-                "description":null,"isPrivate":false,"pushedAt":"2026-09-01T00:00:00Z",
+                "description":null,"isPrivate":false,"pushedAt":"{pushed_at}",
                 "owner":{{"login":"o"}},
                 "pullRequests":{{"totalCount":{pr_total},"nodes":[{prs_json}]}},
-                "issues":{{"totalCount":0,"nodes":[]}}}}"#,
+                "issues":{{"totalCount":0,"nodes":[{issues_json}]}}}}"#,
             full_name.split('/').nth(1).unwrap_or(full_name)
         )
     }
 
+    fn pr_node_at(number: i64, updated_at: &str) -> String {
+        format!(
+            r#"{{"databaseId":{number},"number":{number},"title":"t","isDraft":false,
+                "state":"OPEN","author":{{"login":"x","avatarUrl":"a"}},
+                "updatedAt":"{updated_at}","url":"https://github.com/o/r/pull/{number}"}}"#
+        )
+    }
+
+    fn issue_node_at(number: i64, updated_at: &str) -> String {
+        format!(
+            r#"{{"databaseId":{number},"number":{number},"title":"i",
+                "author":{{"login":"x","avatarUrl":"a"}},
+                "updatedAt":"{updated_at}","url":"https://github.com/o/r/issues/{number}"}}"#
+        )
+    }
     fn pr_node(number: i64) -> String {
         format!(
             r#"{{"databaseId":{number},"number":{number},"title":"t","isDraft":false,
@@ -1451,6 +1489,115 @@ mod tests {
         let r = state.repos.iter().find(|r| r.full_name == "o/r").unwrap();
         assert_eq!(r.prs.total_count, 3);
         assert_eq!(r.prs.nodes[0].key, "o/r#7");
+    }
+
+    #[test]
+    fn repo_list_orders_by_composite_last_activity() {
+        // Issue #35: per repo, the newest of pushed_at / PR / issue
+        // activity decides the position — not the connection's
+        // PUSHED_AT ordering.
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        let body = gql_page(
+            false,
+            "x",
+            [
+                // Pushed in March, nothing else — mid.
+                repo_node_ts("o/pushed", "2026-03-01T00:00:00Z", 0, "", ""),
+                // Pushed in January, PR updated in May — outranks March.
+                repo_node_ts(
+                    "o/pr-fresh",
+                    "2026-01-01T00:00:00Z",
+                    1,
+                    &pr_node_at(1, "2026-05-01T00:00:00Z"),
+                    "",
+                ),
+                // Pushed in January, issue updated in June — top.
+                repo_node_ts(
+                    "o/issue-fresh",
+                    "2026-01-01T00:00:00Z",
+                    0,
+                    "",
+                    &issue_node_at(1, "2026-06-01T00:00:00Z"),
+                ),
+                // January only — bottom.
+                repo_node_ts("o/old", "2026-01-01T00:00:00Z", 0, "", ""),
+            ]
+            .join(",")
+            .as_str(),
+        );
+        state.apply(snapshot_result(&body, None));
+
+        let names: Vec<&str> = state.repos.iter().map(|r| r.full_name.as_str()).collect();
+        assert_eq!(names, ["o/issue-fresh", "o/pr-fresh", "o/pushed", "o/old"]);
+    }
+
+    #[test]
+    fn repo_snapshot_does_not_move_row_when_activity_unchanged() {
+        // Issue #35 regression: selecting a repo fired a repo-scoped
+        // snapshot whose merge prepended the repo — it jumped to the top
+        // even with no new activity. Only a genuinely newer stamp may
+        // move it.
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.repos = vec![
+            repo_at("o/a", Some("2026-05-01T00:00:00Z")),
+            repo_at("o/r", Some("2026-01-01T00:00:00Z")),
+        ];
+
+        // Same activity as before: row must stay in place.
+        let unchanged = SpecResult {
+            kind: Kind::RepoSnapshot,
+            ident: Some("o/r".into()),
+            status: 200,
+            etag: None,
+            rate: None,
+            body: Some(format!(
+                r#"{{"data":{{"repository":{}}}}}"#,
+                repo_node_ts("o/r", "2026-01-01T00:00:00Z", 2, "", "")
+            )),
+            network: None,
+            cursor: None,
+        };
+        state.apply(unchanged);
+        assert_eq!(
+            state
+                .repos
+                .iter()
+                .map(|r| r.full_name.clone())
+                .collect::<Vec<_>>(),
+            ["o/a", "o/r"],
+            "same activity — no reorder"
+        );
+
+        // A genuinely fresher PR moves the repo up.
+        let fresher = SpecResult {
+            kind: Kind::RepoSnapshot,
+            ident: Some("o/r".into()),
+            status: 200,
+            etag: None,
+            rate: None,
+            body: Some(format!(
+                r#"{{"data":{{"repository":{}}}}}"#,
+                repo_node_ts(
+                    "o/r",
+                    "2026-01-01T00:00:00Z",
+                    1,
+                    &pr_node_at(9, "2026-09-01T00:00:00Z"),
+                    "",
+                )
+            )),
+            network: None,
+            cursor: None,
+        };
+        state.apply(fresher);
+        assert_eq!(
+            state
+                .repos
+                .iter()
+                .map(|r| r.full_name.clone())
+                .collect::<Vec<_>>(),
+            ["o/r", "o/a"],
+            "newer activity — moves up"
+        );
     }
 
     #[test]

@@ -256,11 +256,37 @@ pub struct Repo {
     pub description: Option<String>,
     #[serde(default)]
     pub private: bool,
-    /// "Recently pushed" ordering hint (UI layer).
+    /// Repo pushes — one input of the composite list ordering (issue #35).
     #[serde(default)]
     pub pushed_at: Option<String>,
     pub prs: PrSummary,
     pub issues: IssueSummary,
+}
+
+/// RFC-3339 → epoch seconds; 0 when absent or unparseable.
+fn stamp_epoch(stamp: &Option<String>) -> u64 {
+    stamp
+        .as_deref()
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|t| t.timestamp().max(0) as u64)
+        .unwrap_or(0)
+}
+
+impl Repo {
+    /// Composite last-activity (issue #35): the newest of the repo's own
+    /// pushes, its open PRs, and its open issues. Nodes arrive
+    /// `UPDATED_AT DESC` (D2) but the max over nodes stays correct even
+    /// if that ordering ever shifts; missing stamps count as 0.
+    pub fn last_activity(&self) -> u64 {
+        let mut latest = stamp_epoch(&self.pushed_at);
+        for pr in &self.prs.nodes {
+            latest = latest.max(stamp_epoch(&pr.updated_at));
+        }
+        for issue in &self.issues.nodes {
+            latest = latest.max(stamp_epoch(&issue.updated_at));
+        }
+        latest
+    }
 }
 
 /// Open PRs: exact count (fixes the REST page-1 cap, doc 0007 §1) plus the
@@ -276,7 +302,6 @@ pub struct PrSummary {
 pub struct IssueSummary {
     #[allow(dead_code)] // consumed by the issues UI (follow-up)
     pub total_count: i64,
-    #[allow(dead_code)] // consumed by the issues UI (follow-up)
     pub nodes: Vec<Issue>,
 }
 
@@ -315,7 +340,6 @@ pub struct Issue {
     pub title: String,
     #[allow(dead_code)]
     pub author: Option<Author>,
-    #[allow(dead_code)]
     pub updated_at: Option<String>,
     #[allow(dead_code)]
     pub url: String,
@@ -518,6 +542,25 @@ impl RateLimitField {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn last_activity_picks_max_across_repo_prs_and_issues() {
+        let mut value = repo_value("o/r", "", 0);
+        // pushedAt January, PRs Feb+Apr, issue June — June wins.
+        value["pushedAt"] = serde_json::json!("2026-01-01T00:00:00Z");
+        value["pullRequests"] = serde_json::json!({"totalCount": 2, "nodes": [
+            {"databaseId":1,"number":1,"title":"t","isDraft":false,
+             "state":"OPEN","author":{"login":"x","avatarUrl":"a"},
+             "updatedAt":"2026-04-01T00:00:00Z","url":"u"},
+            {"databaseId":2,"number":2,"title":"t2","isDraft":false,
+             "state":"OPEN","author":{"login":"x","avatarUrl":"a"},
+             "updatedAt":"2026-02-01T00:00:00Z","url":"u"}]});
+        value["issues"]["nodes"] = serde_json::json!([
+            {"databaseId":31,"number":9,"title":"i",
+             "author":{"login":"octo"},"updatedAt":"2026-06-01T00:00:00Z",
+             "url":"iu"}]);
+        let repo = repo_from_value(&value).unwrap();
+        assert_eq!(repo.last_activity(), 1_780_272_000); // 2026-06-01T00:00:00Z
+    }
 
     fn repo_value(full_name: &str, prs: &str, pr_total: i64) -> serde_json::Value {
         serde_json::from_str(&format!(
