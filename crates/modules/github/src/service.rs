@@ -537,7 +537,10 @@ impl GithubState {
             selected: None,
             repo_cursor: None,
             rate_limited_until: None,
-            needs_bootstrap: false,
+            // A keychain-token launch boots straight into the snapshot
+            // refresh — the first tick must fire it, not wait for tick 5
+            // (docs/0007 §8: cache paint, then the snapshot lands).
+            needs_bootstrap: auth.connected(),
             auth,
             etags,
             client,
@@ -561,7 +564,12 @@ impl GithubState {
 
     /// Plan this tick's work (docs/0007 D6). Consumes `needs_bootstrap`.
     pub fn plan_tick(&mut self, tick: u64) -> Vec<FetchSpec> {
-        if self.needs_bootstrap && self.auth.connected() {
+        // Gate first: a rate-limit pause (or auth loss) defers bootstrap
+        // too — the flag survives until the window passes.
+        if self.gated() {
+            return Vec::new();
+        }
+        if self.needs_bootstrap {
             self.needs_bootstrap = false;
             return vec![
                 self.snapshot_spec(),
@@ -707,6 +715,14 @@ impl GithubState {
                             self.repo_cursor = result.cursor.clone();
                         }
                         self.persist_snapshot();
+                        // One concise landing note — the owner's log
+                        // verification point (docs/0007 §8).
+                        let open_prs: i64 = self.repos.iter().map(|r| r.prs.total_count).sum();
+                        eprintln!(
+                            "[github] snapshot applied: {} repos, {} open PRs",
+                            self.repos.len(),
+                            open_prs
+                        );
                     }
                     Err(e) => eprintln!("[github] snapshot payload: {e}"),
                 }
@@ -1222,6 +1238,18 @@ mod tests {
         state.selected = Some("o/r".into());
         let specs = state.plan_tick(6);
         assert!(specs.iter().all(|s| s.kind == Kind::Notifications));
+    }
+
+    #[test]
+    fn keychain_launch_fires_snapshot_on_first_tick() {
+        // Regression (owner report): a launch with an existing keychain
+        // token must not wait for tick 5 — old REST-era cache keys are
+        // ignored by snapshot-v2, so nothing else populates the UI.
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        assert_eq!(state.auth, AuthStatus::Connected);
+        assert!(state.needs_bootstrap);
+        let specs = state.plan_tick(1);
+        assert!(specs.iter().any(|s| s.kind == Kind::Snapshot));
     }
 
     #[test]
