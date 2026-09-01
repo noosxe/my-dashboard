@@ -1,6 +1,5 @@
 # 0001 — Phase 0: Bootstrap — Hello World gpui-component Application
 
-- **Status:** Implemented (PR [#1](https://github.com/noosxe/my-dashboard/pull/1), merged 2026-08-28)
 - **Date:** 2026-08-28
 - **Revised:** 2026-08-28 — Nix flake + direnv dev environment (NixOS primary)
 - **Phase:** 0 (Bootstrap)

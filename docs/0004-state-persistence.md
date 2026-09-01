@@ -1,6 +1,5 @@
 # 0004 — Phase 3: State Management & Persistence (XDG / native dirs)
 
-- **Status:** Implemented (PR [#13](https://github.com/noosxe/my-dashboard/pull/13), merged 2026-08-29 as bec6617; owner-verified on desktop)
 - **Date:** 2026-08-29
 - **Phase:** 3 (Foundations for real modules)
 
