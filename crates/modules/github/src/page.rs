@@ -539,26 +539,31 @@ impl GithubPage {
             .border_color(cx.theme().border)
             .p_2()
             .gap_2()
+            // The Select's outer wrapper is hardcoded `size_full()`
+            // (select.rs RenderOnce) and style refinements only reach
+            // the inner trigger — in this full-height column it would
+            // resolve to the whole column and starve the List below to
+            // zero. A flex_none slot bounds it to the trigger's height.
             .child(
-                Select::new(&self.org_select)
-                    .placeholder("Organization…")
-                    .search_placeholder("Filter organizations…")
-                    .empty(|_, cx| {
-                        h_flex()
-                            .w_full()
-                            .justify_center()
-                            .py_4()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child("No organizations yet")
-                    })
-                    .small()
-                    .w_full(),
+                div().flex_none().child(
+                    Select::new(&self.org_select)
+                        .placeholder("Organization…")
+                        .search_placeholder("Filter organizations…")
+                        .empty(|_, cx| {
+                            h_flex()
+                                .w_full()
+                                .justify_center()
+                                .py_4()
+                                .text_sm()
+                                .text_color(cx.theme().muted_foreground)
+                                .child("No organizations yet")
+                        })
+                        .small()
+                        .w_full(),
+                ),
             )
             // The List is a direct flex child with flex_1 — the blessed
-            // upstream usage (list_story.rs): wrapping it in an extra
-            // flex_1 div makes the List's size_full() resolve against a
-            // flex-derived height and the whole list collapses to zero.
+            // upstream usage (list_story.rs).
             .child(
                 List::new(&self.repo_list)
                     .search_placeholder("Filter repositories…")
