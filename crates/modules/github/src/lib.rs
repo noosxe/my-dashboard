@@ -66,7 +66,7 @@ impl Module for GithubModule {
         spawn_tick_loop(state.clone(), window_handle, cx);
 
         let overview = cx.new(|cx| card::GithubCard::new(state.clone(), _nav.clone(), cx));
-        let main_page = cx.new(|cx| page::GithubPage::new(state.clone(), cx));
+        let main_page = cx.new(|cx| page::GithubPage::new(state.clone(), window, cx));
 
         // Settings subpage (docs/0006 §4.3): the provider captures the
         // state entity and rebuilds the page per settings render, so

@@ -1,22 +1,25 @@
-//! Module page (docs/0005 §6.3): the owner-specified two-column layout —
-//! org dropdown + repo list (left, independently scrollable), repo header +
-//! GroupBoxes (right, independently scrollable) — plus the connect panel
-//! (§6.2) for every non-connected state.
+//! Module page (docs/0005 §6.3, amended by 0009): two-column layout —
+//! searchable org `Select` + virtualized searchable repo `List` (left),
+//! repo header + GroupBoxes (right, independently scrollable) — plus the
+//! connect panel (§6.2) for every non-connected state.
 //!
-//! Note: the org dropdown is a lightweight inline popover rather than
-//! gpui-component's `Select`: `SelectState::set_items` requires `&mut
-//! Window`, which reactive entity updates don't have — our org list arrives
-//! asynchronously from the service.
+//! Both left-column components are gpui-component entities constructed
+//! once here (0009 D3): their item-replacement and selection APIs need
+//! `&mut Window`, so background data sync goes through the stored window
+//! handle (D6) while user interaction arrives via `subscribe_in`.
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::{
-    ActiveTheme, Icon, Sizable as _, ThemeStyled as _,
+    ActiveTheme, Icon, IndexPath, Sizable as _,
     avatar::Avatar,
     badge::Badge,
     button::{Button, ButtonVariants},
     group_box::GroupBox,
     h_flex,
+    list::{List, ListDelegate, ListEvent, ListItem, ListState},
+    searchable_list::SearchableVec,
+    select::{Select, SelectEvent, SelectState},
     spinner::Spinner,
     v_flex,
 };
@@ -30,24 +33,93 @@ use crate::service::{
 
 pub(crate) struct GithubPage {
     state: Entity<GithubState>,
-    /// Org login chosen in the dropdown (`None` = the first org, i.e. the
-    /// personal account — Q10).
+    /// Org login chosen in the Select (`None` = the first org, i.e. the
+    /// personal account — Q10; resolved on orgs arrival, 0009 D6).
     org: Option<SharedString>,
-    orgs_open: bool,
+    org_select: Entity<SelectState<SearchableVec<SharedString>>>,
+    repo_list: Entity<ListState<RepoListDelegate>>,
+    /// Window access for observer-time entity updates (0009 D6).
+    window: AnyWindowHandle,
+    /// Last-synced item keys — compare-first background sync so untouched
+    /// ticks cost two vec comparisons and no entity writes (0009 D6).
+    synced_orgs: Vec<SharedString>,
+    synced_repos: Vec<String>,
 }
 
 impl GithubPage {
-    pub fn new(state: Entity<GithubState>, cx: &mut Context<Self>) -> Self {
-        cx.observe(&state, |_, _, cx| cx.notify()).detach();
-        Self {
+    pub fn new(state: Entity<GithubState>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let org_select = cx.new(|cx| {
+            SelectState::new(
+                SearchableVec::new(Vec::<SharedString>::new()),
+                None,
+                window,
+                cx,
+            )
+            .searchable(true)
+        });
+        let repo_list =
+            cx.new(|cx| ListState::new(RepoListDelegate::default(), window, cx).searchable(true));
+
+        // Org switch (0009 D5): adopt the login, drop the repo selection
+        // (it belongs to the old org), repopulate, reset the search.
+        cx.subscribe_in(
+            &org_select,
+            window,
+            |this, _, event: &SelectEvent<SearchableVec<SharedString>>, window, cx| {
+                let SelectEvent::Confirm(Some(login)) = event else {
+                    return;
+                };
+                this.org = Some(login.clone());
+                this.state.update(cx, |s, _| s.selected = None);
+                this.synced_repos.clear();
+                this.sync_from_state(cx);
+                this.repo_list.update(cx, |list, cx| {
+                    list.set_query("", window, cx);
+                });
+                cx.notify();
+            },
+        )
+        .detach();
+
+        // Repo selection (0009 D4): click / Enter = confirm → the same
+        // fetch path the manual rows used.
+        cx.subscribe_in(
+            &repo_list,
+            window,
+            |this, _, event: &ListEvent, window, cx| {
+                if let ListEvent::Confirm(ix) = event {
+                    let full_name = this.repo_list.read(cx).delegate().repo_full_name(*ix);
+                    if let Some(full_name) = full_name {
+                        this.select_repo(full_name, window, cx);
+                    }
+                }
+            },
+        )
+        .detach();
+
+        // Background data arrival (0009 D6): orgs/repos land on the state
+        // entity asynchronously; this observer shuttles them into the
+        // Select/List entities through the stored window handle.
+        cx.observe(&state, |this, _, cx| this.sync_from_state(cx))
+            .detach();
+
+        let mut page = Self {
             state,
             org: None,
-            orgs_open: false,
-        }
+            org_select,
+            repo_list,
+            window: window.window_handle(),
+            synced_orgs: Vec::new(),
+            synced_repos: Vec::new(),
+        };
+        // Seed from whatever the state already holds (last-known caches).
+        page.sync_from_state(cx);
+        page
     }
 
-    /// Effective org login: the dropdown choice or the default (first =
-    /// personal, Q10).
+    /// Effective org login: the Select choice or the default (first =
+    /// personal, Q10). Only relevant before orgs arrive (D6 resolves the
+    /// choice on arrival).
     fn effective_org(&self, cx: &Context<Self>) -> Option<SharedString> {
         self.org.clone().or_else(|| {
             self.state
@@ -70,6 +142,56 @@ impl GithubPage {
                 .collect(),
             None => state.repos.clone(),
         }
+    }
+
+    /// Compare-first sync of the Select/List entities from the state
+    /// (0009 D6). `set_items`-style APIs need `&mut Window`, which an
+    /// `cx.observe` closure lacks — hence the stored handle. The result
+    /// is discarded: the window may already be closing.
+    fn sync_from_state(&mut self, cx: &mut Context<Self>) {
+        let logins: Vec<SharedString> = self
+            .state
+            .read(cx)
+            .orgs
+            .iter()
+            .map(|o| o.login.clone().into())
+            .collect();
+        if logins != self.synced_orgs {
+            self.synced_orgs = logins.clone();
+            self.org = next_org_selection(self.org.as_deref(), &logins);
+            let select = self.org_select.clone();
+            let choice = self.org.clone();
+            let _ = self.window.update(cx, |_, window, cx| {
+                select.update(cx, |s, cx| {
+                    s.set_items(SearchableVec::from(logins), window, cx);
+                    if let Some(value) = choice {
+                        s.set_selected_value(&value, window, cx);
+                    }
+                });
+            });
+        }
+
+        let repos = self.visible_repos(cx);
+        let keys: Vec<String> = repos.iter().map(|r| r.full_name.clone()).collect();
+        if keys != self.synced_repos {
+            self.synced_repos = keys;
+            let selected = self.state.read(cx).selected.clone();
+            let position = selected
+                .as_deref()
+                .and_then(|f| repos.iter().position(|r| r.full_name == f))
+                .map(IndexPath::new);
+            let list = self.repo_list.clone();
+            let _ = self.window.update(cx, |_, window, cx| {
+                list.update(cx, |l, cx| {
+                    l.delegate_mut().set_repos(repos);
+                    // Non-scrolling selection sync: keep the highlight on
+                    // the selected repo without yanking the viewport.
+                    l.set_selected_index(position, window, cx);
+                });
+            });
+        }
+
+        cx.notify();
     }
 
     fn select_repo(
@@ -125,41 +247,6 @@ impl GithubPage {
             let _ = window_handle.update(cx, |_, window, _| window.refresh());
         })
         .detach();
-    }
-
-    fn render_repo_row(&self, repo: &gql::Repo, cx: &mut Context<Self>) -> AnyElement {
-        let full_name: SharedString = repo.full_name.clone().into();
-        let selected = self
-            .state
-            .read(cx)
-            .selected
-            .as_deref()
-            .is_some_and(|s| s == repo.full_name);
-        let theme = cx.theme().clone();
-        div()
-            .id(SharedString::from(format!("repo-{}", repo.key)))
-            .px_2()
-            .py_1p5()
-            .rounded_sm()
-            .text_sm()
-            .cursor_pointer()
-            .when(selected, |s| s.bg(theme.accent.opacity(0.14)))
-            .hover(|s| s.bg(theme.accent.opacity(0.08)))
-            .on_click(cx.listener(move |this, _, window, cx| {
-                this.select_repo(full_name.clone(), window, cx);
-            }))
-            .child(
-                h_flex()
-                    .gap_1p5()
-                    .items_center()
-                    .child(div().truncate().child(repo.name.clone()))
-                    .when(repo.private, |row| {
-                        // GitHub's own list treatment: small muted lock glyph,
-                        // no text badge.
-                        row.child(private_lock(theme.muted_foreground))
-                    }),
-            )
-            .into_any_element()
     }
 
     fn render_pr_row(&self, pr: &gql::PullRequest, cx: &Context<Self>) -> AnyElement {
@@ -248,123 +335,132 @@ impl GithubPage {
             )
             .into_any_element()
     }
+}
 
-    /// Org dropdown trigger. The open menu itself renders at the page root
-    /// (see `render_org_overlay`) — gpui has no z-index: later children
-    /// paint above earlier ones, so a menu nested in this column would be
-    /// painted over by the repo rows below it (owner-reported).
-    fn render_org_dropdown(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let logins: Vec<SharedString> = self
-            .state
-            .read(cx)
-            .orgs
+/// Resolve the org choice after the login list changes (0009 D6): keep the
+/// current org when it still exists, otherwise fall back to the first
+/// login (the personal account, Q10). Pure — table-tested.
+fn next_org_selection(current: Option<&str>, logins: &[SharedString]) -> Option<SharedString> {
+    match current {
+        Some(current) if logins.iter().any(|l| &**l == current) => Some(current.to_string().into()),
+        _ => logins.first().cloned(),
+    }
+}
+
+/// Repo-list delegate (0009 D2): the visible repos plus the filtered view
+/// driven by the List's search input. Data-only — selection reacts flow
+/// through `ListEvent` on the page, not through the delegate.
+#[derive(Default)]
+struct RepoListDelegate {
+    all: Vec<gql::Repo>,
+    matched: Vec<gql::Repo>,
+    query: String,
+    selected: Option<IndexPath>,
+}
+
+impl RepoListDelegate {
+    /// Replace the data, re-applying the active query (background
+    /// refreshes must not clear the user's filter).
+    fn set_repos(&mut self, repos: Vec<gql::Repo>) {
+        self.all = repos;
+        self.apply_query(&self.query.clone());
+    }
+
+    /// Case-insensitive substring match on name or description (D2).
+    fn apply_query(&mut self, query: &str) {
+        self.query = query.to_string();
+        let q = self.query.to_lowercase();
+        self.matched = self
+            .all
             .iter()
-            .map(|o| o.login.clone().into())
+            .filter(|r| {
+                q.is_empty()
+                    || r.name.to_lowercase().contains(&q)
+                    || r.description
+                        .as_deref()
+                        .is_some_and(|d| d.to_lowercase().contains(&q))
+            })
+            .cloned()
             .collect();
-        let current: SharedString = self
-            .effective_org(cx)
-            .unwrap_or_else(|| "Organization…".into());
-        let theme = cx.theme().clone();
+    }
 
-        div()
-            .id("org-trigger")
-            .w_full()
-            .px_2()
-            .py_1p5()
-            .rounded_sm()
-            .border_1()
-            .border_color(theme.border)
-            .cursor_pointer()
-            .text_sm()
-            .hover(|s| s.bg(theme.accent.opacity(0.06)))
-            .on_click(cx.listener(|this, _, _, cx| {
-                this.orgs_open = !this.orgs_open;
-                cx.notify();
-            }))
-            .child(
-                h_flex().justify_between().items_center().child(
-                    div()
-                        .when(logins.is_empty(), |t| t.text_color(theme.muted_foreground))
-                        .child(current),
+    fn repo_at(&self, ix: IndexPath) -> Option<&gql::Repo> {
+        self.matched.get(ix.row)
+    }
+
+    fn repo_full_name(&self, ix: IndexPath) -> Option<SharedString> {
+        self.repo_at(ix).map(|r| r.full_name.clone().into())
+    }
+}
+
+impl ListDelegate for RepoListDelegate {
+    type Item = ListItem;
+
+    fn perform_search(
+        &mut self,
+        query: &str,
+        _window: &mut Window,
+        _cx: &mut Context<ListState<Self>>,
+    ) -> Task<()> {
+        self.apply_query(query);
+        Task::ready(())
+    }
+
+    fn items_count(&self, _section: usize, _cx: &App) -> usize {
+        self.matched.len()
+    }
+
+    fn render_item(
+        &mut self,
+        ix: IndexPath,
+        _window: &mut Window,
+        cx: &mut Context<ListState<Self>>,
+    ) -> Option<Self::Item> {
+        let repo = self.repo_at(ix)?.clone();
+        Some(
+            ListItem::new(SharedString::from(format!("repo-{}", repo.key)))
+                .text_sm()
+                .child(
+                    h_flex()
+                        .gap_1p5()
+                        .items_center()
+                        .child(div().truncate().child(repo.name.clone()))
+                        .when(repo.private, |row| {
+                            // GitHub's own list treatment: small muted lock
+                            // glyph, no text badge.
+                            row.child(private_lock(cx.theme().muted_foreground))
+                        }),
                 ),
-            )
+        )
+    }
+
+    fn render_empty(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<ListState<Self>>,
+    ) -> impl IntoElement {
+        let text = if self.query.trim().is_empty() {
+            "No repositories yet"
+        } else {
+            "No matches"
+        };
+        h_flex()
+            .size_full()
+            .justify_center()
+            .pt_6()
+            .text_sm()
+            .text_color(cx.theme().muted_foreground)
+            .child(text)
             .into_any_element()
     }
 
-    /// Backdrop + open org menu, rendered as the LAST child of the page
-    /// root so it paints above both columns. The backdrop catches every
-    /// outside click (including the right column) to close the menu.
-    /// Geometry: left column is p_2 (8 px) wide-padded, 280 px wide, and
-    /// the trigger ends ~40 px from the page top — so the menu sits at
-    /// top 42, left 8, width 264.
-    fn render_org_overlay(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let logins: Vec<SharedString> = self
-            .state
-            .read(cx)
-            .orgs
-            .iter()
-            .map(|o| o.login.clone().into())
-            .collect();
-        let theme = cx.theme().clone();
-
-        div()
-            .id("org-overlay")
-            .absolute()
-            .inset_0()
-            .child(
-                div()
-                    .id("org-backdrop")
-                    .absolute()
-                    .inset_0()
-                    // Swallow the click: closing on outside-click must not
-                    // also activate the repo row underneath.
-                    .occlude()
-                    .cursor_pointer()
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.orgs_open = false;
-                        cx.notify();
-                    })),
-            )
-            .child(
-                v_flex()
-                    .id("org-menu")
-                    .absolute()
-                    // Same reason as the backdrop: without a blocking hitbox,
-                    // gpui dispatches the click to the repo row under the
-                    // menu too (owner-reported click-through).
-                    .occlude()
-                    .top(px(42.))
-                    .left(px(8.))
-                    .w(px(264.))
-                    .max_h(px(280.))
-                    .overflow_y_scroll()
-                    // Floating-surface semantic token — same paint path as
-                    // gpui-component's own popup menus.
-                    .popover_style(cx)
-                    .p_1()
-                    .children(logins.iter().map(|login| {
-                        let login: SharedString = login.clone();
-                        let login_for_click = login.clone();
-                        div()
-                            .id(SharedString::from(format!("org-{login}")))
-                            .px_2()
-                            .py_1p5()
-                            .rounded_sm()
-                            .text_sm()
-                            .cursor_pointer()
-                            .hover(|s| s.bg(theme.accent.opacity(0.08)))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.org = Some(login_for_click.clone());
-                                this.orgs_open = false;
-                                // Switching orgs clears the selection —
-                                // the selected repo belongs to another org.
-                                this.state.update(cx, |s, _| s.selected = None);
-                                cx.notify();
-                            }))
-                            .child(login.clone())
-                    })),
-            )
-            .into_any_element()
+    fn set_selected_index(
+        &mut self,
+        ix: Option<IndexPath>,
+        _window: &mut Window,
+        _cx: &mut Context<ListState<Self>>,
+    ) {
+        self.selected = ix;
     }
 }
 
@@ -403,22 +499,19 @@ impl Render for GithubPage {
                 .find(|r| &r.full_name == full)
                 .cloned()
         });
-        let repos = self.visible_repos(cx);
 
-        let left = self.render_left_column(&repos, cx);
+        let left = self.render_left_column(cx);
         let right = self.render_right_column(&selected_repo, &prs, &repo_notifs, cx);
-        // Root is the stacking context: the org overlay is appended last so
-        // it paints above both columns (gpui paint order = child order).
-        let mut root = h_flex().size_full().relative().child(left).child(right);
-        if self.orgs_open {
-            root = root.child(self.render_org_overlay(cx));
-        }
-        root.into_any_element()
+        h_flex()
+            .size_full()
+            .child(left)
+            .child(right)
+            .into_any_element()
     }
 }
 
 impl GithubPage {
-    fn render_left_column(&mut self, repos: &[gql::Repo], cx: &mut Context<Self>) -> AnyElement {
+    fn render_left_column(&mut self, cx: &mut Context<Self>) -> AnyElement {
         v_flex()
             .w(px(280.))
             .flex_none()
@@ -427,20 +520,28 @@ impl GithubPage {
             .border_color(cx.theme().border)
             .p_2()
             .gap_2()
-            .child(self.render_org_dropdown(cx))
             .child(
-                div()
-                    .id("repo-list")
-                    .flex_1()
-                    .overflow_y_scroll()
-                    .child(if repos.is_empty() {
-                        muted_cell("No repositories yet", cx)
-                    } else {
-                        v_flex()
-                            .gap_0p5()
-                            .children(repos.iter().map(|r| self.render_repo_row(r, cx)))
-                            .into_any_element()
-                    }),
+                Select::new(&self.org_select)
+                    .placeholder("Organization…")
+                    .search_placeholder("Filter organizations…")
+                    .empty(|_, cx| {
+                        h_flex()
+                            .w_full()
+                            .justify_center()
+                            .py_4()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child("No organizations yet")
+                    })
+                    .small()
+                    .w_full(),
+            )
+            .child(
+                div().flex_1().min_h_0().child(
+                    List::new(&self.repo_list)
+                        .search_placeholder("Filter repositories…")
+                        .small(),
+                ),
             )
             .into_any_element()
     }
@@ -708,5 +809,162 @@ pub(crate) fn relative_age(updated_at: Option<&str>) -> String {
         60..=3599 => format!("{}m", secs / 60),
         3600..=86399 => format!("{}h", secs / 3600),
         _ => format!("{}d", secs / 86400),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // NOTE: no `use super::*` here — page.rs glob-imports `gpui::*`, whose
+    // `test` re-export would shadow the builtin `#[test]` attribute and
+    // blow the proc-macro stack (rustc SIGSEGV). Import selectively.
+    use super::{IndexPath, RepoListDelegate, next_org_selection};
+    use crate::gql;
+    use gpui::AppContext as _;
+    use gpui::{SharedString, TestAppContext};
+    use gpui_component::list::ListState;
+    use gpui_component::searchable_list::SearchableVec;
+    use gpui_component::select::SelectState;
+
+    fn repo(key: &str, description: Option<&str>) -> gql::Repo {
+        let (owner, name) = key.split_once('/').unwrap_or(("acme", key));
+        gql::Repo {
+            key: key.to_string(),
+            database_id: None,
+            name: name.to_string(),
+            full_name: key.to_string(),
+            owner: gql::Owner {
+                login: owner.to_string(),
+            },
+            description: description.map(str::to_string),
+            private: false,
+            pushed_at: None,
+            prs: gql::PrSummary {
+                total_count: 0,
+                nodes: Vec::new(),
+            },
+            issues: gql::IssueSummary {
+                total_count: 0,
+                nodes: Vec::new(),
+            },
+        }
+    }
+
+    fn keys(delegate: &RepoListDelegate) -> Vec<&str> {
+        delegate
+            .matched
+            .iter()
+            .map(|r| r.full_name.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn repo_filter_matches_name_or_description_case_insensitively() {
+        let mut d = RepoListDelegate::default();
+        d.set_repos(vec![
+            repo("acme/widget", Some("A delightful toolkit")),
+            repo("acme/other", None),
+            repo("acme/zephyr", Some("wind speed monitor")),
+        ]);
+        assert_eq!(keys(&d), ["acme/widget", "acme/other", "acme/zephyr"]);
+
+        d.apply_query("WIDGET");
+        assert_eq!(keys(&d), ["acme/widget"]);
+
+        d.apply_query("wind");
+        assert_eq!(keys(&d), ["acme/zephyr"]);
+
+        // `full_name` is deliberately not a match key (D2): the rows show
+        // only the name, and the org filter already scopes the owner.
+        d.apply_query("acme/");
+        assert_eq!(keys(&d), [] as [&str; 0]);
+    }
+
+    #[test]
+    fn set_repos_keeps_the_active_query() {
+        let mut d = RepoListDelegate::default();
+        d.set_repos(vec![repo("acme/one", None), repo("acme/two", None)]);
+        d.apply_query("two");
+        assert_eq!(keys(&d), ["acme/two"]);
+
+        // Background refresh arrives: the filter survives, the data swaps.
+        d.set_repos(vec![repo("acme/two", None), repo("acme/three", None)]);
+        assert_eq!(keys(&d), ["acme/two"]);
+
+        // Clearing the query restores the full new list.
+        d.apply_query("");
+        assert_eq!(keys(&d), ["acme/two", "acme/three"]);
+    }
+
+    #[test]
+    fn no_matches_after_filter() {
+        let mut d = RepoListDelegate::default();
+        d.set_repos(vec![repo("acme/one", None)]);
+        d.apply_query("nothing-matches");
+        assert!(d.matched.is_empty());
+        assert_eq!(d.repo_full_name(IndexPath::new(0)), None);
+    }
+
+    #[test]
+    fn repo_full_name_maps_indices_into_matched() {
+        let mut d = RepoListDelegate::default();
+        d.set_repos(vec![repo("acme/one", None), repo("acme/two", None)]);
+        d.apply_query("two");
+        assert_eq!(d.repo_full_name(IndexPath::new(0)), Some("acme/two".into()));
+        // Out-of-range index (row 1 exists only unfiltered).
+        assert_eq!(d.repo_full_name(IndexPath::new(1)), None);
+    }
+
+    #[test]
+    fn next_org_selection_table() {
+        let empty: Vec<SharedString> = Vec::new();
+        let logins: Vec<SharedString> = vec!["acme".into(), "beta".into()];
+
+        // Nothing to pick.
+        assert_eq!(next_org_selection(None, &empty), None);
+        // Q10 default: the first login (the personal account).
+        assert_eq!(next_org_selection(None, &logins), Some("acme".into()));
+        // Keep the current org when it still exists.
+        assert_eq!(
+            next_org_selection(Some("beta"), &logins),
+            Some("beta".into())
+        );
+        // Vanished: reset to the first login.
+        assert_eq!(
+            next_org_selection(Some("gone"), &logins),
+            Some("acme".into())
+        );
+        // Vanished and nothing left.
+        assert_eq!(next_org_selection(Some("gone"), &empty), None);
+    }
+
+    /// Entity wiring smoke test (0009 §4): both left-column components
+    /// construct against a real window, and their selection APIs round-trip.
+    #[gpui::test]
+    fn select_and_list_entities_construct_and_select(cx: &mut TestAppContext) {
+        cx.update(gpui_component::init);
+        let cx = cx.add_empty_window();
+        cx.update(|window, cx| {
+            let logins: Vec<SharedString> = vec!["acme".into(), "beta".into()];
+            let select = cx.new(|cx| {
+                SelectState::new(SearchableVec::from(logins), None, window, cx).searchable(true)
+            });
+            select.update(cx, |s, cx| {
+                let beta: SharedString = "beta".into();
+                s.set_selected_value(&beta, window, cx);
+                assert_eq!(s.selected_value(), Some(&beta));
+            });
+
+            let mut delegate = RepoListDelegate::default();
+            delegate.set_repos(vec![repo("acme/one", None), repo("acme/two", None)]);
+            let list = cx.new(|cx| ListState::new(delegate, window, cx).searchable(true));
+            list.update(cx, |l, cx| {
+                l.set_selected_index(Some(IndexPath::new(1)), window, cx);
+                assert_eq!(l.selected_index(), Some(IndexPath::new(1)));
+                assert_eq!(
+                    l.delegate().repo_full_name(IndexPath::new(1)),
+                    Some("acme/two".into())
+                );
+            });
+        });
     }
 }
