@@ -1382,6 +1382,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "dashboard-core",
+ "dashboard-debug",
  "dashboard-module-github",
  "gpui",
  "gpui-component",
@@ -1399,6 +1400,18 @@ dependencies = [
  "flexi_logger",
  "gpui",
  "gpui-component",
+ "log",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "dashboard-debug"
+version = "0.1.0"
+dependencies = [
+ "dashboard-core",
+ "futures",
+ "gpui",
  "log",
  "serde",
  "serde_json",
