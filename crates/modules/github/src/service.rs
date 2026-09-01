@@ -27,8 +27,11 @@ use crate::api::{self, Notification, Org, PullRequest, Repo, User};
 use crate::auth::{AuthError, PollOutcome, TokenStore, poll_token, start_device_flow};
 use crate::http::{Http, HttpError, RateLimit, SharedToken, Verb};
 
-/// Tick cadence (docs/0005 Q7): notifications + selected-repo PRs every
-/// tick; PR-count walk every 5th tick; orgs/repos every 10th.
+/// Tick cadence (docs/0005 Q7): the first beat runs immediately on open;
+/// afterwards notifications + selected-repo PRs every tick, PR-count walk
+/// every 5th tick, orgs/repos every 10th. Bootstrap (open with a token,
+/// or a fresh connect) additionally walks PR counts over the known repo
+/// list — or defers that walk one tick when the list is still empty.
 pub const TICK: Duration = Duration::from_secs(60);
 const PR_WALK_EVERY: u64 = 5;
 const REPO_LIST_EVERY: u64 = 10;
@@ -328,7 +331,10 @@ pub struct GithubState {
     pub rate_limited_until: Option<u64>,
     /// Set when a connect flow should fetch identity + lists on next tick.
     pub needs_bootstrap: bool,
-
+    /// Set when the next tick should also walk per-repo PR counts — used
+    /// by bootstrap when the repo list is still empty (fresh connect);
+    /// the walk then rides the tick after Repos land.
+    pub needs_pr_walk: bool,
     pub(crate) etags: BTreeMap<String, String>,
     pub(crate) client: Arc<dyn Http>,
     pub(crate) store: Arc<dyn TokenStore>,
@@ -380,6 +386,7 @@ impl GithubState {
             selected: None,
             rate_limited_until: None,
             needs_bootstrap: false,
+            needs_pr_walk: false,
             auth,
             etags,
             client,
@@ -405,12 +412,21 @@ impl GithubState {
     pub fn plan_tick(&mut self, tick: u64) -> Vec<FetchSpec> {
         if self.needs_bootstrap && self.auth.connected() {
             self.needs_bootstrap = false;
-            return vec![
+            let mut specs = vec![
                 self.spec(Kind::User, api::user_url(), None),
                 self.spec(Kind::Orgs, api::orgs_url(1), None),
                 self.spec(Kind::Repos, api::repos_url(1), None),
                 self.spec(Kind::Notifications, api::notifications_url(1), None),
             ];
+            // Fresh PR counts on open/connect: the boot-seeded cache list
+            // can walk right away; an empty list (fresh connect) defers
+            // the walk one tick, right after Repos land.
+            if self.repos.is_empty() {
+                self.needs_pr_walk = true;
+            } else {
+                specs.extend(self.pr_walk_specs());
+            }
+            return specs;
         }
         if self.gated() {
             return Vec::new();
@@ -437,22 +453,36 @@ impl GithubState {
             ));
         }
         if tick % PR_WALK_EVERY == 0 {
-            for repo in self.repos.iter().take(PR_WALK_REPO_CAP) {
-                let full_name = repo.full_name.clone();
-                let (owner, name) = split_full_name(&full_name);
-                specs.push(self.spec_ident(
-                    Kind::PrCount,
-                    Some(&full_name),
-                    api::pulls_url(&owner, &name, 1),
-                    Some(1),
-                ));
-            }
+            specs.extend(self.pr_walk_specs());
         }
         if tick % REPO_LIST_EVERY == 0 {
             specs.push(self.spec(Kind::Orgs, api::orgs_url(1), None));
             specs.push(self.spec(Kind::Repos, api::repos_url(1), None));
         }
+        if self.needs_pr_walk {
+            self.needs_pr_walk = false;
+            specs.extend(self.pr_walk_specs());
+        }
         specs
+    }
+
+    /// Per-repo open-PR counts over the known repos (capped) — the walk
+    /// behind `PR_WALK_EVERY`, bootstrap, and `needs_pr_walk`.
+    fn pr_walk_specs(&self) -> Vec<FetchSpec> {
+        self.repos
+            .iter()
+            .take(PR_WALK_REPO_CAP)
+            .map(|repo| {
+                let full_name = repo.full_name.clone();
+                let (owner, name) = split_full_name(&full_name);
+                self.spec_ident(
+                    Kind::PrCount,
+                    Some(&full_name),
+                    api::pulls_url(&owner, &name, 1),
+                    Some(1),
+                )
+            })
+            .collect()
     }
 
     pub(crate) fn spec(&self, kind: Kind, url: String, max_pages: Option<u32>) -> FetchSpec {
@@ -634,6 +664,7 @@ impl GithubState {
         self.selected = None;
         self.rate_limited_until = None;
         self.needs_bootstrap = false;
+        self.needs_pr_walk = false;
         self.auth = AuthStatus::Disconnected;
     }
 }
@@ -676,7 +707,9 @@ pub fn spawn_tick_loop(state: Entity<GithubState>, window: AnyWindowHandle, cx: 
     cx.spawn(async move |cx| {
         let mut tick: u64 = 0;
         loop {
-            cx.background_executor().timer(TICK).await;
+            // First beat runs immediately on open — the card must move off
+            // its boot-seeded cache within seconds, not after one full
+            // TICK sleep. Subsequent beats land on the 60s cadence.
             tick += 1;
 
             let (client, specs) =
@@ -691,6 +724,7 @@ pub fn spawn_tick_loop(state: Entity<GithubState>, window: AnyWindowHandle, cx: 
                 cx.update(|cx| state.update(cx, |s, _| s.apply(result)));
             }
             let _ = window.update(cx, |_, window, _| window.refresh());
+            cx.background_executor().timer(TICK).await;
         }
     })
     .detach();
@@ -858,6 +892,47 @@ mod tests {
 
     fn one_notification() -> &'static str {
         r#"[{"id":"1","unread":true,"subject":{"title":"t","type":"Issue","url":"u"},"repository":{"full_name":"o/r"}}]"#
+    }
+
+    #[test]
+    fn bootstrap_walks_cached_repos_immediately() {
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.auth = AuthStatus::Connected;
+        state.repos = vec![repo("o/a"), repo("o/b")];
+        state.needs_bootstrap = true;
+
+        let specs = state.plan_tick(1);
+        assert_eq!(
+            specs.iter().filter(|s| s.kind == Kind::PrCount).count(),
+            2,
+            "boot-seeded repo list must walk in the bootstrap tick",
+        );
+        assert!(!state.needs_pr_walk, "no deferred walk when repos exist");
+    }
+
+    #[test]
+    fn bootstrap_defers_pr_walk_when_repo_list_is_empty() {
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.auth = AuthStatus::Connected;
+        state.needs_bootstrap = true;
+
+        let specs = state.plan_tick(1);
+        assert!(
+            specs.iter().all(|s| s.kind != Kind::PrCount),
+            "nothing to walk before Repos land",
+        );
+        assert!(state.needs_pr_walk);
+
+        // Repos land (as after tick 1's apply): the next tick walks,
+        // exactly once.
+        state.repos = vec![repo("o/a")];
+        let specs = state.plan_tick(2);
+        assert_eq!(specs.iter().filter(|s| s.kind == Kind::PrCount).count(), 1,);
+        assert!(!state.needs_pr_walk);
+
+        // Tick 3 is not a PR_WALK tick and the flag is consumed.
+        let specs = state.plan_tick(3);
+        assert!(specs.iter().all(|s| s.kind != Kind::PrCount));
     }
 
     #[test]

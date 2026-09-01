@@ -151,11 +151,15 @@ Q5–Q10 stand per the silence rule on merge.
   PRs, repo list). Reuses `store::load_json/save_json_atomic` (quarantine on
   corruption, atomic writes). Boot paints last-known data instantly, then
   background refresh corrects it — no skeleton flash for returning users.
-- **Q7 — Polling cadence (recommendation):** notifications 60 s; PRs of the
-  *selected* repo on selection + 60 s while selected; full repo walk (open
-  PR counts for the card) every 5 min using ETags; orgs+repos on connect
-  and every 10 min; manual **Refresh** button on card and page. All timers
-  follow the clock module's pattern: state writes end with the §3.12
+- **Q7 — Polling cadence (recommendation, amended at implementation):**
+  the first beat runs immediately at open; afterwards notifications 60 s;
+  PRs of the *selected* repo on selection + 60 s while selected; full repo
+  walk (open PR counts for the card) every 5 min using ETags; orgs+repos
+  on connect and every 10 min; manual **Refresh** button on card and page.
+  Bootstrap (open with a token, or fresh connect) additionally walks PR
+  counts over the known repo list — deferred one tick when the list is
+  still empty — so the home card shows fresh counts within ~60 s of open.
+  All timers follow the tick-loop pattern: state writes end with the §3.12
   unfocused-refresh call (`window_handle.update(... refresh())`).
 - **Q8 — Unfocused window:** 0003 §3.12 pattern is mandatory here (the
   card counts tick while the dashboard is unfocused — the exact scenario
