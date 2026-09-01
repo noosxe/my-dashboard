@@ -1,10 +1,9 @@
 # 0002 — Phase 1: Application Shell & Window Chrome
 
-- **Status:** Implemented (PR [#4](https://github.com/noosxe/my-dashboard/pull/4), merged 2026-08-28; owner-verified locally)
 - **Implementation record:** rebase-merged as f1c285b; all §6 gates passed (human checks confirmed on Hyprland); API corrections in §3.8
 - **Date:** 2026-08-28
 - **Phase:** 1 (Shell)
-- **Depends on:** 0001 (Implemented, PR #1)
+- **Depends on:** 0001 (PR #1)
 - **Implementation target:** end of Phase 1
 
 ---
@@ -323,7 +322,7 @@ No `Cargo.toml` changes: everything used here comes from the existing deps.
 - [ ] Usual gates: `cargo fmt --check`, `cargo clippy -D warnings`, incremental
       build only.
 - [ ] Doc 0002 updated with any implementation discoveries (e.g. theme sync
-      mechanism, exact `app_id` inner type) and flipped to Implemented.
+      mechanism, exact `app_id` inner type.
 
 ## 7. Risks & mitigations
 

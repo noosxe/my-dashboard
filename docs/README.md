@@ -8,10 +8,8 @@ cross-platform, multi-modular universal personal dashboard built with Rust and
 
 - **Naming:** `NNNN-kebab-case-title.md`, zero-padded, monotonically increasing
   (e.g. `0001-bootstrap-hello-world.md`).
-- **Status lifecycle:** each doc carries a `Status` header that moves through:
-  `Draft` → `Accepted` → `Implemented` → (`Superseded` if replaced by a later doc).
-- **Immutability:** once a doc reaches `Accepted`, changes go into a new doc that
-  supersedes it, so history is preserved. `Implemented` docs describe what shipped.
+- **Immutability:** a merged doc is historical record; substantive changes go
+  into a new doc that supersedes it, so history is preserved.
 - **Content:** design docs should be concrete enough to implement from: decisions,
   rationale, file layouts, code listings, acceptance criteria. Small decisions may be
   recorded inline; sweeping cross-cutting decisions may later be split into an `adr/`
@@ -33,14 +31,14 @@ cross-platform, multi-modular universal personal dashboard built with Rust and
 
 ## Index
 
-| Doc | Title | Status |
-| --- | --- | --- |
-| [0001](0001-bootstrap-hello-world.md) | Phase 0 — Bootstrap: Hello World gpui-component Application | Implemented (PR #1) |
-| [0002](0002-app-shell-window-chrome.md) | Phase 1 — Application Shell & Window Chrome | Implemented (PR #4) |
-| [0003](0003-multi-module-architecture.md) | Phase 2 — Multi-module Architecture (Module Trait, Registry, Navigation) | Implemented (PR #9) |
-| [0004](0004-state-persistence.md) | Phase 3 — State Management & Persistence (XDG / native dirs) | Implemented (PR #13) |
-| [0005](0005-github-module.md) | Phase 4 — GitHub Module (device-flow auth, keychain, notifications + PRs) | Implemented (PR #17) |
-| [0006](0006-settings-page.md) | Settings (app settings shell, module-provided subpages) | Implemented (PR #22) |
+| Doc | Title |
+| --- | --- |
+| [0001](0001-bootstrap-hello-world.md) | Phase 0 — Bootstrap: Hello World gpui-component Application (PR #1) |
+| [0002](0002-app-shell-window-chrome.md) | Phase 1 — Application Shell & Window Chrome (PR #4) |
+| [0003](0003-multi-module-architecture.md) | Phase 2 — Multi-module Architecture (Module Trait, Registry, Navigation) (PR #9) |
+| [0004](0004-state-persistence.md) | Phase 3 — State Management & Persistence (XDG / native dirs) (PR #13) |
+| [0005](0005-github-module.md) | Phase 4 — GitHub Module (device-flow auth, keychain, notifications + PRs) (PR #17) |
+| [0006](0006-settings-page.md) | Settings (app settings shell, module-provided subpages) (PR #22) |
 
 ## Planned docs (roadmap, not yet written)
 

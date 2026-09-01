@@ -1,6 +1,5 @@
 # 0005 — GitHub Module (Notifications, Repositories, Pull Requests)
 
-- **Status:** Implemented (owner merged PR [#17](https://github.com/noosxe/my-dashboard/pull/17) `4a34fec` 2026-08-29 — §8 human checks done; review fixes: popover surface token `575a211`, page-root overlay for the org menu `4a34fec`)
 - **Date:** 2026-08-29
 - **Depends on:** 0003 (module contract, navigator), 0004 (paths, persistence
   primitives), 0002 (shell chrome, D7-as-superseded decoration rule)

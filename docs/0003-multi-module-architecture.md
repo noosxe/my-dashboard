@@ -1,13 +1,12 @@
 # 0003 — Phase 2: Multi-module Architecture (Module Trait, Registry, Navigation)
 
-- **Status:** Implemented (PR [#9](https://github.com/noosxe/my-dashboard/pull/9), merged 2026-08-28; owner-verified incl. unfocused-window updates)
 - **Implementation record:** rebase-merged as 514f59a (7 commits); all §6 gates
   passed; UI corrections from owner review (breadcrumb pinned, card
   alignment/packing, sidebar brand + header spacing) and the §3.12 Wayland
   unfocused-update pattern shipped in the same PR.
 - **Date:** 2026-08-28
 - **Phase:** 2 (Framework)
-- **Depends on:** 0001 (Implemented, PR #1), 0002 (Implemented, PR #4)
+- **Depends on:** 0001 (PR #1), 0002 (PR #4)
 - **Design authority:** gpui-component Design Guides — cited as **[DG]** (see
   `docs/README.md` → Conventions). Requirements from owner recorded in
   `docs/README.md` → Planned docs → 0003.
@@ -433,7 +432,7 @@ cx.new(|cx| DashboardShell::new(registry, nav, cx))
 ### 5.8 Gates
 
 `cargo build` / `fmt` / `clippy -D warnings` / smoke run, plus §6 manual
-checks. Doc flips to Implemented post-merge (house pattern).
+checks.
 
 ## 6. Acceptance criteria
 
