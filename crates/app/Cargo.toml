@@ -11,6 +11,7 @@ name = "dashboard"
 path = "src/main.rs"
 
 [dependencies]
+log.workspace = true
 anyhow.workspace = true
 gpui.workspace = true
 gpui_platform.workspace = true

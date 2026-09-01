@@ -1,6 +1,7 @@
 //! my-dashboard core: module framework, navigation, home grid, app shell.
 
 pub mod home;
+pub mod logging;
 pub mod module;
 pub mod nav;
 pub mod paths;

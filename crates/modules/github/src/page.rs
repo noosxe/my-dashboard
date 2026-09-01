@@ -81,6 +81,7 @@ impl GithubPage {
         // Docs/0007 D6: the view paints immediately from the in-memory
         // snapshot; these specs are the edge-freshness repo-scoped
         // snapshot plus the one-shot repo notifications fetch.
+        log::debug!("repo selected: {full_name}");
         let specs = self.state.update(cx, |s, _| {
             s.selected = Some(full_name.to_string());
             s.repo_open_specs(&full_name)
@@ -90,6 +91,7 @@ impl GithubPage {
 
     /// Manual refresh (Q7): notifications + a fresh global snapshot, now.
     fn refresh_now(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        log::debug!("manual refresh");
         let mut specs = self.state.update(cx, |s, _| {
             vec![
                 s.spec(Kind::Notifications, api::notifications_url(1), Some(10)),

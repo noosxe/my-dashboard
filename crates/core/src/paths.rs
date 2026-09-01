@@ -95,6 +95,14 @@ impl AppPaths {
         &self.data
     }
 
+    /// Log directory `<data>/logs` (docs/0008 D4) — app-level diagnostics,
+    /// not module state and not re-derivable cache; bounded by the rotation
+    /// cap. Created by the logging init (flexi_logger `FileSpec` creates the
+    /// directory on demand).
+    pub fn logs_dir(&self) -> PathBuf {
+        self.data.join("logs")
+    }
+
     pub fn state_dir(&self) -> &Path {
         &self.state
     }
@@ -118,10 +126,7 @@ impl AppPaths {
     pub fn module_data_dir(&self, id: &str) -> PathBuf {
         let dir = self.data.join("modules").join(sanitize_id(id));
         if let Err(err) = std::fs::create_dir_all(&dir) {
-            eprintln!(
-                "dashboard: failed to create module data dir {}: {err}",
-                dir.display()
-            );
+            log::warn!("failed to create module data dir {}: {err}", dir.display());
         }
         dir
     }
@@ -132,10 +137,7 @@ impl AppPaths {
     pub fn module_state_dir(&self, id: &str) -> PathBuf {
         let dir = self.state.join("modules").join(sanitize_id(id));
         if let Err(err) = std::fs::create_dir_all(&dir) {
-            eprintln!(
-                "dashboard: failed to create module state dir {}: {err}",
-                dir.display()
-            );
+            log::warn!("failed to create module state dir {}: {err}", dir.display());
         }
         dir
     }
@@ -171,6 +173,14 @@ mod tests {
         assert_eq!(paths.data_dir(), Path::new("/tmp/dash-test-root/data"));
         assert_eq!(paths.state_dir(), Path::new("/tmp/dash-test-root/state"));
         assert_eq!(paths.cache_dir(), Path::new("/tmp/dash-test-root/cache"));
+    }
+
+    #[test]
+    fn logs_dir_lives_under_data_root() {
+        // docs/0008 D4: app-level diagnostics, deliberately under data (not
+        // state or cache — logs are neither user state nor re-derivable).
+        let paths = AppPaths::resolve(Some(PathBuf::from("/tmp/dash-test-root")));
+        assert_eq!(paths.logs_dir(), Path::new("/tmp/dash-test-root/data/logs"));
     }
 
     #[test]

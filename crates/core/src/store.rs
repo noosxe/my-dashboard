@@ -1,7 +1,7 @@
 //! JSON persistence primitives (docs/0004 §4.2): atomic writes,
 //! corrupt-file quarantine, trailing-edge debounced saves.
 //!
-//! Failure policy: persistence errors are logged to stderr and
+//! Failure policy: persistence errors are logged and
 //! swallowed — a broken disk must never take the UI down (docs/0004
 //! §4.7). Loads treat missing files as `None` (defaults win) and park
 //! corrupt files as `<name>.invalid-<unix-ms>` instead of crashing.
@@ -22,25 +22,34 @@ use serde::de::DeserializeOwned;
 /// defaults win). Real IO errors surface as `Err`.
 pub fn load_json<T: DeserializeOwned>(path: &Path) -> anyhow::Result<Option<T>> {
     match fs::read(path) {
-        Ok(bytes) => match serde_json::from_slice(&bytes) {
-            Ok(value) => Ok(Some(value)),
-            Err(parse_err) => {
-                let quarantined = sibling_with_suffix(path, &format!(".invalid-{}", unix_ms()));
-                match fs::rename(path, &quarantined) {
-                    Ok(()) => eprintln!(
-                        "dashboard: corrupt state file {} ({parse_err}); parked as {}",
-                        path.display(),
-                        quarantined.display()
-                    ),
-                    Err(rename_err) => eprintln!(
-                        "dashboard: corrupt state file {} ({parse_err}); quarantine failed: {rename_err}",
-                        path.display()
-                    ),
+        Ok(bytes) => {
+            // docs/0008 §5 persistence row: hit at debug.
+            log::debug!("state load: {} ({} bytes)", path.display(), bytes.len());
+            match serde_json::from_slice(&bytes) {
+                Ok(value) => Ok(Some(value)),
+                Err(parse_err) => {
+                    let quarantined = sibling_with_suffix(path, &format!(".invalid-{}", unix_ms()));
+                    match fs::rename(path, &quarantined) {
+                        Ok(()) => log::warn!(
+                            "corrupt state file {} ({parse_err}); parked as {}",
+                            path.display(),
+                            quarantined.display()
+                        ),
+                        Err(rename_err) => log::warn!(
+                            "corrupt state file {} ({parse_err}); quarantine failed: {rename_err}",
+                            path.display()
+                        ),
+                    }
+                    Ok(None)
                 }
-                Ok(None)
             }
-        },
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            // docs/0008 §5: miss at debug — first boot and sign-out are the
+            // normal paths, so this is not a warning.
+            log::debug!("state miss: {}", path.display());
+            Ok(None)
+        }
         Err(err) => Err(anyhow::Error::new(err).context(format!("read {}", path.display()))),
     }
 }
@@ -65,8 +74,12 @@ pub fn save_json_atomic<T: Serialize>(path: &Path, value: &T) -> anyhow::Result<
         let _ = fs::remove_file(&tmp);
         return Err(err);
     }
-    fs::rename(&tmp, path)
-        .with_context(|| format!("rename {} -> {}", tmp.display(), path.display()))
+    let saved = fs::rename(&tmp, path)
+        .with_context(|| format!("rename {} -> {}", tmp.display(), path.display()));
+    if saved.is_ok() {
+        log::debug!("state saved: {} ({} bytes)", path.display(), json.len());
+    }
+    saved
 }
 
 /// Trailing-edge debounced saver (docs/0004 Q6). gpui tasks cannot be
@@ -108,7 +121,7 @@ impl DebouncedSave {
                     return; // superseded by a newer schedule
                 }
                 if let Err(err) = save_json_atomic(&path, &value) {
-                    eprintln!("dashboard: failed to save {}: {err}", path.display());
+                    log::warn!("failed to save {}: {err}", path.display());
                 }
             })
             .detach();
