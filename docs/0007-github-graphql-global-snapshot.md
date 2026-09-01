@@ -132,6 +132,15 @@ Per-node degradation is per-repo: a repo whose subselection returns null or
 lands in `errors[]` keeps its last-known data (stale-but-present) and logs
 to stderr — [DG] silent degradation, never a dialog, never a dropped card.
 
+List ordering is part of the apply, not the connection: after every merge
+the repo list is sorted client-side by **composite last-activity** — per
+repo, the newest of `pushedAt`, the latest open-PR `updatedAt`, and the
+latest open-issue `updatedAt` (nodes arrive `UPDATED_AT DESC` already; the
+max over nodes is taken so correctness never depends on that). The
+connection's `PUSHED_AT DESC` ordering alone ignores PR/issue activity,
+and the repo-scoped refresh that fires on selection must never move the
+row (#35). Ties break by key for a stable order.
+
 ### D5 — HTTP layer addition (no ETag path)
 
 `http.rs` gains a `post_graphql(query, variables)` method: `POST` to
