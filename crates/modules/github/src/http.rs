@@ -144,7 +144,9 @@ impl Http for UreqClient {
             .agent
             .post(crate::gql::GRAPHQL_ENDPOINT)
             .set("User-Agent", USER_AGENT)
-            .set("Accept", API_ACCEPT)
+            // Plain JSON per GitHub's own GraphQL call examples — the
+            // REST vendor media type is not verified for /graphql.
+            .set("Accept", OAUTH_ACCEPT)
             .set("Content-Type", "application/json");
         if let Some(token) = self.token.read().ok().and_then(|t| t.clone()) {
             req = req.set("Authorization", &format!("Bearer {token}"));
