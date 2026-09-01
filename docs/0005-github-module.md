@@ -224,6 +224,12 @@ into the normal page.
 
 ### 6.3 Module page (owner-specified)
 
+> **Amended by 0009 (PR-era note):** the shipped org dropdown and repo
+> list were hand-rolled (inline popover + eager div rows), not the
+> `Select`/`List` from §3.4. 0009 replaces both with those official
+> components, search-enabled, and is the authority for the left column's
+> componentry; this section remains the layout authority.
+
 ```
 ┌──────────────┬────────────────────────────────────────────┐
 │ [Org ▾]      │  owner/repo                    (row 1)     │
