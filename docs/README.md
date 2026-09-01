@@ -41,6 +41,7 @@ cross-platform, multi-modular universal personal dashboard built with Rust and
 | [0006](0006-settings-page.md) | Settings (app settings shell, module-provided subpages) (PR #22) |
 | [0007](0007-github-graphql-global-snapshot.md) | GitHub Module: GraphQL Global Snapshot (repos, PRs, issues) (PR #32) |
 | [0008](0008-logging-system.md) | Logging System (log facade, flexi_logger, file + stderr, levels) |
+| [0009](0009-github-select-and-list.md) | GitHub Module: Official `Select` + `List` Components (searchable org picker, virtualized repo list) |
 
 ## Planned docs (roadmap, not yet written)
 
