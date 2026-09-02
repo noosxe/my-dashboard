@@ -28,7 +28,7 @@ use crate::api;
 use crate::card::{REPO_LOCK, github_mark};
 use crate::gql;
 use crate::service::{
-    AuthStatus, ConnectPhase, FetchSpec, GithubState, Kind, run_spec, start_connect,
+    AuthStatus, ConnectPhase, FetchSpec, GithubState, Kind, run_spec_tracked, start_connect,
 };
 
 pub(crate) struct GithubPage {
@@ -256,11 +256,7 @@ impl GithubPage {
         let window_handle = window.window_handle();
         cx.spawn(async move |_this, cx| {
             for spec in specs {
-                let client = client.clone();
-                let result = cx
-                    .background_executor()
-                    .spawn(async move { run_spec(&*client, &spec) })
-                    .await;
+                let result = run_spec_tracked(client.clone(), spec, cx).await;
                 cx.update(|cx| state.update(cx, |s, _| s.apply(result)));
             }
             let _ = window_handle.update(cx, |_, window, _| window.refresh());

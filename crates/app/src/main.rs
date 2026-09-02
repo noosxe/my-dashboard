@@ -83,6 +83,10 @@ fn main() {
             // MUST be called before using any gpui-component features.
             gpui_component::init(cx);
 
+            // Global in-flight request tracker (docs/0013 D2) — before
+            // module init, so every module's fetch loops can report into it.
+            dashboard_core::status::init(cx);
+
             // Persisted app settings (theme restore — docs/0006 §4.4)
             // before any window or module exists.
             dashboard_core::settings::init(Some(paths.settings_file()), cx);
