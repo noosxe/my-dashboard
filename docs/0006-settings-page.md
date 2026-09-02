@@ -9,7 +9,9 @@
 An idiomatic settings surface for the app:
 
 - A top-level **Settings** destination (`Page::Settings`) opened from a gear
-  button in a new **sidebar footer** (and later, if wanted, a keybinding).
+  menu item in the **sidebar content**, last after the module items
+  (moved from the sidebar footer — owner request; and later, if wanted, a
+  keybinding).
 - The page itself is a **two-column layout** (owner requirement): left — a
   scrollable subnav listing the settings subpages; right — the active
   subpage's controls. This mirrors the GitHub module page's 2-column shape,
@@ -36,6 +38,9 @@ Sidebar-footer gear button is the baseline. Add a keybinding (`ctrl-,` /
 - **Proposal:** yes, both — one action, registered on the window; it's the
   canonical desktop shortcut and costs ~20 lines.
 - **Your call:** keybinding in v1, or footer-only?
+- **Decision (shipped):** button-only in v1 — no keybinding yet. The entry
+  point later moved out of the footer into the sidebar content as the last
+  menu item after the modules (owner request).
 
 ### Q2 — App-page scope for v1
 - **Proposal:** `Appearance` + `About` only. A `General` page (startup
@@ -168,13 +173,15 @@ All paths relative to the gpui-component checkout.
     scrollbar resync, window refresh — verified at implementation time;
     the story/theme picker code paths are the reference).
 
-### 3.4 Sidebar footer (`crates/ui/src/sidebar/`)
-- `Sidebar::footer(impl IntoElement)` (`sidebar/mod.rs:282`) — mount point
-  we currently don't use.
-- `SidebarFooter` (`sidebar/footer.rs`) — `Selectable::selected(bool)` for
-  active styling, `.collapsed(bool)` for the icon-rail mode, renders its
-  children in a padded `h_flex`. A gear `Button` (ghost, `IconName::Settings`)
-  inside it gives the entry point in both expanded and collapsed sidebars.
+### 3.4 Sidebar entry (`crates/ui/src/sidebar/`)
+- `SidebarMenuItem` (`sidebar/menu.rs`) — `.icon(Icon)`, `.active(bool)`
+  active styling, `.on_click`; the `Sidebar` propagates the icon-rail
+  collapsed state to content children itself (`mod.rs` render), so one menu
+  item gives the entry point in both expanded and collapsed sidebars, with
+  a built-in collapsed tooltip.
+- `SidebarFooter` (`sidebar/footer.rs`) was used for the entry in the first
+  cut (ghost gear `Button`, `Selectable::selected`, `.collapsed(bool)`); the
+  footer mount is now unused again after the move into the content.
 
 ### 3.5 What our app already has that this builds on
 - `Page` enum (`core/nav.rs`): `Home | Module(SharedString)`; `Navigator::go`
@@ -240,12 +247,14 @@ All paths relative to the gpui-component checkout.
 
 ### 4.1 Entry point
 - `Page::Settings` variant added to `nav::Page`.
-- Shell sidebar gains `.footer(...)` with a `SidebarFooter` containing one
-  ghost gear button:
-  - expanded: gear + "Settings" label (label hides in icon rail);
-  - `.collapsed(nav.sidebar_collapsed)` and `.selected(page ==
-    Page::Settings)`;
+- `nav_menu_items` appends one `SidebarMenuItem` after the module items:
+  - `.icon(IconName::Settings)`, label "Settings";
+  - `.active(page == Page::Settings)`;
   - on_click → `nav.go(Page::Settings, cx)`.
+  - The `Sidebar` handles the icon-rail collapsed mode for content
+    children (label hides, tooltip shows), so no per-item state is needed.
+  - (First cut shipped this as a ghost gear `Button` in a `SidebarFooter`;
+    moved into the content per owner request.)
 - Breadcrumb for the page: single non-clickable "Settings" crumb (subpage
   selection is internal to the `Settings` component — it is not nav state;
   see §4.5).
@@ -387,13 +396,14 @@ impl Render for SettingsPage {
 - Icons: subpage icons from the shipped `IconName` set (sliders/palette/info
   analogues exist) — no new bundled assets needed for settings itself;
   module pages reuse `ModuleIcon` mapping where an icon is wanted.
-- Tooltips: Reset All button already has one from the library; footer gear
-  gets `Button::tooltip("Settings")`.
+- Tooltips: Reset All button already has one from the library; the sidebar
+  Settings item shows the library's built-in tooltip in the collapsed rail.
 
 ## 6. Implementation plan
 
-1. **core**: `Page::Settings`; sidebar footer + gear; `SettingsPage` view +
-   shell routing; `ModuleEntry.settings` + `registry.settings_pages`;
+1. **core**: `Page::Settings`; sidebar settings menu item after the modules
+   (first cut: footer + gear, since moved into the content); `SettingsPage`
+   view + shell routing; `ModuleEntry.settings` + `registry.settings_pages`;
    `paths.module_state_dir(id)`; `AppSettings` global + `state/settings.json`
    wiring in `main.rs`; Appearance + About pages.
 2. **github**: `settings.rs` page (Account group) + provider closure in
@@ -410,8 +420,9 @@ module-clock`, `dashboard-module-notes` (one-line), `app` (boot wiring).
 - Unit: `AppSettings` serde round-trip + defaults (unknown-field tolerance);
   `module_state_dir` sanitize/create (mirrors `module_data_dir` tests);
   `settings_pages` ordering + `None`-dropping.
-- Manual checks (this list doubles as the PR's human-check list): footer gear
-  in expanded + collapsed rails; `Page::Settings` breadcrumb; search filters
+- Manual checks (this list doubles as the PR's human-check list): sidebar
+  Settings menu item (after the GitHub module item) in expanded + collapsed
+  rails; `Page::Settings` breadcrumb; search filters
   app + module pages; theme mode + name apply instantly and survive restart;
   About folder-open buttons;
   GitHub account row reflects connect/disconnect done from the module page
