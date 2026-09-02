@@ -15,6 +15,7 @@ log.workspace = true
 anyhow.workspace = true
 gpui.workspace = true
 gpui_platform.workspace = true
+reqwest_client.workspace = true
 gpui-component.workspace = true
 gpui-component-assets.workspace = true
 dashboard-core.workspace = true
