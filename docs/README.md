@@ -43,6 +43,7 @@ cross-platform, multi-modular universal personal dashboard built with Rust and
 | [0008](0008-logging-system.md) | Logging System (log facade, flexi_logger, file + stderr, levels) |
 | [0009](0009-github-select-and-list.md) | GitHub Module: Official `Select` + `List` Components (searchable org picker, virtualized repo list) |
 | [0010](0010-agent-debug-bridge.md) | Agent Debug Bridge (attach over socket, component tree dump, non-disruptive input) |
+| [0011](0011-github-token-refresh.md) | GitHub Module: Token Refresh (expiring tokens, rotation-safe keychain credential) |
 
 ## Planned docs (roadmap, not yet written)
 
