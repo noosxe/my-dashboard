@@ -13,6 +13,10 @@
 
 use flexi_logger::{Cleanup, Criterion, Duplicate, FileSpec, Logger, Naming};
 
+/// Re-exported for `main` to name the extra-writer parameter type (D8)
+/// without depending on flexi_logger itself.
+pub use flexi_logger::writers::LogWriter;
+
 use crate::AppPaths;
 
 /// Built-in default spec (docs/0008 D3): global floor `warn` — gpui's
@@ -42,7 +46,16 @@ fn resolve_spec(env: Option<String>) -> String {
 /// [`AppPaths::init`] and before anything else (docs/0008 D5). The returned
 /// handle must be kept alive for the process lifetime — dropping it flushes
 /// and shuts the writers down mid-run; `main` leaks it deliberately.
-pub fn init(paths: &AppPaths) -> Option<flexi_logger::LoggerHandle> {
+///
+/// `extra_writers` (docs/0010 D8) tee off the primary file writer via
+/// flexi_logger's `log_to_file_and_writer`: every record that reaches the
+/// file also reaches each extra writer, with the same rotation and stderr
+/// duplication. Empty by default — this crate stays free of any
+/// debug-crate dependency; the debug crate supplies its ring writer.
+pub fn init(
+    paths: &AppPaths,
+    extra_writers: Vec<Box<dyn LogWriter>>,
+) -> Option<flexi_logger::LoggerHandle> {
     let spec = resolve_spec(std::env::var("RUST_LOG").ok());
     let logger = match Logger::try_with_str(&spec) {
         Ok(logger) => logger,
@@ -55,21 +68,36 @@ pub fn init(paths: &AppPaths) -> Option<flexi_logger::LoggerHandle> {
         }
     };
 
-    let started = logger
-        .log_to_file(
-            FileSpec::default()
-                .directory(paths.logs_dir())
-                .basename(BASENAME),
-        )
-        .rotate(
-            Criterion::Size(ROTATE_BYTES),
-            Naming::Numbers,
-            Cleanup::KeepLogFiles(KEEP_FILES),
-        )
-        .duplicate_to_stderr(Duplicate::Info)
-        // Default `WriteMode::Direct`: unbuffered (crash-safe, real-time,
-        // no extra thread) — docs/0008 D2.
-        .start();
+    let file_spec = || {
+        FileSpec::default()
+            .directory(paths.logs_dir())
+            .basename(BASENAME)
+    };
+    let rotation = (
+        Criterion::Size(ROTATE_BYTES),
+        Naming::Numbers,
+        Cleanup::KeepLogFiles(KEEP_FILES),
+    );
+
+    let started = if extra_writers.is_empty() {
+        logger
+            .log_to_file(file_spec())
+            .rotate(rotation.0, rotation.1, rotation.2)
+            .duplicate_to_stderr(Duplicate::Info)
+            // Default `WriteMode::Direct`: unbuffered (crash-safe, real-time,
+            // no extra thread) — docs/0008 D2.
+            .start()
+    } else {
+        // One tee point for any number of extras (v1: the debug ring).
+        let tee = TeeWriter {
+            extras: extra_writers,
+        };
+        logger
+            .log_to_file_and_writer(file_spec(), Box::new(tee))
+            .rotate(rotation.0, rotation.1, rotation.2)
+            .duplicate_to_stderr(Duplicate::Info)
+            .start()
+    };
 
     match started {
         Ok(handle) => {
@@ -100,6 +128,32 @@ pub fn init(paths: &AppPaths) -> Option<flexi_logger::LoggerHandle> {
                 }
             }
         }
+    }
+}
+
+/// Fan-out adapter: flexi_logger's `log_to_file_and_writer` accepts one
+/// extra writer; `TeeWriter` bundles any number behind that single slot.
+struct TeeWriter {
+    extras: Vec<Box<dyn LogWriter>>,
+}
+
+impl LogWriter for TeeWriter {
+    fn write(
+        &self,
+        now: &mut flexi_logger::DeferredNow,
+        record: &log::Record<'_>,
+    ) -> std::io::Result<()> {
+        for writer in &self.extras {
+            writer.write(now, record)?;
+        }
+        Ok(())
+    }
+
+    fn flush(&self) -> std::io::Result<()> {
+        for writer in &self.extras {
+            writer.flush()?;
+        }
+        Ok(())
     }
 }
 

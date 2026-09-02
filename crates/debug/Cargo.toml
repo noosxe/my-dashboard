@@ -17,6 +17,10 @@ serde_json.workspace = true
 # on the foreground executor.
 futures = "0.3"
 
+# Ring writer for app.logs (D8): implements flexi_logger::LogWriter, tee-d
+# off the primary file writer via log_to_file_and_writer.
+flexi_logger.workspace = true
+
 # AT-SPI client for tree.dump enrichment + node click/focus (D4/D7).
 # Proxies only — the bus connection is plain zbus, mirroring how
 # accesskit_unix connects. Versions unify with the lockfile via the

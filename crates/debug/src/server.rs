@@ -12,6 +12,7 @@ use gpui::App;
 use serde_json::Value;
 
 use crate::jobs::{Job, WindowRegistry};
+use crate::logs::RingLog;
 use crate::protocol::{
     AuthParams, METHOD_APP_LOGS, METHOD_AUTH, Request, Response, RpcError, error_code,
 };
@@ -21,7 +22,7 @@ const TOKEN_NAME: &str = "debug.token";
 const LOG_TARGET: &str = "dashboard_debug";
 
 /// Start the bridge. See `crate::start`.
-pub fn start(app: &mut App) -> Option<PathBuf> {
+pub fn start(app: &mut App, ring: crate::logs::RingLog) -> Option<PathBuf> {
     // Job handlers read this global; initialize before anything can fail
     // so the invariant "server up ⇒ registry present" holds.
     app.default_global::<WindowRegistry>();
@@ -80,10 +81,11 @@ pub fn start(app: &mut App) -> Option<PathBuf> {
                     Ok(stream) => {
                         let job_tx = job_tx.clone();
                         let token = Arc::clone(&token);
+                        let ring = ring.clone();
                         let _ = std::thread::Builder::new()
                             .name("debug-bridge-conn".into())
                             .spawn(move || {
-                                serve_connection(stream, &token, |request| {
+                                serve_connection(stream, &token, &ring, |request| {
                                     crate::handlers::dispatch(&job_tx, request)
                                 });
                             });
@@ -103,7 +105,7 @@ pub fn start(app: &mut App) -> Option<PathBuf> {
 /// Connection lifecycle (D2): first line MUST be `auth` with the run
 /// token; after that, one request/response per NDJSON line. Returns when
 /// the client disconnects or auth fails.
-fn serve_connection<D>(stream: UnixStream, expected_token: &str, dispatch: D)
+fn serve_connection<D>(stream: UnixStream, expected_token: &str, ring: &RingLog, dispatch: D)
 where
     D: Fn(Request) -> Result<Value, RpcError>,
 {
@@ -167,9 +169,7 @@ where
                 request.id,
                 RpcError::new(error_code::INVALID_PARAMS, "already authenticated"),
             ),
-            Some(request) if is_stub(&request.method) => {
-                Response::err(request.id, stub_error(&request.method))
-            }
+            Some(request) if request.method == METHOD_APP_LOGS => app_logs(ring, &request),
             Some(request) => {
                 let id = request.id;
                 match dispatch(request) {
@@ -184,17 +184,41 @@ where
     }
 }
 
-/// Commands whose handlers land in #47 (log ring) — answered inline, no
-/// main-thread round-trip.
-fn is_stub(method: &str) -> bool {
-    method == METHOD_APP_LOGS
-}
-
-fn stub_error(method: &str) -> RpcError {
-    RpcError::new(
-        error_code::NOT_IMPLEMENTED,
-        format!("{method} is not implemented yet (docs/0010 issue #47)"),
-    )
+/// `app.logs` (docs/0010 D8): answered inline on the socket thread from
+/// the shared ring — no main-thread round-trip. Cursor semantics in
+/// [`RingLog::snapshot`].
+fn app_logs(ring: &RingLog, request: &Request) -> Response {
+    let params = match crate::protocol::parse::<crate::protocol::LogsParams>(&request.params) {
+        Some(params) => params,
+        None => {
+            return Response::err(
+                request.id,
+                RpcError::new(
+                    error_code::INVALID_PARAMS,
+                    "app.logs params: {since?: u64, limit?: usize}",
+                ),
+            );
+        }
+    };
+    let since = params.since.unwrap_or(0);
+    let limit = params.limit.unwrap_or(crate::logs::DEFAULT_LIMIT);
+    let (lines, next_cursor) = ring.snapshot(since, limit);
+    match serde_json::to_value(&lines) {
+        Ok(value) => Response::ok(
+            request.id,
+            serde_json::json!({
+                "lines": value,
+                "next_cursor": next_cursor,
+            }),
+        ),
+        Err(err) => Response::err(
+            request.id,
+            RpcError::new(
+                error_code::INTERNAL,
+                format!("serializing log lines: {err}"),
+            ),
+        ),
+    }
 }
 
 fn read_line(reader: &mut BufReader<UnixStream>) -> Option<String> {
@@ -263,19 +287,25 @@ mod tests {
 
     /// Serve exactly one connection with a canned dispatch that echoes the
     /// method back; returns a handle to the serving thread.
-    fn serve_one(listener: UnixListener, token: &'static str) -> std::thread::JoinHandle<()> {
+    fn serve_one(
+        listener: UnixListener,
+        token: &'static str,
+        ring: RingLog,
+    ) -> std::thread::JoinHandle<()> {
         std::thread::spawn(move || {
             if let Ok(stream) = listener.incoming().next().unwrap() {
                 // Mirrors the real dispatcher: implemented methods echo,
                 // anything else is METHOD_NOT_FOUND (as jobs::build does).
-                serve_connection(stream, token, |request| match request.method.as_str() {
-                    "window.list" | "window.geometry" | "input.dispatch" => {
-                        Ok(serde_json::json!({"echo": request.method, "id": request.id}))
+                serve_connection(stream, token, &ring, |request| {
+                    match request.method.as_str() {
+                        "window.list" | "window.geometry" | "input.dispatch" => {
+                            Ok(serde_json::json!({"echo": request.method, "id": request.id}))
+                        }
+                        method => Err(RpcError::new(
+                            error_code::METHOD_NOT_FOUND,
+                            format!("no handler for {method:?}"),
+                        )),
                     }
-                    method => Err(RpcError::new(
-                        error_code::METHOD_NOT_FOUND,
-                        format!("no handler for {method:?}"),
-                    )),
                 });
             }
         })
@@ -302,7 +332,7 @@ mod tests {
     fn auth_accept_then_dispatch_round_trip() {
         let (listener, dir) = loopback();
         let path = dir.join("sock");
-        let server = serve_one(listener, "secret-token");
+        let server = serve_one(listener, "secret-token", RingLog::new());
 
         let (mut writer, mut reader) = client(&path);
         let response = roundtrip(
@@ -330,7 +360,7 @@ mod tests {
     fn wrong_token_gets_error_and_close() {
         let (listener, dir) = loopback();
         let path = dir.join("sock");
-        let server = serve_one(listener, "secret-token");
+        let server = serve_one(listener, "secret-token", RingLog::new());
 
         let (mut writer, mut reader) = client(&path);
         let response = roundtrip(
@@ -354,7 +384,7 @@ mod tests {
     fn malformed_line_after_auth_yields_parse_error() {
         let (listener, dir) = loopback();
         let path = dir.join("sock");
-        let server = serve_one(listener, "t");
+        let server = serve_one(listener, "t", RingLog::new());
 
         let (mut writer, mut reader) = client(&path);
         roundtrip(
@@ -375,7 +405,7 @@ mod tests {
     fn unknown_method_is_rejected() {
         let (listener, dir) = loopback();
         let path = dir.join("sock");
-        let server = serve_one(listener, "t");
+        let server = serve_one(listener, "t", RingLog::new());
 
         let (mut writer, mut reader) = client(&path);
         roundtrip(
@@ -397,41 +427,84 @@ mod tests {
     }
 
     #[test]
-    fn stubs_answer_not_implemented_without_dispatch() {
+    fn app_logs_serves_ring_lines_with_cursor_semantics() {
+        let ring = RingLog::new();
         {
-            let method = "app.logs";
-            let (listener, dir) = loopback();
-            let path = dir.join("sock");
-            let server = serve_one(listener, "t");
-
-            let (mut writer, mut reader) = client(&path);
-            roundtrip(
-                &mut writer,
-                &mut reader,
-                r#"{"id":0,"method":"auth","params":{"token":"t"}}"#,
-            );
-            let response = roundtrip(
-                &mut writer,
-                &mut reader,
-                &format!(r#"{{"id":3,"method":"{method}","params":{{}}}}"#),
-            );
-            let error = response.error.unwrap();
-            assert_eq!(error.code, error_code::NOT_IMPLEMENTED, "{method}");
-            // Stubs never reach dispatch — no echo result.
-            assert!(response.result.is_none());
-
-            drop(writer);
-            drop(reader);
-            server.join().unwrap();
-            std::fs::remove_dir_all(&dir).ok();
+            let writer = ring.writer();
+            let mut now = flexi_logger::DeferredNow::new();
+            for (level, msg) in [
+                (log::Level::Info, "boot"),
+                (log::Level::Warn, "token rejected"),
+            ] {
+                let owned = msg.to_string();
+                let arguments = format_args!("{owned}");
+                let record = log::Record::builder()
+                    .level(level)
+                    .target("dashboard_module_github::service")
+                    .args(arguments)
+                    .build();
+                writer.write(&mut now, &record).unwrap();
+            }
         }
+
+        let (listener, dir) = loopback();
+        let path = dir.join("sock");
+        let server = serve_one(listener, "t", ring);
+
+        let (mut writer, mut reader) = client(&path);
+        roundtrip(
+            &mut writer,
+            &mut reader,
+            r#"{"id":0,"method":"auth","params":{"token":"t"}}"#,
+        );
+        let response = roundtrip(
+            &mut writer,
+            &mut reader,
+            r#"{"id":3,"method":"app.logs","params":{}}"#,
+        );
+        let result = response.result.unwrap();
+        assert_eq!(result["next_cursor"], serde_json::json!(2));
+        let lines = result["lines"].as_array().unwrap();
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0]["cursor"], serde_json::json!(1));
+        assert_eq!(lines[0]["level"], serde_json::json!("INFO"));
+        assert_eq!(
+            lines[0]["target"],
+            serde_json::json!("dashboard_module_github::service")
+        );
+        assert_eq!(lines[0]["message"], serde_json::json!("boot"));
+
+        // `since` continuation: only the warn line, cursor stays at 2.
+        let response = roundtrip(
+            &mut writer,
+            &mut reader,
+            r#"{"id":4,"method":"app.logs","params":{"since":1,"limit":1}}"#,
+        );
+        let result = response.result.unwrap();
+        let lines = result["lines"].as_array().unwrap();
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0]["message"], serde_json::json!("token rejected"));
+        assert_eq!(result["next_cursor"], serde_json::json!(2));
+
+        // Bad params still get -32602.
+        let response = roundtrip(
+            &mut writer,
+            &mut reader,
+            r#"{"id":5,"method":"app.logs","params":{"since":"nope"}}"#,
+        );
+        assert_eq!(response.error.unwrap().code, error_code::INVALID_PARAMS);
+
+        drop(writer);
+        drop(reader);
+        server.join().unwrap();
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
     fn pipelined_requests_keep_order() {
         let (listener, dir) = loopback();
         let path = dir.join("sock");
-        let server = serve_one(listener, "t");
+        let server = serve_one(listener, "t", RingLog::new());
 
         let (mut writer, mut reader) = client(&path);
         roundtrip(

@@ -46,14 +46,23 @@ fn main() {
             // file. The handle is leaked: dropping it mid-run would shut
             // the writers down while the app is still going.
             let paths = AppPaths::init();
-            std::mem::forget(dashboard_core::logging::init(paths));
+            // The log ring (#47, docs/0010 D8) is created before
+            // `logging::init` so capture starts with the very first line,
+            // then handed to the debug server below.
+            #[cfg(feature = "debug-tools")]
+            let debug_ring = dashboard_debug::logs::RingLog::new();
+            #[cfg(feature = "debug-tools")]
+            let extra_writers = vec![debug_ring.writer()];
+            #[cfg(not(feature = "debug-tools"))]
+            let extra_writers: Vec<Box<dyn dashboard_core::logging::LogWriter>> = Vec::new();
+            std::mem::forget(dashboard_core::logging::init(paths, extra_writers));
 
             // Agent Debug Bridge (docs/0010, #45): Unix-socket debug
             // server — starts with the app; failures are logged and
             // non-fatal by design (the bridge must never take the app
             // down with it). Off entirely when the feature is absent.
             #[cfg(feature = "debug-tools")]
-            if let Some(socket) = dashboard_debug::start(cx) {
+            if let Some(socket) = dashboard_debug::start(cx, debug_ring) {
                 log::info!(
                     target: "dashboard_app",
                     "debug bridge listening on {}",
