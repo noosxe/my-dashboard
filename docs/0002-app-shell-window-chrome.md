@@ -157,6 +157,9 @@ host and new files/crates grow from there.
   hook is documented for future tray behavior.
 - **D5 — Theme**: rely on `gpui_component::init` defaults + `cx.theme()` tokens
   everywhere (no hardcoded colors in the shell). Mode strategy per Q5.
+  **Enforced (2026-09-02):** literal color constructors (`gpui::rgb`/`rgba`/`hsla`)
+  are disallowed app-wide in `clippy.toml` — colors come from theme tokens or
+  derive from them (`.opacity(..)`).
 - **D6 — Root invariant preserved**: `Root` remains the window's first-level view;
   `TitleBar` lives inside the shell view, first child of the top-level `v_flex`.
 - **D8 — Window padding & framed panel** (2026-09-02, owner decision in its PR):
@@ -177,7 +180,19 @@ host and new files/crates grow from there.
   spacing scale together. Never override `line_height` to tighten rows: inherited
   line heights keep a ~1.3–1.4× ratio that never clips glyph ink, and tighter
   boxes under `overflow_hidden`/`truncate` masks cut descenders (the upstream
-  #2775/#2883 mechanism).
+  #2775/#2883 mechanism). **Enforced via `clippy.toml`** (`text_size`/
+  `line_height` disallowed).
+- **D10 — Spacing scale (structural)** (2026-09-02): padding/margin/gap have **no
+  raw-value API** — `p_*`/`px_*`/`py_*`/`m_*`/`gap_*` are macro-generated
+  (gpui_macros `styles.rs`) and set style fields directly on the fixed 0.25rem
+  scale (`0p5`=2 · `1`=4 · `1p5`=6 · `2`=8 · `2p5`=10 · `3`=12 · `4`=16 · `6`=24 ·
+  `8`=32px at the default rem), so spacing cannot go ad-hoc through styling.
+  Keep it that way: never mutate `style()` fields to dodge the scale. Widget
+  **geometry** (`.w(px(..))`, `.h(px(..))` — card sizes, column widths) is
+  deliberately exempt: content sizes are layout values, not rhythm; define them
+  as named constants. D9's `text_size`/`line_height` and D5's color literals
+  are enforced by `clippy.toml` `disallowed-methods`; escape hatch is
+  `#[allow(clippy::disallowed_methods)]` + a justifying comment.
 
 ## 5. Proposed implementation
 

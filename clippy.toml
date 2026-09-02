@@ -1,0 +1,14 @@
+# Token discipline — docs/0002 D5 (colors), D9 (typography), D10 (spacing).
+# Enforced by the zero-warnings clippy gate (AGENTS.md "Run the gates").
+# Escape hatch: `#[allow(clippy::disallowed_methods)]` + a comment justifying
+# the exception (visible in review).
+disallowed-methods = [
+  # Typography: use text_xs/text_sm/text_base/text_lg/text_xl; never tighten
+  # line boxes (descender clipping — upstream #2775/#2883 mechanism).
+  "gpui::Styled::text_size",
+  "gpui::Styled::line_height",
+  # Colors: theme tokens only (`cx.theme()`), no literal constructors.
+  "gpui::rgb",
+  "gpui::rgba",
+  "gpui::hsla",
+]
