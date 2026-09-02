@@ -12,6 +12,15 @@
 > auth (§3.1–§3.2), UI specification (§6) and the degradation matrix are
 > unchanged. 0007 is the authority for the fetching model; this doc
 > remains the authority for everything else.
+
+> **Amended by 0011 (token lifecycle):** the token-lifecycle parts of
+> §3.1/Q5 (single long-lived access token) and Q9's "401 → reconnect"
+> semantics are superseded by docs/0011: the keychain holds one JSON
+> credential document (access + single-use refresh token + expiry),
+> expiring tokens are refreshed proactively on the tick loop and
+> reactively on 401, and only a spent or failed refresh lands in the
+> reconnect state. 0011 is the authority for the token lifecycle; this
+> doc remains the authority for everything else.
 ## 1. Summary
 
 The first real data module, and the first consumer of everything 0003/0004
