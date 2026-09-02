@@ -89,12 +89,7 @@ fn card(entry: &ModuleEntry, nav: Entity<Navigator>, colors: CardColors) -> impl
                 .items_center()
                 .flex_shrink_0()
                 .when_some(icon, |this, icon| this.child(Icon::new(icon)))
-                .child(
-                    div()
-                        .text_size(px(13.))
-                        .text_color(colors.muted)
-                        .child(title),
-                ),
+                .child(div().text_sm().text_color(colors.muted).child(title)),
         )
         .child(div().flex_1().min_h_0().child(overview))
         .on_click(move |_, _window, cx| {

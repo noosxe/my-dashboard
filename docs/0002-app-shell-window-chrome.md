@@ -169,6 +169,15 @@ host and new files/crates grow from there.
   20px CSD shadow frame, 0px on macOS/Windows) — apps pad themselves, and this
   is ours. The client-decorated `TitleBar` (D7 note above) stays full-width
   above the padded area.
+- **D9 — Typography scale only** (2026-09-02): every text size comes from the
+  shared Tailwind-style scale (`text_xs`/`text_sm`/`text_base`/`text_lg`/`text_xl`
+  = 12/14/16/18/20px, rem-based so they track the theme font size; note there is
+  no `text_md` — the 16px step is `text_base`). No ad-hoc `text_size(px(..))` in
+  app code; component sizing goes through the `Size` API so type, icons and
+  spacing scale together. Never override `line_height` to tighten rows: inherited
+  line heights keep a ~1.3–1.4× ratio that never clips glyph ink, and tighter
+  boxes under `overflow_hidden`/`truncate` masks cut descenders (the upstream
+  #2775/#2883 mechanism).
 
 ## 5. Proposed implementation
 

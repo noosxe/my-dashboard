@@ -197,7 +197,7 @@ impl Render for DashboardShell {
                                             this.child(
                                                 div()
                                                     .flex_1()
-                                                    .text_size(px(15.))
+                                                    .text_base()
                                                     .overflow_hidden()
                                                     .text_ellipsis()
                                                     .child("Dashboard"),

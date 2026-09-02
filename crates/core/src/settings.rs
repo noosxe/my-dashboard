@@ -391,7 +391,7 @@ pub fn about_page(modules: &[(Option<ModuleIcon>, gpui::SharedString)]) -> Setti
                                 gpui_component::label::Label::new(format!(
                                     "{app_name} {app_version}"
                                 ))
-                                .text_size(gpui::px(16.)),
+                                .text_base(),
                             ),
                     )
                     .child(
