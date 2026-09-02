@@ -150,10 +150,12 @@ impl Render for DashboardShell {
                             .collapsible(SidebarCollapsible::Icon)
                             .collapsed(sidebar_collapsed)
                             .header(
-                                // Brand: icon box always; wordmark only when
-                                // expanded (in the icon rail the text would clip).
-                                // Upstream SidebarHeader styling (justify_between,
-                                // p_2, hover accent) accepted as-is per owner call.
+                                // Brand, sidebar_story.rs pattern: the
+                                // wordmark's flex_1 absorbs the free space, so
+                                // SidebarHeader's hard-coded justify_between
+                                // keeps it packed left next to the logo; when
+                                // collapsed the icon box shrinks to a bare
+                                // size_4 glyph (rail) instead of clipping.
                                 SidebarHeader::new()
                                     .child(
                                         div()
@@ -165,12 +167,31 @@ impl Render for DashboardShell {
                                             .text_color(cx.theme().primary_foreground)
                                             .size_8()
                                             .flex_shrink_0()
-                                            .child(
-                                                Icon::new(IconName::GalleryVerticalEnd).size_4(),
-                                            ),
+                                            .when(!sidebar_collapsed, |this| {
+                                                this.child(
+                                                    Icon::new(IconName::GalleryVerticalEnd)
+                                                        .size_4(),
+                                                )
+                                            })
+                                            .when(sidebar_collapsed, |this| {
+                                                this.size_4()
+                                                    .bg(cx.theme().transparent)
+                                                    .text_color(cx.theme().foreground)
+                                                    .child(
+                                                        Icon::new(IconName::GalleryVerticalEnd)
+                                                            .size_4(),
+                                                    )
+                                            }),
                                     )
                                     .when(!sidebar_collapsed, |this| {
-                                        this.child(div().text_size(px(15.)).child("Dashboard"))
+                                        this.child(
+                                            div()
+                                                .flex_1()
+                                                .text_size(px(15.))
+                                                .overflow_hidden()
+                                                .text_ellipsis()
+                                                .child("Dashboard"),
+                                        )
                                     }),
                             )
                             .children(nav_menu_items(&self.registry, &page, cx))
