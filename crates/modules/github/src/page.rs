@@ -24,6 +24,8 @@ use gpui_component::{
     v_flex,
 };
 
+use dashboard_core::nav::{Crumb, Navigator, Page};
+
 use crate::api;
 use crate::card::{REPO_LOCK, github_mark};
 use crate::gql;
@@ -44,10 +46,18 @@ pub(crate) struct GithubPage {
     /// ticks cost two vec comparisons and no entity writes (0009 D6).
     synced_orgs: Vec<SharedString>,
     synced_repos: Vec<String>,
+    /// Navigator handle — the page derives and re-reports its breadcrumb
+    /// prefix from state (docs/0014 D1/D5).
+    nav: Entity<Navigator>,
 }
 
 impl GithubPage {
-    pub fn new(state: Entity<GithubState>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        state: Entity<GithubState>,
+        nav: Entity<Navigator>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let org_select = cx.new(|cx| {
             SelectState::new(
                 SearchableVec::new(Vec::<SharedString>::new()),
@@ -70,7 +80,10 @@ impl GithubPage {
                     return;
                 };
                 this.org = Some(login.clone());
-                this.state.update(cx, |s, _| s.selected = None);
+                this.state.update(cx, |s, cx| {
+                    s.selected = None;
+                    cx.notify();
+                });
                 this.synced_repos.clear();
                 this.sync_from_state_in(window, cx);
                 this.repo_list.update(cx, |list, cx| {
@@ -103,8 +116,15 @@ impl GithubPage {
         cx.observe(&state, |this, _, cx| this.sync_from_state(cx))
             .detach();
 
+        // Crumb re-report on page (re)activation (docs/0014 D5): `go`
+        // clears crumbs on every page switch (nav.rs), so returning to
+        // this page must re-derive them from state — nothing else will.
+        cx.observe(&nav, |this, _, cx| this.sync_repo_crumb(cx))
+            .detach();
+
         let page = Self {
             state,
+            nav,
             org: None,
             org_select,
             repo_list,
@@ -153,14 +173,54 @@ impl GithubPage {
     }
 
     /// Observer entry (0009 D6): `cx.observe` has no window, so go
-    /// through the stored handle. A failed update (window closing)
-    /// leaves the guards below stale — the next observer pass retries.
+    /// through the stored handle. The work is deferred via `cx.spawn`
+    /// (the `run_specs` pattern): a notify can land while this page is
+    /// mid-update (e.g. the repo-List subscriber notifying the state),
+    /// and updating the page synchronously there would double-lease it
+    /// and panic. A failed update (window closing) leaves the guards
+    /// below stale — the next observer pass retries.
     fn sync_from_state(&mut self, cx: &mut Context<Self>) {
         let window = self.window;
         let page = cx.entity();
-        let _ = window.update(cx, |_, window, cx| {
-            page.update(cx, |this, cx| this.sync_from_state_in(window, cx));
-        });
+        cx.spawn(async move |_this, cx| {
+            let _ = window.update(cx, |_, window, cx| {
+                page.update(cx, |this, cx| this.sync_from_state_in(window, cx));
+            });
+        })
+        .detach();
+    }
+
+    /// Derive the repo breadcrumb prefix from state and reconcile it
+    /// against the navigator (docs/0014 D1). Called on data changes
+    /// (end of `sync_from_state_in`) and on page (re)activation (the
+    /// nav observer); compare-first, so idle ticks write nothing.
+    fn sync_repo_crumb(&mut self, cx: &mut Context<Self>) {
+        // Gate: never touch crumbs while another page owns the chrome
+        // ("github" literal — card.rs:36 precedent).
+        let active = matches!(
+            self.nav.read(cx).page,
+            Page::Module(ref id) if id.as_ref() == "github"
+        );
+        if !active {
+            return;
+        }
+        let derived = {
+            let s = self.state.read(cx);
+            repo_crumb_label(s.selected.as_deref(), &s.repos, s.auth.connected())
+        };
+        let current: Vec<SharedString> = self
+            .nav
+            .read(cx)
+            .crumbs()
+            .iter()
+            .map(|c| c.label.clone())
+            .collect();
+        if let Some(labels) = reconcile_repo_crumb(derived, &current) {
+            log::debug!("repo crumb synced: {current:?} -> {labels:?}");
+            self.nav.update(cx, |nav, cx| {
+                nav.set_crumbs(labels.into_iter().map(Crumb::label).collect(), cx);
+            });
+        }
     }
 
     /// Compare-first sync of the Select/List entities from the state
@@ -210,6 +270,11 @@ impl GithubPage {
             log::debug!("repo list synced: {} repos", self.synced_repos.len());
         }
 
+        // Keep the module's breadcrumb prefix in step with the selection
+        // (docs/0014 D1): repo pick, org switch, sign-out, auth loss and
+        // snapshot swaps all land here.
+        self.sync_repo_crumb(cx);
+
         cx.notify();
     }
 
@@ -223,9 +288,11 @@ impl GithubPage {
         // snapshot; these specs are the edge-freshness repo-scoped
         // snapshot plus the one-shot repo notifications fetch.
         log::debug!("repo selected: {full_name}");
-        let specs = self.state.update(cx, |s, _| {
+        let specs = self.state.update(cx, |s, cx| {
             s.selected = Some(full_name.to_string());
-            s.repo_open_specs(&full_name)
+            let specs = s.repo_open_specs(&full_name);
+            cx.notify();
+            specs
         });
         self.run_specs(specs, window, cx);
     }
@@ -257,7 +324,12 @@ impl GithubPage {
         cx.spawn(async move |_this, cx| {
             for spec in specs {
                 let result = run_spec_tracked(client.clone(), spec, cx).await;
-                cx.update(|cx| state.update(cx, |s, _| s.apply(result)));
+                cx.update(|cx| {
+                    state.update(cx, |s, cx| {
+                        s.apply(result);
+                        cx.notify();
+                    })
+                });
             }
             let _ = window_handle.update(cx, |_, window, _| window.refresh());
         })
@@ -420,6 +492,46 @@ fn next_org_selection(current: Option<&str>, logins: &[SharedString]) -> Option<
     match current {
         Some(current) if logins.iter().any(|l| &**l == current) => Some(current.to_string().into()),
         _ => logins.first().cloned(),
+    }
+}
+
+/// The module-level crumb label: the short `name` of the selected repo
+/// (docs/0014 Q1/D2), resolved with the same lookup the right column
+/// uses — a selected repo that no longer exists in the snapshot is *not*
+/// a crumb (the pane beside it shows "Select a repository"; the chrome
+/// agrees). Disconnected states never carry a repo crumb. Pure —
+/// table-tested.
+fn repo_crumb_label(
+    selected: Option<&str>,
+    repos: &[gql::Repo],
+    connected: bool,
+) -> Option<SharedString> {
+    if !connected {
+        return None;
+    }
+    selected
+        .and_then(|f| repos.iter().find(|r| r.full_name == f))
+        .map(|r| r.name.clone().into())
+}
+
+/// Decide whether the navigator's crumbs must be rewritten to carry the
+/// repo prefix (docs/0014 D3). `Some(labels)` = write exactly these
+/// (prefix only); `None` = leave the navigator alone — the compare-first
+/// guard that keeps idle ticks write-free. The module owns a *prefix* of
+/// the chain: a matching prefix (with or without a future subpage
+/// suffix) is preserved, everything after a mismatched prefix is stale
+/// and dropped. Pure — table-tested.
+fn reconcile_repo_crumb(
+    derived: Option<SharedString>,
+    current: &[SharedString],
+) -> Option<Vec<SharedString>> {
+    match derived {
+        None if current.is_empty() => None, // stable: no repo
+        None => Some(Vec::new()),           // repo lost: clear all
+        Some(r) => match current.first() {
+            Some(first) if *first == r => None, // stable: prefix present
+            _ => Some(vec![r]),                 // (re)port / changed
+        },
     }
 }
 
@@ -917,7 +1029,9 @@ mod tests {
     // NOTE: no `use super::*` here — page.rs glob-imports `gpui::*`, whose
     // `test` re-export would shadow the builtin `#[test]` attribute and
     // blow the proc-macro stack (rustc SIGSEGV). Import selectively.
-    use super::{IndexPath, RepoListDelegate, next_org_selection};
+    use super::{
+        IndexPath, RepoListDelegate, next_org_selection, reconcile_repo_crumb, repo_crumb_label,
+    };
     use crate::gql;
     use gpui::AppContext as _;
     use gpui::{SharedString, TestAppContext};
@@ -1066,5 +1180,81 @@ mod tests {
                 );
             });
         });
+    }
+
+    // --- Breadcrumb sync (docs/0014) — pure fns, table-tested ---------
+
+    #[test]
+    fn repo_crumb_label_resolves_selected_repo_short_name() {
+        let repos = vec![repo("acme/widget", None), repo("acme/gadget", None)];
+        assert_eq!(
+            repo_crumb_label(Some("acme/widget"), &repos, true),
+            Some(SharedString::from("widget"))
+        );
+    }
+
+    #[test]
+    fn repo_crumb_label_none_without_selection() {
+        let repos = vec![repo("acme/widget", None)];
+        assert_eq!(repo_crumb_label(None, &repos, true), None);
+    }
+
+    #[test]
+    fn repo_crumb_label_none_when_repo_missing_from_snapshot() {
+        // Same lookup predicate as the right column (docs/0014 D2): a
+        // dropped repo is "Select a repository" in the pane and no crumb
+        // in the chrome.
+        let repos = vec![repo("acme/widget", None)];
+        assert_eq!(repo_crumb_label(Some("acme/ghost"), &repos, true), None);
+    }
+
+    #[test]
+    fn repo_crumb_label_none_when_disconnected() {
+        let repos = vec![repo("acme/widget", None)];
+        assert_eq!(repo_crumb_label(Some("acme/widget"), &repos, false), None);
+    }
+
+    #[test]
+    fn reconcile_noop_when_nothing_selected_and_no_crumbs() {
+        assert_eq!(reconcile_repo_crumb(None, &[]), None);
+    }
+
+    #[test]
+    fn reconcile_clears_all_when_repo_lost() {
+        // A suffix without its repo is meaningless — drop it too.
+        let current = vec![SharedString::from("widget"), SharedString::from("Issues")];
+        assert_eq!(reconcile_repo_crumb(None, &current), Some(Vec::new()));
+    }
+
+    #[test]
+    fn reconcile_reports_when_crumbs_empty() {
+        // First report, or re-entry after `go` cleared the crumbs.
+        assert_eq!(
+            reconcile_repo_crumb(Some("widget".into()), &[]),
+            Some(vec![SharedString::from("widget")])
+        );
+    }
+
+    #[test]
+    fn reconcile_noop_when_prefix_present() {
+        let current = vec![SharedString::from("widget")];
+        assert_eq!(reconcile_repo_crumb(Some("widget".into()), &current), None);
+    }
+
+    #[test]
+    fn reconcile_preserves_subpage_suffix() {
+        // docs/0014 D3: background ticks must not flatten [repo, Issues]
+        // back to [repo] once the subpages doc lands.
+        let current = vec![SharedString::from("widget"), SharedString::from("Issues")];
+        assert_eq!(reconcile_repo_crumb(Some("widget".into()), &current), None);
+    }
+
+    #[test]
+    fn reconcile_rewrites_when_repo_changed() {
+        let current = vec![SharedString::from("widget")];
+        assert_eq!(
+            reconcile_repo_crumb(Some("gadget".into()), &current),
+            Some(vec![SharedString::from("gadget")])
+        );
     }
 }

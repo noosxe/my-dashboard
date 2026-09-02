@@ -44,7 +44,7 @@ impl Module for GithubModule {
     }
 
     fn init(
-        _nav: &Entity<Navigator>,
+        nav: &Entity<Navigator>,
         window: &mut Window,
         paths: &dashboard_core::AppPaths,
         cx: &mut App,
@@ -69,8 +69,8 @@ impl Module for GithubModule {
         // refreshes per tick (0003 §3.12 pattern, docs/0005 Q8).
         spawn_tick_loop(state.clone(), window_handle, cx);
 
-        let overview = cx.new(|cx| card::GithubCard::new(state.clone(), _nav.clone(), cx));
-        let main_page = cx.new(|cx| page::GithubPage::new(state.clone(), window, cx));
+        let overview = cx.new(|cx| card::GithubCard::new(state.clone(), nav.clone(), cx));
+        let main_page = cx.new(|cx| page::GithubPage::new(state.clone(), nav.clone(), window, cx));
 
         // Settings subpage (docs/0006 §4.3): the provider captures the
         // state entity and rebuilds the page per settings render, so

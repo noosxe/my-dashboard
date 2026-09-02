@@ -89,9 +89,15 @@ Out (non-goals):
   (core Module trait, 0003 §4.1); github/src/lib.rs:47 currently discards it as
   `_nav` for the page (the card consumes it, card.rs:29). No trait change needed.
 - **Observers are not tree-gated**: an `cx.observe` on the state/nav entities
-  fires while the page view is not in the tree (that is how D6's background sync
-  already works), which is what makes a state-derived crumb sync viable for the
-  sign-out-while-hidden path.
+  fires regardless of tree visibility, which makes a state-derived crumb sync
+  viable for the sign-out-while-hidden path.
+- **Amended during implementation:** the state entity **never called
+  `cx.notify()`** — the service applied every fetch/org/auth mutation without
+  notifying, so the 0009 D6 observer sync never ran on data arrival (masked by
+  `window.refresh()` repaints; construction-time seeding made the list look
+  right). This PR adds `cx.notify()` at the mutating orchestration sites
+  (§6), which activates the observer-driven sync exactly as designed here —
+  and incidentally fixes the 0009 background Select/List staleness.
 
 ## 4. Open questions — NEEDS YOUR INPUT
 
@@ -291,9 +297,19 @@ No changes to core (`nav.rs`, `shell.rs`), the service, or the Module trait.
 
 Branch `feat/0014-repo-breadcrumb`, stacked on this doc PR. Files:
 
-- `crates/modules/github/src/page.rs` — `nav` field + observer (D5),
+- `crates/modules/github/src/page.rs` — `nav` field + observers (D5),
   `sync_repo_crumb` (D1), `repo_crumb_label` (D2), `reconcile_repo_crumb` (D3),
   imports `dashboard_core::nav::{Crumb, Navigator, Page}`; unit tests (§7).
+  `sync_from_state` now defers through `cx.spawn` + the stored window handle
+  (the `run_specs` pattern): a notify can land while the page is mid-update
+  (repo-List subscriber → state notify), and updating the page synchronously
+  from the observer there double-leases it — a hard crash on repo selection
+  without the deferral. Also: `cx.notify()` at the selection-mutating sites
+  (`select_repo`, org-switch clear, `run_specs` apply).
+- `crates/modules/github/src/service.rs` — `cx.notify()` at the remaining
+  state-mutating orchestration sites (tick/repo `apply`, `apply_refresh`,
+  `start_connect`, `set_connect_phase`, `install_credential`, `sign_out_now`),
+  so entity observers actually fire on data arrival (§3 amendment).
 - `crates/modules/github/src/lib.rs` — `_nav` → `nav`, pass to `GithubPage::new`.
 - Nothing else. `GithubPage::new`'s only caller is `Module::init`; its existing
   `#[gpui::test]` does not construct the page.
@@ -319,12 +335,13 @@ untouched.
 With the app running (`cargo run`, a11y bus up):
 
 1. `tree` → select a repo (`click` the repo row's ListItem id) → re-dump: the
-   breadcrumb region gains a text node for the repo name; **no** new interactive
-   node (the crumb is intentionally non-clickable — D10's id+role rule applies to
+   breadcrumb region gains a **non-interactive** `ListItem` node for the repo
+   name (right of the module-title link); **no** new interactive node — the
+   crumb is intentionally non-clickable (D10's id+role rule applies to
    interactive elements only).
 2. `logs -f` while stepping through org switch / sign-out / Home-and-back:
-   crumb changes land on the state-sync and nav paths; a quiet minute of ticks
-   writes nothing.
+   crumb writes log `repo crumb synced: <before> -> <after>` on the state-sync
+   and nav paths; a quiet minute of ticks writes nothing.
 
 ## 9. Acceptance criteria
 
