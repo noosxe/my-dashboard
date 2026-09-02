@@ -44,15 +44,36 @@
           glib
           gtk3
         ];
+
+        # AT-SPI daemons for the debug bridge (docs/0010 D5): provides
+        # at-spi-bus-launcher/registryd and the DBus service files so
+        # org.a11y.Bus can be activated from inside a dev shell without a
+        # system-wide services.gnome.at-spi2.enable.
+        atSpi = with pkgs; at-spi2-core;
       in
       {
         devShells.default = with pkgs; mkShell {
-          packages = buildTools ++ dynamicLibraries;
+          packages = buildTools ++ dynamicLibraries ++ [ atSpi ];
           env = {
             RUST_BACKTRACE = "1";
             FONTCONFIG_FILE = fontsConf;
             LD_LIBRARY_PATH = lib.makeLibraryPath dynamicLibraries;
+            # Lets a session bus started *inside* the shell DBus-activate
+            # org.a11y.Bus. The already-running session bus scans service
+            # dirs only at its own startup, so the normal dev flow is:
+            #   at-spi-bus-launcher --launch-immediately &
+            #   cargo run
+            # (the launcher is on PATH via the shellHook below).
+            XDG_DATA_DIRS = lib.concatStringsSep ":" ([
+              "${atSpi}/share"
+            ] ++ lib.optionals (builtins.getEnv "XDG_DATA_DIRS" != "") [
+              (builtins.getEnv "XDG_DATA_DIRS")
+            ]);
           };
+          # at-spi2-core ships its daemons in libexec/, not bin/.
+          shellHook = ''
+            export PATH="${atSpi}/libexec:$PATH"
+          '';
         };
       }
     );

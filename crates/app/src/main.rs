@@ -141,4 +141,9 @@ fn main() {
             })
             .detach();
         });
+
+    // Debug bridge teardown (docs/0010 D5): restores ScreenReaderEnabled
+    // if the bridge auto-enabled it. Best-effort; skipped on crash.
+    #[cfg(feature = "debug-tools")]
+    dashboard_debug::shutdown();
 }

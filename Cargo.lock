@@ -1409,12 +1409,14 @@ dependencies = [
 name = "dashboard-debug"
 version = "0.1.0"
 dependencies = [
+ "atspi",
  "dashboard-core",
  "futures",
  "gpui",
  "log",
  "serde",
  "serde_json",
+ "zbus",
 ]
 
 [[package]]
