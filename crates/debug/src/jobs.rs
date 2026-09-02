@@ -32,7 +32,7 @@ pub struct WindowRegistry {
 impl Global for WindowRegistry {}
 
 impl WindowRegistry {
-    fn id_for(&mut self, handle: AnyWindowHandle) -> u64 {
+    pub(crate) fn id_for(&mut self, handle: AnyWindowHandle) -> u64 {
         if let Some(id) = self.ids.get(&handle) {
             return *id;
         }
@@ -100,7 +100,7 @@ fn internal(err: impl std::fmt::Display) -> RpcError {
 
 /// Resolve the target window: an explicit id must still be open; no id
 /// means "the only window" and errors when that's ambiguous.
-fn resolve_window(app: &App, window: Option<u64>) -> Result<AnyWindowHandle, RpcError> {
+pub(crate) fn resolve_window(app: &App, window: Option<u64>) -> Result<AnyWindowHandle, RpcError> {
     let open = app.windows();
     match window {
         None => {

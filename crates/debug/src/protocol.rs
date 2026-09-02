@@ -30,6 +30,9 @@ pub mod error_code {
     pub const AUTH_FAILED: i64 = 4001;
     pub const UNKNOWN_WINDOW: i64 = 4002;
     pub const BAD_KEYSTROKE: i64 = 4003;
+    pub const A11Y_UNAVAILABLE: i64 = 4004;
+    pub const UNKNOWN_NODE: i64 = 4005;
+    pub const ACTION_UNAVAILABLE: i64 = 4006;
     pub const INTERNAL: i64 = 5000;
     pub const NOT_IMPLEMENTED: i64 = 5001;
 }

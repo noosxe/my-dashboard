@@ -6,17 +6,14 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::mpsc;
 
 use futures::StreamExt;
-use futures::channel::mpsc::UnboundedSender;
 use gpui::App;
 use serde_json::Value;
 
-use crate::jobs::{self, Job, WindowRegistry};
+use crate::jobs::{Job, WindowRegistry};
 use crate::protocol::{
-    AuthParams, METHOD_APP_LOGS, METHOD_AUTH, METHOD_INPUT_CLICK_NODE, METHOD_INPUT_FOCUS_NODE,
-    METHOD_TREE_DUMP, Request, Response, RpcError, error_code,
+    AuthParams, METHOD_APP_LOGS, METHOD_AUTH, Request, Response, RpcError, error_code,
 };
 
 const SOCKET_NAME: &str = "debug.sock";
@@ -87,7 +84,7 @@ pub fn start(app: &mut App) -> Option<PathBuf> {
                             .name("debug-bridge-conn".into())
                             .spawn(move || {
                                 serve_connection(stream, &token, |request| {
-                                    dispatch_via(&job_tx, request)
+                                    crate::handlers::dispatch(&job_tx, request)
                                 });
                             });
                     }
@@ -187,37 +184,17 @@ where
     }
 }
 
-/// Commands whose handlers land in #46 (AT-SPI) / #47 (log ring) —
-/// answered inline, no main-thread round-trip.
+/// Commands whose handlers land in #47 (log ring) — answered inline, no
+/// main-thread round-trip.
 fn is_stub(method: &str) -> bool {
-    matches!(
-        method,
-        METHOD_TREE_DUMP | METHOD_INPUT_CLICK_NODE | METHOD_INPUT_FOCUS_NODE | METHOD_APP_LOGS
-    )
+    method == METHOD_APP_LOGS
 }
 
 fn stub_error(method: &str) -> RpcError {
-    let what = match method {
-        METHOD_APP_LOGS => "app.logs",
-        _ => method,
-    };
     RpcError::new(
         error_code::NOT_IMPLEMENTED,
-        format!("{what} is not implemented yet (docs/0010 issues #46/#47)"),
+        format!("{method} is not implemented yet (docs/0010 issue #47)"),
     )
-}
-
-/// Socket-thread side of a dispatch: parse params into a job, hand it to
-/// the main-thread executor, block this (dedicated) thread for the reply.
-fn dispatch_via(job_tx: &UnboundedSender<Job>, request: Request) -> Result<Value, RpcError> {
-    let (reply_tx, reply_rx) = mpsc::channel();
-    let job = jobs::build(&request, reply_tx)?;
-    job_tx
-        .unbounded_send(job)
-        .map_err(|_| RpcError::new(error_code::INTERNAL, "app is shutting down"))?;
-    reply_rx
-        .recv()
-        .map_err(|_| RpcError::new(error_code::INTERNAL, "executor dropped the job"))?
 }
 
 fn read_line(reader: &mut BufReader<UnixStream>) -> Option<String> {
@@ -421,12 +398,8 @@ mod tests {
 
     #[test]
     fn stubs_answer_not_implemented_without_dispatch() {
-        for method in [
-            "tree.dump",
-            "input.click_node",
-            "input.focus_node",
-            "app.logs",
-        ] {
+        {
+            let method = "app.logs";
             let (listener, dir) = loopback();
             let path = dir.join("sock");
             let server = serve_one(listener, "t");

@@ -163,25 +163,68 @@ socket thread's async runtime and don't touch gpui types.
    dev builds).
 3. On the socket thread: walk the app's AT-SPI tree
    (`CoordType::Window` extents; states incl. `focused`/`focusable`).
-4. Merge per node on `accesskit_id` (AT-SPI object paths embed the
-   accesskit node id). Result nodes carry:
+4. Merge per node on `accesskit_id`. The identity bridge, verified against
+   accesskit_consumer 0.36: the bus object path is
+   `/org/a11y/atspi/accessible/{adapter}/{(local_id << 64) | tree_index}`
+   where `local_id` is exactly the dump's `accesskit_id`; the merge keys
+   on the local id. The tree index (gpui uses a single tree; the adapter
+   root's path is nothing but the index) is derived from the bus, never
+   assumed. Result nodes carry:
    `id` (ephemeral), `accesskit_id`, `children`, `aria` (upstream),
-   `bounds {x, y, w, h}` (px, window-relative, pre-scale-factor),
-   `focusable`, `focused` (AT-SPI states), plus the frame header.
+   `bounds {x, y, w, h}` (px, window-relative, pre-scale-factor; AT-SPI's
+   all-(-1) sentinel is reported as absence, not a rect),
+   `focusable`, `focused` (AT-SPI states), plus the frame header and an
+   `a11y_merge` counts object (`dump_nodes` / `enriched` /
+   `unmatched_dump` / `unmatched_walk`) so tree drift between the two
 
+Adapter index = window id (both follow window-creation order; verified
+against `accesskit_atspi_common::AppContext::adapter_index`).
 Single window in v1 (`params.window` optional; error if absent and
 `cx.windows().len() != 1`).
 
-### D5 — Activation: lazy AT-SPI self-connection
+### D5 — Activation: `ScreenReaderEnabled` gate, auto-enabled by the bridge
 
-The first tree/input-by-node command calls `ensure_activated()`: connect
-to the session's a11y bus with the `atspi` crate, locate the app's
-accessible root, read it once (triggers `request_initial_tree` →
-`active_flag` stays true). The connection is kept for the session
-(needed for D4/D7 anyway). If no a11y bus exists (bare session),
-commands return a diagnostic error naming the requirement (at-spi2;
-NixOS: `services.gnome.at-spi2.enable`). No activation at startup —
-zero cost until first use.
+Verified against accesskit_unix 0.21.1 / zbus 5.13.2: the app's tree is
+published **only while `org.a11y.Status.ScreenReaderEnabled` is true on
+the session bus** — a client merely *reading* the bus activates nothing.
+zbus property streams replay the current value at startup, so a flag
+that is already true when the app launches works with zero action from
+us.
+
+`ensure_activated()` (first tree/node command) therefore:
+
+1. connects to the session bus and asks `org.a11y.Bus` for the a11y bus
+   address (absent → diagnostic `4004` naming the at-spi2 requirement);
+2. reads `ScreenReaderEnabled` — **if false, sets it true** (the owner's
+   auto-enable decision, #46 review). This is the session-wide "an
+   assistive tech is present" signal; on compositors without an
+   Orca-style watcher (e.g. Hyprland) it only makes accesskit-based apps
+   publish their trees. On GNOME with Orca installed it could wake
+   Orca — the known trade-off of auto-enable. A pleasant side effect:
+   the dashboard itself becomes screen-reader-accessible while active.
+3. connects to the a11y bus, finds our app among the desktop's embedded
+   applications (matched on the executable name accesskit publishes
+   under), and reads its root children — the touch that proves
+   registration happened (bounded retries, 5 × 200 ms).
+
+The flip is **restored to false on graceful app exit** (`app.run`
+returning → `dashboard_debug::shutdown()` in `main`). A crash — or
+`kill`, which never runs post-`run` code — leaves it true; inert on
+this project's target sessions and documented here.
+
+The connection is kept for the process lifetime (needed for D4/D7
+anyway); `window.list` uses it opportunistically (`title`) but never
+triggers activation — it stays the cheap, always-works command.
+
+Dev environment: the dev shell provides `at-spi2-core` (daemons in
+`libexec/`, put on `PATH` via shellHook). The running session bus does
+not rescan service dirs at runtime, so the dev flow is:
+
+    at-spi-bus-launcher --launch-immediately &   # once per session
+    cargo run
+
+The system-wide alternative stays `services.gnome.at-spi2.enable` +
+re-login. No activation at startup — zero cost until first use.
 
 ### D6 — The seven commands
 
@@ -191,7 +234,7 @@ zero cost until first use.
 | `input.dispatch` | `{window?, event}` (below) | `{propagate, default_prevented}` for pointer/scroll/`key_up` (`DispatchEventResult`); `{handled}` for `key_down` (the `dispatch_keystroke` outcome — its ime wrapper doesn't expose the result struct) |
 | `input.click_node` | `{window?, node: accesskit_id, button? = "left", click_count? = 1}` | `{ok: true}` |
 | `input.focus_node` | `{window?, node}` | `{ok: true}` |
-| `window.list` | `{}` | `[{id, bounds, viewport, scale_factor}]` — `title` arrives with #46 (a11y root label; gpui has no public title getter, only `set_window_title`) |
+| `window.list` | `{}` | `[{id, title, bounds, viewport, scale_factor}]` — `title` from the a11y root label once activated, `null` before (gpui has no public title getter; `window.list` itself never triggers activation) |
 | `window.geometry` | `{window?}` | one entry of the above |
 | `app.logs` | `{since?, limit? = 200}` | `{lines, next_cursor}` (D8) |
 
@@ -223,13 +266,19 @@ inherent and documented in the CLI help.
 
 ### D7 — Node actions ride the AT-SPI channel
 
-`click_node` resolves the AT-SPI object by `accesskit_id`, finds its
-default action (upstream registers Click for actionable nodes), invokes
-it; `focus_node` calls `grab_focus`. Both arrive in-process as
-`ActionRequest`s and are handled by upstream gpui exactly as a screen
-reader would (§2). The exact action-index mapping (which action slot
-Click occupies) is verified in the implementation PR against
-`accesskit_atspi_common::node::do_action`.
+`click_node` resolves the AT-SPI object by `accesskit_id` (D4's identity
+bridge: `(local_id << 64) | tree_index`), invokes `do_action(0)`;
+`focus_node` calls `grab_focus`. Verified against
+`accesskit_atspi_common::node::do_action`: **index 0 is always Click** —
+the only action slot exposed — so there is no index ambiguity to pin.
+The synthesized Click is a single left click; `button`/`click_count`
+other than the defaults are rejected with `-32602` pointing at the
+`input.dispatch`-with-coordinates fallback (the documented split for
+plain elements). Both arrive in-process as `ActionRequest`s and are
+handled by upstream gpui exactly as a screen reader would (§2).
+Node-path misses map to `4005 UNKNOWN_NODE`; existing nodes without the
+needed interface (plain divs) map to `4006 ACTION_UNAVAILABLE` with the
+fallback hint.
 
 ### D8 — `app.logs`: 0008 extension, in-memory ring writer
 
@@ -274,9 +323,10 @@ module-specific attributes later (state.query follow-up, §7).
 | Risk | Mitigation |
 |---|---|
 | Wayland window-origin confusion in bounds | `CoordType::Window` extents requested directly; human check on both Wayland and X11 (§6) |
-| AT-SPI action-index mapping (Click slot) | Pinned in implementation PR (D7); fall back to coordinate click from bounds if ambiguous |
-| No at-spi2 bus on minimal sessions | Explicit diagnostic error (D5); documented NixOS enable line |
-| Activation flakiness (self-connect) | `ensure_activated` verifies `debug_a11y_tree_json` returns data, retries once; #43 tracks the upstream knob that removes the workaround |
+| AT-SPI action-index mapping (Click slot) | Resolved: `do_action(0)` is always Click (only slot exposed); verified against accesskit_atspi_common 0.18.1 |
+| Node-id ↔ bus-path drift | Resolved: bus id = `(accesskit_id << 64) \| tree_index`, tree index derived from the adapter root path (D4) |
+| No at-spi2 bus on minimal sessions | Explicit diagnostic error `4004` (D5) naming the dev-shell launcher or the NixOS enable line; `at-spi2-core` shipped in the dev shell |
+| Activation flakiness | Bounded retries in `ensure_activated` (5 × 200 ms discovery) + main-thread dump poll (up to 4 s); #43 tracks the upstream knob that would remove the workaround |
 | Token/socket left behind on crash | Best-effort removal at exit; stale files are inert (socket dead, token useless without a listener) |
 
 ## 5. Testing
@@ -322,8 +372,17 @@ module-specific attributes later (state.query follow-up, §7).
       effects.
 - [ ] `type "rust"` into the repo List search filters rows; `logs -f`
       streams live events; wrong token → connection closed.
-- [ ] Run without an a11y bus (e.g. `env -u DBUS_SESSION_BUS_ADDRESS`
-      where applicable) → clean diagnostic, app otherwise unaffected.
+- [ ] Activation: with the dev-shell bus up (`at-spi-bus-launcher
+      --launch-immediately &`), first `tree.dump` flips
+      `busctl --user get-property org.a11y.Bus /org/a11y/bus org.a11y.Status
+      ScreenReaderEnabled` to `b true`; closing the app window normally
+      flips it back to `b false` (graceful-exit restore; a `kill` leaves
+      it true by design — crash path).
+- [ ] Without a bus (or before any tree command), `window.list` still
+      works and `title` is `null` — no activation side effects.
+- [ ] Run without an a11y bus entirely (no launcher, no system module) →
+      tree/node commands return the `4004` diagnostic naming both fixes;
+      app otherwise unaffected.
 
 ## 8. Follow-ups
 

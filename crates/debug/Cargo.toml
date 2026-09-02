@@ -16,3 +16,10 @@ serde_json.workspace = true
 # `unbounded_send` is callable from plain threads, the receiver is awaited
 # on the foreground executor.
 futures = "0.3"
+
+# AT-SPI client for tree.dump enrichment + node click/focus (D4/D7).
+# Proxies only — the bus connection is plain zbus, mirroring how
+# accesskit_unix connects. Versions unify with the lockfile via the
+# workspace.
+atspi.workspace = true
+zbus.workspace = true
