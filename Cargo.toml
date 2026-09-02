@@ -32,7 +32,7 @@ serde_json = "1"
 # Debug bridge (docs/0010 D3): unbounded channel for socket-thread →
 # main-thread job marshalling.
 futures = "0.3"
-atspi = { version = "0.29", default-features = false, features = ["proxies"] }
+atspi = { version = "0.30", default-features = false, features = ["proxies"] }
 zbus = "5"
 # Logging (docs/0008): emit through the `log` facade (gpui does too — its
 # diagnostics flow through our subscriber); flexi_logger 0.31 backend:
