@@ -459,11 +459,23 @@ impl GithubPage {
             .into_any_element()
     }
 
+    /// Notification rows mirror the PR/issue row treatment (doc 0012 D4,
+    /// extended by doc 0015): same hover, same browser hand-off — the row
+    /// opens the repo's notifications page on GitHub (issue #81). The
+    /// notifications REST payload carries no subject URL, so the target is
+    /// the per-repo notifications page built from `RepoRef::full_name`.
     fn render_notification_row(&self, n: &api::Notification, cx: &Context<Self>) -> AnyElement {
+        let url = notification_url(&n.repository.full_name);
         div()
+            .id(SharedString::from(format!("notif-{}", n.id)))
+            .role(accesskit::Role::ListItem)
             .px_2()
             .py_1p5()
+            .rounded_sm()
             .text_sm()
+            .cursor_pointer()
+            .hover(|s| s.bg(cx.theme().accent.opacity(0.08)))
+            .on_click(move |_, _, cx| cx.open_url(&url))
             .child(
                 h_flex()
                     .justify_between()
@@ -483,6 +495,14 @@ impl GithubPage {
             )
             .into_any_element()
     }
+}
+
+/// The browser target for a notification row (doc 0015 D2): the repo's
+/// notifications page on GitHub. The notifications REST payload carries no
+/// subject URL, so this page — not a per-thread deep link — is the whole
+/// hand-off target. Pure — table-tested.
+fn notification_url(repo_full_name: &str) -> String {
+    format!("https://github.com/{repo_full_name}/notifications")
 }
 
 /// Resolve the org choice after the login list changes (0009 D6): keep the
@@ -1030,7 +1050,8 @@ mod tests {
     // `test` re-export would shadow the builtin `#[test]` attribute and
     // blow the proc-macro stack (rustc SIGSEGV). Import selectively.
     use super::{
-        IndexPath, RepoListDelegate, next_org_selection, reconcile_repo_crumb, repo_crumb_label,
+        IndexPath, RepoListDelegate, next_org_selection, notification_url, reconcile_repo_crumb,
+        repo_crumb_label,
     };
     use crate::gql;
     use gpui::AppContext as _;
@@ -1151,6 +1172,22 @@ mod tests {
         assert_eq!(next_org_selection(Some("gone"), &empty), None);
     }
 
+    // --- Notification row hand-off (doc 0015) — pure fn, table-tested --
+
+    #[test]
+    fn notification_url_targets_repo_notifications_page() {
+        assert_eq!(
+            notification_url("acme/widget"),
+            "https://github.com/acme/widget/notifications"
+        );
+        // The full name arrives from `RepoRef` (`owner/repo`, no slashes
+        // beyond the first) — a stray form must still produce a sane URL
+        // rather than something that escapes the path.
+        assert_eq!(
+            notification_url("acme"),
+            "https://github.com/acme/notifications"
+        );
+    }
     /// Entity wiring smoke test (0009 §4): both left-column components
     /// construct against a real window, and their selection APIs round-trip.
     #[gpui::test]
