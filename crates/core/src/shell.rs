@@ -21,6 +21,7 @@ use crate::module::ModuleIcon;
 use crate::nav::{CrumbAction, Navigator, Page};
 use crate::registry::ModuleRegistry;
 use crate::settings as app_settings;
+use crate::status;
 use crate::store::DebouncedSave;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -38,6 +39,9 @@ pub struct ShellState {
 pub struct DashboardShell {
     registry: ModuleRegistry,
     nav: Entity<Navigator>,
+    /// In-flight request tracker (docs/0013 D2/D6) — observed for
+    /// status-bar re-renders.
+    in_flight: Entity<status::InFlight>,
     /// Grabs keyboard focus at boot so window-level key bindings
     /// (`ctrl-shift-t`) dispatch through this node — gpui bubbles key
     /// actions from the focused node UP, and with nothing focused the
@@ -59,6 +63,10 @@ impl DashboardShell {
         cx: &mut Context<Self>,
     ) -> Self {
         cx.observe(&nav, |_, _, cx| cx.notify()).detach();
+        // Status bar source (docs/0013 D6): re-render on every in-flight
+        // mutation; the bar reads the aggregated snapshot per frame.
+        let in_flight = status::tracker(cx);
+        cx.observe(&in_flight, |_, _, cx| cx.notify()).detach();
         let focus_handle = cx.focus_handle();
         // Boot focus: without a focused node, key actions dispatch from
         // the tree root and never reach this shell's handlers
@@ -68,6 +76,7 @@ impl DashboardShell {
         Self {
             registry,
             nav,
+            in_flight,
             focus_handle,
             save: state_path.map(|p| DebouncedSave::new(p, Duration::from_millis(500))),
         }
@@ -139,10 +148,11 @@ impl Render for DashboardShell {
                 // themselves (the gpui-component examples do this). The
                 // client-decorated TitleBar above stays full-width.
                 v_flex().flex_1().min_h_0().p_4().child(
-                    // Framed panel: border + radius around both
-                    // columns; overflow_hidden clips the sidebar and
-                    // content backgrounds to the rounded corners.
-                    h_flex()
+                    // Framed panel: border + radius around the two main
+                    // columns AND the status bar below them (docs/0013
+                    // D1); overflow_hidden clips all three backgrounds to
+                    // the rounded corners.
+                    v_flex()
                         .relative()
                         .flex_1()
                         .min_h_0()
@@ -151,107 +161,131 @@ impl Render for DashboardShell {
                         .border_color(cx.theme().border)
                         .rounded(cx.theme().radius)
                         .overflow_hidden()
-                        // Sidebar (Q4): wordmark header; flat menu — Home first,
-                        // then modules, then the Settings entry (0006 §4.1).
-                        // Sidebar children are typed Vec<E>, so a
-                        // SidebarGroup would exclude the standalone Home item.
                         .child(
-                            Sidebar::new("app-sidebar")
-                                .collapsible(SidebarCollapsible::Icon)
-                                .collapsed(sidebar_collapsed)
-                                .header(
-                                    // Brand, sidebar_story.rs pattern: the
-                                    // wordmark's flex_1 absorbs the free space, so
-                                    // SidebarHeader's hard-coded justify_between
-                                    // keeps it packed left next to the logo; when
-                                    // collapsed the icon box shrinks to a bare
-                                    // size_4 glyph (rail) instead of clipping.
-                                    SidebarHeader::new()
-                                        .child(
-                                            div()
-                                                .flex()
-                                                .items_center()
-                                                .justify_center()
-                                                .rounded(cx.theme().radius)
-                                                .bg(cx.theme().primary)
-                                                .text_color(cx.theme().primary_foreground)
-                                                .size_8()
-                                                .flex_shrink_0()
-                                                .when(!sidebar_collapsed, |this| {
-                                                    this.child(
-                                                        Icon::new(IconName::GalleryVerticalEnd)
-                                                            .size_4(),
-                                                    )
-                                                })
-                                                .when(sidebar_collapsed, |this| {
-                                                    this.size_4()
+                            // The two main columns, unchanged — one row
+                            // so the status bar below spans BOTH
+                            // (docs/0013 D1).
+                            h_flex()
+                                .flex_1()
+                                .min_h_0()
+                                // Sidebar (Q4): wordmark header; flat menu — Home first,
+                                // then modules, then the Settings entry (0006 §4.1).
+                                // Sidebar children are typed Vec<E>, so a
+                                // SidebarGroup would exclude the standalone Home item.
+                                .child(
+                                    Sidebar::new("app-sidebar")
+                                        .collapsible(SidebarCollapsible::Icon)
+                                        .collapsed(sidebar_collapsed)
+                                        .header(
+                                            // Brand, sidebar_story.rs pattern: the
+                                            // wordmark's flex_1 absorbs the free space, so
+                                            // SidebarHeader's hard-coded justify_between
+                                            // keeps it packed left next to the logo; when
+                                            // collapsed the icon box shrinks to a bare
+                                            // size_4 glyph (rail) instead of clipping.
+                                            SidebarHeader::new()
+                                                .child(
+                                                    div()
+                                                        .flex()
+                                                        .items_center()
+                                                        .justify_center()
+                                                        .rounded(cx.theme().radius)
+                                                        .bg(cx.theme().primary)
+                                                        .text_color(cx.theme().primary_foreground)
+                                                        .size_8()
+                                                        .flex_shrink_0()
+                                                        .when(!sidebar_collapsed, |this| {
+                                                            this.child(
+                                                                Icon::new(
+                                                                    IconName::GalleryVerticalEnd,
+                                                                )
+                                                                .size_4(),
+                                                            )
+                                                        })
+                                                        .when(sidebar_collapsed, |this| {
+                                                            this.size_4()
                                                         .bg(cx.theme().transparent)
                                                         .text_color(cx.theme().foreground)
                                                         .child(
                                                             Icon::new(IconName::GalleryVerticalEnd)
                                                                 .size_4(),
                                                         )
+                                                        }),
+                                                )
+                                                .when(!sidebar_collapsed, |this| {
+                                                    this.child(
+                                                        div()
+                                                            .flex_1()
+                                                            .text_base()
+                                                            .overflow_hidden()
+                                                            .text_ellipsis()
+                                                            .child("Dashboard"),
+                                                    )
                                                 }),
                                         )
-                                        .when(!sidebar_collapsed, |this| {
-                                            this.child(
-                                                div()
-                                                    .flex_1()
-                                                    .text_base()
-                                                    .overflow_hidden()
-                                                    .text_ellipsis()
-                                                    .child("Dashboard"),
-                                            )
-                                        }),
+                                        .children(nav_menu_items(&self.registry, &page, cx)),
                                 )
-                                .children(nav_menu_items(&self.registry, &page, cx)),
-                        )
-                        // Content column: chrome row (toggle + breadcrumb) + page.
-                        .child(
-                            // Content column: mirrors sidebar_story.rs — h_full +
-                            // overflow_hidden so nothing below can push the
-                            // chrome row around.
-                            v_flex()
-                                .h_full()
-                                .flex_1()
-                                .min_w_0()
-                                .min_h_0()
-                                .overflow_hidden()
+                                // Content column: chrome row (toggle + breadcrumb) + page.
                                 .child(
-                                    // Chrome row: fixed height, pinned to the
-                                    // top; breadcrumb truncates instead of wrapping.
-                                    h_flex()
-                                        .id("chrome-row")
-                                        .h_9()
-                                        .items_center()
-                                        .gap_2()
-                                        .px_2()
-                                        .flex_shrink_0()
-                                        .border_b_1()
-                                        .border_color(cx.theme().border)
+                                    // Content column: mirrors sidebar_story.rs — h_full +
+                                    // overflow_hidden so nothing below can push the
+                                    // chrome row around.
+                                    v_flex()
+                                        .h_full()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .min_h_0()
                                         .overflow_hidden()
                                         .child(
-                                            SidebarToggleButton::new()
-                                                .collapsed(sidebar_collapsed)
-                                                .on_click(cx.listener(|this, _, _, cx| {
-                                                    this.nav.update(cx, |nav, cx| {
-                                                        nav.toggle_sidebar(cx)
-                                                    });
-                                                    this.save_state(cx);
-                                                })),
-                                        )
-                                        .child(
-                                            div().min_w_0().flex_1().overflow_hidden().child(
-                                                Breadcrumb::new()
-                                                    .child(BreadcrumbItem::new("Home").on_click(
-                                                        cx.listener(|this, _, _, cx| {
+                                            // Chrome row: fixed height, pinned to the
+                                            // top; breadcrumb truncates instead of wrapping.
+                                            h_flex()
+                                                .id("chrome-row")
+                                                .h_9()
+                                                .items_center()
+                                                .gap_2()
+                                                .px_2()
+                                                .flex_shrink_0()
+                                                .border_b_1()
+                                                .border_color(cx.theme().border)
+                                                .overflow_hidden()
+                                                .child(
+                                                    SidebarToggleButton::new()
+                                                        .collapsed(sidebar_collapsed)
+                                                        .on_click(cx.listener(|this, _, _, cx| {
                                                             this.nav.update(cx, |nav, cx| {
-                                                                nav.go(Page::Home, cx)
+                                                                nav.toggle_sidebar(cx)
                                                             });
-                                                        }),
-                                                    ))
-                                                    .when_some(current_module.clone(), |this, m| {
-                                                        this.child(
+                                                            this.save_state(cx);
+                                                        })),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .min_w_0()
+                                                        .flex_1()
+                                                        .overflow_hidden()
+                                                        .child(
+                                                            Breadcrumb::new()
+                                                                .child(
+                                                                    BreadcrumbItem::new("Home")
+                                                                        .on_click(cx.listener(
+                                                                            |this, _, _, cx| {
+                                                                                this.nav.update(
+                                                                                    cx,
+                                                                                    |nav, cx| {
+                                                                                        nav.go(
+                                                                                        Page::Home,
+                                                                                        cx,
+                                                                                    )
+                                                                                    },
+                                                                                );
+                                                                            },
+                                                                        )),
+                                                                )
+                                                                .when_some(
+                                                                    current_module.clone(),
+                                                                    |this, m| {
+                                                                        this.child(
                                                             BreadcrumbItem::new(m.1).on_click(
                                                                 cx.listener(
                                                                     move |this, _, _, cx| {
@@ -270,79 +304,106 @@ impl Render for DashboardShell {
                                                                 ),
                                                             ),
                                                         )
-                                                    })
-                                                    .when(page == Page::Settings, |this| {
-                                                        this.child(BreadcrumbItem::new("Settings"))
-                                                    })
-                                                    .children(crumbs.iter().map(
-                                                        |(label, on_click)| {
-                                                            let mut item =
-                                                                BreadcrumbItem::new(label.clone());
-                                                            if let Some(f) = on_click.clone() {
-                                                                item = item.on_click(
+                                                                    },
+                                                                )
+                                                                .when(
+                                                                    page == Page::Settings,
+                                                                    |this| {
+                                                                        this.child(
+                                                                            BreadcrumbItem::new(
+                                                                                "Settings",
+                                                                            ),
+                                                                        )
+                                                                    },
+                                                                )
+                                                                .children(crumbs.iter().map(
+                                                                    |(label, on_click)| {
+                                                                        let mut item =
+                                                                            BreadcrumbItem::new(
+                                                                                label.clone(),
+                                                                            );
+                                                                        if let Some(f) =
+                                                                            on_click.clone()
+                                                                        {
+                                                                            item = item.on_click(
                                                                     move |_, window, cx| {
                                                                         f(window, cx)
                                                                     },
                                                                 );
-                                                            }
-                                                            item
-                                                        },
-                                                    )),
-                                            ),
+                                                                        }
+                                                                        item
+                                                                    },
+                                                                )),
+                                                        ),
+                                                ),
+                                        )
+                                        .child(
+                                            // Page host: bounded flex column that fills the
+                                            // rest and clips (modules scroll internally).
+                                            v_flex()
+                                                .id("page")
+                                                .flex_1()
+                                                .min_h_0()
+                                                .w_full()
+                                                .overflow_hidden()
+                                                .child(match &page {
+                                                    Page::Home => {
+                                                        home::render(&self.registry, &self.nav, cx)
+                                                            .into_any_element()
+                                                    }
+                                                    Page::Module(id) => match self.registry.get(id)
+                                                    {
+                                                        Some(entry) => entry
+                                                            .main_page
+                                                            .clone()
+                                                            .into_any_element(),
+                                                        None => div()
+                                                            .child("Unknown module")
+                                                            .into_any_element(),
+                                                    },
+                                                    // Settings (docs/0006 §4.2): app pages
+                                                    // (core-owned) + module pages, fed to the
+                                                    // library's `Settings` shell. Pages rebuilt
+                                                    // per render from live state (the upstream
+                                                    // story's intended pattern).
+                                                    Page::Settings => {
+                                                        let modules = self
+                                                            .registry
+                                                            .entries()
+                                                            .iter()
+                                                            .map(|e| {
+                                                                (
+                                                                    e.meta.icon.clone(),
+                                                                    e.meta.title.clone(),
+                                                                )
+                                                            })
+                                                            .collect::<Vec<_>>();
+                                                        let mut pages = vec![
+                                                            app_settings::appearance_page(cx),
+                                                            app_settings::about_page(&modules),
+                                                        ];
+                                                        pages.extend(
+                                                            self.registry
+                                                                .settings_pages(window, cx),
+                                                        );
+                                                        div()
+                                                            .size_full()
+                                                            .child(
+                                                                Settings::new("app-settings")
+                                                                    .pages(pages),
+                                                            )
+                                                            .into_any_element()
+                                                    }
+                                                }),
                                         ),
-                                )
-                                .child(
-                                    // Page host: bounded flex column that fills the
-                                    // rest and clips (modules scroll internally).
-                                    v_flex()
-                                        .id("page")
-                                        .flex_1()
-                                        .min_h_0()
-                                        .w_full()
-                                        .overflow_hidden()
-                                        .child(match &page {
-                                            Page::Home => {
-                                                home::render(&self.registry, &self.nav, cx)
-                                                    .into_any_element()
-                                            }
-                                            Page::Module(id) => match self.registry.get(id) {
-                                                Some(entry) => {
-                                                    entry.main_page.clone().into_any_element()
-                                                }
-                                                None => {
-                                                    div().child("Unknown module").into_any_element()
-                                                }
-                                            },
-                                            // Settings (docs/0006 §4.2): app pages
-                                            // (core-owned) + module pages, fed to the
-                                            // library's `Settings` shell. Pages rebuilt
-                                            // per render from live state (the upstream
-                                            // story's intended pattern).
-                                            Page::Settings => {
-                                                let modules = self
-                                                    .registry
-                                                    .entries()
-                                                    .iter()
-                                                    .map(|e| {
-                                                        (e.meta.icon.clone(), e.meta.title.clone())
-                                                    })
-                                                    .collect::<Vec<_>>();
-                                                let mut pages = vec![
-                                                    app_settings::appearance_page(cx),
-                                                    app_settings::about_page(&modules),
-                                                ];
-                                                pages.extend(
-                                                    self.registry.settings_pages(window, cx),
-                                                );
-                                                div()
-                                                    .size_full()
-                                                    .child(
-                                                        Settings::new("app-settings").pages(pages),
-                                                    )
-                                                    .into_any_element()
-                                            }
-                                        }),
                                 ),
+                        )
+                        .child(
+                            // Status bar (docs/0013 D1/D5): app chrome
+                            // below both columns — the right region lists
+                            // modules with requests in flight, empty when
+                            // idle.
+                            status::bar(&self.in_flight, &self.registry, cx).flex_shrink_0(),
                         ),
                 ),
             )

@@ -8,6 +8,7 @@ pub mod paths;
 pub mod registry;
 pub mod settings;
 pub mod shell;
+pub mod status;
 pub mod store;
 
 pub use module::{Module, ModuleEntry, ModuleMeta};

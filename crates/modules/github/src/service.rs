@@ -23,11 +23,13 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use gpui::AnyWindowHandle;
+use gpui::AsyncApp;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use dashboard_core::AppPaths;
+use dashboard_core::status;
 use dashboard_core::store;
 use gpui::App;
 use gpui::Entity;
@@ -49,6 +51,8 @@ const MAX_PAGES: u32 = 10;
 /// Proactive refresh lead (docs/0011 Q7): the tick loop refreshes the
 /// token this long before `access_expires_at`.
 const REFRESH_LEAD_SECS: u64 = 600;
+/// Status-bar module id (docs/0013) — matches `GithubModule::meta().id`.
+const MODULE_ID: &str = "github";
 
 // ---------------------------------------------------------------------------
 // Auth status
@@ -1104,6 +1108,26 @@ fn etag_key(kind: Kind, ident: Option<&str>) -> String {
 // gpui orchestration — thin; ends every state write with the §3.12 refresh.
 // ---------------------------------------------------------------------------
 
+/// Run one spec with the global in-flight tracker around it (docs/0013
+/// D4): one `FetchSpec` run = one status-bar unit. Both runners (the tick
+/// loop below and `page.rs::run_specs`) go through here so `begin`/`end`
+/// cannot drift apart. The tracker calls marshal through `AsyncApp::update`,
+/// whose abort-on-released-app behavior is the same teardown contract the
+/// surrounding loops already rely on.
+pub(crate) async fn run_spec_tracked(
+    client: Arc<dyn Http>,
+    spec: FetchSpec,
+    cx: &mut AsyncApp,
+) -> SpecResult {
+    let id = cx.update(|cx| status::begin(cx, MODULE_ID.into()));
+    let result = cx
+        .background_executor()
+        .spawn(async move { run_spec(&*client, &spec) })
+        .await;
+    cx.update(|cx| status::end(cx, id));
+    result
+}
+
 /// The 60-second service loop (Q7/Q8): plan → background-run → apply →
 /// refresh. Self-gates on auth state and rate-limit windows.
 pub fn spawn_tick_loop(state: Entity<GithubState>, window: AnyWindowHandle, cx: &mut App) {
@@ -1157,11 +1181,7 @@ pub fn spawn_tick_loop(state: Entity<GithubState>, window: AnyWindowHandle, cx: 
                 }
             );
             for spec in specs {
-                let client = client.clone();
-                let result = cx
-                    .background_executor()
-                    .spawn(async move { run_spec(&*client, &spec) })
-                    .await;
+                let result = run_spec_tracked(client.clone(), spec, cx).await;
                 cx.update(|cx| state.update(cx, |s, _| s.apply(result)));
             }
             let _ = window.update(cx, |_, window, _| window.refresh());
