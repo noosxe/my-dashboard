@@ -35,8 +35,60 @@ Working rules for AI agents in this repository. Follow precisely.
 ### PR discipline (both flows)
 
 - **PRs stay focused.** Any issue that does not directly interfere with the current feature implementation must be filed on GitHub for later pickup. Suggested improvements and follow-ups must also be filed, not implemented opportunistically.
-- PR bodies carry a human-check list — interactive/visual verification is the product owner's job.
+- PR bodies carry a human-check list — interactive/visual verification is the product owner's job. For UI-facing changes, exercise the change through the debug bridge first (see below) and say so in the PR body.
 - Run the gates before pushing: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets` (zero warnings), `cargo test --workspace`.
+
+## Debugging & verification — the debug bridge
+
+The app ships an in-process debug bridge (docs/0010; `debug-tools`
+feature, on by default). The `dashboard-debug` CLI attaches to the
+running app and inspects and drives it — no screenshots, no OS-level
+input injection. It is the primary way to verify UI-facing changes.
+
+### Connect
+
+1. The a11y bus (needed only by `tree` / `click` / `focus`): start it once
+   per session with `at-spi-bus-launcher --launch-immediately &` (shipped
+   in the dev shell). `logs`, `key`, `type`, `mouse` work without it.
+2. `cargo run` the app.
+3. `cargo run -p dashboard-debug -- <verb>`. Token and socket are
+   auto-discovered from the runtime dir; if the CLI reports no token or
+   socket, the app isn't running.
+
+### Verify and drive
+
+- `dashboard-debug tree` — the component tree with roles, labels,
+  window-relative bounds and focus states; `--json` prints the raw dump
+  (adds source locations in dev builds and the `a11y_merge` drift
+  counters).
+- `dashboard-debug logs -f` — live app logs while you exercise the UI;
+  correlate actions with events instead of guessing from code.
+- `click <accesskit_id>`, `focus <id>`, `key tab`, `type "text"`,
+  `mouse move|down|up|scroll` — full UI control. None of it moves the
+  OS pointer or steals the keyboard: the user's session is untouched.
+
+### Rules
+
+- **Never reach for OS-level input injection** (xdotool, ydotool, enigo,
+  …). The bridge is the sanctioned path and exists precisely so agents
+  don't disturb the owner's machine.
+- Node ids are the `accesskit_id` strings from `tree` output (stable for
+  the run); the top-level `nodes` map keys are ephemeral and change per
+  dump.
+- The first `tree`/node command flips the session `ScreenReaderEnabled`
+  flag; a graceful app exit restores it, a `kill` leaves it true — reset
+  with `busctl --user set-property org.a11y.Bus /org/a11y/bus org.a11y.Status
+  ScreenReaderEnabled b false` after crashed runs.
+- New interactive elements need `.id(...)` plus a role (docs/0010 D10), or
+  they are invisible to the dump and to `click` — treat a missing node in
+  `tree` as a bug in the element, not in the bridge.
+- After a `--no-default-features` build, rebuild with default features
+  before launching the app (the bridge-less binary overwrites
+  `target/debug/dashboard`).
+- Don't leave `logs -f` running when you're done.
+
+The full protocol — all commands, parameters and error codes — is
+docs/0010 §3.
 
 ## After merge — cleanup procedure
 
