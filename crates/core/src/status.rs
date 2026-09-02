@@ -152,7 +152,8 @@ pub fn end(cx: &mut App, id: u64) {
 
 /// The app status bar: one bar below both main columns; the right region
 /// carries one item per module with runs in flight. Idle renders nothing —
-/// the bar itself always stays, so the window's bottom edge never jumps.
+/// the bar itself always stays at a stable minimum height, so nothing
+/// shifts when indicators appear or disappear.
 pub fn bar(tracker: &Entity<InFlight>, registry: &ModuleRegistry, cx: &App) -> StatusBar {
     let mut bar = StatusBar::new();
     for (module_id, count) in tracker.read(cx).by_module() {
@@ -177,7 +178,11 @@ pub fn bar(tracker: &Entity<InFlight>, registry: &ModuleRegistry, cx: &App) -> S
                 }),
         );
     }
-    bar
+    // Stable height (docs/0013 D5): with no items the component collapses
+    // to its bare padding, and the first fetch would then grow it to the
+    // content height — resizing the columns above. The minimum pins the
+    // idle geometry to the active one (`h_6` step ≈ py_1 + text_xs line).
+    bar.min_h_6()
 }
 
 #[cfg(test)]
