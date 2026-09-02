@@ -237,7 +237,10 @@ h_flex()
 - The `×n` suffix inherits the bar's `muted_foreground`; the spinner id pattern
   `status-spinner-{module_id}` keeps bridge nodes stable and namespaced.
 - **Idle bar:** right region renders nothing — no spinner, no text. The bar itself
-  stays (it is app chrome), so the window's bottom edge never jumps.
+  stays (it is app chrome) at a **stable minimum height** (the `h_6` scale step, ≈ the
+  component's active geometry of `py_1` + `text_xs` line): without it the component
+  collapses to bare padding when empty and the columns above would resize on the
+  first fetch — exactly the shift this design promised not to make.
 - **Left/center regions:** empty in v1, reserved (§10). The upstream component
   centers children only when both ends are pinned, so an empty left region with right
   items is the well-defined "start-aligned center" case — nothing to fill today.
