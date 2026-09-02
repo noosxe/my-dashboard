@@ -216,9 +216,15 @@ crates/modules/github/
 
 ### 6.1 Home card
 
+> **Amended by 0012:** the connected card gained a third count row,
+> `Open Issues {k}` (`k` = Σ open issue `totalCount`s — same semantics as
+> the PR row; 0012 D2 is the authority). The disconnected pitch mentions
+> issues.
+
 - Normal: GitHub mark, `Notifications {n}` row, `Open PRs {m}` row
   (`m` = Σ open PRs across cached repos, capped at the first 100 repos —
-  recorded limitation). Click → navigate to the GitHub page.
+  recorded limitation), `Open Issues {k}` row (same sum semantics).
+  Click → navigate to the GitHub page.
 - Disconnected: one-line pitch + **Connect GitHub** button.
 - Loading (first ever run): `Skeleton` rows. Error: inline message + Retry.
 
@@ -238,6 +244,11 @@ into the normal page.
 > `Select`/`List` from §3.4. 0009 replaces both with those official
 > components, search-enabled, and is the authority for the left column's
 > componentry; this section remains the layout authority.
+>
+> **Amended by 0012:** an `Open Issues` GroupBox sits between Open PRs and
+> Notifications (0012 D3/D4 is the authority): title counts rendered rows,
+> rows mirror PR rows minus the `Draft` badge, first 100 by `UPDATED_AT
+> DESC`, empty state "No open issues".
 
 ```
 ┌──────────────┬────────────────────────────────────────────┐
@@ -248,6 +259,9 @@ into the normal page.
 │ ▸ repo C     │ │ [Draft] title  #123  @author   2h ago  ││
 │   …          │ │ …                                       ││
 │  (scrolls)   │ └────────────────────────────────────────┘│
+│              │ ┌ GroupBox: Open Issues (N) ───────────── ┐│
+│              │ │ title  #9  @author   2h ago            ││
+│              │ └────────────────────────────────────────┘│
 │              │ ┌ GroupBox: Notifications (N) ─────────── ┐│
 │              │ │ …                                       ││
 │              │ └────────────────────────────────────────┘│
@@ -265,6 +279,9 @@ into the normal page.
 - PR row: `[Draft]` badge when `draft`, title (medium weight), `#number`
   (muted), `Avatar` + author login, right-aligned relative age
   (`updated_at`). Row hover highlight; click → `cx.open_url(html_url)`.
+- Issue row (0012): same treatment as the PR row minus the `[Draft]` badge —
+  title (medium weight), `#number` (muted), `Avatar` + author login,
+  relative age; hover highlight; click → `cx.open_url(url)`.
 - Notification row: subject title, type badge (`pr`/`issue`/…), age. Read
   state v1: list shows unread (`all=false` default) — count and list share
   one source of truth.

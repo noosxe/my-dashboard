@@ -48,7 +48,7 @@ impl Render for GithubCard {
 
         match state.auth.clone() {
             AuthStatus::Connected => {
-                let (notifications, prs) = state.card_counts();
+                let (notifications, prs, issues) = state.card_counts();
                 div()
                     .id("github-card")
                     .size_full()
@@ -69,6 +69,11 @@ impl Render for GithubCard {
                                 div()
                                     .text_color(cx.theme().muted_foreground)
                                     .child(format!("Open PRs {prs}")),
+                            )
+                            .child(
+                                div()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(format!("Open Issues {issues}")),
                             ),
                     )
                     .into_any_element()
@@ -111,7 +116,7 @@ impl Render for GithubCard {
                 let mark = github_mark(cx).into_any_element();
                 centered(
                     mark,
-                    "Connect to see notifications and pull requests.",
+                    "Connect to see notifications, pull requests, and issues.",
                     Some("Connect GitHub"),
                     cx,
                 )

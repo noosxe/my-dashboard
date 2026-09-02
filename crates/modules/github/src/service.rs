@@ -993,12 +993,13 @@ impl GithubState {
         self.cache.put(gql::SNAPSHOT_CACHE_KEY, &snapshot);
     }
 
-    /// Card totals (§6.1): unread notifications + Σ open-PR counts — now
-    /// exact via `totalCount` (docs/0007 §1).
-    pub fn card_counts(&self) -> (usize, usize) {
+    /// Card totals (§6.1): unread notifications + Σ open-PR counts + Σ open-
+    /// issue counts — exact via `totalCount` (docs/0007 §1, doc 0012 D2).
+    pub fn card_counts(&self) -> (usize, usize, usize) {
         let unread = self.notifications.iter().filter(|n| n.unread).count();
         let prs: i64 = self.repos.iter().map(|r| r.prs.total_count).sum();
-        (unread, prs.max(0) as usize)
+        let issues: i64 = self.repos.iter().map(|r| r.issues.total_count).sum();
+        (unread, prs.max(0) as usize, issues.max(0) as usize)
     }
 
     /// Connect/refresh success path (docs/0011 §4.3): keychain FIRST —
@@ -1980,12 +1981,17 @@ mod tests {
         let mut state = make_state(Arc::new(MockHttp::new(vec![])));
         let mut big = repo("o/big");
         big.prs.total_count = 250; // >100 open PRs — exact now (docs/0007 §1)
+        big.issues.total_count = 300; // >100 open issues — exact too (doc 0012 D2)
         let mut small = repo("o/small");
         small.prs.total_count = 4;
+        small.issues.total_count = 7;
         state.repos = vec![big, small];
         state.notifications =
             serde_json::from_str::<Vec<Notification>>(one_notification()).unwrap();
-        assert_eq!(state.card_counts(), (1, 254));
+        assert_eq!(state.card_counts(), (1, 254, 307));
+        // Clamp parity with the PR sum: a negative SUM can't surface.
+        state.repos[1].issues.total_count = -400;
+        assert_eq!(state.card_counts().2, 0);
     }
 
     #[test]

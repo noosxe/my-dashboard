@@ -67,7 +67,7 @@ query Snapshot($cursor: String) {
             databaseId
             number
             title
-            author { login }
+            author { login avatarUrl }
             updatedAt
             url
           }
@@ -114,7 +114,7 @@ query RepoSnapshot($owner: String!, $name: String!) {
         databaseId
         number
         title
-        author { login }
+        author { login avatarUrl }
         updatedAt
         url
       }
@@ -235,7 +235,11 @@ pub struct Owner {
 }
 
 /// PR/issue author — nullable as a whole (deleted users, bot Apps).
+/// `rename_all` is load-bearing: the wire key is `avatarUrl` — without it
+/// avatars silently deserialize empty (latent since docs/0007; surfaced by
+/// the doc 0012 issue-avatar test).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Author {
     pub login: String,
     #[serde(default)]
@@ -297,10 +301,10 @@ pub struct PrSummary {
     pub nodes: Vec<PullRequest>,
 }
 
-/// Open issues — groundwork for the future issues UI (doc 0007 §2).
+/// Open issues: exact count plus the first 100 rows for the home card and
+/// repo views (doc 0012).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IssueSummary {
-    #[allow(dead_code)] // consumed by the issues UI (follow-up)
     pub total_count: i64,
     pub nodes: Vec<Issue>,
 }
@@ -330,18 +334,14 @@ pub struct PullRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Issue {
-    #[allow(dead_code)] // consumed by the issues UI (follow-up)
     pub key: String,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // REST-parity field, kept for cache continuity
     pub database_id: Option<i64>,
-    #[allow(dead_code)]
     pub number: i64,
-    #[allow(dead_code)]
     pub title: String,
-    #[allow(dead_code)]
     pub author: Option<Author>,
     pub updated_at: Option<String>,
-    #[allow(dead_code)]
+    /// Row click → browser (UI layer).
     pub url: String,
 }
 
@@ -570,7 +570,7 @@ mod tests {
                 "pullRequests":{{"totalCount":{pr_total},"nodes":[{prs}]}},
                 "issues":{{"totalCount":2,"nodes":[
                     {{"databaseId":31,"number":9,"title":"i",
-                      "author":{{"login":"octo"}},"updatedAt":"u","url":"iu"}}]}}}}"#,
+                      "author":{{"login":"octo","avatarUrl":"https://a/i.png"}},"updatedAt":"u","url":"iu"}}]}}}}"#,
             full_name.split('/').nth(1).unwrap_or(full_name),
         ))
         .unwrap()
@@ -598,6 +598,12 @@ mod tests {
         assert_eq!(pr.status.as_deref(), Some("SUCCESS"));
         assert_eq!(repo.issues.total_count, 2);
         assert_eq!(repo.issues.nodes[0].key, "o/r#9");
+        // Doc 0012 D1: issue authors carry avatars (PR-row parity).
+        assert_eq!(repo.issues.nodes[0].author.as_ref().unwrap().login, "octo");
+        assert_eq!(
+            repo.issues.nodes[0].author.as_ref().unwrap().avatar_url,
+            "https://a/i.png"
+        );
     }
 
     #[test]
