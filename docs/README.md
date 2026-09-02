@@ -47,6 +47,7 @@ cross-platform, multi-modular universal personal dashboard built with Rust and
 | [0012](0012-github-open-issues.md) | GitHub Module: Open Issues (home-card count + per-repo section) |
 | [0013](0013-global-status-bar.md) | Global Status Bar (in-flight request indicators) |
 | [0014](0014-github-selected-repo-breadcrumb.md) | GitHub Module: Selected-repo Breadcrumb |
+| [0015](0015-notification-row-click.md) | GitHub Module: Notification Row Click (open repo notifications page) |
 
 ## Planned docs (roadmap, not yet written)
 
