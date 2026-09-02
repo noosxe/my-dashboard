@@ -149,6 +149,10 @@ even that out of layout/paint.
 | github auth | device flow started (interval, expires_in) | info |
 | github auth | token acquired (login); connected | info |
 | github auth | token rejected / disconnect | warn |
+| github auth | token refresh due (expiry, reason proactive/reactive-401) | debug |
+| github auth | token refreshed (new expiry) | info |
+| github auth | token refresh failed (reason) — reconnect required | warn |
+| github auth | legacy non-expiring token loaded (no refresh) | debug |
 | github fetch | GraphQL request: kind, cursor?, rate-limit budget before | debug |
 | github fetch | GraphQL response: status, ms, cost, remaining, items-in-page | debug |
 | github fetch | REST request/response: path, page, etag?, 304 vs 200, count | debug |

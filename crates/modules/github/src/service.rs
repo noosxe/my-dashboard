@@ -13,14 +13,14 @@
 //! Split of responsibilities:
 //! - pure state machinery here (`plan_tick`, `run_spec`, `apply`) —
 //!   unit-tested with a scripted transport, no gpui involved;
-//! - thin gpui orchestration at the bottom (`spawn_tick_loop`,
-//!   `start_connect`, `sign_out_now`) — every state write ends with the
-//!   0003 §3.12 unfocused refresh.
+//! - thin gpui orchestration at the bottom (`spawn_tick_loop` with the
+//!   docs/0011 token-refresh drain, `start_connect`, `sign_out_now`) —
+//!   every state write ends with the 0003 §3.12 unfocused refresh.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use gpui::AnyWindowHandle;
 use serde::Serialize;
@@ -33,7 +33,10 @@ use gpui::App;
 use gpui::Entity;
 
 use crate::api::{self, Notification};
-use crate::auth::{AuthError, PollOutcome, TokenStore, poll_token, start_device_flow};
+use crate::auth::{
+    AuthError, PollOutcome, RefreshOutcome, StoredCredential, TokenStore, now_epoch, poll_token,
+    refresh, start_device_flow,
+};
 use crate::gql::{self, Org, Repo, User};
 use crate::http::{Http, HttpError, RateLimit, SharedToken, Verb};
 
@@ -43,6 +46,9 @@ pub const TICK: Duration = Duration::from_secs(60);
 const SNAPSHOT_EVERY: u64 = 5;
 /// Page cap for the REST notifications pagination (docs/0005 §7).
 const MAX_PAGES: u32 = 10;
+/// Proactive refresh lead (docs/0011 Q7): the tick loop refreshes the
+/// token this long before `access_expires_at`.
+const REFRESH_LEAD_SECS: u64 = 600;
 
 // ---------------------------------------------------------------------------
 // Auth status
@@ -80,6 +86,16 @@ impl AuthStatus {
     }
 }
 
+/// Why a token refresh is pending (docs/0011 §4.3) — informational;
+/// both reasons drain through the same tick-loop point.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RefreshReason {
+    /// `access_expires_at − REFRESH_LEAD_SECS` reached.
+    Proactive,
+    /// The API answered 401 and the credential still has its chance.
+    Reactive401,
+}
+
 // ---------------------------------------------------------------------------
 // Last-known + ETag caches (Q6) — transient data under the cache root.
 // ---------------------------------------------------------------------------
@@ -101,8 +117,8 @@ impl GithubCache {
         Self {
             root: std::env::temp_dir().join(format!(
                 "dash-gh-cache-{tag}-{}",
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_nanos()
             )),
@@ -520,6 +536,15 @@ pub struct GithubState {
     /// §5); `None` = the next snapshot starts from the top.
     pub repo_cursor: Option<String>,
     /// Rate-limit pause: UTC epoch seconds until requests resume (Q9).
+    /// When the access token dies (docs/0011 §4.1); `None` = no expiry.
+    /// Non-secret, unlike the tokens themselves.
+    pub access_expires_at: Option<u64>,
+    /// Armed by the proactive/reactive triggers, drained by the tick
+    /// loop's single refresh point (docs/0011 §4.3).
+    pub(crate) pending_refresh: Option<RefreshReason>,
+    /// This credential's reactive chance is spent (docs/0011 §4.3);
+    /// cleared on successful install.
+    refresh_attempted: bool,
     pub rate_limited_until: Option<u64>,
     /// Set when a connect flow should fetch the snapshot on next tick.
     pub needs_bootstrap: bool,
@@ -527,6 +552,9 @@ pub struct GithubState {
     pub(crate) client: Arc<dyn Http>,
     pub(crate) store: Arc<dyn TokenStore>,
     pub(crate) shared_token: SharedToken,
+    /// Refresh-token slot (docs/0011 §4.3): same handling rules as the
+    /// access token — keychain + slot only, never in state or logs.
+    pub(crate) shared_refresh: SharedToken,
     pub(crate) cache: GithubCache,
 }
 
@@ -537,18 +565,27 @@ impl GithubState {
         client: Arc<dyn Http>,
         store: Arc<dyn TokenStore>,
         shared_token: SharedToken,
+        shared_refresh: SharedToken,
         cache: GithubCache,
     ) -> Self {
         let etags = cache.etags();
-        let auth = match store.load() {
-            Ok(Some(token)) => {
+        let (auth, access_expires_at) = match store.load() {
+            Ok(Some(cred)) => {
                 if let Ok(mut slot) = shared_token.write() {
-                    *slot = Some(token);
+                    *slot = Some(cred.access_token.clone());
                 }
-                AuthStatus::Connected
+                if let Ok(mut slot) = shared_refresh.write() {
+                    *slot = cred.refresh_token.clone();
+                }
+                // Legacy non-expiring credential (docs/0011 §7): works
+                // as-is, never refreshed.
+                if cred.refresh_token.is_none() {
+                    log::debug!("legacy non-expiring token loaded (no refresh)");
+                }
+                (AuthStatus::Connected, cred.access_expires_at)
             }
-            Ok(None) => AuthStatus::Disconnected,
-            Err(e) => AuthStatus::KeychainError(e),
+            Ok(None) => (AuthStatus::Disconnected, None),
+            Err(e) => (AuthStatus::KeychainError(e), None),
         };
         let seeded = auth.connected() || matches!(auth, AuthStatus::TokenRejected);
         let snapshot: Option<gql::SnapshotCache> = seeded
@@ -569,6 +606,9 @@ impl GithubState {
             selected: None,
             repo_cursor: None,
             rate_limited_until: None,
+            access_expires_at,
+            pending_refresh: None,
+            refresh_attempted: false,
             // A keychain-token launch boots straight into the snapshot
             // refresh — the first tick must fire it, not wait for tick 5
             // (docs/0007 §8: cache paint, then the snapshot lands).
@@ -578,6 +618,7 @@ impl GithubState {
             client,
             store,
             shared_token,
+            shared_refresh,
             cache,
         }
     }
@@ -585,6 +626,11 @@ impl GithubState {
     /// Rate-limit / auth gate (Q9): no requests while disconnected, mid
     /// connect-flow, token-rejected, or paused until the window resets.
     fn gated(&self) -> bool {
+        // A pending refresh defers fetches — they would 401 against a
+        // dying token (docs/0011 §4.3).
+        if self.pending_refresh.is_some() {
+            return true;
+        }
         if !self.auth.connected() {
             return true;
         }
@@ -603,6 +649,27 @@ impl GithubState {
                 self.rate_limited_until = None;
                 log::info!("rate-limit window passed — resuming fetches");
             }
+        }
+        // Proactive refresh arming (docs/0011 §4.3) — before the gates:
+        // the refresh call spends no API budget, so it is armed even
+        // during a rate-limit pause. The tick loop drains the flag right
+        // after planning (≤ one TICK later; the reactive net covers the
+        // gap).
+        if self.pending_refresh.is_none()
+            && self
+                .shared_refresh
+                .read()
+                .map(|s| s.is_some())
+                .unwrap_or(false)
+            && self
+                .access_expires_at
+                .is_some_and(|at| now_epoch() + REFRESH_LEAD_SECS >= at)
+        {
+            log::debug!(
+                "token refresh due (expiry epoch {}, reason proactive)",
+                self.access_expires_at.unwrap_or(0)
+            );
+            self.pending_refresh = Some(RefreshReason::Proactive);
         }
         if self.gated() {
             return Vec::new();
@@ -702,11 +769,29 @@ impl GithubState {
                 return; // unchanged — stale data stays, nothing to do
             }
             401 => {
-                log::warn!(
-                    "{}: token rejected (401) — reconnect required",
-                    result.kind.kind_name()
-                );
-                self.auth = AuthStatus::TokenRejected;
+                // Reactive refresh (docs/0011 §4.3): one conclusive
+                // attempt per credential before the reconnect state.
+                // `refresh_attempted` burns only on terminal outcomes —
+                // a transient network failure retries next tick without
+                // losing the chance.
+                let has_refresh = self
+                    .shared_refresh
+                    .read()
+                    .map(|s| s.is_some())
+                    .unwrap_or(false);
+                if has_refresh && !self.refresh_attempted {
+                    log::warn!(
+                        "{}: token rejected (401) — refresh scheduled",
+                        result.kind.kind_name()
+                    );
+                    self.pending_refresh = Some(RefreshReason::Reactive401);
+                } else {
+                    log::warn!(
+                        "{}: token rejected (401) — reconnect required",
+                        result.kind.kind_name()
+                    );
+                    self.auth = AuthStatus::TokenRejected;
+                }
                 return;
             }
             _ => {
@@ -916,16 +1001,58 @@ impl GithubState {
         (unread, prs.max(0) as usize)
     }
 
-    /// Connect flow success path: store the token everywhere it lives.
-    pub(crate) fn install_token(&mut self, token: String) -> Result<(), String> {
-        self.store.save(&token)?;
+    /// Connect/refresh success path (docs/0011 §4.3): keychain FIRST —
+    /// persist-before-publish — then the in-memory slots and state.
+    pub(crate) fn install_credential(&mut self, cred: StoredCredential) -> Result<(), String> {
+        self.store.save(&cred)?;
         if let Ok(mut slot) = self.shared_token.write() {
-            *slot = Some(token);
+            *slot = Some(cred.access_token);
         }
+        if let Ok(mut slot) = self.shared_refresh.write() {
+            *slot = cred.refresh_token;
+        }
+        self.access_expires_at = cred.access_expires_at;
+        self.refresh_attempted = false;
         self.auth = AuthStatus::Connected;
         self.rate_limited_until = None;
         self.needs_bootstrap = true;
         Ok(())
+    }
+
+    /// Drain a finished refresh (docs/0011 §4.3): install, retry, or end
+    /// the session. Runs on the main thread from the tick loop.
+    fn apply_refresh(&mut self, outcome: RefreshOutcome) {
+        match outcome {
+            // Terminal outcomes clear the flag defensively — the drain
+            // takes it first, but the method stays correct standalone.
+            RefreshOutcome::Refreshed(cred) => {
+                self.pending_refresh = None;
+                if let Err(e) = self.install_credential(cred) {
+                    // The old access token is already dead upstream —
+                    // terminal for the session (docs/0011 §4.4).
+                    log::warn!("token refresh keychain save failed: {e} — reconnect required");
+                    self.auth = AuthStatus::KeychainError(e);
+                } else {
+                    log::info!(
+                        "token refreshed — new expiry epoch {}",
+                        self.access_expires_at.unwrap_or(0)
+                    );
+                }
+            }
+            RefreshOutcome::Transient(m) => {
+                // Nothing was invalidated upstream — retry next tick.
+                // The reason degrades to Proactive; it is informational
+                // only, and the reactive chance stays unburnt.
+                log::warn!("token refresh transient failure: {m} — retrying next tick");
+                self.pending_refresh = Some(RefreshReason::Proactive);
+            }
+            RefreshOutcome::Reauth(m) => {
+                self.pending_refresh = None;
+                log::warn!("token refresh failed: {m} — reconnect required");
+                self.refresh_attempted = true;
+                self.auth = AuthStatus::TokenRejected;
+            }
+        }
     }
 
     /// Sign-out (Q5): keychain + token slot + caches + data.
@@ -934,6 +1061,12 @@ impl GithubState {
         if let Ok(mut slot) = self.shared_token.write() {
             *slot = None;
         }
+        if let Ok(mut slot) = self.shared_refresh.write() {
+            *slot = None;
+        }
+        self.access_expires_at = None;
+        self.pending_refresh = None;
+        self.refresh_attempted = false;
         self.cache.clear();
         self.user = None;
         self.orgs.clear();
@@ -966,13 +1099,6 @@ fn etag_key(kind: Kind, ident: Option<&str>) -> String {
     }
 }
 
-fn now_epoch() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
-
 // ---------------------------------------------------------------------------
 // gpui orchestration — thin; ends every state write with the §3.12 refresh.
 // ---------------------------------------------------------------------------
@@ -987,6 +1113,33 @@ pub fn spawn_tick_loop(state: Entity<GithubState>, window: AnyWindowHandle, cx: 
             // its boot-seeded cache within seconds, not after one full
             // TICK sleep. Subsequent beats land on the 60s cadence.
             tick += 1;
+
+            // Token refresh drain (docs/0011 §4.3) — before planning so
+            // a successful refresh feeds this same tick's fetches (the
+            // bootstrap it arms plans immediately below).
+            let pending = cx.update(|cx| state.update(cx, |s, _| s.pending_refresh.take()));
+            if let Some(reason) = pending {
+                log::debug!("token refresh drain (reason {reason:?})");
+                let (client, refresh_token) = cx.update(|cx| {
+                    state.update(cx, |s, _| {
+                        (
+                            s.client.clone(),
+                            s.shared_refresh.read().ok().and_then(|t| t.clone()),
+                        )
+                    })
+                });
+                if let Some(refresh_token) = refresh_token {
+                    let outcome = cx
+                        .background_executor()
+                        .spawn(async move { refresh(&*client, &refresh_token) })
+                        .await;
+                    cx.update(|cx| state.update(cx, |s, _| s.apply_refresh(outcome)));
+                } else {
+                    // Sign-out raced the drain — drop the flag.
+                    log::debug!("token refresh skipped — no refresh token in slot");
+                }
+                let _ = window.update(cx, |_, window, _| window.refresh());
+            }
 
             let (client, specs) =
                 cx.update(|cx| state.update(cx, |s, _| (s.client.clone(), s.plan_tick(tick))));
@@ -1079,9 +1232,9 @@ pub fn start_connect(state: Entity<GithubState>, window: AnyWindowHandle, cx: &m
                     .await
             };
             match outcome {
-                PollOutcome::Token(token) => {
+                PollOutcome::Token(cred) => {
                     log::info!("token acquired — connected");
-                    let saved = cx.update(|cx| state.update(cx, |s, _| s.install_token(token)));
+                    let saved = cx.update(|cx| state.update(cx, |s, _| s.install_credential(cred)));
                     match saved {
                         Ok(()) => {}
                         // Keychain save failed — designed error state (Q3).
@@ -1158,23 +1311,35 @@ mod tests {
 
     fn make_state(http: Arc<MockHttp>) -> GithubState {
         let shared: SharedToken = Arc::new(std::sync::RwLock::new(Some("t0k".into())));
+        let refresh: SharedToken = Arc::new(std::sync::RwLock::new(None));
         let client: Arc<dyn Http> = http;
         GithubState::new(
             client,
             Arc::new(MockTokenStore::with("t0k".into())),
             shared,
+            refresh,
             GithubCache::at_tmp("state"),
         )
     }
 
     fn make_state_at(http: Arc<MockHttp>, cache: GithubCache) -> GithubState {
         let shared: SharedToken = Arc::new(std::sync::RwLock::new(Some("t0k".into())));
+        let refresh: SharedToken = Arc::new(std::sync::RwLock::new(None));
         let client: Arc<dyn Http> = http;
         GithubState::new(
             client,
             Arc::new(MockTokenStore::with("t0k".into())),
             shared,
+            refresh,
             cache,
+        )
+    }
+
+    /// A refresh-capable slot pair, preloaded (docs/0011 tests).
+    fn slots_with_refresh() -> (SharedToken, SharedToken) {
+        (
+            Arc::new(std::sync::RwLock::new(Some("t0k".into()))),
+            Arc::new(std::sync::RwLock::new(Some("ghr_r0".into()))),
         )
     }
 
@@ -1310,6 +1475,7 @@ mod tests {
             client,
             Arc::new(MockTokenStore::empty()),
             shared,
+            Arc::new(std::sync::RwLock::new(None)),
             GithubCache::at_tmp("disconnected"),
         );
         assert!(state.plan_tick(1).is_empty());
@@ -1873,21 +2039,197 @@ mod tests {
     #[test]
     fn sign_out_clears_everything() {
         let shared: SharedToken = Arc::new(std::sync::RwLock::new(Some("t0k".into())));
+        let refresh: SharedToken = Arc::new(std::sync::RwLock::new(Some("ghr_r".into())));
         let client: Arc<dyn Http> = Arc::new(MockHttp::new(vec![]));
         let mut state = GithubState::new(
             client,
             Arc::new(MockTokenStore::with("t0k".into())),
             shared.clone(),
+            refresh.clone(),
             GithubCache::at_tmp("signout"),
         );
         state.auth = AuthStatus::Connected;
         state.repos = vec![repo("o/r")];
         state.repo_cursor = Some("c1".into());
+        state.access_expires_at = Some(1_799_999_999);
+        state.pending_refresh = Some(RefreshReason::Proactive);
 
         state.sign_out();
         assert_eq!(state.auth, AuthStatus::Disconnected);
         assert!(state.repos.is_empty());
         assert!(state.repo_cursor.is_none());
         assert!(shared.read().unwrap().is_none());
+        // docs/0011: the refresh slot and scheduling fields go too.
+        assert!(refresh.read().unwrap().is_none());
+        assert_eq!(state.access_expires_at, None);
+        assert_eq!(state.pending_refresh, None);
+    }
+
+    // --- Token refresh (docs/0011 §6) ---------------------------------
+
+    fn expiring_cred() -> crate::auth::StoredCredential {
+        crate::auth::StoredCredential {
+            access_token: "t0k".into(),
+            refresh_token: Some("ghr_r0".into()),
+            access_expires_at: Some(now_epoch() + 28_800),
+        }
+    }
+
+    fn make_refresh_state(
+        store: Arc<MockTokenStore>,
+        slots: (SharedToken, SharedToken),
+        tag: &str,
+    ) -> GithubState {
+        let client: Arc<dyn Http> = Arc::new(MockHttp::new(vec![]));
+        GithubState::new(client, store, slots.0, slots.1, GithubCache::at_tmp(tag))
+    }
+
+    fn result_401() -> SpecResult {
+        SpecResult {
+            kind: Kind::Notifications,
+            ident: None,
+            status: 401,
+            etag: None,
+            rate: None,
+            body: Some(r#"{"message":"Bad credentials"}"#.into()),
+            network: None,
+            cursor: None,
+        }
+    }
+
+    #[test]
+    fn proactive_refresh_arms_inside_lead_window_and_gates() {
+        let mut state = make_refresh_state(
+            Arc::new(MockTokenStore::with_credential(expiring_cred())),
+            slots_with_refresh(),
+            "refresh-lead",
+        );
+        // 8 h out (≫ 600 s lead): fetches plan normally, nothing armed.
+        assert!(!state.plan_tick(1).is_empty());
+        assert_eq!(state.pending_refresh, None);
+
+        // Inside the lead window: armed + fetches gated.
+        state.access_expires_at = Some(now_epoch() + 300);
+        assert!(state.plan_tick(2).is_empty());
+        assert_eq!(state.pending_refresh, Some(RefreshReason::Proactive));
+
+        // Past expiry arms too (wake-from-suspend / stale boot).
+        state.pending_refresh = None;
+        state.access_expires_at = Some(now_epoch() - 10);
+        assert!(state.plan_tick(3).is_empty());
+        assert_eq!(state.pending_refresh, Some(RefreshReason::Proactive));
+    }
+
+    #[test]
+    fn legacy_token_never_arms_proactive_refresh() {
+        // No refresh token in the slot — even bogus expiry metadata
+        // must not arm a refresh (docs/0011 §7, legacy row).
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.access_expires_at = Some(now_epoch() - 10);
+        assert!(!state.plan_tick(1).is_empty());
+        assert_eq!(state.pending_refresh, None);
+    }
+
+    #[test]
+    fn reactive_401_arms_refresh_while_the_chance_remains() {
+        let mut state = make_refresh_state(
+            Arc::new(MockTokenStore::with_credential(expiring_cred())),
+            slots_with_refresh(),
+            "refresh-401",
+        );
+        state.apply(result_401());
+        assert_eq!(state.auth, AuthStatus::Connected);
+        assert_eq!(state.pending_refresh, Some(RefreshReason::Reactive401));
+        assert!(state.plan_tick(1).is_empty());
+    }
+
+    #[test]
+    fn apply_refresh_success_installs_rotated_credential() {
+        let store = Arc::new(MockTokenStore::with_credential(expiring_cred()));
+        let (token_slot, refresh_slot) = slots_with_refresh();
+        let mut state = make_refresh_state(
+            store.clone(),
+            (token_slot.clone(), refresh_slot.clone()),
+            "refresh-ok",
+        );
+        state.pending_refresh = Some(RefreshReason::Proactive);
+        state.needs_bootstrap = false;
+
+        state.apply_refresh(RefreshOutcome::Refreshed(crate::auth::StoredCredential {
+            access_token: "t1k".into(),
+            refresh_token: Some("ghr_r1".into()),
+            access_expires_at: Some(1_799_999_999),
+        }));
+
+        assert_eq!(state.auth, AuthStatus::Connected);
+        assert_eq!(state.pending_refresh, None);
+        assert!(state.needs_bootstrap);
+        assert_eq!(state.access_expires_at, Some(1_799_999_999));
+        assert_eq!(token_slot.read().unwrap().as_deref(), Some("t1k"));
+        assert_eq!(refresh_slot.read().unwrap().as_deref(), Some("ghr_r1"));
+        let saved = store.slot.lock().unwrap().clone().unwrap();
+        assert_eq!(saved.access_token, "t1k");
+        assert_eq!(saved.refresh_token.as_deref(), Some("ghr_r1"));
+    }
+
+    #[test]
+    fn apply_refresh_reauth_ends_session_and_burns_the_chance() {
+        let store = Arc::new(MockTokenStore::with_credential(expiring_cred()));
+        let mut state = make_refresh_state(store.clone(), slots_with_refresh(), "refresh-reauth");
+        state.apply(result_401()); // arms the reactive chance
+        state.apply_refresh(RefreshOutcome::Reauth("invalid_grant".into()));
+        assert_eq!(state.auth, AuthStatus::TokenRejected);
+        assert_eq!(state.pending_refresh, None);
+        assert!(state.refresh_attempted);
+        // A second 401 (e.g. an in-flight spec landing late) must not
+        // re-arm the spent chance — it stays in the reconnect state.
+        state.apply(result_401());
+        assert_eq!(state.auth, AuthStatus::TokenRejected);
+        assert_eq!(state.pending_refresh, None);
+        // The stored pair is only removed by sign-out — reconnect offers
+        // the device flow (docs/0011 §6.5).
+        assert!(store.slot.lock().unwrap().is_some());
+    }
+
+    #[test]
+    fn apply_refresh_transient_keeps_pending_and_retries() {
+        let mut state = make_refresh_state(
+            Arc::new(MockTokenStore::with_credential(expiring_cred())),
+            slots_with_refresh(),
+            "refresh-transient",
+        );
+        state.apply_refresh(RefreshOutcome::Transient("dns".into()));
+        assert_eq!(state.auth, AuthStatus::Connected);
+        assert_eq!(state.pending_refresh, Some(RefreshReason::Proactive));
+        assert!(!state.refresh_attempted); // the chance is not burned
+        assert!(state.plan_tick(1).is_empty()); // still gated while pending
+    }
+
+    #[test]
+    fn refresh_keychain_failure_is_terminal_and_publishes_nothing() {
+        // Persist-before-publish (docs/0011 §4.4/§6.9/6.10): a failed
+        // keychain save must leave slots and state untouched.
+        let (token_slot, refresh_slot) = slots_with_refresh();
+        let mut state = make_refresh_state(
+            Arc::new(MockTokenStore::failing_save()),
+            (token_slot.clone(), refresh_slot.clone()),
+            "refresh-keychain",
+        );
+        state.auth = AuthStatus::Connected;
+        state.pending_refresh = Some(RefreshReason::Proactive);
+
+        state.apply_refresh(RefreshOutcome::Refreshed(crate::auth::StoredCredential {
+            access_token: "t1k".into(),
+            refresh_token: Some("ghr_r1".into()),
+            access_expires_at: Some(1_799_999_999),
+        }));
+
+        assert_eq!(
+            state.auth,
+            AuthStatus::KeychainError("keychain unavailable (scripted)".into())
+        );
+        assert_eq!(token_slot.read().unwrap().as_deref(), Some("t0k"));
+        assert_eq!(refresh_slot.read().unwrap().as_deref(), Some("ghr_r0"));
+        assert_eq!(state.access_expires_at, None);
     }
 }

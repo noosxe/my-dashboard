@@ -54,12 +54,16 @@ impl Module for GithubModule {
         // Keychain-backed token slot + shared client + cache root (0005 Q3/Q6).
         let store: Arc<dyn TokenStore> = Arc::new(KeyringTokenStore);
         let shared_token: SharedToken = Arc::new(std::sync::RwLock::new(None));
+        // Refresh-token slot (docs/0011 §4.3) — same handling rules as
+        // the access-token slot.
+        let shared_refresh: SharedToken = Arc::new(std::sync::RwLock::new(None));
         let client: Arc<dyn Http> = Arc::new(UreqClient::new(shared_token.clone()));
         let cache = GithubCache::new(paths);
 
         // The single state entity — seeds from last-known caches and
         // resolves auth from the keychain.
-        let state = cx.new(|_| GithubState::new(client, store, shared_token, cache));
+        let state =
+            cx.new(|_| GithubState::new(client, store, shared_token, shared_refresh, cache));
 
         // 60 s service loop — self-gates on auth/rate-limit state and
         // refreshes per tick (0003 §3.12 pattern, docs/0005 Q8).
