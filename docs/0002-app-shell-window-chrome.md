@@ -159,6 +159,16 @@ host and new files/crates grow from there.
   everywhere (no hardcoded colors in the shell). Mode strategy per Q5.
 - **D6 — Root invariant preserved**: `Root` remains the window's first-level view;
   `TitleBar` lives inside the shell view, first child of the top-level `v_flex`.
+- **D8 — Window padding & framed panel** (2026-09-02, owner decision in its PR):
+  the work area — both main columns (sidebar + content column) — sits inside a
+  framed panel: an outer wrapper supplies a 16px (`p_4`) margin from the window
+  edges; the inner panel carries `border_1` (`theme.border`), `theme.radius`
+  corners and `overflow_hidden` (clips the sidebar/content backgrounds to the
+  rounded corners). Verified upstream: gpui/gpui-component add **no automatic
+  window content padding** on any platform (`Root`'s Linux `window_border` is a
+  20px CSD shadow frame, 0px on macOS/Windows) — apps pad themselves, and this
+  is ours. The client-decorated `TitleBar` (D7 note above) stays full-width
+  above the padded area.
 
 ## 5. Proposed implementation
 
