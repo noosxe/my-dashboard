@@ -36,7 +36,7 @@ Working rules for AI agents in this repository. Follow precisely.
 
 - **PRs stay focused.** Any issue that does not directly interfere with the current feature implementation must be filed on GitHub for later pickup. Suggested improvements and follow-ups must also be filed, not implemented opportunistically.
 - PR bodies carry a human-check list — interactive/visual verification is the product owner's job. For UI-facing changes, exercise the change through the debug bridge first (see below) and say so in the PR body.
-- Run the gates before pushing: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets` (zero warnings), `cargo test --workspace`.
+- Run the gates before pushing: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets` (zero warnings), `cargo test --workspace`. The clippy gate includes the token-discipline lints from `clippy.toml` (docs/0002 D5/D9/D10: no ad-hoc `text_size`/`line_height`, no literal color constructors) — a `disallowed_methods` warning means a styling rule was broken, not a false positive; exceptions need `#[allow(clippy::disallowed_methods)]` plus a justifying comment.
 
 ## Debugging & verification — the debug bridge
 
