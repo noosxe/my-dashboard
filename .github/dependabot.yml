@@ -1,9 +1,11 @@
 version: 2
 updates:
   # Weekly version updates for the Cargo workspace (root Cargo.toml + Cargo.lock).
-  # Note: Dependabot only updates crates.io registry dependencies — the git
-  # dependencies (gpui, gpui-component, reqwest_client) are out of its scope
-  # and are bumped manually by pinning a new rev in Cargo.toml.
+  # Note: the git dependencies (zed's gpui/gpui_platform/reqwest_client,
+  # longbridge's gpui-component/gpui-component-assets) are pinned by rev in
+  # Cargo.lock only, so Dependabot re-resolves each git source as a whole —
+  # expect one real update per repository plus superseded duplicate PRs for
+  # the sibling crates (merge one, close the rest).
   - package-ecosystem: "cargo"
     directory: "/"
     schedule:
