@@ -46,6 +46,7 @@ cross-platform, multi-modular universal personal dashboard built with Rust and
 | [0011](0011-github-token-refresh.md) | GitHub Module: Token Refresh (expiring tokens, rotation-safe keychain credential) |
 | [0012](0012-github-open-issues.md) | GitHub Module: Open Issues (home-card count + per-repo section) |
 | [0013](0013-global-status-bar.md) | Global Status Bar (in-flight request indicators) |
+| [0014](0014-github-selected-repo-breadcrumb.md) | GitHub Module: Selected-repo Breadcrumb |
 
 ## Planned docs (roadmap, not yet written)
 
