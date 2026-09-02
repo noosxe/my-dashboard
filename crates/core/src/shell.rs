@@ -13,7 +13,10 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     setting::Settings,
-    sidebar::{Sidebar, SidebarCollapsible, SidebarFooter, SidebarMenuItem, SidebarToggleButton},
+    sidebar::{
+        Sidebar, SidebarCollapsible, SidebarFooter, SidebarHeader, SidebarMenuItem,
+        SidebarToggleButton,
+    },
     v_flex,
 };
 
@@ -149,16 +152,9 @@ impl Render for DashboardShell {
                             .header(
                                 // Brand: icon box always; wordmark only when
                                 // expanded (in the icon rail the text would clip).
-                                // Plain div, not SidebarHeader: that component
-                                // hard-codes justify_between + p_2 + a hover
-                                // highlight (and its hover can't be overridden —
-                                // gpui panics on double hover registration).
-                                h_flex()
-                                    .items_center()
-                                    .gap_2()
-                                    .p_2()
-                                    .w_full()
-                                    .when(sidebar_collapsed, |this| this.p_0())
+                                // Upstream SidebarHeader styling (justify_between,
+                                // p_2, hover accent) accepted as-is per owner call.
+                                SidebarHeader::new()
                                     .child(
                                         div()
                                             .flex()
