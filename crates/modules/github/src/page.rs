@@ -330,6 +330,67 @@ impl GithubPage {
             .into_any_element()
     }
 
+    /// Issue rows mirror the PR row treatment minus the draft badge
+    /// (doc 0012 D4) — same hover, same browser hand-off.
+    fn render_issue_row(&self, issue: &gql::Issue, cx: &Context<Self>) -> AnyElement {
+        let url = issue.url.clone();
+        div()
+            .id(SharedString::from(format!("issue-{}", issue.key)))
+            .px_2()
+            .py_1p5()
+            .rounded_sm()
+            .text_sm()
+            .cursor_pointer()
+            .hover(|s| s.bg(cx.theme().accent.opacity(0.08)))
+            .on_click(move |_, _, cx| cx.open_url(&url))
+            .child(
+                h_flex()
+                    .justify_between()
+                    .gap_2()
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .child(
+                                div()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child(issue.title.clone()),
+                            )
+                            .child(
+                                div()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(format!("#{}", issue.number)),
+                            ),
+                    )
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .when_some(issue.author.as_ref(), |row, author| {
+                                row.child(
+                                    h_flex()
+                                        .gap_1()
+                                        .items_center()
+                                        .child(
+                                            Avatar::new().src(author.avatar_url.clone()).xsmall(),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .child(author.login.clone()),
+                                        ),
+                                )
+                            })
+                            .child(
+                                div()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(relative_age(issue.updated_at.as_deref())),
+                            ),
+                    ),
+            )
+            .into_any_element()
+    }
+
     fn render_notification_row(&self, n: &api::Notification, cx: &Context<Self>) -> AnyElement {
         div()
             .px_2()
@@ -492,15 +553,15 @@ impl Render for GithubPage {
             return connect_panel(&auth, cx);
         }
 
-        let (selected_full, prs, repo_notifs) = {
+        let (selected_full, prs, issues, repo_notifs) = {
             let state = self.state.read(cx);
-            let prs = state
+            let (prs, issues) = state
                 .selected
                 .as_ref()
                 // Docs/0007 D2: repo views paint from the in-memory
                 // global snapshot — every repo's PRs are already here.
                 .and_then(|f| state.repos.iter().find(|r| &r.full_name == f))
-                .map(|r| r.prs.nodes.clone())
+                .map(|r| (r.prs.nodes.clone(), r.issues.nodes.clone()))
                 .unwrap_or_default();
             let notifs = state
                 .selected
@@ -508,7 +569,7 @@ impl Render for GithubPage {
                 .and_then(|f| state.repo_notifications.get(f))
                 .cloned()
                 .unwrap_or_default();
-            (state.selected.clone(), prs, notifs)
+            (state.selected.clone(), prs, issues, notifs)
         };
         let selected_repo = selected_full.as_ref().and_then(|full| {
             self.state
@@ -520,7 +581,7 @@ impl Render for GithubPage {
         });
 
         let left = self.render_left_column(cx);
-        let right = self.render_right_column(&selected_repo, &prs, &repo_notifs, cx);
+        let right = self.render_right_column(&selected_repo, &prs, &issues, &repo_notifs, cx);
         h_flex()
             .size_full()
             .child(left)
@@ -580,6 +641,7 @@ impl GithubPage {
         &mut self,
         selected_repo: &Option<gql::Repo>,
         prs: &[gql::PullRequest],
+        issues: &[gql::Issue],
         repo_notifs: &[api::Notification],
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -659,6 +721,19 @@ impl GithubPage {
                             v_flex()
                                 .gap_0p5()
                                 .children(prs.iter().map(|p| self.render_pr_row(p, cx)))
+                                .into_any_element()
+                        }),
+                )
+                .child(
+                    GroupBox::new()
+                        .id("issues-box")
+                        .title(format!("Open Issues ({})", issues.len()))
+                        .child(if issues.is_empty() {
+                            muted_cell("No open issues", cx)
+                        } else {
+                            v_flex()
+                                .gap_0p5()
+                                .children(issues.iter().map(|i| self.render_issue_row(i, cx)))
                                 .into_any_element()
                         }),
                 )
