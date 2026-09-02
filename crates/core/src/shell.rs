@@ -8,15 +8,11 @@ use gpui::{prelude::FluentBuilder as _, *};
 use gpui::Decorations;
 
 use gpui_component::{
-    ActiveTheme, Collapsible as _, Icon, IconName, Selectable as _, TitleBar,
+    ActiveTheme, Icon, IconName, TitleBar,
     breadcrumb::{Breadcrumb, BreadcrumbItem},
-    button::{Button, ButtonVariants as _},
     h_flex,
     setting::Settings,
-    sidebar::{
-        Sidebar, SidebarCollapsible, SidebarFooter, SidebarHeader, SidebarMenuItem,
-        SidebarToggleButton,
-    },
+    sidebar::{Sidebar, SidebarCollapsible, SidebarHeader, SidebarMenuItem, SidebarToggleButton},
     v_flex,
 };
 
@@ -156,8 +152,9 @@ impl Render for DashboardShell {
                         .rounded(cx.theme().radius)
                         .overflow_hidden()
                         // Sidebar (Q4): wordmark header; flat menu — Home first,
-                        // then modules (Sidebar children are typed Vec<E>, so a
-                        // SidebarGroup would exclude the standalone Home item).
+                        // then modules, then the Settings entry (0006 §4.1).
+                        // Sidebar children are typed Vec<E>, so a
+                        // SidebarGroup would exclude the standalone Home item.
                         .child(
                             Sidebar::new("app-sidebar")
                                 .collapsible(SidebarCollapsible::Icon)
@@ -207,31 +204,7 @@ impl Render for DashboardShell {
                                             )
                                         }),
                                 )
-                                .children(nav_menu_items(&self.registry, &page, cx))
-                                // Settings entry point (docs/0006 §4.1): gear in
-                                // the sidebar footer, present in expanded and
-                                // icon-rail modes; selected state tracks the page.
-                                .footer(
-                                    SidebarFooter::new()
-                                        .selected(page == Page::Settings)
-                                        .collapsed(sidebar_collapsed)
-                                        .child(
-                                            h_flex().w_full().justify_center().child(
-                                                Button::new("open-settings")
-                                                    .ghost()
-                                                    .icon(IconName::Settings)
-                                                    .when(!sidebar_collapsed, |b| {
-                                                        b.label("Settings")
-                                                    })
-                                                    .tooltip("Settings")
-                                                    .on_click(cx.listener(|this, _, _, cx| {
-                                                        this.nav.update(cx, |nav, cx| {
-                                                            nav.go(Page::Settings, cx)
-                                                        });
-                                                    })),
-                                            ),
-                                        ),
-                                ),
+                                .children(nav_menu_items(&self.registry, &page, cx)),
                         )
                         // Content column: chrome row (toggle + breadcrumb) + page.
                         .child(
@@ -376,9 +349,10 @@ impl Render for DashboardShell {
     }
 }
 
-/// Home + module main-page entries as one flat sidebar menu (see the shell
-/// render note: `Sidebar` children are `Vec<E>`, so mixing a standalone menu
-/// with a labeled group is not possible).
+/// Home + module main-page entries as one flat sidebar menu, with the
+/// Settings entry (docs/0006 §4.1) as the last item after the modules
+/// (see the shell render note: `Sidebar` children are `Vec<E>`, so mixing
+/// a standalone menu with a labeled group is not possible).
 fn nav_menu_items(
     registry: &ModuleRegistry,
     page: &Page,
@@ -409,5 +383,15 @@ fn nav_menu_items(
         item
     });
 
-    std::iter::once(home).chain(modules).collect()
+    let settings = SidebarMenuItem::new("Settings")
+        .icon(IconName::Settings)
+        .active(*page == Page::Settings)
+        .on_click(cx.listener(|this, _, _, cx| {
+            this.nav.update(cx, |nav, cx| nav.go(Page::Settings, cx));
+        }));
+
+    std::iter::once(home)
+        .chain(modules)
+        .chain(std::iter::once(settings))
+        .collect()
 }
