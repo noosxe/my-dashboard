@@ -37,6 +37,16 @@ impl gpui::AssetSource for AppAssets {
 fn main() {
     gpui_platform::application()
         .with_assets(AppAssets)
+        // Avatar rows fetch remote images through gpui's asset loader
+        // (docs/0005 §6.3, doc 0012 D1); without a client gpui falls back
+        // to NullHttpClient and logs an error per image.
+        .with_http_client(std::sync::Arc::new(
+            reqwest_client::ReqwestClient::user_agent(concat!(
+                "my-dashboard/",
+                env!("CARGO_PKG_VERSION"),
+            ))
+            .expect("user agent is valid"),
+        ))
         .run(move |cx| {
             // MUST be called before using any gpui-component features.
 

@@ -16,6 +16,10 @@ rust-version = "1.85"
 anyhow = "1"
 gpui = { git = "https://github.com/zed-industries/zed" }
 gpui_platform = { git = "https://github.com/zed-industries/zed", features = ["font-kit"] }
+# Concrete gpui HttpClient — serves remote avatar images (docs/0005 §6.3,
+# doc 0012 D1). Same zed repo/rev as gpui; zed-reqwest is already in the tree
+# via gpui-component-assets.
+reqwest_client = { git = "https://github.com/zed-industries/zed" }
 gpui-component = { git = "https://github.com/longbridge/gpui-component" }
 gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
 dashboard-core = { path = "crates/core" }

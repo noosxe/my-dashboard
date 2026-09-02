@@ -136,7 +136,11 @@ docs `components/title-bar.md` (via Context7), zed `crates/gpui/src/window.rs`
 
 ```
 crates/app/src/
-├── main.rs      # thin bootstrap: assets, init, window options, open window
+├── main.rs      # thin bootstrap: assets, HTTP client, init, window options, open window
+│                # (HTTP client amended by 0012 impl: `with_http_client` — zed
+│                # `reqwest_client` — so gpui's asset loader can fetch remote
+│                # avatar images; without it gpui uses NullHttpClient and
+│                # errors per image)
 └── shell.rs     # DashboardShell view: TitleBar + body placeholder
 ```
 
@@ -215,6 +219,10 @@ const MIN_SIZE: (f32, f32) = (900., 600.);
 fn main() {
     gpui_platform::application()
         .with_assets(gpui_component_assets::Assets)
+        .with_http_client(std::sync::Arc::new(   // 0012 impl — avatar images
+            reqwest_client::ReqwestClient::user_agent("my-dashboard/0.1.0")
+                .unwrap(),
+        ))
         .run(move |cx| {
             // MUST be called before using any gpui-component features.
             gpui_component::init(cx);
