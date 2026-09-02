@@ -6,14 +6,15 @@
 //!
 //! This crate carries the foundation (#45: wire protocol, token-gated
 //! socket server, main-thread job marshalling, `window.list` /
-//! `window.geometry` / `input.dispatch`) and the AT-SPI half (#46:
+//! `window.geometry` / `input.dispatch`), the AT-SPI half (#46:
 //! `tree.dump` enrichment, `input.click_node`, `input.focus_node`,
-//! auto-activation). `app.logs` and the `dashboard-debug` CLI land with
-//! #47.
+//! auto-activation), and the log ring + `dashboard-debug` CLI (#47).
 
 pub mod a11y;
+pub mod cli;
 mod handlers;
 mod jobs;
+pub mod logs;
 mod merge;
 mod protocol;
 mod server;
@@ -23,8 +24,8 @@ mod server;
 ///
 /// Returns the socket path on success. On failure, logs a warning and
 /// returns `None` — the bridge must never take the app down with it.
-pub fn start(cx: &mut gpui::App) -> Option<std::path::PathBuf> {
-    server::start(cx)
+pub fn start(cx: &mut gpui::App, ring: logs::RingLog) -> Option<std::path::PathBuf> {
+    server::start(cx, ring)
 }
 
 /// Call when the app exits (after `app.run` returns): restores

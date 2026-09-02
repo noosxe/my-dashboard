@@ -1411,6 +1411,7 @@ version = "0.1.0"
 dependencies = [
  "atspi",
  "dashboard-core",
+ "flexi_logger",
  "futures",
  "gpui",
  "log",

@@ -34,6 +34,9 @@ pub mod error_code {
     pub const UNKNOWN_NODE: i64 = 4005;
     pub const ACTION_UNAVAILABLE: i64 = 4006;
     pub const INTERNAL: i64 = 5000;
+    /// Reserved in the code table; no command emits it since #47
+    /// completed the seven-command set.
+    #[allow(dead_code)]
     pub const NOT_IMPLEMENTED: i64 = 5001;
 }
 
@@ -157,8 +160,7 @@ pub struct WindowGeometryParams {
 }
 
 #[derive(Debug, Deserialize)]
-// Shape frozen per docs/0010 D6; the handler lands with #46/#47.
-#[allow(dead_code)]
+// Shape frozen per docs/0010 D6.
 pub struct LogsParams {
     pub since: Option<u64>,
     pub limit: Option<usize>,

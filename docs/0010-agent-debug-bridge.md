@@ -282,12 +282,26 @@ fallback hint.
 
 ### D8 — `app.logs`: 0008 extension, in-memory ring writer
 
-`dashboard_core::logging::init` gains an optional extra-writers
-parameter (flexi_logger `LogWriter` impls; default empty — no
-core→debug dependency). The debug crate supplies a ring writer: last
-4096 formatted lines + monotonic cursor. `app.logs {since?, limit? = 200}`
-returns `{lines: [{cursor, level, target, message}], next_cursor}`.
-Pull-based in v1; no streaming/notifications.
+`dashboard_core::logging::init` takes an extra-writers parameter
+(`Vec<Box<dyn flexi_logger::LogWriter>>`, re-exported from the logging
+module; empty by default — no core→debug dependency). Verified against
+flexi_logger 0.31.8: extras tee off the primary file writer via
+`log_to_file_and_writer` — every record that reaches the file (same
+spec, same rotation, same stderr duplication) reaches each extra; the
+`add_writer`/special-target mechanism is *not* used (it only sees
+records whose target starts with `{name}`). Multiple extras fan out
+through a tiny in-core `TeeWriter`.
+
+The debug crate supplies the ring (`logs::RingLog`, last 4096 lines):
+created in `main` *before* `logging::init` so the first line ("logging
+started…") is captured, stored as structured `{level, target, message}`
+— never a pre-formatted line — and served inline on the socket thread,
+no main-thread round-trip. `app.logs {since?, limit? = 200}` returns
+`{lines: [{cursor, level, target, message}], next_cursor}` where
+`next_cursor` is a **continuation cursor** (last returned line's
+cursor; unchanged when a batch is empty) — a truncated batch picks up
+exactly where it stopped, and lagging past eviction simply loses old
+lines. Pull-based in v1; no streaming/notifications.
 
 ### D9 — CLI: `dashboard-debug` bin, hand-rolled args
 
@@ -297,17 +311,21 @@ indented tree or JSON. Verbs mirror the protocol:
 ```
 dashboard-debug tree [--json] [--window N]
 dashboard-debug click <accesskit_id> [--window N]
-dashboard-debug focus <accesskit_id>
-dashboard-debug key <keystroke>            # e.g. key ctrl-s, key enter
-dashboard-debug type "hello"               # per-char key loop
+dashboard-debug focus <accesskit_id> [--window N]
+dashboard-debug key <keystroke> [--window N]  # one press: down+up
+dashboard-debug type "hello" [--window N]     # per-char key loop
 dashboard-debug mouse move|down|up <x> <y> # raw dispatch
 dashboard-debug mouse scroll <x> <y> <dy>
-dashboard-debug logs [-f]                  # poll app.logs
+dashboard-debug logs [-f]                  # drain ring; -f polls 500ms
 dashboard-debug shell                      # REPL over the same verbs
 ```
 
-No clap (≈8 verbs, hand parsing ≈100 lines keeps the crate dep-free
-beyond serde/serde_json + the atspi/zbus pair already in the lockfile).
+No clap (≈8 verbs, hand parsing keeps the crate dep-free beyond
+serde/serde_json + the atspi/zbus pair already in the lockfile).
+Exit codes: `0` ok, `1` protocol/IO error (`error {code}: {message}`
+on stderr), `2` usage. `type` maps control-ish chars to key names
+(`space`/`tab`/`enter`); the tree outline prints `#accesskit_id role
+"label" (x,y w×h)` with focus markers, `--json` prints the raw dump.
 
 ### D10 — Element hygiene: the dump is only as rich as our roles
 
