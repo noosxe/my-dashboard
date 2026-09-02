@@ -1158,7 +1158,16 @@ pub fn spawn_tick_loop(state: Entity<GithubState>, window: AnyWindowHandle, cx: 
                         .background_executor()
                         .spawn(async move { refresh(&*client, &refresh_token) })
                         .await;
-                    cx.update(|cx| state.update(cx, |s, _| s.apply_refresh(outcome)));
+                    // Entity observers fire only on cx.notify — a
+                    // window.refresh repaint never triggers them. The
+                    // page sync + crumb (docs/0009 D6, docs/0014 D1/D6)
+                    // and the card badge rely on these notifies.
+                    cx.update(|cx| {
+                        state.update(cx, |s, cx| {
+                            s.apply_refresh(outcome);
+                            cx.notify();
+                        })
+                    });
                 } else {
                     // Sign-out raced the drain — drop the flag.
                     log::debug!("token refresh skipped — no refresh token in slot");
@@ -1182,7 +1191,12 @@ pub fn spawn_tick_loop(state: Entity<GithubState>, window: AnyWindowHandle, cx: 
             );
             for spec in specs {
                 let result = run_spec_tracked(client.clone(), spec, cx).await;
-                cx.update(|cx| state.update(cx, |s, _| s.apply(result)));
+                cx.update(|cx| {
+                    state.update(cx, |s, cx| {
+                        s.apply(result);
+                        cx.notify();
+                    })
+                });
             }
             let _ = window.update(cx, |_, window, _| window.refresh());
             cx.background_executor().timer(TICK).await;
@@ -1195,8 +1209,9 @@ pub fn spawn_tick_loop(state: Entity<GithubState>, window: AnyWindowHandle, cx: 
 /// poll honoring interval/deadline → install token. Terminal phases
 /// (Denied/Expired/Failed) stay visible for the UI's Retry affordance.
 pub fn start_connect(state: Entity<GithubState>, window: AnyWindowHandle, cx: &mut App) {
-    state.update(cx, |s, _| {
+    state.update(cx, |s, cx| {
         s.auth = AuthStatus::ConnectFlow(ConnectPhase::RequestingCode);
+        cx.notify();
     });
 
     cx.spawn(async move |cx| {
@@ -1255,7 +1270,13 @@ pub fn start_connect(state: Entity<GithubState>, window: AnyWindowHandle, cx: &m
             match outcome {
                 PollOutcome::Token(cred) => {
                     log::info!("token acquired — connected");
-                    let saved = cx.update(|cx| state.update(cx, |s, _| s.install_credential(cred)));
+                    let saved = cx.update(|cx| {
+                        state.update(cx, |s, cx| {
+                            let saved = s.install_credential(cred);
+                            cx.notify();
+                            saved
+                        })
+                    });
                     match saved {
                         Ok(()) => {}
                         // Keychain save failed — designed error state (Q3).
@@ -1302,11 +1323,12 @@ fn set_connect_phase(
     phase: ConnectPhase,
 ) {
     cx.update(|cx| {
-        state.update(cx, |s, _| {
+        state.update(cx, |s, cx| {
             if let ConnectPhase::Failed(why) = &phase {
                 log::warn!("connect flow failed: {why}");
             }
             s.auth = AuthStatus::ConnectFlow(phase);
+            cx.notify();
         });
     });
     let _ = window.update(cx, |_, window, _| window.refresh());
@@ -1315,7 +1337,10 @@ fn set_connect_phase(
 /// Sign-out orchestration (Q5): state wipe + refresh.
 pub fn sign_out_now(state: Entity<GithubState>, window: AnyWindowHandle, cx: &mut App) {
     log::info!("signed out — token and caches cleared");
-    state.update(cx, |s, _| s.sign_out());
+    state.update(cx, |s, cx| {
+        s.sign_out();
+        cx.notify();
+    });
     let _ = window.update(cx, |_, window, _| window.refresh());
 }
 
