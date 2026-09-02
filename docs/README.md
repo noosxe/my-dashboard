@@ -44,6 +44,7 @@ cross-platform, multi-modular universal personal dashboard built with Rust and
 | [0009](0009-github-select-and-list.md) | GitHub Module: Official `Select` + `List` Components (searchable org picker, virtualized repo list) |
 | [0010](0010-agent-debug-bridge.md) | Agent Debug Bridge (attach over socket, component tree dump, non-disruptive input) |
 | [0011](0011-github-token-refresh.md) | GitHub Module: Token Refresh (expiring tokens, rotation-safe keychain credential) |
+| [0012](0012-github-open-issues.md) | GitHub Module: Open Issues (home-card count + per-repo section) |
 
 ## Planned docs (roadmap, not yet written)
 
