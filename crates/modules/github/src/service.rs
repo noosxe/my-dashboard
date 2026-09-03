@@ -758,6 +758,33 @@ impl GithubState {
         }
     }
 
+    /// Apply a parsed global notifications payload to state: replace the
+    /// list and re-derive the selected repo's GroupBox slice (docs/0007
+    /// D6). Shared by the 200 path and the ETag-304 restore (docs/0005
+    /// Q6, #84).
+    fn apply_notifications(&mut self, items: Vec<Notification>) {
+        let unread = items.iter().filter(|n| n.unread).count();
+        self.notifications = items;
+        log::debug!("notifications applied: {unread} unread");
+        if let Some(sel) = self.selected.clone() {
+            let derived: Vec<Notification> = self
+                .notifications
+                .iter()
+                .filter(|n| n.repository.full_name == sel)
+                .cloned()
+                .collect();
+            self.repo_notifications.insert(sel, derived);
+        }
+    }
+
+    /// Apply a parsed per-repo notifications payload to state. Shared by
+    /// the 200 path and the ETag-304 restore (docs/0005 Q6, #84).
+    fn apply_repo_notifications(&mut self, id: &str, items: Vec<Notification>) {
+        let unread = items.iter().filter(|n| n.unread).count();
+        log::debug!("repo-notifications applied: {id}, {unread} unread");
+        self.repo_notifications.insert(id.to_string(), items);
+    }
+
     /// Apply a finished spec: parse, update state, store last-known + etag,
     /// handle 401/403 (Q9). Malformed payloads degrade to stale data with a
     /// stderr note — never a dialog.
@@ -769,8 +796,35 @@ impl GithubState {
         match result.status {
             200 => {}
             304 => {
-                log::debug!("{}: unchanged (ETag 304)", result.kind.kind_name());
-                return; // unchanged — stale data stays, nothing to do
+                // ETag match: the last-known payload on disk is exactly
+                // what the server would have returned — re-apply it so a
+                // fresh session (empty memory, etags.json survived the
+                // restart) still paints cached rows (docs/0005 Q6, #84).
+                // A warm session re-applies the same generation: a no-op.
+                match result.kind {
+                    Kind::Notifications => {
+                        if let Some(items) = self.cache.load::<Vec<Notification>>("notifications") {
+                            log::debug!("notifications: unchanged (ETag 304) — from last-known");
+                            self.apply_notifications(items);
+                        } else {
+                            log::debug!("notifications: unchanged (ETag 304), no last-known");
+                        }
+                    }
+                    Kind::RepoNotifications => match result.ident.as_deref() {
+                        Some(id) => {
+                            let rel = format!("notifs-{}", slug(id));
+                            if let Some(items) = self.cache.load::<Vec<Notification>>(&rel) {
+                                log::debug!("repo-notifs: unchanged (ETag 304) — from last-known");
+                                self.apply_repo_notifications(id, items);
+                            } else {
+                                log::debug!("repo-notifs: unchanged (ETag 304), no last-known");
+                            }
+                        }
+                        None => log::warn!("repo-notifs spec without ident"),
+                    },
+                    _ => {}
+                }
+                return;
             }
             401 => {
                 // Reactive refresh (docs/0011 §4.3): one conclusive
@@ -901,20 +955,7 @@ impl GithubState {
             Kind::Notifications => match serde_json::from_str::<Vec<Notification>>(body) {
                 Ok(items) => {
                     self.cache.put("notifications", &items);
-                    let unread = items.iter().filter(|n| n.unread).count();
-                    self.notifications = items;
-                    log::debug!("notifications applied: {} unread", unread);
-                    // Docs/0007 D6: after the open-time fetch, the repo
-                    // GroupBox derives from the global list.
-                    if let Some(sel) = self.selected.clone() {
-                        let derived: Vec<Notification> = self
-                            .notifications
-                            .iter()
-                            .filter(|n| n.repository.full_name == sel)
-                            .cloned()
-                            .collect();
-                        self.repo_notifications.insert(sel, derived);
-                    }
+                    self.apply_notifications(items);
                 }
                 Err(e) => log::warn!("notifications payload: {e}"),
             },
@@ -924,11 +965,7 @@ impl GithubState {
             ) {
                 (Some(id), Ok(items)) => {
                     self.cache.put(&format!("notifs-{}", slug(id)), &items);
-                    log::debug!(
-                        "repo-notifications applied: {id}, {} unread",
-                        items.iter().filter(|n| n.unread).count()
-                    );
-                    self.repo_notifications.insert(id.to_string(), items);
+                    self.apply_repo_notifications(id, items);
                 }
                 (None, _) => log::warn!("repo-notifs spec without ident"),
                 (_, Err(e)) => log::warn!("repo-notifs payload: {e}"),
@@ -1979,6 +2016,87 @@ mod tests {
         state.apply(run_spec(&*http, &spec));
         assert_eq!(state.notifications.len(), 1);
         assert_eq!(state.notifications[0].id, "1");
+    }
+
+    /// #84: etags.json survives the restart but in-memory state does
+    /// not — the 304 path must repaint from the last-known payload
+    /// (docs/0005 Q6). Simulated with two states sharing one cache root.
+    #[test]
+    fn apply_304_restores_notifications_from_last_known() {
+        let cache = GithubCache::at_tmp("s84-notifs");
+        let http = Arc::new(MockHttp::new(vec![ok(one_notification(), "\"etag-1\"")]));
+        let mut first = make_state_at(http.clone(), cache.clone());
+        first.auth = AuthStatus::Connected;
+        first.selected = Some("o/r".into());
+        let spec = first.spec(Kind::Notifications, api::notifications_url(1), Some(2));
+        first.apply(run_spec(&*http, &spec));
+        assert_eq!(first.notifications.len(), 1);
+
+        let mut second = make_state_at(Arc::new(MockHttp::new(vec![])), cache);
+        second.selected = Some("o/r".into());
+        second.apply(SpecResult {
+            kind: Kind::Notifications,
+            ident: None,
+            status: 304,
+            etag: Some("\"etag-1\"".into()),
+            rate: None,
+            body: None,
+            network: None,
+            cursor: None,
+        });
+        assert_eq!(second.notifications.len(), 1);
+        assert_eq!(second.notifications[0].id, "1");
+        let derived = second.repo_notifications.get("o/r").unwrap();
+        assert_eq!(derived.len(), 1);
+    }
+
+    #[test]
+    fn apply_304_restores_repo_notifications_from_last_known() {
+        let cache = GithubCache::at_tmp("s84-repo-notifs");
+        let http = Arc::new(MockHttp::new(vec![ok(one_notification(), "\"etag-r\"")]));
+        let mut first = make_state_at(http.clone(), cache.clone());
+        first.auth = AuthStatus::Connected;
+        let spec = first.spec_ident(
+            Kind::RepoNotifications,
+            Some("o/r"),
+            api::repo_notifications_url("o", "r", 1),
+            Some(2),
+        );
+        first.apply(run_spec(&*http, &spec));
+        assert_eq!(first.repo_notifications.get("o/r").unwrap().len(), 1);
+
+        let mut second = make_state_at(Arc::new(MockHttp::new(vec![])), cache);
+        second.apply(SpecResult {
+            kind: Kind::RepoNotifications,
+            ident: Some("o/r".into()),
+            status: 304,
+            etag: Some("\"etag-r\"".into()),
+            rate: None,
+            body: None,
+            network: None,
+            cursor: None,
+        });
+        assert_eq!(second.repo_notifications.get("o/r").unwrap().len(), 1);
+    }
+
+    /// No last-known payload on disk (crash between payload and etag
+    /// writes, or wiped cache): the 304 degrades to the status quo —
+    /// warm state stays, cold state stays empty, never a panic.
+    #[test]
+    fn apply_304_without_last_known_keeps_state_empty() {
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.apply(SpecResult {
+            kind: Kind::Notifications,
+            ident: None,
+            status: 304,
+            etag: Some("\"etag-x\"".into()),
+            rate: None,
+            body: None,
+            network: None,
+            cursor: None,
+        });
+        assert!(state.notifications.is_empty());
+        assert!(state.repo_notifications.is_empty());
     }
 
     #[test]

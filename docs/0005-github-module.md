@@ -163,10 +163,17 @@ Q5–Q10 stand per the silence rule on merge.
   token surfaces as the reconnect state (§6.4), never a raw error dialog.
 - **Q6 — Caching:** transient API data is **not** user data → lives under
   the **cache root** (`AppPaths.cache`, 0004): `github/etags.json` (URL →
-  ETag) and `github/last-known/` (payload snapshots: notifications, per-repo
-  PRs, repo list). Reuses `store::load_json/save_json_atomic` (quarantine on
-  corruption, atomic writes). Boot paints last-known data instantly, then
-  background refresh corrects it — no skeleton flash for returning users.
+  ETag) and `github/last-known/` (payload snapshots for the ETag-backed
+  kinds — global and per-repo notifications; the GraphQL kinds have no
+  conditional path and are never stored). Reuses
+  `store::load_json/save_json_atomic` (quarantine on corruption, atomic
+  writes). A background refresh that answers **304 re-applies the
+  last-known payload to memory** (#84): `etags.json` survives the restart
+  but memory does not, so without this a fresh session showed empty
+  notification lists until the ETag actually changed. With it, the first
+  poll after boot paints the cached generation — no skeleton flash for
+  returning users; a warm session re-applies the same generation (a
+  no-op).
 - **Q7 — Polling cadence (recommendation, amended at implementation):**
   the first beat runs immediately at open; afterwards notifications 60 s;
   PRs of the *selected* repo on selection + 60 s while selected; full repo
