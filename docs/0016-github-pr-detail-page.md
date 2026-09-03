@@ -285,6 +285,16 @@ A `GroupBox` at the rail top:
 - **Checks mini-summary** below the panel: rollup state + "View checks" link
   that switches to the Checks tab (no browser round-trip).
 
+  **Shipped (2026-09-04, layout fix):** the conversation split is
+  `items_start` + the timeline carries an explicit `h_full()` — the
+  timeline owns the scroll bounded to the split's height, the rail hugs
+  its content at the top and never rides along while the left column
+  scrolls (owner report: the rail used to move with the page). Plain
+  cross-axis stretch also bounds the timeline, but it stretches the
+  rail's v_flex and pushes its panels down the column — probe-verified
+  on the live build, so `items_start` + `h_full` is the pinned
+  mechanism.
+
 ### D6 — Commits tab
 
 Scrollable rows: author avatar/name (fall back to `author.name` when no user

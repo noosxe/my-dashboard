@@ -1054,6 +1054,13 @@ impl PrDetailPage {
             .flex_1()
             .min_w_0()
             .min_h_0()
+            // `h_full` + `items_start`: the timeline owns the scroll
+            // (bounded to the split's height); the rail hugs its content
+            // at the top and never rides along. Plain stretch (no
+            // items_start) bounds the timeline too, but also stretches
+            // the rail's v_flex and pushes its panels down the column —
+            // probe-verified on the live build.
+            .h_full()
             .overflow_y_scroll()
             .child(v_flex().gap_3().py_1().children(children));
         h_flex()
