@@ -1,7 +1,7 @@
 # 0018 — Files changed tab: sidebar with list/tree views and master–detail diff
 
 Date: 2026-09-04
-Status: Proposed (design — implementation follows after review)
+Status: Shipped (2026-09-04, see §8)
 
 ## 1. Context
 
@@ -228,3 +228,28 @@ Single stage, one PR:
 2. Auto-select first file on fetch — proposed yes (GitHub-like);
    alternative is a always-empty pane until click.
 3. Sidebar fixed at ~300px, no resize — confirm acceptable for v1.
+
+## 8. Shipped (2026-09-04, issue #109)
+
+Implemented as designed, with three deviations from the written design:
+
+1. **Sidebar entities are built eagerly in `new`, not lazily on the
+   first Files render** (D3/D6 wording). `new` already has the window
+   that `SelectState`/`InputState` need, so up-front construction with
+   the subscriptions attached once is simpler than a render-time
+   branch; the payload is still applied fetch-ready (D6/D7 unchanged).
+2. **List auto-selection skips the upstream selection mechanism**
+   (D7). `ListState::set_selected_index` needs a window, which the
+   fetch-ready apply (an async context) doesn't have — the delegate's
+   `selected` mirror drives the row highlight instead, and the trait's
+   `set_selected_index` keeps it in sync for keyboard pre-selection.
+3. **Tree auto-selection intentionally does not mirror the List's**
+   (D7 simplification, made concrete): entry 0 of a forest is a folder,
+   so blindly selecting it would pick a non-file. Each view starts with
+   its own (empty) selection; the diff pane shows the empty state.
+
+Also moved into the new `files.rs` module (§6 plan said sidebar/diff
+render fns; the pure helpers `split_path`/`files_summary`/
+`file_status_badge` and the `diff_body`/`diff_row` pair moved too, so
+pr_page.rs shrank instead of growing). Their table tests moved with
+them and the forest/filter/delegate tests were added alongside.
