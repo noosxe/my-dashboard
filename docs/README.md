@@ -48,6 +48,7 @@ cross-platform, multi-modular universal personal dashboard built with Rust and
 | [0013](0013-global-status-bar.md) | Global Status Bar (in-flight request indicators) |
 | [0014](0014-github-selected-repo-breadcrumb.md) | GitHub Module: Selected-repo Breadcrumb |
 | [0015](0015-notification-row-click.md) | GitHub Module: Notification Row Click (open repo notifications page) |
+| [0016](0016-github-pr-detail-page.md) | GitHub Module: PR Detail Page (review, comment, merge, close) |
 
 ## Planned docs (roadmap, not yet written)
 
