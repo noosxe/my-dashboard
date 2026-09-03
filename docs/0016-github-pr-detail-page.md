@@ -115,10 +115,12 @@ Out (non-goals):
 - REST (live check, 2026-09-03): `GET /repos/{o}/{r}/pulls/{n}/files` returns
   per-file `filename`, `additions`, `deletions`, `changes`, `status`, and
   `patch` (absent for binary/oversized files → render a placeholder row).
-- To **re-verify at implementation time**: the exact `statusCheckRollup
-  .contexts` node union shape (`CheckRun { name status conclusion detailsUrl }`
-  vs `StatusContext { context state targetUrl }`) against the commits
-  reference — noted in §6 stage 3.
+- **Union verified (stage 3, live 2026-09-03):** `statusCheckRollup.contexts`
+  carries `CheckRun { name status conclusion detailsUrl startedAt completedAt }`
+  and `StatusContext { context state targetUrl }`; `conclusion` is `null` while a
+  run is queued/in progress (the phase lives in `status`), the rollup's own `state`
+  is `SUCCESS|FAILURE|PENDING`, and PRs without checks return a `null` rollup
+  (live-checked against `microsoft/vscode`, `grafana/grafana`, `noosxe/worker-mcp`).
 
 **Upstream widgets (pinned gpui-component @ 0c746df):**
 
@@ -298,8 +300,16 @@ relative age. A muted caption when `commits.totalCount > nodes.len()`:
   tone (`SUCCESS` success / `FAILURE` danger / `PENDING`/`QUEUED`/`IN_PROGRESS`
   warning or spinner / `NEUTRAL`/`SKIPPED` muted), and a details affordance
   that opens `detailsUrl`/`targetUrl` in the browser when present. CheckRun vs
-  StatusContext union parsed per node (0007 D3 degradation). The union shape is
-  re-verified at implementation time (§3).
+  StatusContext union parsed per node (0007 D3 degradation).
+  **Shipped (stage 3, 2026-09-03):** union shape verified live (§3);
+  `CheckRun`'s `status`+`conclusion` pair unifies into
+  `CheckState { Success Failure Pending Neutral }` — conclusion-bearing runs
+  map terminal (`TIMED_OUT`/`ACTION_REQUIRED` → failure, `STALE`/`CANCELLED` →
+  muted, an unknown future conclusion reads as failure, never silently muted),
+  null-conclusion runs map pending; running rows use the `LoaderCircle` icon in
+  warning tone, and pending/neutral buckets word as "running"/"skipped" in the
+  summary line. The details affordance is a trailing external-link button; rows
+  without a URL show none.
 
 ### D8 — Files changed tab
 
@@ -367,8 +377,8 @@ in the element, not the bridge.
    selector + gating, description edit (`updateIssue`), merge/close panel with
    allowed-method Select, `mergePullRequest`/`closePullRequest`, post-mutation
    refetch, terminal states.
-3. **Stage 3 — commits + checks tabs** (re-verify the `contexts` union shape
-   first, §3).
+3. **Stage 3 — commits + checks tabs** (union shape re-verified live first,
+   §3 — done 2026-09-03).
 4. **Stage 4 — files changed:** REST files fetch (lazy), patch parser,
    collapsible file cards + diff renderer.
 
