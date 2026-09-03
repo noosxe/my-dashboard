@@ -26,30 +26,30 @@ use gpui_component::{
     avatar::Avatar,
     badge::Badge,
     button::{Button, ButtonVariants},
-    collapsible::Collapsible,
     group_box::GroupBox,
     h_flex,
-    input::{Textarea, TextareaState},
+    input::{InputEvent, InputState, Textarea, TextareaState},
+    list::{ListEvent, ListState},
     searchable_list::SearchableVec,
-    select::{Select, SelectState},
+    select::{Select, SelectEvent, SelectState},
     skeleton::Skeleton,
     spinner::Spinner,
     tab::{Tab, TabBar},
+    tree::TreeState,
     v_flex,
 };
 
 use serde_json::json;
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::api::{self, PrFile};
+use crate::files::{self, FileEntry, FileListDelegate, FilesView, build_file_forest, path_matches};
 use crate::gql;
 use crate::markdown;
 use crate::page::relative_age;
-use crate::service::{
-    FetchSpec, GithubState, Kind, Mutation, PatchLine, parse_patch, run_mutation, run_spec_tracked,
-};
+use crate::service::{FetchSpec, GithubState, Kind, Mutation, run_mutation, run_spec_tracked};
 
 actions!(github, [DismissPrPage]);
 
@@ -122,9 +122,16 @@ pub(crate) struct PrDetailPage {
     /// Files tab is first opened, then one REST walk; `Ready` keeps the
     /// parsed list (a refresh refetches it).
     files: FilesFetch,
-    /// Collapsed file-card indexes (D8) — default open (github.com
-    /// parity); indexes key into `FilesFetch::Ready`'s list.
-    collapsed_files: HashSet<usize>,
+    /// Files sidebar (docs/0018 D3/D6/D7): view mode + the path-keyed
+    /// List selection (the Tree's selection lives in `file_tree`). The
+    /// sidebar entities are built once in `new` — which has the window
+    /// `SelectState`/`InputState` need — and stay subscribed there.
+    pub(crate) files_view: FilesView,
+    pub(crate) selected_file: Option<SharedString>,
+    pub(crate) view_select: Entity<SelectState<SearchableVec<SharedString>>>,
+    pub(crate) file_filter: Entity<InputState>,
+    pub(crate) file_list: Entity<ListState<FileListDelegate>>,
+    pub(crate) file_tree: Entity<TreeState>,
     /// Parsed markdown bodies (docs/0017 D6) keyed by card id — rebuilt
     /// whenever a detail payload lands, never re-parsed per frame.
     md: BTreeMap<String, Arc<[markdown::Block]>>,
@@ -163,6 +170,27 @@ impl PrDetailPage {
             select.set_selected_value(&default_action, window, cx);
             select
         });
+        // Files sidebar (docs/0018): the entities are built up front —
+        // `new` has the window `SelectState`/`InputState` need — and the
+        // subscriptions below wire them to the page for its lifetime.
+        let default_view: SharedString = files::VIEW_LIST_LABEL.into();
+        let view_select = cx.new(|cx| {
+            let mut select = SelectState::new(
+                SearchableVec::from(vec![
+                    SharedString::from(files::VIEW_LIST_LABEL),
+                    SharedString::from(files::VIEW_TREE_LABEL),
+                ]),
+                None,
+                window,
+                cx,
+            );
+            select.set_selected_value(&default_view, window, cx);
+            select
+        });
+        let file_filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter files…"));
+        let file_list =
+            cx.new(|cx| ListState::new(FileListDelegate::default(), window, cx).searchable(false));
+        let file_tree = cx.new(|cx| TreeState::new(cx));
         let number = summary.number;
         let mut page = Self {
             state,
@@ -182,9 +210,65 @@ impl PrDetailPage {
             methods: Vec::new(),
             method_select: None,
             files: FilesFetch::Idle,
-            collapsed_files: HashSet::new(),
+            files_view: FilesView::default(),
+            selected_file: None,
+            view_select: view_select.clone(),
+            file_filter: file_filter.clone(),
+            file_list: file_list.clone(),
+            file_tree: file_tree.clone(),
             md: BTreeMap::new(),
         };
+        // View-mode switch (docs/0018 D3): swaps the sidebar view. Selection
+        // is per view (D7), so the diff pane follows the newly active view.
+        cx.subscribe_in(
+            &view_select,
+            window,
+            |this, _, event: &SelectEvent<SearchableVec<SharedString>>, _, cx| {
+                let SelectEvent::Confirm(Some(label)) = event else {
+                    return;
+                };
+                let next = if label.as_ref() == files::VIEW_TREE_LABEL {
+                    FilesView::Tree
+                } else {
+                    FilesView::List
+                };
+                if this.files_view != next {
+                    this.files_view = next;
+                    cx.notify();
+                }
+            },
+        )
+        .detach();
+
+        // Shared filter input (docs/0018 D6): one query drives both views.
+        cx.subscribe_in(
+            &file_filter,
+            window,
+            |this, _, event: &InputEvent, window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let q = this.file_filter.read(cx).value().trim().to_string();
+                    this.apply_file_filter(&q, window, cx);
+                }
+            },
+        )
+        .detach();
+
+        // List selection (docs/0018 D4/D7): Confirm = click or Enter.
+        cx.subscribe_in(&file_list, window, |this, _, event: &ListEvent, _, cx| {
+            if let ListEvent::Confirm(ix) = event {
+                let path = this.file_list.read(cx).delegate().path_at(*ix);
+                if let Some(path) = path {
+                    this.select_file(Some(path), cx);
+                }
+            }
+        })
+        .detach();
+
+        // Tree selection (docs/0018 D5): upstream emits no selection event —
+        // clicks notify the TreeState; observing the entity catches every
+        // change (selection, expand, collapse) and the diff pane reads
+        // `selected_entry()` at render time.
+        cx.observe(&file_tree, |_, _, cx| cx.notify()).detach();
         page.fetch_detail(cx);
         page
     }
@@ -338,8 +422,8 @@ impl PrDetailPage {
                         self.number,
                         files.len()
                     );
-                    self.collapsed_files.clear();
                     self.files = FilesFetch::Ready(files);
+                    self.apply_files_payload(cx);
                 }
                 Err(e) => {
                     log::warn!("pr-files payload: {e}");
@@ -347,6 +431,70 @@ impl PrDetailPage {
                 }
             }
         }
+        cx.notify();
+    }
+
+    /// Fetch-ready apply (docs/0018 D6/D7): snapshot the payload into the
+    /// sidebar entities, re-applying the active filter (a refresh must not
+    /// clear it), then auto-select the first visible file so the diff pane
+    /// is never mysteriously empty.
+    fn apply_files_payload(&mut self, cx: &mut Context<Self>) {
+        let FilesFetch::Ready(files) = &self.files else {
+            return;
+        };
+        let entries: Vec<FileEntry> = files.iter().map(FileEntry::from_api).collect();
+        let query = self.file_filter.read(cx).value().trim().to_string();
+        let selected = entries
+            .iter()
+            .find(|f| path_matches(f.path.as_ref(), &query))
+            .map(|f| f.path.clone());
+        self.selected_file = selected.clone();
+        self.file_list.update(cx, |st, cx| {
+            st.delegate_mut().set_files(entries.clone());
+            st.delegate_mut().set_selected(selected.clone());
+            cx.notify();
+        });
+        self.file_tree.update(cx, |st, cx| {
+            st.set_items(build_file_forest(&entries), cx);
+            // The List's auto-selection does not carry to the Tree (D7,
+            // per-view selection); selecting entry 0 would pick a folder.
+        });
+        cx.notify();
+    }
+
+    /// The shared filter (docs/0018 D6): the List through its delegate
+    /// search; the Tree through a forest rebuild (ancestors of matches
+    /// survive, everything rebuilt expanded). The List selection survives
+    /// only if still visible; upstream `set_items` drops a Tree selection
+    /// whose id vanished on its own.
+    fn apply_file_filter(&mut self, q: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.file_list
+            .update(cx, |st, cx| st.set_query(q, window, cx));
+        let list = self.file_list.clone();
+        let matched = list.read(cx).delegate().matched().to_vec();
+        if let Some(sel) = &self.selected_file {
+            if !matched.iter().any(|f| &f.path == sel) {
+                self.selected_file = None;
+            }
+        }
+        let selected = self.selected_file.clone();
+        self.file_list.update(cx, |st, cx| {
+            st.delegate_mut().set_selected(selected);
+            cx.notify();
+        });
+        let items = build_file_forest(&matched);
+        self.file_tree.update(cx, |st, cx| st.set_items(items, cx));
+        cx.notify();
+    }
+
+    /// Select a file from the List view (docs/0018 D7): page selection
+    /// plus the delegate's row-highlight mirror.
+    fn select_file(&mut self, path: Option<SharedString>, cx: &mut Context<Self>) {
+        self.selected_file = path.clone();
+        self.file_list.update(cx, |st, cx| {
+            st.delegate_mut().set_selected(path);
+            cx.notify();
+        });
         cx.notify();
     }
     // --- write path (docs/0016 §6 stage 2) ---------------------------------
@@ -2015,239 +2163,21 @@ fn render_files(page: &PrDetailPage, cx: &Context<PrDetailPage>) -> AnyElement {
             )
             .into_any_element(),
         FilesFetch::Ready(files) if files.is_empty() => empty_cell("No file changes", cx),
-        FilesFetch::Ready(files) => render_files_list(files, &page.collapsed_files, cx),
+        FilesFetch::Ready(files) => files::render_split(page, files, cx),
     }
-}
-
-fn render_files_list(
-    files: &[PrFile],
-    collapsed: &HashSet<usize>,
-    cx: &Context<PrDetailPage>,
-) -> AnyElement {
-    let (adds, dels): (i64, i64) = files
-        .iter()
-        .map(|f| (f.additions, f.deletions))
-        .fold((0, 0), |(a, d), (fa, fd)| (a + fa, d + fd));
-    let summary = files_summary(files.len(), adds, dels);
-    let cards: Vec<AnyElement> = files
-        .iter()
-        .enumerate()
-        .map(|(i, file)| file_card(i, file, collapsed.contains(&i), cx))
-        .collect();
-    v_flex()
-        .id("pr-files-scroll")
-        .flex_1()
-        .min_h_0()
-        .overflow_y_scroll()
-        .gap_2()
-        .py_3()
-        .child(
-            h_flex().px_3().gap_2().text_sm().child(
-                h_flex()
-                    .gap_1()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(format!("{} files changed", summary.files))
-                    .child(format!("· +{}", summary.adds))
-                    .child(format!("−{}", summary.dels)),
-            ),
-        )
-        .children(cards)
-        .into_any_element()
-}
-
-/// Summary-line text pieces (D8): kept as a struct so the render path
-/// colors each piece without re-formatting, and the pure fn is
-/// table-testable.
-#[derive(Debug, PartialEq, Eq)]
-struct FilesSummary {
-    files: usize,
-    adds: i64,
-    dels: i64,
-}
-
-fn files_summary(files: usize, adds: i64, dels: i64) -> FilesSummary {
-    FilesSummary { files, adds, dels }
-}
-
-/// Change-type badge (D8): the four GitHub kinds map to tones; anything
-/// else (future API kinds, 0007 D3) renders as the raw string, muted.
-fn file_status_badge(status: &str, cx: &Context<PrDetailPage>) -> AnyElement {
-    let (label, tone) = match status {
-        "added" => (status, cx.theme().success),
-        "removed" => (status, cx.theme().danger),
-        "renamed" => (status, cx.theme().muted_foreground),
-        _ => (status, cx.theme().muted_foreground),
-    };
-    Badge::new()
-        .xsmall()
-        .color(tone)
-        .child(label.to_string())
-        .into_any_element()
-}
-
-/// Split a repo path for the card header (D8): dir segments render
-/// muted ahead of the basename, github.com-style. Pure for the table
-/// tests.
-fn split_path(path: &str) -> (Option<&str>, &str) {
-    match path.rsplit_once('/') {
-        Some((dir, name)) => (Some(dir), name),
-        None => (None, path),
-    }
-}
-
-/// One file's card (D8): header = toggle button (path with muted dir
-/// prefix, `+adds/−dels`, change-type badge); body = the parsed diff
-/// inside the `Collapsible` reveal.
-fn file_card(ix: usize, file: &PrFile, collapsed: bool, cx: &Context<PrDetailPage>) -> AnyElement {
-    let (dir, name) = split_path(&file.filename);
-    let chevron = if collapsed {
-        IconName::ChevronRight
-    } else {
-        IconName::ChevronDown
-    };
-    let id = SharedString::from(format!("pr-file-{ix}"));
-    Collapsible::new()
-        .open(!collapsed)
-        .motion_id(id.clone())
-        .child(
-            Button::new(id)
-                .ghost()
-                .xsmall()
-                .w_full()
-                .justify_start()
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    // Collapse is index-keyed; a refetch clears the set so
-                    // stale indexes can never leak into a new list.
-                    if !this.collapsed_files.remove(&ix) {
-                        this.collapsed_files.insert(ix);
-                    }
-                    cx.notify();
-                }))
-                .child(
-                    h_flex()
-                        .w_full()
-                        .min_w_0()
-                        .gap_2()
-                        .items_center()
-                        .child(Icon::new(chevron).xsmall())
-                        .child(
-                            h_flex()
-                                .min_w_0()
-                                .gap_1()
-                                .font_family(cx.theme().mono_font_family.clone())
-                                .text_xs()
-                                .when_some(dir, |row, dir| {
-                                    row.child(
-                                        div()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child(format!("{dir}/")),
-                                    )
-                                })
-                                .child(div().child(name.to_string())),
-                        )
-                        .child(
-                            h_flex()
-                                .flex_none()
-                                .gap_2()
-                                .text_xs()
-                                .child(
-                                    div()
-                                        .text_color(cx.theme().success)
-                                        .child(format!("+{}", file.additions)),
-                                )
-                                .child(
-                                    div()
-                                        .text_color(cx.theme().danger)
-                                        .child(format!("−{}", file.deletions)),
-                                )
-                                .child(file_status_badge(&file.status, cx)),
-                        ),
-                ),
-        )
-        .content(diff_body(file, cx))
-        .into_any_element()
-}
-
-/// The diff body (D8): horizontal scroll, mono `text_xs`, `flex_none`
-/// rows — no soft wrap. Tints come from the semantic tokens at low
-/// opacity (D10); the sign glyph carries the saturated color.
-fn diff_body(file: &PrFile, cx: &Context<PrDetailPage>) -> AnyElement {
-    let Some(patch) = file.patch.as_deref() else {
-        return div()
-            .px_3()
-            .py_2()
-            .text_xs()
-            .text_color(cx.theme().muted_foreground)
-            .child("Binary file or diff not shown")
-            .into_any_element();
-    };
-    let rows: Vec<AnyElement> = parse_patch(patch)
-        .into_iter()
-        .map(|line| diff_row(line, cx))
-        .collect();
-    v_flex()
-        .id(SharedString::from(format!("pr-diff-{}", file.filename)))
-        .min_w_0()
-        .overflow_x_scroll()
-        .border_t_1()
-        .border_color(cx.theme().border)
-        .children(rows)
-        .into_any_element()
-}
-
-fn diff_row(line: PatchLine, cx: &Context<PrDetailPage>) -> AnyElement {
-    let mono = cx.theme().mono_font_family.clone();
-    match line {
-        PatchLine::Hunk(text) => div()
-            .flex_none()
-            .whitespace_nowrap()
-            .px_2()
-            .py_0p5()
-            .text_xs()
-            .font_family(mono)
-            .text_color(cx.theme().muted_foreground)
-            .bg(cx.theme().accent.opacity(0.15))
-            .child(text),
-        PatchLine::Context(text) => div()
-            .flex_none()
-            .whitespace_nowrap()
-            .px_2()
-            .text_xs()
-            .font_family(mono)
-            .child(format!(" {text}")),
-        PatchLine::Add(text) => div()
-            .flex_none()
-            .whitespace_nowrap()
-            .px_2()
-            .text_xs()
-            .font_family(mono)
-            .bg(cx.theme().success.opacity(0.12))
-            .text_color(cx.theme().success)
-            .child(format!("+{text}")),
-        PatchLine::Del(text) => div()
-            .flex_none()
-            .whitespace_nowrap()
-            .px_2()
-            .text_xs()
-            .font_family(mono)
-            .bg(cx.theme().danger.opacity(0.12))
-            .text_color(cx.theme().danger)
-            .child(format!("−{text}")),
-    }
-    .into_any_element()
 }
 
 #[cfg(test)]
 mod tests {
     // No `use super::*` — page.rs documents the gpui::* shadowing hazard.
+    use crate::files::{FilesSummary, files_summary, split_path};
     use crate::gql;
     use crate::gql::MergeMethods;
     use crate::pr_page::{
-        BusyOp, ChecksCounts, ChecksTone, ErrorScope, FilesSummary, MergeLineTone, MergeMethod,
-        PrStateTone, ReviewTone, TimelineKind, allowed_methods, checks_counts, checks_header_line,
-        comment_action_allowed, default_method, files_summary, merge_enabled, merge_state_line,
-        pr_state_tone, review_event, review_state_label, rollup_summary, short_sha, split_path,
-        split_repo, timeline_order,
+        BusyOp, ChecksCounts, ChecksTone, ErrorScope, MergeLineTone, MergeMethod, PrStateTone,
+        ReviewTone, TimelineKind, allowed_methods, checks_counts, checks_header_line,
+        comment_action_allowed, default_method, merge_enabled, merge_state_line, pr_state_tone,
+        review_event, review_state_label, rollup_summary, short_sha, split_repo, timeline_order,
     };
 
     fn check(name: &str, state: gql::CheckState) -> gql::PrCheck {

@@ -359,6 +359,13 @@ relative age. A muted caption when `commits.totalCount > nodes.len()`:
   whole row's text in the tone color. Unknown `status` strings degrade
   to a muted badge with the raw label (0007 D3).
 
+  **Superseded (2026-09-04, docs/0018):** the accordion was replaced by
+  the master–detail sidebar (view-mode Select, shared filter input,
+  List/Tree views, single-file diff pane). The summary line, the
+  `parse_patch` diff rendering and the status-badge semantics above
+  survive unchanged; the per-file `Collapsible` cards and the
+  index-keyed collapse set are deleted. See docs/0018 D1–D10.
+
 ### D9 — Wiring & file layout
 
 ```

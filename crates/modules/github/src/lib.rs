@@ -12,6 +12,7 @@
 pub mod api;
 pub mod auth;
 pub mod card;
+pub mod files;
 pub mod gql;
 pub mod http;
 pub mod markdown;
