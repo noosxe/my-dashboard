@@ -245,6 +245,13 @@ Two columns: main timeline (`flex_1`) + fixed ~300px right rail (D5).
   Cancel; Save runs `updateIssue { id body }` then refetches. One edit at a
   time; Save disabled while empty-body? (body may legitimately be emptied —
   no, GitHub rejects empty; Save disabled on empty), busy state while saving.
+
+  Shipped (2026-09-04, editor height fix): the editor textarea renders one
+  line tall — upstream's plain multi-line layout ignores `rows` (it is
+  honored only in auto-grow mode, and the card's auto-height container
+  collapses the `relative(1.)` height to the 1-line minimum). The editor
+  state now uses `auto_grow(8, 40)`: grows with the body from 8 rows, caps
+  at 40 with internal scrolling, matching GitHub's edit box behavior.
 - **Timeline:** `comments` and `reviews` (with non-empty bodies) merged and
   sorted ascending by timestamp (stable merge — pure fn, table-tested). A
   review row renders its state as a badge (`APPROVED` success /

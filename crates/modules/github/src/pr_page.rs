@@ -411,7 +411,11 @@ impl PrDetailPage {
             .unwrap_or_default();
         let editor = cx.new(|cx| {
             let mut state = TextareaState::new(window, cx)
-                .rows(8)
+                // Full content height: plain multi-line ignores `rows` for
+                // layout (upstream honors it only in auto-grow mode), so
+                // grow with the body — 8 rows minimum, capped at 40 (the
+                // editor scrolls internally past that, like GitHub's).
+                .auto_grow(8, 40)
                 .placeholder("Describe this pull request");
             state.set_value(body, window, cx);
             state
