@@ -1,11 +1,12 @@
-//! PR detail page (docs/0016 §6 stages 1–2) — the full-content takeover that
+//! PR detail page (docs/0016 §6 stages 1–3) — the full-content takeover that
 //! opens when a repo-view PR row is clicked: header (state badge, title,
 //! number, author/branch meta, refresh + open-on-GitHub), an underline
-//! `TabBar` with live counts, the Conversation read path, and the stage-2
-//! write path: comment/review submission, description editing, and the
-//! merge/close panel in the conversation right rail (D4/D5). Every
-//! mutation runs through `run_mutation` (same transport as queries,
-//! tracked) and ends with a detail refetch (D4/D5).
+//! `TabBar` with live counts, the Conversation read path (D3/D4), the
+//! stage-2 write path (comment/review submission, description editing,
+//! the merge/close rail — every mutation runs through `run_mutation` on
+//! the shared tracked transport and ends with a detail refetch), and the
+//! stage-3 read tabs: the Commits list (D6) and the Checks list (D7) from
+//! the live-verified `statusCheckRollup.contexts` union.
 //!
 //! Data: one GraphQL detail query on open + on header refresh (D2) — the
 //! 200 body parses here, page-side; only non-200 results are forwarded to
@@ -21,7 +22,7 @@ use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 
 use gpui_component::{
-    ActiveTheme, Disableable, IconName, Sizable as _,
+    ActiveTheme, Disableable, Icon, IconName, Sizable as _,
     avatar::Avatar,
     badge::Badge,
     button::{Button, ButtonVariants},
@@ -635,9 +636,9 @@ impl PrDetailPage {
                     Some(d.comments.total_count + d.reviews.total_count),
                 ),
                 tab_label("Commits", Some(d.commits.total_count)),
-                // Checks count needs the contexts connection — stage 3
-                // (#93) adds it with the verified union shape.
-                "Checks".into(),
+                // The contexts connection's server-side count (D7) —
+                // 0 for a PR without checks, same as GitHub shows.
+                tab_label("Checks", Some(d.checks.total_count)),
                 tab_label("Files changed", d.changed_files),
             ],
             None => vec![
@@ -667,8 +668,184 @@ impl PrDetailPage {
     fn render_tab_content(&self, detail: &Option<gql::PrDetail>, cx: &Context<Self>) -> AnyElement {
         match self.tab {
             PrTab::Conversation => self.render_conversation(detail, cx),
-            PrTab::Commits | PrTab::Checks | PrTab::Files => stage_placeholder(self.tab, cx),
+            PrTab::Commits => self.render_commits(detail, cx),
+            PrTab::Checks => self.render_checks(detail, cx),
+            PrTab::Files => stage_placeholder(self.tab, cx),
         }
+    }
+
+    /// Commits tab (D6): scrollable rows — avatar/name (login, falling
+    /// back to `author.name`), `messageHeadline` (`text_sm`), 7-char SHA
+    /// (mono, muted), relative age; muted truncation caption when the
+    /// connection holds more than the `first: 100` page.
+    fn render_commits(&self, detail: &Option<gql::PrDetail>, cx: &Context<Self>) -> AnyElement {
+        let Some(d) = detail else {
+            if let Some(err) = &self.load_error {
+                return error_cell(err, cx);
+            }
+            return skeleton_list();
+        };
+        if d.commits.nodes.is_empty() {
+            return empty_cell("No commits yet", cx);
+        }
+        let mut rows: Vec<AnyElement> = d
+            .commits
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(i, commit)| {
+                let name = commit
+                    .author_login
+                    .clone()
+                    .or_else(|| commit.author_name.clone())
+                    .unwrap_or_else(|| "ghost".into());
+                h_flex()
+                    .id(SharedString::from(format!("pr-commit-{i}")))
+                    .gap_2()
+                    .items_center()
+                    .px_3()
+                    .py_2()
+                    .border_b_1()
+                    .border_color(cx.theme().border)
+                    .child(
+                        Avatar::new()
+                            .src(commit.author_avatar.clone().unwrap_or_default())
+                            .xsmall(),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .min_w_0()
+                            .flex_1()
+                            .truncate()
+                            .child(commit.headline.clone()),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(name),
+                    )
+                    .child(
+                        div()
+                            .font_family(cx.theme().mono_font_family.clone())
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(short_sha(&commit.oid)),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(relative_age(commit.committed_at.as_deref())),
+                    )
+                    .into_any_element()
+            })
+            .collect();
+        if d.commits.total_count > d.commits.nodes.len() as i64 {
+            rows.push(
+                div()
+                    .id("pr-commits-truncated")
+                    .px_3()
+                    .py_2()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(format!(
+                        "Showing first {} of {} commits",
+                        d.commits.nodes.len(),
+                        d.commits.total_count
+                    ))
+                    .into_any_element(),
+            );
+        }
+        div()
+            .id("pr-commits")
+            .flex_1()
+            .min_h_0()
+            .overflow_y_scroll()
+            .child(v_flex().children(rows))
+            .into_any_element()
+    }
+
+    /// Checks tab (D7): summary header outside the scroll (derived
+    /// counts, pure fn), then one row per `statusCheckRollup.contexts`
+    /// member — icon + tone from the unified state, trailing
+    /// details-link button when the union member carries a URL.
+    fn render_checks(&self, detail: &Option<gql::PrDetail>, cx: &Context<Self>) -> AnyElement {
+        let Some(d) = detail else {
+            if let Some(err) = &self.load_error {
+                return error_cell(err, cx);
+            }
+            return skeleton_list();
+        };
+        if d.checks.nodes.is_empty() {
+            return empty_cell("No checks reported for this pull request", cx);
+        }
+        let counts = checks_counts(&d.checks.nodes);
+        let header = div()
+            .id("pr-checks-header")
+            .flex_none()
+            .px_3()
+            .py_2()
+            .border_b_1()
+            .border_color(cx.theme().border)
+            .child(
+                div()
+                    .text_sm()
+                    .font_weight(FontWeight::MEDIUM)
+                    .child(checks_header_line(&counts)),
+            );
+        let rows: Vec<AnyElement> = d
+            .checks
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(i, check)| {
+                let (icon, color) = check_visual(check.state, cx);
+                h_flex()
+                    .id(SharedString::from(format!("pr-check-{i}")))
+                    .gap_2()
+                    .items_center()
+                    .px_3()
+                    .py_2()
+                    .border_b_1()
+                    .border_color(cx.theme().border)
+                    .child(Icon::new(icon).size_4().text_color(color))
+                    .child(
+                        div()
+                            .text_sm()
+                            .min_w_0()
+                            .flex_1()
+                            .truncate()
+                            .child(check.name.clone()),
+                    )
+                    .when_some(check.details_url.clone(), |row, url| {
+                        row.child(
+                            Button::new(SharedString::from(format!("pr-check-open-{i}")))
+                                .ghost()
+                                .xsmall()
+                                .icon(IconName::ExternalLink)
+                                .tooltip("View details")
+                                .on_click(move |_, _, cx| cx.open_url(&url)),
+                        )
+                    })
+                    .into_any_element()
+            })
+            .collect();
+        v_flex()
+            .id("pr-checks")
+            .flex_1()
+            .min_h_0()
+            .child(header)
+            .child(
+                div()
+                    .id("pr-checks-scroll")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .child(v_flex().children(rows)),
+            )
+            .into_any_element()
     }
 
     fn render_conversation(
@@ -1474,6 +1651,88 @@ fn skeleton_list() -> AnyElement {
         .into_any_element()
 }
 
+/// Centered muted empty-state cell for a tab with nothing to show
+/// (D6/D7): not a skeleton, not an error — just no content.
+fn empty_cell(text: &str, cx: &Context<PrDetailPage>) -> AnyElement {
+    div()
+        .id("pr-empty")
+        .flex_1()
+        .min_h_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_color(cx.theme().muted_foreground)
+        .text_sm()
+        .child(text.to_string())
+        .into_any_element()
+}
+
+/// First 7 SHA characters (D6) — `oid` is hex ASCII; `chars().take`
+/// keeps this panic-free on any payload.
+fn short_sha(oid: &str) -> String {
+    oid.chars().take(7).collect()
+}
+
+/// Counts derived from the parsed contexts list (D7) — the summary
+/// header and nothing else; the rollup `state` stays on the rail.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ChecksCounts {
+    pub total: usize,
+    pub passed: usize,
+    pub failed: usize,
+    pub pending: usize,
+    pub muted: usize,
+}
+
+pub(crate) fn checks_counts(nodes: &[gql::PrCheck]) -> ChecksCounts {
+    let mut counts = ChecksCounts::default();
+    for check in nodes {
+        counts.total += 1;
+        match check.state {
+            gql::CheckState::Success => counts.passed += 1,
+            gql::CheckState::Failure => counts.failed += 1,
+            gql::CheckState::Pending => counts.pending += 1,
+            gql::CheckState::Neutral => counts.muted += 1,
+        }
+    }
+    counts
+}
+
+/// The D7 summary line: `"8 checks · 7 passed · 1 failed"` — the total
+/// always renders (singular/plural aware); buckets only when non-zero.
+pub(crate) fn checks_header_line(counts: &ChecksCounts) -> String {
+    let mut line = format!(
+        "{} check{}",
+        counts.total,
+        if counts.total == 1 { "" } else { "s" }
+    );
+    for (n, word) in [
+        (counts.passed, "passed"),
+        (counts.failed, "failed"),
+        (counts.pending, "running"),
+        (counts.muted, "skipped"),
+    ] {
+        if n > 0 {
+            line.push_str(" · ");
+            line.push_str(&n.to_string());
+            line.push(' ');
+            line.push_str(word);
+        }
+    }
+    line
+}
+
+/// Unified check state → (icon, theme color) for the D7 row mapping:
+/// SUCCESS success / FAILURE danger / running warning / NEUTRAL+SKIPPED
+/// muted.
+fn check_visual(state: gql::CheckState, cx: &Context<PrDetailPage>) -> (IconName, Hsla) {
+    match state {
+        gql::CheckState::Success => (IconName::CircleCheck, cx.theme().success),
+        gql::CheckState::Failure => (IconName::CircleX, cx.theme().danger),
+        gql::CheckState::Pending => (IconName::LoaderCircle, cx.theme().warning),
+        gql::CheckState::Neutral => (IconName::Dash, cx.theme().muted_foreground),
+    }
+}
 fn error_cell(message: &str, cx: &Context<PrDetailPage>) -> AnyElement {
     v_flex()
         .id("pr-load-error")
@@ -1572,15 +1831,9 @@ fn muted_centered(text: &str, cx: &Context<PrDetailPage>) -> AnyElement {
         .into_any_element()
 }
 
-/// Stage boundary (docs/0016 §6): the commits/checks/files surfaces land
-/// with #93/#94 — the tabs are present (counts live) and honest about it.
-fn stage_placeholder(tab: PrTab, cx: &Context<PrDetailPage>) -> AnyElement {
-    let text = match tab {
-        PrTab::Commits => "The commits list arrives with an upcoming update",
-        PrTab::Checks => "Checks arrive with an upcoming update",
-        PrTab::Files => "Changed files arrive with an upcoming update",
-        PrTab::Conversation => unreachable!("conversation renders its own content"),
-    };
+/// Stage boundary (docs/0016 §6): the files surface lands with #94 —
+/// the tab is present (count live) and honest about it.
+fn stage_placeholder(_tab: PrTab, cx: &Context<PrDetailPage>) -> AnyElement {
     div()
         .id("pr-stage-placeholder")
         .flex_1()
@@ -1590,7 +1843,7 @@ fn stage_placeholder(tab: PrTab, cx: &Context<PrDetailPage>) -> AnyElement {
         .justify_center()
         .text_color(cx.theme().muted_foreground)
         .text_sm()
-        .child(text)
+        .child("The changed-files list arrives with an upcoming update")
         .into_any_element()
 }
 #[cfg(test)]
@@ -1599,12 +1852,84 @@ mod tests {
     use crate::gql;
     use crate::gql::MergeMethods;
     use crate::pr_page::{
-        BusyOp, ChecksTone, ErrorScope, MergeLineTone, MergeMethod, PrStateTone, ReviewTone,
-        TimelineKind, allowed_methods, comment_action_allowed, default_method, merge_enabled,
-        merge_state_line, pr_state_tone, review_event, review_state_label, rollup_summary,
-        split_repo, timeline_order,
+        BusyOp, ChecksCounts, ChecksTone, ErrorScope, MergeLineTone, MergeMethod, PrStateTone,
+        ReviewTone, TimelineKind, allowed_methods, checks_counts, checks_header_line,
+        comment_action_allowed, default_method, merge_enabled, merge_state_line, pr_state_tone,
+        review_event, review_state_label, rollup_summary, short_sha, split_repo, timeline_order,
     };
 
+    fn check(name: &str, state: gql::CheckState) -> gql::PrCheck {
+        gql::PrCheck {
+            name: name.into(),
+            state,
+            details_url: None,
+        }
+    }
+
+    #[test]
+    fn checks_counts_bucket_every_state() {
+        let nodes = vec![
+            check("build", gql::CheckState::Success),
+            check("test", gql::CheckState::Success),
+            check("lint", gql::CheckState::Failure),
+            check("e2e", gql::CheckState::Pending),
+            check("cla", gql::CheckState::Neutral),
+        ];
+        assert_eq!(
+            checks_counts(&nodes),
+            ChecksCounts {
+                total: 5,
+                passed: 2,
+                failed: 1,
+                pending: 1,
+                muted: 1
+            }
+        );
+        assert_eq!(checks_counts(&[]), ChecksCounts::default());
+    }
+
+    #[test]
+    fn checks_header_line_segments() {
+        // The doc example: "8 checks · 7 passed · 1 failed".
+        assert_eq!(
+            checks_header_line(&ChecksCounts {
+                total: 8,
+                passed: 7,
+                failed: 1,
+                ..Default::default()
+            }),
+            "8 checks · 7 passed · 1 failed"
+        );
+        // Singular total, zero buckets dropped.
+        assert_eq!(
+            checks_header_line(&ChecksCounts {
+                total: 1,
+                passed: 1,
+                ..Default::default()
+            }),
+            "1 check · 1 passed"
+        );
+        // Every bucket present, "running" for pending (GitHub's
+        // in-flight wording), "skipped" for neutral.
+        assert_eq!(
+            checks_header_line(&ChecksCounts {
+                total: 4,
+                passed: 1,
+                failed: 1,
+                pending: 1,
+                muted: 1
+            }),
+            "4 checks · 1 passed · 1 failed · 1 running · 1 skipped"
+        );
+    }
+
+    #[test]
+    fn short_sha_takes_seven_chars() {
+        assert_eq!(short_sha("abcdef1234567890"), "abcdef1");
+        // Short oids don't panic and don't pad.
+        assert_eq!(short_sha("abc"), "abc");
+        assert_eq!(short_sha(""), "");
+    }
     fn comment(login: &str, at: &str) -> gql::PrComment {
         gql::PrComment {
             author: Some(gql::Author {

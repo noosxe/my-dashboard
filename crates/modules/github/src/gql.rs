@@ -377,7 +377,17 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
       viewerCanUpdate
       mergeable
       mergeStateStatus
-      statusCheckRollup { state }
+      statusCheckRollup {
+        state
+        contexts(first: 100) {
+          totalCount
+          nodes {
+            __typename
+            ... on CheckRun { name status conclusion detailsUrl }
+            ... on StatusContext { context state targetUrl }
+          }
+        }
+      }
       commits(first: 100) {
         totalCount
         nodes {
@@ -444,6 +454,7 @@ pub struct PrDetail {
     pub created_at: Option<String>,
     pub author: Option<Author>,
     pub commits: PrCommits,
+    pub checks: PrChecks,
     pub reviews: PrReviews,
     pub comments: PrComments,
 }
@@ -466,6 +477,65 @@ pub struct PrCommit {
     pub author_avatar: Option<String>,
 }
 
+/// Checks connection from `statusCheckRollup.contexts` (docs/0016 D7).
+/// The union's two members unify into [`PrCheck`]; `total_count` is the
+/// server-side count (`first: 100` caps the rows).
+#[derive(Debug, Clone, Default)]
+pub struct PrChecks {
+    pub total_count: i64,
+    pub nodes: Vec<PrCheck>,
+}
+
+/// One check row, normalized across the union members
+/// (live-verified 2026-09-03: `CheckRun { name status conclusion detailsUrl }`,
+/// `StatusContext { context state targetUrl }`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PrCheck {
+    pub name: String,
+    pub state: CheckState,
+    pub details_url: Option<String>,
+}
+
+/// Unified check outcome for tone/icon mapping (D7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CheckState {
+    Success,
+    Failure,
+    Pending,
+    Neutral,
+}
+
+/// `CheckRun.status` + `conclusion` → unified state. While a run is
+/// queued/in progress/waiting the conclusion is `null`; conclusions are
+/// otherwise terminal (SUCCESS, FAILURE, TIMED_OUT, ACTION_REQUIRED, ...).
+pub fn check_run_state(status: Option<&str>, conclusion: Option<&str>) -> CheckState {
+    match conclusion {
+        Some("SUCCESS") => CheckState::Success,
+        Some("FAILURE") | Some("TIMED_OUT") | Some("ACTION_REQUIRED") => CheckState::Failure,
+        Some("NEUTRAL") | Some("SKIPPED") | Some("STALE") | Some("CANCELLED") => {
+            CheckState::Neutral
+        }
+        // No conclusion yet — the status field carries the phase. Only
+        // treat completed-with-unknown-conclusion as terminal-failure;
+        // everything else (QUEUED / IN_PROGRESS / WAITING / null) is
+        // still running.
+        Some(_) => CheckState::Failure,
+        None => match status {
+            Some("COMPLETED") => CheckState::Failure,
+            _ => CheckState::Pending,
+        },
+    }
+}
+
+/// `StatusContext.state` (SUCCESS / ERROR / FAILURE / PENDING) → unified.
+pub fn status_context_state(state: Option<&str>) -> CheckState {
+    match state {
+        Some("SUCCESS") => CheckState::Success,
+        Some("ERROR") | Some("FAILURE") => CheckState::Failure,
+        Some("PENDING") => CheckState::Pending,
+        _ => CheckState::Neutral,
+    }
+}
 /// The repository's enabled merge methods (docs/0016 D5) — ride along
 /// on the detail query's `repository` wrapper.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -637,6 +707,7 @@ pub fn pr_detail_from_value(value: &serde_json::Value) -> Option<PrDetail> {
             total_count: commits_total,
             nodes: commits,
         },
+        checks: gql_pr_checks(pr),
         reviews: PrReviews {
             total_count: reviews_total,
             nodes: reviews,
@@ -648,6 +719,55 @@ pub fn pr_detail_from_value(value: &serde_json::Value) -> Option<PrDetail> {
     })
 }
 
+/// `statusCheckRollup.contexts` → [`PrChecks`] (docs/0016 D7), with
+/// per-node degradation (0007 D3): a node with an unknown
+/// `__typename` or a missing name drops out while the rest parse; a
+/// `null` rollup (PR without checks) yields the empty struct.
+fn gql_pr_checks(pr: &serde_json::Value) -> PrChecks {
+    let contexts = pr
+        .pointer("/statusCheckRollup/contexts")
+        .filter(|v| v.is_object())
+        .unwrap_or(&serde_json::Value::Null);
+    let total_count = contexts
+        .pointer("/totalCount")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let nodes = contexts
+        .pointer("/nodes")
+        .and_then(|v| v.as_array())
+        .map(|nodes| {
+            nodes
+                .iter()
+                .filter_map(|node| {
+                    let str_field =
+                        |key: &str| node.get(key).and_then(|v| v.as_str()).map(str::to_string);
+                    let url = || {
+                        ["detailsUrl", "targetUrl"]
+                            .iter()
+                            .find_map(|k| str_field(k))
+                    };
+                    match node.get("__typename").and_then(|v| v.as_str()) {
+                        Some("CheckRun") => Some(PrCheck {
+                            name: str_field("name")?,
+                            state: check_run_state(
+                                node.get("status").and_then(|v| v.as_str()),
+                                node.get("conclusion").and_then(|v| v.as_str()),
+                            ),
+                            details_url: url(),
+                        }),
+                        Some("StatusContext") => Some(PrCheck {
+                            name: str_field("context")?,
+                            state: status_context_state(node.get("state").and_then(|v| v.as_str())),
+                            details_url: url(),
+                        }),
+                        _ => None,
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    PrChecks { total_count, nodes }
+}
 /// The three `repository` merge-method booleans — absent fields count
 /// as disabled (repos really do turn methods off; `false` is a value the
 /// API returns, `null`/absent only on degraded payloads).
@@ -1089,6 +1209,118 @@ mod tests {
         assert_eq!(d.reviews.nodes[0].state.as_deref(), Some("APPROVED"));
         assert_eq!(d.comments.total_count, 2);
         assert_eq!(d.comments.nodes[0].body, "nice");
+    }
+
+    #[test]
+    fn check_run_state_maps_status_conclusion_pairs() {
+        use super::{CheckState, check_run_state};
+        // Terminal conclusions.
+        assert_eq!(
+            check_run_state(Some("COMPLETED"), Some("SUCCESS")),
+            CheckState::Success
+        );
+        for conclusion in ["FAILURE", "TIMED_OUT", "ACTION_REQUIRED"] {
+            assert_eq!(
+                check_run_state(Some("COMPLETED"), Some(conclusion)),
+                CheckState::Failure,
+                "conclusion {conclusion}"
+            );
+        }
+        for conclusion in ["NEUTRAL", "SKIPPED", "STALE", "CANCELLED"] {
+            assert_eq!(
+                check_run_state(Some("COMPLETED"), Some(conclusion)),
+                CheckState::Neutral,
+                "conclusion {conclusion}"
+            );
+        }
+        // Unknown future conclusion on a completed run: failure, not
+        // silently-neutral (a red run that reads as muted would mislead).
+        assert_eq!(
+            check_run_state(Some("COMPLETED"), Some("STARTUP_FAILURE")),
+            CheckState::Failure
+        );
+        // No conclusion — phase fields say pending.
+        for status in [
+            Some("QUEUED"),
+            Some("IN_PROGRESS"),
+            Some("WAITING"),
+            Some("PENDING"),
+            None,
+        ] {
+            assert_eq!(
+                check_run_state(status, None),
+                CheckState::Pending,
+                "status {status:?}"
+            );
+        }
+        // Completed but conclusion missing/null: treat as failed.
+        assert_eq!(
+            check_run_state(Some("COMPLETED"), None),
+            CheckState::Failure
+        );
+    }
+
+    #[test]
+    fn status_context_state_maps_legacy_states() {
+        use super::{CheckState, status_context_state};
+        assert_eq!(status_context_state(Some("SUCCESS")), CheckState::Success);
+        assert_eq!(status_context_state(Some("ERROR")), CheckState::Failure);
+        assert_eq!(status_context_state(Some("FAILURE")), CheckState::Failure);
+        assert_eq!(status_context_state(Some("PENDING")), CheckState::Pending);
+        assert_eq!(status_context_state(None), CheckState::Neutral);
+    }
+
+    #[test]
+    fn pr_detail_parses_checks_union_with_degradation() {
+        let body = pr_detail_body(
+            r#"{
+                "id": "PR_7", "number": 7,
+                "statusCheckRollup": {
+                  "state": "FAILURE",
+                  "contexts": {"totalCount": 5, "nodes": [
+                    {"__typename": "CheckRun", "name": "build", "status": "COMPLETED",
+                     "conclusion": "SUCCESS", "detailsUrl": "https://ci/build"},
+                    {"__typename": "CheckRun", "name": "test", "status": "IN_PROGRESS",
+                     "conclusion": null, "detailsUrl": null},
+                    {"__typename": "StatusContext", "context": "license/cla",
+                     "state": "SUCCESS", "targetUrl": "https://cla"},
+                    {"__typename": "StatusContext", "context": "codecov",
+                     "state": "ERROR", "targetUrl": null},
+                    {"__typename": "SomethingNew", "name": "future"},
+                    {"__typename": "CheckRun", "status": "COMPLETED", "conclusion": "FAILURE"}
+                  ]}
+                }
+            }"#,
+        );
+        let env: Envelope<PrDetailData> = serde_json::from_str(&body).unwrap();
+        let value = env.data.unwrap().repository.unwrap();
+        let d = pr_detail_from_value(&value).unwrap();
+        assert_eq!(d.rollup_state.as_deref(), Some("FAILURE"));
+        // Server-side count survives even though two nodes degrade out
+        // (unknown typename; CheckRun without a name).
+        assert_eq!(d.checks.total_count, 5);
+        let nodes = &d.checks.nodes;
+        assert_eq!(nodes.len(), 4);
+        assert_eq!(nodes[0].name, "build");
+        assert_eq!(nodes[0].state, CheckState::Success);
+        assert_eq!(nodes[0].details_url.as_deref(), Some("https://ci/build"));
+        assert_eq!(nodes[1].state, CheckState::Pending);
+        assert_eq!(nodes[1].details_url, None);
+        assert_eq!(nodes[2].name, "license/cla");
+        assert_eq!(nodes[2].state, CheckState::Success);
+        assert_eq!(nodes[3].name, "codecov");
+        assert_eq!(nodes[3].state, CheckState::Failure);
+    }
+
+    #[test]
+    fn pr_detail_null_rollup_is_empty_checks() {
+        let body = pr_detail_body(r#"{"id": "PR_8", "number": 8, "statusCheckRollup": null}"#);
+        let env: Envelope<PrDetailData> = serde_json::from_str(&body).unwrap();
+        let value = env.data.unwrap().repository.unwrap();
+        let d = pr_detail_from_value(&value).unwrap();
+        assert_eq!(d.rollup_state, None);
+        assert_eq!(d.checks.total_count, 0);
+        assert!(d.checks.nodes.is_empty());
     }
 
     #[test]
