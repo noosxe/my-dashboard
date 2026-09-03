@@ -340,6 +340,7 @@ impl GithubPage {
         let url = pr.url.clone();
         div()
             .id(SharedString::from(format!("pr-{}", pr.key)))
+            .role(accesskit::Role::ListItem)
             .px_2()
             .py_1p5()
             .rounded_sm()
@@ -404,6 +405,7 @@ impl GithubPage {
         let url = issue.url.clone();
         div()
             .id(SharedString::from(format!("issue-{}", issue.key)))
+            .role(accesskit::Role::ListItem)
             .px_2()
             .py_1p5()
             .rounded_sm()

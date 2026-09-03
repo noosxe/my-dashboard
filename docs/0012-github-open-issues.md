@@ -124,7 +124,9 @@ The section is `GroupBox::new().id("issues-box")`, mirroring `prs-box`.
 `render_issue_row()` mirrors `render_pr_row()`:
 
 - element id `issue-{key}` (`key` = `owner/name#number`, the 0007 D3 fallback
-  identity);
+  identity) **plus a role** — `.role(accesskit::Role::ListItem)` (docs/0010
+  D10; without the role gpui drops the node from the a11y tree entirely,
+  see 0015 D1);
 - layout: `px_2 / py_1p5 / rounded_sm / text_sm`, hover accent background,
   cursor pointer;
 - left: title (medium weight) + `#{number}` muted;
@@ -135,9 +137,12 @@ The section is `GroupBox::new().id("issues-box")`, mirroring `prs-box`.
 No `Draft` badge — issues have no draft state in our field set. There is no
 `statusCheckRollup` for issues; nothing extra to surface.
 
-Per docs/0010 D10 these rows are interactive elements carrying ids — they
-must appear in `dashboard-debug tree` with stable `accesskit_id`s and be
-click-targetable through the bridge.
+Per docs/0010 D10 these rows are interactive elements carrying an id **and a
+role** — only the pair produces an a11y node — so they appear in
+`dashboard-debug tree` with stable `accesskit_id`s and are click-targetable
+through the bridge. The `ListItem` role was added in the follow-up fix
+(#82) after the 0015 D1 discovery; before it, both row families rendered
+but were invisible to the dump and to bridge `click`.
 
 ### D5 — dead_code cleanup
 
