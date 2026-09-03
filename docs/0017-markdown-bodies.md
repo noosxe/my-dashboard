@@ -78,9 +78,24 @@ Everything else in §5 is proposal — settled by the review of this doc PR.
 
 `markdown_blocks(body: &str) -> Vec<Block>` — pure fn over
 `Parser::new_ext(body, Options::ENABLE_TABLES | ENABLE_STRIKETHROUGH |
-ENABLE_TASKLISTS)`. `Html`/`InlineHtml` events are **dropped** (no raw-HTML
-rendering surface, no sanitizer to maintain). Footnotes stay disabled.
-Re-verify option names against the 0.13 docs at implementation time.
+ENABLE_TASKLISTS | ENABLE_GFM)` (options verified on docs.rs 0.13.4;
+`ENABLE_GFM` carries the GitHub blockquote alerts — `[!NOTE]`,
+`[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]`). `Html`/
+`InlineHtml` events are **dropped** (no raw-HTML rendering surface, no
+sanitizer to maintain). Footnotes stay disabled for now (rare in PRs;
+the flag exists if wanted later).
+
+**GFM autolink literals** (bare `https://…` / `www.` URLs) are the one
+GFM-spec extension pulldown does **not** parse — GitHub links them
+automatically and bot comments are full of them. Post-process plain-text
+runs with the `linkify` crate (the same pairing zed's markdown crate
+uses) and emit link runs; visible text stays as written.
+
+**GitHub platform expansions are out of scope** (server-side
+post-processing, not markdown — no parser provides them; they render as
+plain text): `@mentions`, `#123` / `org/repo#123` issue references, SHA
+links, `:emoji:` shortcodes, `$$math$$`, mermaid diagrams,
+`<details>` collapsibles (dropped with all raw HTML).
 
 ### D2 — Owned intermediate model
 
@@ -128,6 +143,11 @@ links — plain `StyledText` (cheaper, no state).
   v1 — CI tables are usually 3–5 columns).
 - `Rule`: the existing divider affordance.
 
+- Alerts (`ENABLE_GFM` blockquote tags): rendered as a quote variant —
+  recognized tag label as a bold first line (`Note`, `Warning`, …), left
+  border tinted by the matching semantic token where one exists
+  (WARNING → warning, CAUTION → danger, others → accent); unknown tags
+  fall back to a plain quote.
 ### D5 — Links
 
 Click → `cx.open_url(url)` — identical to `pr-open-external`; no tooltip,
@@ -168,7 +188,8 @@ ranges inside it, not separate nodes — the bridge will not show them
 - `markdown.rs` unit tests (pure): heading levels, nested lists, task
   markers, ordered start index, table shape + alignment capture, link URL
   extraction, autolink, soft vs hard break, HTML dropped, code fence info
-  string.
+  string; alert tags (recognized, unknown); bare-URL runs through the
+  linkify pass.
 - Run-style mapping tests (strong/em/strike/code/link → `RunStyle`).
 - Renderer smoke via the existing `#[gpui::test]` pattern where cheap;
   geometry/interaction is bridge + owner territory (below).
