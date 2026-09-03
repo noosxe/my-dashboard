@@ -345,6 +345,281 @@ pub struct Issue {
     pub url: String,
 }
 
+// ---------------------------------------------------------------------------
+// PR detail page (docs/0016) — one query on open, no cache (D2).
+// ---------------------------------------------------------------------------
+
+/// The stage-1 field set (docs/0016 §6.1): everything the header, tab
+/// counts, and the conversation read path render. `contexts` (checks rows)
+/// and the merge-method repository booleans land with their stages
+/// (§6.2/§6.3) after their shapes are re-verified.
+pub const PR_DETAIL_QUERY: &str = r#"
+query PrDetail($owner: String!, $name: String!, $number: Int!) {
+  rateLimit { cost remaining resetAt }
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      id
+      number
+      title
+      body
+      state
+      isDraft
+      changedFiles
+      baseRefName
+      headRefName
+      url
+      createdAt
+      author { login avatarUrl }
+      commits(first: 100) {
+        totalCount
+        nodes {
+          commit {
+            oid
+            messageHeadline
+            committedDate
+            author { name avatarUrl user { login } }
+          }
+        }
+      }
+      reviews(first: 100) {
+        totalCount
+        nodes { author { login avatarUrl } state body submittedAt }
+      }
+      comments(first: 100) {
+        totalCount
+        nodes { author { login avatarUrl } body createdAt }
+      }
+      files(first: 1) { totalCount }
+    }
+  }
+}
+"#;
+
+/// Envelope data for the detail query — the repository node stays raw so
+/// the PR parses through [`pr_detail_from_value`] with the same per-node
+/// degradation rules as the snapshot (doc 0007 D3).
+#[derive(Debug, Deserialize)]
+pub struct PrDetailData {
+    pub repository: Option<serde_json::Value>,
+}
+
+/// Everything the PR page renders (docs/0016 D2). Session-only — this
+/// never enters a cache.
+#[derive(Debug, Clone)]
+pub struct PrDetail {
+    /// Node ID — the mutation target for the stage-2 write path.
+    #[allow(dead_code)] // docs/0016 §6.2
+    pub id: String,
+    pub number: i64,
+    pub title: String,
+    pub body: Option<String>,
+    /// `PullRequestState` — OPEN / MERGED / CLOSED.
+    pub state: Option<String>,
+    pub draft: bool,
+    /// `changedFiles` (top-level `PullRequest` field — the `…IfAvailable` variant the docs recommend is NOT in the public schema; bridge-verified 2026-09-03), with `files.totalCount` as the fallback
+    /// (the schema recommends the *IfAvailable variant precisely because
+    /// the eager field can error for huge diffs).
+    pub changed_files: Option<i64>,
+    pub base_ref: Option<String>,
+    pub head_ref: Option<String>,
+    pub url: String,
+    pub created_at: Option<String>,
+    pub author: Option<Author>,
+    pub commits: PrCommits,
+    pub reviews: PrReviews,
+    pub comments: PrComments,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct PrCommits {
+    pub total_count: i64,
+    pub nodes: Vec<PrCommit>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PrCommit {
+    pub oid: String,
+    pub headline: String,
+    pub committed_at: Option<String>,
+    /// `author.name` — present even when the author has no GitHub account.
+    pub author_name: Option<String>,
+    /// `author.user.login` — `None` for non-user commits.
+    pub author_login: Option<String>,
+    pub author_avatar: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct PrReviews {
+    pub total_count: i64,
+    pub nodes: Vec<PrReview>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PrReview {
+    pub author: Option<Author>,
+    /// `PullRequestReviewState` — APPROVED / CHANGES_REQUESTED / COMMENTED …
+    pub state: Option<String>,
+    pub body: Option<String>,
+    pub submitted_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct PrComments {
+    pub total_count: i64,
+    pub nodes: Vec<PrComment>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PrComment {
+    pub author: Option<Author>,
+    pub body: String,
+    pub created_at: Option<String>,
+}
+
+/// Parse one `repository.pullRequest` node; `None` only when the node is
+/// not an object (null / malformed) — the caller keeps its skeleton/error
+/// state then. List nodes degrade individually (0007 D3): one bad commit
+/// or comment never takes the page down.
+pub fn pr_detail_from_value(value: &serde_json::Value) -> Option<PrDetail> {
+    let pr = value.get("pullRequest")?;
+    if !pr.is_object() {
+        return None;
+    }
+    let str_field = |name: &str| pr.get(name).and_then(|v| v.as_str()).map(str::to_string);
+    let files_total = pr.pointer("/files/totalCount").and_then(|v| v.as_i64());
+    let commits = pr
+        .pointer("/commits/nodes")
+        .and_then(|nodes| nodes.as_array())
+        .map(|nodes| {
+            nodes
+                .iter()
+                .filter_map(|c| {
+                    let commit = c.get("commit")?;
+                    let author = commit.get("author");
+                    Some(PrCommit {
+                        oid: commit.get("oid")?.as_str()?.to_string(),
+                        headline: commit
+                            .get("messageHeadline")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .to_string(),
+                        committed_at: commit
+                            .get("committedDate")
+                            .and_then(|v| v.as_str())
+                            .map(str::to_string),
+                        author_name: author
+                            .and_then(|a| a.get("name"))
+                            .and_then(|v| v.as_str())
+                            .map(str::to_string),
+                        author_login: author
+                            .and_then(|a| a.pointer("/user/login"))
+                            .and_then(|v| v.as_str())
+                            .map(str::to_string),
+                        author_avatar: author
+                            .and_then(|a| a.get("avatarUrl"))
+                            .and_then(|v| v.as_str())
+                            .map(str::to_string),
+                    })
+                })
+                .collect::<Vec<PrCommit>>()
+        })
+        .unwrap_or_default();
+    let commits_total = pr
+        .pointer("/commits/totalCount")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(commits.len() as i64);
+    let reviews = pr
+        .pointer("/reviews/nodes")
+        .and_then(|nodes| nodes.as_array())
+        .map(|nodes| {
+            nodes
+                .iter()
+                .map(|r| PrReview {
+                    author: author_from_value(r.get("author")),
+                    state: r.get("state").and_then(|v| v.as_str()).map(str::to_string),
+                    body: r.get("body").and_then(|v| v.as_str()).map(str::to_string),
+                    submitted_at: r
+                        .get("submittedAt")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string),
+                })
+                .collect::<Vec<PrReview>>()
+        })
+        .unwrap_or_default();
+    let reviews_total = pr
+        .pointer("/reviews/totalCount")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(reviews.len() as i64);
+    let comments = pr
+        .pointer("/comments/nodes")
+        .and_then(|nodes| nodes.as_array())
+        .map(|nodes| {
+            nodes
+                .iter()
+                .filter_map(|c| {
+                    Some(PrComment {
+                        author: author_from_value(c.get("author")),
+                        body: c.get("body")?.as_str()?.to_string(),
+                        created_at: c
+                            .get("createdAt")
+                            .and_then(|v| v.as_str())
+                            .map(str::to_string),
+                    })
+                })
+                .collect::<Vec<PrComment>>()
+        })
+        .unwrap_or_default();
+    let comments_total = pr
+        .pointer("/comments/totalCount")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(comments.len() as i64);
+    Some(PrDetail {
+        id: str_field("id").unwrap_or_default(),
+        number: pr
+            .get("number")
+            .and_then(|v| v.as_i64())
+            .unwrap_or_default(),
+        title: str_field("title").unwrap_or_default(),
+        body: str_field("body"),
+        state: str_field("state"),
+        draft: pr.get("isDraft").and_then(|v| v.as_bool()).unwrap_or(false),
+        changed_files: pr
+            .get("changedFiles")
+            .and_then(|v| v.as_i64())
+            .or(files_total),
+        base_ref: str_field("baseRefName"),
+        head_ref: str_field("headRefName"),
+        url: str_field("url").unwrap_or_default(),
+        created_at: str_field("createdAt"),
+        author: author_from_value(pr.get("author")),
+        commits: PrCommits {
+            total_count: commits_total,
+            nodes: commits,
+        },
+        reviews: PrReviews {
+            total_count: reviews_total,
+            nodes: reviews,
+        },
+        comments: PrComments {
+            total_count: comments_total,
+            nodes: comments,
+        },
+    })
+}
+
+/// `author { login avatarUrl }` — shared by reviews and comments (the PR
+/// node's own author uses the same shape).
+fn author_from_value(value: Option<&serde_json::Value>) -> Option<Author> {
+    let a = value?;
+    Some(Author {
+        login: a.get("login")?.as_str()?.to_string(),
+        avatar_url: a
+            .get("avatarUrl")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string(),
+    })
+}
 /// The persisted snapshot (doc 0007 D7): one versioned cache key replacing
 /// the granular `user`/`orgs`/`repos`/`pr-counts`/`prs-*` keys.
 pub const SNAPSHOT_CACHE_KEY: &str = "snapshot-v2";
@@ -655,5 +930,118 @@ mod tests {
         let rl: RateLimitField =
             serde_json::from_str(r#"{"remaining":0,"resetAt":"2030-01-01T00:00:00Z"}"#).unwrap();
         assert_eq!(rl.reset_epoch(), 1_893_456_000);
+    }
+
+    // --- PR detail (docs/0016 D2) --------------------------------------
+
+    fn pr_detail_body(pr_json: &str) -> String {
+        // Concat, not format!: the JSON braces make a format string a
+        // counting hazard.
+        let mut body = String::from(r#"{"data":{"repository":{"pullRequest":"#);
+        body.push_str(pr_json);
+        body.push_str("}}}");
+        body
+    }
+
+    #[test]
+    fn pr_detail_parses_full_node() {
+        let body = pr_detail_body(
+            r#"{
+                "id": "PR_1", "number": 482, "title": "Add retry budget",
+                "body": "Fixes the fetch layer.", "state": "OPEN", "isDraft": false,
+                "changedFiles": 23, "baseRefName": "main",
+                "headRefName": "add-retry", "url": "https://github.com/o/r/pull/482",
+                "createdAt": "2026-08-01T00:00:00Z",
+                "author": {"login": "alice", "avatarUrl": "https://av"},
+                "commits": {"totalCount": 12, "nodes": [
+                    {"commit": {"oid": "abc1234def", "messageHeadline": "first",
+                                "committedDate": "2026-08-01T01:00:00Z",
+                                "author": {"name": "Alice", "avatarUrl": "https://av",
+                                           "user": {"login": "alice"}}}}
+                ]},
+                "reviews": {"totalCount": 1, "nodes": [
+                    {"author": {"login": "bob"}, "state": "APPROVED",
+                     "body": "lgtm", "submittedAt": "2026-08-02T00:00:00Z"}
+                ]},
+                "comments": {"totalCount": 2, "nodes": [
+                    {"author": {"login": "carol"}, "body": "nice",
+                     "createdAt": "2026-08-03T00:00:00Z"}
+                ]},
+                "files": {"totalCount": 23}
+            }"#,
+        );
+        let env: Envelope<PrDetailData> = serde_json::from_str(&body).unwrap();
+        let value = env.data.unwrap().repository.unwrap();
+        let d = pr_detail_from_value(&value).unwrap();
+        assert_eq!(d.id, "PR_1");
+        assert_eq!(d.number, 482);
+        assert_eq!(d.title, "Add retry budget");
+        assert_eq!(d.body.as_deref(), Some("Fixes the fetch layer."));
+        assert_eq!(d.state.as_deref(), Some("OPEN"));
+        assert!(!d.draft);
+        assert_eq!(d.changed_files, Some(23));
+        assert_eq!(d.base_ref.as_deref(), Some("main"));
+        assert_eq!(d.head_ref.as_deref(), Some("add-retry"));
+        assert_eq!(d.author.as_ref().map(|a| a.login.as_str()), Some("alice"));
+        assert_eq!(d.commits.total_count, 12);
+        assert_eq!(d.commits.nodes.len(), 1);
+        assert_eq!(d.commits.nodes[0].oid, "abc1234def");
+        assert_eq!(d.commits.nodes[0].headline, "first");
+        assert_eq!(d.commits.nodes[0].author_login.as_deref(), Some("alice"));
+        assert_eq!(d.commits.nodes[0].author_name.as_deref(), Some("Alice"));
+        assert_eq!(d.reviews.total_count, 1);
+        assert_eq!(d.reviews.nodes[0].state.as_deref(), Some("APPROVED"));
+        assert_eq!(d.comments.total_count, 2);
+        assert_eq!(d.comments.nodes[0].body, "nice");
+    }
+
+    #[test]
+    fn pr_detail_null_pull_request_is_none() {
+        let body = r#"{"data":{"repository":{"pullRequest":null}}}"#;
+        let env: Envelope<PrDetailData> = serde_json::from_str(body).unwrap();
+        let value = env.data.unwrap().repository.unwrap();
+        assert!(pr_detail_from_value(&value).is_none());
+    }
+
+    #[test]
+    fn pr_detail_bad_list_nodes_degrade_alone() {
+        let body = pr_detail_body(
+            r#"{
+                "id": "PR_2", "number": 7, "title": "t", "state": "OPEN", "isDraft": true,
+                "url": "u",
+                "commits": {"totalCount": 3, "nodes": [
+                    {"commit": {"oid": "aaa", "messageHeadline": "ok"}},
+                    {"commit": {"messageHeadline": "no oid — dropped"}},
+                    "not-even-an-object"
+                ]},
+                "reviews": {"totalCount": 0, "nodes": []},
+                "comments": {"totalCount": 2, "nodes": [
+                    {"author": {"login": "d"}, "body": "kept", "createdAt": null},
+                    {"author": {"login": "e"}}
+                ]}
+            }"#,
+        );
+        let env: Envelope<PrDetailData> = serde_json::from_str(&body).unwrap();
+        let d = pr_detail_from_value(&env.data.unwrap().repository.unwrap()).unwrap();
+        // totalCount stays the server's exact number; nodes keep the good ones.
+        assert_eq!(d.commits.total_count, 3);
+        assert_eq!(d.commits.nodes.len(), 1);
+        assert_eq!(d.comments.total_count, 2);
+        assert_eq!(d.comments.nodes.len(), 1);
+        assert_eq!(d.comments.nodes[0].body, "kept");
+        assert!(d.draft);
+        // changedFiles absent and files.totalCount absent → None.
+        assert_eq!(d.changed_files, None);
+    }
+
+    #[test]
+    fn pr_detail_changed_files_falls_back_to_files_total() {
+        let body = pr_detail_body(
+            r#"{"id":"P","number":1,"title":"t","url":"u",
+                "files": {"totalCount": 41}}"#,
+        );
+        let env: Envelope<PrDetailData> = serde_json::from_str(&body).unwrap();
+        let d = pr_detail_from_value(&env.data.unwrap().repository.unwrap()).unwrap();
+        assert_eq!(d.changed_files, Some(41));
     }
 }
