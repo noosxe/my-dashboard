@@ -124,7 +124,12 @@ Each paragraph/heading/table cell becomes a single text node: flat string +
 strikethrough, code → mono token). When the block carries links, wrap in
 `InteractiveText` with one range per link; the click listener looks up the
 URL by range index and calls `cx.open_url` (D5). Link styling: accent color
-+ underline via `HighlightStyle`. No `InteractiveText` when there are no
++ underline via `HighlightStyle`. **Shipped correction (2026-09-04, dark-theme
+link fix):** "accent" was the wrong token — `accent` is an accent-*background*
+token (dark: neutral-800), which reads as invisible against the card surface.
+Links now use the dedicated `link` token (dark: #fafafa, light: near-black,
+both underlined) per `ThemeColor::link`/`link_hover`; hover restyle would
+need mouse tracking on `InteractiveText` — not wired v1.
 links — plain `StyledText` (cheaper, no state).
 
 ### D4 — Block layout (theme tokens only)

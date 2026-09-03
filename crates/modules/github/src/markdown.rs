@@ -610,7 +610,7 @@ fn render_runs(runs: &[Run], id: &str, cx: &App) -> Div {
             });
         }
         if let Some(url) = &st.link {
-            h.color = Some(cx.theme().accent);
+            h.color = Some(cx.theme().link);
             h.underline = Some(UnderlineStyle {
                 thickness: px(1.),
                 color: None,
