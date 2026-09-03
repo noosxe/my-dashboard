@@ -8,6 +8,8 @@
 //! `&mut Window`, so background data sync goes through the stored window
 //! handle (D6) while user interaction arrives via `subscribe_in`.
 
+use std::sync::Arc;
+
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::{
@@ -29,6 +31,7 @@ use dashboard_core::nav::{Crumb, Navigator, Page};
 use crate::api;
 use crate::card::{REPO_LOCK, github_mark};
 use crate::gql;
+use crate::pr_page;
 use crate::service::{
     AuthStatus, ConnectPhase, FetchSpec, GithubState, Kind, run_spec_tracked, start_connect,
 };
@@ -40,6 +43,10 @@ pub(crate) struct GithubPage {
     org: Option<SharedString>,
     org_select: Entity<SelectState<SearchableVec<SharedString>>>,
     repo_list: Entity<ListState<RepoListDelegate>>,
+    /// The open PR sub-page (docs/0016 D1): `Some` = the PR detail page
+    /// owns the module content (full takeover — org Select + repo list
+    /// unmount; they remount with selection intact on close).
+    pr: Option<Entity<pr_page::PrDetailPage>>,
     /// Window access for observer-time entity updates (0009 D6).
     window: AnyWindowHandle,
     /// Last-synced item keys — compare-first background sync so untouched
@@ -128,6 +135,7 @@ impl GithubPage {
             org: None,
             org_select,
             repo_list,
+            pr: None,
             window: window.window_handle(),
             synced_orgs: Vec::new(),
             synced_repos: Vec::new(),
@@ -190,10 +198,13 @@ impl GithubPage {
         .detach();
     }
 
-    /// Derive the repo breadcrumb prefix from state and reconcile it
-    /// against the navigator (docs/0014 D1). Called on data changes
-    /// (end of `sync_from_state_in`) and on page (re)activation (the
-    /// nav observer); compare-first, so idle ticks write nothing.
+    /// Derive the module's full crumb chain from state + the open PR
+    /// sub-page, and reconcile it against the navigator (docs/0014 D1,
+    /// amended by 0016 D1: the derivation now owns the sub-page suffix
+    /// too, so the chain is `[repo]` or `[repo, #number]`). Called on
+    /// data changes (end of `sync_from_state_in`), on page
+    /// (re)activation (the nav observer), and on PR open/close;
+    /// compare-first, so idle ticks write nothing.
     fn sync_repo_crumb(&mut self, cx: &mut Context<Self>) {
         // Gate: never touch crumbs while another page owns the chrome
         // ("github" literal — card.rs:36 precedent).
@@ -204,10 +215,18 @@ impl GithubPage {
         if !active {
             return;
         }
-        let derived = {
+        let repo_label = {
             let s = self.state.read(cx);
             repo_crumb_label(s.selected.as_deref(), &s.repos, s.auth.connected())
         };
+        let pr_number = self.pr.as_ref().map(|p| p.read(cx).number);
+        let mut derived: Vec<SharedString> = Vec::new();
+        if let Some(label) = repo_label {
+            derived.push(label);
+        }
+        if let Some(number) = pr_number {
+            derived.push(format!("#{number}").into());
+        }
         let current: Vec<SharedString> = self
             .nav
             .read(cx)
@@ -215,10 +234,32 @@ impl GithubPage {
             .iter()
             .map(|c| c.label.clone())
             .collect();
-        if let Some(labels) = reconcile_repo_crumb(derived, &current) {
+        if let Some(labels) = reconcile_repo_crumb(&derived, &current) {
             log::debug!("repo crumb synced: {current:?} -> {labels:?}");
+            // With a PR open, the repo crumb becomes the back-nav anchor
+            // (docs/0014 deferred this `on_click` to the sub-pages doc;
+            // the `#number` crumb is current-location, non-clickable).
+            let pr_open = pr_number.is_some();
+            let page = cx.entity();
+            let crumbs: Vec<Crumb> = labels
+                .into_iter()
+                .enumerate()
+                .map(|(ix, label)| {
+                    if ix == 0 && pr_open {
+                        let page = page.clone();
+                        Crumb {
+                            label,
+                            on_click: Some(Arc::new(move |_window, cx| {
+                                page.update(cx, |this, cx| this.close_pr(cx));
+                            })),
+                        }
+                    } else {
+                        Crumb::label(label)
+                    }
+                })
+                .collect();
             self.nav.update(cx, |nav, cx| {
-                nav.set_crumbs(labels.into_iter().map(Crumb::label).collect(), cx);
+                nav.set_crumbs(crumbs, cx);
             });
         }
     }
@@ -228,6 +269,12 @@ impl GithubPage {
     /// entity updates ran — a sync that never reached a window is not
     /// recorded as done.
     fn sync_from_state_in(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // Sign-out / auth loss auto-closes an open PR page (docs/0016 D1):
+        // the connect panel owns the module again. The crumb reconcile at
+        // the end of this sync clears the suffix (disconnected = no crumbs).
+        if self.pr.is_some() && !self.state.read(cx).auth.connected() {
+            self.pr = None;
+        }
         let logins: Vec<SharedString> = self
             .state
             .read(cx)
@@ -297,6 +344,44 @@ impl GithubPage {
         self.run_specs(specs, window, cx);
     }
 
+    /// Open the in-app PR page for a snapshot row (docs/0016 D1): the
+    /// page takes over the module content, fetches its detail (D2), and
+    /// the breadcrumb gains the `#number` suffix. The repo row's old
+    /// browser hand-off moves to the page header's ↗ button.
+    fn open_pr(
+        &mut self,
+        repo: &str,
+        pr: &gql::PullRequest,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        log::debug!("pr page opened: {}#{}", repo, pr.number);
+        let page = cx.new(|cx| {
+            pr_page::PrDetailPage::new(self.state.clone(), repo.to_string(), pr.clone(), window, cx)
+        });
+        // Esc on the PR page asks its host to close it (docs/0016 D1).
+        cx.subscribe_in(&page, window, |this, _, _: &pr_page::PrPageEvent, _, cx| {
+            this.close_pr(cx);
+        })
+        .detach();
+        self.pr = Some(page.clone());
+        self.sync_repo_crumb(cx);
+        let focus = page.read(cx).focus_handle(cx).clone();
+        window.focus(&focus, cx);
+        cx.notify();
+    }
+
+    /// Close the PR sub-page: back to the repo view (selection survives —
+    /// the Select/List entities kept their state while unmounted) and the
+    /// crumb chain loses its `#number` suffix.
+    fn close_pr(&mut self, cx: &mut Context<Self>) {
+        if self.pr.take().is_some() {
+            log::debug!("pr page closed");
+            self.sync_repo_crumb(cx);
+            cx.notify();
+        }
+    }
+
     /// Manual refresh (Q7): notifications + a fresh global snapshot, now.
     fn refresh_now(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         log::debug!("manual refresh");
@@ -337,7 +422,15 @@ impl GithubPage {
     }
 
     fn render_pr_row(&self, pr: &gql::PullRequest, cx: &Context<Self>) -> AnyElement {
-        let url = pr.url.clone();
+        // Row click opens the in-app PR page (docs/0016 D1); the github.com
+        // hand-off lives on in the page header's ↗ button.
+        let page = cx.entity();
+        let repo = self.state.read(cx).selected.clone().unwrap_or_else(|| {
+            // Belt: rows render only under a selected repo view; if that
+            // ever drifts, trim the `#number` off the row's composite key.
+            pr.key.split('#').next().unwrap_or_default().to_string()
+        });
+        let row = pr.clone();
         div()
             .id(SharedString::from(format!("pr-{}", pr.key)))
             .role(accesskit::Role::ListItem)
@@ -347,7 +440,9 @@ impl GithubPage {
             .text_sm()
             .cursor_pointer()
             .hover(|s| s.bg(cx.theme().accent.opacity(0.08)))
-            .on_click(move |_, _, cx| cx.open_url(&url))
+            .on_click(move |_, window, cx| {
+                page.update(cx, |this, cx| this.open_pr(&repo, &row, window, cx));
+            })
             .child(
                 h_flex()
                     .justify_between()
@@ -536,24 +631,23 @@ fn repo_crumb_label(
         .map(|r| r.name.clone().into())
 }
 
-/// Decide whether the navigator's crumbs must be rewritten to carry the
-/// repo prefix (docs/0014 D3). `Some(labels)` = write exactly these
-/// (prefix only); `None` = leave the navigator alone — the compare-first
-/// guard that keeps idle ticks write-free. The module owns a *prefix* of
-/// the chain: a matching prefix (with or without a future subpage
-/// suffix) is preserved, everything after a mismatched prefix is stale
-/// and dropped. Pure — table-tested.
+/// Decide whether the navigator's crumbs must be rewritten (docs/0014 D3,
+/// amended by 0016 D1). `Some(labels)` = write exactly these; `None` =
+/// leave the navigator alone — the compare-first guard that keeps idle
+/// ticks write-free. 0014's module-owned chain was a prefix (the repo
+/// label) that tolerated unknown suffixes; since the PR sub-page landed,
+/// the module derives the **whole** chain — `[repo]` or `[repo, #n]` —
+/// so the no-op predicate collapses to equality (any mismatch is stale:
+/// a lingering suffix after close, a missing one after open, a changed
+/// repo). Pure — table-tested.
 fn reconcile_repo_crumb(
-    derived: Option<SharedString>,
+    derived: &[SharedString],
     current: &[SharedString],
 ) -> Option<Vec<SharedString>> {
-    match derived {
-        None if current.is_empty() => None, // stable: no repo
-        None => Some(Vec::new()),           // repo lost: clear all
-        Some(r) => match current.first() {
-            Some(first) if *first == r => None, // stable: prefix present
-            _ => Some(vec![r]),                 // (re)port / changed
-        },
+    if derived == current {
+        None
+    } else {
+        Some(derived.to_vec())
     }
 }
 
@@ -681,6 +775,13 @@ impl Render for GithubPage {
         // Non-connected: the connect panel owns the page (§6.4 auth row).
         if !auth.connected() {
             return connect_panel(&auth, cx);
+        }
+
+        // PR sub-page takeover (docs/0016 D1): while a PR is open its page
+        // replaces the whole module content — the two-column layout (and
+        // its org Select / repo list) unmounts until the page closes.
+        if let Some(pr) = &self.pr {
+            return pr.clone().into_any_element();
         }
 
         let (selected_full, prs, issues, repo_notifs) = {
@@ -1255,45 +1356,67 @@ mod tests {
 
     #[test]
     fn reconcile_noop_when_nothing_selected_and_no_crumbs() {
-        assert_eq!(reconcile_repo_crumb(None, &[]), None);
+        assert_eq!(reconcile_repo_crumb(&[], &[]), None);
     }
 
     #[test]
     fn reconcile_clears_all_when_repo_lost() {
         // A suffix without its repo is meaningless — drop it too.
-        let current = vec![SharedString::from("widget"), SharedString::from("Issues")];
-        assert_eq!(reconcile_repo_crumb(None, &current), Some(Vec::new()));
+        let current = vec![SharedString::from("widget"), SharedString::from("#12")];
+        assert_eq!(reconcile_repo_crumb(&[], &current), Some(Vec::new()));
     }
 
     #[test]
     fn reconcile_reports_when_crumbs_empty() {
         // First report, or re-entry after `go` cleared the crumbs.
         assert_eq!(
-            reconcile_repo_crumb(Some("widget".into()), &[]),
+            reconcile_repo_crumb(&["widget".into()], &[]),
             Some(vec![SharedString::from("widget")])
         );
     }
 
     #[test]
-    fn reconcile_noop_when_prefix_present() {
+    fn reconcile_noop_when_chain_matches() {
         let current = vec![SharedString::from("widget")];
-        assert_eq!(reconcile_repo_crumb(Some("widget".into()), &current), None);
+        assert_eq!(reconcile_repo_crumb(&["widget".into()], &current), None);
     }
 
     #[test]
     fn reconcile_preserves_subpage_suffix() {
-        // docs/0014 D3: background ticks must not flatten [repo, Issues]
-        // back to [repo] once the subpages doc lands.
-        let current = vec![SharedString::from("widget"), SharedString::from("Issues")];
-        assert_eq!(reconcile_repo_crumb(Some("widget".into()), &current), None);
+        // docs/0016 D1: while the PR page is open, the derived chain
+        // carries the `#n` suffix — a matching navigator chain is a no-op,
+        // so background ticks cannot flatten it back to [repo].
+        let current = vec![SharedString::from("widget"), SharedString::from("#482")];
+        assert_eq!(
+            reconcile_repo_crumb(&["widget".into(), "#482".into()], &current),
+            None
+        );
     }
 
     #[test]
     fn reconcile_rewrites_when_repo_changed() {
         let current = vec![SharedString::from("widget")];
         assert_eq!(
-            reconcile_repo_crumb(Some("gadget".into()), &current),
+            reconcile_repo_crumb(&["gadget".into()], &current),
             Some(vec![SharedString::from("gadget")])
+        );
+    }
+
+    #[test]
+    fn reconcile_appends_and_clears_the_pr_suffix() {
+        // Open: [repo] → [repo, #n]. Close: [repo, #n] → [repo].
+        let repo = [SharedString::from("widget")];
+        let open = [SharedString::from("widget"), SharedString::from("#482")];
+        assert_eq!(
+            reconcile_repo_crumb(&open, &repo),
+            Some(vec![
+                SharedString::from("widget"),
+                SharedString::from("#482")
+            ])
+        );
+        assert_eq!(
+            reconcile_repo_crumb(&repo, &open),
+            Some(vec![SharedString::from("widget")])
         );
     }
 }

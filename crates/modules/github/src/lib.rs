@@ -15,6 +15,7 @@ pub mod card;
 pub mod gql;
 pub mod http;
 pub mod page;
+pub mod pr_page;
 pub mod service;
 pub mod settings;
 
@@ -51,6 +52,14 @@ impl Module for GithubModule {
     ) -> ModuleEntry {
         let window_handle = window.window_handle();
 
+        // Esc closes the open PR sub-page (docs/0016 D1): scoped to the
+        // PR page's key context so it never fires elsewhere; the PR page
+        // focus sits inside that context while it owns the content.
+        cx.bind_keys([KeyBinding::new(
+            "esc",
+            pr_page::DismissPrPage,
+            Some("GithubPrPage"),
+        )]);
         // Keychain-backed token slot + shared client + cache root (0005 Q3/Q6).
         let store: Arc<dyn TokenStore> = Arc::new(KeyringTokenStore);
         let shared_token: SharedToken = Arc::new(std::sync::RwLock::new(None));

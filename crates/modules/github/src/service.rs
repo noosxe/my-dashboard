@@ -197,6 +197,11 @@ pub enum Kind {
     RepoSnapshot,
     /// Repo-scoped unread notifications — fetched once per open (D6).
     RepoNotifications,
+    /// One PR's detail payload (docs/0016 D2) — fetched by the PR page
+    /// on open/refresh; the 200 body is parsed page-side, never by
+    /// [`GithubState::apply`] (only non-200 results are forwarded there
+    /// for the shared auth/rate-limit handling).
+    PrDetail,
 }
 
 #[derive(Clone, Debug)]
@@ -231,6 +236,7 @@ pub fn run_spec(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
     match spec.kind {
         Kind::Snapshot => run_snapshot(http, spec),
         Kind::RepoSnapshot => run_repo_snapshot(http, spec),
+        Kind::PrDetail => run_pr_detail(http, spec),
         Kind::Notifications | Kind::RepoNotifications => run_rest(http, spec),
     }
 }
@@ -506,12 +512,53 @@ fn run_repo_snapshot(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
     }
 }
 
+/// One PR's detail (docs/0016 D2): a single GraphQL call, body passthrough.
+/// The PR page parses the 200 body itself; `ident` carries
+/// `owner/repo#number` for logging.
+fn run_pr_detail(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
+    let mut status = 0u16;
+    let mut rate = None;
+    let mut network = None;
+    let mut body = None;
+    log::debug!("fetch pr-detail: {}", spec.ident.as_deref().unwrap_or("?"));
+    let sent_at = Instant::now();
+    match http.post_graphql(
+        gql::PR_DETAIL_QUERY,
+        spec.variables.as_ref().unwrap_or(&Value::Null),
+    ) {
+        Err(HttpError(m)) => network = Some(m),
+        Ok(result) => {
+            status = result.status;
+            rate = result.rate;
+            log::debug!(
+                "fetch pr-detail: → {} in {}ms",
+                status,
+                sent_at.elapsed().as_millis()
+            );
+            if status == 200 {
+                body = result.body;
+            }
+        }
+    }
+    SpecResult {
+        kind: spec.kind,
+        ident: spec.ident.clone(),
+        status,
+        etag: None,
+        rate,
+        body,
+        network,
+        cursor: None,
+    }
+}
+
 impl Kind {
     fn kind_name(&self) -> &'static str {
         match self {
             Kind::Snapshot => "snapshot",
             Kind::Notifications => "notifications",
             Kind::RepoSnapshot => "repo-snapshot",
+            Kind::PrDetail => "pr-detail",
             Kind::RepoNotifications => "repo-notifs",
         }
     }
@@ -970,6 +1017,11 @@ impl GithubState {
                 (None, _) => log::warn!("repo-notifs spec without ident"),
                 (_, Err(e)) => log::warn!("repo-notifs payload: {e}"),
             },
+            // Page-owned kind (docs/0016 D2): the PR page parses its own
+            // 200 bodies. Only non-200 results are ever forwarded here,
+            // and those return in the status handling above — this arm
+            // exists purely for match exhaustiveness.
+            Kind::PrDetail => {}
         }
 
         // ETag keyed by logical resource (kind + ident), not raw URL, so

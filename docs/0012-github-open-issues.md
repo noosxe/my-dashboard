@@ -132,7 +132,9 @@ The section is `GroupBox::new().id("issues-box")`, mirroring `prs-box`.
 - left: title (medium weight) + `#{number}` muted;
 - right: author avatar + login (when author present) + relative age
   (`relative_age(updated_at)`);
-- click → `cx.open_url(issue.url)` — browser, not an in-app view (PR parity).
+- click → `cx.open_url(issue.url)` — browser, not an in-app view (PR parity
+  until 0016 landed: PR rows now open the in-app PR page, issue rows
+  still hand off to the browser).
 
 No `Draft` badge — issues have no draft state in our field set. There is no
 `statusCheckRollup` for issues; nothing extra to surface.

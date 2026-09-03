@@ -92,10 +92,16 @@ Out (non-goals):
   messageHeadline committedDate author { name avatarUrl user { login } } } } }`,
   `reviews(first: n) { nodes { author state body submittedAt } }`,
   `comments(first: n) { nodes { author body createdAt } }`,
-  `files(first: n) { totalCount changedFiles nodes { path additions deletions
-  changeType } }`, `statusCheckRollup { state contexts(first: n) { nodes … } }`.
-  **`files` carries no patch text** — patch hunks exist only on the REST
-  endpoint.
+  `reviews(first: n) { totalCount nodes { author state body submittedAt } }`,
+  `comments(first: n) { totalCount nodes { author body createdAt } }`,
+  `changedFiles` (top-level `PullRequest` field — corrected at stage-1
+  implementation, bridge-verified against the live schema: `changedFiles`
+  lives on the PR object, not the `files` connection, and the
+  `…IfAvailable` variant the reference recommends is not in the public
+  schema),
+  `files(first: n) { totalCount }`, `statusCheckRollup { state
+  contexts(first: n) { nodes … } }`. **The `files` connection carries no
+  patch text** — patch hunks exist only on the REST endpoint.
 - Mutations (input fields verified): `addComment { subjectId body }`;
   `addPullRequestReview { pullRequestId event body }` with
   `PullRequestReviewEvent ∈ { APPROVE, COMMENT, REQUEST_CHANGES, DISMISS }`
