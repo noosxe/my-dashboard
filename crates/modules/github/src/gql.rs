@@ -349,14 +349,18 @@ pub struct Issue {
 // PR detail page (docs/0016) — one query on open, no cache (D2).
 // ---------------------------------------------------------------------------
 
-/// The stage-1 field set (docs/0016 §6.1): everything the header, tab
-/// counts, and the conversation read path render. `contexts` (checks rows)
-/// and the merge-method repository booleans land with their stages
-/// (§6.2/§6.3) after their shapes are re-verified.
+/// The stage-1+2 field set (docs/0016 §6.1–§6.2): everything the header,
+/// tab counts, the conversation read path, and the write path render —
+/// plus the merge-method repository booleans and the mergeability pair
+/// the rail panel needs. `contexts` (checks rows) land with stage 3
+/// (#93) after the union shape is re-verified.
 pub const PR_DETAIL_QUERY: &str = r#"
 query PrDetail($owner: String!, $name: String!, $number: Int!) {
   rateLimit { cost remaining resetAt }
   repository(owner: $owner, name: $name) {
+    mergeCommitAllowed
+    squashMergeAllowed
+    rebaseMergeAllowed
     pullRequest(number: $number) {
       id
       number
@@ -370,6 +374,10 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
       url
       createdAt
       author { login avatarUrl }
+      viewerCanUpdate
+      mergeable
+      mergeStateStatus
+      statusCheckRollup { state }
       commits(first: 100) {
         totalCount
         nodes {
@@ -408,7 +416,6 @@ pub struct PrDetailData {
 #[derive(Debug, Clone)]
 pub struct PrDetail {
     /// Node ID — the mutation target for the stage-2 write path.
-    #[allow(dead_code)] // docs/0016 §6.2
     pub id: String,
     pub number: i64,
     pub title: String,
@@ -416,6 +423,17 @@ pub struct PrDetail {
     /// `PullRequestState` — OPEN / MERGED / CLOSED.
     pub state: Option<String>,
     pub draft: bool,
+    /// `viewerCanUpdate` — gates the description Edit affordance (D4).
+    pub viewer_can_update: bool,
+    /// `MergeableState` — MERGEABLE / CONFLICTING / UNKNOWN; the Merge
+    /// button stays disabled on anything but MERGEABLE (D5).
+    pub mergeable: Option<String>,
+    /// `MergeStateStatus` — the finer-grained rail state line (D5).
+    pub merge_state_status: Option<String>,
+    /// `statusCheckRollup.state` — the checks mini-summary signal (D5).
+    pub rollup_state: Option<String>,
+    /// Repository merge settings — which methods the rail offers (D5).
+    pub merge_methods: MergeMethods,
     /// `changedFiles` (top-level `PullRequest` field — the `…IfAvailable` variant the docs recommend is NOT in the public schema; bridge-verified 2026-09-03), with `files.totalCount` as the fallback
     /// (the schema recommends the *IfAvailable variant precisely because
     /// the eager field can error for huge diffs).
@@ -446,6 +464,15 @@ pub struct PrCommit {
     /// `author.user.login` — `None` for non-user commits.
     pub author_login: Option<String>,
     pub author_avatar: Option<String>,
+}
+
+/// The repository's enabled merge methods (docs/0016 D5) — ride along
+/// on the detail query's `repository` wrapper.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MergeMethods {
+    pub merge: bool,
+    pub squash: bool,
+    pub rebase: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -486,6 +513,9 @@ pub fn pr_detail_from_value(value: &serde_json::Value) -> Option<PrDetail> {
         return None;
     }
     let str_field = |name: &str| pr.get(name).and_then(|v| v.as_str()).map(str::to_string);
+    // Repository-level merge settings (docs/0016 D5) — read off the
+    // repository node itself (`value`), missing booleans = disabled.
+    let merge_methods = gql_merge_methods(value);
     let files_total = pr.pointer("/files/totalCount").and_then(|v| v.as_i64());
     let commits = pr
         .pointer("/commits/nodes")
@@ -583,6 +613,17 @@ pub fn pr_detail_from_value(value: &serde_json::Value) -> Option<PrDetail> {
         body: str_field("body"),
         state: str_field("state"),
         draft: pr.get("isDraft").and_then(|v| v.as_bool()).unwrap_or(false),
+        viewer_can_update: pr
+            .get("viewerCanUpdate")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        mergeable: str_field("mergeable"),
+        merge_state_status: str_field("mergeStateStatus"),
+        rollup_state: pr
+            .pointer("/statusCheckRollup/state")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        merge_methods,
         changed_files: pr
             .get("changedFiles")
             .and_then(|v| v.as_i64())
@@ -607,6 +648,61 @@ pub fn pr_detail_from_value(value: &serde_json::Value) -> Option<PrDetail> {
     })
 }
 
+/// The three `repository` merge-method booleans — absent fields count
+/// as disabled (repos really do turn methods off; `false` is a value the
+/// API returns, `null`/absent only on degraded payloads).
+fn gql_merge_methods(repo: &serde_json::Value) -> MergeMethods {
+    let flag = |name: &str| repo.get(name).and_then(|v| v.as_bool()).unwrap_or(false);
+    MergeMethods {
+        merge: flag("mergeCommitAllowed"),
+        squash: flag("squashMergeAllowed"),
+        rebase: flag("rebaseMergeAllowed"),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PR page mutations (docs/0016 §6.2) — inputs verified against the GraphQL
+// reference; every payload selection is a field confirmed on that payload.
+// ---------------------------------------------------------------------------
+
+/// Post a plain comment (`AddCommentInput { subjectId body }`).
+pub const PR_ADD_COMMENT_MUTATION: &str = r#"
+mutation PrAddComment($input: AddCommentInput!) {
+  addComment(input: $input) { clientMutationId }
+}
+"#;
+
+/// Submit a review (`AddPullRequestReviewInput { pullRequestId event body }`)
+/// — `event` APPROVE / REQUEST_CHANGES; `body` omitted when empty (a
+/// body-less approve is legal).
+pub const PR_ADD_REVIEW_MUTATION: &str = r#"
+mutation PrAddReview($input: AddPullRequestReviewInput!) {
+  addPullRequestReview(input: $input) { pullRequestReview { id state } }
+}
+"#;
+
+/// Edit the description (`UpdateIssueInput { id body }` — a PR is an
+/// issue, so `updateIssue` takes the PR node id).
+pub const PR_UPDATE_DESCRIPTION_MUTATION: &str = r#"
+mutation PrUpdateDescription($input: UpdateIssueInput!) {
+  updateIssue(input: $input) { issue { id } }
+}
+"#;
+
+/// Merge (`MergePullRequestInput { pullRequestId mergeMethod }` — method
+/// MERGE / SQUASH / REBASE, server default MERGE).
+pub const PR_MERGE_MUTATION: &str = r#"
+mutation PrMerge($input: MergePullRequestInput!) {
+  mergePullRequest(input: $input) { pullRequest { state } }
+}
+"#;
+
+/// Close (`ClosePullRequestInput { pullRequestId }`).
+pub const PR_CLOSE_MUTATION: &str = r#"
+mutation PrClose($input: ClosePullRequestInput!) {
+  closePullRequest(input: $input) { pullRequest { state } }
+}
+"#;
 /// `author { login avatarUrl }` — shared by reviews and comments (the PR
 /// node's own author uses the same shape).
 fn author_from_value(value: Option<&serde_json::Value>) -> Option<Author> {
@@ -993,6 +1089,49 @@ mod tests {
         assert_eq!(d.reviews.nodes[0].state.as_deref(), Some("APPROVED"));
         assert_eq!(d.comments.total_count, 2);
         assert_eq!(d.comments.nodes[0].body, "nice");
+    }
+
+    #[test]
+    fn pr_detail_parses_stage2_write_path_fields() {
+        // The repository wrapper carries the merge-method booleans (D5);
+        // the PR node carries viewerCanUpdate / mergeability / rollup.
+        let mut body = String::from(
+            r#"{"data":{"repository":{"mergeCommitAllowed":true,"squashMergeAllowed":false,"rebaseMergeAllowed":true,"pullRequest":"#,
+        );
+        body.push_str(
+            r#"{"id":"PR_9","viewerCanUpdate":true,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","statusCheckRollup":{"state":"SUCCESS"}}"#,
+        );
+        body.push_str("}}}");
+        let env: Envelope<PrDetailData> = serde_json::from_str(&body).unwrap();
+        let value = env.data.unwrap().repository.unwrap();
+        let d = pr_detail_from_value(&value).unwrap();
+        assert!(d.viewer_can_update);
+        assert_eq!(d.mergeable.as_deref(), Some("MERGEABLE"));
+        assert_eq!(d.merge_state_status.as_deref(), Some("CLEAN"));
+        assert_eq!(d.rollup_state.as_deref(), Some("SUCCESS"));
+        assert_eq!(
+            d.merge_methods,
+            MergeMethods {
+                merge: true,
+                squash: false,
+                rebase: true
+            }
+        );
+    }
+
+    #[test]
+    fn pr_detail_absent_stage2_fields_default_off() {
+        // A degraded payload (no write-path fields at all) must not take
+        // the page down: editing stays hidden, merging stays disabled.
+        let body = pr_detail_body(r#"{"id":"PR_1","number":1,"title":"t","url":"u"}"#);
+        let env: Envelope<PrDetailData> = serde_json::from_str(&body).unwrap();
+        let value = env.data.unwrap().repository.unwrap();
+        let d = pr_detail_from_value(&value).unwrap();
+        assert!(!d.viewer_can_update);
+        assert_eq!(d.mergeable, None);
+        assert_eq!(d.merge_state_status, None);
+        assert_eq!(d.rollup_state, None);
+        assert_eq!(d.merge_methods, MergeMethods::default());
     }
 
     #[test]

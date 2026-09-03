@@ -288,7 +288,9 @@ into the normal page.
   (`updated_at`). Row hover highlight; click → `cx.open_url(html_url)`.
   **Amended (0016 stage 1):** the PR row click now opens the in-app PR
   detail page; the browser hand-off moved to that page's header ↗ button.
-  Issue rows keep the browser hand-off.
+  Issue rows keep the browser hand-off. **Amended (0016 stage 2):** the
+  page is also the write surface — comment/review submission, description
+  editing, and merge/close all happen in-app (docs/0016 §6.2).
 - Issue row (0012): same treatment as the PR row minus the `[Draft]` badge —
   title (medium weight), `#number` (muted), `Avatar` + author login,
   relative age; hover highlight; click → `cx.open_url(url)`.

@@ -1,8 +1,11 @@
-//! PR detail page (docs/0016 §6 stage 1) — the full-content takeover that
+//! PR detail page (docs/0016 §6 stages 1–2) — the full-content takeover that
 //! opens when a repo-view PR row is clicked: header (state badge, title,
 //! number, author/branch meta, refresh + open-on-GitHub), an underline
-//! `TabBar` with live counts, and the Conversation read path (description
-//! card, merged comment/review timeline, comment-box chrome).
+//! `TabBar` with live counts, the Conversation read path, and the stage-2
+//! write path: comment/review submission, description editing, and the
+//! merge/close panel in the conversation right rail (D4/D5). Every
+//! mutation runs through `run_mutation` (same transport as queries,
+//! tracked) and ends with a detail refetch (D4/D5).
 //!
 //! Data: one GraphQL detail query on open + on header refresh (D2) — the
 //! 200 body parses here, page-side; only non-200 results are forwarded to
@@ -22,6 +25,7 @@ use gpui_component::{
     avatar::Avatar,
     badge::Badge,
     button::{Button, ButtonVariants},
+    group_box::GroupBox,
     h_flex,
     input::{Textarea, TextareaState},
     searchable_list::SearchableVec,
@@ -32,9 +36,11 @@ use gpui_component::{
     v_flex,
 };
 
+use serde_json::json;
+
 use crate::gql;
 use crate::page::relative_age;
-use crate::service::{FetchSpec, GithubState, Kind, run_spec_tracked};
+use crate::service::{FetchSpec, GithubState, Kind, Mutation, run_mutation, run_spec_tracked};
 
 actions!(github, [DismissPrPage]);
 
@@ -87,10 +93,22 @@ pub(crate) struct PrDetailPage {
     load_error: Option<String>,
     tab: PrTab,
     focus_handle: FocusHandle,
-    /// Comment-box chrome (stage 1 renders it read-only; the write path is
-    /// docs/0016 §6 stage 2).
+    /// Comment box (D4): draft textarea + action select.
     comment: Entity<TextareaState>,
     action_select: Entity<SelectState<SearchableVec<SharedString>>>,
+    /// The write path in flight (D4/D5) — one at a time; every write
+    /// surface disables while set.
+    busy: Option<BusyOp>,
+    /// The last mutation failure, scoped to the surface that shows it.
+    mutation_error: Option<MutationError>,
+    /// Prefilled textarea while the description is being edited (D4).
+    description_edit: Option<Entity<TextareaState>>,
+    /// Methods the repo allows (D5), from the detail payload — drives the
+    /// method Select and the Merge button verb.
+    methods: Vec<MergeMethod>,
+    /// Method Select state — built once, on the first render that has a
+    /// detail payload (SelectState needs a window; render has one).
+    method_select: Option<Entity<SelectState<SearchableVec<SharedString>>>>,
 }
 
 impl EventEmitter<PrPageEvent> for PrDetailPage {}
@@ -131,6 +149,11 @@ impl PrDetailPage {
             focus_handle: cx.focus_handle(),
             comment,
             action_select,
+            busy: None,
+            mutation_error: None,
+            description_edit: None,
+            methods: Vec::new(),
+            method_select: None,
         };
         page.fetch_detail(cx);
         page
@@ -224,6 +247,249 @@ impl PrDetailPage {
         cx.notify();
     }
 
+    // --- write path (docs/0016 §6 stage 2) ---------------------------------
+
+    /// The selected comment-box action label, cloned out of the Select.
+    fn current_action(&self, cx: &Context<Self>) -> SharedString {
+        self.action_select
+            .read(cx)
+            .selected_value()
+            .cloned()
+            .unwrap_or_else(|| "Comment".into())
+    }
+
+    /// Comment/Approve/Request-changes submit (D4): `addComment` for a
+    /// plain comment, `addPullRequestReview` for the two review events
+    /// (body optional). Gating is the same pure fn the button renders
+    /// with — re-checked here as the honest guard.
+    fn submit_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(d) = self.detail.clone() else { return };
+        if self.busy.is_some() || d.id.is_empty() {
+            return;
+        }
+        let action = self.current_action(cx);
+        let body = self.comment.read(cx).value().trim().to_string();
+        if !comment_action_allowed(action.as_ref(), body.is_empty()) {
+            return;
+        }
+        let op = if action.as_ref() == "Comment" {
+            BusyOp::Comment
+        } else {
+            BusyOp::Review
+        };
+        let (mutation, variables) = if action.as_ref() == "Comment" {
+            (
+                Mutation::Comment,
+                json!({ "input": { "subjectId": d.id, "body": body } }),
+            )
+        } else {
+            let event = review_event(action.as_ref())
+                .expect("comment_action_allowed guarantees a review event");
+            let mut input = json!({ "input": { "pullRequestId": d.id, "event": event } });
+            if !body.is_empty() {
+                input["input"]["body"] = json!(body);
+            }
+            (Mutation::Review, input)
+        };
+        self.mutation_error = None;
+        self.busy = Some(op);
+        cx.notify();
+        self.spawn_mutation(op, mutation, variables, window, cx);
+    }
+
+    /// Open the description editor (D4), prefilled with the current body.
+    fn start_edit_description(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.busy.is_some() || self.description_edit.is_some() {
+            return;
+        }
+        let body = self
+            .detail
+            .as_ref()
+            .and_then(|d| d.body.clone())
+            .unwrap_or_default();
+        let editor = cx.new(|cx| {
+            let mut state = TextareaState::new(window, cx)
+                .rows(8)
+                .placeholder("Describe this pull request");
+            state.set_value(body, window, cx);
+            state
+        });
+        self.description_edit = Some(editor);
+        cx.notify();
+    }
+
+    fn cancel_edit_description(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.description_edit = None;
+        self.mutation_error = None;
+        self.refocus_page(_window, cx);
+        cx.notify();
+    }
+
+    /// Save the edited description (`updateIssue`, D4) — the PR node id is
+    /// the issue id; empty bodies never get here (Save renders disabled).
+    fn save_description(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let (Some(d), Some(editor)) = (self.detail.as_ref(), self.description_edit.as_ref()) else {
+            return;
+        };
+        if self.busy.is_some() || d.id.is_empty() {
+            return;
+        }
+        let body = editor.read(cx).value().trim().to_string();
+        if body.is_empty() {
+            return;
+        }
+        let variables = json!({ "input": { "id": d.id, "body": body } });
+        self.mutation_error = None;
+        self.busy = Some(BusyOp::Description);
+        cx.notify();
+        self.spawn_mutation(
+            BusyOp::Description,
+            Mutation::UpdateDescription,
+            variables,
+            window,
+            cx,
+        );
+    }
+
+    /// Merge the PR (D5) with the selected (or only) method.
+    fn merge_pr(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(d) = self.detail.clone() else { return };
+        if !merge_enabled(
+            d.state.as_deref(),
+            d.draft,
+            d.mergeable.as_deref(),
+            self.busy.is_some(),
+            self.methods.is_empty(),
+        ) {
+            return;
+        }
+        let method = self.selected_method(cx).unwrap_or(MergeMethod::Merge);
+        let variables =
+            json!({ "input": { "pullRequestId": d.id, "mergeMethod": method.as_str() } });
+        self.mutation_error = None;
+        self.busy = Some(BusyOp::Merge);
+        cx.notify();
+        self.spawn_mutation(BusyOp::Merge, Mutation::Merge, variables, window, cx);
+    }
+
+    /// Close the PR (D5).
+    fn close_pr(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(d) = self.detail.clone() else { return };
+        if self.busy.is_some() || d.id.is_empty() || d.state.as_deref() != Some("OPEN") {
+            return;
+        }
+        let variables = json!({ "input": { "pullRequestId": d.id } });
+        self.mutation_error = None;
+        self.busy = Some(BusyOp::Close);
+        cx.notify();
+        self.spawn_mutation(BusyOp::Close, Mutation::Close, variables, window, cx);
+    }
+
+    /// The description editor holds keyboard focus while open; dropping
+    /// its entity (cancel, or save success) would leave the page with a
+    /// dead focus handle — no key context, so `Esc` would stop working
+    /// (found via the bridge during stage-2 verification). Hand focus
+    /// back to the page root.
+    fn refocus_page(&self, window: &mut Window, cx: &mut Context<Self>) {
+        self.focus_handle.focus(window, cx);
+    }
+
+    /// The method the Select currently names — `None` when the Select has
+    /// nothing selected or names a label this build doesn't know.
+    fn selected_method(&self, cx: &Context<Self>) -> Option<MergeMethod> {
+        let selected = self.method_select.as_ref()?.read(cx).selected_value()?;
+        self.methods
+            .iter()
+            .copied()
+            .find(|m| m.label() == selected.as_ref())
+    }
+
+    fn spawn_mutation(
+        &mut self,
+        op: BusyOp,
+        mutation: Mutation,
+        variables: serde_json::Value,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let client = self.state.update(cx, |s, _| s.client.clone());
+        let ident = format!("{}#{} {:?}", self.repo, self.number, op);
+        // `spawn_in` keeps the window reachable across the await so the
+        // result handler can clear the draft (set_value needs a Window).
+        cx.spawn_in(window, async move |this, cx| {
+            let result = run_mutation(client, mutation, variables, ident, cx).await;
+            let _ = cx.update(|window, app| {
+                this.update(app, |page, cx| {
+                    page.apply_mutation_result(op, result, window, cx)
+                })
+            });
+        })
+        .detach();
+    }
+
+    /// A mutation came back (D4/D5): success clears the draft/edits, any
+    /// failure lands as a scoped inline error — then the detail refetches
+    /// in every case (docs/0016 §6.2), so the page never disagrees with
+    /// GitHub about what just happened. A 200 with GraphQL `errors`
+    /// (server-side rejections — approving your own PR, merging a draft)
+    /// is a failure here.
+    fn apply_mutation_result(
+        &mut self,
+        op: BusyOp,
+        result: crate::service::SpecResult,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.busy = None;
+        let scope = op.error_scope();
+        let mut failed: Option<String> = None;
+        if let Some(m) = &result.network {
+            failed = Some(format!("Network error: {m}"));
+        } else if result.status != 200 {
+            let status = result.status;
+            self.state.update(cx, |s, cx| {
+                s.apply(result);
+                cx.notify();
+            });
+            failed = Some(format!("GitHub answered HTTP {status}"));
+        } else {
+            let gql_error = result.body.as_deref().and_then(|body| {
+                serde_json::from_str::<gql::Envelope<serde_json::Value>>(body)
+                    .ok()
+                    .and_then(|env| env.errors.first().map(|e| e.message.clone()))
+            });
+            if let Some(message) = gql_error {
+                log::warn!(
+                    "pr-mutation {}#{} {:?}: {}",
+                    self.repo,
+                    self.number,
+                    op,
+                    message
+                );
+                failed = Some(message);
+            }
+        }
+        if let Some(message) = failed {
+            self.mutation_error = Some(MutationError { scope, message });
+        } else {
+            self.mutation_error = None;
+            match op {
+                BusyOp::Comment | BusyOp::Review => {
+                    // Clear the draft — `set_value` needs the window the
+                    // spawn kept alive for exactly this.
+                    self.comment
+                        .update(cx, |state, cx| state.set_value("", window, cx));
+                }
+                BusyOp::Description => {
+                    self.description_edit = None;
+                    self.refocus_page(window, cx);
+                }
+                BusyOp::Merge | BusyOp::Close => {}
+            }
+        }
+        self.fetch_detail(cx);
+        cx.notify();
+    }
     fn request_close(&mut self, cx: &mut Context<Self>) {
         cx.emit(PrPageEvent::CloseRequested);
     }
@@ -422,15 +688,44 @@ impl PrDetailPage {
             .map(|a| a.login.clone())
             .unwrap_or_else(|| "ghost".into());
         let author_avatar = d.author.as_ref().map(|a| a.avatar_url.clone());
-        let mut children = vec![body_card(
-            "pr-description",
-            &author_login,
-            author_avatar.as_deref(),
-            relative_age(d.created_at.as_deref()),
-            d.body.as_deref(),
-            None,
-            cx,
-        )];
+        // Description card (D4): the Edit affordance rides the header row
+        // when the payload says the viewer may update; while editing, a
+        // prefilled Textarea + Save/Cancel replaces the body.
+        let description = match &self.description_edit {
+            Some(editor) => description_edit_card(
+                editor,
+                self.busy.is_some(),
+                editor.read(cx).value().trim().is_empty(),
+                cx.listener(|this, _, window, cx| this.save_description(window, cx)),
+                cx.listener(|this, _, window, cx| this.cancel_edit_description(window, cx)),
+                cx,
+            ),
+            None => {
+                let edit = d
+                    .viewer_can_update
+                    .then(|| {
+                        Button::new("pr-description-edit")
+                            .ghost()
+                            .small()
+                            .label("Edit")
+                            .disabled(self.busy.is_some())
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.start_edit_description(window, cx)
+                            }))
+                    })
+                    .map(|b| b.into_any_element());
+                body_card(
+                    "pr-description",
+                    &author_login,
+                    author_avatar.as_deref(),
+                    relative_age(d.created_at.as_deref()),
+                    d.body.as_deref(),
+                    edit,
+                    cx,
+                )
+            }
+        };
+        let mut children = vec![description];
         for (kind, ix) in timeline_order(&d.comments.nodes, &d.reviews.nodes) {
             match kind {
                 TimelineKind::Comment => {
@@ -450,7 +745,7 @@ impl PrDetailPage {
                 }
                 TimelineKind::Review => {
                     let r = &d.reviews.nodes[ix];
-                    let (label, tone) = review_state_label(r.state.as_deref());
+                    let badge = review_badge(r.state.as_deref(), cx);
                     children.push(body_card(
                         &format!("pr-review-{ix}"),
                         r.author
@@ -460,7 +755,7 @@ impl PrDetailPage {
                         r.author.as_ref().map(|a| a.avatar_url.as_str()),
                         relative_age(r.submitted_at.as_deref()),
                         r.body.as_deref().filter(|b| !b.is_empty()),
-                        Some((label, tone)),
+                        badge,
                         cx,
                     ));
                 }
@@ -470,19 +765,214 @@ impl PrDetailPage {
             children.push(muted_centered("No conversation yet", cx));
         }
         children.push(self.render_comment_box(cx));
-        div()
+        // D4/D5: the timeline scrolls; the rail (merge/close panel + checks
+        // mini-summary) stands beside it.
+        let timeline = div()
             .id("pr-conversation")
             .flex_1()
+            .min_w_0()
             .min_h_0()
             .overflow_y_scroll()
-            .child(v_flex().gap_3().py_1().children(children))
+            .child(v_flex().gap_3().py_1().children(children));
+        h_flex()
+            .id("pr-conversation-split")
+            .flex_1()
+            .min_h_0()
+            .items_start()
+            .gap_3()
+            .child(timeline)
+            .child(self.render_rail(d, cx))
             .into_any_element()
     }
 
-    /// The comment-box chrome, read-only: submit lands with the stage-2
-    /// write path (docs/0016 §6.2), so the button ships disabled with a
-    /// tooltip saying so rather than dead-looking.
+    /// The conversation right rail (D5): merge/close panel + checks
+    /// mini-summary. Fixed ~288px; terminal PR states collapse it to a
+    /// note.
+    fn render_rail(&self, d: &gql::PrDetail, cx: &Context<Self>) -> AnyElement {
+        v_flex()
+            .id("pr-rail")
+            .w_72()
+            .flex_none()
+            .gap_3()
+            .child(self.render_merge_panel(d, cx))
+            .child(self.render_checks_summary(d, cx))
+            .into_any_element()
+    }
+
+    fn render_merge_panel(&self, d: &gql::PrDetail, cx: &Context<Self>) -> AnyElement {
+        let tone = pr_state_tone(d.state.as_deref(), d.draft);
+        let busy = self.busy.is_some();
+        // Terminal states (D5): the refetch after merge/close repaints the
+        // panel as a note — no actions on a PR that is already done.
+        if tone == PrStateTone::Merged || tone == PrStateTone::Closed {
+            let (label, color) = match tone {
+                PrStateTone::Merged => ("Merged", cx.theme().success),
+                _ => ("Closed", cx.theme().muted_foreground),
+            };
+            return GroupBox::new()
+                .id("pr-merge-panel")
+                .title("Merge")
+                .child(
+                    v_flex()
+                        .gap_1()
+                        .py_1()
+                        .child(Badge::new().color(color).child(label))
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(cx.theme().muted_foreground)
+                                .child("This pull request is no longer open."),
+                        ),
+                )
+                .into_any_element();
+        }
+        // The state line (D5): mergeStateStatus wording; a draft overrides
+        // whatever GitHub still reports.
+        let (line, line_tone) = if d.draft {
+            (
+                "Draft pull requests can't be merged until marked ready",
+                MergeLineTone::Muted,
+            )
+        } else {
+            merge_state_line(d.merge_state_status.as_deref())
+        };
+        let line_color = match line_tone {
+            MergeLineTone::Success => cx.theme().success,
+            MergeLineTone::Warning => cx.theme().warning,
+            MergeLineTone::Danger => cx.theme().danger,
+            MergeLineTone::Muted => cx.theme().muted_foreground,
+        };
+        let can_merge = merge_enabled(
+            d.state.as_deref(),
+            d.draft,
+            d.mergeable.as_deref(),
+            busy,
+            self.methods.is_empty(),
+        );
+        // Method selector (D5): shown only when the repo allows a real
+        // choice; a single method makes the button carry the verb.
+        let method_row = match (&self.method_select, self.methods.len()) {
+            (Some(select), n) if n > 1 => Select::new(select).small().w_full().into_any_element(),
+            _ => div().into_any_element(),
+        };
+        let merge_label: SharedString = if self.methods.len() == 1 {
+            self.methods[0].verb().into()
+        } else {
+            "Merge pull request".into()
+        };
+        GroupBox::new()
+            .id("pr-merge-panel")
+            .title("Merge")
+            .child(
+                v_flex()
+                    .gap_2()
+                    .py_1()
+                    .child(div().text_sm().text_color(line_color).child(line))
+                    .child(method_row)
+                    .when_some(
+                        self.mutation_error
+                            .as_ref()
+                            .filter(|e| e.scope == ErrorScope::Panel),
+                        |col, e| {
+                            col.child(
+                                div()
+                                    .text_sm()
+                                    .text_color(cx.theme().danger)
+                                    .child(e.message.clone()),
+                            )
+                        },
+                    )
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .when(
+                                matches!(self.busy, Some(BusyOp::Merge | BusyOp::Close)),
+                                |row| row.child(Spinner::new().small()),
+                            )
+                            .child(
+                                Button::new("pr-merge")
+                                    .label(merge_label)
+                                    .primary()
+                                    .small()
+                                    .disabled(!can_merge)
+                                    .tooltip(merge_disabled_reason(can_merge, line))
+                                    .on_click(
+                                        cx.listener(|this, _, window, cx| {
+                                            this.merge_pr(window, cx)
+                                        }),
+                                    ),
+                            )
+                            .child(
+                                Button::new("pr-close")
+                                    .label("Close pull request")
+                                    .danger()
+                                    .ghost()
+                                    .small()
+                                    .disabled(busy || d.state.as_deref() != Some("OPEN"))
+                                    .on_click(
+                                        cx.listener(|this, _, window, cx| {
+                                            this.close_pr(window, cx)
+                                        }),
+                                    ),
+                            ),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    fn render_checks_summary(&self, d: &gql::PrDetail, cx: &Context<Self>) -> AnyElement {
+        let (label, tone) = rollup_summary(d.rollup_state.as_deref());
+        let color = match tone {
+            ChecksTone::Success => cx.theme().success,
+            ChecksTone::Danger => cx.theme().danger,
+            ChecksTone::Warning => cx.theme().warning,
+            ChecksTone::Muted => cx.theme().muted_foreground,
+        };
+        v_flex()
+            .id("pr-checks-summary")
+            .gap_2()
+            .rounded_md()
+            .border_1()
+            .border_color(cx.theme().border)
+            .p_3()
+            .child(
+                div()
+                    .text_sm()
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(color)
+                    .child(label),
+            )
+            .child(
+                Button::new("pr-view-checks")
+                    .ghost()
+                    .small()
+                    .label("View checks")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.tab = PrTab::Checks;
+                        cx.notify();
+                    })),
+            )
+            .into_any_element()
+    }
+
+    /// The comment box (D4): draft Textarea + action Select + submit.
+    /// Comment requires a body; Approve/Request-changes may go empty
+    /// (same pure fn gates button and handler). Failures keep the draft
+    /// and surface an inline error row above the box.
     fn render_comment_box(&self, cx: &Context<Self>) -> AnyElement {
+        let action = self.current_action(cx);
+        let body_empty = self.comment.read(cx).value().trim().is_empty();
+        let allowed = comment_action_allowed(action.as_ref(), body_empty);
+        let busy = self.busy.is_some();
+        let sending = matches!(self.busy, Some(BusyOp::Comment) | Some(BusyOp::Review));
+        let tooltip = if !allowed {
+            "Write a comment first"
+        } else if busy {
+            "Sending"
+        } else {
+            "Post to GitHub"
+        };
         v_flex()
             .id("pr-comment-box")
             .gap_2()
@@ -490,19 +980,37 @@ impl PrDetailPage {
             .border_1()
             .border_color(cx.theme().border)
             .p_3()
+            .when_some(
+                self.mutation_error
+                    .as_ref()
+                    .filter(|e| e.scope == ErrorScope::Timeline),
+                |col, e| {
+                    col.child(
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().danger)
+                            .child(e.message.clone()),
+                    )
+                },
+            )
             .child(Textarea::new(&self.comment).w_full())
             .child(
                 h_flex()
                     .gap_2()
+                    .items_center()
                     .justify_between()
+                    .when(sending, |row| row.child(Spinner::new().small()))
                     .child(Select::new(&self.action_select).small().w_40())
                     .child(
                         Button::new("pr-comment-submit")
-                            .label("Comment")
+                            .label(action.clone())
                             .primary()
                             .small()
-                            .disabled(true)
-                            .tooltip("Posting comments arrives with an upcoming update"),
+                            .disabled(busy || !allowed)
+                            .tooltip(tooltip)
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.submit_comment(window, cx)),
+                            ),
                     ),
             )
             .into_any_element()
@@ -516,7 +1024,31 @@ impl Focusable for PrDetailPage {
 }
 
 impl Render for PrDetailPage {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Method Select (D5): `SelectState` needs a window, so it is built
+        // on the first render that has a detail payload — once per page
+        // (a repo's allowed methods can't change while the page is open).
+        if self.method_select.is_none() {
+            if let Some(d) = &self.detail {
+                let methods = allowed_methods(&d.merge_methods);
+                if !methods.is_empty() {
+                    let labels: Vec<SharedString> = methods
+                        .iter()
+                        .map(|m| SharedString::from(m.label()))
+                        .collect();
+                    let default = default_method(&methods).unwrap_or(methods[0]);
+                    let default_label: SharedString = default.label().into();
+                    let select = cx.new(|cx| {
+                        let mut select =
+                            SelectState::new(SearchableVec::from(labels), None, window, cx);
+                        select.set_selected_value(&default_label, window, cx);
+                        select
+                    });
+                    self.methods = methods;
+                    self.method_select = Some(select);
+                }
+            }
+        }
         let detail = self.detail.clone();
         v_flex()
             .id("pr-detail")
@@ -642,6 +1174,209 @@ pub(crate) fn split_repo(full: &str) -> (&str, &str) {
     }
 }
 
+/// The write operation in flight (D4/D5) — one at a time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BusyOp {
+    Comment,
+    Review,
+    Description,
+    Merge,
+    Close,
+}
+
+impl BusyOp {
+    /// Where a failure of this op renders inline (D4/D5).
+    fn error_scope(self) -> ErrorScope {
+        match self {
+            BusyOp::Comment | BusyOp::Review | BusyOp::Description => ErrorScope::Timeline,
+            BusyOp::Merge | BusyOp::Close => ErrorScope::Panel,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ErrorScope {
+    /// The conversation column — above the comment box.
+    Timeline,
+    /// The merge/close rail panel.
+    Panel,
+}
+
+/// The last mutation failure — kept until the next attempt or success, so
+/// it survives the post-mutation refetch that repaints everything else.
+#[derive(Clone, Debug)]
+pub(crate) struct MutationError {
+    pub(crate) scope: ErrorScope,
+    pub(crate) message: String,
+}
+
+/// A merge method the repo allows (D5).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum MergeMethod {
+    Merge,
+    Squash,
+    Rebase,
+}
+
+impl MergeMethod {
+    /// `PullRequestMergeMethod` wire value.
+    fn as_str(self) -> &'static str {
+        match self {
+            MergeMethod::Merge => "MERGE",
+            MergeMethod::Squash => "SQUASH",
+            MergeMethod::Rebase => "REBASE",
+        }
+    }
+
+    /// Select label (GitHub's own wording).
+    fn label(self) -> &'static str {
+        match self {
+            MergeMethod::Merge => "Create a merge commit",
+            MergeMethod::Squash => "Squash and merge",
+            MergeMethod::Rebase => "Rebase and merge",
+        }
+    }
+
+    /// Merge-button verb — what the button says when this is the only
+    /// allowed method.
+    fn verb(self) -> &'static str {
+        match self {
+            MergeMethod::Merge => "Merge pull request",
+            MergeMethod::Squash => "Squash and merge",
+            MergeMethod::Rebase => "Rebase and merge",
+        }
+    }
+}
+
+/// Exactly the methods the repo allows, in GitHub order (D5). Empty when
+/// the repo disables all in-app merging.
+pub(crate) fn allowed_methods(m: &gql::MergeMethods) -> Vec<MergeMethod> {
+    let mut out = Vec::new();
+    if m.merge {
+        out.push(MergeMethod::Merge);
+    }
+    if m.squash {
+        out.push(MergeMethod::Squash);
+    }
+    if m.rebase {
+        out.push(MergeMethod::Rebase);
+    }
+    out
+}
+
+/// MERGE when allowed, else the first allowed (D5).
+pub(crate) fn default_method(methods: &[MergeMethod]) -> Option<MergeMethod> {
+    methods
+        .iter()
+        .copied()
+        .find(|m| *m == MergeMethod::Merge)
+        .or_else(|| methods.first().copied())
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum MergeLineTone {
+    Success,
+    Warning,
+    Danger,
+    Muted,
+}
+
+/// Rail state-line wording from `MergeStateStatus` (D5; enum values
+/// verified against the GraphQL reference).
+pub(crate) fn merge_state_line(status: Option<&str>) -> (&'static str, MergeLineTone) {
+    match status {
+        Some("CLEAN") | Some("HAS_HOOKS") => (
+            "This branch has no conflicts with the base branch",
+            MergeLineTone::Success,
+        ),
+        Some("BEHIND") => (
+            "This branch is out-of-date with the base branch",
+            MergeLineTone::Warning,
+        ),
+        Some("BLOCKED") => (
+            "Merging is blocked by required reviews or status checks",
+            MergeLineTone::Warning,
+        ),
+        Some("DIRTY") => (
+            "This branch has conflicts that must be resolved",
+            MergeLineTone::Danger,
+        ),
+        Some("DRAFT") => (
+            "Draft pull requests can't be merged until marked ready",
+            MergeLineTone::Muted,
+        ),
+        Some("UNSTABLE") => (
+            "Mergeable, but some checks are not passing",
+            MergeLineTone::Muted,
+        ),
+        _ => (
+            "GitHub is still calculating merge status",
+            MergeLineTone::Muted,
+        ),
+    }
+}
+
+/// Merge-button gating (D5): open, not draft, server-says-MERGEABLE, idle,
+/// and at least one allowed method.
+pub(crate) fn merge_enabled(
+    state: Option<&str>,
+    draft: bool,
+    mergeable: Option<&str>,
+    busy: bool,
+    no_methods: bool,
+) -> bool {
+    state == Some("OPEN") && !draft && mergeable == Some("MERGEABLE") && !busy && !no_methods
+}
+
+/// Tooltip for the Merge button — the state line doubles as the reason.
+fn merge_disabled_reason(can_merge: bool, line: &str) -> SharedString {
+    if can_merge {
+        "Merge this pull request".into()
+    } else {
+        line.into()
+    }
+}
+
+/// Comment-box gating (D4): a plain comment needs a body; review events
+/// (Approve / Request changes) may go empty. Unknown actions never fire.
+pub(crate) fn comment_action_allowed(action: &str, body_empty: bool) -> bool {
+    match action {
+        "Comment" => !body_empty,
+        "Approve" | "Request changes" => true,
+        _ => false,
+    }
+}
+
+/// Comment-box action → `PullRequestReviewEvent` wire value.
+pub(crate) fn review_event(action: &str) -> Option<&'static str> {
+    match action {
+        "Approve" => Some("APPROVE"),
+        "Request changes" => Some("REQUEST_CHANGES"),
+        _ => None,
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ChecksTone {
+    Success,
+    Danger,
+    Warning,
+    Muted,
+}
+
+/// Checks mini-summary wording from `statusCheckRollup.state` (D5) —
+/// unknown/absent states degrade to a muted line, never an error.
+pub(crate) fn rollup_summary(state: Option<&str>) -> (&'static str, ChecksTone) {
+    match state {
+        Some("SUCCESS") => ("All checks passed", ChecksTone::Success),
+        Some("FAILURE") => ("Some checks failed", ChecksTone::Danger),
+        Some("ERROR") => ("Some checks errored", ChecksTone::Danger),
+        Some("PENDING") => ("Checks are running", ChecksTone::Warning),
+        Some("EXPECTED") => ("Checks are queued", ChecksTone::Muted),
+        _ => ("Checks status unknown", ChecksTone::Muted),
+    }
+}
+
 fn tab_label(name: &str, count: Option<i64>) -> SharedString {
     match count {
         Some(c) => format!("{name} ({c})").into(),
@@ -656,25 +1391,33 @@ fn tab_label(name: &str, count: Option<i64>) -> SharedString {
 /// One timeline card: header row (avatar, login, age, optional review
 /// badge) + body. Non-interactive — no id/role obligations (docs/0010 D10
 /// covers interactive elements only), but ids ride along for tree greps.
+/// The review-state badge for a timeline card header (D4) — tone colors
+/// from `review_state_label`.
+fn review_badge(state: Option<&str>, cx: &Context<PrDetailPage>) -> Option<AnyElement> {
+    let (label, tone) = review_state_label(state);
+    let color = match tone {
+        ReviewTone::Approved => cx.theme().success,
+        ReviewTone::ChangesRequested => cx.theme().danger,
+        ReviewTone::Muted => cx.theme().muted_foreground,
+    };
+    Some(
+        Badge::new()
+            .xsmall()
+            .color(color)
+            .child(label)
+            .into_any_element(),
+    )
+}
+
 fn body_card(
     id: &str,
     login: &str,
     avatar: Option<&str>,
     age: String,
     body: Option<&str>,
-    review: Option<(SharedString, ReviewTone)>,
+    trailing: Option<AnyElement>,
     cx: &Context<PrDetailPage>,
 ) -> AnyElement {
-    let (badge_label, badge_color) = review
-        .map(|(label, tone)| {
-            let color = match tone {
-                ReviewTone::Approved => cx.theme().success,
-                ReviewTone::ChangesRequested => cx.theme().danger,
-                ReviewTone::Muted => cx.theme().muted_foreground,
-            };
-            (label, color)
-        })
-        .unzip();
     v_flex()
         .id(SharedString::from(id))
         .w_full()
@@ -696,12 +1439,7 @@ fn body_card(
                         .font_weight(FontWeight::MEDIUM)
                         .child(login.to_string()),
                 )
-                .when_some(
-                    badge_label.clone().zip(badge_color),
-                    |row, (label, color)| {
-                        row.child(Badge::new().xsmall().color(color).child(label))
-                    },
-                )
+                .children(trailing)
                 .child(
                     div()
                         .ml_auto()
@@ -755,6 +1493,71 @@ fn error_cell(message: &str, cx: &Context<PrDetailPage>) -> AnyElement {
         .into_any_element()
 }
 
+/// The description card in edit mode (D4): same card chrome, body swapped
+/// for the prefilled Textarea + Save (disabled while empty/busy) / Cancel.
+fn description_edit_card(
+    editor: &Entity<TextareaState>,
+    busy: bool,
+    empty: bool,
+    on_save: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+    on_cancel: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+    cx: &Context<PrDetailPage>,
+) -> AnyElement {
+    v_flex()
+        .id("pr-description-edit")
+        .w_full()
+        .rounded_md()
+        .border_1()
+        .border_color(cx.theme().border)
+        .child(
+            h_flex()
+                .gap_2()
+                .items_center()
+                .px_3()
+                .py_2()
+                .border_b_1()
+                .border_color(cx.theme().border)
+                .bg(cx.theme().secondary.opacity(0.4))
+                .child(
+                    div()
+                        .font_weight(FontWeight::MEDIUM)
+                        .child("Editing description"),
+                ),
+        )
+        .child(
+            v_flex()
+                .gap_2()
+                .p_3()
+                .child(Textarea::new(editor).w_full())
+                .child(
+                    h_flex()
+                        .gap_2()
+                        .justify_end()
+                        .child(
+                            Button::new("pr-description-cancel")
+                                .ghost()
+                                .small()
+                                .label("Cancel")
+                                .on_click(on_cancel),
+                        )
+                        .child(
+                            Button::new("pr-description-save")
+                                .primary()
+                                .small()
+                                .label("Save")
+                                .disabled(busy || empty)
+                                .tooltip(if empty {
+                                    "The description can't be empty"
+                                } else {
+                                    "Save the description"
+                                })
+                                .on_click(on_save),
+                        ),
+                ),
+        )
+        .into_any_element()
+}
+
 fn muted_centered(text: &str, cx: &Context<PrDetailPage>) -> AnyElement {
     div()
         .id("pr-muted")
@@ -794,9 +1597,12 @@ fn stage_placeholder(tab: PrTab, cx: &Context<PrDetailPage>) -> AnyElement {
 mod tests {
     // No `use super::*` — page.rs documents the gpui::* shadowing hazard.
     use crate::gql;
+    use crate::gql::MergeMethods;
     use crate::pr_page::{
-        PrStateTone, ReviewTone, TimelineKind, pr_state_tone, review_state_label, split_repo,
-        timeline_order,
+        BusyOp, ChecksTone, ErrorScope, MergeLineTone, MergeMethod, PrStateTone, ReviewTone,
+        TimelineKind, allowed_methods, comment_action_allowed, default_method, merge_enabled,
+        merge_state_line, pr_state_tone, review_event, review_state_label, rollup_summary,
+        split_repo, timeline_order,
     };
 
     fn comment(login: &str, at: &str) -> gql::PrComment {
@@ -896,5 +1702,221 @@ mod tests {
         assert_eq!(split_repo("o/r"), ("o", "r"));
         assert_eq!(split_repo("a/b/c"), ("a", "b/c"));
         assert_eq!(split_repo("bare"), ("", "bare"));
+    }
+
+    #[test]
+    fn merge_state_line_table() {
+        assert_eq!(
+            merge_state_line(Some("CLEAN")),
+            (
+                "This branch has no conflicts with the base branch",
+                MergeLineTone::Success,
+            )
+        );
+        assert_eq!(
+            merge_state_line(Some("HAS_HOOKS")),
+            (
+                "This branch has no conflicts with the base branch",
+                MergeLineTone::Success,
+            )
+        );
+        assert_eq!(
+            merge_state_line(Some("BEHIND")),
+            (
+                "This branch is out-of-date with the base branch",
+                MergeLineTone::Warning,
+            )
+        );
+        assert_eq!(
+            merge_state_line(Some("BLOCKED")),
+            (
+                "Merging is blocked by required reviews or status checks",
+                MergeLineTone::Warning,
+            )
+        );
+        assert_eq!(
+            merge_state_line(Some("DIRTY")),
+            (
+                "This branch has conflicts that must be resolved",
+                MergeLineTone::Danger,
+            )
+        );
+        for status in [
+            Some("DRAFT"),
+            Some("UNSTABLE"),
+            Some("UNKNOWN"),
+            Some("WEIRD"),
+            None,
+        ] {
+            let (line, tone) = merge_state_line(status);
+            assert_eq!(tone, MergeLineTone::Muted, "status {status:?}");
+            assert!(!line.is_empty());
+        }
+    }
+
+    #[test]
+    fn allowed_methods_covers_zero_through_three() {
+        assert_eq!(
+            allowed_methods(&MergeMethods {
+                merge: true,
+                squash: true,
+                rebase: true,
+            }),
+            vec![MergeMethod::Merge, MergeMethod::Squash, MergeMethod::Rebase]
+        );
+        assert_eq!(
+            allowed_methods(&MergeMethods {
+                merge: false,
+                squash: true,
+                rebase: false
+            }),
+            vec![MergeMethod::Squash]
+        );
+        assert_eq!(
+            allowed_methods(&MergeMethods {
+                merge: true,
+                squash: false,
+                rebase: true
+            }),
+            vec![MergeMethod::Merge, MergeMethod::Rebase]
+        );
+        assert!(
+            allowed_methods(&MergeMethods {
+                merge: false,
+                squash: false,
+                rebase: false
+            })
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn default_method_prefers_merge_else_first_allowed() {
+        assert_eq!(
+            default_method(&[MergeMethod::Squash, MergeMethod::Merge]),
+            Some(MergeMethod::Merge)
+        );
+        assert_eq!(
+            default_method(&[MergeMethod::Rebase, MergeMethod::Squash]),
+            Some(MergeMethod::Rebase)
+        );
+        assert_eq!(default_method(&[]), None);
+    }
+
+    #[test]
+    fn comment_action_gating_table() {
+        // Comment requires a body; review events may go empty.
+        assert!(!comment_action_allowed("Comment", true));
+        assert!(comment_action_allowed("Comment", false));
+        assert!(comment_action_allowed("Approve", true));
+        assert!(comment_action_allowed("Approve", false));
+        assert!(comment_action_allowed("Request changes", true));
+        assert!(comment_action_allowed("Request changes", false));
+        assert!(!comment_action_allowed("Something else", false));
+    }
+
+    #[test]
+    fn review_event_mapping() {
+        assert_eq!(review_event("Approve"), Some("APPROVE"));
+        assert_eq!(review_event("Request changes"), Some("REQUEST_CHANGES"));
+        assert_eq!(review_event("Comment"), None);
+    }
+
+    #[test]
+    fn merge_enabled_table() {
+        let yes = (Some("OPEN"), false, Some("MERGEABLE"), false, false);
+        assert!(merge_enabled(yes.0, yes.1, yes.2, yes.3, yes.4));
+        // Each disqualifier alone flips it off.
+        assert!(!merge_enabled(
+            Some("MERGED"),
+            false,
+            Some("MERGEABLE"),
+            false,
+            false
+        ));
+        assert!(!merge_enabled(
+            Some("CLOSED"),
+            false,
+            Some("MERGEABLE"),
+            false,
+            false
+        ));
+        assert!(!merge_enabled(
+            Some("OPEN"),
+            true,
+            Some("MERGEABLE"),
+            false,
+            false
+        ));
+        assert!(!merge_enabled(
+            Some("OPEN"),
+            false,
+            Some("CONFLICTING"),
+            false,
+            false
+        ));
+        assert!(!merge_enabled(
+            Some("OPEN"),
+            false,
+            Some("UNKNOWN"),
+            false,
+            false
+        ));
+        assert!(!merge_enabled(Some("OPEN"), false, None, false, false));
+        assert!(!merge_enabled(
+            Some("OPEN"),
+            false,
+            Some("MERGEABLE"),
+            true,
+            false
+        ));
+        assert!(!merge_enabled(
+            Some("OPEN"),
+            false,
+            Some("MERGEABLE"),
+            false,
+            true
+        ));
+    }
+
+    #[test]
+    fn rollup_summary_table() {
+        assert_eq!(
+            rollup_summary(Some("SUCCESS")),
+            ("All checks passed", ChecksTone::Success)
+        );
+        assert_eq!(
+            rollup_summary(Some("FAILURE")),
+            ("Some checks failed", ChecksTone::Danger)
+        );
+        assert_eq!(
+            rollup_summary(Some("ERROR")),
+            ("Some checks errored", ChecksTone::Danger)
+        );
+        assert_eq!(
+            rollup_summary(Some("PENDING")),
+            ("Checks are running", ChecksTone::Warning)
+        );
+        assert_eq!(
+            rollup_summary(Some("EXPECTED")),
+            ("Checks are queued", ChecksTone::Muted)
+        );
+        assert_eq!(
+            rollup_summary(None),
+            ("Checks status unknown", ChecksTone::Muted)
+        );
+        assert_eq!(
+            rollup_summary(Some("WEIRD")),
+            ("Checks status unknown", ChecksTone::Muted)
+        );
+    }
+
+    #[test]
+    fn busy_op_error_scopes() {
+        assert_eq!(BusyOp::Comment.error_scope(), ErrorScope::Timeline);
+        assert_eq!(BusyOp::Review.error_scope(), ErrorScope::Timeline);
+        assert_eq!(BusyOp::Description.error_scope(), ErrorScope::Timeline);
+        assert_eq!(BusyOp::Merge.error_scope(), ErrorScope::Panel);
+        assert_eq!(BusyOp::Close.error_scope(), ErrorScope::Panel);
     }
 }
