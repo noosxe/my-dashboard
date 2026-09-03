@@ -1,0 +1,198 @@
+# 0017 — GitHub module: markdown rendering for PR bodies
+
+## 1. Context & problem
+
+The PR detail page (0016) renders the description, comment, and review bodies
+as raw markdown text. Real PR bodies are markdown: Dependabot bodies carry
+lists and links, CI bots post tables, humans use everything else. The owner
+asks for rendered markdown; edit mode keeps plain-text editing (that part is
+expected — it is GitHub's own model: rendered view, raw source editor).
+
+## 2. Scope
+
+**In:**
+
+- Rendered markdown for the timeline bodies — description, comments, and
+  reviews alike. They share one seam (`body_card`), and GitHub renders
+  markdown in all three; rendering only the description would make comments
+  look broken next to it.
+- GFM subset: headings, emphasis/strong/strikethrough, inline code, fenced
+  code blocks, ordered/unordered/task lists, blockquotes, tables, thematic
+  breaks, links (clickable, external browser), autolinks.
+- Hard breaks and soft breaks (soft break → space, hard break → newline).
+
+**Out (file later if wanted):**
+
+- Image fetching — `![](url)` renders as a link labeled with its alt text.
+  Network image loading + caching is its own feature.
+- Syntax highlighting inside code blocks.
+- A preview toggle in the description editor (edit stays the raw textarea).
+- Markdown in composer inputs or repo-view/notification one-liners (single
+  line, plain text stays).
+
+## 3. Verified facts
+
+**Upstream (pinned checkouts, verified 2026-09-04):**
+
+- gpui-component @ `0c746df` ships **no** markdown/HTML element (`crates/ui/
+  src` listing checked — nothing matching markdown|html|rich).
+- zed's own `markdown` crate (same git source as gpui) depends on zed
+  workspace internals (`language`, `theme`, `settings`, `sum_tree`,
+  `mermaid_render`, …) — not extractable into our tree (its `Cargo.toml`
+  at the pinned rev).
+- `pulldown-cmark` **0.13** (zed pins `0.13.0`, `default-features = false`)
+  is the parser: CommonMark plus opt-in GFM via
+  `Options::ENABLE_TABLES | ENABLE_STRIKETHROUGH | ENABLE_TASKLISTS`;
+  event-stream model (`Start/End/Text/Code/Html/InlineHtml/SoftBreak/
+  HardBreak/Rule/TaskListMarker`).
+- gpui @ pinned rev has **`InteractiveText`** (`crates/gpui/src/elements/
+  text.rs:981`): `InteractiveText::new(id, StyledText)
+  .on_click(Vec<Range<usize>>, Fn(usize, &mut Window, &mut App))` plus
+  `on_hover`/`tooltip`. It maps mouse positions to character indices, so
+  clickable link runs inside a wrapping paragraph need no per-run elements.
+  Styled runs come from `StyledText` + `HighlightStyle` (color, underline,
+  font weight/family).
+- `cx.open_url(&url)` is the established external-link path (used by
+  `pr-open-external`, pr_page.rs:723).
+
+**Our tree (`main` @ `ae006e1`):**
+
+- `body_card` (pr_page.rs) is the single render seam for all three body
+  kinds; bodies arrive as raw `&str` on `PrDetail` (0016 D2) — no schema or
+  service changes needed.
+- Theme has the mono token and semantic colors (0016 D10); clippy.toml
+  bans literal colors and ad-hoc text sizes/line heights.
+- The bridge dumps interactive nodes only (0010): markdown text is invisible
+  to `tree`; verification relies on geometry, logs, and the owner's eyes.
+
+## 4. Owner decisions (requested 2026-09-04)
+
+- Render markdown on the PR description (this doc's reason to exist).
+- Edit mode stays plain-text markdown editing (confirmed in the request).
+
+Everything else in §5 is proposal — settled by the review of this doc PR.
+
+## 5. Design
+
+### D1 — Parser: pulldown-cmark 0.13, GFM flags, no HTML
+
+`markdown_blocks(body: &str) -> Vec<Block>` — pure fn over
+`Parser::new_ext(body, Options::ENABLE_TABLES | ENABLE_STRIKETHROUGH |
+ENABLE_TASKLISTS)`. `Html`/`InlineHtml` events are **dropped** (no raw-HTML
+rendering surface, no sanitizer to maintain). Footnotes stay disabled.
+Re-verify option names against the 0.13 docs at implementation time.
+
+### D2 — Owned intermediate model
+
+Events borrow the input and arrive flat; the pure fn folds them into an
+owned tree the renderer can hold across frames:
+
+```rust
+enum Block {
+    Paragraph(Vec<Run>),
+    Heading { level: u8, runs: Vec<Run> },
+    Code { info: Option<String>, text: String },
+    Quote(Vec<Block>),
+    List { ordered: bool, start: u64, items: Vec<ListItem> },
+    Table { align: Vec<Align>, head: Vec<Vec<Run>>, rows: Vec<Vec<Vec<Run>>> },
+    Rule,
+}
+struct Run { text: String, style: RunStyle }   // strong/em/strike/code/link(url)
+```
+
+Pure and table-testable without a window (doc/0016 stage pattern).
+
+### D3 — Inline runs: one `StyledText` per paragraph, links via `InteractiveText`
+
+Each paragraph/heading/table cell becomes a single text node: flat string +
+`HighlightStyle` runs (strong → bold weight, em → italic, strike →
+strikethrough, code → mono token). When the block carries links, wrap in
+`InteractiveText` with one range per link; the click listener looks up the
+URL by range index and calls `cx.open_url` (D5). Link styling: accent color
++ underline via `HighlightStyle`. No `InteractiveText` when there are no
+links — plain `StyledText` (cheaper, no state).
+
+### D4 — Block layout (theme tokens only)
+
+- Stack: `v_flex().gap_2()` of blocks.
+- Headings: `text_lg`/`text_base`/`text_sm`/`text_xs` by level with
+  semibold weight, first block tighter spacing.
+- Code block: one multiline mono `text_xs` node on a muted surface
+  (theme surface token + border), soft-wrapped (v1; per-line + horizontal
+  scroll is polish, revisit if real bodies demand it).
+- Blockquote: left border (theme border) + muted foreground, nested blocks.
+- Lists: per-item flex row — marker column (`•`/`1.`/task `☑`/`☐` glyphs in
+  theme foreground) + nested blocks; task markers read-only.
+- Tables: header row semibold on muted surface, body rows beneath, single
+  `border` color between rows; wide tables wrap cells (no horizontal scroll
+  v1 — CI tables are usually 3–5 columns).
+- `Rule`: the existing divider affordance.
+
+### D5 — Links
+
+Click → `cx.open_url(url)` — identical to `pr-open-external`; no tooltip,
+no hover preview v1. Autolinks (`<https://…>`, bare URLs marked by
+pulldown) take the same path.
+
+### D6 — Parse once per body version
+
+Bodies are immutable per fetch; parsing on every frame (gpui re-renders)
+would waste the most expensive step. Memoize at the card level with gpui
+element state (`with_element_state` keyed by the card id): store
+`(body_hash: u64, Vec<Block>)`, re-parse only when the hash differs.
+Refetch naturally invalidates (new body → new hash). Service stays pure —
+no state plumbing through `GithubState`.
+
+### D7 — Compliance (0016 D10 rules carry over)
+
+Semantic theme tokens only; mono token for code; the clippy token-discipline
+lints (no literal colors, no ad-hoc `text_size`/`line_height`). Interactive
+elements get ids: each `InteractiveText` is `{card-id}-p-{n}`; links are
+ranges inside it, not separate nodes — the bridge will not show them
+(recorded limitation, D-verification below).
+
+### D8 — Wiring & files
+
+- New `crates/modules/github/src/markdown.rs`: model + parser + renderer +
+  unit tests (pure, no window).
+- `body_card` swaps its raw-text child for `render_markdown(...)`;
+  everything else in pr_page untouched.
+- Workspace `Cargo.toml`: `pulldown-cmark = "0.13"` (`default-features =
+  false`) as a workspace dependency; github module picks it up.
+- No core, service, schema, or doc-number changes. Docs amendments on
+  landing: 0016 D4 (bodies render markdown) + README index row (written
+  with this doc).
+
+### D9 — Testing
+
+- `markdown.rs` unit tests (pure): heading levels, nested lists, task
+  markers, ordered start index, table shape + alignment capture, link URL
+  extraction, autolink, soft vs hard break, HTML dropped, code fence info
+  string.
+- Run-style mapping tests (strong/em/strike/code/link → `RunStyle`).
+- Renderer smoke via the existing `#[gpui::test]` pattern where cheap;
+  geometry/interaction is bridge + owner territory (below).
+
+### D10 — Bridge verification & owner checks
+
+- Agent (bridge): page renders a rich body (#55 Dependabot: lists + links)
+  with sane geometry, no panic, description card taller than raw text but
+  inside the scroll region (0016 layout fix holds); tab round-trips fine.
+- Owner (human, PR checklist): links open the browser; tables/code/quotes/
+  task lists look right on a body of their choosing; edit → save round-trip
+  re-renders; a comment they post renders.
+
+## 6. Implementation plan
+
+Single stage, one issue + one PR (bounded: one new module file, one seam,
+no schema/service work):
+
+1. `markdown.rs` (model, parser, renderer, unit tests).
+2. `body_card` wiring + element-state memo.
+3. Gates + bridge verification; docs amendments (0016 D4 note) ride along.
+
+## 7. Testing
+
+Gates as always (`fmt`, clippy zero warnings — token lints included —
+`cargo test --workspace`). New unit tests per D9. No live mutation needed:
+bodies are read-only data already fetched.
