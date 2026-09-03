@@ -55,9 +55,9 @@ path (fetch → ETag cache → GroupBox rows) was working the whole time. The
 row then continues with the shared treatment: `cursor_pointer`, accent
 hover (8% opacity), `rounded_sm`, `on_click` → `cx.open_url`.
 
-(PR/issue rows predate this discovery and are currently id-only — equally
-invisible to the dump. Follow-up: #82; fixing them here would blur this
-PR's scope.)
+(PR/issue rows predated this discovery and were id-only — equally invisible.
+They gained the same `ListItem` role in the follow-up fix (#82); all three
+row families now share the treatment.)
 
 ### D2 — URL construction (pure, testable)
 
