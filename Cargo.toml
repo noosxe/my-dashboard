@@ -26,6 +26,11 @@ dashboard-core = { path = "crates/core" }
 dashboard-debug = { path = "crates/debug" }
 dashboard-module-github = { path = "crates/modules/github" }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+# Markdown bodies (docs/0017 D1): CommonMark + GFM extensions parser; no
+# default features (no HTML output path). Bare-URL autolinks come from
+# linkify — the pairing zed's markdown crate uses.
+pulldown-cmark = { version = "0.13", default-features = false }
+linkify = "0.10"
 dirs = "6"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

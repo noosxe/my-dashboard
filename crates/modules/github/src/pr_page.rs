@@ -40,10 +40,12 @@ use gpui_component::{
 
 use serde_json::json;
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
+use std::sync::Arc;
 
 use crate::api::{self, PrFile};
 use crate::gql;
+use crate::markdown;
 use crate::page::relative_age;
 use crate::service::{
     FetchSpec, GithubState, Kind, Mutation, PatchLine, parse_patch, run_mutation, run_spec_tracked,
@@ -123,6 +125,9 @@ pub(crate) struct PrDetailPage {
     /// Collapsed file-card indexes (D8) — default open (github.com
     /// parity); indexes key into `FilesFetch::Ready`'s list.
     collapsed_files: HashSet<usize>,
+    /// Parsed markdown bodies (docs/0017 D6) keyed by card id — rebuilt
+    /// whenever a detail payload lands, never re-parsed per frame.
+    md: BTreeMap<String, Arc<[markdown::Block]>>,
 }
 
 /// The Files tab's fetch lifecycle (docs/0016 D8).
@@ -178,6 +183,7 @@ impl PrDetailPage {
             method_select: None,
             files: FilesFetch::Idle,
             collapsed_files: HashSet::new(),
+            md: BTreeMap::new(),
         };
         page.fetch_detail(cx);
         page
@@ -254,6 +260,7 @@ impl PrDetailPage {
                                 detail.reviews.nodes.len(),
                                 detail.commits.nodes.len()
                             );
+                            self.md = build_md_cache(&detail);
                             self.detail = Some(detail);
                         }
                         None => {
@@ -1002,6 +1009,7 @@ impl PrDetailPage {
                     author_avatar.as_deref(),
                     relative_age(d.created_at.as_deref()),
                     d.body.as_deref(),
+                    self.md.get("pr-description").map(Arc::as_ref),
                     edit,
                     cx,
                 )
@@ -1021,6 +1029,7 @@ impl PrDetailPage {
                         c.author.as_ref().map(|a| a.avatar_url.as_str()),
                         relative_age(c.created_at.as_deref()),
                         Some(c.body.as_str()),
+                        self.md.get(&format!("pr-comment-{ix}")).map(Arc::as_ref),
                         None,
                         cx,
                     ));
@@ -1037,6 +1046,7 @@ impl PrDetailPage {
                         r.author.as_ref().map(|a| a.avatar_url.as_str()),
                         relative_age(r.submitted_at.as_deref()),
                         r.body.as_deref().filter(|b| !b.is_empty()),
+                        self.md.get(&format!("pr-review-{ix}")).map(Arc::as_ref),
                         badge,
                         cx,
                     ));
@@ -1698,12 +1708,16 @@ fn review_badge(state: Option<&str>, cx: &Context<PrDetailPage>) -> Option<AnyEl
     )
 }
 
+// Markdown bodies add one parameter to an already wide card seam; the
+// arguments stay flat because every call site has them at hand.
+#[allow(clippy::too_many_arguments)]
 fn body_card(
     id: &str,
     login: &str,
     avatar: Option<&str>,
     age: String,
     body: Option<&str>,
+    md: Option<&[markdown::Block]>,
     trailing: Option<AnyElement>,
     cx: &Context<PrDetailPage>,
 ) -> AnyElement {
@@ -1738,16 +1752,43 @@ fn body_card(
                 ),
         )
         .when_some(body, |card, body| {
+            // Markdown when the detail payload was parsed (0017); the raw
+            // text fallback only fires if the cache somehow missed.
+            let body_child = match md {
+                Some(blocks) => markdown::render_blocks(blocks, id, cx),
+                None => div().child(body.to_string()).into_any_element(),
+            };
             card.child(
                 div()
                     .px_3()
                     .py_3()
                     .text_sm()
                     .whitespace_normal()
-                    .child(body.to_string()),
+                    .child(body_child),
             )
         })
         .into_any_element()
+}
+
+/// docs/0017 D6: parse every timeline body once per detail payload —
+/// never per frame. Rebuilt (invalidating) each time a detail lands.
+fn build_md_cache(d: &gql::PrDetail) -> BTreeMap<String, Arc<[markdown::Block]>> {
+    let mut map = BTreeMap::new();
+    if let Some(body) = &d.body {
+        map.insert("pr-description".to_string(), markdown::parse_markdown(body));
+    }
+    for (ix, comment) in d.comments.nodes.iter().enumerate() {
+        map.insert(
+            format!("pr-comment-{ix}"),
+            markdown::parse_markdown(&comment.body),
+        );
+    }
+    for (ix, review) in d.reviews.nodes.iter().enumerate() {
+        if let Some(body) = review.body.as_deref().filter(|b| !b.is_empty()) {
+            map.insert(format!("pr-review-{ix}"), markdown::parse_markdown(body));
+        }
+    }
+    map
 }
 
 fn skeleton_list() -> AnyElement {

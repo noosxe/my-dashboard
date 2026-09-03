@@ -237,7 +237,9 @@ pub struct GithubPage {
 Two columns: main timeline (`flex_1`) + fixed ~300px right rail (D5).
 
 - **Description card** (first timeline item): author avatar, login, relative
-  age, body as plain text (known limitation, §11). An **Edit** button (shown
+  age, body as plain text (known limitation, §11). **Shipped (2026-09-04):
+  bodies render markdown** (description, comments, reviews — one
+  `body_card` seam) per docs/0017. An **Edit** button (shown
   when the detail reports `viewerCanUpdate` — one extra GraphQL field, D2)
   swaps the body for a `Textarea` prefilled with the current body + Save /
   Cancel; Save runs `updateIssue { id body }` then refetches. One edit at a
