@@ -207,6 +207,13 @@ pub enum Kind {
     /// convention as [`Kind::PrDetail`]: the page parses 200 bodies;
     /// only non-200 results are forwarded to [`GithubState::apply`].
     PrMutation(Mutation),
+    /// One PR's changed-file list (docs/0016 §6.3 D8) — REST
+    /// `GET /repos/{o}/{r}/pulls/{n}/files`, fetched lazily by the PR
+    /// page the first time the Files tab opens (and again on refresh
+    /// once loaded). Same page-owned result convention as
+    /// [`Kind::PrDetail`]: the page parses the stitched 200 body;
+    /// non-200 results forward to [`GithubState::apply`].
+    PrFiles,
 }
 
 /// The five PR-page mutations (docs/0016 §6.2), each mapping to one
@@ -255,7 +262,7 @@ pub fn run_spec(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
         Kind::RepoSnapshot => run_repo_snapshot(http, spec),
         Kind::PrDetail => run_pr_detail(http, spec),
         Kind::PrMutation(m) => run_pr_mutation(http, spec, m),
-        Kind::Notifications | Kind::RepoNotifications => run_rest(http, spec),
+        Kind::Notifications | Kind::RepoNotifications | Kind::PrFiles => run_rest(http, spec),
     }
 }
 
@@ -621,6 +628,39 @@ fn run_pr_mutation(http: &dyn Http, spec: &FetchSpec, mutation: Mutation) -> Spe
     }
 }
 
+/// One line of a unified-diff `patch` (docs/0016 D8): the variant carries
+/// the row's tone, the string is the line's content (sign stripped; the
+/// hunk keeps its full `@@ … @@` header) — the renderer colors by variant
+/// and re-prepends the sign glyph for +/- rows, never re-parsing.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum PatchLine {
+    Hunk(String),
+    Context(String),
+    Add(String),
+    Del(String),
+}
+
+/// Parse a REST `patch` field into rows (docs/0016 D8 — pure, so the
+/// render path stays dumb and the parser is table-testable). Tolerant by
+/// design: empty input is an empty list; any line that does not start
+/// with `@@`, `+` or `-` (including blank context lines) is context.
+pub(crate) fn parse_patch(patch: &str) -> Vec<PatchLine> {
+    patch
+        .lines()
+        .map(|line| {
+            if line.starts_with("@@") {
+                PatchLine::Hunk(line.to_string())
+            } else if let Some(rest) = line.strip_prefix('+') {
+                PatchLine::Add(rest.to_string())
+            } else if let Some(rest) = line.strip_prefix('-') {
+                PatchLine::Del(rest.to_string())
+            } else {
+                PatchLine::Context(line.strip_prefix(' ').unwrap_or(line).to_string())
+            }
+        })
+        .collect()
+}
+
 impl Kind {
     fn kind_name(&self) -> &'static str {
         match self {
@@ -629,6 +669,7 @@ impl Kind {
             Kind::RepoSnapshot => "repo-snapshot",
             Kind::PrDetail => "pr-detail",
             Kind::PrMutation(_) => "pr-mutation",
+            Kind::PrFiles => "pr-files",
             Kind::RepoNotifications => "repo-notifs",
         }
     }
@@ -1091,7 +1132,7 @@ impl GithubState {
             // 200 bodies. Only non-200 results are ever forwarded here,
             // and those return in the status handling above — this arm
             // exists purely for match exhaustiveness.
-            Kind::PrDetail | Kind::PrMutation(_) => {}
+            Kind::PrDetail | Kind::PrMutation(_) | Kind::PrFiles => {}
         }
 
         // ETag keyed by logical resource (kind + ident), not raw URL, so
@@ -1693,6 +1734,40 @@ mod tests {
     }
 
     // --- Tick planning (docs/0007 D6) ---------------------------------
+
+    #[test]
+    fn parse_patch_classifies_every_line_kind() {
+        let patch = "@@ -1,3 +1,4 @@\n fn one() {}\n+fn two() {}\n-fn zero() {}\n@@ -10,2 +11,2 @@\n context with no leading space";
+        let rows = parse_patch(patch);
+        assert_eq!(
+            rows,
+            vec![
+                PatchLine::Hunk("@@ -1,3 +1,4 @@".into()),
+                PatchLine::Context("fn one() {}".into()),
+                PatchLine::Add("fn two() {}".into()),
+                PatchLine::Del("fn zero() {}".into()),
+                PatchLine::Hunk("@@ -10,2 +11,2 @@".into()),
+                // A context line without the conventional leading
+                // space survives verbatim (tolerant, not lossy).
+                PatchLine::Context("context with no leading space".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_patch_empty_and_blank_lines() {
+        assert!(parse_patch("").is_empty());
+        // A blank context line is a Context row, not a dropped one —
+        // the row count must match what GitHub served.
+        assert_eq!(
+            parse_patch("@@ -1,1 +1,2 @@\n \n+added"),
+            vec![
+                PatchLine::Hunk("@@ -1,1 +1,2 @@".into()),
+                PatchLine::Context(String::new()),
+                PatchLine::Add("added".into()),
+            ]
+        );
+    }
 
     #[test]
     fn disconnected_and_rate_limited_are_gated() {
