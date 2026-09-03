@@ -107,12 +107,12 @@ Right-column section order (0005 §6.3) becomes: header (name/lock,
 description, Refresh) → **Open PRs** → **Open Issues** → **Notifications**.
 The section is `GroupBox::new().id("issues-box")`, mirroring `prs-box`.
 
-- **Title count:** `Open Issues ({issues.len()})` — the nodes-list length,
-  mirroring the Open PRs box (`prs.len()`), i.e. the number of rendered rows.
-  Consequence: a repo with >100 open issues shows "(100)" while the card shows
-  the exact sum — identical to how PRs behave today. Keeping the two adjacent
-  boxes consistent beats mixing count semantics; exact totals in box titles
-  are a follow-up for both boxes together (§10).
+- **Title count:** exact — `Open Issues ({issues.total_count})`, mirroring
+  the Open PRs box (`prs.total_count`). The snapshot carries the server's
+  exact `totalCount` beside the capped nodes list (0007 D2), so both titles
+  are true even past the 100-row cap: a repo with 137 open issues shows
+  "(137)" with 100 rows. Shipped as the §10 follow-up (#66); a "+N more"
+  hint row for truncated lists is a separate follow-up (#87).
 - **Rows:** first 100 open issues, `UPDATED_AT DESC` (pinned by the query —
   activity-first, same as PRs), rendered in arrival order. The repo-scoped
   refresh on view open repaints the section exactly like the PRs one
@@ -227,12 +227,12 @@ Per AGENTS.md PR discipline, exercised before pushing:
 - Issue rows vs PR rows: avatar, muted `#number`, age — eyeball parity.
 - Click-through: browser opens the issue, app keeps focus/geometry.
 - If a >100-open-issues repo is available: card number exact, section title
-  shows "(100)".
+  exact too (e.g. "(137)") with 100 rows rendered.
 
 ## 10. Follow-ups (GitHub issues, not this PR)
 
-- Exact totals in repo-view box titles — `total_count` is already cached;
-  applies to the PRs and Issues boxes together, one issue covers both.
+- "+N more" hint for capped repo-view row lists (#87) — exact titles
+  shipped via #66.
 - Issues depth (labels, assignees, comment counts, section filtering) — only
   on owner request.
 - Pre-existing, untouched: `statusCheckRollup` surfacing in PR rows

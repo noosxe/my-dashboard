@@ -844,7 +844,7 @@ impl GithubPage {
                 .child(
                     GroupBox::new()
                         .id("prs-box")
-                        .title(format!("Open PRs ({})", prs.len()))
+                        .title(format!("Open PRs ({})", repo.prs.total_count))
                         .child(if prs.is_empty() {
                             muted_cell("No open PRs", cx)
                         } else {
@@ -857,7 +857,7 @@ impl GithubPage {
                 .child(
                     GroupBox::new()
                         .id("issues-box")
-                        .title(format!("Open Issues ({})", issues.len()))
+                        .title(format!("Open Issues ({})", repo.issues.total_count))
                         .child(if issues.is_empty() {
                             muted_cell("No open issues", cx)
                         } else {
