@@ -212,6 +212,27 @@ no schema/service work):
 2. `body_card` wiring + element-state memo.
 3. Gates + bridge verification; docs amendments (0016 D4 note) ride along.
 
+**Shipped (2026-09-04, issue #104).** Deviations from the sketch above,
+all recorded here so the doc stays the source of truth:
+
+- **D6 mechanism:** the memo is a page-level `BTreeMap<card-id,
+  Arc<[Block]>>` rebuilt in `build_md_cache` every time a detail payload
+  lands — not gpui element state (that API is paint-phase-only, unusable
+  from `render`). The invariant holds: bodies parse once per detail
+  payload, never per frame; the service stays pure.
+- **D2:** the table alignment vector is not carried (cells render
+  left-aligned v1) and the code-fence info string is not captured (no
+  highlighting to feed it to).
+- **D3:** `HighlightStyle` has no `font_family` in the pinned gpui rev —
+  inline code renders with a muted background tint only; code *blocks*
+  stay mono via the container.
+- **D1:** linkify 0.10 does not match scheme-less `www.` hosts (GitHub
+  does) — http(s):// URLs and emails autolink, bare `www.` stays plain
+  text until a dedicated scanner is justified.
+- Verified live (worker-mcp#55): markdown paragraphs appear as
+  `InteractiveText` nodes in the bridge dump, rail pinned (0016 layout
+  fix holds), Files↔Conversation round-trip stable, drift 0, no panics.
+
 ## 7. Testing
 
 Gates as always (`fmt`, clippy zero warnings — token lints included —
