@@ -50,6 +50,7 @@ cross-platform, multi-modular universal personal dashboard built with Rust and
 | [0015](0015-notification-row-click.md) | GitHub Module: Notification Row Click (open repo notifications page) |
 | [0016](0016-github-pr-detail-page.md) | GitHub Module: PR Detail Page (review, comment, merge, close) |
 | [0017](0017-markdown-bodies.md) | GitHub Module: Markdown Rendering for PR Bodies |
+| [0018](0018-files-sidebar.md) | GitHub Module: Files Tab Sidebar (list/tree views, master–detail diff) |
 
 ## Planned docs (roadmap, not yet written)
 
