@@ -326,6 +326,20 @@ relative age. A muted caption when `commits.totalCount > nodes.len()`:
   lines (no soft wrap) inside a horizontally scrollable region. No intra-line
   highlighting, no split view (§11).
 
+  **Shipped (stage 4, 2026-09-03):** fetch is lazy — the REST walk
+  (`Kind::PrFiles` through the shared `run_rest` page-stitcher, no
+  ETag) fires on the first Files-tab selection, and the header refresh
+  refetches a loaded list. 30 pages cap the walk (GitHub's own
+  3000-file limit); the first short page ends it long before. Cards
+  default open (github.com parity); the header is a ghost `Button`
+  (`pr-file-{ix}`, chevron flips `ChevronRight`/`ChevronDown`) and the
+  collapse set is index-keyed, cleared on refetch so stale indexes
+  cannot leak into a new list. Diff rows are `whitespace_nowrap` +
+  `flex_none` inside an `overflow_x_scroll` region; hunk headers carry
+  an `accent` 15% tint, +/- rows `success`/`danger` 12% tints with the
+  whole row's text in the tone color. Unknown `status` strings degrade
+  to a muted badge with the raw label (0007 D3).
+
 ### D9 — Wiring & file layout
 
 ```
@@ -380,7 +394,8 @@ in the element, not the bridge.
 3. **Stage 3 — commits + checks tabs** (union shape re-verified live first,
    §3 — done 2026-09-03).
 4. **Stage 4 — files changed:** REST files fetch (lazy), patch parser,
-   collapsible file cards + diff renderer.
+   collapsible file cards + diff renderer — done 2026-09-03; §6.3 D8
+   carries the shipped notes.
 
 Crates touched: `dashboard-module-github` only.
 

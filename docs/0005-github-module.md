@@ -293,7 +293,10 @@ into the normal page.
   editing, and merge/close all happen in-app (docs/0016 §6.2). **Amended
   (0016 stage 3):** the page's Commits and Checks tabs are live — the commit
   list and the checks list (with per-check state and details links) render
-  in-app from the detail query (docs/0016 §6.3).
+  in-app from the detail query (docs/0016 §6.3). **Amended (0016 stage
+  4):** the Files changed tab is live too — per-file cards with parsed
+  diffs render in-app from a lazy REST fetch of
+  `GET /repos/{o}/{r}/pulls/{n}/files` (docs/0016 §6.3 D8).
 - Issue row (0012): same treatment as the PR row minus the `[Draft]` badge —
   title (medium weight), `#number` (muted), `Avatar` + author login,
   relative age; hover highlight; click → `cx.open_url(url)`.

@@ -62,6 +62,29 @@ pub fn repo_notifications_url(owner: &str, repo: &str, page: u32) -> String {
     )
 }
 
+/// `GET /repos/{o}/{r}/pulls/{n}/files` item (docs/0016 §3 D8):
+/// `patch` is absent for binary and oversized files — the renderer
+/// shows the placeholder row then. Unknown extra fields ignored.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrFile {
+    pub filename: String,
+    /// Change type: `added`/`modified`/`removed`/`renamed` — raw string
+    /// through (future kinds degrade to a muted badge, 0007 D3).
+    pub status: String,
+    pub additions: i64,
+    pub deletions: i64,
+    pub changes: i64,
+    #[serde(default)]
+    pub patch: Option<String>,
+}
+
+pub fn pr_files_url(owner: &str, repo: &str, number: i64, page: u32) -> String {
+    format!(
+        "{API_BASE}/repos/{owner}/{repo}/pulls/{number}/files?{}",
+        page_query(page)
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -78,6 +101,28 @@ mod tests {
         .unwrap();
         assert_eq!(n.subject.kind, "PullRequest");
         assert!(n.unread);
+    }
+
+    #[test]
+    fn parses_pr_file_with_and_without_patch() {
+        let with: PrFile = serde_json::from_str(
+            r#"{"filename":"src/main.rs","status":"modified",
+                "additions":12,"deletions":3,"changes":15,
+                "patch":"@@ -1,2 +1,3 @@\n context\n+new line\n-old line"}"#,
+        )
+        .unwrap();
+        assert_eq!(with.filename, "src/main.rs");
+        assert_eq!(with.status, "modified");
+        assert_eq!(with.additions, 12);
+        assert!(with.patch.as_deref().unwrap().starts_with("@@"));
+
+        // Binary/oversized files: `patch` absent, not null.
+        let binary: PrFile = serde_json::from_str(
+            r#"{"filename":"logo.png","status":"added",
+                "additions":0,"deletions":0,"changes":0}"#,
+        )
+        .unwrap();
+        assert_eq!(binary.patch, None);
     }
 
     #[test]

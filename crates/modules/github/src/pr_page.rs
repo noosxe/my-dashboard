@@ -26,6 +26,7 @@ use gpui_component::{
     avatar::Avatar,
     badge::Badge,
     button::{Button, ButtonVariants},
+    collapsible::Collapsible,
     group_box::GroupBox,
     h_flex,
     input::{Textarea, TextareaState},
@@ -39,9 +40,14 @@ use gpui_component::{
 
 use serde_json::json;
 
+use std::collections::HashSet;
+
+use crate::api::{self, PrFile};
 use crate::gql;
 use crate::page::relative_age;
-use crate::service::{FetchSpec, GithubState, Kind, Mutation, run_mutation, run_spec_tracked};
+use crate::service::{
+    FetchSpec, GithubState, Kind, Mutation, PatchLine, parse_patch, run_mutation, run_spec_tracked,
+};
 
 actions!(github, [DismissPrPage]);
 
@@ -110,6 +116,21 @@ pub(crate) struct PrDetailPage {
     /// Method Select state — built once, on the first render that has a
     /// detail payload (SelectState needs a window; render has one).
     method_select: Option<Entity<SelectState<SearchableVec<SharedString>>>>,
+    /// Changed-files fetch lifecycle (D8): lazy — `Idle` until the
+    /// Files tab is first opened, then one REST walk; `Ready` keeps the
+    /// parsed list (a refresh refetches it).
+    files: FilesFetch,
+    /// Collapsed file-card indexes (D8) — default open (github.com
+    /// parity); indexes key into `FilesFetch::Ready`'s list.
+    collapsed_files: HashSet<usize>,
+}
+
+/// The Files tab's fetch lifecycle (docs/0016 D8).
+enum FilesFetch {
+    Idle,
+    Fetching,
+    Ready(Vec<PrFile>),
+    Failed(String),
 }
 
 impl EventEmitter<PrPageEvent> for PrDetailPage {}
@@ -155,6 +176,8 @@ impl PrDetailPage {
             description_edit: None,
             methods: Vec::new(),
             method_select: None,
+            files: FilesFetch::Idle,
+            collapsed_files: HashSet::new(),
         };
         page.fetch_detail(cx);
         page
@@ -248,6 +271,77 @@ impl PrDetailPage {
         cx.notify();
     }
 
+    // --- files tab (docs/0016 §6 stage 4, D8) -------------------------------
+
+    /// The changed-files spec: one REST walk over
+    /// `GET /repos/{o}/{r}/pulls/{n}/files`, page-stitched by the
+    /// transport (`run_rest`, 100/page). No ETag — page-owned like
+    /// [`Self::detail_spec`]. 30 pages = GitHub's 3000-file cap; the
+    /// walk stops at the first short page long before it.
+    fn files_spec(repo: &str, number: i64) -> FetchSpec {
+        let (owner, name) = split_repo(repo);
+        FetchSpec {
+            kind: Kind::PrFiles,
+            url: api::pr_files_url(owner, name, number, 1),
+            etag: None,
+            ident: Some(format!("{repo}#{number}")),
+            max_pages: 30,
+            variables: None,
+        }
+    }
+
+    /// Lazy fetch (D8): fired once, when the Files tab is first opened,
+    /// and again on refresh once a list is showing.
+    fn fetch_files(&mut self, cx: &mut Context<Self>) {
+        if !self.state.read(cx).auth.connected() {
+            return; // the page is about to be torn down by the auth gate
+        }
+        let client = self.state.update(cx, |s, _| s.client.clone());
+        let spec = Self::files_spec(&self.repo, self.number);
+        log::debug!(
+            "pr-files: fetching {}",
+            spec.ident.as_deref().unwrap_or("?")
+        );
+        self.files = FilesFetch::Fetching;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = run_spec_tracked(client, spec, cx).await;
+            let _ = this.update(cx, |page, cx| page.apply_files_result(result, cx));
+        })
+        .detach();
+    }
+
+    fn apply_files_result(&mut self, result: crate::service::SpecResult, cx: &mut Context<Self>) {
+        if let Some(m) = &result.network {
+            self.files = FilesFetch::Failed(format!("Network error: {m}"));
+        } else if result.status != 200 {
+            // Shared 401/403 handling, same as the detail fetch (D2).
+            let status = result.status;
+            self.state.update(cx, |s, cx| {
+                s.apply(result);
+                cx.notify();
+            });
+            self.files = FilesFetch::Failed(format!("GitHub answered HTTP {status}"));
+        } else {
+            match serde_json::from_str::<Vec<PrFile>>(result.body.as_deref().unwrap_or("[]")) {
+                Ok(files) => {
+                    log::info!(
+                        "pr-files applied: {}#{} — {} files",
+                        self.repo,
+                        self.number,
+                        files.len()
+                    );
+                    self.collapsed_files.clear();
+                    self.files = FilesFetch::Ready(files);
+                }
+                Err(e) => {
+                    log::warn!("pr-files payload: {e}");
+                    self.files = FilesFetch::Failed("Malformed payload".into());
+                }
+            }
+        }
+        cx.notify();
+    }
     // --- write path (docs/0016 §6 stage 2) ---------------------------------
 
     /// The selected comment-box action label, cloned out of the Select.
@@ -612,6 +706,12 @@ impl PrDetailPage {
                             .tooltip("Refresh")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.fetch_detail(cx);
+                                // A refresh with files already loaded
+                                // refetches the list too (D8) — collapse
+                                // states reset with the new payload.
+                                if matches!(this.files, FilesFetch::Ready(_)) {
+                                    this.fetch_files(cx);
+                                }
                             })),
                     )
                     .child(
@@ -655,6 +755,11 @@ impl PrDetailPage {
             .on_click(cx.listener(|this, ix: &usize, _, cx| {
                 if let Some(tab) = PrTab::from_index(*ix) {
                     this.tab = tab;
+                    // Lazy files fetch (D8): the REST walk starts the
+                    // first time the Files tab opens, not on page open.
+                    if tab == PrTab::Files && matches!(this.files, FilesFetch::Idle) {
+                        this.fetch_files(cx);
+                    }
                     cx.notify();
                 }
             }))
@@ -670,7 +775,7 @@ impl PrDetailPage {
             PrTab::Conversation => self.render_conversation(detail, cx),
             PrTab::Commits => self.render_commits(detail, cx),
             PrTab::Checks => self.render_checks(detail, cx),
-            PrTab::Files => stage_placeholder(self.tab, cx),
+            PrTab::Files => render_files(self, cx),
         }
     }
 
@@ -1831,31 +1936,266 @@ fn muted_centered(text: &str, cx: &Context<PrDetailPage>) -> AnyElement {
         .into_any_element()
 }
 
-/// Stage boundary (docs/0016 §6): the files surface lands with #94 —
-/// the tab is present (count live) and honest about it.
-fn stage_placeholder(_tab: PrTab, cx: &Context<PrDetailPage>) -> AnyElement {
-    div()
-        .id("pr-stage-placeholder")
+/// Files tab (D8): summary line + per-file collapsible cards with the
+/// parsed diff body. The REST fetch is lazy — `fetch_files` fires on the
+/// first Files-tab selection, so opening the page never costs a walk.
+fn render_files(page: &PrDetailPage, cx: &Context<PrDetailPage>) -> AnyElement {
+    match &page.files {
+        FilesFetch::Idle => skeleton_list(),
+        FilesFetch::Fetching => skeleton_list(),
+        FilesFetch::Failed(msg) => v_flex()
+            .id("pr-files-error")
+            .flex_1()
+            .min_h_0()
+            .items_center()
+            .justify_center()
+            .gap_2()
+            .text_sm()
+            .text_color(cx.theme().danger)
+            .child(msg.clone())
+            .child(
+                Button::new("pr-files-retry")
+                    .ghost()
+                    .small()
+                    .icon(IconName::RotateCw)
+                    .tooltip("Retry")
+                    .on_click(cx.listener(|this, _, _, cx| this.fetch_files(cx))),
+            )
+            .into_any_element(),
+        FilesFetch::Ready(files) if files.is_empty() => empty_cell("No file changes", cx),
+        FilesFetch::Ready(files) => render_files_list(files, &page.collapsed_files, cx),
+    }
+}
+
+fn render_files_list(
+    files: &[PrFile],
+    collapsed: &HashSet<usize>,
+    cx: &Context<PrDetailPage>,
+) -> AnyElement {
+    let (adds, dels): (i64, i64) = files
+        .iter()
+        .map(|f| (f.additions, f.deletions))
+        .fold((0, 0), |(a, d), (fa, fd)| (a + fa, d + fd));
+    let summary = files_summary(files.len(), adds, dels);
+    let cards: Vec<AnyElement> = files
+        .iter()
+        .enumerate()
+        .map(|(i, file)| file_card(i, file, collapsed.contains(&i), cx))
+        .collect();
+    v_flex()
+        .id("pr-files-scroll")
         .flex_1()
         .min_h_0()
-        .flex()
-        .items_center()
-        .justify_center()
-        .text_color(cx.theme().muted_foreground)
-        .text_sm()
-        .child("The changed-files list arrives with an upcoming update")
+        .overflow_y_scroll()
+        .gap_2()
+        .py_3()
+        .child(
+            h_flex().px_3().gap_2().text_sm().child(
+                h_flex()
+                    .gap_1()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(format!("{} files changed", summary.files))
+                    .child(format!("· +{}", summary.adds))
+                    .child(format!("−{}", summary.dels)),
+            ),
+        )
+        .children(cards)
         .into_any_element()
 }
+
+/// Summary-line text pieces (D8): kept as a struct so the render path
+/// colors each piece without re-formatting, and the pure fn is
+/// table-testable.
+#[derive(Debug, PartialEq, Eq)]
+struct FilesSummary {
+    files: usize,
+    adds: i64,
+    dels: i64,
+}
+
+fn files_summary(files: usize, adds: i64, dels: i64) -> FilesSummary {
+    FilesSummary { files, adds, dels }
+}
+
+/// Change-type badge (D8): the four GitHub kinds map to tones; anything
+/// else (future API kinds, 0007 D3) renders as the raw string, muted.
+fn file_status_badge(status: &str, cx: &Context<PrDetailPage>) -> AnyElement {
+    let (label, tone) = match status {
+        "added" => (status, cx.theme().success),
+        "removed" => (status, cx.theme().danger),
+        "renamed" => (status, cx.theme().muted_foreground),
+        _ => (status, cx.theme().muted_foreground),
+    };
+    Badge::new()
+        .xsmall()
+        .color(tone)
+        .child(label.to_string())
+        .into_any_element()
+}
+
+/// Split a repo path for the card header (D8): dir segments render
+/// muted ahead of the basename, github.com-style. Pure for the table
+/// tests.
+fn split_path(path: &str) -> (Option<&str>, &str) {
+    match path.rsplit_once('/') {
+        Some((dir, name)) => (Some(dir), name),
+        None => (None, path),
+    }
+}
+
+/// One file's card (D8): header = toggle button (path with muted dir
+/// prefix, `+adds/−dels`, change-type badge); body = the parsed diff
+/// inside the `Collapsible` reveal.
+fn file_card(ix: usize, file: &PrFile, collapsed: bool, cx: &Context<PrDetailPage>) -> AnyElement {
+    let (dir, name) = split_path(&file.filename);
+    let chevron = if collapsed {
+        IconName::ChevronRight
+    } else {
+        IconName::ChevronDown
+    };
+    let id = SharedString::from(format!("pr-file-{ix}"));
+    Collapsible::new()
+        .open(!collapsed)
+        .motion_id(id.clone())
+        .child(
+            Button::new(id)
+                .ghost()
+                .xsmall()
+                .w_full()
+                .justify_start()
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    // Collapse is index-keyed; a refetch clears the set so
+                    // stale indexes can never leak into a new list.
+                    if !this.collapsed_files.remove(&ix) {
+                        this.collapsed_files.insert(ix);
+                    }
+                    cx.notify();
+                }))
+                .child(
+                    h_flex()
+                        .w_full()
+                        .min_w_0()
+                        .gap_2()
+                        .items_center()
+                        .child(Icon::new(chevron).xsmall())
+                        .child(
+                            h_flex()
+                                .min_w_0()
+                                .gap_1()
+                                .font_family(cx.theme().mono_font_family.clone())
+                                .text_xs()
+                                .when_some(dir, |row, dir| {
+                                    row.child(
+                                        div()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child(format!("{dir}/")),
+                                    )
+                                })
+                                .child(div().child(name.to_string())),
+                        )
+                        .child(
+                            h_flex()
+                                .flex_none()
+                                .gap_2()
+                                .text_xs()
+                                .child(
+                                    div()
+                                        .text_color(cx.theme().success)
+                                        .child(format!("+{}", file.additions)),
+                                )
+                                .child(
+                                    div()
+                                        .text_color(cx.theme().danger)
+                                        .child(format!("−{}", file.deletions)),
+                                )
+                                .child(file_status_badge(&file.status, cx)),
+                        ),
+                ),
+        )
+        .content(diff_body(file, cx))
+        .into_any_element()
+}
+
+/// The diff body (D8): horizontal scroll, mono `text_xs`, `flex_none`
+/// rows — no soft wrap. Tints come from the semantic tokens at low
+/// opacity (D10); the sign glyph carries the saturated color.
+fn diff_body(file: &PrFile, cx: &Context<PrDetailPage>) -> AnyElement {
+    let Some(patch) = file.patch.as_deref() else {
+        return div()
+            .px_3()
+            .py_2()
+            .text_xs()
+            .text_color(cx.theme().muted_foreground)
+            .child("Binary file or diff not shown")
+            .into_any_element();
+    };
+    let rows: Vec<AnyElement> = parse_patch(patch)
+        .into_iter()
+        .map(|line| diff_row(line, cx))
+        .collect();
+    v_flex()
+        .id(SharedString::from(format!("pr-diff-{}", file.filename)))
+        .min_w_0()
+        .overflow_x_scroll()
+        .border_t_1()
+        .border_color(cx.theme().border)
+        .children(rows)
+        .into_any_element()
+}
+
+fn diff_row(line: PatchLine, cx: &Context<PrDetailPage>) -> AnyElement {
+    let mono = cx.theme().mono_font_family.clone();
+    match line {
+        PatchLine::Hunk(text) => div()
+            .flex_none()
+            .whitespace_nowrap()
+            .px_2()
+            .py_0p5()
+            .text_xs()
+            .font_family(mono)
+            .text_color(cx.theme().muted_foreground)
+            .bg(cx.theme().accent.opacity(0.15))
+            .child(text),
+        PatchLine::Context(text) => div()
+            .flex_none()
+            .whitespace_nowrap()
+            .px_2()
+            .text_xs()
+            .font_family(mono)
+            .child(format!(" {text}")),
+        PatchLine::Add(text) => div()
+            .flex_none()
+            .whitespace_nowrap()
+            .px_2()
+            .text_xs()
+            .font_family(mono)
+            .bg(cx.theme().success.opacity(0.12))
+            .text_color(cx.theme().success)
+            .child(format!("+{text}")),
+        PatchLine::Del(text) => div()
+            .flex_none()
+            .whitespace_nowrap()
+            .px_2()
+            .text_xs()
+            .font_family(mono)
+            .bg(cx.theme().danger.opacity(0.12))
+            .text_color(cx.theme().danger)
+            .child(format!("−{text}")),
+    }
+    .into_any_element()
+}
+
 #[cfg(test)]
 mod tests {
     // No `use super::*` — page.rs documents the gpui::* shadowing hazard.
     use crate::gql;
     use crate::gql::MergeMethods;
     use crate::pr_page::{
-        BusyOp, ChecksCounts, ChecksTone, ErrorScope, MergeLineTone, MergeMethod, PrStateTone,
-        ReviewTone, TimelineKind, allowed_methods, checks_counts, checks_header_line,
-        comment_action_allowed, default_method, merge_enabled, merge_state_line, pr_state_tone,
-        review_event, review_state_label, rollup_summary, short_sha, split_repo, timeline_order,
+        BusyOp, ChecksCounts, ChecksTone, ErrorScope, FilesSummary, MergeLineTone, MergeMethod,
+        PrStateTone, ReviewTone, TimelineKind, allowed_methods, checks_counts, checks_header_line,
+        comment_action_allowed, default_method, files_summary, merge_enabled, merge_state_line,
+        pr_state_tone, review_event, review_state_label, rollup_summary, short_sha, split_path,
+        split_repo, timeline_order,
     };
 
     fn check(name: &str, state: gql::CheckState) -> gql::PrCheck {
@@ -1929,6 +2269,30 @@ mod tests {
         // Short oids don't panic and don't pad.
         assert_eq!(short_sha("abc"), "abc");
         assert_eq!(short_sha(""), "");
+    }
+
+    #[test]
+    fn split_path_dir_and_basename() {
+        assert_eq!(
+            split_path("crates/modules/github/src/pr_page.rs"),
+            (Some("crates/modules/github/src"), "pr_page.rs")
+        );
+        assert_eq!(split_path("README.md"), (None, "README.md"));
+        // Trailing slash: empty basename, same as github.com shows.
+        assert_eq!(split_path("dir/"), (Some("dir"), ""));
+    }
+
+    #[test]
+    fn files_summary_carries_the_line_numbers() {
+        // The doc example (D8): "23 files changed · +812 · −94".
+        assert_eq!(
+            files_summary(23, 812, 94),
+            FilesSummary {
+                files: 23,
+                adds: 812,
+                dels: 94
+            }
+        );
     }
     fn comment(login: &str, at: &str) -> gql::PrComment {
         gql::PrComment {
