@@ -258,11 +258,17 @@ Two columns: main timeline (`flex_1`) + fixed ~300px right rail (D5).
 
 A `GroupBox` at the rail top:
 
-- **State line** from `mergeStateStatus` (pure mapping fn, table-tested):
-  `CLEAN`/`HAS_HOOKS` → "This branch has no conflicts…" (success tone);
-  `BEHIND` → "out-of-date" hint; `BLOCKED` → "blocking requirements not met";
-  `DIRTY` → "conflicts must be resolved" (danger); `UNSTABLE`/`UNKNOWN` →
-  neutral wording. `DRAFT` and terminal `state` disable merging entirely.
+- **State line** from `mergeStateStatus` (pure mapping fn, table-tested).
+  **Shipped copy (stage 2, 2026-09-03) — the full sentences, not the
+  sketch below:** `CLEAN`/`HAS_HOOKS` → "This branch has no conflicts
+  with the base branch" (success); `BEHIND` → "This branch is out-of-date
+  with the base branch" (warning); `BLOCKED` → "Merging is blocked by
+  required reviews or status checks" (warning); `DIRTY` → "This branch has
+  conflicts that must be resolved" (danger); `DRAFT` → "Draft pull requests
+  can't be merged until marked ready" (muted); `UNSTABLE` → "Mergeable,
+  but some checks are not passing" (muted); `UNKNOWN`/absent → "GitHub is
+  still calculating merge status" (muted). `DRAFT` and terminal `state`
+  disable merging entirely.
 - **Method selector**: a `Select` offering exactly the repo-enabled methods
   (`mergeCommitAllowed`/`squashMergeAllowed`/`rebaseMergeAllowed` — the three
   booleans ride along on the detail query via the `repository` wrapper).

@@ -202,6 +202,23 @@ pub enum Kind {
     /// [`GithubState::apply`] (only non-200 results are forwarded there
     /// for the shared auth/rate-limit handling).
     PrDetail,
+    /// A PR-page write (docs/0016 §6.2 D2) — the payload says which of
+    /// the five mutation documents to post. Same page-owned result
+    /// convention as [`Kind::PrDetail`]: the page parses 200 bodies;
+    /// only non-200 results are forwarded to [`GithubState::apply`].
+    PrMutation(Mutation),
+}
+
+/// The five PR-page mutations (docs/0016 §6.2), each mapping to one
+/// GraphQL document — the page builds the input, the transport just
+/// swaps the document string (D2: "transport is identical").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mutation {
+    Comment,
+    Review,
+    UpdateDescription,
+    Merge,
+    Close,
 }
 
 #[derive(Clone, Debug)]
@@ -237,6 +254,7 @@ pub fn run_spec(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
         Kind::Snapshot => run_snapshot(http, spec),
         Kind::RepoSnapshot => run_repo_snapshot(http, spec),
         Kind::PrDetail => run_pr_detail(http, spec),
+        Kind::PrMutation(m) => run_pr_mutation(http, spec, m),
         Kind::Notifications | Kind::RepoNotifications => run_rest(http, spec),
     }
 }
@@ -552,6 +570,57 @@ fn run_pr_detail(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
     }
 }
 
+/// One PR-page mutation (docs/0016 §6.2 D2): a single GraphQL call with
+/// the document picked by the mutation kind — the same `post_graphql`
+/// transport, auth, and token path as every query. The PR page parses
+/// the 200 body itself (checking the `errors` array); `ident` carries
+/// `owner/repo#number <mutation>` for logging.
+fn run_pr_mutation(http: &dyn Http, spec: &FetchSpec, mutation: Mutation) -> SpecResult {
+    let doc = match mutation {
+        Mutation::Comment => gql::PR_ADD_COMMENT_MUTATION,
+        Mutation::Review => gql::PR_ADD_REVIEW_MUTATION,
+        Mutation::UpdateDescription => gql::PR_UPDATE_DESCRIPTION_MUTATION,
+        Mutation::Merge => gql::PR_MERGE_MUTATION,
+        Mutation::Close => gql::PR_CLOSE_MUTATION,
+    };
+    let mut status = 0u16;
+    let mut rate = None;
+    let mut network = None;
+    let mut body = None;
+    log::debug!(
+        "pr-mutation {:?}: {}",
+        mutation,
+        spec.ident.as_deref().unwrap_or("?")
+    );
+    let sent_at = Instant::now();
+    match http.post_graphql(doc, spec.variables.as_ref().unwrap_or(&Value::Null)) {
+        Err(HttpError(m)) => network = Some(m),
+        Ok(result) => {
+            status = result.status;
+            rate = result.rate;
+            log::debug!(
+                "pr-mutation {:?}: → {} in {}ms",
+                mutation,
+                status,
+                sent_at.elapsed().as_millis()
+            );
+            if status == 200 {
+                body = result.body;
+            }
+        }
+    }
+    SpecResult {
+        kind: spec.kind,
+        ident: spec.ident.clone(),
+        status,
+        etag: None,
+        rate,
+        body,
+        network,
+        cursor: None,
+    }
+}
+
 impl Kind {
     fn kind_name(&self) -> &'static str {
         match self {
@@ -559,6 +628,7 @@ impl Kind {
             Kind::Notifications => "notifications",
             Kind::RepoSnapshot => "repo-snapshot",
             Kind::PrDetail => "pr-detail",
+            Kind::PrMutation(_) => "pr-mutation",
             Kind::RepoNotifications => "repo-notifs",
         }
     }
@@ -1021,7 +1091,7 @@ impl GithubState {
             // 200 bodies. Only non-200 results are ever forwarded here,
             // and those return in the status handling above — this arm
             // exists purely for match exhaustiveness.
-            Kind::PrDetail => {}
+            Kind::PrDetail | Kind::PrMutation(_) => {}
         }
 
         // ETag keyed by logical resource (kind + ident), not raw URL, so
@@ -1215,6 +1285,29 @@ pub(crate) async fn run_spec_tracked(
         .await;
     cx.update(|cx| status::end(cx, id));
     result
+}
+
+/// The PR page's write path (docs/0016 §6.2 D2): one mutation, tracked
+/// like a fetch (one status-bar unit, 0013 D4) and on the exact same
+/// transport — `post_graphql` with a different document string, the
+/// authed client, and page-side non-200 forwarding for the shared
+/// 401/403 handling.
+pub(crate) async fn run_mutation(
+    client: Arc<dyn Http>,
+    mutation: Mutation,
+    variables: Value,
+    ident: String,
+    cx: &mut AsyncApp,
+) -> SpecResult {
+    let spec = FetchSpec {
+        kind: Kind::PrMutation(mutation),
+        url: gql::GRAPHQL_ENDPOINT.to_string(),
+        etag: None,
+        ident: Some(ident),
+        max_pages: 1,
+        variables: Some(variables),
+    };
+    run_spec_tracked(client, spec, cx).await
 }
 
 /// The 60-second service loop (Q7/Q8): plan → background-run → apply →
