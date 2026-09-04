@@ -112,6 +112,12 @@ pub(crate) struct PrDetailPage {
     mutation_error: Option<MutationError>,
     /// Prefilled textarea while the description is being edited (D4).
     description_edit: Option<Entity<TextareaState>>,
+    /// Row-level editor (0019 D4): (node id, editor). At most one editor
+    /// is open anywhere on the page — opening one closes the description
+    /// editor, other row editors, and any pending delete confirm.
+    timeline_edit: Option<(String, Entity<TextareaState>)>,
+    /// Node id awaiting delete confirmation (0019 D4, inline two-step).
+    delete_confirm: Option<String>,
     /// Methods the repo allows (D5), from the detail payload — drives the
     /// method Select and the Merge button verb.
     methods: Vec<MergeMethod>,
@@ -207,6 +213,8 @@ impl PrDetailPage {
             busy: None,
             mutation_error: None,
             description_edit: None,
+            timeline_edit: None,
+            delete_confirm: None,
             methods: Vec::new(),
             method_select: None,
             files: FilesFetch::Idle,
@@ -346,6 +354,23 @@ impl PrDetailPage {
                             );
                             self.md = build_md_cache(&detail);
                             self.detail = Some(detail);
+                            // 0019 D4: an editor/confirm whose node is gone
+                            // with the new payload has nothing left to edit —
+                            // drop it (deleted elsewhere, refetch race).
+                            let d = self.detail.as_ref().unwrap();
+                            let still_there = |id: &str| {
+                                node_kind(&d.comments.nodes, &d.reviews.nodes, id).is_some()
+                            };
+                            if let Some((id, _)) = &self.timeline_edit {
+                                if !still_there(id) {
+                                    self.timeline_edit = None;
+                                }
+                            }
+                            if let Some(id) = &self.delete_confirm {
+                                if !still_there(id) {
+                                    self.delete_confirm = None;
+                                }
+                            }
                         }
                         None => {
                             log::warn!("pr-detail: repository/pullRequest null — keeping header");
@@ -552,6 +577,10 @@ impl PrDetailPage {
         if self.busy.is_some() || self.description_edit.is_some() {
             return;
         }
+        // One editor at a time (0019 D4): a row editor or delete confirm
+        // yields to the description editor.
+        self.timeline_edit = None;
+        self.delete_confirm = None;
         let body = self
             .detail
             .as_ref()
@@ -605,6 +634,110 @@ impl PrDetailPage {
         );
     }
 
+    // --- timeline-row edit/delete (docs/0019 D4/D5) ---------------------
+
+    /// Open the row editor for `node_id`, prefilled with `body`. The
+    /// one-editor invariant: the description editor and any pending
+    /// delete confirm yield to this editor.
+    fn start_edit_row(
+        &mut self,
+        node_id: String,
+        body: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.busy.is_some() || node_id.is_empty() {
+            return;
+        }
+        self.description_edit = None;
+        self.delete_confirm = None;
+        let editor = cx.new(|cx| {
+            let mut state = TextareaState::new(window, cx)
+                // Grows with the body; scrolls internally past 30 rows.
+                .auto_grow(4, 30);
+            state.set_value(body, window, cx);
+            state
+        });
+        self.timeline_edit = Some((node_id, editor));
+        cx.notify();
+    }
+
+    fn cancel_edit_row(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.timeline_edit = None;
+        self.refocus_page(window, cx);
+        cx.notify();
+    }
+
+    /// Save the row editor (0019 D5): the node's kind picks the mutation
+    /// and its input shape. Empty bodies never get here (Save renders
+    /// disabled and the guard re-checks).
+    fn save_edit_row(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(d) = self.detail.as_ref() else {
+            return;
+        };
+        let Some((node_id, editor)) = self.timeline_edit.as_ref() else {
+            return;
+        };
+        if self.busy.is_some() {
+            return;
+        }
+        let body = editor.read(cx).value().trim().to_string();
+        if body.is_empty() {
+            return;
+        }
+        let Some(kind) = node_kind(&d.comments.nodes, &d.reviews.nodes, node_id) else {
+            // The node vanished under the editor (refetch race) — close.
+            self.timeline_edit = None;
+            cx.notify();
+            return;
+        };
+        let (op, mutation, variables) = edit_row(kind, node_id, &body);
+        self.mutation_error = None;
+        self.busy = Some(op);
+        cx.notify();
+        self.spawn_mutation(op, mutation, variables, window, cx);
+    }
+
+    /// Arm the inline delete confirm on a row (0019 D4). Editors yield.
+    fn start_delete_confirm(&mut self, node_id: String, cx: &mut Context<Self>) {
+        if self.busy.is_some() || node_id.is_empty() {
+            return;
+        }
+        self.description_edit = None;
+        self.timeline_edit = None;
+        self.delete_confirm = Some(node_id);
+        cx.notify();
+    }
+
+    fn cancel_delete_confirm(&mut self, cx: &mut Context<Self>) {
+        self.delete_confirm = None;
+        cx.notify();
+    }
+
+    /// Fire the confirmed delete (0019 D5). The confirm card stays up
+    /// while the op is in flight — it shows which row is being deleted —
+    /// and the success arm clears it.
+    fn confirm_delete_row(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(d) = self.detail.as_ref() else {
+            return;
+        };
+        let Some(node_id) = self.delete_confirm.clone() else {
+            return;
+        };
+        if self.busy.is_some() {
+            return;
+        }
+        let Some(kind) = node_kind(&d.comments.nodes, &d.reviews.nodes, &node_id) else {
+            self.delete_confirm = None;
+            cx.notify();
+            return;
+        };
+        let (op, mutation, variables) = delete_row(kind, &node_id);
+        self.mutation_error = None;
+        self.busy = Some(op);
+        cx.notify();
+        self.spawn_mutation(op, mutation, variables, window, cx);
+    }
     /// Merge the PR (D5) with the selected (or only) method.
     fn merge_pr(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(d) = self.detail.clone() else { return };
@@ -737,6 +870,15 @@ impl PrDetailPage {
                 BusyOp::Description => {
                     self.description_edit = None;
                     self.refocus_page(window, cx);
+                }
+                // 0019 D4: success closes the row surface it came from —
+                // the refetch below repaints the row from fresh data.
+                BusyOp::CommentEdit | BusyOp::ReviewEdit => {
+                    self.timeline_edit = None;
+                    self.refocus_page(window, cx);
+                }
+                BusyOp::CommentDelete | BusyOp::ReviewDelete => {
+                    self.delete_confirm = None;
                 }
                 BusyOp::Merge | BusyOp::Close => {}
             }
@@ -1112,6 +1254,60 @@ impl PrDetailPage {
             .into_any_element()
     }
 
+    /// The header Edit/Delete affordances for one timeline row (0019
+    /// D3/D4): present only when the payload's viewer flags allow. The
+    /// `prefix` keys the bridge ids (`{prefix}-edit` / `{prefix}-delete`).
+    fn row_actions(
+        &self,
+        prefix: &str,
+        node_id: &str,
+        body: &str,
+        can_update: bool,
+        can_delete: bool,
+        cx: &Context<Self>,
+    ) -> Option<AnyElement> {
+        if !can_update && !can_delete {
+            return None;
+        }
+        let busy = self.busy.is_some();
+        let node_id = node_id.to_string();
+        let body = body.to_string();
+        let mut bar = h_flex().gap_1();
+        if can_update {
+            let id = node_id.clone();
+            let body = body.clone();
+            bar = bar.child(
+                Button::new(format!("{prefix}-edit"))
+                    .ghost()
+                    .small()
+                    .label("Edit")
+                    .disabled(busy)
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.start_edit_row(id.clone(), body.clone(), window, cx)
+                    })),
+            );
+        }
+        if can_delete {
+            let id = node_id.clone();
+            bar =
+                bar.child(
+                    Button::new(format!("{prefix}-delete"))
+                        .ghost()
+                        .small()
+                        .label("Delete")
+                        .disabled(busy)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.start_delete_confirm(id.clone(), cx)
+                        })),
+                );
+        }
+        // Test-only probe key wrapping the buttons; the buttons themselves
+        // carry the bridge-visible accesskit ids (0019 D8).
+        Some(
+            bar.debug_selector(|| format!("{prefix}-actions"))
+                .into_any_element(),
+        )
+    }
     fn render_conversation(
         &self,
         detail: &Option<gql::PrDetail>,
@@ -1133,10 +1329,11 @@ impl PrDetailPage {
         // when the payload says the viewer may update; while editing, a
         // prefilled Textarea + Save/Cancel replaces the body.
         let description = match &self.description_edit {
-            Some(editor) => description_edit_card(
+            Some(editor) => inline_edit_card(
+                "pr-description",
+                "Editing description",
                 editor,
                 self.busy.is_some(),
-                editor.read(cx).value().trim().is_empty(),
                 cx.listener(|this, _, window, cx| this.save_description(window, cx)),
                 cx.listener(|this, _, window, cx| this.cancel_edit_description(window, cx)),
                 cx,
@@ -1172,34 +1369,117 @@ impl PrDetailPage {
             match kind {
                 TimelineKind::Comment => {
                     let c = &d.comments.nodes[ix];
+                    let key = format!("pr-comment-{ix}");
+                    // 0019 D4: the row swaps to its editor or delete
+                    // confirm while one is active for this node.
+                    if let Some(editor) = self.timeline_edit.as_ref().filter(|e| e.0 == c.id) {
+                        children.push(inline_edit_card(
+                            &key,
+                            "Editing comment",
+                            &editor.1,
+                            self.busy.is_some(),
+                            cx.listener(|this, _, window, cx| this.save_edit_row(window, cx)),
+                            cx.listener(|this, _, window, cx| this.cancel_edit_row(window, cx)),
+                            cx,
+                        ));
+                        continue;
+                    }
+                    if self.delete_confirm.as_deref() == Some(c.id.as_str()) {
+                        children.push(delete_confirm_card(
+                            &key,
+                            "Delete this comment?",
+                            self.busy.is_some(),
+                            cx.listener(|this, _, window, cx| this.confirm_delete_row(window, cx)),
+                            cx.listener(|this, _, _, cx| this.cancel_delete_confirm(cx)),
+                            cx,
+                        ));
+                        continue;
+                    }
+                    let mut age = relative_age(c.created_at.as_deref());
+                    if row_is_edited(c.created_at.as_deref(), c.updated_at.as_deref()) {
+                        age.push_str(" (edited)");
+                    }
                     children.push(body_card(
-                        &format!("pr-comment-{ix}"),
+                        &key,
                         c.author
                             .as_ref()
                             .map(|a| a.login.as_str())
                             .unwrap_or("ghost"),
                         c.author.as_ref().map(|a| a.avatar_url.as_str()),
-                        relative_age(c.created_at.as_deref()),
+                        age,
                         Some(c.body.as_str()),
-                        self.md.get(&format!("pr-comment-{ix}")).map(Arc::as_ref),
-                        None,
+                        self.md.get(&key).map(Arc::as_ref),
+                        self.row_actions(
+                            &key,
+                            c.id.as_str(),
+                            &c.body,
+                            c.viewer_can_update,
+                            c.viewer_can_delete,
+                            cx,
+                        ),
                         cx,
                     ));
                 }
                 TimelineKind::Review => {
                     let r = &d.reviews.nodes[ix];
+                    let key = format!("pr-review-{ix}");
+                    if let Some(editor) = self.timeline_edit.as_ref().filter(|e| e.0 == r.id) {
+                        children.push(inline_edit_card(
+                            &key,
+                            "Editing review",
+                            &editor.1,
+                            self.busy.is_some(),
+                            cx.listener(|this, _, window, cx| this.save_edit_row(window, cx)),
+                            cx.listener(|this, _, window, cx| this.cancel_edit_row(window, cx)),
+                            cx,
+                        ));
+                        continue;
+                    }
+                    if self.delete_confirm.as_deref() == Some(r.id.as_str()) {
+                        children.push(delete_confirm_card(
+                            &key,
+                            // 0019 D1: the review goes wholesale — say so.
+                            "Delete this review? Its approval or request-changes state goes with it.",
+                            self.busy.is_some(),
+                            cx.listener(|this, _, window, cx| this.confirm_delete_row(window, cx)),
+                            cx.listener(|this, _, _, cx| this.cancel_delete_confirm(cx)),
+                            cx,
+                        ));
+                        continue;
+                    }
+                    let mut age = relative_age(r.submitted_at.as_deref());
+                    if row_is_edited(r.submitted_at.as_deref(), r.updated_at.as_deref()) {
+                        age.push_str(" (edited)");
+                    }
                     let badge = review_badge(r.state.as_deref(), cx);
+                    let actions = self.row_actions(
+                        &key,
+                        r.id.as_str(),
+                        r.body.as_deref().unwrap_or_default(),
+                        r.viewer_can_update,
+                        r.viewer_can_delete,
+                        cx,
+                    );
+                    // 0019 D4: badge and actions share the header's
+                    // trailing slot.
+                    let trailing = match (badge, actions) {
+                        (Some(b), Some(a)) => {
+                            Some(h_flex().gap_2().child(b).child(a).into_any_element())
+                        }
+                        (Some(b), None) => Some(b),
+                        (None, a) => a,
+                    };
                     children.push(body_card(
-                        &format!("pr-review-{ix}"),
+                        &key,
                         r.author
                             .as_ref()
                             .map(|a| a.login.as_str())
                             .unwrap_or("ghost"),
                         r.author.as_ref().map(|a| a.avatar_url.as_str()),
-                        relative_age(r.submitted_at.as_deref()),
+                        age,
                         r.body.as_deref().filter(|b| !b.is_empty()),
-                        self.md.get(&format!("pr-review-{ix}")).map(Arc::as_ref),
-                        badge,
+                        self.md.get(&key).map(Arc::as_ref),
+                        trailing,
                         cx,
                     ));
                 }
@@ -1616,6 +1896,76 @@ pub(crate) fn timeline_order(
         .collect()
 }
 
+/// Which timeline kind owns this node id (docs/0019 D4). Pure —
+/// table-tested; `None` when no node carries the id (deleted elsewhere
+/// between refetches, or a stale editor).
+pub(crate) fn node_kind(
+    comments: &[gql::PrComment],
+    reviews: &[gql::PrReview],
+    node_id: &str,
+) -> Option<TimelineKind> {
+    if comments.iter().any(|c| c.id == node_id) {
+        Some(TimelineKind::Comment)
+    } else if reviews.iter().any(|r| r.id == node_id) {
+        Some(TimelineKind::Review)
+    } else {
+        None
+    }
+}
+
+/// The (op, mutation, variables) for saving an edited row (docs/0019 D5).
+/// Pure — the handler stays a thin guard around it.
+pub(crate) fn edit_row(
+    kind: TimelineKind,
+    node_id: &str,
+    body: &str,
+) -> (BusyOp, Mutation, serde_json::Value) {
+    match kind {
+        TimelineKind::Comment => (
+            BusyOp::CommentEdit,
+            Mutation::UpdateComment,
+            json!({ "input": { "id": node_id, "body": body } }),
+        ),
+        TimelineKind::Review => (
+            BusyOp::ReviewEdit,
+            Mutation::UpdateReview,
+            json!({ "input": { "pullRequestReviewId": node_id, "body": body } }),
+        ),
+    }
+}
+
+/// The (op, mutation, variables) for a confirmed delete (docs/0019 D5).
+pub(crate) fn delete_row(
+    kind: TimelineKind,
+    node_id: &str,
+) -> (BusyOp, Mutation, serde_json::Value) {
+    match kind {
+        TimelineKind::Comment => (
+            BusyOp::CommentDelete,
+            Mutation::DeleteComment,
+            json!({ "input": { "id": node_id } }),
+        ),
+        TimelineKind::Review => (
+            BusyOp::ReviewDelete,
+            Mutation::DeleteReview,
+            json!({ "input": { "pullRequestReviewId": node_id } }),
+        ),
+    }
+}
+
+/// A row shows "(edited)" when the payload's `updatedAt` is strictly
+/// newer than its created/submitted stamp; missing stamps are never
+/// edited (same stamp rule as `timeline_order`). Pure — table-tested.
+pub(crate) fn row_is_edited(created: Option<&str>, updated: Option<&str>) -> bool {
+    fn stamp(ts: Option<&str>) -> Option<i64> {
+        ts.and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|t| t.timestamp())
+    }
+    match (stamp(created), stamp(updated)) {
+        (Some(c), Some(u)) => u > c,
+        _ => false,
+    }
+}
 /// `owner/repo` → (`owner`, `name`), tolerating a missing slash (empty
 /// owner — the query then fails server-side and lands in the error cell).
 pub(crate) fn split_repo(full: &str) -> (&str, &str) {
@@ -1633,13 +1983,25 @@ pub(crate) enum BusyOp {
     Description,
     Merge,
     Close,
+    // 0019 D5: timeline-row writes — the op names the surface (and the
+    // log line) honestly; all of them error into the timeline scope.
+    CommentEdit,
+    CommentDelete,
+    ReviewEdit,
+    ReviewDelete,
 }
 
 impl BusyOp {
     /// Where a failure of this op renders inline (D4/D5).
     fn error_scope(self) -> ErrorScope {
         match self {
-            BusyOp::Comment | BusyOp::Review | BusyOp::Description => ErrorScope::Timeline,
+            BusyOp::Comment
+            | BusyOp::Review
+            | BusyOp::Description
+            | BusyOp::CommentEdit
+            | BusyOp::CommentDelete
+            | BusyOp::ReviewEdit
+            | BusyOp::ReviewDelete => ErrorScope::Timeline,
             BusyOp::Merge | BusyOp::Close => ErrorScope::Panel,
         }
     }
@@ -2057,18 +2419,27 @@ fn error_cell(message: &str, cx: &Context<PrDetailPage>) -> AnyElement {
         .into_any_element()
 }
 
-/// The description card in edit mode (D4): same card chrome, body swapped
-/// for the prefilled Textarea + Save (disabled while empty/busy) / Cancel.
-fn description_edit_card(
+/// A card in edit mode (D4; generalized for the timeline rows by 0019
+/// D4): same card chrome, body swapped for the prefilled Textarea +
+/// Save (disabled while empty/busy) / Cancel. `id` keys the bridge ids
+/// (`{id}-save` / `{id}-cancel`) and doubles as the card id.
+fn inline_edit_card(
+    id: &str,
+    title: &str,
     editor: &Entity<TextareaState>,
     busy: bool,
-    empty: bool,
     on_save: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
     on_cancel: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
     cx: &Context<PrDetailPage>,
 ) -> AnyElement {
+    // 0019 D7: derived here so the call sites can't drift apart from the
+    // Save gating.
+    let empty = editor.read(cx).value().trim().is_empty();
     v_flex()
-        .id("pr-description-edit")
+        // Test-only probe key (0019 §5); the buttons keep their accesskit
+        // ids `{id}-save` / `{id}-cancel`.
+        .debug_selector(|| format!("{id}-card"))
+        .id(SharedString::from(id.to_string()))
         .w_full()
         .rounded_md()
         .border_1()
@@ -2085,7 +2456,7 @@ fn description_edit_card(
                 .child(
                     div()
                         .font_weight(FontWeight::MEDIUM)
-                        .child("Editing description"),
+                        .child(title.to_string()),
                 ),
         )
         .child(
@@ -2098,25 +2469,86 @@ fn description_edit_card(
                         .gap_2()
                         .justify_end()
                         .child(
-                            Button::new("pr-description-cancel")
+                            Button::new(format!("{id}-cancel"))
                                 .ghost()
                                 .small()
                                 .label("Cancel")
                                 .on_click(on_cancel),
                         )
                         .child(
-                            Button::new("pr-description-save")
+                            Button::new(format!("{id}-save"))
                                 .primary()
                                 .small()
                                 .label("Save")
                                 .disabled(busy || empty)
                                 .tooltip(if empty {
-                                    "The description can't be empty"
+                                    "The body can't be empty"
                                 } else {
-                                    "Save the description"
+                                    "Save"
                                 })
                                 .on_click(on_save),
                         ),
+                ),
+        )
+        .into_any_element()
+}
+
+/// The inline two-step delete confirmation (0019 D4): the question reads
+/// as text (the `tree` dump shows what is being confirmed) above
+/// Cancel / Delete. `id` keys `{id}-confirm` / `{id}-cancel` and doubles
+/// as the card id.
+fn delete_confirm_card(
+    id: &str,
+    question: &str,
+    busy: bool,
+    on_confirm: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+    on_cancel: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+    cx: &Context<PrDetailPage>,
+) -> AnyElement {
+    v_flex()
+        // Test-only probe key (0019 §5); the buttons keep their accesskit
+        // ids `{id}-confirm` / `{id}-cancel`.
+        .debug_selector(|| format!("{id}-confirm-card"))
+        .id(SharedString::from(id.to_string()))
+        .w_full()
+        .rounded_md()
+        .border_1()
+        .border_color(cx.theme().border)
+        .child(
+            h_flex()
+                .gap_2()
+                .items_center()
+                .px_3()
+                .py_2()
+                .border_b_1()
+                .border_color(cx.theme().border)
+                .bg(cx.theme().secondary.opacity(0.4))
+                .child(
+                    div()
+                        .font_weight(FontWeight::MEDIUM)
+                        .child(question.to_string()),
+                ),
+        )
+        .child(
+            h_flex()
+                .gap_2()
+                .justify_end()
+                .p_3()
+                .child(
+                    Button::new(format!("{id}-cancel"))
+                        .ghost()
+                        .small()
+                        .label("Cancel")
+                        .on_click(on_cancel),
+                )
+                .child(
+                    Button::new(format!("{id}-confirm"))
+                        .danger()
+                        .small()
+                        .label("Delete")
+                        .disabled(busy)
+                        .tooltip("This cannot be undone")
+                        .on_click(on_confirm),
                 ),
         )
         .into_any_element()
@@ -2302,6 +2734,282 @@ mod tests {
             "view must sit inside the sidebar, not equal it"
         );
     }
+
+    // --- timeline-row edit/delete (docs/0019 §5) ------------------------
+
+    use crate::pr_page::{build_md_cache, delete_row, edit_row, node_kind, row_is_edited};
+    use crate::service::{Kind, Mutation, SpecResult};
+
+    fn probe_detail() -> gql::PrDetail {
+        // Two gated rows (one per kind), two unflagged rows — the probe
+        // asserts the affordances follow the flags exactly (0019 D3).
+        // pr_detail_from_value takes the repository wrapper node.
+        let value = serde_json::json!({ "pullRequest": {
+            "id": "PR_2", "number": 7, "title": "layout probe", "url": "u",
+            "state": "OPEN", "isDraft": false,
+            "createdAt": "2026-09-01T00:00:00Z",
+            "reviews": {"totalCount": 2, "nodes": [
+                {"id": "PRR_1", "viewerCanUpdate": true, "viewerCanDelete": true,
+                 "author": {"login": "bob"}, "state": "APPROVED", "body": "lgtm",
+                 "submittedAt": "2026-09-01T01:00:00Z"},
+                {"author": {"login": "carol"}, "state": "COMMENTED", "body": "note",
+                 "submittedAt": "2026-09-02T01:00:00Z"}
+            ]},
+            "comments": {"totalCount": 2, "nodes": [
+                {"id": "IC_1", "viewerCanUpdate": true, "viewerCanDelete": false,
+                 "updatedAt": "2026-09-03T02:00:00Z",
+                 "author": {"login": "dave"}, "body": "nice",
+                 "createdAt": "2026-09-03T01:00:00Z"},
+                {"author": {"login": "erin"}, "body": "plain",
+                 "createdAt": "2026-09-04T01:00:00Z"}
+            ]}
+        }});
+        gql::pr_detail_from_value(&value).expect("probe detail parses")
+    }
+
+    #[test]
+    fn row_write_helpers_table() {
+        let mut c = comment("dave", "2026-09-03T01:00:00Z");
+        c.id = "IC_1".into();
+        let mut r = review("bob", "2026-09-01T01:00:00Z", "APPROVED");
+        r.id = "PRR_1".into();
+        let comments = vec![c];
+        let reviews = vec![r];
+        assert_eq!(
+            node_kind(&comments, &reviews, "IC_1"),
+            Some(TimelineKind::Comment)
+        );
+        assert_eq!(
+            node_kind(&comments, &reviews, "PRR_1"),
+            Some(TimelineKind::Review)
+        );
+        assert_eq!(node_kind(&comments, &reviews, "gone"), None);
+
+        let (op, m, vars) = edit_row(TimelineKind::Comment, "IC_1", "edited");
+        assert_eq!(op, BusyOp::CommentEdit);
+        assert_eq!(m, Mutation::UpdateComment);
+        assert_eq!(vars["input"]["id"], "IC_1");
+        assert_eq!(vars["input"]["body"], "edited");
+        let (op, m, vars) = edit_row(TimelineKind::Review, "PRR_1", "revised");
+        assert_eq!(op, BusyOp::ReviewEdit);
+        assert_eq!(m, Mutation::UpdateReview);
+        assert_eq!(vars["input"]["pullRequestReviewId"], "PRR_1");
+
+        let (op, m, vars) = delete_row(TimelineKind::Comment, "IC_1");
+        assert_eq!(op, BusyOp::CommentDelete);
+        assert_eq!(m, Mutation::DeleteComment);
+        assert_eq!(vars["input"]["id"], "IC_1");
+        assert!(
+            vars["input"].get("body").is_none(),
+            "delete carries no body"
+        );
+        let (op, m, vars) = delete_row(TimelineKind::Review, "PRR_1");
+        assert_eq!(op, BusyOp::ReviewDelete);
+        assert_eq!(m, Mutation::DeleteReview);
+        assert_eq!(vars["input"]["pullRequestReviewId"], "PRR_1");
+    }
+
+    #[test]
+    fn row_is_edited_table() {
+        assert!(row_is_edited(
+            Some("2026-09-01T00:00:00Z"),
+            Some("2026-09-02T00:00:00Z")
+        ));
+        assert!(!row_is_edited(
+            Some("2026-09-02T00:00:00Z"),
+            Some("2026-09-01T00:00:00Z")
+        ));
+        assert!(
+            !row_is_edited(Some("2026-09-01T00:00:00Z"), Some("2026-09-01T00:00:00Z")),
+            "equal stamps are not an edit"
+        );
+        assert!(!row_is_edited(None, Some("2026-09-02T00:00:00Z")));
+        assert!(!row_is_edited(Some("2026-09-01T00:00:00Z"), None));
+    }
+
+    #[gpui::test]
+    fn row_affordances_follow_viewer_flags(cx: &mut gpui::TestAppContext) {
+        cx.update(gpui_component::init);
+        let state = cx.update(|cx| {
+            let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
+            let store: std::sync::Arc<dyn crate::auth::TokenStore> =
+                std::sync::Arc::new(ProbeStore);
+            cx.new(|_| {
+                GithubState::new(
+                    client,
+                    store,
+                    Default::default(),
+                    Default::default(),
+                    GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                )
+            })
+        });
+        let (page, vcx) = cx.add_window_view(|window, cx| {
+            let summary = gql::PullRequest {
+                key: "o/r#7".into(),
+                database_id: None,
+                number: 7,
+                title: "layout probe".into(),
+                draft: false,
+                state: None,
+                author: None,
+                updated_at: None,
+                url: "https://probe".into(),
+                status: None,
+            };
+            let mut page = PrDetailPage::new(state, "o/r".into(), summary, window, cx);
+            page.detail = Some(probe_detail());
+            page.md = build_md_cache(page.detail.as_ref().unwrap());
+            page
+        });
+        for sel in [
+            "pr-conversation",
+            "pr-review-0-actions",
+            "pr-review-1-actions",
+            "pr-comment-0-actions",
+            "pr-comment-1-actions",
+        ] {
+            eprintln!("[probe] {sel}={:?}", vcx.debug_bounds(sel));
+        }
+        // Gated rows carry their affordances; unflagged rows and the
+        // can-delete=false comment stay clean (0019 D3).
+        assert!(vcx.debug_bounds("pr-review-0-actions").is_some());
+        assert!(vcx.debug_bounds("pr-review-1-actions").is_none());
+        assert!(vcx.debug_bounds("pr-comment-0-actions").is_some());
+        assert!(vcx.debug_bounds("pr-comment-1-actions").is_none());
+
+        // Edit mode swaps the body for the editor card (0019 D4).
+        vcx.update(|window, cx| {
+            page.update(cx, |page, cx| {
+                page.start_edit_row("IC_1".into(), "nice".into(), window, cx)
+            });
+        });
+        assert!(vcx.debug_bounds("pr-comment-0-card").is_some());
+        assert!(vcx.debug_bounds("pr-comment-0-actions").is_none());
+
+        // One editor at a time: the description editor yields the row
+        // editor (0019 D4).
+        vcx.update(|window, cx| {
+            page.update(cx, |page, cx| page.start_edit_description(window, cx));
+        });
+        assert!(vcx.debug_bounds("pr-comment-0-card").is_none());
+        assert!(vcx.debug_bounds("pr-description-card").is_some());
+
+        // The delete confirm yields every editor and swaps the row
+        // (0019 D4); the confirm copy question rides the card header.
+        vcx.update(|window, cx| {
+            page.update(cx, |page, cx| {
+                page.cancel_edit_description(window, cx);
+                page.start_delete_confirm("PRR_1".into(), cx);
+            });
+        });
+        assert!(vcx.debug_bounds("pr-review-0-confirm-card").is_some());
+        assert!(vcx.debug_bounds("pr-review-0-actions").is_none());
+        assert!(vcx.debug_bounds("pr-description-card").is_none());
+
+        // Guards (0019 D7): busy blocks arming; an empty node id opens
+        // no editor.
+        vcx.update(|window, cx| {
+            page.update(cx, |page, cx| {
+                page.cancel_delete_confirm(cx);
+                page.busy = Some(BusyOp::Comment);
+                page.start_delete_confirm("PRR_1".into(), cx);
+                assert!(
+                    page.delete_confirm.is_none(),
+                    "busy must block arming the confirm"
+                );
+                page.busy = None;
+                page.start_delete_confirm("PRR_1".into(), cx);
+                assert_eq!(page.delete_confirm.as_deref(), Some("PRR_1"));
+                page.start_edit_row("".into(), String::new(), window, cx);
+                assert!(
+                    page.timeline_edit.is_none(),
+                    "empty node id must not open an editor"
+                );
+                page.timeline_edit = None;
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn detail_apply_drops_editors_of_vanished_nodes(cx: &mut gpui::TestAppContext) {
+        cx.update(gpui_component::init);
+        let state = cx.update(|cx| {
+            let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
+            let store: std::sync::Arc<dyn crate::auth::TokenStore> =
+                std::sync::Arc::new(ProbeStore);
+            cx.new(|_| {
+                GithubState::new(
+                    client,
+                    store,
+                    Default::default(),
+                    Default::default(),
+                    GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                )
+            })
+        });
+        let (page, vcx) = cx.add_window_view(|window, cx| {
+            let summary = gql::PullRequest {
+                key: "o/r#7".into(),
+                database_id: None,
+                number: 7,
+                title: "layout probe".into(),
+                draft: false,
+                state: None,
+                author: None,
+                updated_at: None,
+                url: "https://probe".into(),
+                status: None,
+            };
+            let mut page = PrDetailPage::new(state, "o/r".into(), summary, window, cx);
+            page.detail = Some(probe_detail());
+            page.timeline_edit = Some((
+                "IC_1".into(),
+                cx.new(|cx| gpui_component::input::TextareaState::new(window, cx)),
+            ));
+            page
+        });
+        // Editing IC_1; a refetch that still carries IC_1 keeps the
+        // editor (0019 D4), one without it drops it.
+        // apply_detail_result parses the full envelope — wrap the node.
+        let keep = r#"{"data":{"repository":{"pullRequest":{"id":"PR_2",
+            "number":7,"title":"t","url":"u",
+            "comments":{"totalCount":1,"nodes":[{"id":"IC_1",
+            "viewerCanUpdate":true,"viewerCanDelete":false,
+            "author":{"login":"dave"},"body":"nice (edited)",
+            "createdAt":"2026-09-03T01:00:00Z"}]}}}}}"#;
+        let gone = r#"{"data":{"repository":{"pullRequest":{"id":"PR_2",
+            "number":7,"title":"t","url":"u",
+            "comments":{"totalCount":0,"nodes":[]}}}}}"#;
+        let result_with = SpecResult {
+            kind: Kind::PrDetail,
+            ident: Some("o/r".into()),
+            status: 200,
+            etag: None,
+            rate: None,
+            body: Some(keep.to_string()),
+            network: None,
+            cursor: None,
+        };
+        let result_gone = SpecResult {
+            kind: Kind::PrDetail,
+            ident: Some("o/r".into()),
+            status: 200,
+            etag: None,
+            rate: None,
+            body: Some(gone.to_string()),
+            network: None,
+            cursor: None,
+        };
+        vcx.update(|_, cx| {
+            page.update(cx, |page, cx| {
+                page.apply_detail_result(result_with, cx);
+                assert!(page.timeline_edit.is_some(), "node still present");
+                page.apply_detail_result(result_gone, cx);
+                assert!(page.timeline_edit.is_none(), "node gone — editor dropped");
+            });
+        });
+    }
     fn check(name: &str, state: gql::CheckState) -> gql::PrCheck {
         gql::PrCheck {
             name: name.into(),
@@ -2406,6 +3114,10 @@ mod tests {
             }),
             body: format!("by {login}"),
             created_at: Some(at.into()),
+            id: String::new(),
+            viewer_can_update: false,
+            viewer_can_delete: false,
+            updated_at: None,
         }
     }
 
@@ -2418,6 +3130,10 @@ mod tests {
             state: Some(state.into()),
             body: Some(format!("by {login}")),
             submitted_at: Some(at.into()),
+            id: String::new(),
+            viewer_can_update: false,
+            viewer_can_delete: false,
+            updated_at: None,
         }
     }
 
