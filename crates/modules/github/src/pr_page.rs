@@ -2170,16 +2170,138 @@ fn render_files(page: &PrDetailPage, cx: &Context<PrDetailPage>) -> AnyElement {
 #[cfg(test)]
 mod tests {
     // No `use super::*` — page.rs documents the gpui::* shadowing hazard.
+    use crate::api::PrFile;
     use crate::files::{FilesSummary, files_summary, split_path};
     use crate::gql;
     use crate::gql::MergeMethods;
     use crate::pr_page::{
-        BusyOp, ChecksCounts, ChecksTone, ErrorScope, MergeLineTone, MergeMethod, PrStateTone,
-        ReviewTone, TimelineKind, allowed_methods, checks_counts, checks_header_line,
-        comment_action_allowed, default_method, merge_enabled, merge_state_line, pr_state_tone,
-        review_event, review_state_label, rollup_summary, short_sha, split_repo, timeline_order,
+        BusyOp, ChecksCounts, ChecksTone, ErrorScope, FilesFetch, MergeLineTone, MergeMethod,
+        PrDetailPage, PrStateTone, PrTab, ReviewTone, TimelineKind, allowed_methods, checks_counts,
+        checks_header_line, comment_action_allowed, default_method, merge_enabled,
+        merge_state_line, pr_state_tone, review_event, review_state_label, rollup_summary,
+        short_sha, split_repo, timeline_order,
     };
+    use crate::service::{GithubCache, GithubState};
+    use gpui::AppContext as _;
 
+    // --- Files sidebar layout probe (0018 §8 follow-up) ---------------
+    // The views collapsed to zero height on the live build; this renders
+    // the real page in a test window and asserts measured bounds via
+    // gpui `debug_bounds` (test-only selectors in `files.rs`).
+
+    struct ProbeHttp;
+    impl crate::http::Http for ProbeHttp {
+        fn request(
+            &self,
+            _: crate::http::Verb,
+            _: &str,
+            _: Option<&str>,
+            _: Option<&str>,
+        ) -> Result<crate::http::HttpResult, crate::http::HttpError> {
+            Err(crate::http::HttpError("probe: no network".into()))
+        }
+        fn post_graphql(
+            &self,
+            _: &str,
+            _: &serde_json::Value,
+        ) -> Result<crate::http::HttpResult, crate::http::HttpError> {
+            Err(crate::http::HttpError("probe: no network".into()))
+        }
+    }
+
+    struct ProbeStore;
+    impl crate::auth::TokenStore for ProbeStore {
+        fn save(&self, _: &crate::auth::StoredCredential) -> Result<(), String> {
+            Err("probe".into())
+        }
+        fn load(&self) -> Result<Option<crate::auth::StoredCredential>, String> {
+            Ok(None)
+        }
+        fn delete(&self) -> Result<(), String> {
+            Err("probe".into())
+        }
+    }
+
+    fn probe_file(name: &str) -> PrFile {
+        PrFile {
+            filename: name.into(),
+            status: "modified".into(),
+            additions: 2,
+            deletions: 1,
+            changes: 3,
+            patch: Some("@@ -1 +1 @@\n-a\n+b".into()),
+        }
+    }
+
+    #[gpui::test]
+    fn files_split_has_real_layout(cx: &mut gpui::TestAppContext) {
+        cx.update(gpui_component::init);
+        let state = cx.update(|cx| {
+            let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
+            let store: std::sync::Arc<dyn crate::auth::TokenStore> =
+                std::sync::Arc::new(ProbeStore);
+            cx.new(|_| {
+                GithubState::new(
+                    client,
+                    store,
+                    Default::default(),
+                    Default::default(),
+                    GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                )
+            })
+        });
+        let (_page, vcx) = cx.add_window_view(|window, cx| {
+            let summary = gql::PullRequest {
+                key: "o/r#7".into(),
+                database_id: None,
+                number: 7,
+                title: "layout probe".into(),
+                draft: false,
+                state: None,
+                author: None,
+                updated_at: None,
+                url: "https://probe".into(),
+                status: None,
+            };
+            let mut page = PrDetailPage::new(state, "o/r".into(), summary, window, cx);
+            page.tab = PrTab::Files;
+            page.files = FilesFetch::Ready(vec![
+                probe_file("src/main.rs"),
+                probe_file("src/lib.rs"),
+                probe_file("docs/readme.md"),
+            ]);
+            page.apply_files_payload(cx);
+            page
+        });
+        let sidebar = vcx.debug_bounds("files-sidebar");
+        let view = vcx.debug_bounds("files-view");
+        for sel in [
+            "files-split",
+            "files-sidebar",
+            "files-view",
+            "files-summary-wrap",
+            "files-select-wrap",
+            "files-filter-wrap",
+        ] {
+            eprintln!("[probe] {sel}={:?}", vcx.debug_bounds(sel));
+        }
+        let small = |b: Option<gpui::Bounds<gpui::Pixels>>| {
+            b.map(|b| b.size.height < gpui::px(100.)).unwrap_or(true)
+        };
+        assert!(
+            !small(sidebar),
+            "sidebar has no height — layout collapsed: {sidebar:?}"
+        );
+        assert!(
+            !small(view),
+            "view area has no height — layout collapsed: {view:?}"
+        );
+        let (s, v) = (sidebar.unwrap(), view.unwrap());
+        assert!(
+            v.size.height < s.size.height,
+            "view must sit inside the sidebar, not equal it"
+        );
+    }
     fn check(name: &str, state: gql::CheckState) -> gql::PrCheck {
         gql::PrCheck {
             name: name.into(),
