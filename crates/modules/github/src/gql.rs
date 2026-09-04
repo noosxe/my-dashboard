@@ -401,11 +401,13 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
       }
       reviews(first: 100) {
         totalCount
-        nodes { author { login avatarUrl } state body submittedAt }
+        // 0019 D2: node id + viewer gates + updatedAt per node — the
+        // edit/delete affordances and the (edited) marker live off these.
+        nodes { id viewerCanUpdate viewerCanDelete updatedAt author { login avatarUrl } state body submittedAt }
       }
       comments(first: 100) {
         totalCount
-        nodes { author { login avatarUrl } body createdAt }
+        nodes { id viewerCanUpdate viewerCanDelete updatedAt author { login avatarUrl } body createdAt }
       }
       files(first: 1) { totalCount }
     }
@@ -558,6 +560,14 @@ pub struct PrReview {
     pub state: Option<String>,
     pub body: Option<String>,
     pub submitted_at: Option<String>,
+    /// 0019 D2: node id — the edit/delete mutation target. Empty when the
+    /// payload omits it: affordances hide (per-node degrade).
+    pub id: String,
+    /// 0019 D3: gating is the schema's flags, nothing else.
+    pub viewer_can_update: bool,
+    pub viewer_can_delete: bool,
+    /// The (edited) marker (0019 D4).
+    pub updated_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -571,6 +581,14 @@ pub struct PrComment {
     pub author: Option<Author>,
     pub body: String,
     pub created_at: Option<String>,
+    /// 0019 D2: node id — the edit/delete mutation target. Empty when the
+    /// payload omits it: affordances hide (per-node degrade).
+    pub id: String,
+    /// 0019 D3: gating is the schema's flags, nothing else.
+    pub viewer_can_update: bool,
+    pub viewer_can_delete: bool,
+    /// The (edited) marker (0019 D4).
+    pub updated_at: Option<String>,
 }
 
 /// Parse one `repository.pullRequest` node; `None` only when the node is
@@ -628,20 +646,46 @@ pub fn pr_detail_from_value(value: &serde_json::Value) -> Option<PrDetail> {
         .pointer("/commits/totalCount")
         .and_then(|v| v.as_i64())
         .unwrap_or(commits.len() as i64);
+    // 0019 D2: the shared per-node edit/delete fields, parsed identically
+    // for comments and reviews (missing = degraded: empty id, false flags).
+    let node_gate = |n: &serde_json::Value| {
+        (
+            n.get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            n.get("viewerCanUpdate")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            n.get("viewerCanDelete")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            n.get("updatedAt")
+                .and_then(|v| v.as_str())
+                .map(str::to_string),
+        )
+    };
     let reviews = pr
         .pointer("/reviews/nodes")
         .and_then(|nodes| nodes.as_array())
         .map(|nodes| {
             nodes
                 .iter()
-                .map(|r| PrReview {
-                    author: author_from_value(r.get("author")),
-                    state: r.get("state").and_then(|v| v.as_str()).map(str::to_string),
-                    body: r.get("body").and_then(|v| v.as_str()).map(str::to_string),
-                    submitted_at: r
-                        .get("submittedAt")
-                        .and_then(|v| v.as_str())
-                        .map(str::to_string),
+                .map(|r| {
+                    let (id, viewer_can_update, viewer_can_delete, updated_at) = node_gate(r);
+                    PrReview {
+                        author: author_from_value(r.get("author")),
+                        state: r.get("state").and_then(|v| v.as_str()).map(str::to_string),
+                        body: r.get("body").and_then(|v| v.as_str()).map(str::to_string),
+                        submitted_at: r
+                            .get("submittedAt")
+                            .and_then(|v| v.as_str())
+                            .map(str::to_string),
+                        id,
+                        viewer_can_update,
+                        viewer_can_delete,
+                        updated_at,
+                    }
                 })
                 .collect::<Vec<PrReview>>()
         })
@@ -657,6 +701,7 @@ pub fn pr_detail_from_value(value: &serde_json::Value) -> Option<PrDetail> {
             nodes
                 .iter()
                 .filter_map(|c| {
+                    let (id, viewer_can_update, viewer_can_delete, updated_at) = node_gate(c);
                     Some(PrComment {
                         author: author_from_value(c.get("author")),
                         body: c.get("body")?.as_str()?.to_string(),
@@ -664,6 +709,10 @@ pub fn pr_detail_from_value(value: &serde_json::Value) -> Option<PrDetail> {
                             .get("createdAt")
                             .and_then(|v| v.as_str())
                             .map(str::to_string),
+                        id,
+                        viewer_can_update,
+                        viewer_can_delete,
+                        updated_at,
                     })
                 })
                 .collect::<Vec<PrComment>>()
@@ -821,6 +870,37 @@ mutation PrMerge($input: MergePullRequestInput!) {
 pub const PR_CLOSE_MUTATION: &str = r#"
 mutation PrClose($input: ClosePullRequestInput!) {
   closePullRequest(input: $input) { pullRequest { state } }
+}
+"#;
+
+/// Edit a conversation comment (docs/0019 D5,
+/// `UpdateIssueCommentInput { id body }`).
+pub const PR_UPDATE_COMMENT_MUTATION: &str = r#"
+mutation PrUpdateComment($input: UpdateIssueCommentInput!) {
+  updateIssueComment(input: $input) { clientMutationId }
+}
+"#;
+
+/// Delete a conversation comment (`DeleteIssueCommentInput { id }`).
+pub const PR_DELETE_COMMENT_MUTATION: &str = r#"
+mutation PrDeleteComment($input: DeleteIssueCommentInput!) {
+  deleteIssueComment(input: $input) { clientMutationId }
+}
+"#;
+
+/// Edit a review summary body (docs/0019 D5,
+/// `UpdatePullRequestReviewInput { pullRequestReviewId body }`).
+pub const PR_UPDATE_REVIEW_MUTATION: &str = r#"
+mutation PrUpdateReview($input: UpdatePullRequestReviewInput!) {
+  updatePullRequestReview(input: $input) { clientMutationId }
+}
+"#;
+
+/// Delete a review — the whole review goes, its APPROVED /
+/// REQUEST_CHANGES state with it (docs/0019 D1).
+pub const PR_DELETE_REVIEW_MUTATION: &str = r#"
+mutation PrDeleteReview($input: DeletePullRequestReviewInput!) {
+  deletePullRequestReview(input: $input) { clientMutationId }
 }
 "#;
 /// `author { login avatarUrl }` — shared by reviews and comments (the PR
@@ -1366,6 +1446,80 @@ mod tests {
         assert_eq!(d.merge_methods, MergeMethods::default());
     }
 
+    // --- timeline-row gates (docs/0019 D2/D3) --------------------------
+
+    #[test]
+    fn pr_detail_parses_row_gate_fields() {
+        let body = pr_detail_body(
+            r#"{
+                "id": "PR_2", "number": 7, "title": "t", "url": "u",
+                "reviews": {"totalCount": 1, "nodes": [
+                    {"id": "PRR_1", "viewerCanUpdate": true,
+                     "viewerCanDelete": true,
+                     "updatedAt": "2026-09-01T10:00:00Z",
+                     "author": {"login": "bob"}, "state": "APPROVED",
+                     "body": "lgtm", "submittedAt": "2026-09-01T09:00:00Z"}
+                ]},
+                "comments": {"totalCount": 2, "nodes": [
+                    {"id": "IC_1", "viewerCanUpdate": true,
+                     "viewerCanDelete": false,
+                     "updatedAt": "2026-09-02T10:00:00Z",
+                     "author": {"login": "carol"}, "body": "nice",
+                     "createdAt": "2026-09-02T09:00:00Z"},
+                    {"author": null, "body": "plain",
+                     "createdAt": "2026-09-03T09:00:00Z"}
+                ]}
+            }"#,
+        );
+        let env: Envelope<PrDetailData> = serde_json::from_str(&body).unwrap();
+        let value = env.data.unwrap().repository.unwrap();
+        let d = pr_detail_from_value(&value).unwrap();
+        let r = &d.reviews.nodes[0];
+        assert_eq!(r.id, "PRR_1");
+        assert!(r.viewer_can_update);
+        assert!(r.viewer_can_delete);
+        assert_eq!(r.updated_at.as_deref(), Some("2026-09-01T10:00:00Z"));
+        let c = &d.comments.nodes[0];
+        assert_eq!(c.id, "IC_1");
+        assert!(c.viewer_can_update);
+        assert!(!c.viewer_can_delete);
+        assert_eq!(c.updated_at.as_deref(), Some("2026-09-02T10:00:00Z"));
+    }
+
+    #[test]
+    fn pr_detail_absent_row_gate_fields_degrade_off() {
+        // A node without the gate fields (old payload shape, or the
+        // fields failing to come back) parses fine with affordances off
+        // — one bad node never takes the page down (0007 D3).
+        let body = pr_detail_body(
+            r#"{
+                "id": "PR_2", "number": 7, "title": "t", "url": "u",
+                "reviews": {"totalCount": 1, "nodes": [
+                    {"author": {"login": "bob"}, "state": "APPROVED",
+                     "body": "lgtm", "submittedAt": "2026-09-01T09:00:00Z"}
+                ]},
+                "comments": {"totalCount": 1, "nodes": [
+                    {"author": {"login": "carol"}, "body": "nice",
+                     "createdAt": "2026-09-02T09:00:00Z"}
+                ]}
+            }"#,
+        );
+        let env: Envelope<PrDetailData> = serde_json::from_str(&body).unwrap();
+        let value = env.data.unwrap().repository.unwrap();
+        let d = pr_detail_from_value(&value).unwrap();
+        for r in &d.reviews.nodes {
+            assert_eq!(r.id, "");
+            assert!(!r.viewer_can_update);
+            assert!(!r.viewer_can_delete);
+            assert_eq!(r.updated_at, None);
+        }
+        for c in &d.comments.nodes {
+            assert_eq!(c.id, "");
+            assert!(!c.viewer_can_update);
+            assert!(!c.viewer_can_delete);
+            assert_eq!(c.updated_at, None);
+        }
+    }
     #[test]
     fn pr_detail_null_pull_request_is_none() {
         let body = r#"{"data":{"repository":{"pullRequest":null}}}"#;

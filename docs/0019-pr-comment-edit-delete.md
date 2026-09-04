@@ -207,3 +207,33 @@ Single stage, one PR (code + this doc's shipped notes):
   keeps the approval). GitHub's web UI hides the affordance there. Lean:
   keep the schema-gated rule (simpler, honest); flag if you want the
   GitHub parity exception.
+
+## 8. Shipped (2026-09-04, issue #89)
+
+Implemented as designed in one stage. The §7 open questions resolved to
+the doc's leans (inline confirm, `(edited)` marker kept, review-delete
+copy as written, no bodyless-review exception), per the owner's
+go-ahead.
+
+Implementation notes beyond the design text:
+
+- **D2 (serde note)**: `PrComment`/`PrReview` are hand-parsed (no serde
+  derives), so the degrade is manual — a shared `node_gate` closure reads
+  `id` / `viewerCanUpdate` / `viewerCanDelete` / `updatedAt` identically
+  for both node kinds, defaulting to empty/false/None.
+- **Generalized editor card**: `description_edit_card` became
+  `inline_edit_card(id, title, …)`; the Save-empty guard is derived
+  inside the card so call sites can't drift from the gating. The
+  description card id is now `pr-description` (the edit-mode card swaps
+  with the read-only card, never both on screen) — the shipped
+  `pr-description-save` / `-cancel` button ids are unchanged.
+- **Probe mechanics (adds to §5)**: gpui `debug_bounds` only sees
+  `.debug_selector()` keys, not element ids — the actions bars and swap
+  cards carry test-only selector keys (`{prefix}-actions`, `{id}-card`,
+  `{id}-confirm-card`); the D8 accesskit ids are untouched. Also:
+  `pr_detail_from_value` takes the **repository wrapper** node, not the
+  PR node — probe fixtures must wrap.
+- **Mutation round-trip**: `run_pr_mutation` now has a scripted-transport
+  test (`pr_row_mutations_post_their_documents`) asserting each of the
+  four POSTs carries its operation name and the page-built variables
+  verbatim — this coverage did not exist for the 0016 mutations.

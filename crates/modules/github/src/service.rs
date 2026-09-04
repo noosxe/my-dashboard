@@ -226,6 +226,11 @@ pub enum Mutation {
     UpdateDescription,
     Merge,
     Close,
+    // 0019 D5: timeline-row writes — one variant per document.
+    UpdateComment,
+    DeleteComment,
+    UpdateReview,
+    DeleteReview,
 }
 
 #[derive(Clone, Debug)]
@@ -589,6 +594,10 @@ fn run_pr_mutation(http: &dyn Http, spec: &FetchSpec, mutation: Mutation) -> Spe
         Mutation::UpdateDescription => gql::PR_UPDATE_DESCRIPTION_MUTATION,
         Mutation::Merge => gql::PR_MERGE_MUTATION,
         Mutation::Close => gql::PR_CLOSE_MUTATION,
+        Mutation::UpdateComment => gql::PR_UPDATE_COMMENT_MUTATION,
+        Mutation::DeleteComment => gql::PR_DELETE_COMMENT_MUTATION,
+        Mutation::UpdateReview => gql::PR_UPDATE_REVIEW_MUTATION,
+        Mutation::DeleteReview => gql::PR_DELETE_REVIEW_MUTATION,
     };
     let mut status = 0u16;
     let mut rate = None;
@@ -1604,6 +1613,58 @@ mod tests {
         )
     }
 
+    #[test]
+    fn pr_row_mutations_post_their_documents() {
+        // docs/0019 D5: each timeline-row mutation posts its own
+        // document (identified by operation name) with the page-built
+        // variables, on the same transport as every query.
+        let cases: Vec<(Mutation, &str, serde_json::Value)> = vec![
+            (
+                Mutation::UpdateComment,
+                "updateIssueComment",
+                serde_json::json!({ "input": { "id": "IC_1", "body": "edited" } }),
+            ),
+            (
+                Mutation::DeleteComment,
+                "deleteIssueComment",
+                serde_json::json!({ "input": { "id": "IC_1" } }),
+            ),
+            (
+                Mutation::UpdateReview,
+                "updatePullRequestReview",
+                serde_json::json!({
+                    "input": { "pullRequestReviewId": "PRR_1", "body": "revised" }
+                }),
+            ),
+            (
+                Mutation::DeleteReview,
+                "deletePullRequestReview",
+                serde_json::json!({ "input": { "pullRequestReviewId": "PRR_1" } }),
+            ),
+        ];
+        for (mutation, op, variables) in cases {
+            let http = Arc::new(MockHttp::ok(200, r#"{"data":{}}"#));
+            let spec = FetchSpec {
+                kind: Kind::PrMutation(mutation),
+                url: gql::GRAPHQL_ENDPOINT.into(),
+                etag: None,
+                ident: Some("o/r#7 probe".into()),
+                max_pages: 1,
+                variables: Some(variables.clone()),
+            };
+            let result = run_pr_mutation(http.as_ref(), &spec, mutation);
+            assert_eq!(result.status, 200, "{op}");
+            let recorded = http.recorded();
+            assert_eq!(recorded.len(), 1, "{op}");
+            let sent: serde_json::Value =
+                serde_json::from_str(recorded[0].body.as_deref().expect("POST body")).unwrap();
+            assert!(
+                sent["query"].as_str().expect("query").contains(op),
+                "{op} missing from its document"
+            );
+            assert_eq!(sent["variables"], variables, "{op} variables");
+        }
+    }
     /// A refresh-capable slot pair, preloaded (docs/0011 tests).
     fn slots_with_refresh() -> (SharedToken, SharedToken) {
         (
