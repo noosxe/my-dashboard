@@ -26,7 +26,7 @@ use gpui_component::{
     v_flex,
 };
 
-use dashboard_core::nav::{Crumb, Navigator, Page};
+use dashboard_core::nav::{Crumb, NavEvent, Navigator, Page};
 
 use crate::api;
 use crate::card::{REPO_LOCK, github_mark};
@@ -129,6 +129,14 @@ impl GithubPage {
         cx.observe(&nav, |this, _, cx| this.sync_repo_crumb(cx))
             .detach();
 
+        // Module-crumb re-entry (docs/0014 §5 D7, issue #100): a `go`
+        // landing on the already-active github page emits `Reentered`;
+        // the module answers by returning to its root — repo list, no
+        // selection, no open PR page.
+        cx.subscribe_in(&nav, window, |this, _, _: &NavEvent, window, cx| {
+            this.return_to_root(window, cx);
+        })
+        .detach();
         let page = Self {
             state,
             nav,
@@ -368,6 +376,25 @@ impl GithubPage {
         self.sync_repo_crumb(cx);
         let focus = page.read(cx).focus_handle(cx).clone();
         window.focus(&focus, cx);
+        cx.notify();
+    }
+
+    /// Module-crumb re-entry (docs/0014 §5 D7, issue #100): back to the
+    /// module root — the plain repo list. Drops the repo selection
+    /// (org-switch idiom: clear + guard-reset so the List highlight
+    /// follows through `sync_from_state_in`) and closes any open PR
+    /// page. Re-entry with nothing open is a no-op. Unlike `close_pr`,
+    /// selection does NOT survive: the crumb click means "repo list",
+    /// not "this repo without its PR".
+    fn return_to_root(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        log::debug!("module crumb re-entered: returning to repo list");
+        self.state.update(cx, |s, cx| {
+            s.selected = None;
+            cx.notify();
+        });
+        self.synced_repos.clear();
+        self.sync_from_state_in(window, cx);
+        self.close_pr(cx);
         cx.notify();
     }
 
@@ -1153,8 +1180,8 @@ mod tests {
     // `test` re-export would shadow the builtin `#[test]` attribute and
     // blow the proc-macro stack (rustc SIGSEGV). Import selectively.
     use super::{
-        IndexPath, RepoListDelegate, next_org_selection, notification_url, reconcile_repo_crumb,
-        repo_crumb_label,
+        GithubPage, IndexPath, RepoListDelegate, next_org_selection, notification_url,
+        reconcile_repo_crumb, repo_crumb_label,
     };
     use crate::gql;
     use gpui::AppContext as _;
@@ -1322,6 +1349,87 @@ mod tests {
         });
     }
 
+    /// Module-crumb re-entry (docs/0014 §5 D7, issue #100):
+    /// `return_to_root` drops the repo selection (state + List
+    /// highlight) and closes the PR sub-page; the navigator is left
+    /// with no module crumbs.
+    #[gpui::test]
+    fn return_to_root_clears_selection_and_pr(cx: &mut TestAppContext) {
+        use std::sync::Arc;
+
+        use crate::auth::MockTokenStore;
+        use crate::http::{Http, SharedToken, mock::MockHttp};
+        use crate::pr_page;
+        use crate::service::{GithubCache, GithubState};
+        use dashboard_core::nav::Navigator;
+        use dashboard_core::paths::AppPaths;
+
+        cx.update(gpui_component::init);
+        // GithubState's spec runner tracks in-flight fetches via the
+        // status-bar global (docs/0013) — `main` inits it before any
+        // module; tests must too.
+        cx.update(dashboard_core::status::init);
+        let cx = cx.add_empty_window();
+        cx.update(|window, cx| {
+            // Two scripted failures: `PrDetailPage::new` starts its detail
+            // fetch eagerly; the probe never depends on its result.
+            let client: Arc<dyn Http> = Arc::new(MockHttp::new(vec![
+                Err(crate::http::HttpError("probe".into())),
+                Err(crate::http::HttpError("probe".into())),
+            ]));
+            let shared: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let refresh: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let state = cx.new(|_| {
+                GithubState::new(
+                    client,
+                    Arc::new(MockTokenStore::with("t0k".into())),
+                    shared,
+                    refresh,
+                    GithubCache::new(AppPaths::init()),
+                )
+            });
+            state.update(cx, |s, _| s.selected = Some("acme/one".into()));
+            let nav = cx.new(|_| Navigator::default());
+            let page = cx.new(|cx| GithubPage::new(state.clone(), nav.clone(), window, cx));
+            // An open PR sub-page (what `close_pr` must clear).
+            page.update(cx, |p, cx| {
+                let summary = gql::PullRequest {
+                    key: "acme/one#7".into(),
+                    database_id: None,
+                    number: 7,
+                    title: "probe".into(),
+                    draft: false,
+                    state: None,
+                    author: None,
+                    updated_at: None,
+                    url: "https://probe".into(),
+                    status: None,
+                };
+                p.pr = Some(cx.new(|cx| {
+                    pr_page::PrDetailPage::new(
+                        state.clone(),
+                        "acme/one".into(),
+                        summary,
+                        window,
+                        cx,
+                    )
+                }));
+            });
+
+            page.update(cx, |p, cx| p.return_to_root(window, cx));
+
+            assert_eq!(state.read(cx).selected, None, "selection dropped");
+            assert!(page.read(cx).pr.is_none(), "PR page closed");
+            assert!(
+                page.read(cx).repo_list.read(cx).selected_index().is_none(),
+                "List highlight cleared"
+            );
+            assert!(
+                nav.read(cx).crumbs().is_empty(),
+                "crumbs back to the module root"
+            );
+        });
+    }
     // --- Breadcrumb sync (docs/0014) — pure fns, table-tested ---------
 
     #[test]

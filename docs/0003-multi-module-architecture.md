@@ -227,6 +227,11 @@ impl Navigator {
 
 - **Main-page nav**: sidebar item click → `nav.go(Page::Module(id))`; home
   card click → same.
+- **Module-crumb re-entry** (amended 2026-09-05, docs/0014 §5 D7): `go` to
+  the page already current emits `NavEvent::Reentered` — nav state is
+  unchanged, and the module owning that page answers by returning to its
+  root (e.g. GitHub: drop the repo selection, close the PR page).
+  Page switches and crumb writes never emit.
 - **Sub-page nav**: module-internal. The module's main page view keeps its
   own state (e.g. `enum Screen { Main, Details }`) and calls
   `nav.set_crumbs(...)` when entering/leaving a sub-page. Crumb `on_click`
