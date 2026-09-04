@@ -275,7 +275,9 @@ fn sidebar(page: &PrDetailPage, files: &[PrFile], cx: &Context<PrDetailPage>) ->
         .id("pr-files-sidebar")
         .w(px(300.))
         .flex_none()
-        .h_full()
+        // Structural height (0016 D5 lesson): stretch to the split's
+        // definite cross size — never a percentage of it.
+        .self_stretch()
         .min_h_0()
         .border_r_1()
         .border_color(cx.theme().border)
@@ -310,19 +312,29 @@ fn sidebar(page: &PrDetailPage, files: &[PrFile], cx: &Context<PrDetailPage>) ->
 /// The active view area (0018 D4/D5): the List or the Tree, filling the
 /// sidebar's remaining height. Each manages its own scrolling.
 fn view_area(page: &PrDetailPage, _cx: &Context<PrDetailPage>) -> AnyElement {
+    // Explicit bounded wrapper (0016 D5 lesson): the view's height must
+    // come from flex growth inside the sidebar's definite column — the
+    // List/Tree fill it via their own `size_full`, no percentages ride
+    // on the sidebar's `h_full` resolving.
     match page.files_view {
-        FilesView::List => List::new(&page.file_list)
+        FilesView::List => v_flex()
+            .id("pr-files-view")
             .flex_1()
             .min_h_0()
-            .w_full()
+            .min_w_0()
+            .overflow_hidden()
+            .child(List::new(&page.file_list))
             .into_any_element(),
-        FilesView::Tree => tree(&page.file_tree, |_ix, entry, selected, _window, cx| {
-            tree_row(entry, selected, cx)
-        })
-        .flex_1()
-        .min_h_0()
-        .w_full()
-        .into_any_element(),
+        FilesView::Tree => v_flex()
+            .id("pr-files-view")
+            .flex_1()
+            .min_h_0()
+            .min_w_0()
+            .overflow_hidden()
+            .child(tree(&page.file_tree, |_, entry, selected, _window, cx| {
+                tree_row(entry, selected, cx)
+            }))
+            .into_any_element(),
     }
 }
 
@@ -386,7 +398,8 @@ fn diff_pane(page: &PrDetailPage, files: &[PrFile], cx: &Context<PrDetailPage>) 
         .id("pr-file-diff")
         .flex_1()
         .min_w_0()
-        .h_full()
+        // Structural height — same rationale as the sidebar.
+        .self_stretch()
         .min_h_0()
         .child(
             h_flex()
