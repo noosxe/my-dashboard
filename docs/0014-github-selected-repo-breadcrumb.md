@@ -292,6 +292,34 @@ No changes to core (`nav.rs`, `shell.rs`), the service, or the Module trait.
 | Repo dropped by background snapshot | lookup fails (same predicate as the right column) | `Home > GitHub` + "Select a repository" |
 | Home → GitHub with repo still open | nav observer (activation) | `Home > GitHub > <name>` |
 | 60 s tick, unchanged selection | reconcile → no write | unchanged, zero entity writes |
+| GitHub module crumb clicked mid-module (issue #100) | `Navigator::go` same-page → `NavEvent::Reentered` → `return_to_root` | `Home > GitHub` (selection + PR page dropped, not just the crumb suffix) |
+
+### D7 — Module-crumb re-entry returns to the module root (amended 2026-09-05, issue #100)
+
+D5's "no core changes" held only for the crumb *reporting* side. The other
+half of the crumb contract — the shell-owned module crumb (`GitHub`) — was
+a no-op when clicked from inside the module: `Navigator::go` to the current
+page changed nothing observable, and the D5 activation observer immediately
+re-derived the unchanged chain. Expected behavior (matching the repo crumb's
+`close_pr` role): the module crumb returns to the module root — the plain
+repo list.
+
+The shell stays dumb; the signal is core-owned and module-answered:
+
+- `Navigator::go` emits `NavEvent::Reentered` **iff the target page is the
+  page already current** (page switches, crumb writes, and sidebar toggles
+  never emit). Nav state itself does not change on re-entry.
+- The GitHub page subscribes (`cx.subscribe_in(&nav, …)`) and answers with
+  `return_to_root`: `state.selected = None` plus the org-switch guard reset
+  (so the List highlight follows through `sync_from_state_in`) and
+  `close_pr`. Unlike `close_pr` alone, the selection does **not** survive —
+  the click means "repo list", not "this repo without its PR". Org filter
+  and list search are left alone.
+- Home → GitHub remains a page switch (no event): the selection survives
+  module switches exactly as before.
+- Re-entry with nothing open is a no-op; other modules are unaffected (no
+  subscriber, no behavior change); `go(Home)`/`go(Settings)` on their own
+  page emit to nobody.
 
 ## 6. Implementation plan
 
