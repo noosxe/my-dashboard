@@ -255,6 +255,9 @@ pub(crate) fn render_split(
 ) -> AnyElement {
     h_flex()
         .id("pr-files-split")
+        // Test-only layout anchor (noop outside `cargo test`): the
+        // probe test reads it via `debug_bounds`.
+        .debug_selector(|| "files-split".into())
         .flex_1()
         .min_h_0()
         .w_full()
@@ -273,6 +276,7 @@ fn sidebar(page: &PrDetailPage, files: &[PrFile], cx: &Context<PrDetailPage>) ->
     let summary = files_summary(files.len(), adds, dels);
     v_flex()
         .id("pr-files-sidebar")
+        .debug_selector(|| "files-sidebar".into())
         .w(px(300.))
         .flex_none()
         // Structural height (0016 D5 lesson): stretch to the split's
@@ -284,26 +288,32 @@ fn sidebar(page: &PrDetailPage, files: &[PrFile], cx: &Context<PrDetailPage>) ->
         .p_2()
         .gap_2()
         .child(
-            h_flex().px_1().gap_2().text_sm().child(
-                h_flex()
-                    .gap_1()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(format!("{} files changed", summary.files))
-                    .child(format!("· +{}", summary.adds))
-                    .child(format!("−{}", summary.dels)),
+            div().debug_selector(|| "files-summary-wrap".into()).child(
+                h_flex().px_1().gap_2().text_sm().child(
+                    h_flex()
+                        .gap_1()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(format!("{} files changed", summary.files))
+                        .child(format!("· +{}", summary.adds))
+                        .child(format!("−{}", summary.dels)),
+                ),
             ),
         )
         .child(
-            Select::new(&page.view_select)
-                .small()
-                .w_full()
-                .accessibility_label("Files view mode"),
+            div().debug_selector(|| "files-select-wrap".into()).child(
+                Select::new(&page.view_select)
+                    .small()
+                    .w_full()
+                    .accessibility_label("Files view mode"),
+            ),
         )
         .child(
-            Input::new(&page.file_filter)
-                .small()
-                .w_full()
-                .accessibility_id("pr-files-filter"),
+            div().debug_selector(|| "files-filter-wrap".into()).child(
+                Input::new(&page.file_filter)
+                    .small()
+                    .w_full()
+                    .accessibility_id("pr-files-filter"),
+            ),
         )
         .child(view_area(page, cx))
         .into_any_element()
@@ -319,6 +329,7 @@ fn view_area(page: &PrDetailPage, _cx: &Context<PrDetailPage>) -> AnyElement {
     match page.files_view {
         FilesView::List => v_flex()
             .id("pr-files-view")
+            .debug_selector(|| "files-view".into())
             .flex_1()
             .min_h_0()
             .min_w_0()
@@ -327,6 +338,7 @@ fn view_area(page: &PrDetailPage, _cx: &Context<PrDetailPage>) -> AnyElement {
             .into_any_element(),
         FilesView::Tree => v_flex()
             .id("pr-files-view")
+            .debug_selector(|| "files-view-tree".into())
             .flex_1()
             .min_h_0()
             .min_w_0()

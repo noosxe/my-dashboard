@@ -253,3 +253,18 @@ render fns; the pure helpers `split_path`/`files_summary`/
 `file_status_badge` and the `diff_body`/`diff_row` pair moved too, so
 pr_page.rs shrank instead of growing). Their table tests moved with
 them and the forest/filter/delegate tests were added alongside.
+
+A follow-up on the first human check found the List/Tree view area
+collapsed to zero height on the live build: upstream `Select` renders
+with a `size_full` root, so as a *direct* flex child of the sidebar
+column it resolved `height: 100%` against the sidebar and claimed the
+whole main axis, leaving `flex_1` nothing to grow into (the filter
+input then sat visually at the bottom of an all-controls sidebar).
+The sidebar's fixed rows are now each wrapped in a plain content-sized
+`div()` — percentage-height controls must never be direct children of
+a flex column that owns a `flex_1` view — and the sidebar/diff pane
+heights ride on `self_stretch` (the split's definite cross size), not
+on `h_full` percentages. The regression guard is a layout probe test
+(`files_split_has_real_layout`): it renders the real page in a test
+window and asserts measured bounds via gpui `debug_bounds`, with
+test-only `debug_selector` anchors in `files.rs` (noop in release).
