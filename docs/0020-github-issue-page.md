@@ -369,3 +369,50 @@ machine — until it's fixed these run as manual human checks in the PR body.)
 - Title editing; milestone display; label/assignee management.
 - Reactions; locking; issue creation.
 - "+N more" pagination for comments beyond the first 100 (#87 adjacent).
+
+---
+
+## 12. Shipped (2026-09-05, issue #116)
+
+Implemented as designed in one PR (one stage; the §6 read/write split
+wasn't needed). The §4 questions resolved to the doc's leans per the
+owner's merge of this doc.
+
+Implementation notes beyond the design text:
+
+- **D2 (transport)**: `run_pr_detail` generalized into a shared
+  `run_graphql_fetch(http, spec, doc, name)` — the PR and issue detail
+  fetches are the same call with different documents, per D2's
+  "transport is identical". `Kind::IssueDetail` is the query kind; the
+  two write documents ride the existing `Kind::PrMutation` kind with new
+  `Mutation::IssueClose`/`IssueReopen` variants (the page passes the
+  shared `Comment`/`UpdateDescription`/`UpdateComment`/`DeleteComment`
+  variants unchanged).
+- **D2 (parse)**: 0019's inline `node_gate` closure lifted to a module
+  fn and a `comment_from_node` helper — the PR parser and the issue
+  parser now share the exact same `IssueComment` node read (the PR
+  parser's behavior is unchanged; its 12 tests cover the refactor).
+- **Shared cards**: `body_card` / `inline_edit_card` /
+  `delete_confirm_card` (and the small cell builders) take `&App` now —
+  `Context<T>` derefs, so every PR call site is unchanged while the
+  issue page reuses them verbatim.
+- **ErrorScope**: the shared enum gained a `Rail` variant (the issue
+  state panel) beside the PR page's `Panel` — each page produces only
+  its own variant.
+- **Textarea id (D6 deviation)**: the comment Textarea carries no
+  explicit element id — the PR page's established pattern (the upstream
+  Textarea owns its focus/a11y node); all buttons and panels carry the
+  D6 ids as designed.
+- **No timeline sort fn (D4 simplification)**: the PR page sorts a
+  merged comments+reviews list; the issue page renders the single
+  comments connection in the API's chronological order — nothing to
+  sort, so no sort fn (the §7 table-tests for it dropped with it).
+- **Probe mechanics (0019 §8 lesson applied)**: probe-selector keys
+  shipped from day one (`issue-comment-{ix}-actions`, `{id}-card`,
+  `{id}-confirm-card`, `issue-state-panel-body`); the envelope-wrap
+  convention followed in fixtures (`issue_detail_from_value` takes the
+  repository wrapper node).
+- **Testing (adds to §7)**: `issue_mutations_post_their_documents`
+  extends the scripted-transport pattern to `closeIssue`/`reopenIssue`
+  (close always carries the panel's `stateReason`). Workspace totals
+  after this PR: 230 tests.
