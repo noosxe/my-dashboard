@@ -547,6 +547,191 @@ pub struct MergeMethods {
     pub rebase: bool,
 }
 
+// ---------------------------------------------------------------------------
+// Issue detail page (docs/0020) — the PR page's sibling: one query on
+// open, no cache, the same per-node degradation rules. The conversation
+// comments are the same `IssueComment` nodes the PR page renders; what
+// is new here is the close/reopen write path and the metadata rail.
+// ---------------------------------------------------------------------------
+
+/// The issue detail field set (docs/0020 §3 — live-verified via `gh api
+/// graphql` introspection, 2026-09-05; the static docql mirror predates
+/// the viewer-close fields and is stale for `Issue`): everything the
+/// header, the conversation, and the rail's state panel render.
+pub const ISSUE_DETAIL_QUERY: &str = r#"
+query IssueDetail($owner: String!, $name: String!, $number: Int!) {
+  rateLimit { cost remaining resetAt }
+  repository(owner: $owner, name: $name) {
+    issue(number: $number) {
+      id
+      number
+      title
+      body
+      state
+      stateReason
+      closedAt
+      url
+      createdAt
+      author { login avatarUrl }
+      viewerCanUpdate
+      viewerCanClose
+      viewerCanReopen
+      labels(first: 20) {
+        totalCount
+        nodes { name color }
+      }
+      assignees(first: 20) {
+        totalCount
+        nodes { login avatarUrl }
+      }
+      # docs/0020 D2: the same IssueComment node shape the PR page
+      # parses (0019 D2 gate fields included).
+      comments(first: 100) {
+        totalCount
+        nodes { id viewerCanUpdate viewerCanDelete updatedAt author { login avatarUrl } body createdAt }
+      }
+    }
+  }
+}
+"#;
+
+/// Envelope data for the issue detail query — the repository node stays
+/// raw so the issue parses through [`issue_detail_from_value`] with the
+/// same per-node degradation rules as the PR detail (0007 D3).
+#[derive(Debug, Deserialize)]
+pub struct IssueDetailData {
+    pub repository: Option<serde_json::Value>,
+}
+
+/// Everything the issue page renders (docs/0020 D2). Session-only —
+/// this never enters a cache.
+#[derive(Debug, Clone)]
+pub struct IssueDetail {
+    /// Node ID — the mutation target (comment subject, body edit, close).
+    pub id: String,
+    pub number: i64,
+    pub title: String,
+    pub body: Option<String>,
+    /// `IssueState` — OPEN / CLOSED.
+    pub state: Option<String>,
+    /// `IssueStateReason` — COMPLETED / NOT_PLANNED / REOPENED /
+    /// DUPLICATE; null while open.
+    pub state_reason: Option<String>,
+    pub closed_at: Option<String>,
+    /// Gates the description Edit affordance (0020 D4).
+    pub viewer_can_update: bool,
+    /// Gates the rail's Close button (0020 D5).
+    pub viewer_can_close: bool,
+    /// Gates the rail's Reopen button (0020 D5).
+    pub viewer_can_reopen: bool,
+    pub url: String,
+    pub created_at: Option<String>,
+    pub author: Option<Author>,
+    /// Display only (0020 Q2): name chips, color carried but unused.
+    pub labels: Vec<IssueLabel>,
+    pub labels_total: i64,
+    /// Display only — login rows.
+    pub assignees: Vec<Author>,
+    /// The conversation — same [`PrComment`] rows as the PR page.
+    pub comments: PrComments,
+}
+
+/// `Label { name color }` (0020 §3). `color` is user data — carried for
+/// the deferred data-colored-chips follow-up (0020 Q2), unused meanwhile.
+#[derive(Debug, Clone)]
+pub struct IssueLabel {
+    pub name: String,
+    #[allow(dead_code)] // 0020 Q2: data-colored chips deferred
+    pub color: Option<String>,
+}
+
+/// Parse one `repository.issue` node; `None` only when the node is not
+/// an object (null / malformed) — the caller keeps its skeleton/error
+/// state then. Comment nodes degrade individually (0007 D3).
+pub fn issue_detail_from_value(value: &serde_json::Value) -> Option<IssueDetail> {
+    let issue = value.get("issue")?;
+    if !issue.is_object() {
+        return None;
+    }
+    let str_field = |name: &str| issue.get(name).and_then(|v| v.as_str()).map(str::to_string);
+    let comments = issue
+        .pointer("/comments/nodes")
+        .and_then(|nodes| nodes.as_array())
+        .map(|nodes| {
+            nodes
+                .iter()
+                .filter_map(comment_from_node)
+                .collect::<Vec<PrComment>>()
+        })
+        .unwrap_or_default();
+    let comments_total = issue
+        .pointer("/comments/totalCount")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(comments.len() as i64);
+    let labels = issue
+        .pointer("/labels/nodes")
+        .and_then(|nodes| nodes.as_array())
+        .map(|nodes| {
+            nodes
+                .iter()
+                .filter_map(|l| {
+                    Some(IssueLabel {
+                        name: l.get("name")?.as_str()?.to_string(),
+                        color: l.get("color").and_then(|v| v.as_str()).map(str::to_string),
+                    })
+                })
+                .collect::<Vec<IssueLabel>>()
+        })
+        .unwrap_or_default();
+    let assignees = issue
+        .pointer("/assignees/nodes")
+        .and_then(|nodes| nodes.as_array())
+        .map(|nodes| {
+            nodes
+                .iter()
+                .filter_map(|a| author_from_value(Some(a)))
+                .collect::<Vec<Author>>()
+        })
+        .unwrap_or_default();
+    Some(IssueDetail {
+        id: str_field("id").unwrap_or_default(),
+        number: issue
+            .get("number")
+            .and_then(|v| v.as_i64())
+            .unwrap_or_default(),
+        title: str_field("title").unwrap_or_default(),
+        body: str_field("body"),
+        state: str_field("state"),
+        state_reason: str_field("stateReason"),
+        closed_at: str_field("closedAt"),
+        viewer_can_update: issue
+            .get("viewerCanUpdate")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        viewer_can_close: issue
+            .get("viewerCanClose")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        viewer_can_reopen: issue
+            .get("viewerCanReopen")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        url: str_field("url").unwrap_or_default(),
+        created_at: str_field("createdAt"),
+        author: author_from_value(issue.get("author")),
+        labels,
+        labels_total: issue
+            .pointer("/labels/totalCount")
+            .and_then(|v| v.as_i64())
+            .unwrap_or_default(),
+        assignees,
+        comments: PrComments {
+            total_count: comments_total,
+            nodes: comments,
+        },
+    })
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct PrReviews {
     pub total_count: i64,
@@ -589,6 +774,46 @@ pub struct PrComment {
     pub viewer_can_delete: bool,
     /// The (edited) marker (0019 D4).
     pub updated_at: Option<String>,
+}
+
+/// The shared per-node edit/delete fields (0019 D2), read identically
+/// wherever a node is parsed: (id, viewerCanUpdate, viewerCanDelete,
+/// updatedAt). Missing = degraded: empty id, false flags.
+fn node_gate(n: &serde_json::Value) -> (String, bool, bool, Option<String>) {
+    (
+        n.get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        n.get("viewerCanUpdate")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        n.get("viewerCanDelete")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        n.get("updatedAt")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+    )
+}
+
+/// One `IssueComment` node → [`PrComment`] — the same struct serves the
+/// PR and issue conversations (docs/0020 D2; both timelines render
+/// `IssueComment` nodes). Bad nodes drop alone (0007 D3).
+fn comment_from_node(c: &serde_json::Value) -> Option<PrComment> {
+    let (id, viewer_can_update, viewer_can_delete, updated_at) = node_gate(c);
+    Some(PrComment {
+        author: author_from_value(c.get("author")),
+        body: c.get("body")?.as_str()?.to_string(),
+        created_at: c
+            .get("createdAt")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        id,
+        viewer_can_update,
+        viewer_can_delete,
+        updated_at,
+    })
 }
 
 /// Parse one `repository.pullRequest` node; `None` only when the node is
@@ -646,25 +871,6 @@ pub fn pr_detail_from_value(value: &serde_json::Value) -> Option<PrDetail> {
         .pointer("/commits/totalCount")
         .and_then(|v| v.as_i64())
         .unwrap_or(commits.len() as i64);
-    // 0019 D2: the shared per-node edit/delete fields, parsed identically
-    // for comments and reviews (missing = degraded: empty id, false flags).
-    let node_gate = |n: &serde_json::Value| {
-        (
-            n.get("id")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .to_string(),
-            n.get("viewerCanUpdate")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false),
-            n.get("viewerCanDelete")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false),
-            n.get("updatedAt")
-                .and_then(|v| v.as_str())
-                .map(str::to_string),
-        )
-    };
     let reviews = pr
         .pointer("/reviews/nodes")
         .and_then(|nodes| nodes.as_array())
@@ -700,21 +906,7 @@ pub fn pr_detail_from_value(value: &serde_json::Value) -> Option<PrDetail> {
         .map(|nodes| {
             nodes
                 .iter()
-                .filter_map(|c| {
-                    let (id, viewer_can_update, viewer_can_delete, updated_at) = node_gate(c);
-                    Some(PrComment {
-                        author: author_from_value(c.get("author")),
-                        body: c.get("body")?.as_str()?.to_string(),
-                        created_at: c
-                            .get("createdAt")
-                            .and_then(|v| v.as_str())
-                            .map(str::to_string),
-                        id,
-                        viewer_can_update,
-                        viewer_can_delete,
-                        updated_at,
-                    })
-                })
+                .filter_map(comment_from_node)
                 .collect::<Vec<PrComment>>()
         })
         .unwrap_or_default();
@@ -903,6 +1095,24 @@ mutation PrDeleteReview($input: DeletePullRequestReviewInput!) {
   deletePullRequestReview(input: $input) { clientMutationId }
 }
 "#;
+
+/// Close an issue (docs/0020 D2, `CloseIssueInput { issueId stateReason
+/// … }` — live-verified 2026-09-05): the stateReason is optional
+/// upstream, but the panel always sends the user's choice (default
+/// COMPLETED), so the wire state is never implicit.
+pub const ISSUE_CLOSE_MUTATION: &str = r#"
+mutation IssueClose($input: CloseIssueInput!) {
+  closeIssue(input: $input) { issue { id state stateReason } }
+}
+"#;
+
+/// Reopen an issue (docs/0020 D2, `ReopenIssueInput { issueId }`).
+pub const ISSUE_REOPEN_MUTATION: &str = r#"
+mutation IssueReopen($input: ReopenIssueInput!) {
+  reopenIssue(input: $input) { issue { id state } }
+}
+"#;
+
 /// `author { login avatarUrl }` — shared by reviews and comments (the PR
 /// node's own author uses the same shape).
 fn author_from_value(value: Option<&serde_json::Value>) -> Option<Author> {
@@ -1131,6 +1341,9 @@ mod tests {
             ("PR_DELETE_COMMENT_MUTATION", PR_DELETE_COMMENT_MUTATION),
             ("PR_UPDATE_REVIEW_MUTATION", PR_UPDATE_REVIEW_MUTATION),
             ("PR_DELETE_REVIEW_MUTATION", PR_DELETE_REVIEW_MUTATION),
+            ("ISSUE_DETAIL_QUERY", ISSUE_DETAIL_QUERY),
+            ("ISSUE_CLOSE_MUTATION", ISSUE_CLOSE_MUTATION),
+            ("ISSUE_REOPEN_MUTATION", ISSUE_REOPEN_MUTATION),
         ] {
             assert!(!doc.contains("//"), "{name} contains a JS-style comment");
         }
@@ -1592,5 +1805,91 @@ mod tests {
         let env: Envelope<PrDetailData> = serde_json::from_str(&body).unwrap();
         let d = pr_detail_from_value(&env.data.unwrap().repository.unwrap()).unwrap();
         assert_eq!(d.changed_files, Some(41));
+    }
+
+    // --- issue detail (docs/0020 D2) ------------------------------------
+
+    fn issue_detail_body(issue_json: &str) -> String {
+        format!(r#"{{"data":{{"repository":{{"issue":{issue_json}}}}}}}"#)
+    }
+
+    #[test]
+    fn issue_detail_parses_full_node() {
+        let body = issue_detail_body(
+            r#"{
+                "id": "I_1", "number": 487, "title": "Race on retry",
+                "body": "steps to reproduce", "state": "CLOSED",
+                "stateReason": "NOT_PLANNED", "closedAt": "2026-09-02T00:00:00Z",
+                "url": "u", "createdAt": "2026-09-01T00:00:00Z",
+                "author": {"login": "alice", "avatarUrl": "a"},
+                "viewerCanUpdate": true, "viewerCanClose": false, "viewerCanReopen": true,
+                "labels": {"totalCount": 3, "nodes": [
+                    {"name": "bug", "color": "ff0000"},
+                    {"name": "p1"}
+                ]},
+                "assignees": {"totalCount": 1, "nodes": [
+                    {"login": "bob", "avatarUrl": "b"}
+                ]},
+                "comments": {"totalCount": 2, "nodes": [
+                    {"id": "IC_1", "viewerCanUpdate": true, "viewerCanDelete": false,
+                     "updatedAt": "2026-09-03T02:00:00Z",
+                     "author": {"login": "dave"}, "body": "nice",
+                     "createdAt": "2026-09-03T01:00:00Z"},
+                    {"author": {"login": "erin"}, "body": "plain",
+                     "createdAt": "2026-09-04T01:00:00Z"}
+                ]}
+            }"#,
+        );
+        let env: Envelope<IssueDetailData> = serde_json::from_str(&body).unwrap();
+        let d = issue_detail_from_value(&env.data.unwrap().repository.unwrap()).unwrap();
+        assert_eq!(d.id, "I_1");
+        assert_eq!(d.number, 487);
+        assert_eq!(d.state.as_deref(), Some("CLOSED"));
+        assert_eq!(d.state_reason.as_deref(), Some("NOT_PLANNED"));
+        assert_eq!(d.closed_at.as_deref(), Some("2026-09-02T00:00:00Z"));
+        assert!(d.viewer_can_update);
+        assert!(!d.viewer_can_close);
+        assert!(d.viewer_can_reopen);
+        assert_eq!(d.author.as_ref().unwrap().login, "alice");
+        // Labels parse; a missing color degrades to None, not the node.
+        assert_eq!(d.labels_total, 3);
+        assert_eq!(d.labels.len(), 2);
+        assert_eq!(d.labels[0].name, "bug");
+        assert_eq!(d.labels[0].color.as_deref(), Some("ff0000"));
+        assert_eq!(d.labels[1].color, None);
+        assert_eq!(d.assignees.len(), 1);
+        assert_eq!(d.assignees[0].login, "bob");
+        // Same comment rows as the PR timeline — gates per node (0019).
+        assert_eq!(d.comments.total_count, 2);
+        assert_eq!(d.comments.nodes.len(), 2);
+        assert_eq!(d.comments.nodes[0].id, "IC_1");
+        assert!(d.comments.nodes[0].viewer_can_update);
+        assert!(!d.comments.nodes[0].viewer_can_delete);
+        assert_eq!(d.comments.nodes[1].id, "");
+    }
+
+    #[test]
+    fn issue_detail_degrades_absent_groups_and_null_node() {
+        // No labels/assignees/comments at all → empty groups, page intact.
+        let body =
+            issue_detail_body(r#"{"id":"I_2","number":1,"title":"t","url":"u","state":"OPEN"}"#);
+        let env: Envelope<IssueDetailData> = serde_json::from_str(&body).unwrap();
+        let d = issue_detail_from_value(&env.data.unwrap().repository.unwrap()).unwrap();
+        assert!(d.labels.is_empty());
+        assert_eq!(d.labels_total, 0);
+        assert!(d.assignees.is_empty());
+        assert!(d.comments.nodes.is_empty());
+        assert_eq!(d.state_reason, None);
+        assert_eq!(d.closed_at, None);
+        // Absent viewer flags degrade off — affordances hidden (0007 D3).
+        assert!(!d.viewer_can_update);
+        assert!(!d.viewer_can_close);
+        assert!(!d.viewer_can_reopen);
+
+        // Null / malformed issue → None (caller keeps its error state).
+        let env: Envelope<IssueDetailData> =
+            serde_json::from_str(r#"{"data":{"repository":{"issue":null}}}"#).unwrap();
+        let value = env.data.unwrap().repository.unwrap();
+        assert!(issue_detail_from_value(&value).is_none());
     }
 }

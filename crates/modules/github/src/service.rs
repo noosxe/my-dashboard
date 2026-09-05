@@ -214,6 +214,11 @@ pub enum Kind {
     /// [`Kind::PrDetail`]: the page parses the stitched 200 body;
     /// non-200 results forward to [`GithubState::apply`].
     PrFiles,
+    /// One issue's detail payload (docs/0020 D2) — the issue page's
+    /// sibling of [`Kind::PrDetail`], same page-owned result convention:
+    /// the page parses 200 bodies; only non-200 results are forwarded to
+    /// [`GithubState::apply`] for the shared auth/rate-limit handling.
+    IssueDetail,
 }
 
 /// The five PR-page mutations (docs/0016 §6.2), each mapping to one
@@ -231,6 +236,13 @@ pub enum Mutation {
     DeleteComment,
     UpdateReview,
     DeleteReview,
+    // 0020 D2: the issue page's two write documents — same transport,
+    // different input shapes.
+    IssueClose,
+    IssueReopen,
+    // 0020 D2: the issue page reuses the shared addComment /
+    // updateIssue / updateIssueComment / deleteIssueComment documents;
+    // the page passes those existing variants unchanged.
 }
 
 #[derive(Clone, Debug)]
@@ -267,6 +279,7 @@ pub fn run_spec(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
         Kind::RepoSnapshot => run_repo_snapshot(http, spec),
         Kind::PrDetail => run_pr_detail(http, spec),
         Kind::PrMutation(m) => run_pr_mutation(http, spec, m),
+        Kind::IssueDetail => run_issue_detail(http, spec),
         Kind::Notifications | Kind::RepoNotifications | Kind::PrFiles => run_rest(http, spec),
     }
 }
@@ -542,26 +555,29 @@ fn run_repo_snapshot(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
     }
 }
 
-/// One PR's detail (docs/0016 D2): a single GraphQL call, body passthrough.
-/// The PR page parses the 200 body itself; `ident` carries
-/// `owner/repo#number` for logging.
-fn run_pr_detail(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
+/// One detail query (docs/0016 D2, docs/0020 D2): a single GraphQL call,
+/// body passthrough — shared by the PR and issue detail pages, only the
+/// document differs. The page parses the 200 body itself; `ident`
+/// carries `owner/repo#number` for logging.
+fn run_graphql_fetch(
+    http: &dyn Http,
+    spec: &FetchSpec,
+    doc: &str,
+    name: &'static str,
+) -> SpecResult {
     let mut status = 0u16;
     let mut rate = None;
     let mut network = None;
     let mut body = None;
-    log::debug!("fetch pr-detail: {}", spec.ident.as_deref().unwrap_or("?"));
+    log::debug!("fetch {name}: {}", spec.ident.as_deref().unwrap_or("?"));
     let sent_at = Instant::now();
-    match http.post_graphql(
-        gql::PR_DETAIL_QUERY,
-        spec.variables.as_ref().unwrap_or(&Value::Null),
-    ) {
+    match http.post_graphql(doc, spec.variables.as_ref().unwrap_or(&Value::Null)) {
         Err(HttpError(m)) => network = Some(m),
         Ok(result) => {
             status = result.status;
             rate = result.rate;
             log::debug!(
-                "fetch pr-detail: → {} in {}ms",
+                "fetch {name}: → {} in {}ms",
                 status,
                 sent_at.elapsed().as_millis()
             );
@@ -582,6 +598,14 @@ fn run_pr_detail(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
     }
 }
 
+fn run_pr_detail(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
+    run_graphql_fetch(http, spec, gql::PR_DETAIL_QUERY, "pr-detail")
+}
+
+fn run_issue_detail(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
+    run_graphql_fetch(http, spec, gql::ISSUE_DETAIL_QUERY, "issue-detail")
+}
+
 /// One PR-page mutation (docs/0016 §6.2 D2): a single GraphQL call with
 /// the document picked by the mutation kind — the same `post_graphql`
 /// transport, auth, and token path as every query. The PR page parses
@@ -598,6 +622,8 @@ fn run_pr_mutation(http: &dyn Http, spec: &FetchSpec, mutation: Mutation) -> Spe
         Mutation::DeleteComment => gql::PR_DELETE_COMMENT_MUTATION,
         Mutation::UpdateReview => gql::PR_UPDATE_REVIEW_MUTATION,
         Mutation::DeleteReview => gql::PR_DELETE_REVIEW_MUTATION,
+        Mutation::IssueClose => gql::ISSUE_CLOSE_MUTATION,
+        Mutation::IssueReopen => gql::ISSUE_REOPEN_MUTATION,
     };
     let mut status = 0u16;
     let mut rate = None;
@@ -678,6 +704,7 @@ impl Kind {
             Kind::RepoSnapshot => "repo-snapshot",
             Kind::PrDetail => "pr-detail",
             Kind::PrMutation(_) => "pr-mutation",
+            Kind::IssueDetail => "issue-detail",
             Kind::PrFiles => "pr-files",
             Kind::RepoNotifications => "repo-notifs",
         }
@@ -1141,7 +1168,7 @@ impl GithubState {
             // 200 bodies. Only non-200 results are ever forwarded here,
             // and those return in the status handling above — this arm
             // exists purely for match exhaustiveness.
-            Kind::PrDetail | Kind::PrMutation(_) | Kind::PrFiles => {}
+            Kind::PrDetail | Kind::PrMutation(_) | Kind::PrFiles | Kind::IssueDetail => {}
         }
 
         // ETag keyed by logical resource (kind + ident), not raw URL, so
@@ -1665,6 +1692,48 @@ mod tests {
             assert_eq!(sent["variables"], variables, "{op} variables");
         }
     }
+
+    #[test]
+    fn issue_mutations_post_their_documents() {
+        // docs/0020 D2: the issue page's two write documents ride the
+        // same transport — each posts its own operation with the
+        // page-built input (close always carries the panel's reason).
+        let cases: Vec<(Mutation, &str, serde_json::Value)> = vec![
+            (
+                Mutation::IssueClose,
+                "closeIssue",
+                serde_json::json!({ "input": { "issueId": "I_1", "stateReason": "NOT_PLANNED" } }),
+            ),
+            (
+                Mutation::IssueReopen,
+                "reopenIssue",
+                serde_json::json!({ "input": { "issueId": "I_1" } }),
+            ),
+        ];
+        for (mutation, op, variables) in cases {
+            let http = Arc::new(MockHttp::ok(200, r#"{"data":{}}"#));
+            let spec = FetchSpec {
+                kind: Kind::PrMutation(mutation),
+                url: gql::GRAPHQL_ENDPOINT.into(),
+                etag: None,
+                ident: Some("o/r#487 probe".into()),
+                max_pages: 1,
+                variables: Some(variables.clone()),
+            };
+            let result = run_pr_mutation(http.as_ref(), &spec, mutation);
+            assert_eq!(result.status, 200, "{op}");
+            let recorded = http.recorded();
+            assert_eq!(recorded.len(), 1, "{op}");
+            let sent: serde_json::Value =
+                serde_json::from_str(recorded[0].body.as_deref().expect("POST body")).unwrap();
+            assert!(
+                sent["query"].as_str().expect("query").contains(op),
+                "{op} missing from its document"
+            );
+            assert_eq!(sent["variables"], variables, "{op} variables");
+        }
+    }
+
     /// A refresh-capable slot pair, preloaded (docs/0011 tests).
     fn slots_with_refresh() -> (SharedToken, SharedToken) {
         (

@@ -31,6 +31,7 @@ use dashboard_core::nav::{Crumb, NavEvent, Navigator, Page};
 use crate::api;
 use crate::card::{REPO_LOCK, github_mark};
 use crate::gql;
+use crate::issue_page;
 use crate::pr_page;
 use crate::service::{
     AuthStatus, ConnectPhase, FetchSpec, GithubState, Kind, run_spec_tracked, start_connect,
@@ -47,6 +48,10 @@ pub(crate) struct GithubPage {
     /// owns the module content (full takeover — org Select + repo list
     /// unmount; they remount with selection intact on close).
     pr: Option<Entity<pr_page::PrDetailPage>>,
+    /// The open issue sub-page (docs/0020 D1) — the PR page's sibling;
+    /// mutually exclusive with `pr` (opening one closes the other), same
+    /// takeover and close semantics.
+    issue: Option<Entity<issue_page::IssueDetailPage>>,
     /// Window access for observer-time entity updates (0009 D6).
     window: AnyWindowHandle,
     /// Last-synced item keys — compare-first background sync so untouched
@@ -144,6 +149,7 @@ impl GithubPage {
             org_select,
             repo_list,
             pr: None,
+            issue: None,
             window: window.window_handle(),
             synced_orgs: Vec::new(),
             synced_repos: Vec::new(),
@@ -227,7 +233,13 @@ impl GithubPage {
             let s = self.state.read(cx);
             repo_crumb_label(s.selected.as_deref(), &s.repos, s.auth.connected())
         };
-        let pr_number = self.pr.as_ref().map(|p| p.read(cx).number);
+        // Only one sub-page is ever open (docs/0020 D1) — either way the
+        // crumb gains the same `#number` suffix.
+        let pr_number = self
+            .pr
+            .as_ref()
+            .map(|p| p.read(cx).number)
+            .or(self.issue.as_ref().map(|p| p.read(cx).number));
         let mut derived: Vec<SharedString> = Vec::new();
         if let Some(label) = repo_label {
             derived.push(label);
@@ -258,7 +270,13 @@ impl GithubPage {
                         Crumb {
                             label,
                             on_click: Some(Arc::new(move |_window, cx| {
-                                page.update(cx, |this, cx| this.close_pr(cx));
+                                // Whichever sub-page is open yields to the
+                                // repo view (close_pr/close_issue no-op when
+                                // absent).
+                                page.update(cx, |this, cx| {
+                                    this.close_pr(cx);
+                                    this.close_issue(cx);
+                                });
                             })),
                         }
                     } else {
@@ -282,6 +300,10 @@ impl GithubPage {
         // the end of this sync clears the suffix (disconnected = no crumbs).
         if self.pr.is_some() && !self.state.read(cx).auth.connected() {
             self.pr = None;
+        }
+        // The issue page tears down under the same rule (docs/0020 D1).
+        if self.issue.is_some() && !self.state.read(cx).auth.connected() {
+            self.issue = None;
         }
         let logins: Vec<SharedString> = self
             .state
@@ -372,7 +394,49 @@ impl GithubPage {
             this.close_pr(cx);
         })
         .detach();
+        // Mutual exclusion (docs/0020 D1): only one sub-page owns the
+        // module content — opening a PR closes any open issue page.
+        self.issue = None;
         self.pr = Some(page.clone());
+        self.sync_repo_crumb(cx);
+        let focus = page.read(cx).focus_handle(cx).clone();
+        window.focus(&focus, cx);
+        cx.notify();
+    }
+
+    /// Open the in-app issue page for a snapshot row (docs/0020 D1): the
+    /// PR page's takeover pattern — full-content sub-page, detail fetch,
+    /// crumb `#number` suffix. The row's old browser hand-off moves to
+    /// the page header's ↗ button. Opening it closes any open PR page
+    /// (mutual exclusion, 0020 D1).
+    fn open_issue(
+        &mut self,
+        repo: &str,
+        issue: &gql::Issue,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        log::debug!("issue page opened: {}#{}", repo, issue.number);
+        let page = cx.new(|cx| {
+            issue_page::IssueDetailPage::new(
+                self.state.clone(),
+                repo.to_string(),
+                issue.clone(),
+                window,
+                cx,
+            )
+        });
+        // Esc on the issue page asks its host to close it (docs/0020 D1).
+        cx.subscribe_in(
+            &page,
+            window,
+            |this, _, _: &issue_page::IssuePageEvent, _, cx| {
+                this.close_issue(cx);
+            },
+        )
+        .detach();
+        self.pr = None;
+        self.issue = Some(page.clone());
         self.sync_repo_crumb(cx);
         let focus = page.read(cx).focus_handle(cx).clone();
         window.focus(&focus, cx);
@@ -395,6 +459,7 @@ impl GithubPage {
         self.synced_repos.clear();
         self.sync_from_state_in(window, cx);
         self.close_pr(cx);
+        self.close_issue(cx);
         cx.notify();
     }
 
@@ -404,6 +469,16 @@ impl GithubPage {
     fn close_pr(&mut self, cx: &mut Context<Self>) {
         if self.pr.take().is_some() {
             log::debug!("pr page closed");
+            self.sync_repo_crumb(cx);
+            cx.notify();
+        }
+    }
+
+    /// Close the issue sub-page (docs/0020 D1): the `close_pr` mirror —
+    /// back to the repo view, the crumb chain loses its `#number` suffix.
+    fn close_issue(&mut self, cx: &mut Context<Self>) {
+        if self.issue.take().is_some() {
+            log::debug!("issue page closed");
             self.sync_repo_crumb(cx);
             cx.notify();
         }
@@ -521,10 +596,21 @@ impl GithubPage {
             .into_any_element()
     }
 
-    /// Issue rows mirror the PR row treatment minus the draft badge
-    /// (doc 0012 D4) — same hover, same browser hand-off.
+    /// Issue rows mirror the PR row treatment (docs/0012 D4, opened
+    /// in-app by 0020 D1): same hover; the row opens the issue page,
+    /// and the github.com hand-off lives on in the page header's ↗
+    /// button.
     fn render_issue_row(&self, issue: &gql::Issue, cx: &Context<Self>) -> AnyElement {
-        let url = issue.url.clone();
+        // Belt: rows render only under a selected repo view (PR-row
+        // pattern) — fall back to the row key's `owner/repo` prefix.
+        let repo = self
+            .state
+            .read(cx)
+            .selected
+            .clone()
+            .unwrap_or_else(|| issue.key.split('#').next().unwrap_or_default().to_string());
+        let row = issue.clone();
+        let page = cx.entity();
         div()
             .id(SharedString::from(format!("issue-{}", issue.key)))
             .role(accesskit::Role::ListItem)
@@ -534,7 +620,9 @@ impl GithubPage {
             .text_sm()
             .cursor_pointer()
             .hover(|s| s.bg(cx.theme().accent.opacity(0.08)))
-            .on_click(move |_, _, cx| cx.open_url(&url))
+            .on_click(move |_, window, cx| {
+                page.update(cx, |this, cx| this.open_issue(&repo, &row, window, cx));
+            })
             .child(
                 h_flex()
                     .justify_between()
@@ -809,6 +897,12 @@ impl Render for GithubPage {
         // its org Select / repo list) unmounts until the page closes.
         if let Some(pr) = &self.pr {
             return pr.clone().into_any_element();
+        }
+        // Issue sub-page takeover (docs/0020 D1) — the PR page's
+        // sibling: never both open (mutual exclusion), so a plain
+        // `pr`-first check suffices.
+        if let Some(issue) = &self.issue {
+            return issue.clone().into_any_element();
         }
 
         let (selected_full, prs, issues, repo_notifs) = {

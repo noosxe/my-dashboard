@@ -2013,6 +2013,9 @@ pub(crate) enum ErrorScope {
     Timeline,
     /// The merge/close rail panel.
     Panel,
+    /// The issue page's state panel (docs/0020 D5) — the PR page never
+    /// produces it, the issue page never produces Panel.
+    Rail,
 }
 
 /// The last mutation failure — kept until the next attempt or success, so
@@ -2225,7 +2228,7 @@ fn review_badge(state: Option<&str>, cx: &Context<PrDetailPage>) -> Option<AnyEl
 // Markdown bodies add one parameter to an already wide card seam; the
 // arguments stay flat because every call site has them at hand.
 #[allow(clippy::too_many_arguments)]
-fn body_card(
+pub(crate) fn body_card(
     id: &str,
     login: &str,
     avatar: Option<&str>,
@@ -2233,7 +2236,7 @@ fn body_card(
     body: Option<&str>,
     md: Option<&[markdown::Block]>,
     trailing: Option<AnyElement>,
-    cx: &Context<PrDetailPage>,
+    cx: &App,
 ) -> AnyElement {
     v_flex()
         .id(SharedString::from(id))
@@ -2320,7 +2323,7 @@ fn skeleton_list() -> AnyElement {
 
 /// Centered muted empty-state cell for a tab with nothing to show
 /// (D6/D7): not a skeleton, not an error — just no content.
-fn empty_cell(text: &str, cx: &Context<PrDetailPage>) -> AnyElement {
+fn empty_cell(text: &str, cx: &App) -> AnyElement {
     div()
         .id("pr-empty")
         .flex_1()
@@ -2400,7 +2403,7 @@ fn check_visual(state: gql::CheckState, cx: &Context<PrDetailPage>) -> (IconName
         gql::CheckState::Neutral => (IconName::Dash, cx.theme().muted_foreground),
     }
 }
-fn error_cell(message: &str, cx: &Context<PrDetailPage>) -> AnyElement {
+fn error_cell(message: &str, cx: &App) -> AnyElement {
     v_flex()
         .id("pr-load-error")
         .flex_1()
@@ -2423,14 +2426,14 @@ fn error_cell(message: &str, cx: &Context<PrDetailPage>) -> AnyElement {
 /// D4): same card chrome, body swapped for the prefilled Textarea +
 /// Save (disabled while empty/busy) / Cancel. `id` keys the bridge ids
 /// (`{id}-save` / `{id}-cancel`) and doubles as the card id.
-fn inline_edit_card(
+pub(crate) fn inline_edit_card(
     id: &str,
     title: &str,
     editor: &Entity<TextareaState>,
     busy: bool,
     on_save: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
     on_cancel: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
-    cx: &Context<PrDetailPage>,
+    cx: &App,
 ) -> AnyElement {
     // 0019 D7: derived here so the call sites can't drift apart from the
     // Save gating.
@@ -2497,13 +2500,13 @@ fn inline_edit_card(
 /// as text (the `tree` dump shows what is being confirmed) above
 /// Cancel / Delete. `id` keys `{id}-confirm` / `{id}-cancel` and doubles
 /// as the card id.
-fn delete_confirm_card(
+pub(crate) fn delete_confirm_card(
     id: &str,
     question: &str,
     busy: bool,
     on_confirm: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
     on_cancel: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
-    cx: &Context<PrDetailPage>,
+    cx: &App,
 ) -> AnyElement {
     v_flex()
         // Test-only probe key (0019 §5); the buttons keep their accesskit
@@ -2554,7 +2557,7 @@ fn delete_confirm_card(
         .into_any_element()
 }
 
-fn muted_centered(text: &str, cx: &Context<PrDetailPage>) -> AnyElement {
+fn muted_centered(text: &str, cx: &App) -> AnyElement {
     div()
         .id("pr-muted")
         .w_full()
