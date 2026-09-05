@@ -401,8 +401,8 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
       }
       reviews(first: 100) {
         totalCount
-        // 0019 D2: node id + viewer gates + updatedAt per node — the
-        // edit/delete affordances and the (edited) marker live off these.
+        # 0019 D2: node id + viewer gates + updatedAt per node — the
+        # edit/delete affordances and the (edited) marker live off these.
         nodes { id viewerCanUpdate viewerCanDelete updatedAt author { login avatarUrl } state body submittedAt }
       }
       comments(first: 100) {
@@ -1112,6 +1112,30 @@ impl RateLimitField {
 
 #[cfg(test)]
 mod tests {
+    /// GraphQL comments are `#` — a JS-style `//` inside a document makes
+    /// GitHub reject the whole request. Caught live on 2026-09-04: the
+    /// detail query shipped with a `//` note and every PR tab errored.
+    #[test]
+    fn gql_documents_use_hash_comments_only() {
+        for (name, doc) in [
+            ("PR_DETAIL_QUERY", PR_DETAIL_QUERY),
+            ("PR_ADD_COMMENT_MUTATION", PR_ADD_COMMENT_MUTATION),
+            ("PR_ADD_REVIEW_MUTATION", PR_ADD_REVIEW_MUTATION),
+            (
+                "PR_UPDATE_DESCRIPTION_MUTATION",
+                PR_UPDATE_DESCRIPTION_MUTATION,
+            ),
+            ("PR_MERGE_MUTATION", PR_MERGE_MUTATION),
+            ("PR_CLOSE_MUTATION", PR_CLOSE_MUTATION),
+            ("PR_UPDATE_COMMENT_MUTATION", PR_UPDATE_COMMENT_MUTATION),
+            ("PR_DELETE_COMMENT_MUTATION", PR_DELETE_COMMENT_MUTATION),
+            ("PR_UPDATE_REVIEW_MUTATION", PR_UPDATE_REVIEW_MUTATION),
+            ("PR_DELETE_REVIEW_MUTATION", PR_DELETE_REVIEW_MUTATION),
+        ] {
+            assert!(!doc.contains("//"), "{name} contains a JS-style comment");
+        }
+    }
+
     use super::*;
     #[test]
     fn last_activity_picks_max_across_repo_prs_and_issues() {
