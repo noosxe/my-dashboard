@@ -242,3 +242,17 @@ text:
   render order across the merge (event rows and comment action bars
   measured by y), cap-row arming only on truncation, and the 0019 editor
   swap surviving events. Workspace totals after this PR: 234 tests.
+
+- **2026-09-07 live-API fix**: the shipped query selected `id`,
+  `createdAt`, and `actor { login }` **directly on the
+  `IssueTimelineItems` union** — GitHub rejects any bare selection on a
+  union, so *every* issue-detail fetch failed server-side ("Selections
+  can't be made directly on unions"), the page fell back to its
+  error/empty state, and no events ever rendered in production despite
+  the fixture suites passing (they never hit the wire). Fix: the three
+  shared fields now ride each member's inline fragment (the response
+  merges them into the node object, so the parser and fixtures are
+  unchanged); a document-level tripwire test asserts every member
+  fragment carries them. Found via the app log during the owner's
+  human-check pass — the debug-bridge `logs` channel doing exactly its
+  job (docs/0010).

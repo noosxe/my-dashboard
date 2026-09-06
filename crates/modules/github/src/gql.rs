@@ -599,23 +599,67 @@ query IssueDetail($owner: String!, $name: String!, $number: Int!) {
         filteredCount
         nodes {
           __typename
-          id
-          createdAt
-          actor { login }
+          # 2026-09-07 live-API fix: id/createdAt/actor are NOT selectable
+          # on the IssueTimelineItems union itself — they ride each inline
+          # fragment (the response merges them into the node object, so the
+          # parser is unchanged). Bare selections here fail the whole
+          # query server-side with "Selections can't be made directly on
+          # unions".
           ... on AssignedEvent {
+            id
+            createdAt
+            actor { login }
             assignee { __typename ... on User { login } ... on Bot { login }
               ... on Organization { login } ... on Mannequin { login } }
           }
           ... on UnassignedEvent {
+            id
+            createdAt
+            actor { login }
             assignee { __typename ... on User { login } ... on Bot { login }
               ... on Organization { login } ... on Mannequin { login } }
           }
-          ... on LabeledEvent { label { name } }
-          ... on UnlabeledEvent { label { name } }
-          ... on ClosedEvent { stateReason }
-          ... on RenamedTitleEvent { previousTitle currentTitle }
-          ... on MilestonedEvent { milestoneTitle }
-          ... on DemilestonedEvent { milestoneTitle }
+          ... on LabeledEvent {
+            id
+            createdAt
+            actor { login }
+            label { name }
+          }
+          ... on UnlabeledEvent {
+            id
+            createdAt
+            actor { login }
+            label { name }
+          }
+          ... on ClosedEvent {
+            id
+            createdAt
+            actor { login }
+            stateReason
+          }
+          ... on ReopenedEvent {
+            id
+            createdAt
+            actor { login }
+          }
+          ... on RenamedTitleEvent {
+            id
+            createdAt
+            actor { login }
+            previousTitle currentTitle
+          }
+          ... on MilestonedEvent {
+            id
+            createdAt
+            actor { login }
+            milestoneTitle
+          }
+          ... on DemilestonedEvent {
+            id
+            createdAt
+            actor { login }
+            milestoneTitle
+          }
         }
       }
     }
@@ -2017,6 +2061,61 @@ mod tests {
         assert!(d.comments.nodes[0].viewer_can_update);
         assert!(!d.comments.nodes[0].viewer_can_delete);
         assert_eq!(d.comments.nodes[1].id, "");
+    }
+
+    // 2026-09-07 live-API regression (#118 follow-up): bare id/createdAt/
+    // actor selections on the IssueTimelineItems union fail the whole
+    // query server-side ("Selections can't be made directly on unions")
+    // — fixture tests never hit the wire, so the tripwire lives on the
+    // document: every member fragment must carry the shared fields.
+    #[test]
+    fn timeline_fragments_carry_the_shared_node_fields() {
+        const MEMBERS: [&str; 9] = [
+            "AssignedEvent",
+            "UnassignedEvent",
+            "LabeledEvent",
+            "UnlabeledEvent",
+            "ClosedEvent",
+            "ReopenedEvent",
+            "RenamedTitleEvent",
+            "MilestonedEvent",
+            "DemilestonedEvent",
+        ];
+        let mut spans = Vec::new();
+        for member in MEMBERS {
+            let marker = format!("... on {member} {{");
+            let at = ISSUE_DETAIL_QUERY
+                .find(&marker)
+                .unwrap_or_else(|| panic!("{member} fragment missing from query"));
+            spans.push((at, member));
+        }
+        spans.sort();
+        for (ix, (start, member)) in spans.iter().enumerate() {
+            let end = spans
+                .get(ix + 1)
+                .map(|(next, _)| *next)
+                .unwrap_or(ISSUE_DETAIL_QUERY.len());
+            let fragment = &ISSUE_DETAIL_QUERY[*start..end];
+            assert!(fragment.contains("id"), "{member}: id missing");
+            assert!(
+                fragment.contains("createdAt"),
+                "{member}: createdAt missing"
+            );
+            assert!(
+                fragment.contains("actor { login }"),
+                "{member}: actor missing"
+            );
+        }
+        // And the union itself stays bare: __typename only.
+        let nodes_at = ISSUE_DETAIL_QUERY
+            .find("timelineItems")
+            .map(|at| ISSUE_DETAIL_QUERY[at..].find("nodes {").unwrap() + at)
+            .unwrap();
+        let head = &ISSUE_DETAIL_QUERY[nodes_at..nodes_at + 40];
+        assert!(
+            !head.contains("\nid") && !head.contains("\n          id"),
+            "bare union selection crept back in"
+        );
     }
 
     #[test]
