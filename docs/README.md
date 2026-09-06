@@ -53,6 +53,7 @@ cross-platform, multi-modular universal personal dashboard built with Rust and
 | [0018](0018-files-sidebar.md) | GitHub Module: Files Tab Sidebar (list/tree views, master–detail diff) |
 | [0019](0019-pr-comment-edit-delete.md) | GitHub Module: PR Page Comment Edit/Delete (timeline rows, schema-gated) |
 | [0020](0020-github-issue-page.md) | GitHub Module: Issue Detail Page (comment, close, reopen; PR-page reuse) |
+| [0021](0021-github-issue-timeline-events.md) | GitHub Module: Issue Page Timeline Event Rows (itemTypes-filtered, merged conversation) |
 
 ## Planned docs (roadmap, not yet written)
 
