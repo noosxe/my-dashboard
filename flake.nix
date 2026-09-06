@@ -63,6 +63,9 @@
           gtk3
         ];
 
+        # Whiskers template generating the Catppuccin ThemeSet files (#143).
+        catppuccinTemplate = ./nix/catppuccin.tera;
+
         # AT-SPI daemons for the debug bridge (docs/0010 D5): provides
         # at-spi-bus-launcher/registryd and the DBus service files so
         # org.a11y.Bus can be activated from inside a dev shell without a
@@ -111,16 +114,51 @@
             platforms = platforms.linux;
           };
         };
+
+        # Catppuccin theme files for the user themes dir (docs/0025),
+        # generated with Whiskers from in-repo nix/catppuccin.tera — one
+        # ThemeSet JSON per flavor (#143). Hermetic: whiskers has the
+        # palette built in, the template is a flake source file. The jq
+        # gates mirror the app's degrade contract: nothing half-valid
+        # ships — the build fails instead.
+        my-dashboard-catppuccin-themes =
+          pkgs.runCommand "my-dashboard-catppuccin-themes"
+            {
+              nativeBuildInputs = with pkgs; [
+                catppuccin-whiskers
+                jq
+              ];
+              meta = with lib; {
+                description = "Catppuccin ThemeSet files for my-dashboard (Whiskers-generated)";
+                license = licenses.mit;
+                platforms = platforms.linux;
+              };
+            }
+            ''
+              mkdir -p $out work
+              cd work
+              whiskers ${catppuccinTemplate}
+              for f in themes/catppuccin-*.json; do
+                jq -e '.themes[0].name | startswith("Catppuccin ")' "$f" > /dev/null
+                jq -e '.themes[0].mode == "dark" or .themes[0].mode == "light"' "$f" > /dev/null
+                jq -e '.themes[0].colors | length == 100' "$f" > /dev/null
+              done
+              test "$(ls themes/catppuccin-*.json | wc -l)" -eq 4
+              cp themes/catppuccin-*.json $out/
+            '';
       in
       {
         packages.default = my-dashboard;
         packages.my-dashboard = my-dashboard;
+        packages.my-dashboard-catppuccin-themes = my-dashboard-catppuccin-themes;
 
         apps.default = {
           type = "app";
           program = "${my-dashboard}/bin/my-dashboard";
           meta = my-dashboard.meta;
         };
+
+        checks.my-dashboard-catppuccin-themes = my-dashboard-catppuccin-themes;
 
         devShells.default =
           with pkgs;

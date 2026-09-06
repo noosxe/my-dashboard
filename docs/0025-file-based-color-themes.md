@@ -185,8 +185,10 @@ reference for that work.
 
 ## 7. Follow-ups (GitHub issues, not this PR)
 
-- #143 — Whiskers-generated Catppuccin flavors (template + drop-in
-  workflow + optional release artifacts).
+- ~~#143 — Whiskers-generated Catppuccin flavors (template + drop-in
+  workflow + optional release artifacts).~~ → shipped: nix/catppuccin.tera
+  + flake package + HM module (see §9); release artifacts not needed
+  (the flake generates on demand).
 - Upstream report: watcher is recursive, loader is flat
   (`themes_dir` subdirectories silently inert) — file against
   gpui-component when we next touch themes.
@@ -199,3 +201,41 @@ reference for that work.
   free number when written), per #23's housekeeping note.
 - Implementation PR: docs/0006 §3.6's bundled-Mocha paragraphs are replaced
   by a pointer here, in the same PR that removes the embedding.
+
+## 9. Shipped record — Catppuccin via Whiskers (#143, flake-integrated)
+
+**Authoring.** `nix/catppuccin.tera` is the one-time semantic-key →
+Catppuccin-role mapping (100 keys, transcribed from the removed bundled
+mocha — see D3), parameterized per flavor: theme name
+`Catppuccin {{flavor.name}}`, `mode` from `flavor.dark` (Latte → light,
+rest → dark), all hexes as `#{{<color>.hex}}` plus the constant alpha
+suffixes where the old mapping had them. Sapphire stays the accent.
+Whiskers facts (docs, v2.9): `matrix: [flavor]` + `filename` (required
+with matrix) writes one file per flavor relative to CWD;
+`flavor.dark`/`flavor.name`/`<color>.hex` are single-flavor context;
+the default `hex_format` yields 6-digit hexes for the fully-opaque
+palette.
+
+**Nix path (primary).** The flake builds
+`packages.my-dashboard-catppuccin-themes` by running
+`nixpkgs#catppuccin-whiskers` over the template (hermetic — the palette
+is built into whiskers; no network). jq gates in the derivation assert
+each file parses with a `Catppuccin ` name, a light/dark mode and 100
+color keys, and that there are exactly 4 — the build fails rather than
+half-shipping. `homeManagerModules.default` gains
+`programs.my-dashboard.catppuccin.{enable,flavors}` (independent of
+`programs.my-dashboard.enable`); enabling links the chosen flavor files
+into `~/.config/my-dashboard/themes/` **file-by-file**, so hand-dropped
+themes coexist. `home-manager` must not manage that directory as a
+whole (standard `xdg.configFile` conflict rules apply).
+
+**Manual path (no Nix).** `whiskers nix/catppuccin.tera` (or
+`cargo install catppuccin-whiskers` first) renders the four files into
+`themes/` next to the CWD; copy the ones you want into
+`~/.config/my-dashboard/themes/`. They hot-reload like any other theme
+file (D5).
+
+**Name auto-heal.** The generated names are the pre-0025 ones
+(`Catppuccin Mocha`, …), so an install that persisted the old bundled
+name and then enables catppuccin resolves its D8 fallback silently on
+the next boot — no settings edit needed.

@@ -101,6 +101,26 @@ Integrated into a NixOS flake: pass `my-dashboard.homeManagerModules.default`
 in your `home-manager.nixosModules.home-manager` `modules` list and enable it
 in the user's `home.nix` — same option name.
 
+### Catppuccin themes (home-manager)
+
+Whiskers-generated Catppuccin palettes (Latte, Frappé, Macchiato, Mocha),
+built by the flake and linked into the app's user themes dir — the running
+app hot-reloads them, no restart needed. Themes land in the Appearance
+pickers (Latte is a light palette, the rest are dark).
+
+```nix
+programs.my-dashboard.catppuccin.enable = true;
+programs.my-dashboard.catppuccin.flavors = [ "latte" "frappe" "macchiato" "mocha" ];  # default: all
+```
+
+Works with `programs.my-dashboard.enable` or standalone (binary managed
+elsewhere). Hand-dropped theme files in `~/.config/my-dashboard/themes/`
+coexist — don't let home-manager manage that directory as a whole.
+
+The generated files are also exposed for non-HM setups:
+`packages.<system>.my-dashboard-catppuccin-themes` (a directory with the
+four ThemeSet JSON files).
+
 ### Overlay (any setup)
 
 ```nix
@@ -142,6 +162,17 @@ warnings), `cargo test --workspace`.
 Non-Nix: a stock Rust 1.85+ toolchain plus the usual Linux GUI dev packages
 (wayland, vulkan, xcb, xkbcommon, atk, fontconfig, glib/gtk3) works — the
 flake's `dynamicLibraries` list is the exact set.
+
+**Catppuccin themes without Nix:** install
+[Whiskers](https://github.com/catppuccin/whiskers) (`cargo install
+catppuccin-whiskers`), then from a clone:
+
+```console
+$ whiskers nix/catppuccin.tera        # renders catppuccin-{latte,frappe,macchiato,mocha}.json
+$ cp themes/catppuccin-mocha.json ~/.config/my-dashboard/themes/
+```
+
+They appear in the Appearance pickers immediately (hot reload).
 
 ## License
 
