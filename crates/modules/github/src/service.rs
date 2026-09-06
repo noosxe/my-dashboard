@@ -219,6 +219,13 @@ pub enum Kind {
     /// the page parses 200 bodies; only non-200 results are forwarded to
     /// [`GithubState::apply`] for the shared auth/rate-limit handling.
     IssueDetail,
+    /// docs/0022 D5 — the issue-page pickers' repository-level source
+    /// pages (labels / assignable users / open milestones), fetched
+    /// lazily on first picker open (the files-sidebar `PrFiles`
+    /// pattern). Same page-owned result convention as [`Kind::IssueDetail`].
+    RepoLabels,
+    RepoAssignableUsers,
+    RepoMilestones,
 }
 
 /// The five PR-page mutations (docs/0016 §6.2), each mapping to one
@@ -240,6 +247,14 @@ pub enum Mutation {
     // different input shapes.
     IssueClose,
     IssueReopen,
+    // 0022 D1: the issue page's metadata writes — all four post the
+    // shared updateIssue document (`ISSUE_UPDATE_MUTATION`); the
+    // variant is the op identity (busy label, log line, gating), not a
+    // new document.
+    IssueSetTitle,
+    IssueSetLabels,
+    IssueSetAssignees,
+    IssueSetMilestone,
     // 0020 D2: the issue page reuses the shared addComment /
     // updateIssue / updateIssueComment / deleteIssueComment documents;
     // the page passes those existing variants unchanged.
@@ -280,6 +295,16 @@ pub fn run_spec(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
         Kind::PrDetail => run_pr_detail(http, spec),
         Kind::PrMutation(m) => run_pr_mutation(http, spec, m),
         Kind::IssueDetail => run_issue_detail(http, spec),
+        Kind::RepoLabels => run_graphql_fetch(http, spec, gql::REPO_LABELS_QUERY, "repo-labels"),
+        Kind::RepoAssignableUsers => run_graphql_fetch(
+            http,
+            spec,
+            gql::REPO_ASSIGNABLE_USERS_QUERY,
+            "repo-assignable-users",
+        ),
+        Kind::RepoMilestones => {
+            run_graphql_fetch(http, spec, gql::REPO_MILESTONES_QUERY, "repo-milestones")
+        }
         Kind::Notifications | Kind::RepoNotifications | Kind::PrFiles => run_rest(http, spec),
     }
 }
@@ -624,6 +649,12 @@ fn run_pr_mutation(http: &dyn Http, spec: &FetchSpec, mutation: Mutation) -> Spe
         Mutation::DeleteReview => gql::PR_DELETE_REVIEW_MUTATION,
         Mutation::IssueClose => gql::ISSUE_CLOSE_MUTATION,
         Mutation::IssueReopen => gql::ISSUE_REOPEN_MUTATION,
+        // 0022 D1: one document, four op identities — the input's
+        // single field-group is what distinguishes the writes.
+        Mutation::IssueSetTitle => gql::ISSUE_UPDATE_MUTATION,
+        Mutation::IssueSetLabels => gql::ISSUE_UPDATE_MUTATION,
+        Mutation::IssueSetAssignees => gql::ISSUE_UPDATE_MUTATION,
+        Mutation::IssueSetMilestone => gql::ISSUE_UPDATE_MUTATION,
     };
     let mut status = 0u16;
     let mut rate = None;
@@ -705,6 +736,9 @@ impl Kind {
             Kind::PrDetail => "pr-detail",
             Kind::PrMutation(_) => "pr-mutation",
             Kind::IssueDetail => "issue-detail",
+            Kind::RepoLabels => "repo-labels",
+            Kind::RepoAssignableUsers => "repo-assignable-users",
+            Kind::RepoMilestones => "repo-milestones",
             Kind::PrFiles => "pr-files",
             Kind::RepoNotifications => "repo-notifs",
         }
@@ -1168,7 +1202,13 @@ impl GithubState {
             // 200 bodies. Only non-200 results are ever forwarded here,
             // and those return in the status handling above — this arm
             // exists purely for match exhaustiveness.
-            Kind::PrDetail | Kind::PrMutation(_) | Kind::PrFiles | Kind::IssueDetail => {}
+            Kind::PrDetail
+            | Kind::PrMutation(_)
+            | Kind::PrFiles
+            | Kind::IssueDetail
+            | Kind::RepoLabels
+            | Kind::RepoAssignableUsers
+            | Kind::RepoMilestones => {}
         }
 
         // ETag keyed by logical resource (kind + ident), not raw URL, so
@@ -1708,6 +1748,30 @@ mod tests {
                 Mutation::IssueReopen,
                 "reopenIssue",
                 serde_json::json!({ "input": { "issueId": "I_1" } }),
+            ),
+            (
+                // docs/0022 D1: the metadata writes — one document
+                // (updateIssue), one field-group per post.
+                Mutation::IssueSetTitle,
+                "updateIssue",
+                serde_json::json!({ "input": { "id": "I_1", "title": "New" } }),
+            ),
+            (
+                Mutation::IssueSetLabels,
+                "updateIssue",
+                serde_json::json!({ "input": { "id": "I_1", "labelIds": ["L_1"] } }),
+            ),
+            (
+                Mutation::IssueSetAssignees,
+                "updateIssue",
+                serde_json::json!({
+                    "input": { "id": "I_1", "assigneeIds": ["U_1", "U_2"] }
+                }),
+            ),
+            (
+                Mutation::IssueSetMilestone,
+                "updateIssue",
+                serde_json::json!({ "input": { "id": "I_1", "milestoneId": null } }),
             ),
         ];
         for (mutation, op, variables) in cases {
