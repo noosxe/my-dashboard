@@ -291,3 +291,37 @@ Implementation notes beyond the design text:
 
 Workspace: 243 tests green (was 236 after the 0021 timeline-union fix, itself 235); clippy/fmt clean; probe keys for
 every new interactive element shipped per D9.
+
+## 12. Shipped — data-colored label chips (2026-09-07, issue #119)
+
+docs/0020 Q2 resolved by owner decision: **data-colored chips**, with the
+token-discipline exception made *once*, in a dedicated core module.
+
+- **D1 — the exception's home.** `dashboard_core::data_color` is the single
+  place in the workspace where colors are constructed from data
+  (`data_chip(hex, surface) -> Option<DataChip>`). A GitHub label's
+  `color` is user data arriving over the API next to the name; reproducing
+  it is not theming. Every other surface stays on tokens; the module doc
+  carries the docs/0002 D5 justification.
+- **D2 — GitHub dark-mode treatment, exact hue.** Fill = the label color at
+  15% alpha over the chip surface (`theme().tokens.group_box`), edge = the
+  same hue at 40%, text = the exact hue with **lightness only** walked until
+  WCAG-AA (4.5:1) holds over the composite fill. Hue and saturation are
+  never touched — the chip reads as *its* color, made legible on ours.
+- **D3 — direction follows the fill, not the color.** On a dark composite,
+  contrast only improves toward white (darkening caps at
+  `(Yfill + 0.05) / 0.05`, hopeless against 4.5); the walk lightens on
+  dark fills and darkens on light ones. Colors that already clear AA are
+  left untouched.
+- **D4 — degrade, never guess.** Missing or garbled hex (anything that is
+  not exactly six hex digits, `#` optional) falls back to the muted token
+  pill. The timeline's inline label mentions (Labeled/Unlabeled sentences)
+  stay plain text — a sentence is not a chip.
+- **D5 — one surface.** Only the labels-panel chips are data-colored; the
+  PR page renders no labels yet and will reuse `data_chip` when it grows
+  them (no drift).
+
+Tests: five core tests — parse degrade table, exact hue/alpha shape,
+AA-over-own-fill across GitHub's default palette (17 colors), direction +
+minimal correction, legible colors untouched. Workspace: 257 green (was
+252); clippy/fmt clean.

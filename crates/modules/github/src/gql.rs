@@ -775,15 +775,15 @@ pub struct IssueDetail {
 }
 
 /// `Label { id name color }`. `id` feeds the labels picker's
-/// replace-semantics save (0022 D3); `color` is user data — carried for
-/// the deferred data-colored-chips follow-up (0020 Q2), unused meanwhile.
+/// replace-semantics save (0022 D3); `color` is user data — the
+/// data-colored chip tint (0022 Q2, #119), degraded to the muted pill
+/// when absent or garbled.
 #[derive(Debug, Clone)]
 pub struct IssueLabel {
     /// `None` = degraded node (id absent) — display works, the D3
     /// guard disarms the picker.
     pub id: Option<String>,
     pub name: String,
-    #[allow(dead_code)] // 0020 Q2: data-colored chips deferred
     pub color: Option<String>,
 }
 

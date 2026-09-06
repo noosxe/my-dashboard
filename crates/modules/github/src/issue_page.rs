@@ -1764,18 +1764,41 @@ impl IssueDetailPage {
                         ))
                     }),
             )
-            .children(d.labels.iter().map(|l| {
-                div()
-                    .px_2()
-                    .py_0p5()
-                    .rounded_full()
-                    .border_1()
-                    .border_color(cx.theme().border)
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(l.name.clone())
-            }))
+            .children(
+                d.labels
+                    .iter()
+                    .map(|l| Self::label_pill(l, cx.theme().tokens.group_box.into(), cx)),
+            )
             .into_any_element()
+    }
+
+    /// One label chip (0022 Q2 / #119): the label's own color when the
+    /// API carried one — the docs/0002-sanctioned data-color exception,
+    /// all construction inside `dashboard_core::data_color` — else the
+    /// muted token pill (missing/garbled hex degrades, never guesses).
+    fn label_pill(label: &gql::IssueLabel, surface: gpui::Hsla, cx: &Context<Self>) -> Div {
+        let chip = label
+            .color
+            .as_deref()
+            .and_then(|hex| dashboard_core::data_color::data_chip(hex, surface.into()));
+        let (bg, fg, border) = match chip {
+            Some(c) => (c.bg, c.fg, c.border),
+            None => (
+                cx.theme().transparent,
+                cx.theme().muted_foreground,
+                cx.theme().border,
+            ),
+        };
+        div()
+            .px_2()
+            .py_0p5()
+            .rounded_full()
+            .border_1()
+            .border_color(border)
+            .bg(bg)
+            .text_xs()
+            .text_color(fg)
+            .child(label.name.clone())
     }
 
     fn render_assignees_panel(&self, d: &gql::IssueDetail, cx: &Context<Self>) -> AnyElement {

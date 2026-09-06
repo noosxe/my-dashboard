@@ -369,7 +369,9 @@ machine — until it's fixed these run as manual human checks in the PR body.)
   via `IssueTimelineItems(itemTypes: …)` (Q1 deferral).~~ → designed and
   shipped in docs/0021 (#118); cross-referenced/referenced rows remain a
   follow-up there.
-- Data-colored label chips (needs a token-discipline exception decision).
+- ~~Data-colored label chips (needs a token-discipline exception decision).~~
+  → resolved by owner decision: shipped in docs/0022 §12 (#119); the
+  exception lives in `dashboard_core::data_color`.
 - ~~Title editing; milestone display; label/assignee management.~~ →
   designed and shipped in docs/0022 (#120).
 - ~~Reactions; locking.~~ → designed and shipped in docs/0023 (#121);
