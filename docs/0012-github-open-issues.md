@@ -111,8 +111,9 @@ The section is `GroupBox::new().id("issues-box")`, mirroring `prs-box`.
   the Open PRs box (`prs.total_count`). The snapshot carries the server's
   exact `totalCount` beside the capped nodes list (0007 D2), so both titles
   are true even past the 100-row cap: a repo with 137 open issues shows
-  "(137)" with 100 rows. Shipped as the §10 follow-up (#66); a "+N more"
-  hint row for truncated lists is a separate follow-up (#87).
+  "(137)" with 100 rows, and (shipped with #87) a muted, non-interactive
+  "+{total − rows} more on GitHub" cell closes the list — so the cap is
+  visible at the tail, not only in the title.
 - **Rows:** first 100 open issues, `UPDATED_AT DESC` (pinned by the query —
   activity-first, same as PRs), rendered in arrival order. The repo-scoped
   refresh on view open repaints the section exactly like the PRs one
@@ -233,9 +234,30 @@ Per AGENTS.md PR discipline, exercised before pushing:
 
 ## 10. Follow-ups (GitHub issues, not this PR)
 
-- "+N more" hint for capped repo-view row lists (#87) — exact titles
-  shipped via #66.
 - Issues depth (labels, assignees, comment counts, section filtering) — only
   on owner request.
 - Pre-existing, untouched: `statusCheckRollup` surfacing in PR rows
   (0007 §9).
+
+## 11. Shipped — the "+N more" hint cell (2026-09-07, issue #87)
+
+When `total_count > nodes.len()` (the 100-row cap bit, docs/0007 D2), the
+Open PRs and Open Issues boxes each end with one muted, non-interactive
+cell: `+{total_count − nodes.len()} more on GitHub`. Repos at or under the
+cap render exactly as before. Implementation notes:
+
+- **Pure core, keyed cell**: `more_hint_count(total, rendered) -> Option<usize>`
+  (table-tested) computes the overflow; `more_cell` renders it with the
+  same muted styling as the empty-state cells plus a `debug_selector`
+  probe key (`repo-prs-more` / `repo-issues-more`) — 0010 D10: bare divs
+  are invisible to `debug_bounds`, so an asserted surface carries an
+  explicit selector even when it is not interactive.
+- **Both boxes, independently** (mirrors #66's count semantics): the hint
+  appears only where the cap actually bit — a repo with 100 PRs and 3
+  issues hints only on the PRs box.
+- **Probe test** mounts the full page (`repo` fixture: PRs 2/2 → no hint,
+  issues 2 nodes/137 total → hint) and asserts via the probe keys.
+
+Not a link: the owner's proposal left interactivity optional; rows already
+open github.com, and a list-link would need `.id()` + role + click
+semantics for little gain (filed back if wanted).
