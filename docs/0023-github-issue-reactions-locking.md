@@ -321,3 +321,24 @@ implementation; nothing diverged from the design. Notes beyond the text:
 
 Workspace: 251 tests green (was 243); clippy/fmt clean. Human checks
 (§8) ride the PR body.
+
+### 2026-09-07 (owner feedback): the picker is a popup menu
+
+The inline picker card (D4) read heavy — a full column of eight rows
+pushed into the timeline flow. It is now gpui-component's `PopupMenu`
+attached to the `+` button via `DropdownMenu`: same static eight rows
+(glyph, label, count, check on armed rows), same commit-on-click, groups
+still frozen at open (the menu builds from the render-time snapshot —
+`reaction_direction`, pure and table-tested).
+
+Consequences, all simplifications:
+
+- `reaction_pick` page state, `open_reaction_picker`, `pick_reaction`
+  and the card renderer are gone; menu open/dismiss/Esc/keyboard are
+  component-owned (native `Cancel` binding restores focus).
+- The one-editor rule is back to **five in-page surfaces**; the menu is
+  transient, not an editor — `cancel_top_editor` no longer intercepts
+  for it.
+- Probe keys `issue-reaction-pick{,-cancel,-{CONTENT}}` are retired —
+  menu internals aren't probed; the direction logic moved into
+  `reaction_direction` and the render asserts stay on the chips rows.

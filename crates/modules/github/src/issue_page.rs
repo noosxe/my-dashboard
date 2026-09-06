@@ -33,6 +33,7 @@ use gpui_component::{
     group_box::GroupBox,
     h_flex,
     input::{Textarea, TextareaState},
+    menu::{DropdownMenu as _, PopupMenuItem},
     searchable_list::SearchableVec,
     select::{Select, SelectState},
     skeleton::Skeleton,
@@ -90,10 +91,6 @@ pub(crate) struct IssueDetailPage {
     /// The open rail picker (0022 D5) — at most one anywhere on the
     /// page (D7 widens the 0019 one-editor rule to five surfaces).
     rail_edit: Option<RailEditor>,
-    /// The open reaction picker (0023 D4) — the subject's node id and
-    /// its groups frozen at open (PickerDraft's philosophy: rows can't
-    /// midshift on a refetch). At most one anywhere on the page (D7).
-    reaction_pick: Option<ReactionPick>,
     /// Picker source pages (0022 D5) — lazy, session-only, the
     /// files-sidebar pattern.
     labels_source: PickerFetch<Vec<gql::IssueLabel>>,
@@ -144,15 +141,6 @@ enum RailEditor {
         rows: Vec<PickerRow>,
         chosen: Option<String>,
     },
-}
-
-/// docs/0023 D4 — the open reaction picker's target: the subject's node
-/// id (issue body or a comment) plus its groups frozen at open, so rows
-/// can't midshift when a refetch lands mid-pick.
-#[derive(Debug, Clone, PartialEq)]
-struct ReactionPick {
-    subject_id: String,
-    groups: Vec<gql::ReactionGroup>,
 }
 
 /// One checklist row: the write-target node id plus display data.
@@ -275,7 +263,6 @@ impl IssueDetailPage {
             description_edit: None,
             title_edit: None,
             rail_edit: None,
-            reaction_pick: None,
             labels_source: PickerFetch::Idle,
             assignees_source: PickerFetch::Idle,
             milestones_source: PickerFetch::Idle,
@@ -667,7 +654,6 @@ impl IssueDetailPage {
         self.timeline_edit = None;
         self.delete_confirm = None;
         self.rail_edit = None;
-        self.reaction_pick = None;
     }
 
     /// D7: true while any of the five editor surfaces is open — every
@@ -678,7 +664,6 @@ impl IssueDetailPage {
             || self.timeline_edit.is_some()
             || self.delete_confirm.is_some()
             || self.rail_edit.is_some()
-            || self.reaction_pick.is_some()
     }
 
     /// Esc consumes the topmost open editor (D4/D5 Cancel/Esc) and only
@@ -686,12 +671,6 @@ impl IssueDetailPage {
     /// confirm (most destructive to leave up) first.
     fn cancel_top_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         if self.delete_confirm.take().is_some() {
-            cx.notify();
-            return true;
-        }
-        // 0023 D4: the picker is the lightest surface — it goes before
-        // the page ever considers closing.
-        if self.reaction_pick.take().is_some() {
             cx.notify();
             return true;
         }
@@ -769,48 +748,6 @@ impl IssueDetailPage {
     }
 
     // --- reactions + locking (docs/0023) ------------------------------------
-
-    /// Open the reaction picker for a subject (D4). Groups freeze at
-    /// open — a refetch mid-pick repaints the chips, never the rows.
-    fn open_reaction_picker(
-        &mut self,
-        subject_id: String,
-        groups: Vec<gql::ReactionGroup>,
-        cx: &mut Context<Self>,
-    ) {
-        if self.busy.is_some() || subject_id.is_empty() {
-            return;
-        }
-        // One editor at a time (D7, 0022 D7): every other surface yields.
-        self.yield_all_editors();
-        self.reaction_pick = Some(ReactionPick { subject_id, groups });
-        cx.notify();
-    }
-
-    /// Picker row click (D4): the mutation is the commit — post the
-    /// matching add/remove and close. `viewerHasReacted` at open decides
-    /// the direction, so a stale row can never double-react.
-    fn pick_reaction(
-        &mut self,
-        content: gql::ReactionContent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(pick) = self.reaction_pick.clone() else {
-            return;
-        };
-        if self.busy.is_some() {
-            return;
-        }
-        let remove = pick
-            .groups
-            .iter()
-            .find(|g| g.content == content)
-            .map(|g| g.viewer_has_reacted)
-            .unwrap_or(false);
-        self.reaction_pick = None;
-        self.toggle_reaction(pick.subject_id, remove, content, window, cx);
-    }
 
     /// Chip click (D3): armed removes, otherwise adds. Single-flight —
     /// busy is checked by render and re-checked here as the honest guard.
@@ -1321,13 +1258,10 @@ impl IssueDetailPage {
                 IssueBusyOp::SetLabels | IssueBusyOp::SetAssignees | IssueBusyOp::SetMilestone => {
                     self.rail_edit = None;
                 }
-                // 0023 D4: a picker-committed toggle closes the picker
-                // (chip toggles open none); the refetch repaints chips.
-                IssueBusyOp::ToggleReaction => {
-                    self.reaction_pick = None;
-                }
-                // The refetch repaints the lock tag and composer gate.
-                IssueBusyOp::ToggleLock => {}
+                // The refetch repaints the chips, the lock tag and the
+                // composer gate (the + menu is component-owned — it
+                // dismisses itself on click).
+                IssueBusyOp::ToggleReaction | IssueBusyOp::ToggleLock => {}
                 // The refetch repaints the badge and swaps the panel.
                 IssueBusyOp::Close | IssueBusyOp::Reopen => {}
             }
@@ -1650,17 +1584,6 @@ impl IssueDetailPage {
         }
         if d.comments.nodes.is_empty() {
             children.push(muted_centered("No comments yet", cx));
-        }
-        // docs/0023 D4: the open picker renders in the timeline right
-        // after its subject's card (only one can be open, D7).
-        if let Some(pick) = self.reaction_pick.as_ref() {
-            let in_page =
-                pick.subject_id == d.id || d.comments.nodes.iter().any(|c| c.id == pick.subject_id);
-            if in_page {
-                if let Some(card) = self.render_reaction_picker_card(cx) {
-                    children.push(card);
-                }
-            }
         }
         // docs/0023 D6: the composer hides while the conversation is
         // locked and the viewer lacks lock rights; a muted notice takes
@@ -2341,11 +2264,6 @@ impl IssueDetailPage {
             return None;
         }
         let busy = self.busy.is_some();
-        let picker_open = self
-            .reaction_pick
-            .as_ref()
-            .map(|p| p.subject_id == subject_id)
-            .unwrap_or(false);
         let mut row = h_flex().gap_1().flex_wrap();
         for g in &chips {
             let id = format!("{prefix}-{}", g.content.wire());
@@ -2370,88 +2288,63 @@ impl IssueDetailPage {
         if can_react {
             let subject_id = subject_id.to_string();
             let groups = groups.to_vec();
+            let weak = cx.entity().downgrade();
             let picker_id = format!("{prefix}-add");
             let probe = picker_id.clone();
             row = row.child(
                 Button::new(picker_id)
                     .debug_selector(move || probe.clone())
-                    .when(picker_open, |b| b.outline())
-                    .when(!picker_open, |b| b.ghost())
+                    .ghost()
                     .small()
                     .label("+")
                     .tooltip("Add reaction")
                     .disabled(busy)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.open_reaction_picker(subject_id.clone(), groups.clone(), cx)
-                    })),
+                    .dropdown_menu(move |menu, _, _| {
+                        // docs/0023 D4 (§10 amendment): the static
+                        // eight-row picker rides the + button as a
+                        // PopupMenu. Rows freeze at open — built from
+                        // this render's snapshot, so a refetch mid-pick
+                        // repaints chips, never the open menu — and a
+                        // row commits on click (the mutation is the
+                        // commit; no Save ritual).
+                        let mut next = menu;
+                        for content in gql::ReactionContent::ALL {
+                            let armed = reaction_direction(&groups, content);
+                            let count = groups
+                                .iter()
+                                .find(|g| g.content == content)
+                                .map(|g| g.total)
+                                .unwrap_or(0);
+                            let subject = subject_id.clone();
+                            let item_weak = weak.clone();
+                            next = next.item(
+                                PopupMenuItem::new(format!(
+                                    "{} {} ({})",
+                                    content.glyph(),
+                                    content.label(),
+                                    count
+                                ))
+                                .checked(armed)
+                                .disabled(busy)
+                                .on_click(move |_, _, cx| {
+                                    let _ = item_weak.update_in(cx, |page, window, cx| {
+                                        page.toggle_reaction(
+                                            subject.clone(),
+                                            armed,
+                                            content,
+                                            window,
+                                            cx,
+                                        )
+                                    });
+                                }),
+                            );
+                        }
+                        next
+                    }),
             );
         }
         Some(
             row.debug_selector(move || format!("{prefix}-row"))
-                .into_any_element(),
-        )
-    }
-
-    /// docs/0023 D4 — the static reaction picker: all eight contents,
-    /// rows commit on click (the mutation is the commit), Esc/Cancel
-    /// closes. Rendered in the timeline directly after its subject's card.
-    fn render_reaction_picker_card(&self, cx: &Context<Self>) -> Option<AnyElement> {
-        let pick = self.reaction_pick.as_ref()?;
-        let busy = self.busy.is_some();
-        let mut card = v_flex().gap_1().py_1();
-        for content in gql::ReactionContent::ALL {
-            let armed = pick
-                .groups
-                .iter()
-                .find(|g| g.content == content)
-                .map(|g| g.viewer_has_reacted)
-                .unwrap_or(false);
-            let count = pick
-                .groups
-                .iter()
-                .find(|g| g.content == content)
-                .map(|g| g.total)
-                .unwrap_or(0);
-            let marker = if armed { " · you" } else { "" };
-            let id = format!("issue-reaction-pick-{}", content.wire());
-            let probe = id.clone();
-            card = card.child(
-                Button::new(id)
-                    .debug_selector(move || probe.clone())
-                    .when(armed, |b| b.outline())
-                    .when(!armed, |b| b.ghost())
-                    .small()
-                    .label(format!(
-                        "{} {} ({}{})",
-                        content.glyph(),
-                        content.label(),
-                        count,
-                        marker
-                    ))
-                    .disabled(busy)
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.pick_reaction(content, window, cx)
-                    })),
-            );
-        }
-        card = card.child(
-            Button::new("issue-reaction-pick-cancel")
-                .debug_selector(|| "issue-reaction-pick-cancel".to_string())
-                .ghost()
-                .small()
-                .label("Cancel")
-                .disabled(busy)
-                .on_click(cx.listener(|this, _, window, cx| {
-                    this.reaction_pick = None;
-                    this.refocus_page(window, cx);
-                    cx.notify();
-                })),
-        );
-        Some(
-            GroupBox::new()
-                .id("issue-reaction-pick")
-                .title("Add reaction")
-                .child(card)
                 .into_any_element(),
         )
     }
@@ -2795,6 +2688,22 @@ pub(crate) fn reaction_chips(groups: &[gql::ReactionGroup]) -> Vec<gql::Reaction
     chips
 }
 
+/// docs/0023 D4 (§10 amendment): the frozen toggle direction for a
+/// reaction row — armed iff the snapshot says the viewer has reacted.
+/// Chips read the same value off their group; the + menu applies it per
+/// row at open, so a refetch mid-pick repaints the chips, never the
+/// open menu. Pure — table-tested.
+pub(crate) fn reaction_direction(
+    groups: &[gql::ReactionGroup],
+    content: gql::ReactionContent,
+) -> bool {
+    groups
+        .iter()
+        .find(|g| g.content == content)
+        .map(|g| g.viewer_has_reacted)
+        .unwrap_or(false)
+}
+
 /// D5: the lock gate — no `viewerCanLock` flag exists upstream, so
 /// triage-and-above is derived from the repository permission. `None`
 /// (no explicit mapping) means no rights. Pure — table-tested.
@@ -3113,8 +3022,8 @@ mod tests {
         assignee_rows, assignees_edit_arming, build_issue_md_cache, close_allowed,
         close_reason_from_label, comment_submit_allowed, composer_visible, compute_replace_ids,
         event_sentence, issue_badge, label_rows, labels_edit_arming, lock_gate, lock_reason_label,
-        milestone_edit_arming, milestone_rows, reaction_chips, reopen_allowed, row_is_edited,
-        sorted_timeline, state_reason_word, title_edit_visible,
+        milestone_edit_arming, milestone_rows, reaction_chips, reaction_direction, reopen_allowed,
+        row_is_edited, sorted_timeline, state_reason_word, title_edit_visible,
     };
     use crate::service::{GithubCache, GithubState, Kind, Mutation, SpecResult};
     use gpui::AppContext as _;
@@ -3960,6 +3869,17 @@ mod tests {
         // All-zero → no chips at all.
         assert!(reaction_chips(&[groups("HEART", false, 0)]).is_empty());
         assert!(reaction_chips(&[]).is_empty());
+        // §10 amendment: the + menu's frozen direction rides the same
+        // helper — armed per content, absent content stays unarmed.
+        assert!(reaction_direction(
+            &[groups("HEART", true, 5)],
+            gql::ReactionContent::Heart
+        ));
+        assert!(!reaction_direction(
+            &[groups("HEART", true, 5)],
+            gql::ReactionContent::Eyes
+        ));
+        assert!(!reaction_direction(&[], gql::ReactionContent::Heart));
     }
 
     #[test]
@@ -3997,7 +3917,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn reaction_rows_toggle_and_picker_commits(cx: &mut gpui::TestAppContext) {
+    fn reaction_rows_toggle_and_single_flight(cx: &mut gpui::TestAppContext) {
         let (page, vcx) = probe_page(cx);
         // The body row renders: the armed chip plus the + affordance; the
         // zero-count EYES group renders no chip (D3).
@@ -4036,32 +3956,22 @@ mod tests {
             });
         });
 
-        // The picker: + opens it, eight rows render, one-editor rule yields
-        // the title editor, a row click commits (posts + closes).
+        // §10 amendment: the picker is a component-owned PopupMenu on
+        // the + button — no page state to drive, Esc/dismiss are the
+        // menu's. The frozen per-row direction is the pure helper; the
+        // armed direction posts removeReaction through the same toggle.
         vcx.update(|window, cx| {
-            page.update(cx, |page, cx| page.start_edit_title(window, cx));
-        });
-        vcx.update(|_, cx| {
             page.update(cx, |page, cx| {
-                page.open_reaction_picker(
+                let groups = &page.detail.as_ref().unwrap().reaction_groups;
+                assert!(reaction_direction(groups, gql::ReactionContent::ThumbsUp));
+                assert!(!reaction_direction(groups, gql::ReactionContent::Heart));
+                page.toggle_reaction(
                     "I_9".into(),
-                    page.detail.as_ref().unwrap().reaction_groups.clone(),
+                    reaction_direction(groups, gql::ReactionContent::ThumbsUp),
+                    gql::ReactionContent::ThumbsUp,
+                    window,
                     cx,
                 );
-                assert!(
-                    page.title_edit.is_none(),
-                    "one editor at a time: the picker yields the title editor"
-                );
-            });
-        });
-        assert!(vcx.debug_bounds("issue-reaction-pick-HEART").is_some());
-        assert!(vcx.debug_bounds("issue-reaction-pick-cancel").is_some());
-        vcx.update(|window, cx| {
-            page.update(cx, |page, cx| {
-                page.pick_reaction(gql::ReactionContent::Heart, window, cx)
-            });
-            page.update(cx, |page, _| {
-                assert!(page.reaction_pick.is_none(), "commit closes the picker");
                 assert_eq!(page.busy, Some(IssueBusyOp::ToggleReaction));
                 page.busy = None;
             });
