@@ -56,6 +56,7 @@ cross-platform, multi-modular universal personal dashboard built with Rust and
 | [0021](0021-github-issue-timeline-events.md) | GitHub Module: Issue Page Timeline Event Rows (itemTypes-filtered, merged conversation) |
 | [0022](0022-github-issue-metadata.md) | GitHub Module: Issue Page Metadata Editing (title, labels, assignees, milestone — one `updateIssue`) |
 | [0023](0023-github-issue-reactions-locking.md) | GitHub Module: Issue Page Reactions + Conversation Locking (toggle chips, static picker, permission-derived lock gate) |
+| [0024](0024-github-issue-creation.md) | GitHub Module: Issue Creation Flow (repo-header entry, creator sub-page, `createIssue`, draft retention) |
 
 ## Planned docs (roadmap, not yet written)
 
