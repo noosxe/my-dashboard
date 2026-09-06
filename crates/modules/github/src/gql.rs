@@ -574,16 +574,27 @@ query IssueDetail($owner: String!, $name: String!, $number: Int!) {
       createdAt
       author { login avatarUrl }
       viewerCanUpdate
+      # docs/0022 D1: per-surface gates — title rides viewerCanUpdate,
+      # the three pickers each gate independently.
+      viewerCanLabel
+      viewerCanAssign
+      viewerCanSetMilestone
       viewerCanClose
       viewerCanReopen
+      # docs/0022 D3: nodes carry node ids — the replace-semantics
+      # save computes its target list from them, so a missing id
+      # disarms the picker (D3 guard), never a silent drop.
       labels(first: 20) {
         totalCount
-        nodes { name color }
+        nodes { id name color }
       }
       assignees(first: 20) {
         totalCount
-        nodes { login avatarUrl }
+        nodes { id login avatarUrl }
       }
+      # docs/0022 D8: the applied milestone — display cell + picker
+      # merge row.
+      milestone { id title state }
       # docs/0020 D2: the same IssueComment node shape the PR page
       # parses (0019 D2 gate fields included).
       comments(first: 100) {
@@ -690,8 +701,15 @@ pub struct IssueDetail {
     /// DUPLICATE; null while open.
     pub state_reason: Option<String>,
     pub closed_at: Option<String>,
-    /// Gates the description Edit affordance (0020 D4).
+    /// Gates the description Edit affordance (0020 D4) and the title
+    /// editor (0022 D4).
     pub viewer_can_update: bool,
+    /// Gates the labels picker (0022 D3).
+    pub viewer_can_label: bool,
+    /// Gates the assignees picker (0022 D3).
+    pub viewer_can_assign: bool,
+    /// Gates the milestone picker (0022 D3).
+    pub viewer_can_set_milestone: bool,
     /// Gates the rail's Close button (0020 D5).
     pub viewer_can_close: bool,
     /// Gates the rail's Reopen button (0020 D5).
@@ -699,12 +717,16 @@ pub struct IssueDetail {
     pub url: String,
     pub created_at: Option<String>,
     pub author: Option<Author>,
-    /// Display only (0020 Q2): name chips, color carried but unused.
+    /// Applied labels (0022 D3): node ids feed the replace-semantics
+    /// save; `id: None` flags a degraded node and disarms the picker.
     pub labels: Vec<IssueLabel>,
     pub labels_total: i64,
-    /// Display only — login rows.
-    pub assignees: Vec<Author>,
-    /// The conversation — same [`PrComment`] rows as the PR page.
+    /// Applied assignees — same id story as labels (0022 D3).
+    pub assignees: Vec<IssueAssignee>,
+    pub assignees_total: i64,
+    /// The applied milestone (0022 D8) — `None` when the issue has
+    /// none or the node degraded.
+    pub milestone: Option<IssueMilestone>,
     pub comments: PrComments,
     /// docs/0021 D2 — timeline events (itemTypes-filtered, comments excluded;
     /// they arrive via [`Self::comments`]). Chronologically unsorted here;
@@ -719,13 +741,38 @@ pub struct IssueDetail {
     pub events_capped: bool,
 }
 
-/// `Label { name color }` (0020 §3). `color` is user data — carried for
+/// `Label { id name color }`. `id` feeds the labels picker's
+/// replace-semantics save (0022 D3); `color` is user data — carried for
 /// the deferred data-colored-chips follow-up (0020 Q2), unused meanwhile.
 #[derive(Debug, Clone)]
 pub struct IssueLabel {
+    /// `None` = degraded node (id absent) — display works, the D3
+    /// guard disarms the picker.
+    pub id: Option<String>,
     pub name: String,
     #[allow(dead_code)] // 0020 Q2: data-colored chips deferred
     pub color: Option<String>,
+}
+
+/// `Assignee { id login avatarUrl }` — the applied-assignee row (0022
+/// D3). Replaces the bare [`Author`] rows the rail used to carry: the
+/// picker's replace-semantics save needs node ids.
+#[derive(Debug, Clone)]
+pub struct IssueAssignee {
+    /// Same degrade story as [`IssueLabel::id`].
+    pub id: Option<String>,
+    pub login: String,
+    pub avatar_url: String,
+}
+
+/// `Milestone { id title state }` — the applied milestone (0022 D8)
+/// and, with the same shape, the picker's source rows.
+#[derive(Debug, Clone)]
+pub struct IssueMilestone {
+    pub id: String,
+    pub title: String,
+    /// `MilestoneState` — OPEN / CLOSED; only the display tag reads it.
+    pub state: Option<String>,
 }
 
 /// docs/0021 D2 — one timeline event row. Hand-parsed from the
@@ -805,6 +852,9 @@ pub fn issue_detail_from_value(value: &serde_json::Value) -> Option<IssueDetail>
                 .iter()
                 .filter_map(|l| {
                     Some(IssueLabel {
+                        // 0022 D3: a degraded node keeps rendering —
+                        // `id: None` only disarms the picker.
+                        id: l.get("id").and_then(|v| v.as_str()).map(str::to_string),
                         name: l.get("name")?.as_str()?.to_string(),
                         color: l.get("color").and_then(|v| v.as_str()).map(str::to_string),
                     })
@@ -818,10 +868,34 @@ pub fn issue_detail_from_value(value: &serde_json::Value) -> Option<IssueDetail>
         .map(|nodes| {
             nodes
                 .iter()
-                .filter_map(|a| author_from_value(Some(a)))
-                .collect::<Vec<Author>>()
+                .filter_map(|a| {
+                    Some(IssueAssignee {
+                        id: a.get("id").and_then(|v| v.as_str()).map(str::to_string),
+                        login: a.get("login")?.as_str()?.to_string(),
+                        avatar_url: a
+                            .get("avatarUrl")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .to_string(),
+                    })
+                })
+                .collect::<Vec<IssueAssignee>>()
         })
         .unwrap_or_default();
+    let milestone = issue
+        .get("milestone")
+        .filter(|m| m.is_object())
+        .and_then(|m| {
+            Some(IssueMilestone {
+                id: m.get("id")?.as_str()?.to_string(),
+                title: m
+                    .get("title")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string(),
+                state: m.get("state").and_then(|v| v.as_str()).map(str::to_string),
+            })
+        });
     Some(IssueDetail {
         id: str_field("id").unwrap_or_default(),
         number: issue
@@ -835,6 +909,18 @@ pub fn issue_detail_from_value(value: &serde_json::Value) -> Option<IssueDetail>
         closed_at: str_field("closedAt"),
         viewer_can_update: issue
             .get("viewerCanUpdate")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        viewer_can_label: issue
+            .get("viewerCanLabel")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        viewer_can_assign: issue
+            .get("viewerCanAssign")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        viewer_can_set_milestone: issue
+            .get("viewerCanSetMilestone")
             .and_then(|v| v.as_bool())
             .unwrap_or(false),
         viewer_can_close: issue
@@ -854,6 +940,11 @@ pub fn issue_detail_from_value(value: &serde_json::Value) -> Option<IssueDetail>
             .and_then(|v| v.as_i64())
             .unwrap_or_default(),
         assignees,
+        assignees_total: issue
+            .pointer("/assignees/totalCount")
+            .and_then(|v| v.as_i64())
+            .unwrap_or_default(),
+        milestone,
         comments: PrComments {
             total_count: comments_total,
             nodes: comments,
@@ -862,6 +953,125 @@ pub fn issue_detail_from_value(value: &serde_json::Value) -> Option<IssueDetail>
         events_total,
         events_capped,
     })
+}
+
+// --- repository-level picker sources (docs/0022 D5) ------------------------
+
+/// Shared envelope for the three picker queries — same shape as
+/// [`IssueDetailData`]: the repository node stays raw and parses through
+/// the per-source fn with the same degradation rules (0007 D3).
+#[derive(Debug, Deserialize)]
+pub struct RepoPickerData {
+    pub repository: Option<serde_json::Value>,
+}
+
+/// docs/0022 §5 — the labels picker's source page, name-ordered.
+pub const REPO_LABELS_QUERY: &str = r#"
+query RepoLabels($owner: String!, $name: String!) {
+  rateLimit { cost remaining resetAt }
+  repository(owner: $owner, name: $name) {
+    labels(first: 50, orderBy: {field: NAME, direction: ASC}) {
+      nodes { id name color }
+    }
+  }
+}
+"#;
+
+/// docs/0022 §5 — the assignees picker's source page (logins only here;
+/// the page sorts client-side).
+pub const REPO_ASSIGNABLE_USERS_QUERY: &str = r#"
+query RepoAssignableUsers($owner: String!, $name: String!) {
+  rateLimit { cost remaining resetAt }
+  repository(owner: $owner, name: $name) {
+    assignableUsers(first: 50) {
+      nodes { id login avatarUrl }
+    }
+  }
+}
+"#;
+
+/// docs/0022 D5 — open milestones only: closed milestones are rarely
+/// assignment targets. A closed milestone already applied to the issue
+/// still renders (from the issue payload) and stays choosable via the
+/// picker's merge row.
+pub const REPO_MILESTONES_QUERY: &str = r#"
+query RepoMilestones($owner: String!, $name: String!) {
+  rateLimit { cost remaining resetAt }
+  repository(owner: $owner, name: $name) {
+    milestones(first: 50, states: [OPEN]) {
+      nodes { id title state }
+    }
+  }
+}
+"#;
+
+/// Parse the repository node of [`REPO_LABELS_QUERY`]. Nodes without an
+/// `id` skip — the picker exists to produce ids (a name-only row could
+/// never be written back); display coverage is the issue payload's job.
+pub fn repo_labels_from_value(value: &serde_json::Value) -> Vec<IssueLabel> {
+    value
+        .pointer("/labels/nodes")
+        .and_then(|nodes| nodes.as_array())
+        .map(|nodes| {
+            nodes
+                .iter()
+                .filter_map(|l| {
+                    Some(IssueLabel {
+                        id: Some(l.get("id")?.as_str()?.to_string()),
+                        name: l.get("name")?.as_str()?.to_string(),
+                        color: l.get("color").and_then(|v| v.as_str()).map(str::to_string),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Parse the repository node of [`REPO_ASSIGNABLE_USERS_QUERY`]. Same
+/// skip rule as [`repo_labels_from_value`].
+pub fn repo_assignable_users_from_value(value: &serde_json::Value) -> Vec<IssueAssignee> {
+    value
+        .pointer("/assignableUsers/nodes")
+        .and_then(|nodes| nodes.as_array())
+        .map(|nodes| {
+            nodes
+                .iter()
+                .filter_map(|a| {
+                    Some(IssueAssignee {
+                        id: Some(a.get("id")?.as_str()?.to_string()),
+                        login: a.get("login")?.as_str()?.to_string(),
+                        avatar_url: a
+                            .get("avatarUrl")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .to_string(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Parse the repository node of [`REPO_MILESTONES_QUERY`]. `id` is
+/// required (`IssueMilestone::id` is a plain `String` — the picker row
+/// is the write target); partial nodes skip.
+pub fn repo_milestones_from_value(value: &serde_json::Value) -> Vec<IssueMilestone> {
+    value
+        .pointer("/milestones/nodes")
+        .and_then(|nodes| nodes.as_array())
+        .map(|nodes| {
+            nodes
+                .iter()
+                .filter_map(|m| {
+                    Some(IssueMilestone {
+                        id: m.get("id")?.as_str()?.to_string(),
+                        title: m.get("title")?.as_str()?.to_string(),
+                        state: m.get("state").and_then(|v| v.as_str()).map(str::to_string),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// docs/0021 D2 — parse one union node of the filtered `timelineItems`
@@ -1308,6 +1518,16 @@ mutation IssueReopen($input: ReopenIssueInput!) {
 }
 "#;
 
+/// docs/0022 D1 — every metadata write (title, labels, assignees,
+/// milestone) rides `updateIssue`; the input carries exactly one
+/// field-group per post, the op identity living in the `Mutation`
+/// variant. Same document text the body editors post.
+pub const ISSUE_UPDATE_MUTATION: &str = r#"
+mutation IssueUpdateMetadata($input: UpdateIssueInput!) {
+  updateIssue(input: $input) { issue { id } }
+}
+"#;
+
 /// `author { login avatarUrl }` — shared by reviews and comments (the PR
 /// node's own author uses the same shape).
 fn author_from_value(value: Option<&serde_json::Value>) -> Option<Author> {
@@ -1539,6 +1759,10 @@ mod tests {
             ("ISSUE_DETAIL_QUERY", ISSUE_DETAIL_QUERY),
             ("ISSUE_CLOSE_MUTATION", ISSUE_CLOSE_MUTATION),
             ("ISSUE_REOPEN_MUTATION", ISSUE_REOPEN_MUTATION),
+            ("ISSUE_UPDATE_MUTATION", ISSUE_UPDATE_MUTATION),
+            ("REPO_LABELS_QUERY", REPO_LABELS_QUERY),
+            ("REPO_ASSIGNABLE_USERS_QUERY", REPO_ASSIGNABLE_USERS_QUERY),
+            ("REPO_MILESTONES_QUERY", REPO_MILESTONES_QUERY),
         ] {
             assert!(!doc.contains("//"), "{name} contains a JS-style comment");
         }
@@ -2141,6 +2365,100 @@ mod tests {
             serde_json::from_str(r#"{"data":{"repository":{"issue":null}}}"#).unwrap();
         let value = env.data.unwrap().repository.unwrap();
         assert!(issue_detail_from_value(&value).is_none());
+    }
+
+    // docs/0022 §3/§7 — the detail payload carries node ids on labels and
+    // assignees, the applied milestone, and the three picker gates; each
+    // degrades independently (id-absent keeps display, kills the picker).
+    #[test]
+    fn issue_metadata_ids_milestone_and_gates_parse() {
+        let body = issue_detail_body(
+            r#"{
+                "id": "I_9", "number": 7, "title": "t", "url": "u", "state": "OPEN",
+                "viewerCanLabel": true, "viewerCanAssign": false,
+                "viewerCanSetMilestone": true,
+                "labels": {"totalCount": 2, "nodes": [
+                    {"id": "L_1", "name": "bug", "color": "ff0000"},
+                    {"name": "p1"}
+                ]},
+                "assignees": {"totalCount": 2, "nodes": [
+                    {"id": "U_1", "login": "bob", "avatarUrl": "b"},
+                    {"login": "no-id"}
+                ]},
+                "milestone": {"id": "M_1", "title": "v1.0", "state": "CLOSED"}
+            }"#,
+        );
+        let env: Envelope<IssueDetailData> = serde_json::from_str(&body).unwrap();
+        let d = issue_detail_from_value(&env.data.unwrap().repository.unwrap()).unwrap();
+        assert!(d.viewer_can_label);
+        assert!(!d.viewer_can_assign);
+        assert!(d.viewer_can_set_milestone);
+        assert_eq!(d.assignees_total, 2);
+        // Ids ride the nodes; a node without one keeps rendering with
+        // `id: None` (D3 disarms the picker, display is untouched).
+        assert_eq!(d.labels[0].id.as_deref(), Some("L_1"));
+        assert_eq!(d.labels[1].id, None);
+        assert_eq!(d.assignees[1].login, "no-id");
+        assert_eq!(d.assignees[1].id, None);
+        let m = d.milestone.expect("milestone parses");
+        assert_eq!(m.id, "M_1");
+        assert_eq!(m.title, "v1.0");
+        assert_eq!(m.state.as_deref(), Some("CLOSED"));
+
+        // No milestone node → None; absent picker gates degrade off.
+        let body =
+            issue_detail_body(r#"{"id":"I_9","number":7,"title":"t","url":"u","state":"OPEN"}"#);
+        let env: Envelope<IssueDetailData> = serde_json::from_str(&body).unwrap();
+        let d = issue_detail_from_value(&env.data.unwrap().repository.unwrap()).unwrap();
+        assert!(d.milestone.is_none());
+        assert!(!d.viewer_can_label);
+        assert!(!d.viewer_can_assign);
+        assert!(!d.viewer_can_set_milestone);
+    }
+
+    // docs/0022 D5 — the picker source pages parse through the same
+    // degradation rules: id-less or unrenderable nodes skip (the picker
+    // exists to produce write targets, display coverage is the issue
+    // payload's job).
+    #[test]
+    fn repo_picker_sources_parse_and_skip_idless_nodes() {
+        let labels = repo_labels_from_value(
+            &serde_json::from_value(serde_json::json!({
+                "labels": {"nodes": [
+                    {"id": "L_1", "name": "bug", "color": "ff0000"},
+                    {"name": "no-id"},
+                    {"id": "L_2", "name": "p1"}
+                ]}
+            }))
+            .unwrap(),
+        );
+        assert_eq!(labels.len(), 2);
+        assert_eq!(labels[0].name, "bug");
+        assert_eq!(labels[1].id.as_deref(), Some("L_2"));
+
+        let users = repo_assignable_users_from_value(
+            &serde_json::from_value(serde_json::json!({
+                "assignableUsers": {"nodes": [
+                    {"id": "U_1", "login": "bob", "avatarUrl": "b"},
+                    {"login": "no-id"}
+                ]}
+            }))
+            .unwrap(),
+        );
+        assert_eq!(users.len(), 1);
+        assert_eq!(users[0].login, "bob");
+
+        let milestones = repo_milestones_from_value(
+            &serde_json::from_value(serde_json::json!({
+                "milestones": {"nodes": [
+                    {"id": "M_1", "title": "v1.0", "state": "OPEN"},
+                    {"id": "M_2"}
+                ]}
+            }))
+            .unwrap(),
+        );
+        assert_eq!(milestones.len(), 1);
+        assert_eq!(milestones[0].state.as_deref(), Some("OPEN"));
     }
 
     // docs/0021 D2 — events parse from the union; every Assignee union

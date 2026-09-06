@@ -370,7 +370,8 @@ machine — until it's fixed these run as manual human checks in the PR body.)
   shipped in docs/0021 (#118); cross-referenced/referenced rows remain a
   follow-up there.
 - Data-colored label chips (needs a token-discipline exception decision).
-- Title editing; milestone display; label/assignee management.
+- ~~Title editing; milestone display; label/assignee management.~~ →
+  designed and shipped in docs/0022 (#120).
 - Reactions; locking; issue creation.
 - "+N more" pagination for comments beyond the first 100 (#87 adjacent).
 

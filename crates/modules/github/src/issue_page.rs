@@ -29,6 +29,7 @@ use gpui_component::{
     avatar::Avatar,
     badge::Badge,
     button::{Button, ButtonVariants},
+    checkbox::Checkbox,
     group_box::GroupBox,
     h_flex,
     input::{Textarea, TextareaState},
@@ -84,6 +85,16 @@ pub(crate) struct IssueDetailPage {
     mutation_error: Option<MutationError>,
     /// Prefilled textarea while the description is being edited (0020 D4).
     description_edit: Option<Entity<TextareaState>>,
+    /// Prefilled textarea while the title is being edited (0022 D4).
+    title_edit: Option<Entity<TextareaState>>,
+    /// The open rail picker (0022 D5) — at most one anywhere on the
+    /// page (D7 widens the 0019 one-editor rule to five surfaces).
+    rail_edit: Option<RailEditor>,
+    /// Picker source pages (0022 D5) — lazy, session-only, the
+    /// files-sidebar pattern.
+    labels_source: PickerFetch<Vec<gql::IssueLabel>>,
+    assignees_source: PickerFetch<Vec<gql::IssueAssignee>>,
+    milestones_source: PickerFetch<Vec<gql::IssueMilestone>>,
     /// Row-level editor (0019 pattern): (node id, editor). At most one
     /// editor is open anywhere on the page.
     timeline_edit: Option<(String, Entity<TextareaState>)>,
@@ -104,6 +115,73 @@ pub(crate) enum IssueBusyOp {
     CommentDelete,
     Close,
     Reopen,
+    // 0022 D1/D4/D5 — the metadata writes. All four post the shared
+    // updateIssue document; failures surface in the rail (D2).
+    SetTitle,
+    SetLabels,
+    SetAssignees,
+    SetMilestone,
+}
+
+/// docs/0022 D5 — the open picker and its draft choice. The draft is
+/// plain page state. Rows are frozen at open (re-aligned by id when a
+/// source page or detail payload lands) so checked flags can never
+/// misalign mid-edit.
+#[derive(Debug, PartialEq)]
+enum RailEditor {
+    Labels(PickerDraft),
+    Assignees(PickerDraft),
+    /// `chosen: None` = "No milestone" — the clearing choice (§2.1).
+    Milestone {
+        rows: Vec<PickerRow>,
+        chosen: Option<String>,
+    },
+}
+
+/// One checklist row: the write-target node id plus display data.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct PickerRow {
+    /// Empty for the milestone picker's "No milestone" row — never a
+    /// write target (it maps to `milestoneId: null`).
+    pub id: String,
+    pub label: String,
+    /// Assignee rows carry the avatar; label/milestone rows none.
+    pub avatar_url: Option<String>,
+}
+
+/// Checked flags aligned 1:1 with [`PickerRow`] lists.
+#[derive(Debug, PartialEq)]
+struct PickerDraft {
+    rows: Vec<PickerRow>,
+    checked: Vec<bool>,
+}
+
+/// The picker source fetch lifecycle (0022 D5) — the files-sidebar
+/// `FilesFetch` pattern, generic over the parsed page.
+#[derive(Debug, Default)]
+enum PickerFetch<T> {
+    #[default]
+    Idle,
+    Loading,
+    Ready(T),
+    Failed(String),
+}
+
+impl<T> PickerFetch<T> {
+    fn failed_message(&self) -> Option<&str> {
+        match self {
+            PickerFetch::Failed(m) => Some(m),
+            _ => None,
+        }
+    }
+}
+
+/// Which picker source page to (lazily) fetch (0022 D5).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PickerSource {
+    Labels,
+    Assignees,
+    Milestones,
 }
 
 impl IssueBusyOp {
@@ -117,6 +195,14 @@ impl IssueBusyOp {
             | IssueBusyOp::CommentEdit
             | IssueBusyOp::CommentDelete => ErrorScope::Timeline,
             IssueBusyOp::Close | IssueBusyOp::Reopen => ErrorScope::Rail,
+            // 0022 D2: every metadata failure surfaces in the rail —
+            // title included, its editor lives in the header but the
+            // failure copy reads better beside the other metadata
+            // errors (single rail error slot, 0020 D5).
+            IssueBusyOp::SetTitle
+            | IssueBusyOp::SetLabels
+            | IssueBusyOp::SetAssignees
+            | IssueBusyOp::SetMilestone => ErrorScope::Rail,
         }
     }
 }
@@ -166,6 +252,11 @@ impl IssueDetailPage {
             busy: None,
             mutation_error: None,
             description_edit: None,
+            title_edit: None,
+            rail_edit: None,
+            labels_source: PickerFetch::Idle,
+            assignees_source: PickerFetch::Idle,
+            milestones_source: PickerFetch::Idle,
             timeline_edit: None,
             delete_confirm: None,
             md: BTreeMap::new(),
@@ -261,6 +352,20 @@ impl IssueDetailPage {
                                     self.delete_confirm = None;
                                 }
                             }
+                            // 0022 D5: a fresh payload under an open
+                            // picker re-aligns its frozen draft by id —
+                            // checked flags can never silently misalign.
+                            let open_picker = match self.rail_edit {
+                                Some(RailEditor::Labels(_)) => Some(PickerSource::Labels),
+                                Some(RailEditor::Assignees(_)) => Some(PickerSource::Assignees),
+                                Some(RailEditor::Milestone { .. }) => {
+                                    Some(PickerSource::Milestones)
+                                }
+                                None => None,
+                            };
+                            if let Some(source) = open_picker {
+                                self.realign_open_picker(source, cx);
+                            }
                         }
                         None => {
                             log::warn!("issue-detail: repository/issue null — keeping header");
@@ -315,9 +420,8 @@ impl IssueDetailPage {
         if self.busy.is_some() || self.description_edit.is_some() {
             return;
         }
-        // One editor at a time: a row editor or delete confirm yields.
-        self.timeline_edit = None;
-        self.delete_confirm = None;
+        // One editor at a time (0022 D7): every other surface yields.
+        self.yield_all_editors();
         let body = self
             .detail
             .as_ref()
@@ -385,8 +489,7 @@ impl IssueDetailPage {
         if self.busy.is_some() || node_id.is_empty() {
             return;
         }
-        self.description_edit = None;
-        self.delete_confirm = None;
+        self.yield_all_editors();
         let editor = cx.new(|cx| {
             let mut state = TextareaState::new(window, cx).auto_grow(4, 30);
             state.set_value(body, window, cx);
@@ -442,8 +545,7 @@ impl IssueDetailPage {
         if self.busy.is_some() || node_id.is_empty() {
             return;
         }
-        self.description_edit = None;
-        self.timeline_edit = None;
+        self.yield_all_editors();
         self.delete_confirm = Some(node_id);
         cx.notify();
     }
@@ -527,6 +629,470 @@ impl IssueDetailPage {
         self.spawn_mutation(
             IssueBusyOp::Reopen,
             Mutation::IssueReopen,
+            variables,
+            window,
+            cx,
+        );
+    }
+
+    // --- metadata editing (docs/0022) ---------------------------------------
+
+    /// D7: every editor surface yields — called before opening any of
+    /// them, so at most one is ever open (0019 rule, five surfaces).
+    fn yield_all_editors(&mut self) {
+        self.description_edit = None;
+        self.title_edit = None;
+        self.timeline_edit = None;
+        self.delete_confirm = None;
+        self.rail_edit = None;
+    }
+
+    /// D7: true while any of the five editor surfaces is open — every
+    /// affordance hides while this holds (hidden, not disabled).
+    fn any_editor_open(&self) -> bool {
+        self.description_edit.is_some()
+            || self.title_edit.is_some()
+            || self.timeline_edit.is_some()
+            || self.delete_confirm.is_some()
+            || self.rail_edit.is_some()
+    }
+
+    /// Esc consumes the topmost open editor (D4/D5 Cancel/Esc) and only
+    /// closes the page when nothing is open. Priority: the delete
+    /// confirm (most destructive to leave up) first.
+    fn cancel_top_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if self.delete_confirm.take().is_some() {
+            cx.notify();
+            return true;
+        }
+        if self.timeline_edit.take().is_some() {
+            self.refocus_page(window, cx);
+            cx.notify();
+            return true;
+        }
+        if self.description_edit.take().is_some() || self.title_edit.take().is_some() {
+            self.mutation_error = None;
+            self.refocus_page(window, cx);
+            cx.notify();
+            return true;
+        }
+        if self.rail_edit.take().is_some() {
+            self.mutation_error = None;
+            cx.notify();
+            return true;
+        }
+        false
+    }
+
+    /// Open the title editor (D4), prefilled with the current title.
+    fn start_edit_title(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.busy.is_some() || self.title_edit.is_some() {
+            return;
+        }
+        self.yield_all_editors();
+        let title = self
+            .detail
+            .as_ref()
+            .map(|d| d.title.clone())
+            .unwrap_or_default();
+        let editor = cx.new(|cx| {
+            let mut state = TextareaState::new(window, cx).rows(2).placeholder("Title");
+            state.set_value(title, window, cx);
+            state
+        });
+        self.title_edit = Some(editor);
+        cx.notify();
+    }
+
+    fn cancel_edit_title(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.title_edit = None;
+        self.mutation_error = None;
+        self.refocus_page(window, cx);
+        cx.notify();
+    }
+
+    /// Save the edited title (`updateIssue { id title }` — D1). Empty
+    /// titles never get here (Save renders disabled, the comment-editor
+    /// submit gate).
+    fn save_title(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let (Some(d), Some(editor)) = (self.detail.as_ref(), self.title_edit.as_ref()) else {
+            return;
+        };
+        if self.busy.is_some() || d.id.is_empty() {
+            return;
+        }
+        let title = editor.read(cx).value().trim().to_string();
+        if title.is_empty() {
+            return;
+        }
+        let variables = json!({ "input": { "id": d.id, "title": title } });
+        self.mutation_error = None;
+        self.busy = Some(IssueBusyOp::SetTitle);
+        cx.notify();
+        self.spawn_mutation(
+            IssueBusyOp::SetTitle,
+            Mutation::IssueSetTitle,
+            variables,
+            window,
+            cx,
+        );
+    }
+
+    // --- rail pickers (0022 D5) ---------------------------------------------
+
+    fn fetch_source(&mut self, source: PickerSource, cx: &mut Context<Self>) {
+        if !self.state.read(cx).auth.connected() {
+            return; // the page is about to be torn down by the auth gate
+        }
+        let client = self.state.update(cx, |s, _| s.client.clone());
+        let (owner, name) = split_repo(&self.repo);
+        let (kind, query_name) = match source {
+            PickerSource::Labels => (Kind::RepoLabels, "repo-labels"),
+            PickerSource::Assignees => (Kind::RepoAssignableUsers, "repo-assignable-users"),
+            PickerSource::Milestones => (Kind::RepoMilestones, "repo-milestones"),
+        };
+        let spec = FetchSpec {
+            kind,
+            url: gql::GRAPHQL_ENDPOINT.to_string(),
+            etag: None,
+            ident: Some(self.repo.clone()),
+            max_pages: 1,
+            variables: Some(json!({ "owner": owner, "name": name })),
+        };
+        log::debug!("{query_name}: fetching {}", self.repo);
+        match source {
+            PickerSource::Labels => self.labels_source = PickerFetch::Loading,
+            PickerSource::Assignees => self.assignees_source = PickerFetch::Loading,
+            PickerSource::Milestones => self.milestones_source = PickerFetch::Loading,
+        }
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = run_spec_tracked(client, spec, cx).await;
+            let _ = this.update(cx, |page, cx| page.apply_source_result(source, result, cx));
+        })
+        .detach();
+    }
+
+    fn set_source_failed(&mut self, source: PickerSource, message: String) {
+        match source {
+            PickerSource::Labels => self.labels_source = PickerFetch::Failed(message),
+            PickerSource::Assignees => self.assignees_source = PickerFetch::Failed(message),
+            PickerSource::Milestones => self.milestones_source = PickerFetch::Failed(message),
+        }
+    }
+
+    /// A picker source page came back (files-sidebar convention: the 200
+    /// body parses page-side; non-200 forwards to the shared handling).
+    fn apply_source_result(
+        &mut self,
+        source: PickerSource,
+        result: crate::service::SpecResult,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(m) = &result.network {
+            let m = m.clone();
+            self.set_source_failed(source, format!("Network error: {m}"));
+        } else if result.status != 200 {
+            let status = result.status;
+            self.state.update(cx, |s, cx| {
+                s.apply(result);
+                cx.notify();
+            });
+            self.set_source_failed(source, format!("GitHub answered HTTP {status}"));
+        } else if let Some(body) = result.body {
+            match serde_json::from_str::<gql::Envelope<gql::RepoPickerData>>(body.as_str()) {
+                Ok(env) => {
+                    let repo = env
+                        .data
+                        .and_then(|d| d.repository)
+                        .unwrap_or(serde_json::Value::Null);
+                    match source {
+                        PickerSource::Labels => {
+                            self.labels_source =
+                                PickerFetch::Ready(gql::repo_labels_from_value(&repo));
+                        }
+                        PickerSource::Assignees => {
+                            self.assignees_source =
+                                PickerFetch::Ready(gql::repo_assignable_users_from_value(&repo));
+                        }
+                        PickerSource::Milestones => {
+                            self.milestones_source =
+                                PickerFetch::Ready(gql::repo_milestones_from_value(&repo));
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::warn!("picker-source payload: {e}");
+                    self.set_source_failed(source, "Malformed payload".into());
+                }
+            }
+        }
+        self.realign_open_picker(source, cx);
+        cx.notify();
+    }
+
+    /// A source page just landed (or the detail refetched underneath an
+    /// open picker): rebuild the frozen draft, preserving choices by id.
+    fn realign_open_picker(&mut self, source: PickerSource, cx: &mut Context<Self>) {
+        let Some(d) = self.detail.clone() else { return };
+        let rebuilding = match (&self.rail_edit, source) {
+            (Some(RailEditor::Labels(_)), PickerSource::Labels) => 0,
+            (Some(RailEditor::Assignees(_)), PickerSource::Assignees) => 1,
+            (Some(RailEditor::Milestone { .. }), PickerSource::Milestones) => 2,
+            _ => return,
+        };
+        if rebuilding == 0 {
+            let PickerFetch::Ready(src) = &self.labels_source else {
+                return;
+            };
+            let rows = label_rows(&d.labels, src);
+            let checked = rows
+                .iter()
+                .map(|r| {
+                    d.labels
+                        .iter()
+                        .any(|l| l.id.as_deref() == Some(r.id.as_str()))
+                })
+                .collect();
+            self.rail_edit = Some(RailEditor::Labels(PickerDraft { rows, checked }));
+        } else if rebuilding == 1 {
+            let PickerFetch::Ready(src) = &self.assignees_source else {
+                return;
+            };
+            let rows = assignee_rows(&d.assignees, src);
+            let checked = rows
+                .iter()
+                .map(|r| {
+                    d.assignees
+                        .iter()
+                        .any(|a| a.id.as_deref() == Some(r.id.as_str()))
+                })
+                .collect();
+            self.rail_edit = Some(RailEditor::Assignees(PickerDraft { rows, checked }));
+        } else {
+            let RailEditor::Milestone { chosen, .. } = self.rail_edit.as_ref().unwrap() else {
+                unreachable!("matched above")
+            };
+            let chosen = chosen.clone();
+            let PickerFetch::Ready(src) = &self.milestones_source else {
+                return;
+            };
+            self.rail_edit = Some(RailEditor::Milestone {
+                rows: milestone_rows(d.milestone.as_ref(), src),
+                chosen,
+            });
+        }
+        cx.notify();
+    }
+
+    fn start_labels_picker(&mut self, cx: &mut Context<Self>) {
+        let Some(d) = self.detail.clone() else { return };
+        if self.busy.is_some() || self.rail_edit.is_some() || !labels_edit_arming(&d) {
+            return;
+        }
+        self.yield_all_editors();
+        // Lazy source fetch (D5): fired when Idle or retrying a Failed
+        // page; a Loading page just keeps its spinner.
+        if matches!(
+            self.labels_source,
+            PickerFetch::Idle | PickerFetch::Failed(_)
+        ) {
+            self.fetch_source(PickerSource::Labels, cx);
+        }
+        // Open immediately: while the source page is Loading (or Failed),
+        // the draft holds just the applied rows — realign_open_picker
+        // rebuilds it by id when the source lands (D5).
+        let source = match &self.labels_source {
+            PickerFetch::Ready(src) => src.clone(),
+            _ => Vec::new(),
+        };
+        let rows = label_rows(&d.labels, &source);
+        let checked = rows
+            .iter()
+            .map(|r| {
+                d.labels
+                    .iter()
+                    .any(|l| l.id.as_deref() == Some(r.id.as_str()))
+            })
+            .collect();
+        self.rail_edit = Some(RailEditor::Labels(PickerDraft { rows, checked }));
+        cx.notify();
+    }
+
+    fn start_assignees_picker(&mut self, cx: &mut Context<Self>) {
+        let Some(d) = self.detail.clone() else { return };
+        if self.busy.is_some() || self.rail_edit.is_some() || !assignees_edit_arming(&d) {
+            return;
+        }
+        self.yield_all_editors();
+        if matches!(
+            self.assignees_source,
+            PickerFetch::Idle | PickerFetch::Failed(_)
+        ) {
+            self.fetch_source(PickerSource::Assignees, cx);
+        }
+        let source = match &self.assignees_source {
+            PickerFetch::Ready(src) => src.clone(),
+            _ => Vec::new(),
+        };
+        let rows = assignee_rows(&d.assignees, &source);
+        let checked = rows
+            .iter()
+            .map(|r| {
+                d.assignees
+                    .iter()
+                    .any(|a| a.id.as_deref() == Some(r.id.as_str()))
+            })
+            .collect();
+        self.rail_edit = Some(RailEditor::Assignees(PickerDraft { rows, checked }));
+        cx.notify();
+    }
+
+    fn start_milestones_picker(&mut self, cx: &mut Context<Self>) {
+        let Some(d) = self.detail.clone() else { return };
+        if self.busy.is_some() || self.rail_edit.is_some() || !milestone_edit_arming(&d) {
+            return;
+        }
+        self.yield_all_editors();
+        if matches!(
+            self.milestones_source,
+            PickerFetch::Idle | PickerFetch::Failed(_)
+        ) {
+            self.fetch_source(PickerSource::Milestones, cx);
+        }
+        let source = match &self.milestones_source {
+            PickerFetch::Ready(src) => src.clone(),
+            _ => Vec::new(),
+        };
+        let chosen = d.milestone.as_ref().map(|m| m.id.clone());
+        self.rail_edit = Some(RailEditor::Milestone {
+            rows: milestone_rows(d.milestone.as_ref(), &source),
+            chosen,
+        });
+        cx.notify();
+    }
+
+    fn toggle_label(&mut self, ix: usize, cx: &mut Context<Self>) {
+        if self.busy.is_some() {
+            return;
+        }
+        if let Some(RailEditor::Labels(draft)) = &mut self.rail_edit {
+            if let Some(checked) = draft.checked.get_mut(ix) {
+                *checked = !*checked;
+                cx.notify();
+            }
+        }
+    }
+
+    fn toggle_assignee(&mut self, ix: usize, cx: &mut Context<Self>) {
+        if self.busy.is_some() {
+            return;
+        }
+        if let Some(RailEditor::Assignees(draft)) = &mut self.rail_edit {
+            if let Some(checked) = draft.checked.get_mut(ix) {
+                *checked = !*checked;
+                cx.notify();
+            }
+        }
+    }
+
+    fn pick_milestone(&mut self, id: Option<String>, cx: &mut Context<Self>) {
+        if self.busy.is_some() {
+            return;
+        }
+        if let Some(RailEditor::Milestone { chosen, .. }) = &mut self.rail_edit {
+            *chosen = id;
+            cx.notify();
+        }
+    }
+
+    /// The milestone picker's row action: choose the clicked row (its
+    /// id; the empty id of the "No milestone" row means clear).
+    fn pick_milestone_ix(&mut self, ix: usize, cx: &mut Context<Self>) {
+        let Some(RailEditor::Milestone { rows, .. }) = &self.rail_edit else {
+            return;
+        };
+        let id = rows
+            .get(ix)
+            .map(|r| r.id.clone())
+            .filter(|id| !id.is_empty());
+        self.pick_milestone(id, cx);
+    }
+
+    fn cancel_rail_editor(&mut self, cx: &mut Context<Self>) {
+        self.rail_edit = None;
+        self.mutation_error = None;
+        cx.notify();
+    }
+
+    /// Save the labels draft (D1/D3): the input carries the complete
+    /// target id list — replace semantics upstream.
+    fn save_labels(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(d) = self.detail.clone() else { return };
+        let Some(RailEditor::Labels(draft)) = &self.rail_edit else {
+            return;
+        };
+        if self.busy.is_some() || d.id.is_empty() {
+            return;
+        }
+        let ids = compute_replace_ids(&draft.rows, &draft.checked);
+        let variables = json!({ "input": { "id": d.id, "labelIds": ids } });
+        self.mutation_error = None;
+        self.busy = Some(IssueBusyOp::SetLabels);
+        cx.notify();
+        self.spawn_mutation(
+            IssueBusyOp::SetLabels,
+            Mutation::IssueSetLabels,
+            variables,
+            window,
+            cx,
+        );
+    }
+
+    fn save_assignees(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(d) = self.detail.clone() else { return };
+        let Some(RailEditor::Assignees(draft)) = &self.rail_edit else {
+            return;
+        };
+        if self.busy.is_some() || d.id.is_empty() {
+            return;
+        }
+        let ids = compute_replace_ids(&draft.rows, &draft.checked);
+        let variables = json!({ "input": { "id": d.id, "assigneeIds": ids } });
+        self.mutation_error = None;
+        self.busy = Some(IssueBusyOp::SetAssignees);
+        cx.notify();
+        self.spawn_mutation(
+            IssueBusyOp::SetAssignees,
+            Mutation::IssueSetAssignees,
+            variables,
+            window,
+            cx,
+        );
+    }
+
+    /// Save the milestone choice — `milestoneId: null` clears (§2.1).
+    /// An unchanged choice closes without a pointless write.
+    fn save_milestone(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(d) = self.detail.clone() else { return };
+        let Some(RailEditor::Milestone { chosen, .. }) = &self.rail_edit else {
+            return;
+        };
+        if self.busy.is_some() || d.id.is_empty() {
+            return;
+        }
+        if chosen.as_deref() == d.milestone.as_ref().map(|m| m.id.as_str()) {
+            self.rail_edit = None;
+            cx.notify();
+            return;
+        }
+        let variables = json!({ "input": { "id": d.id, "milestoneId": chosen } });
+        self.mutation_error = None;
+        self.busy = Some(IssueBusyOp::SetMilestone);
+        cx.notify();
+        self.spawn_mutation(
+            IssueBusyOp::SetMilestone,
+            Mutation::IssueSetMilestone,
             variables,
             window,
             cx,
@@ -626,6 +1192,17 @@ impl IssueDetailPage {
                 IssueBusyOp::CommentDelete => {
                     self.delete_confirm = None;
                 }
+                // 0022 D4: success closes the title editor; the refetch
+                // repaints the header.
+                IssueBusyOp::SetTitle => {
+                    self.title_edit = None;
+                    self.refocus_page(window, cx);
+                }
+                // 0022 D5: success closes the picker; the refetch
+                // repaints the rail from fresh data.
+                IssueBusyOp::SetLabels | IssueBusyOp::SetAssignees | IssueBusyOp::SetMilestone => {
+                    self.rail_edit = None;
+                }
                 // The refetch repaints the badge and swaps the panel.
                 IssueBusyOp::Close | IssueBusyOp::Reopen => {}
             }
@@ -639,6 +1216,75 @@ impl IssueDetailPage {
     }
 
     // --- regions -------------------------------------------------------------
+
+    /// The header's first row (0022 D4): badge + title + number, the
+    /// title editor card while editing, and the gated Edit affordance
+    /// otherwise (hidden, not disabled).
+    fn render_title_area(
+        &self,
+        detail: &Option<gql::IssueDetail>,
+        badge_label: &'static str,
+        badge_tone: IssueBadgeTone,
+        title: String,
+        number: i64,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        if let Some(editor) = self.title_edit.as_ref() {
+            return inline_edit_card(
+                "issue-title",
+                "Editing title",
+                editor,
+                self.busy.is_some(),
+                cx.listener(|this, _, window, cx| this.save_title(window, cx)),
+                cx.listener(|this, _, window, cx| this.cancel_edit_title(window, cx)),
+                cx,
+            );
+        }
+        let can_edit = detail
+            .as_ref()
+            .map(|d| {
+                title_edit_visible(
+                    d.viewer_can_update,
+                    self.busy.is_some() || self.any_editor_open(),
+                )
+            })
+            .unwrap_or(false);
+        h_flex()
+            .gap_2()
+            .items_center()
+            .flex_wrap()
+            .child(
+                Badge::new()
+                    .xsmall()
+                    .color(badge_color(badge_tone, cx))
+                    .child(badge_label),
+            )
+            .child(
+                div()
+                    .text_lg()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(title),
+            )
+            .child(
+                div()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(format!("#{number}")),
+            )
+            .when(can_edit, |row| {
+                row.child(
+                    Button::new("issue-title-edit")
+                        .debug_selector(|| "issue-title-edit".to_string())
+                        .ghost()
+                        .small()
+                        .label("Edit")
+                        .tooltip("Edit title")
+                        .on_click(
+                            cx.listener(|this, _, window, cx| this.start_edit_title(window, cx)),
+                        ),
+                )
+            })
+            .into_any_element()
+    }
 
     fn render_header(&self, detail: &Option<gql::IssueDetail>, cx: &Context<Self>) -> AnyElement {
         let (title, number, author, age, url) = match detail {
@@ -678,29 +1324,14 @@ impl IssueDetailPage {
                     .gap_1()
                     .min_w_0()
                     .flex_1()
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .items_center()
-                            .flex_wrap()
-                            .child(
-                                Badge::new()
-                                    .xsmall()
-                                    .color(badge_color(badge_tone, cx))
-                                    .child(badge_label),
-                            )
-                            .child(
-                                div()
-                                    .text_lg()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .child(title),
-                            )
-                            .child(
-                                div()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(format!("#{number}")),
-                            ),
-                    )
+                    .child(self.render_title_area(
+                        detail,
+                        badge_label,
+                        badge_tone,
+                        title,
+                        number,
+                        cx,
+                    ))
                     .child(
                         h_flex()
                             .gap_2()
@@ -967,17 +1598,73 @@ impl IssueDetailPage {
             .gap_3()
             .child(self.render_labels_panel(d, cx))
             .child(self.render_assignees_panel(d, cx))
+            // docs/0022 D8: the milestone panel only exists when there is
+            // something to show or the picker can arm.
+            .children(self.render_milestone_panel(d, cx))
             .child(self.render_state_panel(d, cx))
             .into_any_element()
     }
 
-    /// Labels (0020 Q2): muted name chips — the payload's hex color is
-    /// user data and stays unused until the token-discipline exception
-    /// exists.
+    /// A rail panel's title row with its trailing Edit affordance (0022
+    /// D5). The button is hidden, not disabled, whenever anything blocks
+    /// it — gate, busy, or another picker being open (D7).
+    fn panel_title(
+        &self,
+        label: &'static str,
+        edit_id: &'static str,
+        tooltip: &'static str,
+        show_edit: bool,
+        on_edit: fn(&mut Self, &mut Context<Self>),
+        cx: &Context<Self>,
+    ) -> impl IntoElement {
+        h_flex()
+            .w_full()
+            .justify_between()
+            .items_center()
+            .gap_1()
+            .child(label)
+            .when(show_edit, |row| {
+                row.child(
+                    Button::new(edit_id)
+                        // 0019 §8 lesson: probes see selector keys only.
+                        .debug_selector(move || edit_id.to_string())
+                        .ghost()
+                        .small()
+                        .label("Edit")
+                        .tooltip(tooltip)
+                        .on_click(cx.listener(move |this, _, _, cx| on_edit(this, cx))),
+                )
+            })
+    }
+
+    /// Labels (0020 Q2, 0022 D5): muted name chips while displaying —
+    /// the payload's hex color is user data and stays unused until the
+    /// token-discipline exception exists — or the picker while editing.
     fn render_labels_panel(&self, d: &gql::IssueDetail, cx: &Context<Self>) -> AnyElement {
+        if let Some(RailEditor::Labels(draft)) = &self.rail_edit {
+            return GroupBox::new()
+                .id("issue-labels-panel")
+                .title("Labels")
+                .child(self.render_picker_card(
+                    "issue-labels",
+                    draft,
+                    PickerSource::Labels,
+                    Self::toggle_label,
+                    cx,
+                ))
+                .into_any_element();
+        }
+        let show_edit = labels_edit_arming(d) && !self.any_editor_open();
         GroupBox::new()
             .id("issue-labels-panel")
-            .title("Labels")
+            .title(self.panel_title(
+                "Labels",
+                "issue-labels-edit",
+                "Edit labels",
+                show_edit,
+                Self::start_labels_picker,
+                cx,
+            ))
             .child(
                 h_flex()
                     .flex_wrap()
@@ -1009,9 +1696,30 @@ impl IssueDetailPage {
     }
 
     fn render_assignees_panel(&self, d: &gql::IssueDetail, cx: &Context<Self>) -> AnyElement {
+        if let Some(RailEditor::Assignees(draft)) = &self.rail_edit {
+            return GroupBox::new()
+                .id("issue-assignees-panel")
+                .title("Assignees")
+                .child(self.render_picker_card(
+                    "issue-assignees",
+                    draft,
+                    PickerSource::Assignees,
+                    Self::toggle_assignee,
+                    cx,
+                ))
+                .into_any_element();
+        }
+        let show_edit = assignees_edit_arming(d) && !self.any_editor_open();
         GroupBox::new()
             .id("issue-assignees-panel")
-            .title("Assignees")
+            .title(self.panel_title(
+                "Assignees",
+                "issue-assignees-edit",
+                "Edit assignees",
+                show_edit,
+                Self::start_assignees_picker,
+                cx,
+            ))
             .child(v_flex().gap_1().py_1().when(d.assignees.is_empty(), |col| {
                 col.child(empty_text("No one assigned", cx))
             }))
@@ -1022,6 +1730,279 @@ impl IssueDetailPage {
                     .child(Avatar::new().src(a.avatar_url.clone()).xsmall())
                     .child(div().text_sm().child(a.login.clone()))
             }))
+            .into_any_element()
+    }
+
+    /// Milestone (0022 D8): title + state tag; `None` when the issue has
+    /// no milestone — unless the picker can arm (the affordance needs a
+    /// home; a viewer who cannot set milestones sees no empty panel).
+    fn render_milestone_panel(
+        &self,
+        d: &gql::IssueDetail,
+        cx: &Context<Self>,
+    ) -> Option<AnyElement> {
+        let editing = matches!(self.rail_edit, Some(RailEditor::Milestone { .. }));
+        if editing {
+            let RailEditor::Milestone { rows, chosen } = self.rail_edit.as_ref().unwrap() else {
+                unreachable!("matched above")
+            };
+            return Some(
+                GroupBox::new()
+                    .id("issue-milestone-panel")
+                    .title("Milestone")
+                    .child(self.render_milestone_card(rows, chosen, cx)),
+            )
+            .map(|g| g.into_any_element());
+        }
+        let show_edit = milestone_edit_arming(d) && !self.any_editor_open();
+        if d.milestone.is_none() && !show_edit {
+            return None;
+        }
+        let cell = h_flex()
+            .id("issue-milestone")
+            .debug_selector(|| "issue-milestone".to_string())
+            .gap_2()
+            .items_center()
+            .py_1()
+            .when_some(d.milestone.as_ref(), |row, m| {
+                row.child(div().text_sm().child(m.title.clone())).child(
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(match m.state.as_deref() {
+                            Some("CLOSED") => "CLOSED",
+                            _ => "OPEN",
+                        }),
+                )
+            })
+            .when(d.milestone.is_none(), |row| {
+                row.child(empty_text("None", cx))
+            });
+        Some(
+            GroupBox::new()
+                .id("issue-milestone-panel")
+                .title(self.panel_title(
+                    "Milestone",
+                    "issue-milestones-edit",
+                    "Edit milestone",
+                    show_edit,
+                    Self::start_milestones_picker,
+                    cx,
+                ))
+                .child(cell),
+        )
+        .map(|g| g.into_any_element())
+    }
+
+    /// The shared checklist card (0022 D5): one clickable row per
+    /// candidate — the row is the toggle target (its accesskit id is the
+    /// probe key), the checkbox is display-only — plus Save/Cancel.
+    fn render_picker_card(
+        &self,
+        id: &'static str,
+        draft: &PickerDraft,
+        source: PickerSource,
+        toggle: fn(&mut Self, usize, &mut Context<Self>),
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        let busy = self.busy.is_some();
+        let save: fn(&mut Self, &mut Window, &mut Context<Self>) = match source {
+            PickerSource::Labels => Self::save_labels,
+            PickerSource::Assignees => Self::save_assignees,
+            PickerSource::Milestones => unreachable!("milestone uses render_milestone_card"),
+        };
+        let save_id = match source {
+            PickerSource::Labels => "issue-labels-save",
+            PickerSource::Assignees => "issue-assignees-save",
+            PickerSource::Milestones => unreachable!("milestone uses render_milestone_card"),
+        };
+        let cancel = match source {
+            PickerSource::Labels | PickerSource::Assignees => {
+                cx.listener(|this, _, _, cx| this.cancel_rail_editor(cx))
+            }
+            PickerSource::Milestones => unreachable!("milestone uses render_milestone_card"),
+        };
+        let loading = match source {
+            PickerSource::Labels => matches!(self.labels_source, PickerFetch::Loading),
+            PickerSource::Assignees => matches!(self.assignees_source, PickerFetch::Loading),
+            PickerSource::Milestones => false,
+        };
+        let failed = match source {
+            PickerSource::Labels => self.labels_source.failed_message(),
+            PickerSource::Assignees => self.assignees_source.failed_message(),
+            PickerSource::Milestones => None,
+        };
+        let id_key = format!("{id}-card");
+        v_flex()
+            .id(SharedString::from(format!("{id}-card")))
+            .debug_selector(move || id_key.clone())
+            .gap_1()
+            .py_1()
+            .when(loading, |col| {
+                col.child(
+                    h_flex()
+                        .gap_2()
+                        .items_center()
+                        .child(Spinner::new().small())
+                        .child(empty_text("Loading…", cx)),
+                )
+            })
+            .when_some(failed, |col, msg| {
+                col.child(
+                    div()
+                        .text_sm()
+                        .text_color(cx.theme().danger)
+                        .child(msg.to_string()),
+                )
+            })
+            .children(draft.rows.iter().enumerate().map(|(ix, row)| {
+                let checked = draft.checked.get(ix).copied().unwrap_or(false);
+                self.render_picker_row(format!("{id}-row-{ix}"), ix, row, checked, toggle, cx)
+            }))
+            .child(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .pt_1()
+                    .child(
+                        Button::new(save_id)
+                            .debug_selector(move || save_id.to_string())
+                            .label("Save")
+                            .small()
+                            .disabled(busy)
+                            .on_click(
+                                cx.listener(move |this, _, window, cx| save(this, window, cx)),
+                            ),
+                    )
+                    .child(
+                        Button::new(SharedString::from(format!("{id}-cancel")))
+                            .debug_selector(move || format!("{id}-cancel"))
+                            .label("Cancel")
+                            .small()
+                            .on_click(cancel),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    fn render_picker_row(
+        &self,
+        key: String,
+        ix: usize,
+        row: &PickerRow,
+        checked: bool,
+        toggle: fn(&mut Self, usize, &mut Context<Self>),
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        let probe = key.clone();
+        let check = format!("{key}-check");
+        h_flex()
+            .id(SharedString::from(key))
+            .debug_selector(move || probe.clone())
+            .cursor_pointer()
+            .gap_2()
+            .items_center()
+            .px_2()
+            .py_1()
+            .rounded_sm()
+            .hover(|s| s.bg(cx.theme().accent.opacity(0.08)))
+            .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _, cx| toggle(this, ix, cx)))
+            .child(
+                Checkbox::new(SharedString::from(check))
+                    .checked(checked)
+                    .small()
+                    .tab_stop(false),
+            )
+            .when_some(row.avatar_url.clone(), |r, url| {
+                r.child(Avatar::new().src(url).xsmall())
+            })
+            .child(div().text_sm().child(row.label.clone()))
+            .into_any_element()
+    }
+
+    /// The milestone picker (0022 D5): single-select rows — clicking a
+    /// row chooses it, "No milestone" clears. Save posts `milestoneId`
+    /// (null clears); Cancel restores.
+    fn render_milestone_card(
+        &self,
+        rows: &[PickerRow],
+        chosen: &Option<String>,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        let busy = self.busy.is_some();
+        let loading = matches!(self.milestones_source, PickerFetch::Loading);
+        let id_key = "issue-milestones-card".to_string();
+        v_flex()
+            .id("issue-milestones-card")
+            .debug_selector(move || id_key.clone())
+            .gap_1()
+            .py_1()
+            .when(loading, |col| {
+                col.child(
+                    h_flex()
+                        .gap_2()
+                        .items_center()
+                        .child(Spinner::new().small())
+                        .child(empty_text("Loading…", cx)),
+                )
+            })
+            .when_some(self.milestones_source.failed_message(), |col, msg| {
+                col.child(
+                    div()
+                        .text_sm()
+                        .text_color(cx.theme().danger)
+                        .child(msg.to_string()),
+                )
+            })
+            .children(rows.iter().enumerate().map(|(ix, row)| {
+                let selected = chosen.as_deref() == Some(row.id.as_str())
+                    || (chosen.is_none() && row.id.is_empty());
+                let key = format!("issue-milestones-row-{ix}");
+                let check = format!("{key}-check");
+                h_flex()
+                    .id(SharedString::from(key.clone()))
+                    .debug_selector(move || key.clone())
+                    .cursor_pointer()
+                    .gap_2()
+                    .items_center()
+                    .px_2()
+                    .py_1()
+                    .rounded_sm()
+                    .hover(|s| s.bg(cx.theme().accent.opacity(0.08)))
+                    .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _, cx| {
+                        this.pick_milestone_ix(ix, cx)
+                    }))
+                    .child(
+                        Checkbox::new(SharedString::from(check))
+                            .checked(selected)
+                            .small()
+                            .tab_stop(false),
+                    )
+                    .child(div().text_sm().child(row.label.clone()))
+            }))
+            .child(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .pt_1()
+                    .child(
+                        Button::new("issue-milestones-save")
+                            .debug_selector(|| "issue-milestones-save".to_string())
+                            .label("Save")
+                            .small()
+                            .disabled(busy)
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.save_milestone(window, cx)),
+                            ),
+                    )
+                    .child(
+                        Button::new("issue-milestones-cancel")
+                            .debug_selector(|| "issue-milestones-cancel".to_string())
+                            .label("Cancel")
+                            .small()
+                            .on_click(cx.listener(|this, _, _, cx| this.cancel_rail_editor(cx))),
+                    ),
+            )
             .into_any_element()
     }
 
@@ -1252,8 +2233,12 @@ impl Render for IssueDetailPage {
             .id("issue-detail")
             .key_context("GithubIssuePage")
             .track_focus(&self.focus_handle)
-            .on_action(cx.listener(|this, _: &DismissIssuePage, _, cx| {
-                this.request_close(cx);
+            // 0022 D4/D5: an open editor or picker consumes Esc (its
+            // Cancel); the page only closes when nothing is open.
+            .on_action(cx.listener(|this, _: &DismissIssuePage, window, cx| {
+                if !this.cancel_top_editor(window, cx) {
+                    this.request_close(cx);
+                }
             }))
             .size_full()
             .min_w_0()
@@ -1362,6 +2347,139 @@ pub(crate) fn reopen_allowed(state: Option<&str>, can_reopen: bool, busy: bool) 
 /// Pure — table-tested.
 pub(crate) fn comment_submit_allowed(body_empty: bool, busy: bool) -> bool {
     !body_empty && !busy
+}
+
+// --- metadata-editing pure helpers (docs/0022) -----------------------------
+
+/// D3, labels: the picker's Edit affordance arms only when the viewer
+/// gate holds, every applied label parsed an `id`, and the connection is
+/// complete — a save computed from partial state would silently drop
+/// entries the page never saw. Pure — table-tested.
+pub(crate) fn labels_edit_arming(d: &gql::IssueDetail) -> bool {
+    d.viewer_can_label
+        && d.labels.iter().all(|l| l.id.is_some())
+        && d.labels.len() as i64 == d.labels_total
+}
+
+/// D3, assignees — same guard shape as [`labels_edit_arming`].
+pub(crate) fn assignees_edit_arming(d: &gql::IssueDetail) -> bool {
+    d.viewer_can_assign
+        && d.assignees.iter().all(|a| a.id.is_some())
+        && d.assignees.len() as i64 == d.assignees_total
+}
+
+/// D3, milestone: single-valued upstream, so there is no list to drop —
+/// the gate and a write target are enough.
+pub(crate) fn milestone_edit_arming(d: &gql::IssueDetail) -> bool {
+    d.viewer_can_set_milestone && !d.id.is_empty()
+}
+
+/// D4: the title Edit affordance shows when the gate holds and nothing
+/// is in flight (hidden, not disabled — 0020 D5).
+pub(crate) fn title_edit_visible(viewer_can_update: bool, busy: bool) -> bool {
+    viewer_can_update && !busy
+}
+
+/// The labels checklist: the source page in picker order, then any
+/// applied label the source missed (repo page truncation, source still
+/// loading) appended — dropping them would silently unlabel on save.
+/// Pure — table-tested.
+pub(crate) fn label_rows(
+    applied: &[gql::IssueLabel],
+    source: &[gql::IssueLabel],
+) -> Vec<PickerRow> {
+    let mut rows: Vec<PickerRow> = source
+        .iter()
+        .map(|l| PickerRow {
+            id: l.id.clone().unwrap_or_default(),
+            label: l.name.clone(),
+            avatar_url: None,
+        })
+        .collect();
+    for l in applied {
+        let Some(id) = &l.id else { continue };
+        if !rows.iter().any(|r| &r.id == id) {
+            rows.push(PickerRow {
+                id: id.clone(),
+                label: l.name.clone(),
+                avatar_url: None,
+            });
+        }
+    }
+    rows
+}
+
+/// The assignees checklist — same merge as [`label_rows`], logins +
+/// avatars for display. Pure — table-tested.
+pub(crate) fn assignee_rows(
+    applied: &[gql::IssueAssignee],
+    source: &[gql::IssueAssignee],
+) -> Vec<PickerRow> {
+    let mut rows: Vec<PickerRow> = source
+        .iter()
+        .map(|a| PickerRow {
+            id: a.id.clone().unwrap_or_default(),
+            label: a.login.clone(),
+            avatar_url: Some(a.avatar_url.clone()),
+        })
+        .collect();
+    for a in applied {
+        let Some(id) = &a.id else { continue };
+        if !rows.iter().any(|r| &r.id == id) {
+            rows.push(PickerRow {
+                id: id.clone(),
+                label: a.login.clone(),
+                avatar_url: Some(a.avatar_url.clone()),
+            });
+        }
+    }
+    rows
+}
+
+/// The milestone checklist: a leading "No milestone" row (id "" —
+/// maps to `milestoneId: null`), then the open-milestone source page,
+/// then an applied milestone the source missed (e.g. a closed one).
+/// Pure — table-tested.
+pub(crate) fn milestone_rows(
+    applied: Option<&gql::IssueMilestone>,
+    source: &[gql::IssueMilestone],
+) -> Vec<PickerRow> {
+    let mut rows = vec![PickerRow {
+        id: String::new(),
+        label: "No milestone".to_string(),
+        avatar_url: None,
+    }];
+    rows.extend(source.iter().map(|m| PickerRow {
+        id: m.id.clone(),
+        label: m.title.clone(),
+        avatar_url: None,
+    }));
+    if let Some(m) = applied {
+        if !rows.iter().any(|r| r.id == m.id) {
+            let label = if m.state.as_deref() == Some("CLOSED") {
+                format!("{} · closed", m.title)
+            } else {
+                m.title.clone()
+            };
+            rows.push(PickerRow {
+                id: m.id.clone(),
+                label,
+                avatar_url: None,
+            });
+        }
+    }
+    rows
+}
+
+/// D3's write: the checked rows' ids are the complete replacement list.
+/// Zip-strict — a length mismatch is a render bug, not a partial write.
+/// Pure — table-tested.
+pub(crate) fn compute_replace_ids(rows: &[PickerRow], checked: &[bool]) -> Vec<String> {
+    rows.iter()
+        .zip(checked.iter())
+        .filter(|(_, c)| **c)
+        .map(|(r, _)| r.id.clone())
+        .collect()
 }
 
 /// A row shows "(edited)" when the payload's `updatedAt` is strictly
@@ -1547,10 +2665,11 @@ mod tests {
     // No `use super::*` — page.rs documents the gpui::* shadowing hazard.
     use crate::gql;
     use crate::issue_page::{
-        CloseReason, IssueBadgeTone, IssueBusyOp, IssueDetailPage, TimelineRow,
-        build_issue_md_cache, close_allowed, close_reason_from_label, comment_submit_allowed,
-        event_sentence, issue_badge, reopen_allowed, row_is_edited, sorted_timeline,
-        state_reason_word,
+        CloseReason, IssueBadgeTone, IssueBusyOp, IssueDetailPage, RailEditor, TimelineRow,
+        assignee_rows, assignees_edit_arming, build_issue_md_cache, close_allowed,
+        close_reason_from_label, comment_submit_allowed, compute_replace_ids, event_sentence,
+        issue_badge, label_rows, labels_edit_arming, milestone_edit_arming, milestone_rows,
+        reopen_allowed, row_is_edited, sorted_timeline, state_reason_word, title_edit_visible,
     };
     use crate::service::{GithubCache, GithubState, Kind, Mutation, SpecResult};
     use gpui::AppContext as _;
@@ -1713,8 +2832,13 @@ mod tests {
             "state": "OPEN", "stateReason": null,
             "createdAt": "2026-09-01T00:00:00Z",
             "viewerCanUpdate": true, "viewerCanClose": true, "viewerCanReopen": false,
-            "labels": {"totalCount": 1, "nodes": [{"name": "bug", "color": "ff0000"}]},
-            "assignees": {"totalCount": 1, "nodes": [{"login": "bob", "avatarUrl": "b"}]},
+            // 0022: picker gates on, ids present, milestone applied — the
+            // metadata affordances arm in the fixture.
+            "viewerCanLabel": true, "viewerCanAssign": true,
+            "viewerCanSetMilestone": true,
+            "labels": {"totalCount": 1, "nodes": [{"id": "L_1", "name": "bug", "color": "ff0000"}]},
+            "assignees": {"totalCount": 1, "nodes": [{"id": "U_1", "login": "bob", "avatarUrl": "b"}]},
+            "milestone": {"id": "M_1", "title": "v1.0", "state": "OPEN"},
             "comments": {"totalCount": 2, "nodes": [
                 {"id": "IC_1", "viewerCanUpdate": true, "viewerCanDelete": false,
                  "updatedAt": "2026-09-03T02:00:00Z",
@@ -1951,6 +3075,268 @@ mod tests {
             ]}
         }});
         gql::issue_detail_from_value(&value).expect("timeline fixture parses")
+    }
+
+    // docs/0022 §7 — the D3 arming guards: gate ∧ full id coverage ∧ a
+    // complete connection (totalCount). Any miss hides the Edit
+    // affordance instead of offering a destructive partial save.
+    #[test]
+    fn metadata_arming_guard_table() {
+        let mut d = probe_issue();
+        assert!(labels_edit_arming(&d));
+        assert!(assignees_edit_arming(&d));
+        assert!(milestone_edit_arming(&d));
+
+        // Gate off → disarmed (each surface gates independently).
+        d.viewer_can_label = false;
+        d.viewer_can_assign = false;
+        d.viewer_can_set_milestone = false;
+        assert!(!labels_edit_arming(&d));
+        assert!(!assignees_edit_arming(&d));
+        assert!(!milestone_edit_arming(&d));
+        d.viewer_can_label = true;
+        d.viewer_can_assign = true;
+        d.viewer_can_set_milestone = true;
+
+        // A degraded node (id absent) disarms the list pickers only.
+        d.labels[0].id = None;
+        d.assignees[0].id = None;
+        assert!(!labels_edit_arming(&d));
+        assert!(!assignees_edit_arming(&d));
+        assert!(milestone_edit_arming(&d));
+        d.labels[0].id = Some("L_1".into());
+        d.assignees[0].id = Some("U_1".into());
+
+        // A truncated connection (totalCount > fetched page) disarms:
+        // the save would silently drop labels the page never saw (D3).
+        d.labels_total = 30;
+        assert!(!labels_edit_arming(&d));
+        d.labels_total = 1;
+        d.assignees_total = 30;
+        assert!(!assignees_edit_arming(&d));
+
+        // Milestone is single-valued upstream — no list to drop, so no
+        // completeness check; only the gate and a write target matter.
+        assert!(milestone_edit_arming(&d));
+        d.id = String::new();
+        assert!(!milestone_edit_arming(&d));
+
+        // D4: the title affordance rides viewerCanUpdate alone.
+        assert!(title_edit_visible(true, false));
+        assert!(!title_edit_visible(true, true));
+        assert!(!title_edit_visible(false, false));
+    }
+
+    // docs/0022 D5 — the merged checklist: source rows first, applied
+    // rows the source missed appended (never silently dropped), and the
+    // save computes the complete replacement list (add AND remove).
+    #[test]
+    fn picker_rows_merge_and_replace_compute_table() {
+        let applied = vec![
+            gql::IssueLabel {
+                id: Some("L_1".into()),
+                name: "bug".into(),
+                color: None,
+            },
+            gql::IssueLabel {
+                id: Some("L_9".into()),
+                name: "stale".into(),
+                color: None,
+            },
+        ];
+        let source = vec![
+            gql::IssueLabel {
+                id: Some("L_1".into()),
+                name: "bug".into(),
+                color: None,
+            },
+            gql::IssueLabel {
+                id: Some("L_2".into()),
+                name: "p1".into(),
+                color: None,
+            },
+        ];
+        let rows = label_rows(&applied, &source);
+        assert_eq!(
+            rows.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
+            ["L_1", "L_2", "L_9"]
+        );
+        // Checked flags: applied rows checked (including the merged one).
+        let checked = rows
+            .iter()
+            .map(|r| {
+                applied
+                    .iter()
+                    .any(|l| l.id.as_deref() == Some(r.id.as_str()))
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(checked, [true, false, true]);
+        // Add L_2, drop L_1: the replacement list is the complete target.
+        let ids = compute_replace_ids(&rows, &[false, true, true]);
+        assert_eq!(ids, ["L_2", "L_9"]);
+
+        // Assignees merge identically (avatars ride for display).
+        let applied = vec![gql::IssueAssignee {
+            id: Some("U_1".into()),
+            login: "bob".into(),
+            avatar_url: "b".into(),
+        }];
+        let rows = assignee_rows(&applied, &[]);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].avatar_url.as_deref(), Some("b"));
+
+        // Milestone rows: "No milestone" leads (empty id → null), the
+        // applied milestone the source missed rides with its state tag.
+        let applied = gql::IssueMilestone {
+            id: "M_9".into(),
+            title: "old".into(),
+            state: Some("CLOSED".into()),
+        };
+        let source = vec![gql::IssueMilestone {
+            id: "M_1".into(),
+            title: "v1.0".into(),
+            state: Some("OPEN".into()),
+        }];
+        let rows = milestone_rows(Some(&applied), &source);
+        assert_eq!(
+            rows.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
+            ["", "M_1", "M_9"]
+        );
+        assert_eq!(rows[0].label, "No milestone");
+        assert_eq!(rows[2].label, "old · closed");
+    }
+
+    // docs/0022 D4/D5/D7 — the five editor surfaces stay mutually
+    // exclusive; every affordance is gate-hidden when the viewer lacks
+    // it; the milestone cell renders only when it has something to show.
+    #[gpui::test]
+    fn metadata_editors_swap_and_follow_gates(cx: &mut gpui::TestAppContext) {
+        let (page, vcx) = probe_page(cx);
+        // Gates on in the fixture: all four affordances + the milestone
+        // cell are visible.
+        for sel in [
+            "issue-title-edit",
+            "issue-labels-edit",
+            "issue-assignees-edit",
+            "issue-milestones-edit",
+            "issue-milestone",
+        ] {
+            assert!(vcx.debug_bounds(sel).is_some(), "{sel} must arm");
+        }
+
+        // Title editor swaps in; pickers stay closed.
+        vcx.update(|window, cx| {
+            page.update(cx, |page, cx| page.start_edit_title(window, cx));
+        });
+        assert!(vcx.debug_bounds("issue-title-card").is_some());
+        assert!(vcx.debug_bounds("issue-labels-edit").is_none());
+
+        // Opening a picker yields the title editor (D7).
+        vcx.update(|_, cx| page.update(cx, |page, cx| page.start_labels_picker(cx)));
+        assert!(vcx.debug_bounds("issue-title-card").is_none());
+        assert!(vcx.debug_bounds("issue-labels-card").is_some());
+        assert!(vcx.debug_bounds("issue-labels-row-0").is_some());
+
+        // A second picker cannot open while one is up.
+        vcx.update(|_, cx| page.update(cx, |page, cx| page.start_assignees_picker(cx)));
+        assert!(vcx.debug_bounds("issue-labels-card").is_some());
+        assert!(vcx.debug_bounds("issue-assignees-card").is_none());
+
+        // Gates off → every affordance hides (hidden, not disabled).
+        vcx.update(|_, cx| {
+            page.update(cx, |page, cx| {
+                page.cancel_rail_editor(cx);
+                let d = page.detail.as_mut().unwrap();
+                d.viewer_can_update = false;
+                d.viewer_can_label = false;
+                d.viewer_can_assign = false;
+                d.viewer_can_set_milestone = false;
+                d.milestone = None;
+                cx.notify();
+            });
+        });
+        for sel in [
+            "issue-title-edit",
+            "issue-labels-edit",
+            "issue-assignees-edit",
+            "issue-milestones-edit",
+            "issue-milestone",
+        ] {
+            assert!(vcx.debug_bounds(sel).is_none(), "{sel} must hide");
+        }
+    }
+
+    // docs/0022 D5 — picker drafts survive toggling and cancel restores;
+    // busy blocks a save from arming (D2: one write at a time).
+    #[gpui::test]
+    fn label_picker_toggle_and_busy_gating(cx: &mut gpui::TestAppContext) {
+        let (page, vcx) = probe_page(cx);
+        vcx.update(|_, cx| page.update(cx, |page, cx| page.start_labels_picker(cx)));
+        assert!(vcx.debug_bounds("issue-labels-card").is_some());
+
+        // Toggle row 0 (currently applied) off; the draft flips.
+        vcx.update(|_, cx| {
+            page.update(cx, |page, cx| {
+                page.toggle_label(0, cx);
+                let Some(RailEditor::Labels(draft)) = &page.rail_edit else {
+                    panic!("labels picker open");
+                };
+                assert_eq!(draft.checked, [false]);
+            });
+        });
+
+        // Busy blocks the write and the toggles; the draft stays open.
+        vcx.update(|window, cx| {
+            page.update(cx, |page, cx| {
+                page.busy = Some(IssueBusyOp::Comment);
+                page.save_labels(window, cx);
+                assert!(page.busy == Some(IssueBusyOp::Comment), "no second write");
+                page.toggle_label(0, cx);
+                let Some(RailEditor::Labels(draft)) = &page.rail_edit else {
+                    panic!("picker stays open");
+                };
+                assert_eq!(draft.checked, [false], "toggle ignored while busy");
+                page.busy = None;
+            });
+        });
+
+        // Cancel closes without writing and clears the rail error slot.
+        vcx.update(|_, cx| page.update(cx, |page, cx| page.cancel_rail_editor(cx)));
+        assert!(vcx.update(|_, cx| page.update(cx, |page, _| page.rail_edit.is_none())));
+        assert!(vcx.debug_bounds("issue-labels-card").is_none());
+    }
+
+    // docs/0022 D5 — the milestone picker: rows choose single-select, an
+    // unchanged choice closes without a write.
+    #[gpui::test]
+    fn milestone_picker_selects_and_skips_noop(cx: &mut gpui::TestAppContext) {
+        let (page, vcx) = probe_page(cx);
+        vcx.update(|_, cx| page.update(cx, |page, cx| page.start_milestones_picker(cx)));
+        assert!(vcx.debug_bounds("issue-milestones-card").is_some());
+        assert!(vcx.debug_bounds("issue-milestones-row-0").is_some());
+
+        // Rows: "No milestone" leads (row 0, id ""), then the applied
+        // milestone the empty source missed (row 1 = M_1, the current
+        // choice). Picking "No milestone" chooses clearing (None).
+        vcx.update(|_, cx| {
+            page.update(cx, |page, cx| {
+                page.pick_milestone_ix(0, cx);
+                let Some(RailEditor::Milestone { chosen, .. }) = &page.rail_edit else {
+                    panic!("milestone picker open");
+                };
+                assert_eq!(chosen.as_deref(), None);
+            });
+        });
+
+        // Choosing the current milestone again → Save is a no-op close.
+        vcx.update(|window, cx| {
+            page.update(cx, |page, cx| {
+                page.pick_milestone_ix(1, cx);
+                page.save_milestone(window, cx);
+            });
+        });
+        assert!(vcx.update(|_, cx| page.update(cx, |page, _| page.rail_edit.is_none())));
+        assert!(vcx.debug_bounds("issue-milestones-card").is_none());
     }
 
     fn row_ids(d: &gql::IssueDetail) -> Vec<String> {

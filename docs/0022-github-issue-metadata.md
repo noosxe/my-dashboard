@@ -255,3 +255,39 @@ this split; decide at implementation, not by growing this design.
 3. Milestone set and cleared; the display cell tracks the refetch.
 4. All failure paths surface in the rail and keep their editor open.
 5. Workspace gates stay green; new probes cover every new key in D9.
+
+---
+
+## 11. Shipped (2026-09-07, issue #120)
+
+Implemented as designed, in one PR. The §9 scope valve stayed shut: the
+milestone picker is a straight copy of the labels pattern, so all four
+edits shipped together.
+
+Implementation notes beyond the design text:
+
+- **D5, open-immediately**: a picker opens the moment its Edit is
+  clicked, even while the repository source page is still loading — the
+  draft then holds just the applied rows (plus a loading spinner), and
+  `realign_open_picker` rebuilds it **by id** when the source lands.
+  Cancel/Save work throughout; no half-open state.
+- **D3, merge beyond the guard**: applied entries the source page missed
+  (>50-label repos, closed milestone, source still loading) are appended
+  to the checklist as checked rows instead of being invisible — dropping
+  them would be exactly the silent-loss bug D3 exists to prevent.
+- **D8, panel home**: with no milestone applied and no set permission the
+  panel renders nothing (as designed); with the set permission it shows a
+  muted "None" cell carrying the Edit affordance — the affordance needs
+  a home when the issue has no milestone yet.
+- **D4/D5, Esc**: `DismissIssuePage` is intercepted while an editor or
+  picker is open — Esc cancels the topmost surface (delete-confirm first,
+  then row editor, description, title, pickers) and only closes the page
+  when nothing is open.
+- **Picker failure copy**: a failed source fetch renders its message in
+  the panel (danger) with Cancel still live — mirroring the files
+  sidebar's failure treatment (0018).
+- **An unchanged milestone choice** closes the picker without posting
+  (no pointless `updateIssue` on the wire).
+
+Workspace: 243 tests green (was 236 after the 0021 timeline-union fix, itself 235); clippy/fmt clean; probe keys for
+every new interactive element shipped per D9.
