@@ -34,6 +34,7 @@ use crate::card::{REPO_LOCK, github_mark};
 use crate::gql;
 use crate::issue_page;
 use crate::new_issue_page::{NewIssuePage, NewIssuePageEvent};
+use crate::notification_page::{self, NotificationPageEvent};
 use crate::pr_page;
 use crate::service::{
     AuthStatus, ConnectPhase, FetchSpec, GithubState, Kind, run_spec_tracked, start_connect,
@@ -54,6 +55,9 @@ pub(crate) struct GithubPage {
     /// mutually exclusive with `pr` (opening one closes the other), same
     /// takeover and close semantics.
     issue: Option<Entity<issue_page::IssueDetailPage>>,
+    /// The open notification sub-page (docs/0026 D1) — the third
+    /// takeover sibling, mutually exclusive with `pr`/`issue`/creator.
+    notification: Option<Entity<notification_page::NotificationDetailPage>>,
     /// The issue creator (docs/0024 D3/D7): `creator` stays alive once
     /// opened so Cancel/Esc retain the draft for the session;
     /// `creator_open` is the takeover visibility. Dropped on successful
@@ -160,6 +164,7 @@ impl GithubPage {
             pr: None,
             issue: None,
             creator: None,
+            notification: None,
             creator_open: false,
             window: window.window_handle(),
             synced_orgs: Vec::new(),
@@ -255,7 +260,11 @@ impl GithubPage {
         if let Some(label) = repo_label {
             derived.push(label);
         }
-        if let Some(number) = pr_number {
+        if self.notification.is_some() {
+            // docs/0026 D1: no number — thread ids are huge REST ids,
+            // not human labels.
+            derived.push("· notification".into());
+        } else if let Some(number) = pr_number {
             derived.push(format!("#{number}").into());
         } else if self.creator_open && self.creator.is_some() {
             // The creator's suffix (docs/0024 D3) — no number yet.
@@ -290,6 +299,7 @@ impl GithubPage {
                                 page.update(cx, |this, cx| {
                                     this.close_pr(cx);
                                     this.close_issue(cx);
+                                    this.close_notification(cx);
                                     this.close_creator(cx);
                                 });
                             })),
@@ -319,6 +329,10 @@ impl GithubPage {
         // The issue page tears down under the same rule (docs/0020 D1).
         if self.issue.is_some() && !self.state.read(cx).auth.connected() {
             self.issue = None;
+        }
+        // The notification page tears down under the same rule (docs/0026 D1).
+        if self.notification.is_some() && !self.state.read(cx).auth.connected() {
+            self.notification = None;
         }
         // The creator too — and unlike Cancel/Esc this *drops* it:
         // drafts are session-scoped to a connected session (docs/0024 D7).
@@ -430,6 +444,7 @@ impl GithubPage {
         // hides the creator, docs/0024 D3; its draft survives, D7).
         self.creator_open = false;
         self.issue = None;
+        self.notification = None;
         self.pr = Some(page.clone());
         self.sync_repo_crumb(cx);
         let focus = page.read(cx).focus_handle(cx).clone();
@@ -472,6 +487,7 @@ impl GithubPage {
         // (docs/0024 D3; its draft survives, D7).
         self.creator_open = false;
         self.pr = None;
+        self.notification = None;
         self.issue = Some(page.clone());
         self.sync_repo_crumb(cx);
         let focus = page.read(cx).focus_handle(cx).clone();
@@ -496,6 +512,7 @@ impl GithubPage {
         self.sync_from_state_in(window, cx);
         self.close_pr(cx);
         self.close_issue(cx);
+        self.close_notification(cx);
         // No selection = no repo the draft could belong to (docs/0024 D7).
         self.creator = None;
         self.creator_open = false;
@@ -523,6 +540,94 @@ impl GithubPage {
         }
     }
 
+    /// Open the in-app notification page for a repo-view row (docs/0026
+    /// D1): the PR/issue takeover pattern — full-content sub-page, Esc
+    /// closes, crumb gains the `· notification` suffix — and the row's
+    /// browser hand-off moves into the page header's ↗ button. Opening
+    /// it closes any other sub-page (mutual exclusion). The page fires
+    /// its mark-read + thread fetch the instant it is built (docs/0026
+    /// §4.3), so nothing extra runs here.
+    fn open_notification(
+        &mut self,
+        n: api::Notification,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        log::debug!("notification page opened: thread {}", n.id);
+        let page = cx.new(|cx| {
+            notification_page::NotificationDetailPage::new(self.state.clone(), n, window, cx)
+        });
+        // Esc asks the host to close; MarkSettled refetches the unread
+        // lists (docs/0026 D3); OpenSubject swaps in the native issue/PR
+        // page with a synthesized seed (docs/0026 D6).
+        cx.subscribe_in(
+            &page,
+            window,
+            |this, _, event: &NotificationPageEvent, window, cx| match event {
+                NotificationPageEvent::CloseRequested => this.close_notification(cx),
+                NotificationPageEvent::MarkSettled => {
+                    let specs = this.state.update(cx, |s, _| s.mark_refetch_specs());
+                    this.run_specs(specs, window, cx);
+                }
+                NotificationPageEvent::OpenSubject {
+                    is_pr,
+                    full_name,
+                    number,
+                    title,
+                } => {
+                    this.close_notification(cx);
+                    // A synthesized minimal row — initial paint only;
+                    // the native page re-fetches full detail on open.
+                    let key = format!("{full_name}#{number}");
+                    if *is_pr {
+                        let pr = gql::PullRequest {
+                            key,
+                            database_id: None,
+                            number: *number,
+                            title: title.clone(),
+                            draft: false,
+                            state: None,
+                            author: None,
+                            updated_at: None,
+                            url: String::new(),
+                            status: None,
+                        };
+                        this.open_pr(full_name, &pr, window, cx);
+                    } else {
+                        let issue = gql::Issue {
+                            key,
+                            database_id: None,
+                            number: *number,
+                            title: title.clone(),
+                            author: None,
+                            updated_at: None,
+                            url: String::new(),
+                        };
+                        this.open_issue(full_name, &issue, window, cx);
+                    }
+                }
+            },
+        )
+        .detach();
+        self.creator_open = false;
+        self.pr = None;
+        self.issue = None;
+        self.notification = Some(page.clone());
+        self.sync_repo_crumb(cx);
+        let focus = page.read(cx).focus_handle(cx).clone();
+        window.focus(&focus, cx);
+        cx.notify();
+    }
+
+    /// Close the notification sub-page (docs/0026 D1): the `close_pr`
+    /// mirror — back to the repo view, the crumb loses `· notification`.
+    fn close_notification(&mut self, cx: &mut Context<Self>) {
+        if self.notification.take().is_some() {
+            log::debug!("notification page closed");
+            self.sync_repo_crumb(cx);
+            cx.notify();
+        }
+    }
     /// Open the issue creator (docs/0024 D3): the 0016 D1 takeover — full
     /// content, crumb `#new`, mutual exclusion with the PR/issue pages.
     /// The entity is reused when one already exists for this repo, so a
@@ -571,6 +676,7 @@ impl GithubPage {
         .detach();
         self.pr = None;
         self.issue = None;
+        self.notification = None;
         self.creator_open = true;
         self.sync_repo_crumb(cx);
         let focus = self
@@ -817,12 +923,12 @@ impl GithubPage {
     }
 
     /// Notification rows mirror the PR/issue row treatment (doc 0012 D4,
-    /// extended by doc 0015): same hover, same browser hand-off — the row
-    /// opens the repo's notifications page on GitHub (issue #81). The
-    /// notifications REST payload carries no subject URL, so the target is
-    /// the per-repo notifications page built from `RepoRef::full_name`.
+    /// opened in-app by docs/0026 D1 — the browser hand-off lives on in
+    /// the page header's ↗ button, kind-aware (D5). The page itself
+    /// fires the mark-read + thread fetch at open (§4.3).
     fn render_notification_row(&self, n: &api::Notification, cx: &Context<Self>) -> AnyElement {
-        let url = notification_url(&n.repository.full_name);
+        let page = cx.entity();
+        let row = n.clone();
         div()
             .id(SharedString::from(format!("notif-{}", n.id)))
             .role(accesskit::Role::ListItem)
@@ -832,7 +938,11 @@ impl GithubPage {
             .text_sm()
             .cursor_pointer()
             .hover(|s| s.bg(cx.theme().accent.opacity(0.08)))
-            .on_click(move |_, _, cx| cx.open_url(&url))
+            .on_click(move |_, window, cx| {
+                page.update(cx, |this, cx| {
+                    this.open_notification(row.clone(), window, cx)
+                });
+            })
             .child(
                 h_flex()
                     .justify_between()
@@ -854,11 +964,10 @@ impl GithubPage {
     }
 }
 
-/// The browser target for a notification row (doc 0015 D2): the repo's
-/// notifications page on GitHub. The notifications REST payload carries no
-/// subject URL, so this page — not a per-thread deep link — is the whole
-/// hand-off target. Pure — table-tested.
-fn notification_url(repo_full_name: &str) -> String {
+/// The repo's notifications page on GitHub (docs/0015 D2): the ↗
+/// fallback target on the notification page (docs/0026 D5) for
+/// subjects with no faithful web URL. Pure — table-tested.
+pub(crate) fn notification_url(repo_full_name: &str) -> String {
     format!("https://github.com/{repo_full_name}/notifications")
 }
 
@@ -1068,6 +1177,11 @@ impl Render for GithubPage {
         // `pr`-first check suffices.
         if let Some(issue) = &self.issue {
             return issue.clone().into_any_element();
+        }
+        // Notification sub-page takeover (docs/0026 D1) — the third
+        // sibling, same exclusivity.
+        if let Some(notification) = &self.notification {
+            return notification.clone().into_any_element();
         }
         // Creator takeover (docs/0024 D3): same full-content rule.
         if self.creator_open {

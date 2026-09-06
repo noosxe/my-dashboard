@@ -226,6 +226,19 @@ pub enum Kind {
     RepoLabels,
     RepoAssignableUsers,
     RepoMilestones,
+    /// One notification thread's payload (docs/0026 D2) — the
+    /// notification page's GET of `GET /notifications/threads/{id}`.
+    /// Page-owned result convention per [`Kind::IssueDetail`]: the page
+    /// parses the 200 body (the schema equals the list item —
+    /// docs/0026 §2.1 — so it parses straight into `api::Notification`);
+    /// only non-200 results are forwarded to [`GithubState::apply`].
+    ThreadDetail,
+    /// A notification-page write (docs/0026 D3) — the REST mutation
+    /// lane: the verb (PATCH/DELETE) rides the [`ThreadOp`], no body,
+    /// success is any 2xx (205/204). The page treats 2xx as settled and
+    /// forwards only non-2xx to [`GithubState::apply`] for the shared
+    /// auth/rate-limit handling.
+    ThreadMutation(ThreadOp),
 }
 
 /// The five PR-page mutations (docs/0016 §6.2), each mapping to one
@@ -270,6 +283,18 @@ pub enum Mutation {
     // the page passes those existing variants unchanged.
 }
 
+/// The notification-thread write ops (docs/0026 D3): the module's REST
+/// mutation lane — every earlier write is GraphQL POST, `FetchSpec` is
+/// GET-only for REST, so the verb rides the op instead. `MarkRead` is
+/// `PATCH /notifications/threads/{id}` (→ 205); `MarkDone` (`DELETE`,
+/// → 204) is reserved for the docs/0026 §7 follow-up.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ThreadOp {
+    MarkRead,
+    #[allow(dead_code)] // reserved: docs/0026 §7 follow-up (mark as done)
+    MarkDone,
+}
+
 #[derive(Clone, Debug)]
 pub struct FetchSpec {
     pub kind: Kind,
@@ -305,6 +330,8 @@ pub fn run_spec(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
         Kind::PrDetail => run_pr_detail(http, spec),
         Kind::PrMutation(m) => run_pr_mutation(http, spec, m),
         Kind::IssueDetail => run_issue_detail(http, spec),
+        Kind::ThreadDetail => run_thread_detail(http, spec),
+        Kind::ThreadMutation(op) => run_thread_mutation(http, spec, op),
         Kind::RepoLabels => run_graphql_fetch(http, spec, gql::REPO_LABELS_QUERY, "repo-labels"),
         Kind::RepoAssignableUsers => run_graphql_fetch(
             http,
@@ -641,6 +668,87 @@ fn run_issue_detail(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
     run_graphql_fetch(http, spec, gql::ISSUE_DETAIL_QUERY, "issue-detail")
 }
 
+/// One thread GET (docs/0026 D2): a single REST call, body passthrough
+/// on 200 — no pagination (one object, not a list) and no ETag (the
+/// page wants freshness on every open). The page parses the 200 body
+/// itself; non-200 results forward to [`GithubState::apply`].
+fn run_thread_detail(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
+    let mut status = 0u16;
+    let mut rate = None;
+    let mut network = None;
+    let mut body = None;
+    log::debug!("thread-detail: {}", spec.ident.as_deref().unwrap_or("?"));
+    let sent_at = Instant::now();
+    match http.request(Verb::Get, &spec.url, None, None) {
+        Err(HttpError(m)) => network = Some(m),
+        Ok(result) => {
+            status = result.status;
+            rate = result.rate;
+            log::debug!(
+                "thread-detail: → {} in {}ms",
+                status,
+                sent_at.elapsed().as_millis()
+            );
+            if status == 200 {
+                body = result.body;
+            }
+        }
+    }
+    SpecResult {
+        kind: spec.kind,
+        ident: spec.ident.clone(),
+        status,
+        etag: None,
+        rate,
+        body,
+        network,
+        cursor: None,
+    }
+}
+
+/// The REST mutation lane (docs/0026 D3): the verb rides the op —
+/// PATCH for `MarkRead`, DELETE for `MarkDone` — no body, no ETag.
+/// Success is any 2xx (205 Reset Content / 204 No Content); the result
+/// carries no body because the page only branches on status.
+fn run_thread_mutation(http: &dyn Http, spec: &FetchSpec, op: ThreadOp) -> SpecResult {
+    let verb = match op {
+        ThreadOp::MarkRead => Verb::Patch,
+        ThreadOp::MarkDone => Verb::Delete,
+    };
+    let mut status = 0u16;
+    let mut rate = None;
+    let mut network = None;
+    log::debug!(
+        "thread-mutation {:?}: {}",
+        op,
+        spec.ident.as_deref().unwrap_or("?")
+    );
+    let sent_at = Instant::now();
+    match http.request(verb, &spec.url, None, None) {
+        Err(HttpError(m)) => network = Some(m),
+        Ok(result) => {
+            status = result.status;
+            rate = result.rate;
+            log::debug!(
+                "thread-mutation {:?}: → {} in {}ms",
+                op,
+                status,
+                sent_at.elapsed().as_millis()
+            );
+        }
+    }
+    SpecResult {
+        kind: spec.kind,
+        ident: spec.ident.clone(),
+        status,
+        etag: None,
+        rate,
+        body: None,
+        network,
+        cursor: None,
+    }
+}
+
 /// One PR-page mutation (docs/0016 §6.2 D2): a single GraphQL call with
 /// the document picked by the mutation kind — the same `post_graphql`
 /// transport, auth, and token path as every query. The PR page parses
@@ -759,6 +867,8 @@ impl Kind {
             Kind::RepoMilestones => "repo-milestones",
             Kind::PrFiles => "pr-files",
             Kind::RepoNotifications => "repo-notifs",
+            Kind::ThreadDetail => "thread-detail",
+            Kind::ThreadMutation(_) => "thread-mutation",
         }
     }
 }
@@ -980,6 +1090,29 @@ impl GithubState {
                 Some(2),
             ),
         ]
+    }
+
+    /// Post-mark refetch (docs/0026 D3): the global unread list plus the
+    /// selected repo's one-shot slice — the marked row leaves both once
+    /// these land. Host-run on the notification page's `MarkSettled`
+    /// event (the `repo_open_specs` shape minus the repo snapshot, which
+    /// the mark does not touch).
+    pub(crate) fn mark_refetch_specs(&self) -> Vec<FetchSpec> {
+        let mut specs = vec![self.spec(
+            Kind::Notifications,
+            api::notifications_url(1),
+            Some(MAX_PAGES),
+        )];
+        if let Some(full) = &self.selected {
+            let (owner, name) = split_full_name(full);
+            specs.push(self.spec_ident(
+                Kind::RepoNotifications,
+                Some(full),
+                api::repo_notifications_url(&owner, &name, 1),
+                Some(2),
+            ));
+        }
+        specs
     }
 
     pub(crate) fn spec(&self, kind: Kind, url: String, max_pages: Option<u32>) -> FetchSpec {
@@ -1226,7 +1359,9 @@ impl GithubState {
             | Kind::IssueDetail
             | Kind::RepoLabels
             | Kind::RepoAssignableUsers
-            | Kind::RepoMilestones => {}
+            | Kind::RepoMilestones
+            | Kind::ThreadDetail
+            | Kind::ThreadMutation(_) => {}
         }
 
         // ETag keyed by logical resource (kind + ident), not raw URL, so
@@ -2885,5 +3020,68 @@ mod tests {
         assert_eq!(token_slot.read().unwrap().as_deref(), Some("t0k"));
         assert_eq!(refresh_slot.read().unwrap().as_deref(), Some("ghr_r0"));
         assert_eq!(state.access_expires_at, None);
+    }
+
+    #[test]
+    fn thread_detail_is_a_single_get_with_body_passthrough() {
+        // docs/0026 D2: one REST GET of the thread, no pagination (one
+        // object, not a list) — the 200 body flows through untouched for
+        // the page to parse.
+        let thread = r#"{"id":"19","unread":false,
+            "subject":{"title":"PR #1","type":"PullRequest",
+                "url":"https://api.github.com/repos/o/r/pulls/1"},
+            "repository":{"full_name":"o/r"},
+            "reason":"review_requested"}"#;
+        let http = Arc::new(MockHttp::ok(200, thread));
+        let state = make_state(http.clone());
+        let spec = state.spec(Kind::ThreadDetail, crate::api::thread_url("19"), None);
+        let result = run_spec(&*http, &spec);
+        assert_eq!(result.status, 200);
+        assert_eq!(result.body.as_deref(), Some(thread));
+        let recorded = http.recorded();
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].verb, Verb::Get);
+        assert_eq!(recorded[0].url, crate::api::thread_url("19"));
+    }
+
+    #[test]
+    fn thread_mutations_ride_the_rest_lane_verbs() {
+        // docs/0026 D3: the verb is the op — MarkRead is PATCH (205
+        // success), MarkDone is DELETE (204). No body, success = 2xx.
+        let cases = [
+            (ThreadOp::MarkRead, Verb::Patch, 205u16),
+            (ThreadOp::MarkDone, Verb::Delete, 204),
+        ];
+        for (op, verb, status) in cases {
+            let http = Arc::new(MockHttp::ok(status, ""));
+            let state = make_state(http.clone());
+            let spec = state.spec(Kind::ThreadMutation(op), crate::api::thread_url("19"), None);
+            let result = run_spec(&*http, &spec);
+            assert_eq!(result.status, status);
+            assert_eq!(result.body, None, "mutations carry no body");
+            let recorded = http.recorded();
+            assert_eq!(recorded.len(), 1);
+            assert_eq!(recorded[0].verb, verb, "{op:?} verb");
+            assert_eq!(recorded[0].body, None, "{op:?} sends no body");
+        }
+    }
+
+    #[test]
+    fn mark_refetch_specs_cover_global_and_selected_repo() {
+        // docs/0026 D3: after a settled mark the global unread list plus
+        // the selected repo's slice refetch — never the repo snapshot.
+        let http = Arc::new(MockHttp::new(vec![]));
+        let mut state = make_state(http);
+        state.selected = Some("o/r".into());
+        let specs = state.mark_refetch_specs();
+        assert_eq!(specs.len(), 2);
+        assert_eq!(specs[0].kind, Kind::Notifications);
+        assert_eq!(specs[1].kind, Kind::RepoNotifications);
+        assert_eq!(specs[1].ident.as_deref(), Some("o/r"));
+        // No selection: the global list only.
+        let http = Arc::new(MockHttp::new(vec![]));
+        let mut state = make_state(http);
+        state.selected = None;
+        assert_eq!(state.mark_refetch_specs().len(), 1);
     }
 }

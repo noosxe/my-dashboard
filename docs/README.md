@@ -92,5 +92,4 @@ Core requirements (owner, 2026-08-28 — drive the design, not decisions):
   when written (0006 was reused by the settings doc)
 - ~~File-based color themes~~ → design drafted, see doc 0025 above (tracked
   in #23)
-- Notification detail page → design drafted, see doc 0026 above (tracked
-  in the notification-page issue filed with the doc)
+- ~~Notification detail page~~ → implemented (docs/0026, #151)
