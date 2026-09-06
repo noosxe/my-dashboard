@@ -234,10 +234,11 @@ impl IssueDetailPage {
                     {
                         Some(detail) => {
                             log::info!(
-                                "issue-detail applied: {}#{} — {} comments, {} labels",
+                                "issue-detail applied: {}#{} — {} comments, {} events, {} labels",
                                 self.repo,
                                 detail.number,
                                 detail.comments.nodes.len(),
+                                detail.events.len(),
                                 detail.labels.len()
                             );
                             self.md = build_issue_md_cache(&detail);
@@ -803,10 +804,24 @@ impl IssueDetailPage {
             }
         };
         let mut children = vec![description];
-        // The comments connection arrives oldest-first from the API — the
-        // chronological order the PR page's merge reproduces; with a
-        // single list there is nothing to sort (0020 D4).
-        for (ix, c) in d.comments.nodes.iter().enumerate() {
+        // docs/0021 D3: comments and events merge into one chronological
+        // timeline (stable sort, comment-before-event on equal stamps).
+        // Comment keys keep their comments-connection index — the md cache
+        // and the 0019 editor swap key on it.
+        let rows = sorted_timeline(d);
+        let mut event_ix = 0usize;
+        let mut comment_ix = 0usize;
+        for row in &rows {
+            let c = match row {
+                TimelineRow::Comment(c) => c,
+                TimelineRow::Event(e) => {
+                    children.push(self.render_event_row(event_ix, e, cx));
+                    event_ix += 1;
+                    continue;
+                }
+            };
+            let ix = comment_ix;
+            comment_ix += 1;
             let key = format!("issue-comment-{ix}");
             // 0019 pattern: the row swaps to its editor or delete confirm
             // while one is active for this node.
@@ -857,6 +872,10 @@ impl IssueDetailPage {
                 ),
                 cx,
             ));
+        }
+        // docs/0021 Q2: one cap row when either connection was truncated.
+        if let Some(cap) = self.render_events_cap_row(d, cx) {
+            children.push(cap);
         }
         if d.comments.nodes.is_empty() {
             children.push(muted_centered("No comments yet", cx));
@@ -1099,6 +1118,82 @@ impl IssueDetailPage {
             .into_any_element()
     }
 
+    /// docs/0021 D3 — a muted, non-interactive event row: lead sentence,
+    /// optional label chip, tail, age. Ids + a probe selector key (0019 §8
+    /// lesson) so tests and the debug dump see it.
+    fn render_event_row(
+        &self,
+        ix: usize,
+        event: &gql::IssueEvent,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        let key = format!("issue-event-{ix}");
+        let s = event_sentence(event);
+        let mut row = h_flex()
+            .id(SharedString::from(key.clone()))
+            .debug_selector(move || format!("issue-event-{ix}"))
+            .flex_wrap()
+            .items_baseline()
+            .gap_1()
+            .text_sm()
+            .text_color(cx.theme().muted_foreground)
+            .child(s.lead);
+        if let Some(label) = s.label {
+            row = row.child(
+                div()
+                    .px_2()
+                    .py_0p5()
+                    .rounded_full()
+                    .border_1()
+                    .border_color(cx.theme().border)
+                    .text_xs()
+                    .child(label),
+            );
+        }
+        if !s.tail.is_empty() {
+            row = row.child(s.tail);
+        }
+        let age = relative_age(event.created_at.as_deref());
+        if !age.is_empty() {
+            row = row.child(format!("· {age}"));
+        }
+        row.into_any_element()
+    }
+
+    /// docs/0021 Q2 — one cap row when either connection was truncated:
+    /// "…+N more on github.com", opening the issue URL. The only interactive
+    /// element the event work adds (0010 D10: id + role via Button).
+    fn render_events_cap_row(
+        &self,
+        d: &gql::IssueDetail,
+        cx: &Context<Self>,
+    ) -> Option<AnyElement> {
+        let missing = (d.events_total - d.events.len() as i64).max(0)
+            + (d.comments.total_count - d.comments.nodes.len() as i64).max(0);
+        if missing <= 0 {
+            return None;
+        }
+        Some(
+            h_flex()
+                .debug_selector(|| "issue-events-more".into())
+                .justify_center()
+                .text_sm()
+                .text_color(cx.theme().muted_foreground)
+                .child(
+                    Button::new("issue-events-more")
+                        .ghost()
+                        .small()
+                        .label(format!("+{missing} more on github.com"))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            if let Some(detail) = this.detail.as_ref() {
+                                cx.open_url(&detail.url);
+                            }
+                        })),
+                )
+                .into_any_element(),
+        )
+    }
+
     /// The comment box (0020 D4): draft Textarea + submit. A body is
     /// required (same pure fn gates button and handler). Failures keep
     /// the draft and surface an inline error row above the box.
@@ -1295,6 +1390,91 @@ pub(crate) fn row_is_edited(created: Option<&str>, updated: Option<&str>) -> boo
     }
 }
 
+// --- docs/0021 — timeline events -------------------------------------------
+
+/// docs/0021 D3 — one merged conversation row: a comment or an event.
+pub(crate) enum TimelineRow<'a> {
+    Comment(&'a gql::PrComment),
+    Event(&'a gql::IssueEvent),
+}
+
+/// docs/0021 D3 — comments and events interleaved chronologically.
+/// Stable sort; missing stamps sort first (0016 tolerance); equal stamps
+/// keep comments before events.
+pub(crate) fn sorted_timeline(d: &gql::IssueDetail) -> Vec<TimelineRow<'_>> {
+    let mut rows: Vec<TimelineRow> = d
+        .comments
+        .nodes
+        .iter()
+        .map(TimelineRow::Comment)
+        .chain(d.events.iter().map(TimelineRow::Event))
+        .collect();
+    rows.sort_by_key(row_key);
+    rows
+}
+
+fn row_key(row: &TimelineRow<'_>) -> (Option<i64>, u8) {
+    let (stamp, rank) = match row {
+        TimelineRow::Comment(c) => (c.created_at.as_deref(), 0),
+        TimelineRow::Event(e) => (e.created_at.as_deref(), 1),
+    };
+    (parse_stamp(stamp), rank)
+}
+
+fn parse_stamp(ts: Option<&str>) -> Option<i64> {
+    ts.and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|t| t.timestamp())
+}
+
+/// docs/0021 D3 — muted row copy. A label name renders as the rail's chip
+/// (Q3), so it rides in its own slot between lead and tail.
+pub(crate) struct EventSentence {
+    pub lead: String,
+    pub label: Option<String>,
+    pub tail: String,
+}
+
+pub(crate) fn event_sentence(event: &gql::IssueEvent) -> EventSentence {
+    let actor = event.actor_login.as_deref().unwrap_or("Someone");
+    let plain = |verb: &str, tail: String| EventSentence {
+        lead: format!("{actor} {verb}"),
+        label: None,
+        tail,
+    };
+    match &event.kind {
+        gql::IssueEventKind::Assigned { login } => plain("assigned", login.clone()),
+        gql::IssueEventKind::Unassigned { login } => plain("unassigned", login.clone()),
+        gql::IssueEventKind::Labeled { label } => EventSentence {
+            lead: format!("{actor} added the"),
+            label: Some(label.clone()),
+            tail: "label".into(),
+        },
+        gql::IssueEventKind::Unlabeled { label } => EventSentence {
+            lead: format!("{actor} removed the"),
+            label: Some(label.clone()),
+            tail: "label".into(),
+        },
+        // One vocabulary with the header badge (0020 Q2 leans):
+        // "closed as not planned" / "closed".
+        gql::IssueEventKind::Closed { reason } => plain(
+            "closed",
+            state_reason_word(reason.as_deref())
+                .map(|w| format!("as {w}"))
+                .unwrap_or_default(),
+        ),
+        gql::IssueEventKind::Reopened => plain("reopened", String::new()),
+        gql::IssueEventKind::Renamed { from, to } => {
+            plain("changed the title", format!("from {from} to {to}"))
+        }
+        gql::IssueEventKind::Milestoned { title } => {
+            plain("added this to the", format!("{title} milestone"))
+        }
+        gql::IssueEventKind::Demilestoned { title } => {
+            plain("removed this from the", format!("{title} milestone"))
+        }
+    }
+}
+
 /// docs/0017 D6 for the issue page: parse every timeline body once per
 /// detail payload — never per frame. Rebuilt (invalidating) each time a
 /// detail lands.
@@ -1380,9 +1560,10 @@ mod tests {
     // No `use super::*` — page.rs documents the gpui::* shadowing hazard.
     use crate::gql;
     use crate::issue_page::{
-        CloseReason, IssueBadgeTone, IssueBusyOp, IssueDetailPage, build_issue_md_cache,
-        close_allowed, close_reason_from_label, comment_submit_allowed, issue_badge,
-        reopen_allowed, row_is_edited, state_reason_word,
+        CloseReason, IssueBadgeTone, IssueBusyOp, IssueDetailPage, TimelineRow,
+        build_issue_md_cache, close_allowed, close_reason_from_label, comment_submit_allowed,
+        event_sentence, issue_badge, reopen_allowed, row_is_edited, sorted_timeline,
+        state_reason_word,
     };
     use crate::service::{GithubCache, GithubState, Kind, Mutation, SpecResult};
     use gpui::AppContext as _;
@@ -1554,6 +1735,15 @@ mod tests {
                  "createdAt": "2026-09-03T01:00:00Z"},
                 {"author": {"login": "erin"}, "body": "plain",
                  "createdAt": "2026-09-04T01:00:00Z"}
+            ]},
+            "timelineItems": {"totalCount": 2, "filteredCount": 2, "nodes": [
+                {"__typename": "LabeledEvent", "id": "EV_1",
+                 "createdAt": "2026-09-02T01:00:00Z",
+                 "actor": {"login": "alice"}, "label": {"name": "bug"}},
+                {"__typename": "AssignedEvent", "id": "EV_2",
+                 "createdAt": "2026-09-05T01:00:00Z",
+                 "actor": {"login": "alice"},
+                 "assignee": {"__typename": "User", "login": "bob"}}
             ]}
         }});
         gql::issue_detail_from_value(&value).expect("probe issue parses")
@@ -1749,5 +1939,143 @@ mod tests {
                 );
             });
         });
+    }
+
+    // --- docs/0021: merged timeline ---------------------------------------
+
+    fn timeline_fixture() -> gql::IssueDetail {
+        let value = serde_json::json!({ "issue": {
+            "id": "I_8", "number": 5, "title": "t", "url": "u", "state": "OPEN",
+            "comments": {"totalCount": 2, "nodes": [
+                {"id": "C_LATE", "author": {"login": "erin"}, "body": "late",
+                 "createdAt": "2026-09-03T00:00:00Z"},
+                {"id": "C_FIRST", "author": {"login": "dave"}, "body": "first",
+                 "createdAt": "2026-09-01T00:00:00Z"}
+            ]},
+            "timelineItems": {"totalCount": 4, "filteredCount": 4, "nodes": [
+                {"__typename": "AssignedEvent", "id": "E_TIE",
+                 "createdAt": "2026-09-01T00:00:00Z",
+                 "actor": {"login": "alice"},
+                 "assignee": {"__typename": "User", "login": "bob"}},
+                {"__typename": "LabeledEvent", "id": "E_MID",
+                 "createdAt": "2026-09-02T00:00:00Z",
+                 "actor": {"login": "alice"}, "label": {"name": "bug"}},
+                {"__typename": "ReopenedEvent", "id": "E_NOSTAMP", "actor": null}
+            ]}
+        }});
+        gql::issue_detail_from_value(&value).expect("timeline fixture parses")
+    }
+
+    fn row_ids(d: &gql::IssueDetail) -> Vec<String> {
+        sorted_timeline(d)
+            .iter()
+            .map(|row| match row {
+                TimelineRow::Comment(c) => format!("c:{}", c.id),
+                TimelineRow::Event(e) => format!("e:{}", e.id),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn timeline_sort_interleave_table() {
+        // Missing stamps sort first; equal stamps keep the comment before
+        // the event; the rest interleaves chronologically.
+        assert_eq!(
+            row_ids(&timeline_fixture()),
+            [
+                "e:E_NOSTAMP",
+                "c:C_FIRST", // 09-01T00:00 comment wins the tie over E_TIE
+                "e:E_TIE",
+                "e:E_MID",  // 09-02
+                "c:C_LATE", // 09-03
+            ]
+        );
+    }
+
+    #[test]
+    fn event_sentence_table() {
+        let d = timeline_fixture();
+        let events: Vec<&gql::IssueEvent> = d.events.iter().collect();
+        // Ghost actor degrades to Someone; assigned copies the login.
+        let ghost = &events[2];
+        let s = event_sentence(ghost);
+        assert_eq!(s.lead, "Someone reopened");
+        assert_eq!(s.tail, "");
+        let assigned = &events[0];
+        let s = event_sentence(assigned);
+        assert_eq!(s.lead, "alice assigned");
+        assert_eq!(s.label, None);
+        assert_eq!(s.tail, "bob");
+        let labeled = &events[1];
+        let s = event_sentence(labeled);
+        assert_eq!(s.lead, "alice added the");
+        assert_eq!(s.label.as_deref(), Some("bug"));
+        assert_eq!(s.tail, "label");
+
+        // Closed copy shares the badge vocabulary (0020 Q2 leans).
+        let closed = |reason: Option<&str>| {
+            let value = serde_json::json!({ "issue": {
+                "id": "I", "number": 1, "title": "t", "url": "u", "state": "OPEN",
+                "timelineItems": {"totalCount": 1, "filteredCount": 1, "nodes": [
+                    {"__typename": "ClosedEvent", "id": "E", "createdAt": "2026-09-01T00:00:00Z",
+                     "actor": {"login": "alice"}, "stateReason": reason}
+                ]}
+            }});
+            let d = gql::issue_detail_from_value(&value).unwrap();
+            event_sentence(&d.events[0])
+        };
+        assert_eq!(closed(Some("NOT_PLANNED")).tail, "as not planned");
+        assert_eq!(closed(None).tail, "");
+        assert_eq!(closed(None).lead, "alice closed");
+    }
+
+    #[gpui::test]
+    fn events_render_in_order_with_cap_row(cx: &mut gpui::TestAppContext) {
+        let (page, vcx) = probe_page(cx);
+        // probe_issue(): EV_1 (09-02) < IC_1 (09-03) < IC_2 (09-04) < EV_2
+        // (09-05). Rows are measurable through their probe selector keys;
+        // comment bodies are measured via the actions bar (0019 §8).
+        assert!(vcx.debug_bounds("issue-event-0").is_some());
+        assert!(vcx.debug_bounds("issue-event-1").is_some());
+        let ev0 = vcx.debug_bounds("issue-event-0").unwrap();
+        let ic0 = vcx.debug_bounds("issue-comment-0-actions").unwrap();
+        let ev1 = vcx.debug_bounds("issue-event-1").unwrap();
+        assert!(ev0.origin.y < ic0.origin.y, "first event above IC_1");
+        assert!(ic0.origin.y < ev1.origin.y, "second event below IC_1");
+        // Uncapped connections → no cap row.
+        assert!(vcx.debug_bounds("issue-events-more").is_none());
+
+        // A refetch with filteredCount beyond the page arms the cap row,
+        // and events never disturb the 0019 comment editor swap.
+        let capped = r#"{"data":{"repository":{"issue":{"id":"I_9",
+            "number":487,"title":"t","url":"u","state":"OPEN",
+            "comments":{"totalCount":1,"nodes":[{"id":"IC_1",
+            "viewerCanUpdate":true,"viewerCanDelete":false,
+            "author":{"login":"dave"},"body":"nice",
+            "createdAt":"2026-09-03T01:00:00Z"}]},
+            "timelineItems":{"totalCount":210,"filteredCount":105,
+            "nodes":[]}}}}}"#;
+        let result = SpecResult {
+            kind: Kind::IssueDetail,
+            ident: Some("o/r".into()),
+            status: 200,
+            etag: None,
+            rate: None,
+            body: Some(capped.to_string()),
+            network: None,
+            cursor: None,
+        };
+        vcx.update(|_, cx| {
+            page.update(cx, |page, cx| page.apply_detail_result(result, cx));
+        });
+        assert!(vcx.debug_bounds("issue-events-more").is_some());
+        // Events gone with the empty page; the editor still swaps (0021 D4).
+        vcx.update(|window, cx| {
+            page.update(cx, |page, cx| {
+                page.start_edit_row("IC_1".into(), "nice".into(), window, cx)
+            });
+        });
+        assert!(vcx.debug_bounds("issue-comment-0-card").is_some());
+        assert!(vcx.debug_bounds("issue-event-0").is_none());
     }
 }

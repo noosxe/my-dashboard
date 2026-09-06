@@ -590,6 +590,34 @@ query IssueDetail($owner: String!, $name: String!, $number: Int!) {
         totalCount
         nodes { id viewerCanUpdate viewerCanDelete updatedAt author { login avatarUrl } body createdAt }
       }
+      # docs/0021 D1: events only — ISSUE_COMMENT is deliberately not in the
+      # filter; comments come from the gated connection above (0019 D2/D3).
+      timelineItems(first: 100, itemTypes: [ASSIGNED_EVENT, UNASSIGNED_EVENT,
+          LABELED_EVENT, UNLABELED_EVENT, CLOSED_EVENT, REOPENED_EVENT,
+          RENAMED_TITLE_EVENT, MILESTONED_EVENT, DEMILESTONED_EVENT]) {
+        totalCount
+        filteredCount
+        nodes {
+          __typename
+          id
+          createdAt
+          actor { login }
+          ... on AssignedEvent {
+            assignee { __typename ... on User { login } ... on Bot { login }
+              ... on Organization { login } ... on Mannequin { login } }
+          }
+          ... on UnassignedEvent {
+            assignee { __typename ... on User { login } ... on Bot { login }
+              ... on Organization { login } ... on Mannequin { login } }
+          }
+          ... on LabeledEvent { label { name } }
+          ... on UnlabeledEvent { label { name } }
+          ... on ClosedEvent { stateReason }
+          ... on RenamedTitleEvent { previousTitle currentTitle }
+          ... on MilestonedEvent { milestoneTitle }
+          ... on DemilestonedEvent { milestoneTitle }
+        }
+      }
     }
   }
 }
@@ -634,6 +662,17 @@ pub struct IssueDetail {
     pub assignees: Vec<Author>,
     /// The conversation — same [`PrComment`] rows as the PR page.
     pub comments: PrComments,
+    /// docs/0021 D2 — timeline events (itemTypes-filtered, comments excluded;
+    /// they arrive via [`Self::comments`]). Chronologically unsorted here;
+    /// the page's merge sorts (0021 D3).
+    /// docs/0021 D2 — timeline events (itemTypes-filtered, comments excluded;
+    pub events: Vec<IssueEvent>,
+    /// docs/0021 Q2 — `filteredCount` of the events connection: the row
+    /// count after the itemTypes filter, fetched page included or not.
+    pub events_total: i64,
+    /// docs/0021 Q2 — the events connection was capped: `events_total`
+    /// exceeded the fetched page.
+    pub events_capped: bool,
 }
 
 /// `Label { name color }` (0020 §3). `color` is user data — carried for
@@ -643,6 +682,37 @@ pub struct IssueLabel {
     pub name: String,
     #[allow(dead_code)] // 0020 Q2: data-colored chips deferred
     pub color: Option<String>,
+}
+
+/// docs/0021 D2 — one timeline event row. Hand-parsed from the
+/// `IssueTimelineItems` union per 0007 D3; unknown `__typename` values skip
+/// (defensive — the itemTypes filter should make them impossible).
+#[derive(Debug, Clone)]
+pub struct IssueEvent {
+    /// Wire completeness: events are read-only decoration (0021 D4) —
+    /// nothing keys on the node id today; interactive event rows (the
+    /// deferred cross-reference follow-up) will.
+    #[allow(dead_code)]
+    pub id: String,
+    /// Ghost / deleted actors degrade the copy to "Someone" (0021 D3).
+    pub actor_login: Option<String>,
+    pub created_at: Option<String>,
+    pub kind: IssueEventKind,
+}
+
+/// docs/0021 D2 — the event kinds the page renders. Closed carries the
+/// state reason so the row copy matches the header badge vocabulary.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IssueEventKind {
+    Assigned { login: String },
+    Unassigned { login: String },
+    Labeled { label: String },
+    Unlabeled { label: String },
+    Closed { reason: Option<String> },
+    Reopened,
+    Renamed { from: String, to: String },
+    Milestoned { title: String },
+    Demilestoned { title: String },
 }
 
 /// Parse one `repository.issue` node; `None` only when the node is not
@@ -668,6 +738,21 @@ pub fn issue_detail_from_value(value: &serde_json::Value) -> Option<IssueDetail>
         .pointer("/comments/totalCount")
         .and_then(|v| v.as_i64())
         .unwrap_or(comments.len() as i64);
+    let events = issue
+        .pointer("/timelineItems/nodes")
+        .and_then(|nodes| nodes.as_array())
+        .map(|nodes| {
+            nodes
+                .iter()
+                .filter_map(issue_event_from_node)
+                .collect::<Vec<IssueEvent>>()
+        })
+        .unwrap_or_default();
+    let events_total = issue
+        .pointer("/timelineItems/filteredCount")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(events.len() as i64);
+    let events_capped = events_total > events.len() as i64;
     let labels = issue
         .pointer("/labels/nodes")
         .and_then(|nodes| nodes.as_array())
@@ -729,7 +814,73 @@ pub fn issue_detail_from_value(value: &serde_json::Value) -> Option<IssueDetail>
             total_count: comments_total,
             nodes: comments,
         },
+        events,
+        events_total,
+        events_capped,
     })
+}
+
+/// docs/0021 D2 — parse one union node of the filtered `timelineItems`
+/// connection. `None` skips: unknown `__typename`, or a kind-specific field
+/// missing that the row copy cannot render without (0007 D3 degrade).
+fn issue_event_from_node(node: &serde_json::Value) -> Option<IssueEvent> {
+    let typename = node.get("__typename")?.as_str()?;
+    let kind = match typename {
+        "AssignedEvent" => IssueEventKind::Assigned {
+            login: assignee_login(node)?,
+        },
+        "UnassignedEvent" => IssueEventKind::Unassigned {
+            login: assignee_login(node)?,
+        },
+        "LabeledEvent" => IssueEventKind::Labeled {
+            label: node.pointer("/label/name")?.as_str()?.to_string(),
+        },
+        "UnlabeledEvent" => IssueEventKind::Unlabeled {
+            label: node.pointer("/label/name")?.as_str()?.to_string(),
+        },
+        "ClosedEvent" => IssueEventKind::Closed {
+            reason: node
+                .get("stateReason")
+                .and_then(|v| v.as_str())
+                .map(str::to_string),
+        },
+        "ReopenedEvent" => IssueEventKind::Reopened,
+        "RenamedTitleEvent" => IssueEventKind::Renamed {
+            from: node.get("previousTitle")?.as_str()?.to_string(),
+            to: node.get("currentTitle")?.as_str()?.to_string(),
+        },
+        "MilestonedEvent" => IssueEventKind::Milestoned {
+            title: node.get("milestoneTitle")?.as_str()?.to_string(),
+        },
+        "DemilestonedEvent" => IssueEventKind::Demilestoned {
+            title: node.get("milestoneTitle")?.as_str()?.to_string(),
+        },
+        _ => return None,
+    };
+    Some(IssueEvent {
+        id: node
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        actor_login: node
+            .pointer("/actor/login")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        created_at: node
+            .get("createdAt")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        kind,
+    })
+}
+
+/// docs/0021 §3 — `assignee` is a singular `Assignee` union; the response
+/// carries the resolved object, so a plain pointer read suffices.
+fn assignee_login(node: &serde_json::Value) -> Option<String> {
+    node.pointer("/assignee/login")?
+        .as_str()
+        .map(str::to_string)
 }
 
 #[derive(Debug, Clone, Default)]
@@ -1891,5 +2042,144 @@ mod tests {
             serde_json::from_str(r#"{"data":{"repository":{"issue":null}}}"#).unwrap();
         let value = env.data.unwrap().repository.unwrap();
         assert!(issue_detail_from_value(&value).is_none());
+    }
+
+    // docs/0021 D2 — events parse from the union; every Assignee union
+    // member reads as a login; unknown __typename and unrenderable nodes
+    // skip; `events_capped` comes from filteredCount vs the fetched page.
+    #[test]
+    fn issue_events_parse_degrade_and_cap() {
+        let body = issue_detail_body(
+            r#"{
+                "id": "I_3", "number": 9, "title": "t", "url": "u", "state": "OPEN",
+                "timelineItems": {
+                    "totalCount": 200, "filteredCount": 105,
+                    "nodes": [
+                        {"__typename": "LabeledEvent", "id": "E1",
+                         "createdAt": "2026-09-01T01:00:00Z",
+                         "actor": {"login": "alice"}, "label": {"name": "bug"}},
+                        {"__typename": "AssignedEvent", "id": "E2",
+                         "createdAt": "2026-09-01T02:00:00Z",
+                         "actor": {"login": "alice"},
+                         "assignee": {"__typename": "User", "login": "bob"}},
+                        {"__typename": "AssignedEvent", "id": "E3",
+                         "createdAt": "2026-09-01T03:00:00Z", "actor": null,
+                         "assignee": {"__typename": "Bot", "login": "ci-bot"}},
+                        {"__typename": "UnassignedEvent", "id": "E4",
+                         "createdAt": "2026-09-01T04:00:00Z",
+                         "actor": {"login": "alice"},
+                         "assignee": {"__typename": "Organization", "login": "acme"}},
+                        {"__typename": "AssignedEvent", "id": "E4b",
+                         "createdAt": "2026-09-01T04:30:00Z",
+                         "actor": {"login": "alice"},
+                         "assignee": {"__typename": "Mannequin", "login": "ghost-user"}},
+                        {"__typename": "UnlabeledEvent", "id": "E5",
+                         "createdAt": "2026-09-01T05:00:00Z",
+                         "actor": {"login": "alice"}, "label": {"name": "p1"}},
+                        {"__typename": "ClosedEvent", "id": "E6",
+                         "createdAt": "2026-09-01T06:00:00Z",
+                         "actor": {"login": "alice"}, "stateReason": "NOT_PLANNED"},
+                        {"__typename": "ClosedEvent", "id": "E6b",
+                         "createdAt": "2026-09-01T06:30:00Z",
+                         "actor": {"login": "alice"}, "stateReason": null},
+                        {"__typename": "ReopenedEvent", "id": "E7",
+                         "createdAt": "2026-09-01T07:00:00Z",
+                         "actor": {"login": "bob"}},
+                        {"__typename": "RenamedTitleEvent", "id": "E8",
+                         "createdAt": "2026-09-01T08:00:00Z",
+                         "actor": {"login": "bob"},
+                         "previousTitle": "A", "currentTitle": "B"},
+                        {"__typename": "MilestonedEvent", "id": "E9",
+                         "createdAt": "2026-09-01T09:00:00Z",
+                         "actor": {"login": "bob"}, "milestoneTitle": "v1.0"},
+                        {"__typename": "DemilestonedEvent", "id": "E10",
+                         "createdAt": "2026-09-01T10:00:00Z",
+                         "actor": {"login": "bob"}, "milestoneTitle": "v1.0"},
+                        {"__typename": "MysteryEvent", "id": "EX",
+                         "createdAt": "2026-09-01T11:00:00Z"},
+                        {"__typename": "AssignedEvent", "id": "EY",
+                         "createdAt": "2026-09-01T12:00:00Z",
+                         "actor": {"login": "alice"}, "assignee": null}
+                    ]
+                }
+            }"#,
+        );
+        let env: Envelope<IssueDetailData> = serde_json::from_str(&body).unwrap();
+        let d = issue_detail_from_value(&env.data.unwrap().repository.unwrap()).unwrap();
+        // EX (unknown kind) and EY (assignee absent) skip; all else parses.
+        assert_eq!(d.events.len(), 12);
+        assert!(d.events_capped, "filteredCount 105 > 12 parsed rows");
+        assert_eq!(
+            d.events[0].kind,
+            IssueEventKind::Labeled {
+                label: "bug".into()
+            }
+        );
+        // Every Assignee union member resolves to a login; a null actor
+        // (ghost) stays None — the copy degrades to "Someone" (0021 D3).
+        assert_eq!(
+            d.events[1].kind,
+            IssueEventKind::Assigned {
+                login: "bob".into()
+            }
+        );
+        assert!(d.events[2].actor_login.is_none());
+        assert_eq!(
+            d.events[2].kind,
+            IssueEventKind::Assigned {
+                login: "ci-bot".into()
+            }
+        );
+        assert_eq!(
+            d.events[3].kind,
+            IssueEventKind::Unassigned {
+                login: "acme".into()
+            }
+        );
+        assert_eq!(
+            d.events[4].kind,
+            IssueEventKind::Assigned {
+                login: "ghost-user".into()
+            }
+        );
+        assert_eq!(
+            d.events[5].kind,
+            IssueEventKind::Unlabeled { label: "p1".into() }
+        );
+        assert_eq!(
+            d.events[6].kind,
+            IssueEventKind::Closed {
+                reason: Some("NOT_PLANNED".into())
+            }
+        );
+        assert_eq!(d.events[7].kind, IssueEventKind::Closed { reason: None });
+        assert_eq!(d.events[8].kind, IssueEventKind::Reopened);
+        assert_eq!(
+            d.events[9].kind,
+            IssueEventKind::Renamed {
+                from: "A".into(),
+                to: "B".into()
+            }
+        );
+        assert_eq!(
+            d.events[10].kind,
+            IssueEventKind::Milestoned {
+                title: "v1.0".into()
+            }
+        );
+        assert_eq!(
+            d.events[11].kind,
+            IssueEventKind::Demilestoned {
+                title: "v1.0".into()
+            }
+        );
+
+        // No timelineItems at all → empty, uncapped (0007 D3).
+        let body =
+            issue_detail_body(r#"{"id":"I_2","number":1,"title":"t","url":"u","state":"OPEN"}"#);
+        let env: Envelope<IssueDetailData> = serde_json::from_str(&body).unwrap();
+        let d = issue_detail_from_value(&env.data.unwrap().repository.unwrap()).unwrap();
+        assert!(d.events.is_empty());
+        assert!(!d.events_capped);
     }
 }
