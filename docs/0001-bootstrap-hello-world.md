@@ -79,6 +79,12 @@ These are the load-bearing API details (current as of verification date):
    ```toml
    gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
    ```
+
+   > **Amended 2026-09-06 (#114):** the snippets above reflect the original
+   > bootstrap and no longer resolve — at upstream v0.6.0 (the "GPUI Kit"
+   > rebrand) the gpui family is republished to crates.io as `gpui-pre-*`, and
+   > `gpui-component-assets` was renamed `gpui-kit-assets`. The authoritative
+   > dependency set is the root `Cargo.toml`.
 5. Current `Render` signature takes `(&mut self, &mut Window, &mut Context<Self>)`.
 6. OS support: macOS **15+** (Xcode CLT), Windows **10+** (MSVC), Linux (X11 &
    Wayland). `gpui-component` is also published on crates.io (`"0.5"` line); we use

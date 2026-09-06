@@ -17,7 +17,7 @@ gpui.workspace = true
 gpui_platform.workspace = true
 reqwest_client.workspace = true
 gpui-component.workspace = true
-gpui-component-assets.workspace = true
+gpui-kit-assets.workspace = true
 dashboard-core.workspace = true
 dashboard-module-github.workspace = true
 dashboard-debug = { workspace = true, optional = true }
