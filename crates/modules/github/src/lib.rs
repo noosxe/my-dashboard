@@ -17,6 +17,7 @@ pub mod gql;
 pub mod http;
 pub mod issue_page;
 pub mod markdown;
+pub mod new_issue_page;
 pub mod page;
 pub mod pr_page;
 pub mod service;
@@ -64,6 +65,11 @@ impl Module for GithubModule {
         cx.bind_keys([
             KeyBinding::new("esc", pr_page::DismissPrPage, Some("GithubPrPage")),
             KeyBinding::new("esc", issue_page::DismissIssuePage, Some("GithubIssuePage")),
+            KeyBinding::new(
+                "esc",
+                new_issue_page::DismissNewIssuePage,
+                Some("GithubNewIssuePage"),
+            ),
         ]);
         // Keychain-backed token slot + shared client + cache root (0005 Q3/Q6).
         let store: Arc<dyn TokenStore> = Arc::new(KeyringTokenStore);

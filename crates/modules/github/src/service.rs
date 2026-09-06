@@ -262,6 +262,9 @@ pub enum Mutation {
     RemoveReaction,
     LockIssue,
     UnlockIssue,
+    // 0024 D5: the creator's own document — the minimum input
+    // (repositoryId + title, body optional), one op identity.
+    CreateIssue,
     // 0020 D2: the issue page reuses the shared addComment /
     // updateIssue / updateIssueComment / deleteIssueComment documents;
     // the page passes those existing variants unchanged.
@@ -668,6 +671,8 @@ fn run_pr_mutation(http: &dyn Http, spec: &FetchSpec, mutation: Mutation) -> Spe
         Mutation::RemoveReaction => gql::REMOVE_REACTION_MUTATION,
         Mutation::LockIssue => gql::LOCK_LOCKABLE_MUTATION,
         Mutation::UnlockIssue => gql::UNLOCK_LOCKABLE_MUTATION,
+        // 0024 D5: the creator's document.
+        Mutation::CreateIssue => gql::CREATE_ISSUE_MUTATION,
     };
     let mut status = 0u16;
     let mut rate = None;
@@ -1829,6 +1834,8 @@ mod tests {
             database_id: Some(1),
             name: full_name.split('/').nth(1).unwrap_or(full_name).into(),
             full_name: full_name.into(),
+            node_id: Some("R_1".into()),
+            has_issues_enabled: true,
             owner: gql::Owner { login: "o".into() },
             description: None,
             private: false,
