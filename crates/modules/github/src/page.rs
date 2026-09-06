@@ -13,7 +13,7 @@ use std::sync::Arc;
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::{
-    ActiveTheme, Icon, IndexPath, Sizable as _,
+    ActiveTheme, Icon, IconName, IndexPath, Sizable as _,
     avatar::Avatar,
     badge::Badge,
     button::{Button, ButtonVariants},
@@ -23,6 +23,7 @@ use gpui_component::{
     searchable_list::SearchableVec,
     select::{Select, SelectEvent, SelectState},
     spinner::Spinner,
+    tooltip::Tooltip,
     v_flex,
 };
 
@@ -664,6 +665,20 @@ impl GithubPage {
                         h_flex()
                             .gap_2()
                             .items_center()
+                            // CI signal, glyph-only with a text tooltip
+                            // (#67; the 0005-deferred rollup). Nothing
+                            // renders without checks (null rollup).
+                            .when_some(gql::rollup_state(pr.status.as_deref()), |row, state| {
+                                let (icon, color, tip) = Self::ci_row_glyph(state, cx);
+                                let key = pr.key.clone();
+                                let id: SharedString = format!("pr-ci-{key}").into();
+                                let glyph = div()
+                                    .id(id.clone())
+                                    .debug_selector(move || id.to_string())
+                                    .child(Icon::new(icon).size_4().text_color(color))
+                                    .tooltip(move |window, cx| Tooltip::new(tip).build(window, cx));
+                                row.child(glyph)
+                            })
                             .when(pr.draft, |row| {
                                 row.child(Badge::new().xsmall().child("Draft"))
                             })
@@ -705,6 +720,25 @@ impl GithubPage {
                     ),
             )
             .into_any_element()
+    }
+
+    /// Rollup state → (glyph, theme color, tooltip) for the PR rows
+    /// (#67) — same tone contract as pr_page's `check_visual` (D7):
+    /// success green, failure red, pending amber. The Neutral arm is
+    /// unreachable via `rollup_state` (null rollup → no glyph) but
+    /// keeps the match exhaustive.
+    fn ci_row_glyph(
+        state: gql::CheckState,
+        cx: &Context<Self>,
+    ) -> (IconName, gpui::Hsla, &'static str) {
+        match state {
+            gql::CheckState::Success => (IconName::CircleCheck, cx.theme().success, "CI: passing"),
+            gql::CheckState::Failure => (IconName::CircleX, cx.theme().danger, "CI: failing"),
+            gql::CheckState::Pending => (IconName::LoaderCircle, cx.theme().warning, "CI: pending"),
+            gql::CheckState::Neutral => {
+                (IconName::Dash, cx.theme().muted_foreground, "CI: no status")
+            }
+        }
     }
 
     /// Issue rows mirror the PR row treatment (docs/0012 D4, opened
@@ -1633,6 +1667,88 @@ mod tests {
                 );
             });
         });
+    }
+
+    /// #67, rendered: a PR whose rollup carries a state shows the CI
+    /// glyph (probe key `pr-ci-{key}`); a PR with no checks renders
+    /// nothing. Mounted page, real rows.
+    #[gpui::test]
+    fn ci_glyph_renders_only_for_rolled_up_prs(cx: &mut TestAppContext) {
+        use std::sync::Arc;
+
+        use crate::auth::MockTokenStore;
+        use crate::http::{Http, SharedToken, mock::MockHttp};
+        use crate::service::{GithubCache, GithubState};
+        use dashboard_core::nav::Navigator;
+        use dashboard_core::paths::AppPaths;
+
+        cx.update(gpui_component::init);
+        cx.update(dashboard_core::status::init);
+        let state = cx.update(|cx| {
+            let client: Arc<dyn Http> = Arc::new(MockHttp::new(vec![
+                Err(crate::http::HttpError("probe".into())),
+                Err(crate::http::HttpError("probe".into())),
+            ]));
+            let shared: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let refresh: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            cx.new(|_| {
+                GithubState::new(
+                    client,
+                    Arc::new(MockTokenStore::with("t0k".into())),
+                    shared,
+                    refresh,
+                    GithubCache::new(AppPaths::init()),
+                )
+            })
+        });
+        let mut r = repo("acme/one", None);
+        r.prs.total_count = 2;
+        r.prs.nodes = vec![
+            gql::PullRequest {
+                key: "acme/one#0".into(),
+                database_id: None,
+                number: 0,
+                title: "checked".into(),
+                draft: false,
+                state: None,
+                author: None,
+                updated_at: None,
+                url: "https://probe".into(),
+                status: Some("SUCCESS".into()),
+            },
+            gql::PullRequest {
+                key: "acme/one#1".into(),
+                database_id: None,
+                number: 1,
+                title: "unchecked".into(),
+                draft: false,
+                state: None,
+                author: None,
+                updated_at: None,
+                url: "https://probe".into(),
+                status: None,
+            },
+        ];
+        cx.update(|cx| {
+            state.update(cx, |s, cx| {
+                s.auth = crate::service::AuthStatus::Connected;
+                s.repos = vec![r];
+                s.selected = Some("acme/one".into());
+                cx.notify();
+            });
+        });
+        let nav = cx.update(|cx| cx.new(|_| Navigator::default()));
+        let (_, vcx) = cx
+            .add_window_view(|window, cx| GithubPage::new(state.clone(), nav.clone(), window, cx));
+        let _ = vcx.debug_bounds("pr-ci-acme/one#0"); // flush frames
+        assert!(
+            vcx.debug_bounds("pr-ci-acme/one#0").is_some(),
+            "rollup SUCCESS renders the glyph"
+        );
+        assert!(
+            vcx.debug_bounds("pr-ci-acme/one#1").is_none(),
+            "null rollup renders no glyph"
+        );
     }
 
     /// #87, rendered: a repo past the 100-row cap shows the muted
