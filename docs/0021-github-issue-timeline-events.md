@@ -206,3 +206,36 @@ events count) and the probe tests carry the automated share.
 - Cross-referenced / referenced event rows (interactive, `source` resolution).
 - Locked/unlocked rows (with #121).
 - Unify the "+N more" cap-row component with #123's comments cap row.
+
+---
+
+## 8. Shipped (2026-09-06, issue #118)
+
+Implemented as designed (D1–D5). Implementation notes beyond the design
+text:
+
+- **`events_total` added to `IssueDetail`** (a small D2 extension): D3's
+  cap-row copy needs the missing-row count, and the D2 bool alone cannot
+  produce it. `events_capped` stays (derived: `events_total >` page len).
+- **Probe selector keys, again (D5 amendment)**: D5 said "ids only", but
+  §7's plan measures rows via `debug_bounds`, which sees only
+  `.debug_selector()` keys (the 0019 §8 lesson this repo keeps
+  re-learning). Event rows and the cap row carry test-only selector keys
+  (`issue-event-{ix}`, `issue-events-more`); the accesskit ids are
+  unchanged.
+- **The cap row is the one interactive addition** — a ghost `Button` with
+  id + role (`issue-events-more`), opening the issue URL. `missing` sums
+  both shortfalls (hidden events + hidden comments); events and comments
+  are disjoint node sets, so the sum is the honest hidden-row count.
+- **Comment keys unchanged**: in the merged loop, comments keep their
+  comments-connection index (`issue-comment-{ix}`) — the md cache and the
+  0019 editor swap key on it; only the render order changes.
+- **`sort_by_key`**: the merge sort keys on `(Option<i64> stamp, u8 rank)`;
+  `Option` ordering puts missing stamps first, rank 0 comments before
+  rank 1 events on equal stamps (D3 tiebreak).
+- **Testing (adds to §7)**: gql union parse/degrade/cap test (14 nodes:
+  every kind, all four Assignee union members, unknown `__typename`,
+  assignee-less node); sentence + interleave tables; a probe test asserting
+  render order across the merge (event rows and comment action bars
+  measured by y), cap-row arming only on truncation, and the 0019 editor
+  swap surviving events. Workspace totals after this PR: 234 tests.

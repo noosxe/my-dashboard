@@ -363,8 +363,10 @@ machine — until it's fixed these run as manual human checks in the PR body.)
 
 ## 11. Follow-ups (GitHub issues, not this PR)
 
-- Timeline event rows (labeled / assigned / closed-by / cross-referenced)
-  via `IssueTimelineItems(itemTypes: …)` (Q1 deferral).
+- ~~Timeline event rows (labeled / assigned / closed-by / cross-referenced)
+  via `IssueTimelineItems(itemTypes: …)` (Q1 deferral).~~ → designed and
+  shipped in docs/0021 (#118); cross-referenced/referenced rows remain a
+  follow-up there.
 - Data-colored label chips (needs a token-discipline exception decision).
 - Title editing; milestone display; label/assignee management.
 - Reactions; locking; issue creation.
