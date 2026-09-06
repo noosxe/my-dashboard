@@ -57,6 +57,7 @@ cross-platform, multi-modular universal personal dashboard built with Rust and
 | [0022](0022-github-issue-metadata.md) | GitHub Module: Issue Page Metadata Editing (title, labels, assignees, milestone — one `updateIssue`) |
 | [0023](0023-github-issue-reactions-locking.md) | GitHub Module: Issue Page Reactions + Conversation Locking (toggle chips, static picker, permission-derived lock gate) |
 | [0024](0024-github-issue-creation.md) | GitHub Module: Issue Creation Flow (repo-header entry, creator sub-page, `createIssue`, draft retention) |
+| [0025](0025-file-based-color-themes.md) | File-based Color Themes (user themes dir, hot reload, defaults-only bundle) |
 
 ## Planned docs (roadmap, not yet written)
 
@@ -83,8 +84,8 @@ Core requirements (owner, 2026-08-28 — drive the design, not decisions):
 
 - ~~0004 — State management & persistence~~ → implemented (PR #13)
 - 0005 — First real module: GitHub → design drafted, see doc 0005 above
-- ~~0006~~ — Settings page (number reused; see doc 0006 above). Build,
-  packaging & distribution per OS moves to a new number when written
-- File-based color themes (user themes dir, hot reload via
-  `ThemeRegistry::watch_dir`) — proposed, tracked in #23; takes the next
-  free number when written (upstream basis verified in PR #22)
+- Build, packaging & distribution per OS — design not yet written (the
+  0006 number was reused by the settings doc; this takes the next free
+  number when written)
+- ~~File-based color themes~~ → design drafted, see doc 0025 above (tracked
+  in #23)
