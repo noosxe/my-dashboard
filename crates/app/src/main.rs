@@ -26,11 +26,11 @@ impl gpui::AssetSource for AppAssets {
                 include_bytes!("../assets/icons/lock.svg",) as &[u8],
             )));
         }
-        gpui_component_assets::Assets.load(path)
+        gpui_kit_assets::Assets.load(path)
     }
 
     fn list(&self, path: &str) -> anyhow::Result<Vec<gpui::SharedString>> {
-        gpui_component_assets::Assets.list(path)
+        gpui_kit_assets::Assets.list(path)
     }
 }
 
