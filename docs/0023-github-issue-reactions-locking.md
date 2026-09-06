@@ -339,6 +339,15 @@ Consequences, all simplifications:
 - The one-editor rule is back to **five in-page surfaces**; the menu is
   transient, not an editor — `cancel_top_editor` no longer intercepts
   for it.
-- Probe keys `issue-reaction-pick{,-cancel,-{CONTENT}}` are retired —
-  menu internals aren't probed; the direction logic moved into
-  `reaction_direction` and the render asserts stay on the chips rows.
+- Menu rows render via `PopupMenuItem::element` so each row keeps its
+  probe key (`issue-reaction-pick-{CONTENT}` — §7 as written; no Cancel
+  row — the menu dismisses natively). The toggle direction still rides
+  `reaction_direction` (pure, table-tested).
+- Item handlers must **defer** their page update (`window.defer`): a
+  click dispatches inside the window's update, and any re-entrant
+  window update from there fails ("window not found" — silently, under
+  `let _`). Deferred to the end of the effect cycle, the same
+  update-from-live-context works; the probe test
+  `reaction_menu_item_click_commits` pins the whole chain (open → row
+  click → deferred post → scoped error applied) with real simulated
+  clicks.
