@@ -58,6 +58,7 @@ cross-platform, multi-modular universal personal dashboard built with Rust and
 | [0023](0023-github-issue-reactions-locking.md) | GitHub Module: Issue Page Reactions + Conversation Locking (toggle chips, static picker, permission-derived lock gate) |
 | [0024](0024-github-issue-creation.md) | GitHub Module: Issue Creation Flow (repo-header entry, creator sub-page, `createIssue`, draft retention) |
 | [0025](0025-file-based-color-themes.md) | File-based Color Themes (user themes dir, hot reload, defaults-only bundle) |
+| [0026](0026-github-notification-detail-page.md) | GitHub Module: Notification Detail Page (in-app thread view, auto-seen, read state) |
 
 ## Planned docs (roadmap, not yet written)
 
@@ -91,3 +92,5 @@ Core requirements (owner, 2026-08-28 — drive the design, not decisions):
   when written (0006 was reused by the settings doc)
 - ~~File-based color themes~~ → design drafted, see doc 0025 above (tracked
   in #23)
+- Notification detail page → design drafted, see doc 0026 above (tracked
+  in the notification-page issue filed with the doc)
