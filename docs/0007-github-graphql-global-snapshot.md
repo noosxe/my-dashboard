@@ -106,7 +106,8 @@ issues(states: OPEN, first: 100,
   node lists match today's REST page-1 depth per repo.
 - `statusCheckRollup { state }` is the CI-rollup signal 0005 §3 explicitly
   deferred ("one extra call per PR" under REST); here it rides along at zero
-  marginal point cost. Stored now, surfaced in the UI as a follow-up.
+  marginal point cost. Surfaced in the repo-view PR rows since #67 — glyph
+  + tooltip per row, absent for a null rollup.
 - **Row ordering changes**: REST `/pulls` defaults `sort=created, desc`;
   the GraphQL query pins `UPDATED_AT DESC` (activity-first). Accepted
   behavior change — the freshest PRs surface first.
@@ -295,9 +296,21 @@ struct is deleted alongside the walks it served.
 ## 9. Follow-ups (GitHub issues, not this PR)
 
 - Issues UI on top of the gathered data (needs its own design note).
-- Surface `statusCheckRollup.state` in PR rows (0005-deferred CI signal).
+- ~~Surface `statusCheckRollup.state` in PR rows~~ — shipped with #67.
 - #24 (walk URL attribution) — the walk disappears; close as superseded by
   this design if the fix hasn't landed by implementation time.
 - Global notifications REST `per_page` is server-clamped to 50 (today's
   `per_page=100` request is accepted but returns ≤50/page) — pagination
   already handles it; no action, recorded for accuracy.
+
+## 10. Shipped — the CI glyph in PR rows (2026-09-07, issue #67)
+
+The §9 follow-up: `statusCheckRollup.state` now renders in the repo-view
+PR rows. `gql::rollup_state` maps the five real rollup states to the
+unified tone (SUCCESS → success green, FAILURE/ERROR → danger red,
+PENDING/EXPECTED → warning amber); `null` and unrecognized values render
+no glyph at all. Each glyph is icon-only with a text tooltip ("CI:
+passing" / "CI: failing" / "CI: pending"), `CircleCheck`/`CircleX`/
+`LoaderCircle` per the icon family, probe key `pr-ci-{key}` (0010 D10).
+Same tone contract as the PR-detail page's `check_visual` (0016 D7).
+Snapshot-only — no query, service, or cache changes.

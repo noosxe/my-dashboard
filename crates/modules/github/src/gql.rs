@@ -338,9 +338,8 @@ pub struct PullRequest {
     pub updated_at: Option<String>,
     /// Row click → browser (UI layer).
     pub url: String,
-    /// `statusCheckRollup.state` — the CI signal 0005 deferred; gathered
-    /// now, surfaced in the UI as a follow-up (doc 0007 D2).
-    #[allow(dead_code)]
+    /// `statusCheckRollup.state` — the CI signal 0005 deferred,
+    /// gathered in 0007 D2 and surfaced in the PR rows (#67).
     pub status: Option<String>,
 }
 
@@ -517,6 +516,19 @@ pub enum CheckState {
     Failure,
     Pending,
     Neutral,
+}
+
+/// `statusCheckRollup.state` → unified tone for the PR rows (#67).
+/// GitHub's rollup states are ERROR / EXPECTED / FAILURE / PENDING /
+/// SUCCESS; `null` (no checks) and anything unrecognized yield
+/// `None` — the row renders no glyph at all.
+pub fn rollup_state(status: Option<&str>) -> Option<CheckState> {
+    match status {
+        Some("SUCCESS") => Some(CheckState::Success),
+        Some("FAILURE") | Some("ERROR") => Some(CheckState::Failure),
+        Some("PENDING") | Some("EXPECTED") => Some(CheckState::Pending),
+        _ => None,
+    }
 }
 
 /// `CheckRun.status` + `conclusion` → unified state. While a run is
@@ -2119,6 +2131,20 @@ mod tests {
         value["hasIssuesEnabled"] = serde_json::json!(false);
         let repo = repo_from_value(&value).unwrap();
         assert!(!repo.has_issues_enabled);
+    }
+
+    #[test]
+    fn rollup_state_maps_and_rejects() {
+        // #67: the five real rollup states tone-map; null (no checks)
+        // and garbage render nothing.
+        assert_eq!(rollup_state(Some("SUCCESS")), Some(CheckState::Success));
+        assert_eq!(rollup_state(Some("FAILURE")), Some(CheckState::Failure));
+        assert_eq!(rollup_state(Some("ERROR")), Some(CheckState::Failure));
+        assert_eq!(rollup_state(Some("PENDING")), Some(CheckState::Pending));
+        assert_eq!(rollup_state(Some("EXPECTED")), Some(CheckState::Pending));
+        assert_eq!(rollup_state(None), None);
+        assert_eq!(rollup_state(Some("NEUTRAL")), None);
+        assert_eq!(rollup_state(Some("")), None);
     }
 
     #[test]
