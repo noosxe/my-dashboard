@@ -163,3 +163,32 @@ and the refetch. No OS-level input injection, per the bridge rules.
   templates and offer a picker.
 - Labels/assignees/milestone at creation time (only if GitHub-web
   parity ever demands it; 0022 pickers cover post-create).
+
+## 10. Shipped (2026-09-07, issue #122)
+
+Implemented as designed in one PR. The introspected facts (§2) held at
+implementation; nothing diverged from the design. Notes beyond the text:
+
+- **Snapshot extension is tolerant on both sides** (D1): the parse test
+  covers present fields, missing fields (old cache → `node_id: None`,
+  assumed-enabled), and an explicit `hasIssuesEnabled: false`. The two
+  test-fixture `Repo` constructors (page.rs, service.rs) now carry
+  defaults so the fixtures match the wire reality.
+- **The creator owns its write, the host owns the aftermath** (D6): the
+  page parses the payload via `gql::created_issue_from_body` (GraphQL
+  errors and malformed bodies both degrade to a visible form error) and
+  emits `Created(row)`; the host drops the creator, fires
+  `repo_open_specs` (the house one-refetch path), and opens the issue
+  page for the synthesized minimal row.
+- **`title` is `pub(crate)`** so the host-level retention test can type
+  into it — ownership never leaves the creator; the host only reaches
+  through it in tests.
+- **`status::init` in the probe harness** (0023 §10 lesson applied
+  eagerly): Create really spawns through `run_mutation`, so the creator's
+  probe harness installs the in-flight tracker global.
+- **Preview bodies are `textarea`-free** — the toggle swaps the textarea
+  for `markdown::render_blocks`, same parse-once cache rule as the
+  0017 bodies (no reparse per keystroke).
+
+Workspace: 265 tests green (was 257); clippy/fmt clean. Human checks
+(§8) ride the PR body.

@@ -39,6 +39,8 @@ query Snapshot($cursor: String) {
       pageInfo { hasNextPage endCursor }
       nodes {
         databaseId
+        id
+        hasIssuesEnabled
         name
         nameWithOwner
         description
@@ -86,6 +88,8 @@ query RepoSnapshot($owner: String!, $name: String!) {
   rateLimit { cost remaining resetAt }
   repository(owner: $owner, name: $name) {
     databaseId
+    id
+    hasIssuesEnabled
     name
     nameWithOwner
     description
@@ -260,6 +264,14 @@ pub struct Repo {
     pub description: Option<String>,
     #[serde(default)]
     pub private: bool,
+    /// docs/0024 D1: the repository's GraphQL node id — the `createIssue`
+    /// target. `None` gates creation off (docs/0024 D2) until a fetch
+    /// lands the field.
+    #[serde(default)]
+    pub node_id: Option<String>,
+    /// docs/0024 D1: issues-enabled flag; a cache missing the field
+    /// degrades to enabled (assumption errors stay visible, D2).
+    pub has_issues_enabled: bool,
     /// Repo pushes — one input of the composite list ordering (issue #35).
     #[serde(default)]
     pub pushed_at: Option<String>,
@@ -1705,6 +1717,55 @@ mutation IssueReopen($input: ReopenIssueInput!) {
 }
 "#;
 
+/// docs/0024 D5 — the creator's single document, the minimum input:
+/// `repositoryId` (the GraphQL node id — NOT the numeric `databaseId`,
+/// live-verified 2026-09-07) plus `title`; `body` optional. The triage
+/// fields (`labelIds`, `assigneeIds`, `milestoneId`, …) are deliberately
+/// absent — post-create metadata editing is the 0022 pickers' job.
+pub const CREATE_ISSUE_MUTATION: &str = r#"
+mutation CreateIssue($input: CreateIssueInput!) {
+  createIssue(input: $input) { issue { number title url updatedAt } }
+}
+"#;
+/// docs/0024 D6 — parse a successful `createIssue` payload and
+/// synthesize the minimal snapshot row the host needs to open the
+/// in-app issue page (initial paint only; the page re-fetches its own
+/// truth). GraphQL `errors` or a malformed payload → `None` (the
+/// caller turns that into a visible scoped error, never a silent drop).
+pub fn created_issue_from_body(body: &str, repo_full: &str) -> Option<Issue> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Payload {
+        create_issue: CreatedNode,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct CreatedNode {
+        issue: IssueCreated,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct IssueCreated {
+        number: i64,
+        #[serde(default)]
+        title: String,
+        #[serde(default)]
+        url: String,
+        #[serde(default)]
+        updated_at: Option<String>,
+    }
+    let env: Envelope<Payload> = serde_json::from_str(body).ok()?;
+    let issue = env.data?.create_issue.issue;
+    Some(Issue {
+        key: format!("{}#{}", repo_full, issue.number),
+        database_id: None,
+        number: issue.number,
+        title: issue.title,
+        author: None,
+        updated_at: issue.updated_at,
+        url: issue.url,
+    })
+}
 /// docs/0022 D1 — every metadata write (title, labels, assignees,
 /// milestone) rides `updateIssue`; the input carries exactly one
 /// field-group per post, the op identity living in the `Mutation`
@@ -1781,6 +1842,15 @@ pub struct SnapshotCache {
 #[serde(rename_all = "camelCase")]
 struct RepoNode {
     database_id: Option<i64>,
+    // docs/0024 D1: the GraphQL node id (NOT the numeric databaseId) —
+    // the `createIssue` mutation target; absent in pre-0024 cached
+    // snapshots (creation stays gated off until the next fetch).
+    id: Option<String>,
+    // docs/0024 D1/D2: `None` = field missing (old cache) → assumed
+    // enabled; a wrong assumption dies as a visible scoped mutation
+    // error, never a silently hidden button.
+    #[serde(default)]
+    has_issues_enabled: Option<bool>,
     name: String,
     name_with_owner: String,
     #[serde(default)]
@@ -1874,6 +1944,8 @@ pub fn repo_from_value(value: &serde_json::Value) -> Option<Repo> {
         owner: node.owner,
         description: node.description,
         private: node.is_private,
+        node_id: node.id,
+        has_issues_enabled: node.has_issues_enabled.unwrap_or(true),
         pushed_at: node.pushed_at,
         prs: PrSummary {
             total_count: node.pull_requests.total_count,
@@ -2009,7 +2081,7 @@ mod tests {
 
     fn repo_value(full_name: &str, prs: &str, pr_total: i64) -> serde_json::Value {
         serde_json::from_str(&format!(
-            r#"{{"databaseId":7,"name":"{}","nameWithOwner":"{full_name}",
+            r#"{{"databaseId":7,"id":"R_kgDOABC","hasIssuesEnabled":true,"name":"{}","nameWithOwner":"{full_name}",
                 "description":null,"isPrivate":false,
                 "pushedAt":"2026-09-01T00:00:00Z","owner":{{"login":"o"}},
                 "pullRequests":{{"totalCount":{pr_total},"nodes":[{prs}]}},
@@ -2019,6 +2091,34 @@ mod tests {
             full_name.split('/').nth(1).unwrap_or(full_name),
         ))
         .unwrap()
+    }
+
+    #[test]
+    fn repo_node_carries_creation_fields_and_degrades_tolerantly() {
+        // docs/0024 D1: id + hasIssuesEnabled ride the snapshot; the
+        // node id is the GraphQL id, NOT the numeric databaseId.
+        let repo = repo_from_value(&repo_value("o/r", "", 0)).unwrap();
+        assert_eq!(repo.node_id.as_deref(), Some("R_kgDOABC"));
+        assert!(repo.has_issues_enabled);
+
+        // Old cached snapshots lack the fields: id → None (creation
+        // gated off), hasIssuesEnabled → assumed enabled (D1).
+        let mut value = repo_value("o/r", "", 0);
+        value.as_object_mut().unwrap().remove("id").unwrap();
+        value
+            .as_object_mut()
+            .unwrap()
+            .remove("hasIssuesEnabled")
+            .unwrap();
+        let repo = repo_from_value(&value).unwrap();
+        assert_eq!(repo.node_id, None);
+        assert!(repo.has_issues_enabled);
+
+        // Issues disabled survives the parse verbatim.
+        let mut value = repo_value("o/r", "", 0);
+        value["hasIssuesEnabled"] = serde_json::json!(false);
+        let repo = repo_from_value(&value).unwrap();
+        assert!(!repo.has_issues_enabled);
     }
 
     #[test]

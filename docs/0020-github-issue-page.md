@@ -374,8 +374,8 @@ machine — until it's fixed these run as manual human checks in the PR body.)
   exception lives in `dashboard_core::data_color`.
 - ~~Title editing; milestone display; label/assignee management.~~ →
   designed and shipped in docs/0022 (#120).
-- ~~Reactions; locking.~~ → designed and shipped in docs/0023 (#121);
-  issue creation remains (docs/0022 §9-adjacent, #122).
+- ~~Reactions; locking.~~ → designed and shipped in docs/0023 (#121).
+- ~~Issue creation.~~ → designed and shipped in docs/0024 (#122).
 - "+N more" pagination for comments beyond the first 100 (#87 adjacent).
 
 ---
