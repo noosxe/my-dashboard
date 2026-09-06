@@ -36,6 +36,12 @@ pub struct HttpResult {
 pub enum Verb {
     Get,
     Post,
+    /// The REST mutation lane (docs/0026 D3): `PATCH /notifications/
+    /// threads/{id}` — mark as read.
+    Patch,
+    /// Same lane, reserved op (docs/0026 §7): `DELETE .../threads/{id}`
+    /// — mark as done.
+    Delete,
 }
 
 #[derive(Debug)]
@@ -99,6 +105,8 @@ impl Http for UreqClient {
         let mut req = match verb {
             Verb::Get => self.agent.get(url),
             Verb::Post => self.agent.post(url),
+            Verb::Patch => self.agent.patch(url),
+            Verb::Delete => self.agent.delete(url),
         }
         .set("User-Agent", USER_AGENT)
         .set("Accept", accept);

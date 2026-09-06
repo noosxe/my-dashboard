@@ -1,6 +1,14 @@
 # 0015 — GitHub module: notification row click (open repo notifications page)
 
 - **Date:** 2026-09-03
+
+- **Superseded (row behavior):** docs/0026 turns the click into an in-app
+  notification detail page; the browser hand-off lives on as the page
+  header's ↗ button. Correction: this doc's claim that the notifications
+  REST payload carries no subject URL is wrong — the payload has
+  `subject.url`/`latest_comment_url`; the app's minimal struct simply
+  dropped them (docs/0026 §2.2). D1's row treatment and D2's URL helper
+  carry over unchanged.
 - **Depends on:** 0005 (GitHub module), 0012 (per-repo sections, D4 row
   treatment), 0010 (debug bridge, D10 id rule)
 - **Closes the design need of:** issue #81 — owner request: "add click
