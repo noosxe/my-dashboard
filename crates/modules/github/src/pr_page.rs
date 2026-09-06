@@ -1360,6 +1360,7 @@ impl PrDetailPage {
                     d.body.as_deref(),
                     self.md.get("pr-description").map(Arc::as_ref),
                     edit,
+                    None,
                     cx,
                 )
             }
@@ -1417,6 +1418,7 @@ impl PrDetailPage {
                             c.viewer_can_delete,
                             cx,
                         ),
+                        None,
                         cx,
                     ));
                 }
@@ -1480,6 +1482,7 @@ impl PrDetailPage {
                         r.body.as_deref().filter(|b| !b.is_empty()),
                         self.md.get(&key).map(Arc::as_ref),
                         trailing,
+                        None,
                         cx,
                     ));
                 }
@@ -2244,6 +2247,9 @@ pub(crate) fn body_card(
     body: Option<&str>,
     md: Option<&[markdown::Block]>,
     trailing: Option<AnyElement>,
+    // docs/0023 D3 — the chips row under the body (reactions). Cards
+    // without reactions pass `None`.
+    footer: Option<AnyElement>,
     cx: &App,
 ) -> AnyElement {
     v_flex()
@@ -2291,6 +2297,11 @@ pub(crate) fn body_card(
                     .whitespace_normal()
                     .child(body_child),
             )
+        })
+        // docs/0023 D3 — the chips row sits under the body, inside the
+        // card (the 0019 action bar stays in the header row).
+        .when_some(footer, |card, footer| {
+            card.child(div().px_3().pb_2().text_sm().child(footer))
         })
         .into_any_element()
 }
@@ -3216,6 +3227,10 @@ mod tests {
             viewer_can_update: false,
             viewer_can_delete: false,
             updated_at: None,
+            // 0023 D1: the PR query doesn't select reaction fields yet —
+            // the degraded defaults the production parse would produce.
+            viewer_can_react: false,
+            reaction_groups: Vec::new(),
         }
     }
 

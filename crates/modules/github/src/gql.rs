@@ -562,6 +562,9 @@ pub const ISSUE_DETAIL_QUERY: &str = r#"
 query IssueDetail($owner: String!, $name: String!, $number: Int!) {
   rateLimit { cost remaining resetAt }
   repository(owner: $owner, name: $name) {
+    # docs/0023 D5: the lock gate — no viewerCanLock flag exists
+    # upstream; triage-and-above locks, read off the repo permission.
+    viewerPermission
     issue(number: $number) {
       id
       number
@@ -581,6 +584,12 @@ query IssueDetail($owner: String!, $name: String!, $number: Int!) {
       viewerCanSetMilestone
       viewerCanClose
       viewerCanReopen
+      # docs/0023 D1: reaction chips + lock state. viewerCanReact gates
+      # both reaction surfaces (issue body + comments).
+      viewerCanReact
+      locked
+      activeLockReason
+      reactionGroups { content viewerHasReacted reactors { totalCount } }
       # docs/0022 D3: nodes carry node ids — the replace-semantics
       # save computes its target list from them, so a missing id
       # disarms the picker (D3 guard), never a silent drop.
@@ -596,10 +605,22 @@ query IssueDetail($owner: String!, $name: String!, $number: Int!) {
       # merge row.
       milestone { id title state }
       # docs/0020 D2: the same IssueComment node shape the PR page
-      # parses (0019 D2 gate fields included).
+      # parses (0019 D2 gate fields included). The reaction fields are
+      # issue-query-only (0023 D1) — the PR page's parse degrades them
+      # to false/empty until 0023's PR-page follow-up.
       comments(first: 100) {
         totalCount
-        nodes { id viewerCanUpdate viewerCanDelete updatedAt author { login avatarUrl } body createdAt }
+        nodes {
+          id
+          viewerCanUpdate
+          viewerCanDelete
+          updatedAt
+          author { login avatarUrl }
+          body
+          createdAt
+          viewerCanReact
+          reactionGroups { content viewerHasReacted reactors { totalCount } }
+        }
       }
       # docs/0021 D1: events only — ISSUE_COMMENT is deliberately not in the
       # filter; comments come from the gated connection above (0019 D2/D3).
@@ -739,6 +760,18 @@ pub struct IssueDetail {
     /// docs/0021 Q2 — the events connection was capped: `events_total`
     /// exceeded the fetched page.
     pub events_capped: bool,
+    /// docs/0023 D1 — gates both reaction surfaces (body + comments).
+    pub viewer_can_react: bool,
+    /// docs/0023 D3 — the body's reaction groups (comments carry their
+    /// own on [`PrComment`]).
+    pub reaction_groups: Vec<ReactionGroup>,
+    /// docs/0023 D5 — conversation lock state; `active_lock_reason` is
+    /// the raw `LockReason` wire string (null while unlocked).
+    pub locked: bool,
+    pub active_lock_reason: Option<String>,
+    /// docs/0023 D5 — the lock gate: no `viewerCanLock` flag exists
+    /// upstream, so triage-and-above is read off the repo permission.
+    pub viewer_permission: Option<String>,
 }
 
 /// `Label { id name color }`. `id` feeds the labels picker's
@@ -773,6 +806,130 @@ pub struct IssueMilestone {
     pub title: String,
     /// `MilestoneState` — OPEN / CLOSED; only the display tag reads it.
     pub state: Option<String>,
+}
+
+/// docs/0023 D2 — GitHub's eight reaction contents, in the canonical
+/// order the API returns groups in. The glyph mapping lives here (one
+/// place, D8); `label` is the picker's text fallback should the platform
+/// font lack emoji (D4 contingency).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReactionContent {
+    ThumbsUp,
+    ThumbsDown,
+    Laugh,
+    Hooray,
+    Confused,
+    Heart,
+    Rocket,
+    Eyes,
+}
+
+impl ReactionContent {
+    /// Canonical order — chips and picker rows render in this sequence,
+    /// never count-sorted (D3: rows don't reshuffle on refetch).
+    pub const ALL: [ReactionContent; 8] = [
+        ReactionContent::ThumbsUp,
+        ReactionContent::ThumbsDown,
+        ReactionContent::Laugh,
+        ReactionContent::Hooray,
+        ReactionContent::Confused,
+        ReactionContent::Heart,
+        ReactionContent::Rocket,
+        ReactionContent::Eyes,
+    ];
+
+    /// The wire name (`ReactionContent` enum value).
+    pub fn wire(self) -> &'static str {
+        match self {
+            ReactionContent::ThumbsUp => "THUMBS_UP",
+            ReactionContent::ThumbsDown => "THUMBS_DOWN",
+            ReactionContent::Laugh => "LAUGH",
+            ReactionContent::Hooray => "HOORAY",
+            ReactionContent::Confused => "CONFUSED",
+            ReactionContent::Heart => "HEART",
+            ReactionContent::Rocket => "ROCKET",
+            ReactionContent::Eyes => "EYES",
+        }
+    }
+
+    /// The chip glyph (D4; shortcode fallback if the font lacks emoji).
+    pub fn glyph(self) -> &'static str {
+        match self {
+            ReactionContent::ThumbsUp => "👍",
+            ReactionContent::ThumbsDown => "👎",
+            ReactionContent::Laugh => "😄",
+            ReactionContent::Hooray => "🎉",
+            ReactionContent::Confused => "😕",
+            ReactionContent::Heart => "❤️",
+            ReactionContent::Rocket => "🚀",
+            ReactionContent::Eyes => "👀",
+        }
+    }
+
+    /// The picker's text label (also the D4 shortcode fallback's data).
+    pub fn label(self) -> &'static str {
+        match self {
+            ReactionContent::ThumbsUp => "+1",
+            ReactionContent::ThumbsDown => "-1",
+            ReactionContent::Laugh => "laugh",
+            ReactionContent::Hooray => "hooray",
+            ReactionContent::Confused => "confused",
+            ReactionContent::Heart => "heart",
+            ReactionContent::Rocket => "rocket",
+            ReactionContent::Eyes => "eyes",
+        }
+    }
+
+    /// Unknown wire values skip their group alone (D2, 0007 D3).
+    pub fn parse(wire: &str) -> Option<Self> {
+        Some(match wire {
+            "THUMBS_UP" => ReactionContent::ThumbsUp,
+            "THUMBS_DOWN" => ReactionContent::ThumbsDown,
+            "LAUGH" => ReactionContent::Laugh,
+            "HOORAY" => ReactionContent::Hooray,
+            "CONFUSED" => ReactionContent::Confused,
+            "HEART" => ReactionContent::Heart,
+            "ROCKET" => ReactionContent::Rocket,
+            "EYES" => ReactionContent::Eyes,
+            _ => return None,
+        })
+    }
+}
+
+/// docs/0023 D2 — one parsed reaction group, shared by the issue body
+/// and every comment (same `Reactable` shape upstream).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReactionGroup {
+    pub content: ReactionContent,
+    pub viewer_has_reacted: bool,
+    pub total: i64,
+}
+
+/// Parse a `reactionGroups` array (docs/0023 D2). Unknown or missing
+/// `content` skips that group alone; absent array → empty (nothing pins
+/// GitHub's all-eight-even-at-zero envelope).
+pub fn reaction_groups_from_value(value: Option<&serde_json::Value>) -> Vec<ReactionGroup> {
+    value
+        .and_then(|v| v.as_array())
+        .map(|groups| {
+            groups
+                .iter()
+                .filter_map(|g| {
+                    Some(ReactionGroup {
+                        content: ReactionContent::parse(g.get("content")?.as_str()?)?,
+                        viewer_has_reacted: g
+                            .get("viewerHasReacted")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false),
+                        total: g
+                            .pointer("/reactors/totalCount")
+                            .and_then(|v| v.as_i64())
+                            .unwrap_or_default(),
+                    })
+                })
+                .collect::<Vec<ReactionGroup>>()
+        })
+        .unwrap_or_default()
 }
 
 /// docs/0021 D2 — one timeline event row. Hand-parsed from the
@@ -952,6 +1109,25 @@ pub fn issue_detail_from_value(value: &serde_json::Value) -> Option<IssueDetail>
         events,
         events_total,
         events_capped,
+        // docs/0023 D1 — the lock gate reads off the repository node (the
+        // parse input IS the repository object, 0022 D5's envelope shape).
+        viewer_can_react: issue
+            .get("viewerCanReact")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        reaction_groups: reaction_groups_from_value(issue.get("reactionGroups")),
+        locked: issue
+            .get("locked")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        active_lock_reason: issue
+            .get("activeLockReason")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        viewer_permission: value
+            .get("viewerPermission")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
     })
 }
 
@@ -1179,6 +1355,10 @@ pub struct PrComment {
     pub viewer_can_delete: bool,
     /// The (edited) marker (0019 D4).
     pub updated_at: Option<String>,
+    /// docs/0023 D1 — comment-level reaction chips. The PR page's query
+    /// doesn't select these yet, so its parse degrades to false/empty.
+    pub viewer_can_react: bool,
+    pub reaction_groups: Vec<ReactionGroup>,
 }
 
 /// The shared per-node edit/delete fields (0019 D2), read identically
@@ -1218,6 +1398,13 @@ fn comment_from_node(c: &serde_json::Value) -> Option<PrComment> {
         viewer_can_update,
         viewer_can_delete,
         updated_at,
+        // docs/0023 D1 — degrade to false/empty when the query doesn't
+        // select the reaction fields (the PR page's doesn't, yet).
+        viewer_can_react: c
+            .get("viewerCanReact")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        reaction_groups: reaction_groups_from_value(c.get("reactionGroups")),
     })
 }
 
@@ -1525,6 +1712,37 @@ mutation IssueReopen($input: ReopenIssueInput!) {
 pub const ISSUE_UPDATE_MUTATION: &str = r#"
 mutation IssueUpdateMetadata($input: UpdateIssueInput!) {
   updateIssue(input: $input) { issue { id } }
+}
+"#;
+
+/// docs/0023 D3/D7 — the reaction toggles. `subjectId` is the issue or
+/// comment node id, `content` the `ReactionContent` wire name; add and
+/// remove share the input shape, so two documents over the same pattern.
+pub const ADD_REACTION_MUTATION: &str = r#"
+mutation AddReaction($input: AddReactionInput!) {
+  addReaction(input: $input) { clientMutationId }
+}
+"#;
+
+pub const REMOVE_REACTION_MUTATION: &str = r#"
+mutation RemoveReaction($input: RemoveReactionInput!) {
+  removeReaction(input: $input) { clientMutationId }
+}
+"#;
+
+/// docs/0023 D5 — conversation locking. `lockReason` is omitted in v1
+/// (input optional; GitHub stores null → generic "Locked" tag); unlock
+/// carries only the `lockableId`. Payload records are ignored — the page
+/// refetches (D7).
+pub const LOCK_LOCKABLE_MUTATION: &str = r#"
+mutation LockLockable($input: LockLockableInput!) {
+  lockLockable(input: $input) { clientMutationId }
+}
+"#;
+
+pub const UNLOCK_LOCKABLE_MUTATION: &str = r#"
+mutation UnlockLockable($input: UnlockLockableInput!) {
+  unlockLockable(input: $input) { clientMutationId }
 }
 "#;
 
@@ -2365,6 +2583,91 @@ mod tests {
             serde_json::from_str(r#"{"data":{"repository":{"issue":null}}}"#).unwrap();
         let value = env.data.unwrap().repository.unwrap();
         assert!(issue_detail_from_value(&value).is_none());
+    }
+
+    // docs/0023 §2/D1/D2 — reaction groups parse on the issue and its
+    // comments; the lock state and the repository permission ride along;
+    // unknown contents and absent arrays degrade per node.
+    #[test]
+    fn issue_reactions_lock_and_permission_parse() {
+        // viewerPermission rides the repository node, not the issue —
+        // splice it in beside the issue object on the envelope.
+        let body = issue_detail_body(
+            r#"{
+                "id": "I_5", "number": 12, "title": "t", "url": "u", "state": "OPEN",
+                "viewerCanReact": true,
+                "locked": true, "activeLockReason": "TOO_HEATED",
+                "reactionGroups": [
+                    {"content": "THUMBS_UP", "viewerHasReacted": true, "reactors": {"totalCount": 3}},
+                    {"content": "EYES", "viewerHasReacted": false, "reactors": {"totalCount": 0}},
+                    {"content": "NOT_A_THING", "viewerHasReacted": false, "reactors": {"totalCount": 9}}
+                ],
+                "comments": {"totalCount": 1, "nodes": [
+                    {"id": "IC_1", "body": "c", "viewerCanReact": true,
+                     "reactionGroups": [
+                        {"content": "HEART", "viewerHasReacted": true, "reactors": {"totalCount": 2}}
+                     ]}
+                ]}
+            }"#,
+        )
+        .replacen(
+            r#""repository":{"issue""#,
+            r#""repository":{"viewerPermission":"ADMIN","issue""#,
+            1,
+        );
+        let env: Envelope<IssueDetailData> = serde_json::from_str(&body).unwrap();
+        let d = issue_detail_from_value(&env.data.unwrap().repository.unwrap()).unwrap();
+        assert!(d.viewer_can_react);
+        assert!(d.locked);
+        assert_eq!(d.active_lock_reason.as_deref(), Some("TOO_HEATED"));
+        // The lock gate reads off the repository node (D5).
+        assert_eq!(d.viewer_permission.as_deref(), Some("ADMIN"));
+        // Unknown content skips its group alone; order preserved.
+        assert_eq!(d.reaction_groups.len(), 2);
+        assert_eq!(d.reaction_groups[0].content, ReactionContent::ThumbsUp);
+        assert!(d.reaction_groups[0].viewer_has_reacted);
+        assert_eq!(d.reaction_groups[0].total, 3);
+        assert_eq!(d.reaction_groups[1].content, ReactionContent::Eyes);
+        let c = &d.comments.nodes[0];
+        assert!(c.viewer_can_react);
+        assert_eq!(c.reaction_groups.len(), 1);
+        assert_eq!(c.reaction_groups[0].content, ReactionContent::Heart);
+        assert_eq!(c.reaction_groups[0].total, 2);
+    }
+
+    #[test]
+    fn issue_reactions_degrade_absent_and_null_permission() {
+        // Absent reaction/lock/permission fields → the degraded page:
+        // no chips, unlocked, no lock rights (PR query parity).
+        let body =
+            issue_detail_body(r#"{"id":"I_6","number":2,"title":"t","url":"u","state":"OPEN"}"#);
+        let env: Envelope<IssueDetailData> = serde_json::from_str(&body).unwrap();
+        let d = issue_detail_from_value(&env.data.unwrap().repository.unwrap()).unwrap();
+        assert!(!d.viewer_can_react);
+        assert!(d.reaction_groups.is_empty());
+        assert!(!d.locked);
+        assert_eq!(d.active_lock_reason, None);
+        assert_eq!(d.viewer_permission, None);
+    }
+
+    #[test]
+    fn reaction_content_wire_round_trip_and_all() {
+        // Every variant round-trips through its wire name; ALL is the
+        // eight-value canonical order with no duplicates.
+        assert_eq!(ReactionContent::ALL.len(), 8);
+        for content in ReactionContent::ALL {
+            assert_eq!(ReactionContent::parse(content.wire()), Some(content));
+        }
+        assert_eq!(ReactionContent::parse("NOPE"), None);
+        let mut names: Vec<&str> = ReactionContent::ALL.iter().map(|c| c.wire()).collect();
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(names.len(), 8);
+        // Glyph/label are per-variant non-empty (D4).
+        for content in ReactionContent::ALL {
+            assert!(!content.glyph().is_empty());
+            assert!(!content.label().is_empty());
+        }
     }
 
     // docs/0022 §3/§7 — the detail payload carries node ids on labels and
