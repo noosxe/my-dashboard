@@ -55,6 +55,7 @@ cross-platform, multi-modular universal personal dashboard built with Rust and
 | [0020](0020-github-issue-page.md) | GitHub Module: Issue Detail Page (comment, close, reopen; PR-page reuse) |
 | [0021](0021-github-issue-timeline-events.md) | GitHub Module: Issue Page Timeline Event Rows (itemTypes-filtered, merged conversation) |
 | [0022](0022-github-issue-metadata.md) | GitHub Module: Issue Page Metadata Editing (title, labels, assignees, milestone — one `updateIssue`) |
+| [0023](0023-github-issue-reactions-locking.md) | GitHub Module: Issue Page Reactions + Conversation Locking (toggle chips, static picker, permission-derived lock gate) |
 
 ## Planned docs (roadmap, not yet written)
 
