@@ -372,7 +372,8 @@ machine — until it's fixed these run as manual human checks in the PR body.)
 - Data-colored label chips (needs a token-discipline exception decision).
 - ~~Title editing; milestone display; label/assignee management.~~ →
   designed and shipped in docs/0022 (#120).
-- Reactions; locking; issue creation.
+- ~~Reactions; locking.~~ → designed and shipped in docs/0023 (#121);
+  issue creation remains (docs/0022 §9-adjacent, #122).
 - "+N more" pagination for comments beyond the first 100 (#87 adjacent).
 
 ---

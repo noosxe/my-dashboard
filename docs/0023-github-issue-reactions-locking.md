@@ -294,3 +294,30 @@ mutation → refetch. Bridge-blocked checks fall back to the human list.
   mapping deferred).
 - PR-page reactions (0016 parity) — same structs, new placement decision.
 - Revisit composer gating if GitHub ships `viewerCanComment`.
+
+---
+
+## 10. Shipped (2026-09-07, issue #121)
+
+Implemented as designed in one PR. The introspected facts (§2) held at
+implementation; nothing diverged from the design. Notes beyond the text:
+
+- **Probe-key naming**: chip buttons carry the row prefix plus the wire
+  content — `issue-reaction-row-THUMBS_UP` on the body,
+  `issue-comment-{ix}-reaction-row-{CONTENT}` on comments — and the row
+  itself ends in `-row` (`…-reaction-row-row` on comments reads awkward
+  but is stable and greppable; kept for the shared prefix rule).
+- **Chips render as ghost buttons; armed chips use `outline`** — the
+  armed/unarmed distinction rides the button variants' theme tokens, no
+  new styling (D8).
+- **`status::init` in probe tests**: reaction/lock toggles really spawn
+  through `spawn_mutation`, so the probe harness now installs the
+  in-flight tracker global (same contract as `main`; `ProbeHttp` fails
+  the POSTs, and the tests assert the busy/picker state transitions).
+- **`debug_selector` discipline held** (0010 D10): every asserted surface
+  (chips, `+`, picker rows, cancel, lock tag, lock toggle, locked notice,
+  comment box) carries an explicit selector — plain `.id()`s are
+  invisible to `debug_bounds`, which bit the first probe run.
+
+Workspace: 251 tests green (was 243); clippy/fmt clean. Human checks
+(§8) ride the PR body.

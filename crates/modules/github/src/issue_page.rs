@@ -90,6 +90,10 @@ pub(crate) struct IssueDetailPage {
     /// The open rail picker (0022 D5) — at most one anywhere on the
     /// page (D7 widens the 0019 one-editor rule to five surfaces).
     rail_edit: Option<RailEditor>,
+    /// The open reaction picker (0023 D4) — the subject's node id and
+    /// its groups frozen at open (PickerDraft's philosophy: rows can't
+    /// midshift on a refetch). At most one anywhere on the page (D7).
+    reaction_pick: Option<ReactionPick>,
     /// Picker source pages (0022 D5) — lazy, session-only, the
     /// files-sidebar pattern.
     labels_source: PickerFetch<Vec<gql::IssueLabel>>,
@@ -121,6 +125,10 @@ pub(crate) enum IssueBusyOp {
     SetLabels,
     SetAssignees,
     SetMilestone,
+    // 0023 D3/D5 — the reaction toggle (add and remove share one op
+    // identity; the Mutation differs) and the conversation lock flip.
+    ToggleReaction,
+    ToggleLock,
 }
 
 /// docs/0022 D5 — the open picker and its draft choice. The draft is
@@ -136,6 +144,15 @@ enum RailEditor {
         rows: Vec<PickerRow>,
         chosen: Option<String>,
     },
+}
+
+/// docs/0023 D4 — the open reaction picker's target: the subject's node
+/// id (issue body or a comment) plus its groups frozen at open, so rows
+/// can't midshift when a refetch lands mid-pick.
+#[derive(Debug, Clone, PartialEq)]
+struct ReactionPick {
+    subject_id: String,
+    groups: Vec<gql::ReactionGroup>,
 }
 
 /// One checklist row: the write-target node id plus display data.
@@ -199,6 +216,10 @@ impl IssueBusyOp {
             // title included, its editor lives in the header but the
             // failure copy reads better beside the other metadata
             // errors (single rail error slot, 0020 D5).
+            // 0023 D3/D5: reaction toggle failures read in the
+            // conversation (the chips row), lock failures in the rail.
+            IssueBusyOp::ToggleReaction => ErrorScope::Timeline,
+            IssueBusyOp::ToggleLock => ErrorScope::Rail,
             IssueBusyOp::SetTitle
             | IssueBusyOp::SetLabels
             | IssueBusyOp::SetAssignees
@@ -254,6 +275,7 @@ impl IssueDetailPage {
             description_edit: None,
             title_edit: None,
             rail_edit: None,
+            reaction_pick: None,
             labels_source: PickerFetch::Idle,
             assignees_source: PickerFetch::Idle,
             milestones_source: PickerFetch::Idle,
@@ -645,6 +667,7 @@ impl IssueDetailPage {
         self.timeline_edit = None;
         self.delete_confirm = None;
         self.rail_edit = None;
+        self.reaction_pick = None;
     }
 
     /// D7: true while any of the five editor surfaces is open — every
@@ -655,6 +678,7 @@ impl IssueDetailPage {
             || self.timeline_edit.is_some()
             || self.delete_confirm.is_some()
             || self.rail_edit.is_some()
+            || self.reaction_pick.is_some()
     }
 
     /// Esc consumes the topmost open editor (D4/D5 Cancel/Esc) and only
@@ -662,6 +686,12 @@ impl IssueDetailPage {
     /// confirm (most destructive to leave up) first.
     fn cancel_top_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         if self.delete_confirm.take().is_some() {
+            cx.notify();
+            return true;
+        }
+        // 0023 D4: the picker is the lightest surface — it goes before
+        // the page ever considers closing.
+        if self.reaction_pick.take().is_some() {
             cx.notify();
             return true;
         }
@@ -736,6 +766,94 @@ impl IssueDetailPage {
             window,
             cx,
         );
+    }
+
+    // --- reactions + locking (docs/0023) ------------------------------------
+
+    /// Open the reaction picker for a subject (D4). Groups freeze at
+    /// open — a refetch mid-pick repaints the chips, never the rows.
+    fn open_reaction_picker(
+        &mut self,
+        subject_id: String,
+        groups: Vec<gql::ReactionGroup>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.busy.is_some() || subject_id.is_empty() {
+            return;
+        }
+        // One editor at a time (D7, 0022 D7): every other surface yields.
+        self.yield_all_editors();
+        self.reaction_pick = Some(ReactionPick { subject_id, groups });
+        cx.notify();
+    }
+
+    /// Picker row click (D4): the mutation is the commit — post the
+    /// matching add/remove and close. `viewerHasReacted` at open decides
+    /// the direction, so a stale row can never double-react.
+    fn pick_reaction(
+        &mut self,
+        content: gql::ReactionContent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(pick) = self.reaction_pick.clone() else {
+            return;
+        };
+        if self.busy.is_some() {
+            return;
+        }
+        let remove = pick
+            .groups
+            .iter()
+            .find(|g| g.content == content)
+            .map(|g| g.viewer_has_reacted)
+            .unwrap_or(false);
+        self.reaction_pick = None;
+        self.toggle_reaction(pick.subject_id, remove, content, window, cx);
+    }
+
+    /// Chip click (D3): armed removes, otherwise adds. Single-flight —
+    /// busy is checked by render and re-checked here as the honest guard.
+    fn toggle_reaction(
+        &mut self,
+        subject_id: String,
+        remove: bool,
+        content: gql::ReactionContent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.busy.is_some() || subject_id.is_empty() {
+            return;
+        }
+        let variables = json!({ "input": { "subjectId": subject_id, "content": content.wire() } });
+        self.mutation_error = None;
+        self.busy = Some(IssueBusyOp::ToggleReaction);
+        cx.notify();
+        let mutation = if remove {
+            Mutation::RemoveReaction
+        } else {
+            Mutation::AddReaction
+        };
+        self.spawn_mutation(IssueBusyOp::ToggleReaction, mutation, variables, window, cx);
+    }
+
+    /// Rail lock toggle (D5): direction derives from the fetched state —
+    /// no optimistic flip; the refetch repaints tag and composer gate.
+    fn toggle_lock(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(d) = self.detail.clone() else { return };
+        if self.busy.is_some() || d.id.is_empty() {
+            return;
+        }
+        let variables = json!({ "input": { "lockableId": d.id } });
+        self.mutation_error = None;
+        self.busy = Some(IssueBusyOp::ToggleLock);
+        cx.notify();
+        let mutation = if d.locked {
+            Mutation::UnlockIssue
+        } else {
+            Mutation::LockIssue
+        };
+        self.spawn_mutation(IssueBusyOp::ToggleLock, mutation, variables, window, cx);
     }
 
     // --- rail pickers (0022 D5) ---------------------------------------------
@@ -1203,6 +1321,13 @@ impl IssueDetailPage {
                 IssueBusyOp::SetLabels | IssueBusyOp::SetAssignees | IssueBusyOp::SetMilestone => {
                     self.rail_edit = None;
                 }
+                // 0023 D4: a picker-committed toggle closes the picker
+                // (chip toggles open none); the refetch repaints chips.
+                IssueBusyOp::ToggleReaction => {
+                    self.reaction_pick = None;
+                }
+                // The refetch repaints the lock tag and composer gate.
+                IssueBusyOp::ToggleLock => {}
                 // The refetch repaints the badge and swaps the panel.
                 IssueBusyOp::Close | IssueBusyOp::Reopen => {}
             }
@@ -1431,6 +1556,13 @@ impl IssueDetailPage {
                     d.body.as_deref(),
                     self.md.get("issue-description").map(Arc::as_ref),
                     edit,
+                    self.render_reaction_row(
+                        "issue-reaction-row",
+                        &d.id,
+                        &d.reaction_groups,
+                        d.viewer_can_react,
+                        cx,
+                    ),
                     cx,
                 )
             }
@@ -1502,6 +1634,13 @@ impl IssueDetailPage {
                     c.viewer_can_delete,
                     cx,
                 ),
+                self.render_reaction_row(
+                    &format!("{key}-reaction-row"),
+                    &c.id,
+                    &c.reaction_groups,
+                    c.viewer_can_react,
+                    cx,
+                ),
                 cx,
             ));
         }
@@ -1512,7 +1651,25 @@ impl IssueDetailPage {
         if d.comments.nodes.is_empty() {
             children.push(muted_centered("No comments yet", cx));
         }
-        children.push(self.render_comment_box(cx));
+        // docs/0023 D4: the open picker renders in the timeline right
+        // after its subject's card (only one can be open, D7).
+        if let Some(pick) = self.reaction_pick.as_ref() {
+            let in_page =
+                pick.subject_id == d.id || d.comments.nodes.iter().any(|c| c.id == pick.subject_id);
+            if in_page {
+                if let Some(card) = self.render_reaction_picker_card(cx) {
+                    children.push(card);
+                }
+            }
+        }
+        // docs/0023 D6: the composer hides while the conversation is
+        // locked and the viewer lacks lock rights; a muted notice takes
+        // its place (keeping the Timeline failure slot visible).
+        if composer_visible(d.locked, d.viewer_permission.as_deref()) {
+            children.push(self.render_comment_box(cx));
+        } else {
+            children.push(self.render_locked_notice(cx));
+        }
         // The timeline scrolls; the rail hugs its content at the top and
         // never rides along (PR-page, probe-verified mechanism).
         let timeline = div()
@@ -1602,6 +1759,9 @@ impl IssueDetailPage {
             // something to show or the picker can arm.
             .children(self.render_milestone_panel(d, cx))
             .child(self.render_state_panel(d, cx))
+            // docs/0023 D5: the lock row only exists when locked or the
+            // viewer can lock (nothing to show, nothing to do otherwise).
+            .children(self.render_lock_panel(d, cx))
             .into_any_element()
     }
 
@@ -2162,6 +2322,241 @@ impl IssueDetailPage {
         Some(cap_row("issue-events-more", missing, &d.url, cx))
     }
 
+    /// docs/0023 D3 — one chips row: filtered groups (`reaction_chips`) +
+    /// the gated `+` affordance. `prefix` is the probe-key stem
+    /// (`issue-reaction-row` for the body,
+    /// `issue-comment-{ix}-reaction-row` for comments); chips extend it
+    /// with the content's wire name. Returns `None` when there is nothing
+    /// to show — no chips and the viewer cannot react.
+    fn render_reaction_row(
+        &self,
+        prefix: &str,
+        subject_id: &str,
+        groups: &[gql::ReactionGroup],
+        can_react: bool,
+        cx: &Context<Self>,
+    ) -> Option<AnyElement> {
+        let chips = reaction_chips(groups);
+        if chips.is_empty() && !can_react {
+            return None;
+        }
+        let busy = self.busy.is_some();
+        let picker_open = self
+            .reaction_pick
+            .as_ref()
+            .map(|p| p.subject_id == subject_id)
+            .unwrap_or(false);
+        let mut row = h_flex().gap_1().flex_wrap();
+        for g in &chips {
+            let id = format!("{prefix}-{}", g.content.wire());
+            let probe = id.clone();
+            let armed = g.viewer_has_reacted;
+            let subject_id = subject_id.to_string();
+            let content = g.content;
+            row = row.child(
+                Button::new(id)
+                    .debug_selector(move || probe.clone())
+                    .when(armed, |b| b.outline())
+                    .when(!armed, |b| b.ghost())
+                    .small()
+                    .label(format!("{} {}", g.content.glyph(), g.total))
+                    .tooltip(g.content.label())
+                    .disabled(busy)
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.toggle_reaction(subject_id.clone(), armed, content, window, cx)
+                    })),
+            );
+        }
+        if can_react {
+            let subject_id = subject_id.to_string();
+            let groups = groups.to_vec();
+            let picker_id = format!("{prefix}-add");
+            let probe = picker_id.clone();
+            row = row.child(
+                Button::new(picker_id)
+                    .debug_selector(move || probe.clone())
+                    .when(picker_open, |b| b.outline())
+                    .when(!picker_open, |b| b.ghost())
+                    .small()
+                    .label("+")
+                    .tooltip("Add reaction")
+                    .disabled(busy)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.open_reaction_picker(subject_id.clone(), groups.clone(), cx)
+                    })),
+            );
+        }
+        Some(
+            row.debug_selector(move || format!("{prefix}-row"))
+                .into_any_element(),
+        )
+    }
+
+    /// docs/0023 D4 — the static reaction picker: all eight contents,
+    /// rows commit on click (the mutation is the commit), Esc/Cancel
+    /// closes. Rendered in the timeline directly after its subject's card.
+    fn render_reaction_picker_card(&self, cx: &Context<Self>) -> Option<AnyElement> {
+        let pick = self.reaction_pick.as_ref()?;
+        let busy = self.busy.is_some();
+        let mut card = v_flex().gap_1().py_1();
+        for content in gql::ReactionContent::ALL {
+            let armed = pick
+                .groups
+                .iter()
+                .find(|g| g.content == content)
+                .map(|g| g.viewer_has_reacted)
+                .unwrap_or(false);
+            let count = pick
+                .groups
+                .iter()
+                .find(|g| g.content == content)
+                .map(|g| g.total)
+                .unwrap_or(0);
+            let marker = if armed { " · you" } else { "" };
+            let id = format!("issue-reaction-pick-{}", content.wire());
+            let probe = id.clone();
+            card = card.child(
+                Button::new(id)
+                    .debug_selector(move || probe.clone())
+                    .when(armed, |b| b.outline())
+                    .when(!armed, |b| b.ghost())
+                    .small()
+                    .label(format!(
+                        "{} {} ({}{})",
+                        content.glyph(),
+                        content.label(),
+                        count,
+                        marker
+                    ))
+                    .disabled(busy)
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.pick_reaction(content, window, cx)
+                    })),
+            );
+        }
+        card = card.child(
+            Button::new("issue-reaction-pick-cancel")
+                .debug_selector(|| "issue-reaction-pick-cancel".to_string())
+                .ghost()
+                .small()
+                .label("Cancel")
+                .disabled(busy)
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.reaction_pick = None;
+                    this.refocus_page(window, cx);
+                    cx.notify();
+                })),
+        );
+        Some(
+            GroupBox::new()
+                .id("issue-reaction-pick")
+                .title("Add reaction")
+                .child(card)
+                .into_any_element(),
+        )
+    }
+
+    /// docs/0023 D5 — the conversation lock row: state tag plus the
+    /// gated toggle. No panel when unlocked AND the viewer lacks rights
+    /// (nothing to show, nothing to do — 0022 D8 parity).
+    fn render_lock_panel(&self, d: &gql::IssueDetail, cx: &Context<Self>) -> Option<AnyElement> {
+        let gate = lock_gate(d.viewer_permission.as_deref());
+        if !d.locked && !gate {
+            return None;
+        }
+        let reason = lock_reason_label(d.active_lock_reason.as_deref());
+        let tag = if d.locked {
+            format!(
+                "Locked{}",
+                if reason.is_empty() {
+                    String::new()
+                } else {
+                    format!(" · {reason}")
+                }
+            )
+        } else {
+            "Unlocked".to_string()
+        };
+        let busy = self.busy.is_some();
+        let lock_busy = matches!(self.busy, Some(IssueBusyOp::ToggleLock));
+        let mut col = v_flex()
+            .debug_selector(|| "issue-lock-row-body".to_string())
+            .gap_2()
+            .py_1()
+            .child(
+                div()
+                    .id("issue-lock-tag")
+                    .debug_selector(|| "issue-lock-tag".to_string())
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(tag),
+            );
+        if gate {
+            let label = if d.locked { "Unlock" } else { "Lock" };
+            col = col.child(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .when(lock_busy, |row| row.child(Spinner::new().small()))
+                    .child(
+                        Button::new("issue-lock-toggle")
+                            .debug_selector(|| "issue-lock-toggle".to_string())
+                            .ghost()
+                            .small()
+                            .label(label)
+                            .disabled(busy)
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.toggle_lock(window, cx)),
+                            ),
+                    ),
+            );
+        }
+        Some(
+            GroupBox::new()
+                .id("issue-lock-row")
+                .title("Lock")
+                .child(col)
+                .into_any_element(),
+        )
+    }
+
+    /// docs/0023 D6 — the muted notice replacing the composer while the
+    /// conversation is locked to this viewer. Reaction failures still
+    /// read here (the Timeline error slot lives with the composer).
+    fn render_locked_notice(&self, cx: &Context<Self>) -> AnyElement {
+        v_flex()
+            .id("issue-locked-notice")
+            .debug_selector(|| "issue-locked-notice".to_string())
+            .gap_2()
+            .rounded_md()
+            .border_1()
+            .border_color(cx.theme().border)
+            .p_3()
+            .children(self.timeline_error_row(cx))
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .child("Conversation locked"),
+            )
+            .into_any_element()
+    }
+
+    /// The Timeline-scoped failure copy (shared by the composer and the
+    /// locked notice).
+    fn timeline_error_row(&self, cx: &Context<Self>) -> Option<AnyElement> {
+        self.mutation_error
+            .as_ref()
+            .filter(|e| e.scope == ErrorScope::Timeline)
+            .map(|e| {
+                div()
+                    .text_sm()
+                    .text_color(cx.theme().danger)
+                    .child(e.message.clone())
+                    .into_any_element()
+            })
+    }
+
     /// The comment box (0020 D4): draft Textarea + submit. A body is
     /// required (same pure fn gates button and handler). Failures keep
     /// the draft and surface an inline error row above the box.
@@ -2179,6 +2574,7 @@ impl IssueDetailPage {
         };
         v_flex()
             .id("issue-comment-box")
+            .debug_selector(|| "issue-comment-box".to_string())
             .gap_2()
             .rounded_md()
             .border_1()
@@ -2378,6 +2774,54 @@ pub(crate) fn milestone_edit_arming(d: &gql::IssueDetail) -> bool {
 /// is in flight (hidden, not disabled — 0020 D5).
 pub(crate) fn title_edit_visible(viewer_can_update: bool, busy: bool) -> bool {
     viewer_can_update && !busy
+}
+
+// --- reactions + locking pure helpers (docs/0023) -------------------------
+
+/// D3: the chips a row renders — groups with at least one reactor, in
+/// the canonical [`gql::ReactionContent::ALL`] order (never count-sorted;
+/// rows don't reshuffle on refetch). Zero-count groups are noise —
+/// GitHub sends all eight even at zero (§2 of the doc). Pure —
+/// table-tested.
+pub(crate) fn reaction_chips(groups: &[gql::ReactionGroup]) -> Vec<gql::ReactionGroup> {
+    let mut chips: Vec<gql::ReactionGroup> =
+        groups.iter().filter(|g| g.total >= 1).cloned().collect();
+    chips.sort_by_key(|g| {
+        gql::ReactionContent::ALL
+            .iter()
+            .position(|c| *c == g.content)
+            .unwrap_or(usize::MAX)
+    });
+    chips
+}
+
+/// D5: the lock gate — no `viewerCanLock` flag exists upstream, so
+/// triage-and-above is derived from the repository permission. `None`
+/// (no explicit mapping) means no rights. Pure — table-tested.
+pub(crate) fn lock_gate(permission: Option<&str>) -> bool {
+    matches!(
+        permission,
+        Some("ADMIN") | Some("MAINTAIN") | Some("WRITE") | Some("TRIAGE")
+    )
+}
+
+/// D6: the composer's visibility rule (no `viewerCanComment` flag
+/// upstream — derived, honest): hidden only while the conversation is
+/// locked AND the viewer lacks lock rights. Pure — table-tested.
+pub(crate) fn composer_visible(locked: bool, permission: Option<&str>) -> bool {
+    !locked || lock_gate(permission)
+}
+
+/// D5: the rail tag's copy for the raw `LockReason` wire value (empty
+/// when unlocked or reason-less — the tag then reads just "Locked").
+pub(crate) fn lock_reason_label(reason: Option<&str>) -> &'static str {
+    match reason {
+        Some("OFF_TOPIC") => "off-topic",
+        Some("TOO_HEATED") => "too heated",
+        Some("RESOLVED") => "resolved",
+        Some("SPAM") => "spam",
+        _ => "",
+    }
 }
 
 /// The labels checklist: the source page in picker order, then any
@@ -2667,9 +3111,10 @@ mod tests {
     use crate::issue_page::{
         CloseReason, IssueBadgeTone, IssueBusyOp, IssueDetailPage, RailEditor, TimelineRow,
         assignee_rows, assignees_edit_arming, build_issue_md_cache, close_allowed,
-        close_reason_from_label, comment_submit_allowed, compute_replace_ids, event_sentence,
-        issue_badge, label_rows, labels_edit_arming, milestone_edit_arming, milestone_rows,
-        reopen_allowed, row_is_edited, sorted_timeline, state_reason_word, title_edit_visible,
+        close_reason_from_label, comment_submit_allowed, composer_visible, compute_replace_ids,
+        event_sentence, issue_badge, label_rows, labels_edit_arming, lock_gate, lock_reason_label,
+        milestone_edit_arming, milestone_rows, reaction_chips, reopen_allowed, row_is_edited,
+        sorted_timeline, state_reason_word, title_edit_visible,
     };
     use crate::service::{GithubCache, GithubState, Kind, Mutation, SpecResult};
     use gpui::AppContext as _;
@@ -2827,7 +3272,10 @@ mod tests {
     /// One gated comment (update-only), one unflagged; the issue itself
     /// carries every viewer gate (0020 D3/D4/D5).
     fn probe_issue() -> gql::IssueDetail {
-        let value = serde_json::json!({ "issue": {
+        let value = serde_json::json!({
+            // 0023 D5: the permission rides the repository node beside issue.
+            "viewerPermission": "ADMIN",
+            "issue": {
             "id": "I_9", "number": 487, "title": "probe issue", "url": "u",
             "state": "OPEN", "stateReason": null,
             "createdAt": "2026-09-01T00:00:00Z",
@@ -2836,6 +3284,13 @@ mod tests {
             // metadata affordances arm in the fixture.
             "viewerCanLabel": true, "viewerCanAssign": true,
             "viewerCanSetMilestone": true,
+            // 0023: reactions armed; one armed group on the body, one
+            // zero-count (filtered), comment 0 reacts too.
+            "viewerCanReact": true, "locked": false, "activeLockReason": null,
+            "reactionGroups": [
+                {"content": "THUMBS_UP", "viewerHasReacted": true, "reactors": {"totalCount": 3}},
+                {"content": "EYES", "viewerHasReacted": false, "reactors": {"totalCount": 0}}
+            ],
             "labels": {"totalCount": 1, "nodes": [{"id": "L_1", "name": "bug", "color": "ff0000"}]},
             "assignees": {"totalCount": 1, "nodes": [{"id": "U_1", "login": "bob", "avatarUrl": "b"}]},
             "milestone": {"id": "M_1", "title": "v1.0", "state": "OPEN"},
@@ -2843,7 +3298,11 @@ mod tests {
                 {"id": "IC_1", "viewerCanUpdate": true, "viewerCanDelete": false,
                  "updatedAt": "2026-09-03T02:00:00Z",
                  "author": {"login": "dave"}, "body": "nice",
-                 "createdAt": "2026-09-03T01:00:00Z"},
+                 "createdAt": "2026-09-03T01:00:00Z",
+                 "viewerCanReact": true,
+                 "reactionGroups": [
+                     {"content": "HEART", "viewerHasReacted": false, "reactors": {"totalCount": 1}}
+                 ]},
                 {"author": {"login": "erin"}, "body": "plain",
                  "createdAt": "2026-09-04T01:00:00Z"}
             ]},
@@ -2864,6 +3323,9 @@ mod tests {
         cx: &mut gpui::TestAppContext,
     ) -> (gpui::Entity<IssueDetailPage>, &mut gpui::VisualTestContext) {
         cx.update(gpui_component::init);
+        // Reaction/lock toggles really spawn (ProbeHttp fails them) — the
+        // in-flight tracker global must exist, same contract as main() .
+        cx.update(dashboard_core::status::init);
         let state = cx.update(|cx| {
             let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
             let store: std::sync::Arc<dyn crate::auth::TokenStore> =
@@ -3475,5 +3937,201 @@ mod tests {
         });
         assert!(vcx.debug_bounds("issue-comment-0-card").is_some());
         assert!(vcx.debug_bounds("issue-event-0").is_none());
+    }
+
+    // --- reactions + locking (docs/0023) ------------------------------------
+
+    #[test]
+    fn reaction_chips_filter_and_order() {
+        let groups = |wire: &str, armed: bool, total: i64| gql::ReactionGroup {
+            content: gql::ReactionContent::parse(wire).unwrap(),
+            viewer_has_reacted: armed,
+            total,
+        };
+        // Zero-count groups drop; canonical ALL order wins over wire order
+        // (D3: rows don't reshuffle, positions stable).
+        let chips = reaction_chips(&[
+            groups("EYES", false, 2),
+            groups("THUMBS_DOWN", true, 0),
+            groups("HEART", false, 5),
+        ]);
+        let wires: Vec<&str> = chips.iter().map(|g| g.content.wire()).collect();
+        assert_eq!(wires, ["HEART", "EYES"]);
+        // All-zero → no chips at all.
+        assert!(reaction_chips(&[groups("HEART", false, 0)]).is_empty());
+        assert!(reaction_chips(&[]).is_empty());
+    }
+
+    #[test]
+    fn lock_gate_composer_and_reason_tables() {
+        // D5: triage-and-above locks; READ and null don't.
+        for (perm, gate) in [
+            (Some("ADMIN"), true),
+            (Some("MAINTAIN"), true),
+            (Some("WRITE"), true),
+            (Some("TRIAGE"), true),
+            (Some("READ"), false),
+            (None, false),
+            (Some("HACKED"), false),
+        ] {
+            assert_eq!(lock_gate(perm), gate, "{perm:?}");
+        }
+        // D6: the composer hides only when locked AND unprivileged.
+        for (locked, perm, visible) in [
+            (false, Some("ADMIN"), true),
+            (false, None, true),
+            (true, Some("ADMIN"), true),
+            (true, Some("TRIAGE"), true),
+            (true, Some("READ"), false),
+            (true, None, false),
+        ] {
+            assert_eq!(composer_visible(locked, perm), visible, "{locked} {perm:?}");
+        }
+        // D5: reason copy; unknown/absent degrade to the bare tag.
+        assert_eq!(lock_reason_label(Some("OFF_TOPIC")), "off-topic");
+        assert_eq!(lock_reason_label(Some("TOO_HEATED")), "too heated");
+        assert_eq!(lock_reason_label(Some("RESOLVED")), "resolved");
+        assert_eq!(lock_reason_label(Some("SPAM")), "spam");
+        assert_eq!(lock_reason_label(Some("MYSTERY")), "");
+        assert_eq!(lock_reason_label(None), "");
+    }
+
+    #[gpui::test]
+    fn reaction_rows_toggle_and_picker_commits(cx: &mut gpui::TestAppContext) {
+        let (page, vcx) = probe_page(cx);
+        // The body row renders: the armed chip plus the + affordance; the
+        // zero-count EYES group renders no chip (D3).
+        assert!(vcx.debug_bounds("issue-reaction-row-THUMBS_UP").is_some());
+        assert!(vcx.debug_bounds("issue-reaction-row-EYES").is_none());
+        assert!(vcx.debug_bounds("issue-reaction-row-add").is_some());
+        // Comment 0 carries its own row; comment 1 (no fields) stays clean.
+        assert!(
+            vcx.debug_bounds("issue-comment-0-reaction-row-HEART")
+                .is_some()
+        );
+        assert!(
+            vcx.debug_bounds("issue-comment-1-reaction-row-add")
+                .is_none()
+        );
+
+        // Chip click: armed → remove is the direction; single-flight holds.
+        vcx.update(|window, cx| {
+            page.update(cx, |page, cx| {
+                page.toggle_reaction(
+                    "I_9".into(),
+                    true,
+                    gql::ReactionContent::ThumbsUp,
+                    window,
+                    cx,
+                );
+                assert_eq!(page.busy, Some(IssueBusyOp::ToggleReaction));
+            });
+        });
+        // Busy blocks a second write (D7 single-flight).
+        vcx.update(|window, cx| {
+            page.update(cx, |page, cx| {
+                page.toggle_reaction("I_9".into(), false, gql::ReactionContent::Heart, window, cx);
+                assert_eq!(page.busy, Some(IssueBusyOp::ToggleReaction));
+                page.busy = None;
+            });
+        });
+
+        // The picker: + opens it, eight rows render, one-editor rule yields
+        // the title editor, a row click commits (posts + closes).
+        vcx.update(|window, cx| {
+            page.update(cx, |page, cx| page.start_edit_title(window, cx));
+        });
+        vcx.update(|_, cx| {
+            page.update(cx, |page, cx| {
+                page.open_reaction_picker(
+                    "I_9".into(),
+                    page.detail.as_ref().unwrap().reaction_groups.clone(),
+                    cx,
+                );
+                assert!(
+                    page.title_edit.is_none(),
+                    "one editor at a time: the picker yields the title editor"
+                );
+            });
+        });
+        assert!(vcx.debug_bounds("issue-reaction-pick-HEART").is_some());
+        assert!(vcx.debug_bounds("issue-reaction-pick-cancel").is_some());
+        vcx.update(|window, cx| {
+            page.update(cx, |page, cx| {
+                page.pick_reaction(gql::ReactionContent::Heart, window, cx)
+            });
+            page.update(cx, |page, _| {
+                assert!(page.reaction_pick.is_none(), "commit closes the picker");
+                assert_eq!(page.busy, Some(IssueBusyOp::ToggleReaction));
+                page.busy = None;
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn lock_row_gates_and_composer_hides_while_locked(cx: &mut gpui::TestAppContext) {
+        let (page, vcx) = probe_page(cx);
+        // Fixture: unlocked + ADMIN → the panel shows with the Lock button;
+        // the composer is up (D6).
+        assert!(vcx.debug_bounds("issue-lock-tag").is_some());
+        assert!(vcx.debug_bounds("issue-lock-toggle").is_some());
+        assert!(vcx.debug_bounds("issue-comment-box").is_some());
+        assert!(vcx.debug_bounds("issue-locked-notice").is_none());
+
+        // Locked + privileged: tag flips, composer stays (maintainers
+        // comment on locked threads).
+        vcx.update(|_, cx| {
+            page.update(cx, |page, cx| {
+                let d = page.detail.as_mut().unwrap();
+                d.locked = true;
+                d.active_lock_reason = Some("TOO_HEATED".into());
+                cx.notify();
+            });
+        });
+        assert!(vcx.debug_bounds("issue-comment-box").is_some());
+
+        // Locked + unprivileged: the toggle hides (no rights) and the
+        // composer swaps to the locked notice (D6).
+        vcx.update(|_, cx| {
+            page.update(cx, |page, cx| {
+                let d = page.detail.as_mut().unwrap();
+                d.viewer_permission = None;
+                cx.notify();
+            });
+        });
+        assert!(vcx.debug_bounds("issue-lock-toggle").is_none());
+        assert!(vcx.debug_bounds("issue-comment-box").is_none());
+        assert!(vcx.debug_bounds("issue-locked-notice").is_some());
+
+        // Unlocked + unprivileged: no panel at all (nothing to show, nothing
+        // to do) and the composer returns.
+        vcx.update(|_, cx| {
+            page.update(cx, |page, cx| {
+                let d = page.detail.as_mut().unwrap();
+                d.locked = false;
+                cx.notify();
+            });
+        });
+        assert!(vcx.debug_bounds("issue-lock-row").is_none());
+        assert!(vcx.debug_bounds("issue-comment-box").is_some());
+
+        // Toggle direction derives from state: unlocked posts Lock, busy
+        // guards a second flip.
+        vcx.update(|window, cx| {
+            page.update(cx, |page, cx| {
+                let d = page.detail.as_mut().unwrap();
+                d.viewer_permission = Some("TRIAGE".into());
+                cx.notify();
+            });
+            page.update(cx, |page, cx| page.toggle_lock(window, cx));
+            page.update(cx, |page, _| {
+                assert_eq!(page.busy, Some(IssueBusyOp::ToggleLock));
+            });
+            page.update(cx, |page, cx| page.toggle_lock(window, cx));
+            page.update(cx, |page, _| {
+                assert_eq!(page.busy, Some(IssueBusyOp::ToggleLock), "no second write");
+                page.busy = None;
+            });
+        });
     }
 }

@@ -255,6 +255,13 @@ pub enum Mutation {
     IssueSetLabels,
     IssueSetAssignees,
     IssueSetMilestone,
+    // 0023 D3/D5: reaction toggles (add/remove share the input shape,
+    // two documents) + conversation locking. Same transport, op
+    // identity rides the variant.
+    AddReaction,
+    RemoveReaction,
+    LockIssue,
+    UnlockIssue,
     // 0020 D2: the issue page reuses the shared addComment /
     // updateIssue / updateIssueComment / deleteIssueComment documents;
     // the page passes those existing variants unchanged.
@@ -655,6 +662,12 @@ fn run_pr_mutation(http: &dyn Http, spec: &FetchSpec, mutation: Mutation) -> Spe
         Mutation::IssueSetLabels => gql::ISSUE_UPDATE_MUTATION,
         Mutation::IssueSetAssignees => gql::ISSUE_UPDATE_MUTATION,
         Mutation::IssueSetMilestone => gql::ISSUE_UPDATE_MUTATION,
+        // 0023 D3/D5: four op identities over two documents — add/remove
+        // share the `subjectId`+`content` input, lock/unlock their own.
+        Mutation::AddReaction => gql::ADD_REACTION_MUTATION,
+        Mutation::RemoveReaction => gql::REMOVE_REACTION_MUTATION,
+        Mutation::LockIssue => gql::LOCK_LOCKABLE_MUTATION,
+        Mutation::UnlockIssue => gql::UNLOCK_LOCKABLE_MUTATION,
     };
     let mut status = 0u16;
     let mut rate = None;
@@ -2369,6 +2382,57 @@ mod tests {
     }
 
     // --- Notifications (REST) + derivation ------------------------------
+
+    #[test]
+    fn reaction_lock_mutations_post_their_documents() {
+        // docs/0023 D3/D5: four op identities over three documents —
+        // add/remove share the `subjectId`+`content` input shape, lock
+        // and unlock carry only the `lockableId` (v1 omits lockReason).
+        let cases: Vec<(Mutation, &str, serde_json::Value)> = vec![
+            (
+                Mutation::AddReaction,
+                "addReaction",
+                serde_json::json!({ "input": { "subjectId": "I_1", "content": "HEART" } }),
+            ),
+            (
+                Mutation::RemoveReaction,
+                "removeReaction",
+                serde_json::json!({ "input": { "subjectId": "C_7", "content": "EYES" } }),
+            ),
+            (
+                Mutation::LockIssue,
+                "lockLockable",
+                serde_json::json!({ "input": { "lockableId": "I_1" } }),
+            ),
+            (
+                Mutation::UnlockIssue,
+                "unlockLockable",
+                serde_json::json!({ "input": { "lockableId": "I_1" } }),
+            ),
+        ];
+        for (mutation, op, variables) in cases {
+            let http = Arc::new(MockHttp::ok(200, r#"{"data":{}}"#));
+            let spec = FetchSpec {
+                kind: Kind::PrMutation(mutation),
+                url: gql::GRAPHQL_ENDPOINT.into(),
+                etag: None,
+                ident: Some("o/r#487 probe".into()),
+                max_pages: 1,
+                variables: Some(variables.clone()),
+            };
+            let result = run_pr_mutation(http.as_ref(), &spec, mutation);
+            assert_eq!(result.status, 200, "{op}");
+            let recorded = http.recorded();
+            assert_eq!(recorded.len(), 1, "{op}");
+            let sent: serde_json::Value =
+                serde_json::from_str(recorded[0].body.as_deref().expect("POST body")).unwrap();
+            assert!(
+                sent["query"].as_str().expect("query").contains(op),
+                "{op} missing from its document"
+            );
+            assert_eq!(sent["variables"], variables, "{op} variables");
+        }
+    }
 
     #[test]
     fn apply_notifications_updates_state_etag_and_cache() {
