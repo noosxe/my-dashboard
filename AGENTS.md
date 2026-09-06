@@ -84,7 +84,7 @@ input injection. It is the primary way to verify UI-facing changes.
   `tree` as a bug in the element, not in the bridge.
 - After a `--no-default-features` build, rebuild with default features
   before launching the app (the bridge-less binary overwrites
-  `target/debug/dashboard`).
+  `target/debug/my-dashboard`).
 - Don't leave `logs -f` running when you're done.
 
 The full protocol — all commands, parameters and error codes — is

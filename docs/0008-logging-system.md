@@ -184,8 +184,9 @@ the pre-logger boot path and the fallback ladder.
 
 ## 7. Acceptance criteria
 
-- Fresh launch writes `<data_dir>/logs/dashboard_rCURRENT.log` (the live
-  file under `Naming::Numbers`; rotated files are `dashboard_r0000N.log`)
+- Fresh launch writes `<data_dir>/logs/my-dashboard_rCURRENT.log` (the
+  live file under `Naming::Numbers`; rotated files are
+  `my-dashboard_r0000N.log`; the basename follows the binary rename in #147)
   with the boot info lines; closing the app leaves a complete file
 - Run from a terminal: error/warn/info mirror to stderr; `RUST_LOG=
   dashboard_module_github=debug` shows fetch request/response lines
