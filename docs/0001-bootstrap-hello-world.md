@@ -320,6 +320,10 @@ publish = false
 name = "dashboard"
 path = "src/main.rs"
 
+
+> Historical excerpt: the binary was later renamed to `my-dashboard` when
+> the installable flake landed (#147); `name = "dashboard"` above is the
+> bootstrap-era value.
 [dependencies]
 anyhow.workspace = true
 gpui.workspace = true

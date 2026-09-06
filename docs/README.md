@@ -84,8 +84,10 @@ Core requirements (owner, 2026-08-28 — drive the design, not decisions):
 
 - ~~0004 — State management & persistence~~ → implemented (PR #13)
 - 0005 — First real module: GitHub → design drafted, see doc 0005 above
-- Build, packaging & distribution per OS — design not yet written (the
-  0006 number was reused by the settings doc; this takes the next free
-  number when written)
+- Build, packaging & distribution per OS — the **NixOS/home-manager path
+  ships without a design doc** (flake package + overlay + NixOS/HM modules
+  + root README install guide, #147); full cross-OS packaging (macOS/
+  Windows, binary caches, release CI) still takes the next free number
+  when written (0006 was reused by the settings doc)
 - ~~File-based color themes~~ → design drafted, see doc 0025 above (tracked
   in #23)

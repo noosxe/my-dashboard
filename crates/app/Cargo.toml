@@ -7,7 +7,9 @@ rust-version.workspace = true
 publish = false
 
 [[bin]]
-name = "dashboard"
+# Generic "dashboard" is a poor global PATH name — the flake installs
+# everything as my-dashboard (#147).
+name = "my-dashboard"
 path = "src/main.rs"
 
 [dependencies]

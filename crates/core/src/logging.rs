@@ -27,10 +27,10 @@ pub const DEFAULT_SPEC: &str =
     "warn,dashboard_app=info,dashboard_core=info,dashboard_module_github=info";
 
 /// Log file basename (docs/0008 D2). With `Naming::Numbers` rotation the
-/// live file is `dashboard_rCURRENT.log` and rotated files
-/// `dashboard_r00000.log`…`dashboard_r00004.log` (rotation replaces the
-/// timestamp infix with a serial number).
-const BASENAME: &str = "dashboard";
+/// live file is `my-dashboard_rCURRENT.log` and rotated files
+/// `my-dashboard_r00000.log`…`my-dashboard_r00004.log` (rotation replaces
+/// the timestamp infix with a serial number).
+const BASENAME: &str = "my-dashboard";
 const ROTATE_BYTES: u64 = 1024 * 1024;
 const KEEP_FILES: usize = 5;
 
