@@ -205,7 +205,10 @@ events count) and the probe tests carry the automated share.
 
 - Cross-referenced / referenced event rows (interactive, `source` resolution).
 - Locked/unlocked rows (with #121).
-- Unify the "+N more" cap-row component with #123's comments cap row.
+- ~~Unify the "+N more" cap-row component with #123's comments cap row.~~
+  Done with #123 (2026-09-06): the row is now the shared
+  `pr_page::cap_row`, and the PR conversation grew the same row
+  (0016 §12).
 
 ---
 

@@ -500,7 +500,37 @@ With the app running, a repo selected, an open PR present:
 - Split-view diff, intra-line diff highlighting, syntax highlighting via the
   upstream `highlighter`.
 - In-app check-run log viewer.
-- "+N more" pagination for commits/reviews/comments/files beyond the first-100
-  / REST caps (adjacent to #87).
+- ~~"+N more" pagination for commits/reviews/comments/files beyond the
+  first-100 / REST caps (adjacent to #87).~~ Comments and reviews now
+  surface the shared cap row (2026-09-06, #123: muted "+N more on
+  github.com", id `pr-comments-more`, opens the PR upstream; commits
+  and files keep their own caps). In-app pagination remains a possible
+  later upgrade.
 - Review threads (line comments), draft reviews, review dismissal.
 - Delete-branch-after-merge checkbox in the merge panel.
+
+---
+
+## 12. Shipped (2026-09-06, issue #123 — conversation cap row)
+
+The PR conversation surfaces its connection caps: when `comments` or
+`reviews` truncate at `first: 100`, a muted "+N more on github.com" row
+closes the timeline. Notes beyond §11's follow-up line:
+
+- **Shared component** (`pr_page::cap_row`): one builder for every
+  capped connection — the issue page's events row (docs/0021 D3) now
+  renders through it too, so the two pages cannot drift. `missing` is
+  the caller's sum of shortfalls (comments + reviews here; disjoint
+  node sets, so the sum is the honest hidden count).
+- **Reviews counted too**: §11 named comments, but the reviews
+  connection caps identically and its rows live in the same timeline —
+  hiding them silently would be the same bug.
+- **Row identity**: id `pr-comments-more` (0010 D10), ghost button,
+  `open_url` to the PR upstream. In-app pagination (Load-more) stays a
+  possible later upgrade; the hint row is the #87-cheap pattern the
+  issue blessed at pick-up.
+- **No query change**: `totalCount` was already fetched for both
+  connections (0016 D1); this PR is render-side only.
+- **Testing**: probe test — absent when every node is on the page,
+  present after a refetch that truncates both connections; the issue
+  page gains a comments-only-truncation arm on its existing cap test.
