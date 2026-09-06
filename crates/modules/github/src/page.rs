@@ -279,16 +279,19 @@ impl GithubPage {
             .collect();
         if let Some(labels) = reconcile_repo_crumb(&derived, &current) {
             log::debug!("repo crumb synced: {current:?} -> {labels:?}");
-            // With a PR open, the repo crumb becomes the back-nav anchor
-            // (docs/0014 deferred this `on_click` to the sub-pages doc;
-            // the `#number` crumb is current-location, non-clickable).
-            let pr_open = pr_number.is_some() || self.creator_open;
+            // With a sub-page open (PR/issue/creator/notification), the repo
+            // crumb becomes the back-nav anchor: whichever page is open
+            // yields to the repo view on click. The `#number` /
+            // `· notification` crumb is current-location, non-clickable
+            // (docs/0014 deferred the `on_click` to the sub-pages docs).
+            let sub_page_open =
+                pr_number.is_some() || self.creator_open || self.notification.is_some();
             let page = cx.entity();
             let crumbs: Vec<Crumb> = labels
                 .into_iter()
                 .enumerate()
                 .map(|(ix, label)| {
-                    if ix == 0 && pr_open {
+                    if ix == 0 && sub_page_open {
                         let page = page.clone();
                         Crumb {
                             label,
