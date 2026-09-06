@@ -828,6 +828,18 @@ fn notification_url(repo_full_name: &str) -> String {
     format!("https://github.com/{repo_full_name}/notifications")
 }
 
+/// The "+N more on GitHub" tail for capped row lists (0007 D2, #87):
+/// the snapshot carries the server's exact `total_count` next to the
+/// first-100 `nodes`, so the overflow is `total − rendered` whenever the
+/// cap bit. `None` renders nothing — repos under the cap look exactly
+/// as before. `rendered` is the node slice the query capped at 100, so
+/// the arithmetic fits either side of the i64/usize border. Pure —
+/// table-tested.
+fn more_hint_count(total_count: i64, rendered: usize) -> Option<usize> {
+    let rendered = rendered as i64;
+    (total_count > rendered).then(|| (total_count - rendered) as usize)
+}
+
 /// Resolve the org choice after the login list changes (0009 D6): keep the
 /// current org when it still exists, otherwise fall back to the first
 /// login (the personal account, Q10). Pure — table-tested.
@@ -1222,6 +1234,12 @@ impl GithubPage {
                             v_flex()
                                 .gap_0p5()
                                 .children(prs.iter().map(|p| self.render_pr_row(p, cx)))
+                                // #87: the title already says the exact count;
+                                // the tail cell says what the cap swallowed.
+                                .when_some(
+                                    more_hint_count(repo.prs.total_count, prs.len()),
+                                    |col, n| col.child(more_cell(n, "repo-prs-more", cx)),
+                                )
                                 .into_any_element()
                         }),
                 )
@@ -1235,6 +1253,11 @@ impl GithubPage {
                             v_flex()
                                 .gap_0p5()
                                 .children(issues.iter().map(|i| self.render_issue_row(i, cx)))
+                                // #87, mirroring prs-box.
+                                .when_some(
+                                    more_hint_count(repo.issues.total_count, issues.len()),
+                                    |col, n| col.child(more_cell(n, "repo-issues-more", cx)),
+                                )
                                 .into_any_element()
                         }),
                 )
@@ -1273,13 +1296,31 @@ fn private_lock(color: gpui::Hsla) -> Icon {
     Icon::empty().path(REPO_LOCK).size_3().text_color(color)
 }
 fn muted_cell(text: &str, cx: &Context<GithubPage>) -> AnyElement {
-    div()
+    muted_cell_keyed(text.to_string(), None, cx)
+}
+
+/// The #87 tail cell — same muted styling, but probe-visible (0010 D10:
+/// `debug_bounds` sees only `debug_selector` keys; a bare div is invisible
+/// to probes).
+fn more_cell(n: usize, key: &'static str, cx: &Context<GithubPage>) -> AnyElement {
+    muted_cell_keyed(format!("+{n} more on GitHub"), Some(key), cx)
+}
+
+fn muted_cell_keyed(
+    text: String,
+    key: Option<&'static str>,
+    cx: &Context<GithubPage>,
+) -> AnyElement {
+    let cell = div()
         .px_2()
         .py_1p5()
         .text_sm()
-        .text_color(cx.theme().muted_foreground)
-        .child(text.to_string())
-        .into_any_element()
+        .text_color(cx.theme().muted_foreground);
+    let cell = match key {
+        Some(k) => cell.debug_selector(move || k.to_string()),
+        None => cell,
+    };
+    cell.child(text).into_any_element()
 }
 
 /// The §6.2 connect panel — owns the page until the app is connected.
@@ -1423,8 +1464,8 @@ mod tests {
     // `test` re-export would shadow the builtin `#[test]` attribute and
     // blow the proc-macro stack (rustc SIGSEGV). Import selectively.
     use super::{
-        GithubPage, IndexPath, RepoListDelegate, create_allowed, next_org_selection,
-        notification_url, reconcile_repo_crumb, repo_crumb_label,
+        GithubPage, IndexPath, RepoListDelegate, create_allowed, more_hint_count,
+        next_org_selection, notification_url, reconcile_repo_crumb, repo_crumb_label,
     };
     use crate::gql;
     use gpui::AppContext as _;
@@ -1594,6 +1635,92 @@ mod tests {
         });
     }
 
+    /// #87, rendered: a repo past the 100-row cap shows the muted
+    /// "+N more on GitHub" tail in the capped box only; the box at the
+    /// cap and everything under it stay exactly as before.
+    #[gpui::test]
+    fn more_hint_renders_only_past_the_cap(cx: &mut TestAppContext) {
+        use std::sync::Arc;
+
+        use crate::auth::MockTokenStore;
+        use crate::http::{Http, SharedToken, mock::MockHttp};
+        use crate::service::{GithubCache, GithubState};
+        use dashboard_core::nav::Navigator;
+        use dashboard_core::paths::AppPaths;
+
+        cx.update(gpui_component::init);
+        cx.update(dashboard_core::status::init);
+        // Two scripted failures: attaching the page + the select sync
+        // may fire specs; results are never read.
+        let state = cx.update(|cx| {
+            let client: Arc<dyn Http> = Arc::new(MockHttp::new(vec![
+                Err(crate::http::HttpError("probe".into())),
+                Err(crate::http::HttpError("probe".into())),
+            ]));
+            let shared: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let refresh: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            cx.new(|_| {
+                GithubState::new(
+                    client,
+                    Arc::new(MockTokenStore::with("t0k".into())),
+                    shared,
+                    refresh,
+                    GithubCache::new(AppPaths::init()),
+                )
+            })
+        });
+        // Connected + one repo over the cap on issues, exactly at it on
+        // PRs (docs/0007 D2: 100-node page + exact total). Nodes exist —
+        // the hint lives in the non-empty branch, beside real rows.
+        let mut r = repo("acme/one", None);
+        r.prs.total_count = 2; // == nodes.len(): under the cap, no hint
+        r.prs.nodes = (0..2)
+            .map(|i| gql::PullRequest {
+                key: format!("acme/one#{i}"),
+                database_id: None,
+                number: i,
+                title: "p".into(),
+                draft: false,
+                state: None,
+                author: None,
+                updated_at: None,
+                url: "https://probe".into(),
+                status: None,
+            })
+            .collect();
+        r.issues.total_count = 137;
+        r.issues.nodes = (0..2)
+            .map(|i| gql::Issue {
+                key: format!("acme/one#{i}"),
+                database_id: None,
+                number: i,
+                title: "i".into(),
+                author: None,
+                updated_at: None,
+                url: "https://probe".into(),
+            })
+            .collect();
+        cx.update(|cx| {
+            state.update(cx, |s, cx| {
+                s.auth = crate::service::AuthStatus::Connected;
+                s.repos = vec![r];
+                s.selected = Some("acme/one".into());
+                cx.notify();
+            });
+        });
+        let nav = cx.update(|cx| cx.new(|_| Navigator::default()));
+        let (_, vcx) = cx
+            .add_window_view(|window, cx| GithubPage::new(state.clone(), nav.clone(), window, cx));
+        let _ = vcx.debug_bounds("repo-prs-more"); // flush frames
+        assert!(
+            vcx.debug_bounds("repo-prs-more").is_none(),
+            "PRs under the cap (2/2) carry no hint"
+        );
+        assert!(
+            vcx.debug_bounds("repo-issues-more").is_some(),
+            "issues 137/100 shows the +37 more cell under the rows"
+        );
+    }
     /// Module-crumb re-entry (docs/0014 §5 D7, issue #100):
     /// `return_to_root` drops the repo selection (state + List
     /// highlight) and closes the PR sub-page; the navigator is left
@@ -1796,6 +1923,17 @@ mod tests {
         // Node id unknown (pre-0024 cache) → hidden until a fetch lands.
         r.node_id = None;
         assert!(!create_allowed(&r, true));
+    }
+
+    #[test]
+    fn more_hint_counts_only_past_the_cap() {
+        // #87: `total − rendered` whenever the 100-row cap bit;
+        // `None` otherwise — repos under the cap are untouched.
+        assert_eq!(more_hint_count(137, 100), Some(37));
+        assert_eq!(more_hint_count(101, 100), Some(1));
+        assert_eq!(more_hint_count(100, 100), None);
+        assert_eq!(more_hint_count(5, 100), None);
+        assert_eq!(more_hint_count(0, 0), None);
     }
 
     #[test]
