@@ -48,7 +48,8 @@ use crate::gql;
 use crate::markdown;
 use crate::page::relative_age;
 use crate::pr_page::{
-    ErrorScope, MutationError, body_card, delete_confirm_card, inline_edit_card, split_repo,
+    ErrorScope, MutationError, body_card, cap_row, delete_confirm_card, inline_edit_card,
+    split_repo,
 };
 use crate::service::{FetchSpec, GithubState, Kind, Mutation, run_mutation, run_spec_tracked};
 
@@ -1168,30 +1169,16 @@ impl IssueDetailPage {
         d: &gql::IssueDetail,
         cx: &Context<Self>,
     ) -> Option<AnyElement> {
+        // #123 / 0021 D3: one row for both capped connections — events
+        // and comments are disjoint node sets, so the sum is the honest
+        // hidden-row count. The row itself is the shared cap component
+        // (0016 §11, also covers the PR conversation).
         let missing = (d.events_total - d.events.len() as i64).max(0)
             + (d.comments.total_count - d.comments.nodes.len() as i64).max(0);
         if missing <= 0 {
             return None;
         }
-        Some(
-            h_flex()
-                .debug_selector(|| "issue-events-more".into())
-                .justify_center()
-                .text_sm()
-                .text_color(cx.theme().muted_foreground)
-                .child(
-                    Button::new("issue-events-more")
-                        .ghost()
-                        .small()
-                        .label(format!("+{missing} more on github.com"))
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            if let Some(detail) = this.detail.as_ref() {
-                                cx.open_url(&detail.url);
-                            }
-                        })),
-                )
-                .into_any_element(),
-        )
+        Some(cap_row("issue-events-more", missing, &d.url, cx))
     }
 
     /// The comment box (0020 D4): draft Textarea + submit. A body is
@@ -2062,6 +2049,31 @@ mod tests {
             etag: None,
             rate: None,
             body: Some(capped.to_string()),
+            network: None,
+            cursor: None,
+        };
+        vcx.update(|_, cx| {
+            page.update(cx, |page, cx| page.apply_detail_result(result, cx));
+        });
+        assert!(vcx.debug_bounds("issue-events-more").is_some());
+        // #123: comments-only truncation arms the same row — the events
+        // page is empty (filteredCount 0) and the count is the comment
+        // shortfall alone (105 - 1 visible).
+        let comments_capped = r#"{"data":{"repository":{"issue":{"id":"I_9",
+            "number":487,"title":"t","url":"u","state":"OPEN",
+            "comments":{"totalCount":105,"nodes":[{"id":"IC_1",
+            "viewerCanUpdate":true,"viewerCanDelete":false,
+            "author":{"login":"dave"},"body":"nice",
+            "createdAt":"2026-09-03T01:00:00Z"}]},
+            "timelineItems":{"totalCount":0,"filteredCount":0,
+            "nodes":[]}}}}}"#;
+        let result = SpecResult {
+            kind: Kind::IssueDetail,
+            ident: Some("o/r".into()),
+            status: 200,
+            etag: None,
+            rate: None,
+            body: Some(comments_capped.to_string()),
             network: None,
             cursor: None,
         };

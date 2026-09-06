@@ -1485,6 +1485,14 @@ impl PrDetailPage {
                 }
             }
         }
+        // #123: both connections cap at first: 100 — hidden rows surface
+        // as the shared cap row (disjoint sets, so the sum is the honest
+        // hidden count; 0021 D3).
+        let missing = (d.comments.total_count - d.comments.nodes.len() as i64).max(0)
+            + (d.reviews.total_count - d.reviews.nodes.len() as i64).max(0);
+        if missing > 0 {
+            children.push(cap_row("pr-comments-more", missing, &d.url, cx));
+        }
         if d.comments.nodes.is_empty() && d.reviews.nodes.is_empty() {
             children.push(muted_centered("No conversation yet", cx));
         }
@@ -2571,6 +2579,31 @@ fn muted_centered(text: &str, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
+/// #123 / docs/0021 D3 — the shared "+N more on github.com" truncation
+/// row. Every capped connection surfaces as this one muted ghost row;
+/// `missing` is the caller's honest hidden-row count (disjoint node
+/// sets sum their shortfalls). The only affordance is opening the
+/// upstream page — in-app pagination stays out of scope (#87 is the
+/// same pattern on the repo view).
+pub(crate) fn cap_row(id: &'static str, missing: i64, url: &str, cx: &App) -> AnyElement {
+    h_flex()
+        .debug_selector(move || id.to_string())
+        .justify_center()
+        .text_sm()
+        .text_color(cx.theme().muted_foreground)
+        .child(
+            Button::new(id)
+                .ghost()
+                .small()
+                .label(format!("+{missing} more on github.com"))
+                .on_click({
+                    let url = url.to_string();
+                    move |_, _, cx| cx.open_url(&url)
+                }),
+        )
+        .into_any_element()
+}
+
 /// Files tab (D8): summary line + per-file collapsible cards with the
 /// parsed diff body. The REST fetch is lazy — `fetch_files` fires on the
 /// first Files-tab selection, so opening the page never costs a walk.
@@ -2932,6 +2965,68 @@ mod tests {
                 page.timeline_edit = None;
             });
         });
+    }
+
+    /// #123: the shared cap row appears only when a connection was
+    /// truncated, and its id/role survive on the PR page.
+    #[gpui::test]
+    fn cap_row_covers_truncated_connections(cx: &mut gpui::TestAppContext) {
+        cx.update(gpui_component::init);
+        let state = cx.update(|cx| {
+            let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
+            let store: std::sync::Arc<dyn crate::auth::TokenStore> =
+                std::sync::Arc::new(ProbeStore);
+            cx.new(|_| {
+                GithubState::new(
+                    client,
+                    store,
+                    Default::default(),
+                    Default::default(),
+                    GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                )
+            })
+        });
+        let (page, vcx) = cx.add_window_view(|window, cx| {
+            let summary = gql::PullRequest {
+                key: "o/r#7".into(),
+                database_id: None,
+                number: 7,
+                title: "cap probe".into(),
+                draft: false,
+                state: None,
+                author: None,
+                updated_at: None,
+                url: "https://probe".into(),
+                status: None,
+            };
+            let mut page = PrDetailPage::new(state, "o/r".into(), summary, window, cx);
+            page.detail = Some(probe_detail());
+            page.md = build_md_cache(page.detail.as_ref().unwrap());
+            page
+        });
+        // probe_detail() carries every node it counts — nothing hidden.
+        assert!(vcx.debug_bounds("pr-comments-more").is_none());
+
+        // A refetch that truncates both connections arms the row; the
+        // count sums both shortfalls (210-0 comments, 105-0 reviews).
+        let capped = r#"{"data":{"repository":{"pullRequest":{"id":"PR_2",
+            "number":7,"title":"t","url":"u",
+            "reviews":{"totalCount":105,"nodes":[]},
+            "comments":{"totalCount":210,"nodes":[]}}}}}"#;
+        let result = SpecResult {
+            kind: Kind::PrDetail,
+            ident: Some("o/r".into()),
+            status: 200,
+            etag: None,
+            rate: None,
+            body: Some(capped.to_string()),
+            network: None,
+            cursor: None,
+        };
+        vcx.update(|_, cx| {
+            page.update(cx, |page, cx| page.apply_detail_result(result, cx));
+        });
+        assert!(vcx.debug_bounds("pr-comments-more").is_some());
     }
 
     #[gpui::test]

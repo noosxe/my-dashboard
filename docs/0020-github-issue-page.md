@@ -72,8 +72,10 @@ Out (non-goals):
 - No title editing (body only — PR page parity). Follow-up.
 - No reactions, locking, issue creation, pinning, or transfer.
 - No data-colored label chips in v1 (muted name chips; see §4 Q2).
-- No pagination beyond the first 100 comments (GraphQL `first: 100`); the
-  "+N more" hint stays with #87.
+- No pagination beyond the first 100 comments (GraphQL `first: 100`);
+  truncation now surfaces as the "+N more on github.com" row (2026-09-06,
+  #123 — the events cap row sums the comment shortfall, and the PR page
+  mirrors it in 0016 §12). In-app paging stays with #87.
 - Session-only state (nothing enters `shell.json`, the snapshot cache, or a
   new cache). No cadence change: the detail query runs on open, refresh, and
   post-mutation only — background ticks do not touch the open page.
