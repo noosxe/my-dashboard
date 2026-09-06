@@ -2317,24 +2317,39 @@ impl IssueDetailPage {
                                 .unwrap_or(0);
                             let subject = subject_id.clone();
                             let item_weak = weak.clone();
+                            let probe = format!("issue-reaction-pick-{}", content.wire());
                             next = next.item(
-                                PopupMenuItem::new(format!(
-                                    "{} {} ({})",
-                                    content.glyph(),
-                                    content.label(),
-                                    count
-                                ))
+                                PopupMenuItem::element(move |_, _| {
+                                    // Probe-visible row (0010 D10) — the
+                                    // plain Item variant is not.
+                                    let key = probe.clone();
+                                    h_flex()
+                                        .debug_selector(move || key.clone())
+                                        .gap_2()
+                                        .child(format!(
+                                            "{} {} ({})",
+                                            content.glyph(),
+                                            content.label(),
+                                            count
+                                        ))
+                                        .when(armed, |row| row.child("· you"))
+                                })
                                 .checked(armed)
                                 .disabled(busy)
-                                .on_click(move |_, _, cx| {
-                                    let _ = item_weak.update_in(cx, |page, window, cx| {
-                                        page.toggle_reaction(
-                                            subject.clone(),
-                                            armed,
-                                            content,
-                                            window,
-                                            cx,
-                                        )
+                                .on_click(move |_, window, cx| {
+                                    // The click dispatches inside the window's
+                                    // update — any re-entrant window update here
+                                    // fails ("window not found"). Defer to the end
+                                    // of the effect cycle, then post from the live
+                                    // context (the page.rs spawn pattern, inline).
+                                    let weak = item_weak.clone();
+                                    let subject = subject.clone();
+                                    window.defer(cx, move |window, cx| {
+                                        let _ = weak.update(cx, |page, cx| {
+                                            page.toggle_reaction(
+                                                subject, armed, content, window, cx,
+                                            )
+                                        });
                                     });
                                 }),
                             );
@@ -3018,8 +3033,8 @@ mod tests {
     // No `use super::*` — page.rs documents the gpui::* shadowing hazard.
     use crate::gql;
     use crate::issue_page::{
-        CloseReason, IssueBadgeTone, IssueBusyOp, IssueDetailPage, RailEditor, TimelineRow,
-        assignee_rows, assignees_edit_arming, build_issue_md_cache, close_allowed,
+        CloseReason, ErrorScope, IssueBadgeTone, IssueBusyOp, IssueDetailPage, RailEditor,
+        TimelineRow, assignee_rows, assignees_edit_arming, build_issue_md_cache, close_allowed,
         close_reason_from_label, comment_submit_allowed, composer_visible, compute_replace_ids,
         event_sentence, issue_badge, label_rows, labels_edit_arming, lock_gate, lock_reason_label,
         milestone_edit_arming, milestone_rows, reaction_chips, reaction_direction, reopen_allowed,
@@ -3974,6 +3989,33 @@ mod tests {
                 );
                 assert_eq!(page.busy, Some(IssueBusyOp::ToggleReaction));
                 page.busy = None;
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn reaction_menu_item_click_commits(cx: &mut gpui::TestAppContext) {
+        let (page, vcx) = probe_page(cx);
+        // Real click on the + trigger opens the component-owned menu.
+        let add = vcx
+            .debug_bounds("issue-reaction-row-add")
+            .expect("+ row visible");
+        vcx.simulate_click(add.center(), gpui::Modifiers::default());
+        let _ = vcx.debug_bounds("issue-reaction-row-THUMBS_UP"); // flush frames
+        let row0 = vcx
+            .debug_bounds("issue-reaction-pick-THUMBS_UP")
+            .expect("menu row visible");
+        vcx.simulate_click(row0.center(), gpui::Modifiers::default());
+        // the handler defers to the end of the effect cycle — flush it
+        let _ = vcx.debug_bounds("issue-reaction-pick-THUMBS_UP");
+        vcx.update(|_, cx| {
+            page.update(cx, |page, _| {
+                // The full chain ran: deferred post → ProbeHttp failed it →
+                // the scoped error landed (D3: reaction errors stay on the
+                // Timeline slot). busy already cycled back to None.
+                let err = page.mutation_error.as_ref().expect("deferred post applied");
+                assert_eq!(err.scope, ErrorScope::Timeline);
+                assert!(err.message.contains("Network error"), "{:?}", err.message);
             });
         });
     }
