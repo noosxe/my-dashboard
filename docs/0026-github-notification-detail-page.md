@@ -4,9 +4,9 @@ Part of the GitHub module's page family (0016/0020/0024): clicking a
 notification row in the repo view opens an in-app notification page instead
 of handing off to the browser. The page shows the notification's content
 (subject, kind, reason, freshness, read state), **automatically marks the
-notification as seen when opened**, and exposes the read state — with one
-upstream constraint the owner must sign off on (§4 Q1: GitHub's API has no
-"mark as unread").
+notification as seen when opened**, and exposes the read state — within
+the upstream constraint that GitHub's API has no "mark as unread"
+(§2.3), resolved by owner decision in §4: do what GitHub itself does.
 
 ## 1. Summary
 
@@ -99,9 +99,12 @@ them today — §2.2). The repo-view list keeps rendering exactly as before.
 
 ### D3 — Auto mark-as-seen on open (the feature's core)
 
-On open, the page fires `PATCH /notifications/threads/{id}` and optimistically
-flips its local `unread` to `false` (the read state is rendered from the
-page's own field, not from the list). New `Kind::ThreadMutation(ThreadOp)`
+The instant the page starts loading its contents (owner decision, §4.3) it
+fires `PATCH /notifications/threads/{id}` — before the thread GET returns,
+the two requests in parallel — and optimistically flips its local `unread`
+to `false` (the read state is rendered from the page's own field, not from
+the list).
+New `Kind::ThreadMutation(ThreadOp)`
 with `ThreadOp::MarkRead` (and `MarkDone` reserved — §7): the transport
 extension is a REST lane with a method, since `FetchSpec` is GET-only and
 every existing mutation is GraphQL. 205 and 204 are success; non-2xx is a
@@ -120,8 +123,8 @@ the retry when the auto-mark failed. **There is no "mark as unread".**
 Rationale: upstream has no such endpoint (§2.3) and GitHub's inbox doesn't
 either; a local-only unread flag would desync from github.com and lie to
 the user. The owner asked for a read/unread toggle — this is the one place
-the feature as stated collides with the API, and §4 Q1 asks for sign-off.
-
+the feature as stated collides with the API. Owner decision (§4.1): do
+what GitHub itself does — display + mark-read only.
 ### D5 — The ↗ browser button: kind-aware web URL, safe fallback
 
 Header ↗ (0016 pattern) derives the web URL from `subject.url` per kind —
@@ -142,8 +145,9 @@ stays unused this round (filed §7).
 
 When the subject is `Issue`/`PullRequest` and the number parses out of
 `subject.url`, the page shows an **`Open #n`** button that closes the
-notification page and opens the native detail page via the existing
-`open_issue`/`open_pr` with a synthesized minimal row (key
+`subject.url`, the page links to the native page — an **`Open #n`** link
+(the subject title links the same way, owner decision §4.2) that closes
+the notification page and opens the native detail page via the existing
 `{full_name}#{n}`, number, title; author `None`, age from the thread) —
 both pages already fetch full detail on open, so the seed is display-only.
 Other kinds get no in-app hand-off (§2.5): metadata + ↗ is the whole page.
@@ -157,20 +161,17 @@ Other kinds get no in-app hand-off (§2.5): metadata + ↗ is the whole page.
   management, notification settings. The repo-view list remains the unread
   list it is today.
 
-## 4. Questions for the owner (blocking §4-level answers before implementation)
+## 4. Owner decisions (2026-09-07, PR #150 review — all three resolved)
 
-1. **No-unread constraint (D4):** GitHub's API cannot mark a thread
-   unread — accept the design as stated (display + mark-read only), or
-   want a local-only unread toggle anyway (desyncs from github.com; we
-   recommend against)?
-2. **`Open #n` hand-off (D6):** should the notification page hand off to
-   the native issue/PR pages this way, or should Issue/PR subjects skip the
-   notification page entirely and open the native page directly on row
-   click (with the mark-read on the way)?
-3. **Auto-seen timing (D3):** mark-as-read fires on open, before any
-   content is read — GitHub's own behavior ("equivalent to clicking").
-   Confirm there is no desire for a delayed/confirm variant.
-
+1. **No-unread constraint (D4):** go with what GitHub itself does — the
+   page displays read state and offers mark-read only; no local-only
+   unread toggle.
+2. **Hand-off (D6):** proper notification pages for every kind; Issue/PR
+   subjects carry links leading to the in-app PR/issue pages (no
+   direct-to-native row routing).
+3. **Auto-seen timing (D3):** mark-as-read fires as soon as the page
+   starts loading its contents — before content arrives (GitHub's own
+   click semantics; no delayed/confirm variant).
 ## 5. Implementation plan (one PR, after this doc merges)
 
 1. `api.rs`: extend `Subject`/`Notification` (serde defaults); add
