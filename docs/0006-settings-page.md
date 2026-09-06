@@ -230,11 +230,11 @@ All paths relative to the gpui-component checkout.
 - The module settings provider receives `(&mut Window, &mut App)`; the
   GitHub page reads its state entity through `&App` when building the
   page, so rows are live on every settings render.
-- **Bundled dark palette (owner request):** `Catppuccin Mocha` (sapphire
-  accent) ships at `crates/core/assets/themes/catppuccin-mocha.json`, is
-  registered into the `ThemeRegistry` at boot, and is installed into the
-  `Theme` global's **dark slot** — the factory dark palette. A persisted
-  `theme_name_dark` or a Dark-palette picker choice overrides it.
+- **Bundled palettes (superseded by docs/0025):** the bundled Mocha was
+  removed with file-based color themes — the bundle is the library's
+  `Default Light` / `Default Dark` only, and user palettes come from
+  `<config>/themes/`. A persisted `theme_name_dark` or a Dark-palette
+  picker choice overrides the default.
 - **Slot palettes, orthogonal mode (owner request):** the single theme
   picker became two pickers — **Light palette** and **Dark palette** —
   whose options are filtered by the theme's own mode. A choice writes

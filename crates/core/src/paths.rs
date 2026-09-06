@@ -141,6 +141,12 @@ impl AppPaths {
         self.state.join("settings.json")
     }
 
+    /// User theme files (`<config>/themes/`, docs/0025 D1). Created on
+    /// demand by the theme watcher.
+    pub fn themes_dir(&self) -> PathBuf {
+        self.config.join("themes")
+    }
+
     /// Shell UI state file (`<state>/shell.json`, docs/0004 §4.3).
     pub fn shell_state_file(&self) -> PathBuf {
         self.state.join("shell.json")

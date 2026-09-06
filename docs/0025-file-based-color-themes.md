@@ -45,6 +45,14 @@ files.
   vanished leaves the previously installed config in place.
 - `sorted_themes()`: `is_default` first, light before dark, then name —
   the two defaults float to the top of any picker.
+- **Found during implementation:** `init_default_themes` is **private**,
+  and `ThemeConfig`/`ThemeSet` are `Serialize + Clone` — so a rebuild
+  restores the defaults by replaying a serialized snapshot of the
+  pristine pair through `load_themes_from_str` (see D5). The private
+  `default_themes` fallback map is not repopulated by that path; its
+  only read outside `Theme::change`'s never-taken fresh-bootstrap
+  branch was this crate's Appearance page, which now uses fixed-name
+  constants (D9).
 
 ## 3. Design
 
@@ -83,14 +91,16 @@ makes a persisted *user* theme resolve on the very first frame.
 **D5 — Hot reload: rebuild, don't merge.** Upstream `reload()` is
 add-only (§2), which would make edits/removals need a restart. Instead,
 the `watch_dir` `on_load` callback runs our own rebuild:
-`cx.set_global(ThemeRegistry::default())` → `init_default_themes()` →
-load every dir file (per-file tolerance, D7) → let the library's
+`cx.set_global(ThemeRegistry::default())` → replay the bundled defaults
+→ load every dir file (per-file tolerance, D7) → let the library's
 `observe_global` re-resolve the active slots by name and refresh windows.
-Fresh-global rebuild gives full add/edit/remove semantics; re-running
-`init_default_themes` restores the defaults and the fallback pair; the
-library observer does the re-styling. The initial `on_load` (watcher
-spawn re-loads once) is an idempotent duplicate of D4's walk — accepted,
-files are tiny.
+Fresh-global rebuild gives full add/edit/remove semantics; the library
+observer does the re-styling. The initial `on_load` (watcher spawn
+re-loads once) is an idempotent duplicate of D4's walk — accepted, files
+are tiny. As shipped, the defaults are restored from a boot-time
+serialized snapshot of the pristine pair (`init_default_themes` being
+private, §2); the fallback map stays empty, which nothing reads at
+runtime (D9).
 
 **D6 — Collision precedence: first registration wins.** `Default Light` /
 `Default Dark` are registered before any user file, and both our loader
@@ -114,9 +124,12 @@ always shows the live slot config. No settings migration code.
 
 **D9 — Reset semantics unchanged (docs/0006).** Appearance Reset All
 restores `System` mode; the palette fields' `default_value`s become the
-registry defaults (`Default Light` / `Default Dark`). No new UI: the
-picker rebuilds per render from `sorted_themes()`, so reloaded themes
-appear (and disappear) without Appearance-specific code.
+bundled default names. No new UI: the picker rebuilds per render from
+`sorted_themes()`, so reloaded themes appear (and disappear) without
+Appearance-specific code. As shipped, the defaults are name constants
+(`DEFAULT_LIGHT_NAME`/`DEFAULT_DARK_NAME`) rather than
+`default_light_theme()`/`default_dark_theme()` lookups — the fallback
+map those getters read is not repopulated after a rebuild (§2, D5).
 
 **D10 — Whiskers out of scope (#143).** No Catppuccin flavor is bundled
 or shipped with this design; the `.tera` template, the four generated
@@ -129,10 +142,11 @@ reference for that work.
 `crates/core/src/settings.rs` is the only code site (plus deletions):
 
 1. Remove `CATPPUCCIN_MOCHA*`, `install_bundled_theme`, and the asset.
-2. Add `themes_dir()` (AppPaths config dir + `themes`), a `load_dir`
-   walk (read flat `*.json`, parse `ThemeSet`, insert with
-   first-registration semantics, log per-file failures), and the
-   `rebuild` closure per D5.
+2. Add `AppPaths::themes_dir()` (config dir + `themes`), a
+   `load_themes_dir` walk (read flat `*.json`, parse `ThemeSet`, insert
+   with first-registration semantics, log per-file failures), the
+   `snapshot_bundled_defaults`/`rebuild_themes` pair per D5, and
+   `DEFAULT_*_NAME` constants per D9.
 3. `init`: values → `load_dir` → `apply_saved_theme` → spawn
    `ThemeRegistry::watch_dir(themes_dir, cx, on_load = rebuild)` — the
    spawn must tolerate a missing config path (tests run without

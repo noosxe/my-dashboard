@@ -89,7 +89,11 @@ fn main() {
 
             // Persisted app settings (theme restore — docs/0006 §4.4)
             // before any window or module exists.
-            dashboard_core::settings::init(Some(paths.settings_file()), cx);
+            dashboard_core::settings::init(
+                Some(paths.settings_file()),
+                Some(paths.themes_dir()),
+                cx,
+            );
             dashboard_core::settings::set_app_info("Dashboard", env!("CARGO_PKG_VERSION"));
             log::info!(
                 target: "dashboard_app",
