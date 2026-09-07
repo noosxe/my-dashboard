@@ -72,8 +72,8 @@ jobs:
         run: cargo fmt --all --check
       - name: cargo clippy --workspace --all-targets (zero warnings)
         run: cargo clippy --workspace --all-targets -- -D warnings
-      - name: cargo check -p my-dashboard --no-default-features (bridge-less)
-        run: cargo check -p my-dashboard --no-default-features
+      - name: cargo check -p dashboard-app --no-default-features (bridge-less)
+        run: cargo check -p dashboard-app --no-default-features
 
   test:
     # Full test suite. Verified headless-green (docs/0027 §2), but Xvfb +
