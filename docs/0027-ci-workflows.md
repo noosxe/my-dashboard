@@ -106,7 +106,7 @@ quota/eviction questions included) is deliberately out of scope: follow-up
 ### D3 — Two jobs: `lint`, `test`
 
 - `lint` — `cargo fmt --all --check`; `cargo clippy --workspace --all-targets
-  -- -D warnings`; `cargo check -p my-dashboard --no-default-features`
+  -- -D warnings`; `cargo check -p dashboard-app --no-default-features`
   (bridge-less variant stays compilable).
 - `test` — `cargo test --workspace` under `xvfb-run --auto-servernum` with a
   fresh temp `XDG_RUNTIME_DIR` (§2 explains why both are kept despite the
@@ -254,8 +254,8 @@ jobs:
         run: cargo fmt --all --check
       - name: cargo clippy --workspace --all-targets (zero warnings)
         run: cargo clippy --workspace --all-targets -- -D warnings
-      - name: cargo check -p my-dashboard --no-default-features (bridge-less)
-        run: cargo check -p my-dashboard --no-default-features
+      - name: cargo check -p dashboard-app --no-default-features (bridge-less)
+        run: cargo check -p dashboard-app --no-default-features
 
   test:
     runs-on: [self-hosted, linux, amd64]
