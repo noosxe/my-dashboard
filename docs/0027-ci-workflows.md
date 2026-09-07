@@ -46,9 +46,12 @@ written).
   assumes that baseline and installs only the remainder (D1).
 - **The runner platform is ephemeral**: one docker container per run, torn
   down after. Nothing persists between runs — no warm `target/`, no `~/.cargo`,
-  no installed packages. (First CI run on the platform confirmed missing
-  `cc`/`xvfb`; the original "persistent host" assumption behind the §5
-  provisioning list was wrong and is superseded by the in-workflow install.)
+  no installed packages. CI runs on the platform confirmed the gaps
+  progressively: missing `cc`/`xvfb` (first run), then a non-root job user
+  with no `sudo` — `apt-get` died on the lists lock with `Permission
+  denied` (second run). The original "persistent host" assumption behind a
+  §5 provisioning list was wrong and is superseded by the in-workflow
+  install plus the parity contract below.
 - **Dev-shell parity**: locally the gates run inside `nix develop` (toolchain
   frozen by `flake.lock` at 1.98.0, gpui dynamic libs on `LD_LIBRARY_PATH`,
   hermetic IBM Plex via `FONTCONFIG_FILE`). CI cannot replicate the nix parts —
@@ -174,12 +177,14 @@ Files:
 - `docs/0027-ci-workflows.md` — this doc; `docs/README.md` index row.
 
 Runner-image contract: **GitHub-ubuntu-image parity** — git (checkout),
-network (apt/crates.io/github/rustup), and the §2 build baseline
-(gcc/g++/make/binutils/CMake/pkg-config/xvfb/curl + base fonts). The
-workflow installs the GUI dev stack + `fonts-ibm-plex` itself. Until the
-docker runner images reach that parity, runs fail at the first build script
-(`cc` not found) and at `xvfb-run` — by owner decision (§4), not a workflow
-bug.
+network (apt/crates.io/github/rustup), the §2 build baseline (gcc/g++/make/
+binutils/CMake/pkg-config/xvfb/curl + base fonts), **and apt privilege**
+(root containers or passwordless sudo for the job user — what hosted
+images give their `runner` user). The workflow installs the GUI dev stack +
+`fonts-ibm-plex` itself, guarded by an explicit contract error when neither
+privilege path exists. Until the docker runner images reach that parity,
+runs fail on missing `cc`/`xvfb-run` or on the apt privilege guard — by
+owner decision (§4), not a workflow bug.
 
 `ci.yml`:
 
@@ -220,6 +225,11 @@ jobs:
         # decision, docs/0027 §4; until the images reach it, runs fail
         # on missing cc/xvfb by design).
         run: |
+          if [ "$(id -u)" -ne 0 ] && ! command -v sudo >/dev/null 2>&1; then
+            echo "::error::cannot install packages: non-root job user and no sudo on this runner image."
+            echo "::error::hosted-image parity requires root containers or passwordless sudo for the job user (docs/0027 §5)."
+            exit 1
+          fi
           SUDO="$(command -v sudo >/dev/null 2>&1 && echo sudo || true)"
           $SUDO apt-get update
           $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y \
@@ -262,6 +272,11 @@ jobs:
         # decision, docs/0027 §4; until the images reach it, runs fail
         # on missing cc/xvfb by design).
         run: |
+          if [ "$(id -u)" -ne 0 ] && ! command -v sudo >/dev/null 2>&1; then
+            echo "::error::cannot install packages: non-root job user and no sudo on this runner image."
+            echo "::error::hosted-image parity requires root containers or passwordless sudo for the job user (docs/0027 §5)."
+            exit 1
+          fi
           SUDO="$(command -v sudo >/dev/null 2>&1 && echo sudo || true)"
           $SUDO apt-get update
           $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y \
