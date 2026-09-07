@@ -59,6 +59,7 @@ cross-platform, multi-modular universal personal dashboard built with Rust and
 | [0024](0024-github-issue-creation.md) | GitHub Module: Issue Creation Flow (repo-header entry, creator sub-page, `createIssue`, draft retention) |
 | [0025](0025-file-based-color-themes.md) | File-based Color Themes (user themes dir, hot reload, defaults-only bundle) |
 | [0026](0026-github-notification-detail-page.md) | GitHub Module: Notification Detail Page (in-app thread view, auto-seen, read state) |
+| [0027](0027-ci-workflows.md) | CI — GitHub Actions Gates on Self-Hosted Runners (fmt/clippy/test, no Nix) |
 
 ## Planned docs (roadmap, not yet written)
 
