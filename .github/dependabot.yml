@@ -10,3 +10,10 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+  # Weekly updates for the pinned workflow action (docs/0027 D5):
+  # actions/checkout is SHA-pinned in .github/workflows/ci.yml; Dependabot
+  # opens PRs that move the pin to the newest release.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
