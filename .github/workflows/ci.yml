@@ -43,6 +43,11 @@ jobs:
         # decision, docs/0027 §4; until the images reach it, runs fail
         # on missing cc/xvfb by design).
         run: |
+          if [ "$(id -u)" -ne 0 ] && ! command -v sudo >/dev/null 2>&1; then
+            echo "::error::cannot install packages: non-root job user and no sudo on this runner image."
+            echo "::error::hosted-image parity requires root containers or passwordless sudo for the job user (docs/0027 §5)."
+            exit 1
+          fi
           SUDO="$(command -v sudo >/dev/null 2>&1 && echo sudo || true)"
           $SUDO apt-get update
           $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y \
@@ -88,6 +93,11 @@ jobs:
         # decision, docs/0027 §4; until the images reach it, runs fail
         # on missing cc/xvfb by design).
         run: |
+          if [ "$(id -u)" -ne 0 ] && ! command -v sudo >/dev/null 2>&1; then
+            echo "::error::cannot install packages: non-root job user and no sudo on this runner image."
+            echo "::error::hosted-image parity requires root containers or passwordless sudo for the job user (docs/0027 §5)."
+            exit 1
+          fi
           SUDO="$(command -v sudo >/dev/null 2>&1 && echo sudo || true)"
           $SUDO apt-get update
           $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y \
