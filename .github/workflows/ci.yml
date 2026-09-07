@@ -52,6 +52,7 @@ jobs:
           $SUDO apt-get update
           $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y \
             libwayland-dev libvulkan-dev libxcb1-dev libxkbcommon-dev \
+            libxkbcommon-x11-dev \
             libatk1.0-dev libfontconfig1-dev libglib2.0-dev libgtk-3-dev \
             fonts-ibm-plex
       - name: Bootstrap Rust toolchain
@@ -102,6 +103,7 @@ jobs:
           $SUDO apt-get update
           $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y \
             libwayland-dev libvulkan-dev libxcb1-dev libxkbcommon-dev \
+            libxkbcommon-x11-dev \
             libatk1.0-dev libfontconfig1-dev libglib2.0-dev libgtk-3-dev \
             fonts-ibm-plex
       - name: Bootstrap Rust toolchain

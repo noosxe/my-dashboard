@@ -47,9 +47,11 @@ written).
 - **The runner platform is ephemeral**: one docker container per run, torn
   down after. Nothing persists between runs — no warm `target/`, no `~/.cargo`,
   no installed packages. CI runs on the platform confirmed the gaps
-  progressively: missing `cc`/`xvfb` (first run), then a non-root job user
+  progressively: missing `cc`/`xvfb` (first run), a non-root job user
   with no `sudo` — `apt-get` died on the lists lock with `Permission
-  denied` (second run). The original "persistent host" assumption behind a
+  denied` (second run) — and after parity landed, a link-only gap,
+  `-lxkbcommon-x11` (third run): clippy/check don't link, so only the
+  test job's final binary link exposed the missing apt package.
   §5 provisioning list was wrong and is superseded by the in-workflow
   install plus the parity contract below.
 - **Dev-shell parity**: locally the gates run inside `nix develop` (toolchain
@@ -69,7 +71,9 @@ curl — is the **image's** job. The workflow installs only the remainder:
 
 1. **System dependencies** — `apt-get install` of the gpui link libraries
    (mirroring the flake's `dynamicLibraries`: wayland, vulkan, libxcb,
-   libxkbcommon, atk, fontconfig, glib, gtk3) plus `fonts-ibm-plex`
+   libxkbcommon (+ its `-x11` variant — a separate apt package, link-only:
+   surfaced by `cargo test` because clippy/check never link), atk,
+   fontconfig, glib, gtk3) plus `fonts-ibm-plex`
    (dev-shell font parity — not on hosted images either). The step is
    sudo-shimmed (`sudo` if present, else plain) so it works as root in the
    docker containers and as the sudo-capable `runner` user on hosted images.
@@ -234,6 +238,7 @@ jobs:
           $SUDO apt-get update
           $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y \
             libwayland-dev libvulkan-dev libxcb1-dev libxkbcommon-dev \
+            libxkbcommon-x11-dev \
             libatk1.0-dev libfontconfig1-dev libglib2.0-dev libgtk-3-dev \
             fonts-ibm-plex
       - name: Bootstrap Rust toolchain
@@ -281,6 +286,7 @@ jobs:
           $SUDO apt-get update
           $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y \
             libwayland-dev libvulkan-dev libxcb1-dev libxkbcommon-dev \
+            libxkbcommon-x11-dev \
             libatk1.0-dev libfontconfig1-dev libglib2.0-dev libgtk-3-dev \
             fonts-ibm-plex
       - name: Bootstrap Rust toolchain
