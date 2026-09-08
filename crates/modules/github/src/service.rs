@@ -283,15 +283,15 @@ pub enum Mutation {
     // the page passes those existing variants unchanged.
 }
 
-/// The notification-thread write ops (docs/0026 D3): the module's REST
-/// mutation lane — every earlier write is GraphQL POST, `FetchSpec` is
-/// GET-only for REST, so the verb rides the op instead. `MarkRead` is
+/// The notification-thread write ops (docs/0026 D3/D8): the module's
+/// REST mutation lane — every earlier write is GraphQL POST, `FetchSpec`
+/// is GET-only for REST, so the verb rides the op instead. `MarkRead` is
 /// `PATCH /notifications/threads/{id}` (→ 205); `MarkDone` (`DELETE`,
-/// → 204) is reserved for the docs/0026 §7 follow-up.
+/// → 204, removes the thread from the inbox) fires from the
+/// notification page and the repo-view rows (#153).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ThreadOp {
     MarkRead,
-    #[allow(dead_code)] // reserved: docs/0026 §7 follow-up (mark as done)
     MarkDone,
 }
 
@@ -1092,11 +1092,12 @@ impl GithubState {
         ]
     }
 
-    /// Post-mark refetch (docs/0026 D3): the global unread list plus the
-    /// selected repo's one-shot slice — the marked row leaves both once
-    /// these land. Host-run on the notification page's `MarkSettled`
-    /// event (the `repo_open_specs` shape minus the repo snapshot, which
-    /// the mark does not touch).
+    /// Post-write refetch (docs/0026 D3/D8): the global unread list plus
+    /// the selected repo's one-shot slice — the marked/done row leaves
+    /// both once these land. Host-run on the notification page's
+    /// `MarkSettled`/`DoneSettled` events and after a settled row-level
+    /// done (the `repo_open_specs` shape minus the repo snapshot, which
+    /// the writes do not touch).
     pub(crate) fn mark_refetch_specs(&self) -> Vec<FetchSpec> {
         let mut specs = vec![self.spec(
             Kind::Notifications,

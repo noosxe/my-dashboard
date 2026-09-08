@@ -154,14 +154,44 @@ Other kinds get no in-app hand-off (§2.5): metadata + ↗ is the whole page.
 
 ### D7 — What deliberately stays out
 
-- **Mark as done** (`DELETE /threads/{id}`): GitHub's third inbox action,
-  useful, but not part of this ask — reserved in `ThreadOp`, filed as a
-  follow-up (§7).
+- **Mark as done** (`DELETE /threads/{id}`): GitHub's third inbox action
+  — shipped by the #153 follow-up, see D8 below.
 - Read-notification browsing (`all=true` list views), subscriptions
   management, notification settings. The repo-view list remains the unread
   list it is today.
 
-## 4. Owner decisions (2026-09-07, PR #150 review — all three resolved)
+
+### D8 — Mark as done (follow-up #153, amended 2026-09-09)
+
+GitHub's third inbox action (`DELETE /notifications/threads/{id}` →
+204, the thread leaves the inbox entirely — §2.3) ships in both places
+the inbox is rendered, over the lanes 0026 already reserved:
+
+- **Page-level**: a **Mark as done** button beside Mark as read. Unlike
+  the read button it is **always offered, Read included** — done ≠ read
+  (owner decision §4.5); hidden-not-disabled does not apply. Disabled
+  only while its DELETE is in flight; a failure keeps the page and
+  re-arms the button as retry (the D4 failure pattern, no optimistic
+  flip — nothing local to revert, the thread simply stays).
+- **Row-level**: an icon-only done button (`notif-done-{id}`, check
+  circle) on every repo-view row, owner decision §4.5 — the DELETE fires
+  straight from the row, no page takeover. A guard div swallows the
+  click so the row's open handler never fires (gpui bubbles clicks;
+  `Button` only stops propagation while loading). The in-flight round
+  disables the row's button (double-click guard); the guard clears on
+  settle — on success the refetch replaces the list anyway.
+- **Post-done UX (owner decision §4.4)**: a settled DELETE is the
+  github.com-like behavior — the open page closes back to the repo view
+  (crumb suffix drops) and the host runs `mark_refetch_specs()`
+  (RepoNotifications + the global Notifications) so the row leaves the
+  unread list and the card count drops without waiting for the tick.
+  Row-level settles run the same refetch through the stored window
+  handle (the `sync_from_state` pattern — the click's window is out of
+  reach by settle time). HTTP failures forward to the shared
+  auth/rate-limit handling; network errors stay component-local
+  (stderr, degrade in place) — the mark conventions, applied to done.
+## 4. Owner decisions (2026-09-07, PR #150 review — first three; #153
+   — 4/5, 2026-09-09)
 
 1. **No-unread constraint (D4):** go with what GitHub itself does — the
    page displays read state and offers mark-read only; no local-only
@@ -172,6 +202,11 @@ Other kinds get no in-app hand-off (§2.5): metadata + ↗ is the whole page.
 3. **Auto-seen timing (D3):** mark-as-read fires as soon as the page
    starts loading its contents — before content arrives (GitHub's own
    click semantics; no delayed/confirm variant).
+4. **Post-done UX (D8, #153):** the github.com-like behavior — a
+   settled done closes the open notification page back to the repo view
+   and refetches the unread lists; failures retry in place.
+5. **Row-level done (D8, #153):** per-row done buttons ship with the
+   follow-up, same PR as the page-level button.
 ## 5. Implementation plan (one PR, after this doc merges)
 
 1. `api.rs`: extend `Subject`/`Notification` (serde defaults); add
@@ -198,16 +233,21 @@ Other kinds get no in-app hand-off (§2.5): metadata + ↗ is the whole page.
   rows; `click` a row → page takeover, crumb `· notification`; verify the
   unread dot flips and the row leaves the list on close; `key tab`/`enter`
   through mark-read; ↗ button presence per subject kind; Esc returns.
+  Done round trip (D8, #153): `click notif-done-{id}` on a row → the
+  row leaves the unread list and the card count drops, no page opened;
+  open a notification page → `click notification-mark-done` (present
+  while Read too) → the page closes back to the repo view.
 - Owner: real-account round trip — open an unread PR notification (row
   vanishes from the unread list, card count drops), check github.com shows
   it read, Esc, open a Discussion notification (metadata-only page, ↗ to
   the repo notifications page), open an Issue notification and follow
-  `Open #n` into the native page.
+  `Open #n` into the native page; done: mark a thread done (row button
+  and page button) and check github.com's inbox no longer lists it.
 
 ## 7. Follow-ups (GitHub issues, not this PR)
 
-- `MarkDone` (`DELETE /notifications/threads/{id}`) — "done" action on the
-  page and optionally on rows.
+- ~~`MarkDone` (`DELETE /notifications/threads/{id}`) — "done" action on
+  the page and optionally on rows~~ → implemented (D8, #153).
 - `latest_comment_url` — "jump to latest comment" for Issue/PR subjects.
 - Global card: notification rows are counts-only today; if the card ever
   lists notifications, it should reuse this page (noted for whoever writes it).

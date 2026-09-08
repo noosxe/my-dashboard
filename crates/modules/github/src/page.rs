@@ -13,7 +13,7 @@ use std::sync::Arc;
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::{
-    ActiveTheme, Icon, IconName, IndexPath, Sizable as _,
+    ActiveTheme, Disableable, Icon, IconName, IndexPath, Sizable as _,
     avatar::Avatar,
     badge::Badge,
     button::{Button, ButtonVariants},
@@ -37,7 +37,8 @@ use crate::new_issue_page::{NewIssuePage, NewIssuePageEvent};
 use crate::notification_page::{self, NotificationPageEvent};
 use crate::pr_page;
 use crate::service::{
-    AuthStatus, ConnectPhase, FetchSpec, GithubState, Kind, run_spec_tracked, start_connect,
+    AuthStatus, ConnectPhase, FetchSpec, GithubState, Kind, ThreadOp, run_spec_tracked,
+    start_connect,
 };
 
 pub(crate) struct GithubPage {
@@ -73,6 +74,11 @@ pub(crate) struct GithubPage {
     synced_repos: Vec<String>,
     /// Navigator handle — the page derives and re-reports its breadcrumb
     /// prefix from state (docs/0014 D1/D5).
+    /// Row-level done writes in flight (docs/0026 D8, #153): thread
+    /// ids with a DELETE pending — their row button disables for the
+    /// round (double-click guard); cleared on settle, when the
+    /// post-write refetch replaces the list anyway.
+    row_done_inflight: std::collections::HashSet<String>,
     nav: Entity<Navigator>,
 }
 
@@ -169,6 +175,7 @@ impl GithubPage {
             window: window.window_handle(),
             synced_orgs: Vec::new(),
             synced_repos: Vec::new(),
+            row_done_inflight: std::collections::HashSet::new(),
         };
         // Seed from whatever the state already holds (last-known
         // caches) — but NOT here: Module::init runs inside
@@ -572,6 +579,15 @@ impl GithubPage {
                     let specs = this.state.update(cx, |s, _| s.mark_refetch_specs());
                     this.run_specs(specs, window, cx);
                 }
+                // docs/0026 D8, owner decision §4.4: a settled done
+                // closes the page back to the repo view (the github.com
+                // inbox behavior — the thread is gone from the inbox
+                // entirely) and refetches so the row + card drop.
+                NotificationPageEvent::DoneSettled => {
+                    let specs = this.state.update(cx, |s, _| s.mark_refetch_specs());
+                    this.run_specs(specs, window, cx);
+                    this.close_notification(cx);
+                }
                 NotificationPageEvent::OpenSubject {
                     is_pr,
                     full_name,
@@ -718,6 +734,73 @@ impl GithubPage {
             specs.extend(self.state.update(cx, |s, _| s.repo_open_specs(&full_name)));
         }
         self.run_specs(specs, window, cx);
+    }
+
+    /// Row-level mark-as-done (docs/0026 D8, #153, owner decision
+    /// §4.5): the repo-view rows fire the DELETE directly — no page
+    /// takeover. A settled done runs the post-write refetch
+    /// (`mark_refetch_specs`) through the stored window handle (the
+    /// `sync_from_state` pattern — the click's window is out of reach
+    /// by then) so the row leaves the unread list and the card count
+    /// drops; a failed one re-arms the row button (shared handling for
+    /// HTTP failures, stderr per the degrade rule).
+    fn mark_row_done(&mut self, id: String, cx: &mut Context<Self>) {
+        if !self.state.read(cx).auth.connected() {
+            return; // the repo view is behind the auth gate anyway
+        }
+        if !self.row_done_inflight.insert(id.clone()) {
+            return; // already in flight (double-click guard)
+        }
+        cx.notify();
+        let client = self.state.update(cx, |s, _| s.client.clone());
+        let spec = self.state.update(cx, |s, _| {
+            s.spec(
+                Kind::ThreadMutation(ThreadOp::MarkDone),
+                api::thread_url(&id),
+                None,
+            )
+        });
+        log::debug!("thread-mutation: mark-done {id} (repo-view row)");
+        let state = self.state.clone();
+        let window_handle = self.window;
+        let page = cx.entity();
+        cx.spawn(async move |_this, cx| {
+            let result = run_spec_tracked(client, spec, cx).await;
+            let settled = result.network.is_none() && (200..300).contains(&result.status);
+            if settled {
+                log::info!(
+                    "thread-mutation: mark-done settled ({}, row)",
+                    result.status
+                );
+                // Post-write refetch on the main thread, window in hand
+                // (`run_specs` refreshes the frame at the end).
+                let _ = window_handle.update(cx, |_, window, cx| {
+                    page.update(cx, |this, cx| {
+                        this.row_done_inflight.remove(&id);
+                        let specs = this.state.update(cx, |s, _| s.mark_refetch_specs());
+                        this.run_specs(specs, window, cx);
+                    });
+                });
+            } else {
+                if result.network.is_none() {
+                    let status = result.status;
+                    state.update(cx, |s, cx| {
+                        s.apply(result);
+                        cx.notify();
+                    });
+                    log::warn!("thread-mutation: mark-done failed (HTTP {status}, row)");
+                } else {
+                    log::warn!("thread-mutation: mark-done failed (network, row)");
+                }
+                let _ = window_handle.update(cx, |_, _, cx| {
+                    page.update(cx, |this, cx| {
+                        this.row_done_inflight.remove(&id);
+                        cx.notify();
+                    });
+                });
+            }
+        })
+        .detach();
     }
 
     /// Page-local counterpart of the tick loop: run specs on the background
@@ -935,6 +1018,10 @@ impl GithubPage {
         div()
             .id(SharedString::from(format!("notif-{}", n.id)))
             .role(accesskit::Role::ListItem)
+            .debug_selector({
+                let id = n.id.clone();
+                move || format!("notif-{id}")
+            })
             .px_2()
             .py_1p5()
             .rounded_sm()
@@ -958,9 +1045,54 @@ impl GithubPage {
                             .child(n.subject.title.clone()),
                     )
                     .child(
-                        div()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(relative_age(n.updated_at.as_deref())),
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .child(
+                                div()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(relative_age(n.updated_at.as_deref())),
+                            )
+                            // Row-level done (docs/0026 D8, #153, owner
+                            // decision §4.5): icon-only, disabled while
+                            // this row's DELETE is in flight. The guard
+                            // div swallows the click — gpui bubbles clicks
+                            // up and Button only stops propagation while
+                            // loading, so without it the row's open
+                            // handler would also fire.
+                            .child(
+                                div()
+                                    .id(SharedString::from(format!("notif-done-guard-{}", n.id)))
+                                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                        cx.stop_propagation()
+                                    })
+                                    .on_mouse_up(MouseButton::Left, |_, _, cx| {
+                                        cx.stop_propagation()
+                                    })
+                                    .child({
+                                        let id = n.id.clone();
+                                        let selector_id = n.id.clone();
+                                        let disabled = self.row_done_inflight.contains(&n.id);
+                                        let page = cx.entity();
+                                        Button::new(SharedString::from(format!(
+                                            "notif-done-{}",
+                                            n.id
+                                        )))
+                                        .debug_selector(move || format!("notif-done-{selector_id}"))
+                                        .ghost()
+                                        .xsmall()
+                                        .icon(IconName::CircleCheck)
+                                        .tooltip("Mark as done")
+                                        .disabled(disabled)
+                                        .on_click(
+                                            move |_, _, cx| {
+                                                page.update(cx, |this, cx| {
+                                                    this.mark_row_done(id.clone(), cx)
+                                                });
+                                            },
+                                        )
+                                    }),
+                            ),
                     ),
             )
             .into_any_element()
@@ -2247,6 +2379,225 @@ mod tests {
         assert_eq!(
             reconcile_repo_crumb(&repo, &open),
             Some(vec![SharedString::from("widget")])
+        );
+    }
+
+    /// Mini inbox server for the row-level done round trip (docs/0026
+    /// D8): GET answers the current inbox (whatever the DELETEs have
+    /// left), DELETE pops the thread out of it — after its scripted
+    /// failures — and PATCH answers 205. Order-independent, like the
+    /// notification page's `LaneMock`.
+    struct InboxMock {
+        inbox: std::sync::Mutex<Vec<String>>,
+        delete_failures: std::sync::atomic::AtomicUsize,
+        requests: std::sync::Mutex<Vec<(crate::http::Verb, String)>>,
+    }
+
+    impl InboxMock {
+        fn requests(&self) -> Vec<(crate::http::Verb, String)> {
+            self.requests.lock().unwrap().clone()
+        }
+    }
+
+    impl crate::http::Http for InboxMock {
+        fn request(
+            &self,
+            verb: crate::http::Verb,
+            url: &str,
+            _: Option<&str>,
+            _: Option<&str>,
+        ) -> Result<crate::http::HttpResult, crate::http::HttpError> {
+            self.requests.lock().unwrap().push((verb, url.to_string()));
+            let (status, body) = match verb {
+                crate::http::Verb::Get => {
+                    let inbox = self.inbox.lock().unwrap();
+                    (200, Some(format!("[{}]", inbox.join(","))))
+                }
+                crate::http::Verb::Delete => {
+                    let left = self
+                        .delete_failures
+                        .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                    if left > 0 {
+                        (500, None)
+                    } else {
+                        let id = url.rsplit('/').next().unwrap_or_default();
+                        self.inbox
+                            .lock()
+                            .unwrap()
+                            .retain(|t| !t.contains(&format!("\"id\":\"{id}\"")));
+                        (204, None)
+                    }
+                }
+                crate::http::Verb::Patch => (205, None),
+                _ => (200, Some("[]".into())),
+            };
+            Ok(crate::http::HttpResult {
+                status,
+                etag: None,
+                rate: None,
+                body,
+            })
+        }
+
+        fn post_graphql(
+            &self,
+            _: &str,
+            _: &serde_json::Value,
+        ) -> Result<crate::http::HttpResult, crate::http::HttpError> {
+            Err(crate::http::HttpError("probe: no graphql".into()))
+        }
+    }
+
+    /// The repo view over the mini inbox: state + connected page, the
+    /// thread seeded straight into `repo_notifications` (the map the
+    /// rows render from — docs/0026 D2).
+    fn probe_repo_view(
+        cx: &mut TestAppContext,
+        mock: std::sync::Arc<InboxMock>,
+    ) -> &mut gpui::VisualTestContext {
+        use crate::auth::MockTokenStore;
+        use crate::service::{AuthStatus, GithubCache, GithubState};
+        use dashboard_core::nav::Navigator;
+        use dashboard_core::paths::AppPaths;
+
+        use std::sync::Arc;
+        cx.update(gpui_component::init);
+        cx.update(dashboard_core::status::init);
+        let state = cx.update(|cx| {
+            let shared: crate::http::SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let refresh: crate::http::SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let entity = cx.new(|_| {
+                GithubState::new(
+                    mock,
+                    Arc::new(MockTokenStore::with("t0k".into())),
+                    shared,
+                    refresh,
+                    GithubCache::new(AppPaths::init()),
+                )
+            });
+            entity.update(cx, |s, cx| {
+                s.auth = AuthStatus::Connected;
+                s.repos = vec![repo("acme/one", None)];
+                s.selected = Some("acme/one".into());
+                let thread: crate::api::Notification = serde_json::from_value(serde_json::json!({
+                    "id": "19", "unread": true,
+                    "subject": {"title": "Fix the flume", "type": "PullRequest"},
+                    "repository": {"full_name": "acme/one"},
+                    "reason": "review_requested",
+                    "updated_at": "2026-09-01T00:00:00Z"
+                }))
+                .unwrap();
+                s.repo_notifications.insert("acme/one".into(), vec![thread]);
+                cx.notify();
+            });
+            entity
+        });
+        let nav = cx.update(|cx| cx.new(|_| Navigator::default()));
+        let (_, vcx) = cx.add_window_view(|window, cx| GithubPage::new(state, nav, window, cx));
+        vcx
+    }
+
+    #[gpui::test]
+    fn row_done_button_dones_without_opening_the_page(cx: &mut TestAppContext) {
+        // docs/0026 D8 (#153, owner decision §4.5): the row's icon button
+        // fires the DELETE directly — no page takeover — and the
+        // post-write refetch (global + repo slice) drops the row from
+        // the unread list.
+        let thread = serde_json::json!({
+            "id": "19", "unread": true,
+            "subject": {"title": "Fix the flume", "type": "PullRequest"},
+            "repository": {"full_name": "acme/one"},
+            "reason": "review_requested",
+            "updated_at": "2026-09-01T00:00:00Z"
+        })
+        .to_string();
+        let mock = std::sync::Arc::new(InboxMock {
+            inbox: std::sync::Mutex::new(vec![thread]),
+            delete_failures: std::sync::atomic::AtomicUsize::new(0),
+            requests: std::sync::Mutex::new(Vec::new()),
+        });
+        let vcx = probe_repo_view(cx, mock.clone());
+        vcx.run_until_parked();
+        let _ = vcx.debug_bounds("notif-19"); // flush frames
+        assert!(vcx.debug_bounds("notif-19").is_some(), "row renders");
+        let button = vcx
+            .debug_bounds("notif-done-19")
+            .expect("row done button renders");
+        vcx.simulate_click(button.center(), gpui::Modifiers::default());
+        vcx.run_until_parked();
+        // The DELETE, then the two refetch GETs (global list + the
+        // selected repo's slice).
+        let requests = mock.requests();
+        let delete_at = requests
+            .iter()
+            .position(|(v, url)| {
+                matches!(v, crate::http::Verb::Delete) && url.ends_with("/notifications/threads/19")
+            })
+            .expect("DELETE fired");
+        let gets_after = requests[delete_at + 1..]
+            .iter()
+            .filter(|(v, _)| matches!(v, crate::http::Verb::Get))
+            .count();
+        assert!(
+            gets_after >= 2,
+            "post-done refetch covers global + repo lists, had {gets_after}"
+        );
+        // The refetch dropped the row, and the click never opened the
+        // notification page (the guard div swallowed the bubble).
+        assert!(
+            vcx.debug_bounds("notif-19").is_none(),
+            "done row leaves the unread list"
+        );
+        assert!(
+            vcx.debug_bounds("notification-detail").is_none(),
+            "the done click must not open the notification page"
+        );
+    }
+
+    #[gpui::test]
+    fn failed_row_done_keeps_the_row_and_re_arms(cx: &mut TestAppContext) {
+        // docs/0026 D8: a failed DELETE keeps the row (the refetch
+        // still sees the thread) and clears the in-flight guard — the
+        // button is clickable again.
+        let thread = serde_json::json!({
+            "id": "19", "unread": true,
+            "subject": {"title": "Fix the flume", "type": "PullRequest"},
+            "repository": {"full_name": "acme/one"},
+            "reason": "review_requested",
+            "updated_at": "2026-09-01T00:00:00Z"
+        })
+        .to_string();
+        let mock = std::sync::Arc::new(InboxMock {
+            inbox: std::sync::Mutex::new(vec![thread]),
+            delete_failures: std::sync::atomic::AtomicUsize::new(1),
+            requests: std::sync::Mutex::new(Vec::new()),
+        });
+        let vcx = probe_repo_view(cx, mock.clone());
+        vcx.run_until_parked();
+        let button = vcx
+            .debug_bounds("notif-done-19")
+            .expect("row done button renders");
+        vcx.simulate_click(button.center(), gpui::Modifiers::default());
+        vcx.run_until_parked();
+        assert!(
+            vcx.debug_bounds("notif-19").is_some(),
+            "a failed done keeps the row"
+        );
+        // Retry round: the guard cleared, this click lands.
+        let retry = vcx
+            .debug_bounds("notif-done-19")
+            .expect("row done button still renders");
+        vcx.simulate_click(retry.center(), gpui::Modifiers::default());
+        vcx.run_until_parked();
+        let deletes = mock
+            .requests()
+            .iter()
+            .filter(|(v, _)| matches!(v, crate::http::Verb::Delete))
+            .count();
+        assert_eq!(deletes, 2, "failure re-arms the button");
+        assert!(
+            vcx.debug_bounds("notif-19").is_none(),
+            "the retried done drops the row"
         );
     }
 }
