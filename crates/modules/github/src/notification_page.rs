@@ -10,9 +10,16 @@
 //! fires `PATCH /notifications/threads/{id}` the instant it starts
 //! loading its contents — before the thread GET returns — and flips its
 //! rendered state to Read optimistically. GitHub's API has no
-//! mark-as-unread, so the only write is read-ward: a failed mark reverts
-//! the dot and the in-page **Mark as read** button retries; a settled
-//! mark asks the host to refetch the unread lists (`MarkSettled`).
+//! mark-as-unread, so the read-ward path is one-way: a failed mark
+//! reverts the dot and the in-page **Mark as read** button retries; a
+//! settled mark asks the host to refetch the unread lists
+//! (`MarkSettled`).
+//!
+//! Done (docs/0026 D8, #153): **Mark as done** (`DELETE` — the thread
+//! leaves the inbox entirely) is always offered, Read included (done ≠
+//! read). A settled done emits `DoneSettled`: the host closes the page
+//! back to the repo view and refetches — the github.com-like behavior,
+//! owner decision §4.4. A failed done re-arms the button as retry.
 //!
 //! Data: the page paints instantly from the carried row and upgrades via
 //! the page-owned `GET /notifications/threads/{id}` (`Kind::ThreadDetail`,
@@ -20,7 +27,6 @@
 //! list item, §2.1); only non-200 results are forwarded to
 //! `GithubState::apply` for the shared 401/403 handling. Session-only,
 //! no cache.
-
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 
@@ -48,6 +54,11 @@ pub(crate) enum NotificationPageEvent {
     /// The open-time mark-read settled OK — the host refetches the repo +
     /// global unread lists (docs/0026 D3 refetch-after-mutation).
     MarkSettled,
+    /// The done write settled OK (docs/0026 D8, owner decision §4.4):
+    /// the host closes this page back to the repo view and refetches
+    /// the unread lists — the github.com-like behavior (the thread is
+    /// gone from the inbox entirely).
+    DoneSettled,
     /// Issue/PR hand-off (docs/0026 D6, owner decision §4.2): the host
     /// closes this page and opens the native detail page with a
     /// synthesized seed row.
@@ -83,6 +94,10 @@ pub(crate) struct NotificationDetailPage {
     /// failed mark. The thread GET can confirm Read, never undo it.
     read: bool,
     mark: MarkState,
+    /// The done write's lifecycle (docs/0026 D8): `InFlight` disables
+    /// the button, `Failed` re-arms it as the retry. No optimistic
+    /// flip — a settled done closes the page instead of repainting it.
+    done: MarkState,
     /// The thread GET in flight.
     loading: bool,
     load_error: Option<String>,
@@ -114,6 +129,7 @@ impl NotificationDetailPage {
             thread: None,
             read,
             mark: MarkState::Idle,
+            done: MarkState::Idle,
             loading: false,
             load_error: None,
             focus_handle: cx.focus_handle(),
@@ -142,6 +158,17 @@ impl NotificationDetailPage {
     fn mark_spec(&self) -> FetchSpec {
         FetchSpec {
             kind: Kind::ThreadMutation(ThreadOp::MarkRead),
+            url: api::thread_url(self.thread_id()),
+            etag: None,
+            ident: Some(self.seed.id.clone()),
+            max_pages: 1,
+            variables: None,
+        }
+    }
+
+    fn done_spec(&self) -> FetchSpec {
+        FetchSpec {
+            kind: Kind::ThreadMutation(ThreadOp::MarkDone),
             url: api::thread_url(self.thread_id()),
             etag: None,
             ident: Some(self.seed.id.clone()),
@@ -197,6 +224,56 @@ impl NotificationDetailPage {
             // Revert the optimistic flip (D3); the button arms as retry.
             self.mark = MarkState::Failed;
             self.read = false;
+        }
+        cx.notify();
+    }
+
+    /// The done write (docs/0026 D8): DELETE — no optimistic flip, the
+    /// page just awaits its own removal; a settled done emits
+    /// `DoneSettled` and the host closes the page + refetches (owner
+    /// decision §4.4).
+    fn fire_mark_done(&mut self, cx: &mut Context<Self>) {
+        if !self.state.read(cx).auth.connected() {
+            return; // the page is about to be torn down by the auth gate
+        }
+        let client = self.state.update(cx, |s, _| s.client.clone());
+        let spec = self.done_spec();
+        log::debug!("thread-mutation: mark-done {}", self.thread_id());
+        self.done = MarkState::InFlight;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = run_spec_tracked(client, spec, cx).await;
+            let _ = this.update(cx, |page, cx| page.apply_done_result(result, cx));
+        })
+        .detach();
+    }
+
+    fn apply_done_result(&mut self, result: crate::service::SpecResult, cx: &mut Context<Self>) {
+        if self.done != MarkState::InFlight {
+            return; // a retry superseded this round
+        }
+        if result.network.is_none() && (200..300).contains(&result.status) {
+            log::info!("thread-mutation: mark-done settled ({})", result.status);
+            self.done = MarkState::Idle;
+            // The github.com-like close (owner decision §4.4): the host
+            // closes this page and runs the post-write refetch.
+            cx.emit(NotificationPageEvent::DoneSettled);
+        } else {
+            if result.network.is_none() {
+                // Shared 401/403/rate-limit handling runs for real HTTP
+                // failures; network errors stay page-local (the mark
+                // convention above).
+                let status = result.status;
+                self.state.update(cx, |s, cx| {
+                    s.apply(result);
+                    cx.notify();
+                });
+                log::warn!("thread-mutation: mark-done failed (HTTP {status})");
+            } else {
+                log::warn!("thread-mutation: mark-done failed (network)");
+            }
+            // The page stays; the button re-arms as the retry (D8).
+            self.done = MarkState::Failed;
         }
         cx.notify();
     }
@@ -348,9 +425,12 @@ impl NotificationDetailPage {
                                     .color(cx.theme().warning)
                                     .child("Unread")
                             })
-                            .when(self.loading || self.mark == MarkState::InFlight, |row| {
-                                row.child(Spinner::new().xsmall())
-                            }),
+                            .when(
+                                self.loading
+                                    || self.mark == MarkState::InFlight
+                                    || self.done == MarkState::InFlight,
+                                |row| row.child(Spinner::new().xsmall()),
+                            ),
                     )
                     // The subject title — a link into the native page for
                     // Issue/PR subjects (docs/0026 D6), plain text
@@ -402,6 +482,20 @@ impl NotificationDetailPage {
                                 .on_click(cx.listener(|this, _, _, cx| this.fire_mark_read(cx))),
                         )
                     })
+                    // Mark as done (docs/0026 D8): always offered —
+                    // Read included, done ≠ read (owner decision §4.5's
+                    // page-level half). Disabled only while its DELETE
+                    // is in flight; a failure re-arms it as retry.
+                    .child(
+                        Button::new("notification-mark-done")
+                            .debug_selector(|| "notification-mark-done".to_string())
+                            .ghost()
+                            .small()
+                            .label("Mark as done")
+                            .tooltip("Remove this notification from your inbox")
+                            .disabled(self.done == MarkState::InFlight)
+                            .on_click(cx.listener(|this, _, _, cx| this.fire_mark_done(cx))),
+                    )
                     .child(
                         Button::new("notification-refresh")
                             .ghost()
@@ -538,11 +632,13 @@ mod tests {
 
     use super::{MarkState, NotificationDetailPage, NotificationPageEvent};
 
-    /// Verb-routed transport: PATCH answers `patch_status`, everything
-    /// else answers the thread GET shape. Deterministic — no script
-    /// ordering races between the page's two parallel requests.
+    /// Verb-routed transport: PATCH/DELETE answer their failure
+    /// counters, everything else answers the thread GET shape.
+    /// Deterministic — no script ordering races between the page's
+    /// parallel requests.
     struct LaneMock {
         patch_failures: std::sync::atomic::AtomicUsize,
+        delete_failures: std::sync::atomic::AtomicUsize,
         get_status: u16,
         get_body: String,
         verbs: std::sync::Mutex<Vec<Verb>>,
@@ -569,6 +665,12 @@ mod tests {
                         .patch_failures
                         .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
                     (if left > 0 { 500 } else { 205 }, None)
+                }
+                Verb::Delete => {
+                    let left = self
+                        .delete_failures
+                        .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                    (if left > 0 { 500 } else { 204 }, None)
                 }
                 _ => (self.get_status, Some(self.get_body.clone())),
             };
@@ -620,8 +722,18 @@ mod tests {
         get_status: u16,
         thread: String,
     ) -> std::sync::Arc<LaneMock> {
+        lane_mock_deletes(patch_failures, 0, get_status, thread)
+    }
+
+    fn lane_mock_deletes(
+        patch_failures: usize,
+        delete_failures: usize,
+        get_status: u16,
+        thread: String,
+    ) -> std::sync::Arc<LaneMock> {
         std::sync::Arc::new(LaneMock {
             patch_failures: std::sync::atomic::AtomicUsize::new(patch_failures),
+            delete_failures: std::sync::atomic::AtomicUsize::new(delete_failures),
             get_status,
             get_body: thread,
             verbs: std::sync::Mutex::new(Vec::new()),
@@ -807,5 +919,88 @@ mod tests {
         assert!(vcx.debug_bounds("notification-subject-link").is_none());
         assert!(vcx.debug_bounds("notification-subject-text").is_some());
         assert!(vcx.read(|cx| release_page.read(cx).subject_handoff().is_none()));
+    }
+
+    #[gpui::test]
+    fn done_button_offered_even_while_read(cx: &mut gpui::TestAppContext) {
+        // docs/0026 D8: done ≠ read — the affordance stays while
+        // Read (hidden-not-disabled does not apply here; the button is
+        // always offered, only the in-flight DELETE disables it).
+        let mock = lane_mock(0, 200, thread_payload("Issue", Some("u"), false));
+        let (_page, vcx) = probe_page(cx, probe_seed(false, "Issue", Some("u")), mock);
+        vcx.run_until_parked();
+        assert!(
+            vcx.debug_bounds("notification-mark-done").is_some(),
+            "done must be offered on a read thread"
+        );
+    }
+
+    #[gpui::test]
+    fn mark_done_settles_and_emits_done_settled(cx: &mut gpui::TestAppContext) {
+        // docs/0026 D8, owner decision §4.4: a real click fires the DELETE
+        // (after the open-time PATCH + thread GET); 204 settles and emits
+        // DoneSettled — the host's cue to close the page + refetch.
+        let mock = lane_mock(0, 200, thread_payload("PullRequest", Some("u"), false));
+        let (page, vcx) = probe_page(cx, probe_seed(true, "PullRequest", Some("u")), mock.clone());
+        vcx.run_until_parked();
+        let settled = std::rc::Rc::new(std::cell::Cell::new(0u32));
+        let sink = settled.clone();
+        vcx.update(|_window, cx| {
+            cx.subscribe(&page, move |_, ev, _| {
+                if matches!(ev, NotificationPageEvent::DoneSettled) {
+                    sink.set(sink.get() + 1);
+                }
+            })
+            .detach();
+        });
+        let button = vcx
+            .debug_bounds("notification-mark-done")
+            .expect("done button visible");
+        vcx.simulate_click(button.center(), gpui::Modifiers::default());
+        vcx.run_until_parked();
+        assert_eq!(settled.get(), 1, "one DoneSettled per settled DELETE");
+        assert_eq!(mock.verbs(), vec![Verb::Patch, Verb::Get, Verb::Delete]);
+    }
+
+    #[gpui::test]
+    fn failed_done_keeps_the_page_and_retries(cx: &mut gpui::TestAppContext) {
+        // docs/0026 D8: a failed DELETE keeps the page (no close, no
+        // event) and re-arms the button; the retry settles and emits.
+        let mock = lane_mock_deletes(0, 1, 200, thread_payload("Issue", Some("u"), false));
+        let (page, vcx) = probe_page(cx, probe_seed(true, "Issue", Some("u")), mock.clone());
+        vcx.run_until_parked();
+        let settled = std::rc::Rc::new(std::cell::Cell::new(0u32));
+        let sink = settled.clone();
+        vcx.update(|_window, cx| {
+            cx.subscribe(&page, move |_, ev, _| {
+                if matches!(ev, NotificationPageEvent::DoneSettled) {
+                    sink.set(sink.get() + 1);
+                }
+            })
+            .detach();
+        });
+        let button = vcx
+            .debug_bounds("notification-mark-done")
+            .expect("done button visible");
+        vcx.simulate_click(button.center(), gpui::Modifiers::default());
+        vcx.run_until_parked();
+        assert_eq!(settled.get(), 0, "HTTP 500 must not settle the done");
+        assert_eq!(
+            vcx.read(|cx| page.read(cx).done),
+            MarkState::Failed,
+            "the button re-arms as retry"
+        );
+        // The page stayed: metadata still rendered.
+        assert!(vcx.debug_bounds("notification-meta-state").is_some());
+        let retry = vcx
+            .debug_bounds("notification-mark-done")
+            .expect("retry button visible");
+        vcx.simulate_click(retry.center(), gpui::Modifiers::default());
+        vcx.run_until_parked();
+        assert_eq!(settled.get(), 1);
+        assert_eq!(
+            mock.verbs(),
+            vec![Verb::Patch, Verb::Get, Verb::Delete, Verb::Delete]
+        );
     }
 }
