@@ -60,6 +60,12 @@ cross-checked with the docs.github.com reference where fetchable.
   (comments) and `author state body submittedAt` (reviews) — the id, the
   two viewer flags and `updatedAt` must be added to both node sets.
 - In-app (pinned gpui-component `0c746df`, current pr_page.rs):
+  > **Re-verified at the v0.6.0 pin `94a313a` (2026-09-09, #125):** the
+  > rebrand moved the file (`crates/ui/src` → `crates/component/src`)
+  > but `input/textarea.rs` is **byte-identical** across the bump — the
+  > editor-swap semantics (prefill/focus/`auto_grow`) hold line-for-line.
+  > The `(edited)` marker sources our own `updatedAt` field (D2), so it
+  > is upstream-independent.
   - Timeline rows render through `body_card(...)`, whose header row has a
     `trailing` slot already carrying the review badge and the description
     card's `Edit` button — the affordance slot exists.

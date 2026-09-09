@@ -40,6 +40,19 @@ The product owner wants GitHub-style master–detail instead:
 
 ## 3. Upstream facts (verified against pinned gpui-component `0c746df`)
 
+> **Re-verified at the v0.6.0 pin `94a313a` (2026-09-09, #125):** the
+> GPUI Kit rebrand moved the crate tree (`crates/ui/src` →
+> `crates/component/src`; crate name and public paths unchanged —
+> invisible to this repo). Per-file result: `select.rs`, the textarea
+> module and the whole `list/` directory are **byte-identical** (line
+> cites below hold exactly: `delegate()`/`delegate_mut()` at
+> list.rs:147/151, `set_query` at 215); `base/src/tree.rs` is
+> **byte-identical** (`on_entry_click` still at 411–415, sets
+> `selected_ix` + `cx.notify()`, emits no event); `theme_color.rs`
+> identical (all semantic tokens survive). The Select `size_full` trap
+> below **survives** — `size_full` still at select.rs:465/782 — so the
+> wrapper-div workaround (§8) stays.
+
 All of this ships upstream today; no new dependencies:
 
 - **Select** — `SelectState::new(SearchableVec::from(items), None,
@@ -268,3 +281,5 @@ on `h_full` percentages. The regression guard is a layout probe test
 (`files_split_has_real_layout`): it renders the real page in a test
 window and asserts measured bounds via gpui `debug_bounds`, with
 test-only `debug_selector` anchors in `files.rs` (noop in release).
+Executable half re-run on the v0.6.0 pin (2026-09-09, #125): the probe
+passes on `94a313a` — the workaround remains necessary and proven.
