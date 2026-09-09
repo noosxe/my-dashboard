@@ -124,6 +124,14 @@ Out (non-goals):
 
 **Upstream widgets (pinned gpui-component @ 0c746df):**
 
+> **Re-verified at the v0.6.0 pin `94a313a` (2026-09-09, #125):** the
+> GPUI Kit rebrand moved the crate tree (`crates/ui/src` →
+> `crates/component/src`; crate name and public paths unchanged).
+> `select.rs`, `input/textarea.rs` and `theme/theme_color.rs` are
+> byte-identical across the bump; `tab/tab.rs`'s only diff is a rustfmt
+> reformat of one `child()` call — no behavior change. Every fact below
+> holds line-for-line.
+
 - `ui::tab::{Tab, TabBar}` with `.underline()` variant — the GitHub-style tab
   chrome; `selected_index` + `on_click` drive an enum in our state.
 - `ui::input::textarea::{Textarea, TextareaState}` — multiline input with
@@ -302,7 +310,11 @@ A `GroupBox` at the rail top:
   cross-axis stretch also bounds the timeline, but it stretches the
   rail's v_flex and pushes its panels down the column — probe-verified
   on the live build, so `items_start` + `h_full` is the pinned
-  mechanism.
+  mechanism. Re-verified on the v0.6.0 build (2026-09-09, #125): the
+  mechanism is gpui layout semantics, untouched by the component bump —
+  the layout probes (`files_split_has_real_layout`, the 0018 §8 sidebar
+  probe) and the #154 timeline anchor tests all assert real measured
+  bounds and pass on `94a313a`.
 
 ### D6 — Commits tab
 

@@ -107,6 +107,16 @@ introspection is the source of record here):**
   for the issue body; `updateIssueComment { id body }` /
   `deleteIssueComment { id }` — 0019 documents, unchanged.
 
+> **Re-verified at the v0.6.0 pin `94a313a` (2026-09-09, #125):** the
+> rebrand moved `select.rs` to `crates/component/src/` byte-identical
+> (size_full trap intact at 465/782); `theme_color.rs` identical. The
+> close-reason Select lives in the rail's content-hugging `v_flex` — no
+> `flex_1`-owning column, so the 0018 trap doesn't apply there (the
+> files-sidebar and org Selects keep their wrapper slots).
+> `debug_selector`/`debug_bounds` are gpui-side (pre-oss), untouched by
+> the component bump — the #154 timeline anchor tests assert real
+> measured bounds and scroll offsets on `94a313a`.
+
 **Upstream widgets (pinned gpui-component @ 0c746df):** no new widgets —
 `GroupBox`, `Badge`, `Button` (danger), `Textarea` (`auto_grow`), the 0017
 markdown renderer, `Select` (close-reason). Theme semantic
