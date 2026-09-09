@@ -4,7 +4,10 @@
 //! button), it replaces the module content with the notification's
 //! metadata — kind/reason badges, subject title, repo, age, read state —
 //! plus the kind-aware web hand-off and, for Issue/PR subjects, the
-//! `Open #n` links into the native pages (owner decision, docs/0026 §4.2).
+//! `Open #n` links into the native pages (owner decision, docs/0026 §4.2) —
+//! with the latest-comment jump (docs/0026 D9, #154): when
+//! `latest_comment_url` parses to a REST comment id, a jump link hands off
+//! into the native page anchored at that comment (scroll-to + highlight).
 //!
 //! Read state (docs/0026 D3/D4, owner decisions §4.1/§4.3): the page
 //! fires `PATCH /notifications/threads/{id}` the instant it starts
@@ -31,7 +34,7 @@ use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 
 use gpui_component::{
-    ActiveTheme, Disableable, IconName, Sizable as _,
+    ActiveTheme, Disableable, Icon, IconName, Sizable as _,
     badge::Badge,
     button::{Button, ButtonVariants},
     group_box::GroupBox,
@@ -61,6 +64,8 @@ pub(crate) enum NotificationPageEvent {
     DoneSettled,
     /// Issue/PR hand-off (docs/0026 D6, owner decision §4.2): the host
     /// closes this page and opens the native detail page with a
+    /// Issue/PR hand-off (docs/0026 D6, owner decision §4.2): the host
+    /// closes this page and opens the native detail page with a
     /// synthesized seed row.
     OpenSubject {
         /// `true` = PullRequest, `false` = Issue.
@@ -68,6 +73,11 @@ pub(crate) enum NotificationPageEvent {
         full_name: String,
         number: i64,
         title: String,
+        /// docs/0026 D9 (#154): the REST comment id parsed from
+        /// `latest_comment_url` — the native page scrolls to and highlights
+        /// it once its detail lands. `None` = plain hand-off (the subject
+        /// title click; start of the conversation).
+        anchor: Option<i64>,
     },
 }
 
@@ -348,7 +358,11 @@ impl NotificationDetailPage {
 
     /// The Issue/PR hand-off (docs/0026 D6): parse the subject's API URL;
     /// other kinds never emit — the ↗ button is their whole hand-off.
-    fn open_subject(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+    /// The Issue/PR hand-off (docs/0026 D6): parse the subject's API URL;
+    /// other kinds never emit — the ↗ button is their whole hand-off.
+    /// `anchor` (docs/0026 D9) rides only from the latest-comment jump;
+    /// the plain subject click opens the conversation from the top.
+    fn open_subject(&mut self, anchor: Option<i64>, _: &mut Window, cx: &mut Context<Self>) {
         let subject = &self.effective().subject;
         let Some((full_name, number)) = api::subject_handoff(&subject.kind, subject.url.as_deref())
         else {
@@ -359,6 +373,7 @@ impl NotificationDetailPage {
             full_name,
             number,
             title: subject.title.clone(),
+            anchor,
         });
     }
 
@@ -380,6 +395,16 @@ impl NotificationDetailPage {
     fn subject_handoff(&self) -> Option<(String, i64)> {
         let subject = &self.effective().subject;
         api::subject_handoff(&subject.kind, subject.url.as_deref())
+    }
+
+    /// The latest-comment jump target (docs/0026 D9, #154): only when the
+    /// subject hands off in-app (Issue/PR) AND `latest_comment_url` parses
+    /// to a REST comment id. PR subjects whose latest comment is a review
+    /// comment (`…/pulls/comments/{id}`) get no jump — there is no in-app
+    /// review-thread surface to anchor to; the plain hand-off stays.
+    fn latest_comment_anchor(&self) -> Option<i64> {
+        self.subject_handoff()?;
+        api::latest_comment_id(self.effective().subject.latest_comment_url.as_deref())
     }
 
     fn render_header(&self, cx: &Context<Self>) -> AnyElement {
@@ -443,9 +468,9 @@ impl NotificationDetailPage {
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(cx.theme().accent)
                             .cursor_pointer()
-                            .on_click(
-                                cx.listener(|this, _, window, cx| this.open_subject(window, cx)),
-                            )
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.open_subject(None, window, cx)
+                            }))
                             .child(format!("{}  #{}", n.subject.title, number)),
                         None => div()
                             .id("notification-subject-text")
@@ -453,6 +478,25 @@ impl NotificationDetailPage {
                             .text_lg()
                             .font_weight(FontWeight::SEMIBOLD)
                             .child(n.subject.title.clone()),
+                    })
+                    // The latest-comment jump (docs/0026 D9, #154): Issue/PR
+                    // subjects with a parseable `latest_comment_url` — clicking
+                    // hands off into the native page anchored at that comment.
+                    .when_some(self.latest_comment_anchor(), |col, anchor| {
+                        col.child(
+                            h_flex()
+                                .id("notification-latest-comment")
+                                .debug_selector(|| "notification-latest-comment".to_string())
+                                .gap_1()
+                                .text_sm()
+                                .text_color(cx.theme().accent)
+                                .cursor_pointer()
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.open_subject(Some(anchor), window, cx)
+                                }))
+                                .child(Icon::new(IconName::ArrowRight).xsmall())
+                                .child("Jump to latest comment"),
+                        )
                     })
                     .child(
                         h_flex()
@@ -702,6 +746,52 @@ mod tests {
         .to_string()
     }
 
+    /// The D9 variant: same thread payload, with `latest_comment_url`.
+    fn thread_payload_latest(
+        kind: &str,
+        url: Option<&str>,
+        latest: Option<&str>,
+        unread: bool,
+    ) -> String {
+        let mut subject = serde_json::json!({"title": "Fix the flume", "type": kind});
+        if let Some(u) = url {
+            subject["url"] = u.into();
+        }
+        if let Some(l) = latest {
+            subject["latest_comment_url"] = l.into();
+        }
+        serde_json::json!({
+            "id": "19", "unread": unread,
+            "subject": subject,
+            "repository": {"full_name": "o/r"},
+            "reason": "review_requested",
+            "updated_at": "2026-09-01T00:00:00Z"
+        })
+        .to_string()
+    }
+
+    fn probe_seed_latest(
+        unread: bool,
+        kind: &str,
+        url: Option<&str>,
+        latest: Option<&str>,
+    ) -> api::Notification {
+        let mut subject = serde_json::json!({"title": "Fix the flume", "type": kind});
+        if let Some(u) = url {
+            subject["url"] = u.into();
+        }
+        if let Some(l) = latest {
+            subject["latest_comment_url"] = l.into();
+        }
+        serde_json::from_value(serde_json::json!({
+            "id": "19", "unread": unread,
+            "subject": subject,
+            "repository": {"full_name": "o/r"},
+            "reason": "review_requested",
+            "updated_at": "2026-09-01T00:00:00Z"
+        }))
+        .unwrap()
+    }
     fn probe_seed(unread: bool, kind: &str, url: Option<&str>) -> api::Notification {
         let subject = match url {
             Some(u) => serde_json::json!({"title": "Fix the flume", "type": kind, "url": u}),
@@ -904,7 +994,7 @@ mod tests {
             .detach();
             // Drive the hand-off through open_subject — the click path
             // runs this same listener.
-            issue_page.update(cx, |p, cx| p.open_subject(window, cx));
+            issue_page.update(cx, |p, cx| p.open_subject(None, window, cx));
         });
         vcx.run_until_parked();
         let handed = handed.borrow().clone();
@@ -919,6 +1009,121 @@ mod tests {
         assert!(vcx.debug_bounds("notification-subject-link").is_none());
         assert!(vcx.debug_bounds("notification-subject-text").is_some());
         assert!(vcx.read(|cx| release_page.read(cx).subject_handoff().is_none()));
+    }
+
+    #[gpui::test]
+    fn latest_comment_jump_link_gates_per_subject(cx: &mut gpui::TestAppContext) {
+        // docs/0026 D9: the jump link exists only for Issue/PR subjects whose
+        // `latest_comment_url` parses to a REST comment id — review-comment
+        // URLs (…/pulls/comments/{id}) have no in-app surface and get none.
+        let cases: &[(&str, &str, Option<&str>, bool)] = &[
+            (
+                "Issue",
+                "https://api.github.com/repos/o/r/issues/7",
+                Some("https://api.github.com/repos/o/r/issues/comments/555"),
+                true,
+            ),
+            (
+                "PullRequest",
+                "https://api.github.com/repos/o/r/pulls/7",
+                Some("https://api.github.com/repos/o/r/issues/comments/555"),
+                true,
+            ),
+            // PR review comment: no in-app anchor — the link hides.
+            (
+                "PullRequest",
+                "https://api.github.com/repos/o/r/pulls/7",
+                Some("https://api.github.com/repos/o/r/pulls/comments/9"),
+                false,
+            ),
+            // No latest_comment_url at all: no link (hand-off still parses).
+            (
+                "Issue",
+                "https://api.github.com/repos/o/r/issues/7",
+                None,
+                false,
+            ),
+            // Unparseable subject URL: no hand-off, no jump link either.
+            (
+                "Issue",
+                "u",
+                Some("https://api.github.com/repos/o/r/issues/comments/555"),
+                false,
+            ),
+        ];
+        for (kind, url, latest, want_link) in cases {
+            let mock = lane_mock(
+                0,
+                200,
+                thread_payload_latest(kind, Some(url), *latest, false),
+            );
+            let (_page, vcx) =
+                probe_page(cx, probe_seed_latest(false, kind, Some(url), *latest), mock);
+            vcx.run_until_parked();
+            assert_eq!(
+                vcx.debug_bounds("notification-latest-comment").is_some(),
+                *want_link,
+                "{kind} with {latest:?}"
+            );
+        }
+    }
+
+    #[gpui::test]
+    fn latest_comment_click_emits_open_subject_with_anchor(cx: &mut gpui::TestAppContext) {
+        // docs/0026 D9: the jump click carries the parsed REST comment id in
+        // OpenSubject.anchor; the plain subject click stays anchor-less.
+        let mock = lane_mock(
+            0,
+            200,
+            thread_payload_latest(
+                "Issue",
+                Some("https://api.github.com/repos/o/r/issues/7"),
+                Some("https://api.github.com/repos/o/r/issues/comments/555"),
+                false,
+            ),
+        );
+        let (page, vcx) = probe_page(
+            cx,
+            probe_seed_latest(
+                false,
+                "Issue",
+                Some("https://api.github.com/repos/o/r/issues/7"),
+                Some("https://api.github.com/repos/o/r/issues/comments/555"),
+            ),
+            mock,
+        );
+        vcx.run_until_parked();
+        let handed = std::rc::Rc::new(std::cell::RefCell::new(None));
+        let sink = handed.clone();
+        vcx.update(|_window, cx| {
+            cx.subscribe(&page, move |_, ev, _| {
+                if let NotificationPageEvent::OpenSubject { anchor, .. } = ev {
+                    *sink.borrow_mut() = Some(*anchor);
+                }
+            })
+            .detach();
+        });
+        // Real click on the jump link.
+        let link = vcx
+            .debug_bounds("notification-latest-comment")
+            .expect("jump link visible");
+        vcx.simulate_click(link.center(), gpui::Modifiers::default());
+        vcx.run_until_parked();
+        assert_eq!(
+            handed.borrow().as_ref().copied().flatten(),
+            Some(555),
+            "jump click anchors at comment 555"
+        );
+        // The plain subject click opens the conversation from the top.
+        vcx.update(|window, cx| {
+            page.update(cx, |p, cx| p.open_subject(None, window, cx));
+        });
+        vcx.run_until_parked();
+        assert_eq!(
+            handed.borrow().as_ref().copied().flatten(),
+            None,
+            "subject click carries no anchor"
+        );
     }
 
     #[gpui::test]

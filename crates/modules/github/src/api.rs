@@ -44,8 +44,10 @@ pub struct Subject {
     /// (D5) and the Issue/PR hand-off (D6) parse it.
     #[serde(default)]
     pub url: Option<String>,
-    /// The subject's latest-comment API URL — carried but unused this
-    /// round (docs/0026 §7 follow-up).
+    /// The subject's latest-comment API URL (docs/0026 D9, #154):
+    /// `…/repos/{o}/{r}/issues/comments/{id}` — the page parses the REST
+    /// comment id out of it for the native-page jump (D9);
+    /// [`latest_comment_id`] is the pure parser.
     #[serde(default)]
     pub latest_comment_url: Option<String>,
 }
@@ -128,6 +130,25 @@ pub fn subject_handoff(kind: &str, api_url: Option<&str>) -> Option<(String, i64
         _ => return None,
     };
     Some((format!("{o}/{r}"), n.parse().ok()?))
+}
+/// The latest-comment anchor (docs/0026 D9, #154): the REST comment id
+/// parsed from the thread's `latest_comment_url`. Upstream shape
+/// (github/rest-api-description, `thread.subject`):
+/// `…/repos/{o}/{r}/issues/comments/{id}` — the issue-comment collection
+/// item, which serves both Issue and PR conversation comments. Anything
+/// else yields `None`: PR review comments (`…/pulls/comments/{id}`) have
+/// no in-app surface to anchor to (no review-thread rendering), and
+/// subject/foreign/malformed URLs were never comments. Pure, table-tested.
+pub fn latest_comment_id(url: Option<&str>) -> Option<i64> {
+    let segs: Vec<&str> = url?
+        .strip_prefix(API_BASE)?
+        .trim_start_matches('/')
+        .split('/')
+        .collect();
+    match segs.as_slice() {
+        ["repos", _, _, "issues", "comments", id] if !id.is_empty() => id.parse().ok(),
+        _ => None,
+    }
 }
 
 /// `GET /repos/{o}/{r}/pulls/{n}/files` item (docs/0016 §3 D8):
@@ -312,5 +333,43 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn latest_comment_id_parses_issue_comment_urls_only() {
+        // The upstream shape (docs/0026 D9): the issue-comment collection
+        // item — serves Issue and PR conversation comments alike.
+        assert_eq!(
+            latest_comment_id(Some(
+                "https://api.github.com/repos/o/r/issues/comments/1234567",
+            )),
+            Some(1_234_567),
+        );
+        // PR review comments have no in-app surface — no anchor.
+        assert_eq!(
+            latest_comment_id(Some("https://api.github.com/repos/o/r/pulls/comments/9",)),
+            None,
+        );
+        // Subject URLs, sub-paths, foreign hosts, malformed shapes: None.
+        assert_eq!(
+            latest_comment_id(Some("https://api.github.com/repos/o/r/issues/42")),
+            None,
+        );
+        assert_eq!(
+            latest_comment_id(Some("https://api.github.com/repos/o/r/issues/comments/",)),
+            None,
+        );
+        assert_eq!(
+            latest_comment_id(Some(
+                "https://api.github.com/repos/o/r/issues/comments/notanumber",
+            )),
+            None,
+        );
+        assert_eq!(
+            latest_comment_id(Some("https://example.com/repos/o/r/issues/comments/1")),
+            None,
+        );
+        assert_eq!(latest_comment_id(Some("not a url")), None);
+        assert_eq!(latest_comment_id(None), None);
     }
 }

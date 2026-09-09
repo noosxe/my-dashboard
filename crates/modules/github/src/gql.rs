@@ -418,7 +418,18 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
       }
       comments(first: 100) {
         totalCount
-        nodes { id viewerCanUpdate viewerCanDelete updatedAt author { login avatarUrl } body createdAt }
+        # docs/0026 D9: databaseId rides too — the REST id the notification
+        # hand-off anchors its jump on (same field the issue query selects).
+        nodes {
+          id
+          databaseId
+          viewerCanUpdate
+          viewerCanDelete
+          updatedAt
+          author { login avatarUrl }
+          body
+          createdAt
+        }
       }
       files(first: 1) { totalCount }
     }
@@ -636,6 +647,9 @@ query IssueDetail($owner: String!, $name: String!, $number: Int!) {
         totalCount
         nodes {
           id
+          # docs/0026 D9: the REST id — matches the thread payload's
+          # latest_comment_url tail so a notification can anchor a jump.
+          databaseId
           viewerCanUpdate
           viewerCanDelete
           updatedAt
@@ -1374,6 +1388,10 @@ pub struct PrComment {
     /// 0019 D2: node id — the edit/delete mutation target. Empty when the
     /// payload omits it: affordances hide (per-node degrade).
     pub id: String,
+    /// docs/0026 D9: the REST database id — the notification hand-off
+    /// anchors its jump on it. `None` degrades to "not anchorable" (the
+    /// field absent from the payload); never a drop condition.
+    pub database_id: Option<i64>,
     /// 0019 D3: gating is the schema's flags, nothing else.
     pub viewer_can_update: bool,
     pub viewer_can_delete: bool,
@@ -1419,6 +1437,7 @@ fn comment_from_node(c: &serde_json::Value) -> Option<PrComment> {
             .and_then(|v| v.as_str())
             .map(str::to_string),
         id,
+        database_id: c.get("databaseId").and_then(|v| v.as_i64()),
         viewer_can_update,
         viewer_can_delete,
         updated_at,
@@ -2261,6 +2280,7 @@ mod tests {
                 ]},
                 "comments": {"totalCount": 2, "nodes": [
                     {"author": {"login": "carol"}, "body": "nice",
+                     "databaseId": 987654,
                      "createdAt": "2026-08-03T00:00:00Z"}
                 ]},
                 "files": {"totalCount": 23}
@@ -2289,6 +2309,8 @@ mod tests {
         assert_eq!(d.reviews.nodes[0].state.as_deref(), Some("APPROVED"));
         assert_eq!(d.comments.total_count, 2);
         assert_eq!(d.comments.nodes[0].body, "nice");
+        // docs/0026 D9: the REST id rides through for the anchor jump.
+        assert_eq!(d.comments.nodes[0].database_id, Some(987_654));
     }
 
     #[test]

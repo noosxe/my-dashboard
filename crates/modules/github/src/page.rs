@@ -433,16 +433,26 @@ impl GithubPage {
     /// page takes over the module content, fetches its detail (D2), and
     /// the breadcrumb gains the `#number` suffix. The repo row's old
     /// browser hand-off moves to the page header's ↗ button.
+    /// `anchor` (docs/0026 D9, #154): the REST comment id to jump to from
+    /// the notification hand-off — `None` from repo rows (no anchor).
     fn open_pr(
         &mut self,
         repo: &str,
         pr: &gql::PullRequest,
+        anchor: Option<i64>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         log::debug!("pr page opened: {}#{}", repo, pr.number);
         let page = cx.new(|cx| {
-            pr_page::PrDetailPage::new(self.state.clone(), repo.to_string(), pr.clone(), window, cx)
+            pr_page::PrDetailPage::new(
+                self.state.clone(),
+                repo.to_string(),
+                pr.clone(),
+                anchor,
+                window,
+                cx,
+            )
         });
         // Esc on the PR page asks its host to close it (docs/0016 D1).
         cx.subscribe_in(&page, window, |this, _, _: &pr_page::PrPageEvent, _, cx| {
@@ -466,11 +476,13 @@ impl GithubPage {
     /// PR page's takeover pattern — full-content sub-page, detail fetch,
     /// crumb `#number` suffix. The row's old browser hand-off moves to
     /// the page header's ↗ button. Opening it closes any open PR page
-    /// (mutual exclusion, 0020 D1).
+    /// (mutual exclusion, 0020 D1). `anchor` rides from the notification
+    /// hand-off (docs/0026 D9); repo rows pass `None`.
     fn open_issue(
         &mut self,
         repo: &str,
         issue: &gql::Issue,
+        anchor: Option<i64>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -480,6 +492,7 @@ impl GithubPage {
                 self.state.clone(),
                 repo.to_string(),
                 issue.clone(),
+                anchor,
                 window,
                 cx,
             )
@@ -593,6 +606,7 @@ impl GithubPage {
                     full_name,
                     number,
                     title,
+                    anchor,
                 } => {
                     this.close_notification(cx);
                     // A synthesized minimal row — initial paint only;
@@ -611,7 +625,7 @@ impl GithubPage {
                             url: String::new(),
                             status: None,
                         };
-                        this.open_pr(full_name, &pr, window, cx);
+                        this.open_pr(full_name, &pr, *anchor, window, cx);
                     } else {
                         let issue = gql::Issue {
                             key,
@@ -622,7 +636,7 @@ impl GithubPage {
                             updated_at: None,
                             url: String::new(),
                         };
-                        this.open_issue(full_name, &issue, window, cx);
+                        this.open_issue(full_name, &issue, *anchor, window, cx);
                     }
                 }
             },
@@ -687,7 +701,7 @@ impl GithubPage {
                         this.run_specs(specs, window, cx);
                         // A synthesized minimal row (gql::created_issue_from_body)
                         // — initial paint only; the detail page re-fetches.
-                        this.open_issue(&repo, issue, window, cx);
+                        this.open_issue(&repo, issue, None, window, cx);
                     }
                 }
             },
@@ -847,7 +861,7 @@ impl GithubPage {
             .cursor_pointer()
             .hover(|s| s.bg(cx.theme().accent.opacity(0.08)))
             .on_click(move |_, window, cx| {
-                page.update(cx, |this, cx| this.open_pr(&repo, &row, window, cx));
+                page.update(cx, |this, cx| this.open_pr(&repo, &row, None, window, cx));
             })
             .child(
                 h_flex()
@@ -958,7 +972,9 @@ impl GithubPage {
             .cursor_pointer()
             .hover(|s| s.bg(cx.theme().accent.opacity(0.08)))
             .on_click(move |_, window, cx| {
-                page.update(cx, |this, cx| this.open_issue(&repo, &row, window, cx));
+                page.update(cx, |this, cx| {
+                    this.open_issue(&repo, &row, None, window, cx)
+                });
             })
             .child(
                 h_flex()
@@ -2147,6 +2163,7 @@ mod tests {
                         state.clone(),
                         "acme/one".into(),
                         summary,
+                        None,
                         window,
                         cx,
                     )

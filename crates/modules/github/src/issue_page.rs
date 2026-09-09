@@ -43,6 +43,7 @@ use gpui_component::{
 
 use serde_json::json;
 
+use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -50,8 +51,8 @@ use crate::gql;
 use crate::markdown;
 use crate::page::relative_age;
 use crate::pr_page::{
-    ErrorScope, MutationError, body_card, cap_row, delete_confirm_card, inline_edit_card,
-    split_repo,
+    ANCHOR_FADE, CommentAnchor, ErrorScope, MutationError, body_card, cap_row, delete_confirm_card,
+    inline_edit_card, split_repo,
 };
 use crate::service::{FetchSpec, GithubState, Kind, Mutation, run_mutation, run_spec_tracked};
 
@@ -105,6 +106,15 @@ pub(crate) struct IssueDetailPage {
     /// Parsed markdown bodies (0017) keyed by card id — rebuilt whenever
     /// a detail payload lands, never re-parsed per frame.
     md: BTreeMap<String, Arc<[markdown::Block]>>,
+    /// docs/0026 D9 (#154): the notification hand-off's comment anchor —
+    /// see [`pr_page::CommentAnchor`]. `Idle` unless opened from the jump.
+    pub(crate) anchor: CommentAnchor,
+    /// The conversation scroll — tracked so the jump can land the timeline
+    /// on the anchored comment (docs/0026 D9).
+    timeline_scroll: ScrollHandle,
+    /// One-shot guard for the jump (docs/0026 D9): the builder arms the
+    /// scroll exactly once, the frame the jumped card first renders.
+    jump_done: Cell<bool>,
 }
 
 /// The issue page's write operations in flight (0020 D2/D4/D5).
@@ -223,9 +233,11 @@ impl IssueDetailPage {
         state: Entity<GithubState>,
         repo: String,
         summary: gql::Issue,
+        anchor: Option<i64>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let timeline_scroll = ScrollHandle::new();
         let comment = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .rows(4)
@@ -269,6 +281,9 @@ impl IssueDetailPage {
             timeline_edit: None,
             delete_confirm: None,
             md: BTreeMap::new(),
+            anchor: anchor.map_or(CommentAnchor::Idle, CommentAnchor::Pending),
+            timeline_scroll,
+            jump_done: Cell::new(false),
         };
         page.fetch_detail(cx);
         page
@@ -375,6 +390,9 @@ impl IssueDetailPage {
                             if let Some(source) = open_picker {
                                 self.realign_open_picker(source, cx);
                             }
+                            // docs/0026 D9: the payload is in — try to arm
+                            // the notification jump against it.
+                            self.resolve_comment_anchor();
                         }
                         None => {
                             log::warn!("issue-detail: repository/issue null — keeping header");
@@ -390,6 +408,59 @@ impl IssueDetailPage {
             }
         }
         cx.notify();
+    }
+
+    /// docs/0026 D9: resolve the pending REST-id anchor against the landed
+    /// detail — the matching comment node arms the jump; a miss gives up.
+    fn resolve_comment_anchor(&mut self) {
+        let CommentAnchor::Pending(target) = self.anchor else {
+            return;
+        };
+        self.anchor = self
+            .detail
+            .as_ref()
+            .and_then(|d| {
+                d.comments
+                    .nodes
+                    .iter()
+                    .find(|c| c.database_id == Some(target))
+            })
+            .map(|c| {
+                log::info!("issue-page anchor: jumping to comment {}", c.id);
+                self.jump_done.set(false);
+                CommentAnchor::Jumping(c.id.clone())
+            })
+            .unwrap_or_else(|| {
+                log::info!(
+                    "issue-page anchor: comment {target} not in the loaded conversation — no jump",
+                );
+                CommentAnchor::Idle
+            });
+    }
+
+    /// Whether the anchored comment renders as a plain card this frame —
+    /// an editor/delete-confirm swap on it defers the jump until the card
+    /// is really mounted (docs/0026 D9).
+    fn anchor_row_mounts(&self, node_id: &str) -> bool {
+        self.timeline_edit.as_ref().map(|(id, _)| id.as_str()) != Some(node_id)
+            && self.delete_confirm.as_deref() != Some(node_id)
+    }
+
+    /// The highlight's fade (docs/0026 D9): GitHub-like — the accent ring
+    /// clears shortly after the jump. A page close tears the entity down
+    /// first; a later jump re-arms (Highlighted guard).
+    fn start_anchor_fade(&mut self, cx: &mut Context<Self>) {
+        let fade = ANCHOR_FADE;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(fade).await;
+            let _ = this.update(cx, |page, cx| {
+                if matches!(page.anchor, CommentAnchor::Highlighted(_)) {
+                    page.anchor = CommentAnchor::Idle;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
     }
 
     // --- write path (0020 D2/D4/D5) ----------------------------------------
@@ -1497,6 +1568,7 @@ impl IssueDetailPage {
                         d.viewer_can_react,
                         cx,
                     ),
+                    false,
                     cx,
                 )
             }
@@ -1550,6 +1622,17 @@ impl IssueDetailPage {
             if row_is_edited(c.created_at.as_deref(), c.updated_at.as_deref()) {
                 age.push_str(" (edited)");
             }
+            // docs/0026 D9: the ring marks the jumped target; the frame it
+            // first renders arms the one-shot scroll to it.
+            let anchored = matches!(
+                &self.anchor,
+                CommentAnchor::Highlighted(id) | CommentAnchor::Jumping(id) if *id == c.id
+            );
+            let mut jump_ix = None;
+            if anchored && !self.jump_done.get() {
+                self.jump_done.set(true);
+                jump_ix = Some(children.len());
+            }
             children.push(body_card(
                 &key,
                 c.author
@@ -1575,8 +1658,12 @@ impl IssueDetailPage {
                     c.viewer_can_react,
                     cx,
                 ),
+                anchored,
                 cx,
             ));
+            if let Some(ix) = jump_ix {
+                self.timeline_scroll.scroll_to_top_of_item(ix);
+            }
         }
         // docs/0021 Q2: one cap row when either connection was truncated.
         if let Some(cap) = self.render_events_cap_row(d, cx) {
@@ -1595,14 +1682,21 @@ impl IssueDetailPage {
         }
         // The timeline scrolls; the rail hugs its content at the top and
         // never rides along (PR-page, probe-verified mechanism).
-        let timeline = div()
+        let timeline = v_flex()
             .id("issue-conversation")
             .flex_1()
             .min_w_0()
             .min_h_0()
             .h_full()
             .overflow_y_scroll()
-            .child(v_flex().gap_3().py_1().children(children));
+            // docs/0026 D9: the handle lets the notification jump land the
+            // timeline on the anchored comment.
+            .track_scroll(&self.timeline_scroll)
+            // docs/0026 D9: cards are direct scroll children — the jump
+            // resolves against their measured bounds in prepaint.
+            .gap_3()
+            .py_1()
+            .children(children);
         h_flex()
             .id("issue-conversation-split")
             .flex_1()
@@ -2555,6 +2649,16 @@ impl Focusable for IssueDetailPage {
 
 impl Render for IssueDetailPage {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // docs/0026 D9: fire the armed jump the frame the target card
+        // mounts — the anchor records its origin on paint, the offset lands
+        // next frame. A card swapped for an editor/confirm keeps the jump
+        // armed until it really shows.
+        if let CommentAnchor::Jumping(id) = self.anchor.clone() {
+            if self.anchor_row_mounts(&id) {
+                self.anchor = CommentAnchor::Highlighted(id);
+                self.start_anchor_fade(cx);
+            }
+        }
         let detail = self.detail.clone();
         v_flex()
             .id("issue-detail")
@@ -3063,8 +3167,10 @@ mod tests {
         milestone_edit_arming, milestone_rows, reaction_chips, reaction_direction, reopen_allowed,
         row_is_edited, sorted_timeline, state_reason_word, title_edit_visible,
     };
+    use crate::pr_page::{ANCHOR_FADE, CommentAnchor};
     use crate::service::{GithubCache, GithubState, Kind, Mutation, SpecResult};
     use gpui::AppContext as _;
+    use gpui::{Size, px};
 
     // --- pure fns ----------------------------------------------------------
 
@@ -3242,7 +3348,8 @@ mod tests {
             "assignees": {"totalCount": 1, "nodes": [{"id": "U_1", "login": "bob", "avatarUrl": "b"}]},
             "milestone": {"id": "M_1", "title": "v1.0", "state": "OPEN"},
             "comments": {"totalCount": 2, "nodes": [
-                {"id": "IC_1", "viewerCanUpdate": true, "viewerCanDelete": false,
+                {"id": "IC_1", "databaseId": 987654,
+                 "viewerCanUpdate": true, "viewerCanDelete": false,
                  "updatedAt": "2026-09-03T02:00:00Z",
                  "author": {"login": "dave"}, "body": "nice",
                  "createdAt": "2026-09-03T01:00:00Z",
@@ -3269,6 +3376,15 @@ mod tests {
     fn probe_page(
         cx: &mut gpui::TestAppContext,
     ) -> (gpui::Entity<IssueDetailPage>, &mut gpui::VisualTestContext) {
+        probe_page_anchored(cx, None)
+    }
+
+    /// docs/0026 D9: the anchor variant — the notification hand-off's jump
+    /// opens the page with `Some(rest_comment_id)`.
+    fn probe_page_anchored(
+        cx: &mut gpui::TestAppContext,
+        anchor: Option<i64>,
+    ) -> (gpui::Entity<IssueDetailPage>, &mut gpui::VisualTestContext) {
         cx.update(gpui_component::init);
         // Reaction/lock toggles really spawn (ProbeHttp fails them) — the
         // in-flight tracker global must exist, same contract as main() .
@@ -3288,11 +3404,89 @@ mod tests {
             })
         });
         cx.add_window_view(|window, cx| {
-            let mut page = IssueDetailPage::new(state, "o/r".into(), probe_summary(), window, cx);
+            let mut page =
+                IssueDetailPage::new(state, "o/r".into(), probe_summary(), anchor, window, cx);
             page.detail = Some(probe_issue());
             page.md = build_issue_md_cache(page.detail.as_ref().unwrap());
             page
         })
+    }
+
+    #[gpui::test]
+    fn anchor_jump_lands_on_and_highlights_the_comment(cx: &mut gpui::TestAppContext) {
+        // docs/0026 D9: opened from the notification jump (anchor = comment
+        // 987654 = IC_1), the page arms the jump when the detail lands,
+        // scrolls the timeline so the comment is in view, and highlights it;
+        // the highlight fades after ANCHOR_FADE.
+        let (page, vcx) = probe_page_anchored(cx, Some(987_654));
+        // Shrink the window so the conversation overflows (the jump has
+        // something to scroll through).
+        vcx.simulate_resize(Size {
+            width: px(1024.),
+            height: px(300.),
+        });
+        // The real fetch runs this in apply_detail_result; the probe injects
+        // the detail directly, so drive the resolver by hand.
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.resolve_comment_anchor();
+                cx.notify();
+            });
+        });
+        // The drawn frame renders the armed jump: fires the scroll (which
+        // queues for the next frame) and highlights the comment. The second
+        // drawn frame applies the queued offset.
+        vcx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+        });
+        assert_eq!(
+            vcx.read(|cx| page.read(cx).anchor.clone()),
+            CommentAnchor::Highlighted("IC_1".into()),
+        );
+        vcx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+        });
+        let (offset, max, bounds, origin) = vcx.read(|cx| {
+            let h = &page.read(cx).timeline_scroll;
+            (h.offset(), h.max_offset(), h.bounds(), {
+                let p = page.read(cx);
+                p.anchor.clone()
+            })
+        });
+        eprintln!(
+            "[probe-jump] offset={offset:?} max={max:?} viewport={bounds:?} state={origin:?}"
+        );
+        assert!(
+            offset.y < px(0.),
+            "timeline must scroll to the comment, offset = {offset:?}"
+        );
+        // The GitHub-like fade clears the highlight. `vcx` borrows the test
+        // context, so let it go before advancing the executor clock.
+        cx.executor().advance_clock(ANCHOR_FADE);
+        cx.run_until_parked();
+        assert_eq!(
+            cx.read(|cx| page.read(cx).anchor.clone()),
+            CommentAnchor::Idle,
+        );
+    }
+
+    #[gpui::test]
+    fn anchor_miss_gives_up_quietly(cx: &mut gpui::TestAppContext) {
+        // docs/0026 D9: a comment id outside the loaded conversation
+        // (deleted, beyond the first 100, review comment) — no jump, no
+        // error, the page just opens unanchored.
+        let (page, vcx) = probe_page_anchored(cx, Some(111_222));
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.resolve_comment_anchor();
+                cx.notify();
+            });
+        });
+        assert_eq!(
+            vcx.read(|cx| page.read(cx).anchor.clone()),
+            CommentAnchor::Idle,
+            "a miss gives up without arming anything"
+        );
     }
 
     #[gpui::test]
