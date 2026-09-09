@@ -41,8 +41,14 @@ use gpui_component::{
 
 use serde_json::json;
 
+use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::time::Duration;
+
+/// docs/0026 D9: how long the jumped comment keeps its accent ring before
+/// the fade clears it (GitHub-like flash).
+pub(crate) const ANCHOR_FADE: Duration = Duration::from_secs(3);
 
 use crate::api::{self, PrFile};
 use crate::files::{self, FileEntry, FileListDelegate, FilesView, build_file_forest, path_matches};
@@ -141,6 +147,15 @@ pub(crate) struct PrDetailPage {
     /// Parsed markdown bodies (docs/0017 D6) keyed by card id — rebuilt
     /// whenever a detail payload lands, never re-parsed per frame.
     md: BTreeMap<String, Arc<[markdown::Block]>>,
+    /// docs/0026 D9 (#154): the notification hand-off's comment anchor —
+    /// see [`CommentAnchor`]. `Idle` unless opened from the jump.
+    pub(crate) anchor: CommentAnchor,
+    /// The conversation scroll — tracked so the jump can land the timeline
+    /// on the anchored comment (docs/0026 D9).
+    timeline_scroll: ScrollHandle,
+    /// One-shot guard for the jump (docs/0026 D9): the builder arms the
+    /// scroll exactly once, the frame the jumped card first renders.
+    jump_done: Cell<bool>,
 }
 
 /// The Files tab's fetch lifecycle (docs/0016 D8).
@@ -151,6 +166,26 @@ enum FilesFetch {
     Failed(String),
 }
 
+/// The notification hand-off's comment anchor (docs/0026 D9, #154).
+/// `Pending` carries the REST comment id from `latest_comment_url` until
+/// the detail payload lands; a comment with that `databaseId` arms the
+/// jump (`Jumping`). The jump fires the frame the row actually mounts and
+/// the state becomes `Highlighted` (accent ring, GitHub-like); a short
+/// fade returns it to `Idle`. A target outside the loaded conversation
+/// (deleted, beyond the first 100, a review comment) gives up quietly —
+/// no jump, no error. Shared with the issue page (same conversation shape).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum CommentAnchor {
+    /// REST id awaiting the detail payload.
+    Pending(i64),
+    /// Matched node id — fires on the row's next mounted frame.
+    Jumping(String),
+    /// Jumped — accent ring until the fade timer clears it.
+    Highlighted(String),
+    /// No anchor, given up, or faded.
+    Idle,
+}
+
 impl EventEmitter<PrPageEvent> for PrDetailPage {}
 
 impl PrDetailPage {
@@ -158,9 +193,11 @@ impl PrDetailPage {
         state: Entity<GithubState>,
         repo: String,
         summary: gql::PullRequest,
+        anchor: Option<i64>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let timeline_scroll = ScrollHandle::new();
         let comment = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .rows(4)
@@ -225,6 +262,9 @@ impl PrDetailPage {
             file_list: file_list.clone(),
             file_tree: file_tree.clone(),
             md: BTreeMap::new(),
+            anchor: anchor.map_or(CommentAnchor::Idle, CommentAnchor::Pending),
+            timeline_scroll,
+            jump_done: Cell::new(false),
         };
         // View-mode switch (docs/0018 D3): swaps the sidebar view. Selection
         // is per view (D7), so the diff pane follows the newly active view.
@@ -371,6 +411,9 @@ impl PrDetailPage {
                                     self.delete_confirm = None;
                                 }
                             }
+                            // docs/0026 D9: the payload is in — try to arm
+                            // the notification jump against it.
+                            self.resolve_comment_anchor();
                         }
                         None => {
                             log::warn!("pr-detail: repository/pullRequest null — keeping header");
@@ -385,6 +428,60 @@ impl PrDetailPage {
             }
         }
         cx.notify();
+    }
+
+    /// docs/0026 D9: resolve the pending REST-id anchor against the landed
+    /// detail — the matching comment node arms the jump; a miss gives up.
+    fn resolve_comment_anchor(&mut self) {
+        let CommentAnchor::Pending(target) = self.anchor else {
+            return;
+        };
+        self.anchor = self
+            .detail
+            .as_ref()
+            .and_then(|d| {
+                d.comments
+                    .nodes
+                    .iter()
+                    .find(|c| c.database_id == Some(target))
+            })
+            .map(|c| {
+                log::info!("pr-page anchor: jumping to comment {}", c.id);
+                self.jump_done.set(false);
+                CommentAnchor::Jumping(c.id.clone())
+            })
+            .unwrap_or_else(|| {
+                log::info!(
+                    "pr-page anchor: comment {target} not in the loaded conversation — no jump",
+                );
+                CommentAnchor::Idle
+            });
+    }
+
+    /// Whether the anchored comment renders as a plain card this frame —
+    /// an editor/delete-confirm swap on it, or a non-conversation tab,
+    /// defers the jump until the card is really mounted (docs/0026 D9).
+    fn anchor_row_mounts(&self, node_id: &str) -> bool {
+        self.tab == PrTab::Conversation
+            && self.timeline_edit.as_ref().map(|(id, _)| id.as_str()) != Some(node_id)
+            && self.delete_confirm.as_deref() != Some(node_id)
+    }
+
+    /// The highlight's fade (docs/0026 D9): GitHub-like — the accent ring
+    /// clears shortly after the jump. A page close tears the entity down
+    /// first; a later jump re-arms (Highlighted guard).
+    fn start_anchor_fade(&mut self, cx: &mut Context<Self>) {
+        let fade = ANCHOR_FADE;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(fade).await;
+            let _ = this.update(cx, |page, cx| {
+                if matches!(page.anchor, CommentAnchor::Highlighted(_)) {
+                    page.anchor = CommentAnchor::Idle;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
     }
 
     // --- files tab (docs/0016 §6 stage 4, D8) -------------------------------
@@ -1361,6 +1458,7 @@ impl PrDetailPage {
                     self.md.get("pr-description").map(Arc::as_ref),
                     edit,
                     None,
+                    false,
                     cx,
                 )
             }
@@ -1400,6 +1498,17 @@ impl PrDetailPage {
                     if row_is_edited(c.created_at.as_deref(), c.updated_at.as_deref()) {
                         age.push_str(" (edited)");
                     }
+                    // docs/0026 D9: the ring marks the jumped target; the
+                    // frame it first renders arms the one-shot scroll to it.
+                    let anchored = matches!(
+                        &self.anchor,
+                        CommentAnchor::Highlighted(id) | CommentAnchor::Jumping(id) if *id == c.id
+                    );
+                    let mut jump_ix = None;
+                    if anchored && !self.jump_done.get() {
+                        self.jump_done.set(true);
+                        jump_ix = Some(children.len());
+                    }
                     children.push(body_card(
                         &key,
                         c.author
@@ -1419,8 +1528,12 @@ impl PrDetailPage {
                             cx,
                         ),
                         None,
+                        anchored,
                         cx,
                     ));
+                    if let Some(ix) = jump_ix {
+                        self.timeline_scroll.scroll_to_top_of_item(ix);
+                    }
                 }
                 TimelineKind::Review => {
                     let r = &d.reviews.nodes[ix];
@@ -1483,6 +1596,7 @@ impl PrDetailPage {
                         self.md.get(&key).map(Arc::as_ref),
                         trailing,
                         None,
+                        false,
                         cx,
                     ));
                 }
@@ -1502,7 +1616,7 @@ impl PrDetailPage {
         children.push(self.render_comment_box(cx));
         // D4/D5: the timeline scrolls; the rail (merge/close panel + checks
         // mini-summary) stands beside it.
-        let timeline = div()
+        let timeline = v_flex()
             .id("pr-conversation")
             .flex_1()
             .min_w_0()
@@ -1515,7 +1629,14 @@ impl PrDetailPage {
             // probe-verified on the live build.
             .h_full()
             .overflow_y_scroll()
-            .child(v_flex().gap_3().py_1().children(children));
+            // docs/0026 D9: the handle lets the notification jump land the
+            // timeline on the anchored comment.
+            .track_scroll(&self.timeline_scroll)
+            // docs/0026 D9: cards are direct scroll children — the jump
+            // resolves against their measured bounds in prepaint.
+            .gap_3()
+            .py_1()
+            .children(children);
         h_flex()
             .id("pr-conversation-split")
             .flex_1()
@@ -1767,6 +1888,16 @@ impl Focusable for PrDetailPage {
 
 impl Render for PrDetailPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // docs/0026 D9: fire the armed jump the frame the target card
+        // mounts — the anchor records its origin on paint, the offset lands
+        // next frame. A card swapped for an editor/confirm (or a
+        // non-conversation tab) keeps the jump armed until it really shows.
+        if let CommentAnchor::Jumping(id) = self.anchor.clone() {
+            if self.anchor_row_mounts(&id) {
+                self.anchor = CommentAnchor::Highlighted(id);
+                self.start_anchor_fade(cx);
+            }
+        }
         // Method Select (D5): `SelectState` needs a window, so it is built
         // on the first render that has a detail payload — once per page
         // (a repo's allowed methods can't change while the page is open).
@@ -2250,6 +2381,10 @@ pub(crate) fn body_card(
     // docs/0023 D3 — the chips row under the body (reactions). Cards
     // without reactions pass `None`.
     footer: Option<AnyElement>,
+    // docs/0026 D9 — accent ring while this card is the jumped target
+    // (the notification hand-off's latest-comment jump). Everything else
+    // passes `false`.
+    anchored: bool,
     cx: &App,
 ) -> AnyElement {
     v_flex()
@@ -2257,7 +2392,11 @@ pub(crate) fn body_card(
         .w_full()
         .rounded_md()
         .border_1()
-        .border_color(cx.theme().border)
+        .border_color(if anchored {
+            cx.theme().accent
+        } else {
+            cx.theme().border
+        })
         .child(
             h_flex()
                 .gap_2()
@@ -2649,6 +2788,7 @@ fn render_files(page: &PrDetailPage, cx: &Context<PrDetailPage>) -> AnyElement {
 #[cfg(test)]
 mod tests {
     // No `use super::*` — page.rs documents the gpui::* shadowing hazard.
+    use super::{ANCHOR_FADE, CommentAnchor};
     use crate::api::PrFile;
     use crate::files::{FilesSummary, files_summary, split_path};
     use crate::gql;
@@ -2662,6 +2802,7 @@ mod tests {
     };
     use crate::service::{GithubCache, GithubState};
     use gpui::AppContext as _;
+    use gpui::{Size, px};
 
     // --- Files sidebar layout probe (0018 §8 follow-up) ---------------
     // The views collapsed to zero height on the live build; this renders
@@ -2742,7 +2883,7 @@ mod tests {
                 url: "https://probe".into(),
                 status: None,
             };
-            let mut page = PrDetailPage::new(state, "o/r".into(), summary, window, cx);
+            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
             page.tab = PrTab::Files;
             page.files = FilesFetch::Ready(vec![
                 probe_file("src/main.rs"),
@@ -2787,6 +2928,106 @@ mod tests {
     use crate::pr_page::{build_md_cache, delete_row, edit_row, node_kind, row_is_edited};
     use crate::service::{Kind, Mutation, SpecResult};
 
+    /// docs/0026 D9: the anchor variant — the notification hand-off's jump
+    /// opens the page with `Some(rest_comment_id)`; the detail fixture rides
+    /// in directly, as the real fetch would.
+    fn probe_pr_anchored(
+        cx: &mut gpui::TestAppContext,
+        anchor: Option<i64>,
+    ) -> (gpui::Entity<PrDetailPage>, &mut gpui::VisualTestContext) {
+        cx.update(gpui_component::init);
+        cx.update(dashboard_core::status::init);
+        let state = cx.update(|cx| {
+            let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
+            let store: std::sync::Arc<dyn crate::auth::TokenStore> =
+                std::sync::Arc::new(ProbeStore);
+            cx.new(|_| {
+                GithubState::new(
+                    client,
+                    store,
+                    Default::default(),
+                    Default::default(),
+                    GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                )
+            })
+        });
+        cx.add_window_view(|window, cx| {
+            let summary = gql::PullRequest {
+                key: "o/r#7".into(),
+                database_id: None,
+                number: 7,
+                title: "layout probe".into(),
+                draft: false,
+                state: None,
+                author: None,
+                updated_at: None,
+                url: "https://probe".into(),
+                status: None,
+            };
+            let mut page = PrDetailPage::new(state, "o/r".into(), summary, anchor, window, cx);
+            page.detail = Some(probe_detail());
+            page.md = build_md_cache(page.detail.as_ref().unwrap());
+            page
+        })
+    }
+
+    #[gpui::test]
+    fn anchor_jump_lands_on_and_highlights_the_comment(cx: &mut gpui::TestAppContext) {
+        // docs/0026 D9, PR-page half: the jump scrolls the conversation to
+        // the matched comment (987654 = IC_1), highlights it, and fades.
+        let (page, vcx) = probe_pr_anchored(cx, Some(987_654));
+        vcx.simulate_resize(Size {
+            width: px(1024.),
+            height: px(300.),
+        });
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.resolve_comment_anchor();
+                cx.notify();
+            });
+        });
+        vcx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+        });
+        assert_eq!(
+            vcx.read(|cx| page.read(cx).anchor.clone()),
+            CommentAnchor::Highlighted("IC_1".into()),
+        );
+        vcx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+        });
+        let offset = vcx.read(|cx| page.read(cx).timeline_scroll.offset());
+        assert!(
+            offset.y < px(0.),
+            "conversation must scroll to the comment, offset = {offset:?}"
+        );
+        cx.executor().advance_clock(ANCHOR_FADE);
+        cx.run_until_parked();
+        assert_eq!(
+            cx.read(|cx| page.read(cx).anchor.clone()),
+            CommentAnchor::Idle,
+        );
+    }
+
+    #[gpui::test]
+    fn anchor_miss_gives_up_quietly(cx: &mut gpui::TestAppContext) {
+        // docs/0026 D9, PR-page half: a comment id outside the loaded
+        // conversation — no jump, no error, the page opens unanchored.
+        let (page, vcx) = probe_pr_anchored(cx, Some(111_222));
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.resolve_comment_anchor();
+                cx.notify();
+            });
+        });
+        assert_eq!(
+            vcx.read(|cx| page.read(cx).anchor.clone()),
+            CommentAnchor::Idle,
+            "a miss gives up without arming anything"
+        );
+        assert!(vcx.debug_bounds("pr-comment-0-actions").is_some());
+    }
+
     fn probe_detail() -> gql::PrDetail {
         // Two gated rows (one per kind), two unflagged rows — the probe
         // asserts the affordances follow the flags exactly (0019 D3).
@@ -2803,7 +3044,8 @@ mod tests {
                  "submittedAt": "2026-09-02T01:00:00Z"}
             ]},
             "comments": {"totalCount": 2, "nodes": [
-                {"id": "IC_1", "viewerCanUpdate": true, "viewerCanDelete": false,
+                {"id": "IC_1", "databaseId": 987654,
+                 "viewerCanUpdate": true, "viewerCanDelete": false,
                  "updatedAt": "2026-09-03T02:00:00Z",
                  "author": {"login": "dave"}, "body": "nice",
                  "createdAt": "2026-09-03T01:00:00Z"},
@@ -2904,7 +3146,7 @@ mod tests {
                 url: "https://probe".into(),
                 status: None,
             };
-            let mut page = PrDetailPage::new(state, "o/r".into(), summary, window, cx);
+            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
             page.detail = Some(probe_detail());
             page.md = build_md_cache(page.detail.as_ref().unwrap());
             page
@@ -3010,7 +3252,7 @@ mod tests {
                 url: "https://probe".into(),
                 status: None,
             };
-            let mut page = PrDetailPage::new(state, "o/r".into(), summary, window, cx);
+            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
             page.detail = Some(probe_detail());
             page.md = build_md_cache(page.detail.as_ref().unwrap());
             page
@@ -3070,7 +3312,7 @@ mod tests {
                 url: "https://probe".into(),
                 status: None,
             };
-            let mut page = PrDetailPage::new(state, "o/r".into(), summary, window, cx);
+            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
             page.detail = Some(probe_detail());
             page.timeline_edit = Some((
                 "IC_1".into(),
@@ -3224,6 +3466,7 @@ mod tests {
             body: format!("by {login}"),
             created_at: Some(at.into()),
             id: String::new(),
+            database_id: None,
             viewer_can_update: false,
             viewer_can_delete: false,
             updated_at: None,

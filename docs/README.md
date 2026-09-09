@@ -94,4 +94,5 @@ Core requirements (owner, 2026-08-28 — drive the design, not decisions):
 - ~~File-based color themes~~ → design drafted, see doc 0025 above (tracked
   in #23)
 - ~~Notification detail page~~ → implemented (docs/0026, #151);
-  ~~notification mark-as-done~~ → implemented (docs/0026 D8, #153)
+  ~~notification mark-as-done~~ → implemented (docs/0026 D8, #153);
+  ~~jump to latest comment~~ → implemented (docs/0026 D9, #154)

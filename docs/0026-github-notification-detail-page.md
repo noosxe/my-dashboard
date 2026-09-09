@@ -139,7 +139,7 @@ pure, table-tested:
 | anything else | no derivation → repo notifications page (0015 target) |
 
 Malformed/missing `subject.url` falls back the same way. `latest_comment_url`
-stays unused this round (filed §7).
+stayed unused this round (filed §7) — superseded by D9, #154.
 
 ### D6 — Issue/PR subjects: hand-off into the native pages
 
@@ -190,6 +190,54 @@ the inbox is rendered, over the lanes 0026 already reserved:
   reach by settle time). HTTP failures forward to the shared
   auth/rate-limit handling; network errors stay component-local
   (stderr, degrade in place) — the mark conventions, applied to done.
+
+### D9 — Jump to latest comment (follow-up #154)
+
+GitHub's inbox renders a notification's latest comment with a jump
+link; the app's notification page now does the in-app equivalent for
+Issue/PR subjects, over the field 0026 carried but left unused (D5,
+§7):
+
+- **Parse** — `api::latest_comment_url` carries a REST comment id in a
+  pinned upstream shape (github/rest-api-description,
+  `thread.subject.latest_comment_url`, verified 2026-09-09):
+  `…/repos/{o}/{r}/issues/comments/{id}` — the issue-comment collection
+  item, which serves Issue and PR *conversation* comments alike. The
+  pure `api::latest_comment_id` (table-tested, same URL-walking
+  precedent as `web_url`/`subject_handoff`) yields that id and `None`
+  for everything else.
+- **Affordance** — a `Jump to latest comment` link under the subject
+  title, gated on the D6 hand-off (the subject must be Issue/PR with a
+  parseable `subject.url`) **and** a parseable `latest_comment_url`.
+  The plain subject-title click keeps opening the conversation from the
+  top (`OpenSubject { anchor: None }`); the jump click carries
+  `anchor: Some(comment_id)`.
+- **Degrade** — PR subjects whose latest comment is a *review* comment
+  (`…/pulls/comments/{id}`) get no link: the app renders no review-
+  thread surface, so there is nothing to anchor to — silently no
+  affordance, the plain hand-off stays. Same for a missing or malformed
+  URL (no link, no error).
+- **Anchor surface (the native pages, docs/0020/0016)** — the detail
+  queries now select `IssueComment.databaseId`, the REST id, matching
+  the URL's tail. The pages hold a `CommentAnchor` state machine:
+  `Pending(rest_id)` → `Jumping(node_id)` when the landed detail
+  contains a comment with that `databaseId` → `Highlighted(node_id)`
+  the frame the card actually renders → `Idle`. The frame the jumped
+  card renders, the conversation scrolls it to the top and the card
+  wears an accent ring (GitHub-like), fading after 3 seconds
+  (`ANCHOR_FADE`).
+  - The scroll resolves in prepaint: the timeline cards are *direct*
+    children of the scroll container (the old single-child wrapper is
+    flattened), so `ScrollHandle::scroll_to_top_of_item` can land on
+    the card's measured bounds — no next-frame indirection.
+  - A card swapped for an inline editor or delete confirm (0019 D4) or
+    a non-conversation PR tab defers the jump until the plain card
+    really renders; the scroll is one-shot (`jump_done`), so a later
+    frame never re-pins the view against the user's scrolling.
+  - A miss — deleted comment, beyond the first 100, review comment —
+    gives up quietly: no jump, no highlight, no error row; the page
+    opens unanchored (log line only).
+
 ## 4. Owner decisions (2026-09-07, PR #150 review — first three; #153
    — 4/5, 2026-09-09)
 
@@ -237,17 +285,28 @@ the inbox is rendered, over the lanes 0026 already reserved:
   row leaves the unread list and the card count drops, no page opened;
   open a notification page → `click notification-mark-done` (present
   while Read too) → the page closes back to the repo view.
+  Jump round trip (D9, #154): open an Issue/PR notification whose
+  `latest_comment_url` parses → `click notification-latest-comment` →
+  the native page opens anchored: the target comment is scrolled into
+  view with the accent ring (bridge `tree` shows it in the viewport
+  bounds); the ring fades after ~3s; `Open #n` without the jump still
+  opens the page at the top.
 - Owner: real-account round trip — open an unread PR notification (row
   vanishes from the unread list, card count drops), check github.com shows
   it read, Esc, open a Discussion notification (metadata-only page, ↗ to
   the repo notifications page), open an Issue notification and follow
   `Open #n` into the native page; done: mark a thread done (row button
-  and page button) and check github.com's inbox no longer lists it.
+  and page button) and check github.com's inbox no longer lists it;
+  jump: from an Issue/PR notification, `Jump to latest comment` lands on
+  the highlighted comment on the native page.
 
 ## 7. Follow-ups (GitHub issues, not this PR)
 
 - ~~`MarkDone` (`DELETE /notifications/threads/{id}`) — "done" action on
   the page and optionally on rows~~ → implemented (D8, #153).
-- `latest_comment_url` — "jump to latest comment" for Issue/PR subjects.
+- ~~`latest_comment_url` — "jump to latest comment" for Issue/PR
+  subjects~~ → implemented (D9, #154). PR *review-comment* targets
+  (`…/pulls/comments/{id}`) still have no in-app anchor — a review-thread
+  surface would be its own feature (0020/0016 scope).
 - Global card: notification rows are counts-only today; if the card ever
   lists notifications, it should reuse this page (noted for whoever writes it).
