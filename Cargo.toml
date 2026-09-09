@@ -21,13 +21,24 @@ anyhow = "1"
 # assets crate to gpui-kit-assets, and added a gpui-kit umbrella crate — we
 # deliberately don't adopt it: explicit deps pin the same versions with zero
 # import churn (see PR for #114).
-gpui = { package = "gpui-pre", version = "0.3.1" }
-gpui_platform = { package = "gpui-pre-platform", version = "0.3.1", features = [
+#
+# Exact pins (=), not caret (#126): each gpui-pre release is a snapshot of a
+# DIFFERENT zed rev — "same-ish version" is not the same code, so a pin that
+# can drift under us isn't a pin (docs/0007: verify against pinned upstream,
+# never remembered details). The caret already bit at birth: #124's manifest
+# said 0.3.1 and its own lockfile resolved 0.3.3, and 0.3.4 (zed@6916400) is
+# published now — one lockfile regen away from a silent behavior change.
+# Upstream pins its own family the same way (`=0.3.3` in gpui-pre-platform's
+# Cargo.toml, verified in the vendored crate). Bumps are deliberate PRs:
+# flip all three to the same new =x.y.z together, run the full gates, the
+# #125 upstream-quirk re-verification checklist, and an app smoke.
+gpui = { package = "gpui-pre", version = "=0.3.3" }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.3", features = [
     "font-kit", "x11", "wayland",
 ] }
 # Concrete gpui HttpClient — serves remote avatar images (docs/0005 §6.3,
-# doc 0012 D1). Same gpui-pre family as gpui.
-reqwest_client = { package = "gpui-pre-reqwest-client", version = "0.3.1" }
+# doc 0012 D1). Same gpui-pre family as gpui; exact-pinned with it.
+reqwest_client = { package = "gpui-pre-reqwest-client", version = "=0.3.3" }
 gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "94a313a72a2513aee2780240cd322d552b2395f0" } # v0.6.0
 gpui-kit-assets = { git = "https://github.com/longbridge/gpui-component", rev = "94a313a72a2513aee2780240cd322d552b2395f0" } # v0.6.0
 dashboard-core = { path = "crates/core" }

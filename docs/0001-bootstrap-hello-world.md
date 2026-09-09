@@ -85,6 +85,13 @@ These are the load-bearing API details (current as of verification date):
    > rebrand) the gpui family is republished to crates.io as `gpui-pre-*`, and
    > `gpui-component-assets` was renamed `gpui-kit-assets`. The authoritative
    > dependency set is the root `Cargo.toml`.
+   >
+   > **Amended 2026-09-09 (#126):** the `gpui-pre-*` deps are exact-pinned
+   > (`=0.3.3`) — each release is a snapshot of a different zed rev, so a
+   > caret would let any lockfile regen silently change UI behavior
+   > (upstream pins its own family with `=` too). Bumps are deliberate PRs
+   > re-running the gates plus the #125 upstream-quirk checklist; the policy
+   > comment lives at the pin site in `Cargo.toml`.
 5. Current `Render` signature takes `(&mut self, &mut Window, &mut Context<Self>)`.
 6. OS support: macOS **15+** (Xcode CLT), Windows **10+** (MSVC), Linux (X11 &
    Wayland). `gpui-component` is also published on crates.io (`"0.5"` line); we use
