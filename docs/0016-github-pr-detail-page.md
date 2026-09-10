@@ -268,9 +268,11 @@ Two columns: main timeline (`flex_1`) + fixed ~300px right rail (D5).
 - **Comment box** (bottom, sticky end of the scroll region): `Textarea` +
   action `Select` (**Comment** / **Approve** / **Request changes**) + primary
   Submit button. Gating (pure fn, table-tested): Comment requires a non-empty
-  body (`addComment`); Approve/Request-changes submit
-  `addPullRequestReview { event, body }` — empty body allowed. Submit
-  disabled + spinner while in flight; the box clears on success; failures
+  body (`addComment`); so does Request-changes — GitHub rejects an empty
+  body for `REQUEST_CHANGES` server-side (REST docs: `body` required for
+  `REQUEST_CHANGES`/`COMMENT`; only `APPROVE` may go empty, #171). Reviews submit
+  `addPullRequestReview { event, body }`.
+  Submit disabled + spinner while in flight; the box clears on success; failures
   show an inline error row above the box and keep the draft.
 
 ### D5 — Merge/close panel (conversation right rail)
