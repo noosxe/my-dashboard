@@ -143,6 +143,12 @@ result (the gate's generation moved): the slots it would overwrite no
 longer belong to this session. The queue is bounded by the number of
 in-flight runs; no artificial cap.
 
+The same session-death rule covers fetch results: `apply` drops any
+result that lands while no session is active — signed out, mid
+connect-flow, keychain error (#168). `TokenRejected` still accepts
+results (that user is signed in with a rejected credential; legitimate
+200s can land around a failed refresh).
+
 `sign_out` calls `gate.reset()` (generation bump, `exhausted = true` until
 the next connect, waiters drained with `Surface`) — no token use after the
 slots clear, matching today's "sign-out raced the drain" handling.
