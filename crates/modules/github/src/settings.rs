@@ -22,6 +22,26 @@ use crate::card::{GITHUB_MARK, github_mark};
 use crate::gql;
 use crate::service::{self, AuthStatus, ConnectPhase, GithubState};
 
+/// May a new sign-in flow start from settings right now? Sign-in is
+/// blocked while a flow is already in flight (`RequestingCode` /
+/// `AwaitApproval`) and when `Connected`; terminal/retry states
+/// (Disconnected, Denied, Expired, Failed, TokenRejected,
+/// KeychainError) allow it — the status copy in those states says
+/// "sign in again", mirroring the module page's Try-again panels
+/// (#172).
+fn sign_in_allowed(auth: &AuthStatus) -> bool {
+    match auth {
+        AuthStatus::Disconnected => true,
+        AuthStatus::ConnectFlow(ConnectPhase::Denied)
+        | AuthStatus::ConnectFlow(ConnectPhase::Expired)
+        | AuthStatus::ConnectFlow(ConnectPhase::Failed(_)) => true,
+        AuthStatus::TokenRejected | AuthStatus::KeychainError(_) => true,
+        AuthStatus::ConnectFlow(ConnectPhase::RequestingCode)
+        | AuthStatus::ConnectFlow(ConnectPhase::AwaitApproval { .. }) => false,
+        AuthStatus::Connected => false,
+    }
+}
+
 /// Build the module's settings page from the live state entity.
 pub fn page(state: &Entity<GithubState>, cx: &App) -> SettingPage {
     let state = state.clone();
@@ -55,7 +75,7 @@ pub fn page(state: &Entity<GithubState>, cx: &App) -> SettingPage {
                             .primary()
                             .label("Sign in...")
                             .with_size(options.size())
-                            .disabled(state.read(cx).auth == AuthStatus::Connected)
+                            .disabled(!sign_in_allowed(&state.read(cx).auth))
                             .on_click({
                                 let state = state.clone();
                                 move |_, window, cx| {
@@ -170,4 +190,39 @@ fn status_row(state: &Entity<GithubState>, cx: &App) -> impl IntoElement {
                     .text_color(cx.theme().muted_foreground),
             ),
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sign_in_gating_table() {
+        // Terminal/retry states allow a fresh flow; active flows and
+        // Connected do not (#172).
+        assert!(sign_in_allowed(&AuthStatus::Disconnected));
+        assert!(!sign_in_allowed(&AuthStatus::Connected));
+        assert!(!sign_in_allowed(&AuthStatus::ConnectFlow(
+            ConnectPhase::RequestingCode
+        )));
+        assert!(!sign_in_allowed(&AuthStatus::ConnectFlow(
+            ConnectPhase::AwaitApproval {
+                user_code: "ABCD-1234".into(),
+                verification_uri: "https://github.com/login/device".into(),
+            }
+        )));
+        assert!(sign_in_allowed(&AuthStatus::ConnectFlow(
+            ConnectPhase::Denied
+        )));
+        assert!(sign_in_allowed(&AuthStatus::ConnectFlow(
+            ConnectPhase::Expired
+        )));
+        assert!(sign_in_allowed(&AuthStatus::ConnectFlow(
+            ConnectPhase::Failed("boom".into())
+        )));
+        assert!(sign_in_allowed(&AuthStatus::TokenRejected));
+        assert!(sign_in_allowed(&AuthStatus::KeychainError(
+            "no secret service".into()
+        )));
+    }
 }
