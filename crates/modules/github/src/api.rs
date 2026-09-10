@@ -108,7 +108,11 @@ pub fn web_url(api_url: &str) -> Option<String> {
         | ["repos", o, r, "discussions", n]
             if !n.is_empty() =>
         {
-            Some(format!("https://github.com/{o}/{r}/{}/{n}", segs[3]))
+            // API segment `pulls` is plural; the canonical web path is
+            // `/pull/N` singular (issue #173) — `commits`→`commit` below
+            // follows the same singularization.
+            let kind = if segs[3] == "pulls" { "pull" } else { segs[3] };
+            Some(format!("https://github.com/{o}/{r}/{kind}/{n}"))
         }
         ["repos", o, r, "commits", sha] => Some(format!("https://github.com/{o}/{r}/commit/{sha}")),
         _ => None,
@@ -280,7 +284,7 @@ mod tests {
             ),
             (
                 "https://api.github.com/repos/o/r/pulls/7",
-                Some("https://github.com/o/r/pulls/7"),
+                Some("https://github.com/o/r/pull/7"),
             ),
             (
                 "https://api.github.com/repos/o/r/discussions/9",
