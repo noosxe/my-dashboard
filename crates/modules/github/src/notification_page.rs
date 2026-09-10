@@ -193,14 +193,14 @@ impl NotificationDetailPage {
         if !self.state.read(cx).auth.connected() {
             return; // the page is about to be torn down by the auth gate
         }
-        let client = self.state.update(cx, |s, _| s.client.clone());
+        let state = self.state.clone();
         let spec = self.mark_spec();
         log::debug!("thread-mutation: mark-read {}", self.thread_id());
         self.mark = MarkState::InFlight;
         self.read = true; // optimistic (D3)
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result = run_spec_tracked(client, spec, cx).await;
+            let result = run_spec_tracked(state, spec, cx).await;
             let _ = this.update(cx, |page, cx| page.apply_mark_result(result, cx));
         })
         .detach();
@@ -246,13 +246,13 @@ impl NotificationDetailPage {
         if !self.state.read(cx).auth.connected() {
             return; // the page is about to be torn down by the auth gate
         }
-        let client = self.state.update(cx, |s, _| s.client.clone());
+        let state = self.state.clone();
         let spec = self.done_spec();
         log::debug!("thread-mutation: mark-done {}", self.thread_id());
         self.done = MarkState::InFlight;
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result = run_spec_tracked(client, spec, cx).await;
+            let result = run_spec_tracked(state, spec, cx).await;
             let _ = this.update(cx, |page, cx| page.apply_done_result(result, cx));
         })
         .detach();
@@ -303,14 +303,14 @@ impl NotificationDetailPage {
         if !self.state.read(cx).auth.connected() {
             return;
         }
-        let client = self.state.update(cx, |s, _| s.client.clone());
+        let state = self.state.clone();
         let spec = self.thread_spec();
         log::debug!("thread-detail: fetching {}", self.thread_id());
         self.loading = true;
         self.load_error = None;
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result = run_spec_tracked(client, spec, cx).await;
+            let result = run_spec_tracked(state, spec, cx).await;
             let _ = this.update(cx, |page, cx| page.apply_thread_result(result, cx));
         })
         .detach();

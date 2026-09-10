@@ -158,6 +158,17 @@ issued by the same response. `DEFAULT_ACCESS_EXPIRES_IN_SECS = 28800` is
 the defensive fallback when a refresh token is present but `expires_in`
 is not.
 
+> **Amended by 0028 (immediate 401 refresh):** the reactive trigger below
+> (§4.3.2: arm `pending_refresh`, drained at the top of the next tick) is
+> superseded by docs/0028: the first 401 leads an immediate refresh
+> through a single-flight `AuthGate` at the `run_spec_tracked` choke
+> point, concurrent 401s queue FIFO behind it, every queued request is
+> re-dispatched with the rotated token, and failures surface instantly.
+> The proactive trigger stays but drains in the same tick it armed in.
+> 0028 is the authority for the 401/refresh reaction path; this doc
+> remains the authority for the credential document, the refresh grant,
+> rotation safety and the proactive lead.
+
 ### 4.3 State machine integration
 
 Two triggers, **one drain point**:
@@ -226,7 +237,7 @@ entry (unchanged semantics).
   `window.refresh()` call; HTTP runs only on the background executor —
   same shape as `start_connect`.
 
-### 4.5 Logging (0008 event catalog additions)
+### 4.5 Logging (0008 event catalog additions — superseded by 0028 §3.5)
 
 | Area | Event | Level |
 | --- | --- | --- |

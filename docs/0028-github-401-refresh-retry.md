@@ -82,8 +82,9 @@ double-apply.
 ### 3.2 `AuthGate` — single-flight lock + FIFO queue
 
 New `AuthGate` (in `service.rs`; plain data + `std::sync` locks, fully unit
-testable without gpui), created in `lib.rs` beside the token slots, stored
-on `GithubState`, threaded into `run_spec_tracked`:
+testable without gpui), created by `GithubState::new` beside the token
+slots and stored on the state, read by `run_spec_tracked` and the tick
+loop:
 
 ```rust
 pub(crate) struct AuthGate {
@@ -137,7 +138,10 @@ guarantee (Q5).
 
 A Drop guard on the Lead's completion token drains waiters with `Surface`
 and clears `inflight` — a cancelled/torn-down Lead cannot hang the queue.
-The queue is bounded by the number of in-flight runs; no artificial cap.
+A sign-out or another install that lands mid-refresh drops the grant
+result (the gate's generation moved): the slots it would overwrite no
+longer belong to this session. The queue is bounded by the number of
+in-flight runs; no artificial cap.
 
 `sign_out` calls `gate.reset()` (generation bump, `exhausted = true` until
 the next connect, waiters drained with `Surface`) — no token use after the

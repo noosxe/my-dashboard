@@ -766,7 +766,6 @@ impl GithubPage {
             return; // already in flight (double-click guard)
         }
         cx.notify();
-        let client = self.state.update(cx, |s, _| s.client.clone());
         let spec = self.state.update(cx, |s, _| {
             s.spec(
                 Kind::ThreadMutation(ThreadOp::MarkDone),
@@ -779,7 +778,7 @@ impl GithubPage {
         let window_handle = self.window;
         let page = cx.entity();
         cx.spawn(async move |_this, cx| {
-            let result = run_spec_tracked(client, spec, cx).await;
+            let result = run_spec_tracked(state.clone(), spec, cx).await;
             let settled = result.network.is_none() && (200..300).contains(&result.status);
             if settled {
                 log::info!(
@@ -823,12 +822,11 @@ impl GithubPage {
         if specs.is_empty() {
             return;
         }
-        let client = self.state.update(cx, |s, _| s.client.clone());
         let state = self.state.clone();
         let window_handle = window.window_handle();
         cx.spawn(async move |_this, cx| {
             for spec in specs {
-                let result = run_spec_tracked(client.clone(), spec, cx).await;
+                let result = run_spec_tracked(state.clone(), spec, cx).await;
                 cx.update(|cx| {
                     state.update(cx, |s, cx| {
                         s.apply(result);

@@ -340,7 +340,7 @@ impl PrDetailPage {
         if !self.state.read(cx).auth.connected() {
             return; // the page is about to be torn down by the auth gate
         }
-        let client = self.state.update(cx, |s, _| s.client.clone());
+        let state = self.state.clone();
         let spec = Self::detail_spec(&self.repo, self.number);
         log::debug!(
             "pr-detail: fetching {}",
@@ -350,7 +350,7 @@ impl PrDetailPage {
         self.load_error = None;
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result = run_spec_tracked(client, spec, cx).await;
+            let result = run_spec_tracked(state, spec, cx).await;
             let _ = this.update(cx, |page, cx| page.apply_detail_result(result, cx));
         })
         .detach();
@@ -509,7 +509,7 @@ impl PrDetailPage {
         if !self.state.read(cx).auth.connected() {
             return; // the page is about to be torn down by the auth gate
         }
-        let client = self.state.update(cx, |s, _| s.client.clone());
+        let state = self.state.clone();
         let spec = Self::files_spec(&self.repo, self.number);
         log::debug!(
             "pr-files: fetching {}",
@@ -518,7 +518,7 @@ impl PrDetailPage {
         self.files = FilesFetch::Fetching;
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result = run_spec_tracked(client, spec, cx).await;
+            let result = run_spec_tracked(state, spec, cx).await;
             let _ = this.update(cx, |page, cx| page.apply_files_result(result, cx));
         })
         .detach();
@@ -896,12 +896,12 @@ impl PrDetailPage {
         window: &Window,
         cx: &mut Context<Self>,
     ) {
-        let client = self.state.update(cx, |s, _| s.client.clone());
+        let state = self.state.clone();
         let ident = format!("{}#{} {:?}", self.repo, self.number, op);
         // `spawn_in` keeps the window reachable across the await so the
         // result handler can clear the draft (set_value needs a Window).
         cx.spawn_in(window, async move |this, cx| {
-            let result = run_mutation(client, mutation, variables, ident, cx).await;
+            let result = run_mutation(state, mutation, variables, ident, cx).await;
             let _ = cx.update(|window, app| {
                 this.update(app, |page, cx| {
                     page.apply_mutation_result(op, result, window, cx)
