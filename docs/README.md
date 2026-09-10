@@ -60,6 +60,7 @@ cross-platform, multi-modular universal personal dashboard built with Rust and
 | [0025](0025-file-based-color-themes.md) | File-based Color Themes (user themes dir, hot reload, defaults-only bundle) |
 | [0026](0026-github-notification-detail-page.md) | GitHub Module: Notification Detail Page (in-app thread view, auto-seen, read state) |
 | [0027](0027-ci-workflows.md) | CI — GitHub Actions Gates on Self-Hosted Runners (fmt/clippy/test, no Nix) |
+| [0028](0028-github-401-refresh-retry.md) | GitHub Module: Immediate 401 Refresh with Retry Queue (single-flight gate, FIFO retries; amends 0011 §4.3) |
 
 ## Planned docs (roadmap, not yet written)
 
