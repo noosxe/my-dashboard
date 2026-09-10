@@ -1820,8 +1820,9 @@ impl PrDetailPage {
     }
 
     /// The comment box (D4): draft Textarea + action Select + submit.
-    /// Comment requires a body; Approve/Request-changes may go empty
-    /// (same pure fn gates button and handler). Failures keep the draft
+    /// Comment requires a body; so does Request-changes (server-side
+    /// rule, #171) — only Approve may go empty. Same pure fn gates
+    /// button and handler. Failures keep the draft
     /// and surface an inline error row above the box.
     fn render_comment_box(&self, cx: &Context<Self>) -> AnyElement {
         let action = self.current_action(cx);
@@ -2295,12 +2296,14 @@ fn merge_disabled_reason(can_merge: bool, line: &str) -> SharedString {
     }
 }
 
-/// Comment-box gating (D4): a plain comment needs a body; review events
-/// (Approve / Request changes) may go empty. Unknown actions never fire.
+/// Comment-box gating (D4): a plain comment and a Request-changes
+/// review need a body — GitHub rejects both empty server-side (REST
+/// docs: `body` is required for `REQUEST_CHANGES`/`COMMENT`; only
+/// `APPROVE` may go empty, #171). Unknown actions never fire.
 pub(crate) fn comment_action_allowed(action: &str, body_empty: bool) -> bool {
     match action {
-        "Comment" => !body_empty,
-        "Approve" | "Request changes" => true,
+        "Comment" | "Request changes" => !body_empty,
+        "Approve" => true,
         _ => false,
     }
 }
@@ -3670,12 +3673,13 @@ mod tests {
 
     #[test]
     fn comment_action_gating_table() {
-        // Comment requires a body; review events may go empty.
+        // Comment and Request-changes need a body (server-side rule,
+        // #171); only Approve may go empty.
         assert!(!comment_action_allowed("Comment", true));
         assert!(comment_action_allowed("Comment", false));
         assert!(comment_action_allowed("Approve", true));
         assert!(comment_action_allowed("Approve", false));
-        assert!(comment_action_allowed("Request changes", true));
+        assert!(!comment_action_allowed("Request changes", true));
         assert!(comment_action_allowed("Request changes", false));
         assert!(!comment_action_allowed("Something else", false));
     }
