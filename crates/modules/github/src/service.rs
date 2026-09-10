@@ -11,17 +11,20 @@
 //! states matrix.
 //!
 //! Split of responsibilities:
-//! - pure state machinery here (`plan_tick`, `run_spec`, `apply`) —
-//!   unit-tested with a scripted transport, no gpui involved;
-//! - thin gpui orchestration at the bottom (`spawn_tick_loop` with the
-//!   docs/0011 token-refresh drain, `start_connect`, `sign_out_now`) —
-//!   every state write ends with the 0003 §3.12 unfocused refresh.
+//! - pure state machinery here (`plan_tick`, `run_spec`, `apply`) and the
+//!   401 [`AuthGate`] — unit-tested with a scripted transport, no gpui
+//!   involved;
+//! - thin gpui orchestration at the bottom (`spawn_tick_loop`,
+//!   `run_spec_tracked` with the docs/0028 refresh gate, `start_connect`,
+//!   `sign_out_now`) — every state write ends with the 0003 §3.12
+//!   unfocused refresh.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use futures::channel::oneshot;
 use gpui::AnyWindowHandle;
 use gpui::AsyncApp;
 use serde::Serialize;
@@ -90,14 +93,169 @@ impl AuthStatus {
     }
 }
 
-/// Why a token refresh is pending (docs/0011 §4.3) — informational;
-/// both reasons drain through the same tick-loop point.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum RefreshReason {
-    /// `access_expires_at − REFRESH_LEAD_SECS` reached.
-    Proactive,
-    /// The API answered 401 and the credential still has its chance.
-    Reactive401,
+// ---------------------------------------------------------------------------
+// Auth gate (docs/0028): single-flight refresh + FIFO retry queue.
+// ---------------------------------------------------------------------------
+
+/// What the gate told a 401-ed run (docs/0028 §3.2).
+#[derive(Debug)]
+pub(crate) enum GateEntry {
+    /// You are first: run the refresh, then complete the queue. Your own
+    /// oneshot is queue item #1 — await it like any other waiter.
+    Lead(oneshot::Receiver<GateOutcome>),
+    /// A refresh is in flight — await its outcome.
+    Wait(oneshot::Receiver<GateOutcome>),
+    /// The token rotated after this run dispatched: re-dispatch with the
+    /// current token, nothing spent (docs/0028 Q3).
+    RetryFresh,
+    /// No refresh possible or worth it — surface the result as-is.
+    Surface,
+}
+
+/// What a finished refresh told the queue (docs/0028 §3.2).
+#[derive(Debug, Clone)]
+pub(crate) enum GateOutcome {
+    /// New credential installed — every queued run re-dispatches.
+    Refreshed,
+    /// Terminal auth failure — queued runs surface their original result.
+    Surface,
+    /// Transient transport failure — queued runs surface a synthesized
+    /// network error instead (docs/0028 Q4); the chance is unburnt.
+    SurfaceNetwork(String),
+}
+
+/// Single-flight 401 gate (docs/0028 §3.2): one refresh at a time, a FIFO
+/// queue of 401-ed runs retried after the install, and a generation
+/// counter that lets pre-rotation runs retry without spending anything.
+/// Plain data + a std Mutex — unit-testable without gpui. Critical
+/// sections never span an await: entries take their oneshot receiver out
+/// of the lock and await it outside.
+pub(crate) struct AuthGate {
+    st: std::sync::Mutex<GateState>,
+}
+
+struct GateState {
+    /// Bumped on every install and sign-out. A 401 from a run dispatched
+    /// under an older generation is explained by the rotation — it
+    /// re-dispatches without a refresh.
+    generation: u64,
+    /// A refresh is running; its lead owns completing the queue.
+    inflight: bool,
+    /// 401-ed runs waiting for the current refresh, FIFO. The lead's own
+    /// continuation is item #1 (docs/0028 §1: the original 401 receiver
+    /// retries first).
+    queue: VecDeque<oneshot::Sender<GateOutcome>>,
+    /// The current credential's refresh chance is spent (Reauth /
+    /// keychain failure / signed out): every 401 surfaces until the next
+    /// install or connect.
+    exhausted: bool,
+}
+
+impl AuthGate {
+    pub(crate) fn new() -> Self {
+        Self {
+            st: std::sync::Mutex::new(GateState {
+                generation: 0,
+                inflight: false,
+                queue: VecDeque::new(),
+                exhausted: false,
+            }),
+        }
+    }
+
+    /// The generation a run dispatched under — captured before the
+    /// request so a post-refresh 401 can be attributed to the rotation.
+    pub(crate) fn generation(&self) -> u64 {
+        self.st.lock().unwrap().generation
+    }
+
+    /// Whether the current credential still has its refresh chance.
+    pub(crate) fn exhausted(&self) -> bool {
+        self.st.lock().unwrap().exhausted
+    }
+
+    /// A run received a 401 (docs/0028 §3.2 decision table).
+    pub(crate) fn on_401(&self, used_gen: u64, round_spent: bool, has_refresh: bool) -> GateEntry {
+        let mut st = self.st.lock().unwrap();
+        if st.generation != used_gen {
+            // The token died of rotation, not of rejection (docs/0028 Q3).
+            return GateEntry::RetryFresh;
+        }
+        if round_spent || !has_refresh || st.exhausted {
+            return GateEntry::Surface;
+        }
+        st.enter()
+    }
+
+    /// The tick loop's proactive entry (docs/0028 §3.4): lead or join the
+    /// current refresh; `None` when the credential is spent or absent.
+    pub(crate) fn refresh_now(&self, has_refresh: bool) -> Option<GateEntry> {
+        let mut st = self.st.lock().unwrap();
+        if st.exhausted || !has_refresh {
+            return None;
+        }
+        Some(st.enter())
+    }
+
+    /// A credential was installed (connect or refresh): the generation
+    /// moves and the chance resets (docs/0028 §3.4).
+    pub(crate) fn installed(&self) {
+        let mut st = self.st.lock().unwrap();
+        st.generation += 1;
+        st.exhausted = false;
+    }
+
+    /// The credential's chance is spent terminally (Reauth, keychain
+    /// failure) — no further refresh attempts until the next install.
+    pub(crate) fn spend(&self) {
+        self.st.lock().unwrap().exhausted = true;
+    }
+
+    /// Sign-out (docs/0028 §3.2): the generation moves, the chance is
+    /// spent until the next connect, and any queued runs surface instead
+    /// of retrying against cleared slots.
+    pub(crate) fn reset(&self) {
+        let queue = {
+            let mut st = self.st.lock().unwrap();
+            st.generation += 1;
+            st.exhausted = true;
+            std::mem::take(&mut st.queue)
+        };
+        for tx in queue {
+            let _ = tx.send(GateOutcome::Surface);
+        }
+    }
+
+    /// A finished refresh completes the queue, FIFO (docs/0028 §3.2).
+    /// Returns the drained count. Safe after a `reset` race — the queue
+    /// is then empty and this is a no-op.
+    pub(crate) fn complete(&self, outcome: GateOutcome) -> usize {
+        let queue = {
+            let mut st = self.st.lock().unwrap();
+            st.inflight = false;
+            std::mem::take(&mut st.queue)
+        };
+        let drained = queue.len();
+        for tx in queue {
+            let _ = tx.send(outcome.clone());
+        }
+        drained
+    }
+}
+
+impl GateState {
+    /// Shared lead/wait body — the caller holds the lock and has passed
+    /// the spent/absent checks.
+    fn enter(&mut self) -> GateEntry {
+        let (tx, rx) = oneshot::channel();
+        if self.inflight {
+            self.queue.push_back(tx);
+            return GateEntry::Wait(rx);
+        }
+        self.inflight = true;
+        self.queue.push_back(tx); // item #1: the original 401 retries first
+        GateEntry::Lead(rx)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -899,12 +1057,13 @@ pub struct GithubState {
     /// When the access token dies (docs/0011 §4.1); `None` = no expiry.
     /// Non-secret, unlike the tokens themselves.
     pub access_expires_at: Option<u64>,
-    /// Armed by the proactive/reactive triggers, drained by the tick
-    /// loop's single refresh point (docs/0011 §4.3).
-    pub(crate) pending_refresh: Option<RefreshReason>,
-    /// This credential's reactive chance is spent (docs/0011 §4.3);
-    /// cleared on successful install.
-    refresh_attempted: bool,
+    /// Armed by the proactive trigger (docs/0028 §3.4), drained by the
+    /// tick loop in the same tick it armed in. Reactive refresh does not
+    /// pass through here — the 401 gate owns it (docs/0028 §3.2).
+    pub(crate) pending_refresh: bool,
+    /// Single-flight 401 gate: one refresh at a time, FIFO retry queue,
+    /// rotation-generation tracking (docs/0028 §3.2).
+    pub(crate) gate: Arc<AuthGate>,
     pub rate_limited_until: Option<u64>,
     /// Set when a connect flow should fetch the snapshot on next tick.
     pub needs_bootstrap: bool,
@@ -967,8 +1126,8 @@ impl GithubState {
             repo_cursor: None,
             rate_limited_until: None,
             access_expires_at,
-            pending_refresh: None,
-            refresh_attempted: false,
+            pending_refresh: false,
+            gate: Arc::new(AuthGate::new()),
             // A keychain-token launch boots straight into the snapshot
             // refresh — the first tick must fire it, not wait for tick 5
             // (docs/0007 §8: cache paint, then the snapshot lands).
@@ -986,9 +1145,9 @@ impl GithubState {
     /// Rate-limit / auth gate (Q9): no requests while disconnected, mid
     /// connect-flow, token-rejected, or paused until the window resets.
     fn gated(&self) -> bool {
-        // A pending refresh defers fetches — they would 401 against a
-        // dying token (docs/0011 §4.3).
-        if self.pending_refresh.is_some() {
+        // A pending (proactive) refresh defers fetches — they would 401
+        // against a dying token (docs/0028 §3.4).
+        if self.pending_refresh {
             return true;
         }
         if !self.auth.connected() {
@@ -1010,26 +1169,23 @@ impl GithubState {
                 log::info!("rate-limit window passed — resuming fetches");
             }
         }
-        // Proactive refresh arming (docs/0011 §4.3) — before the gates:
+        // Proactive refresh arming (docs/0028 §3.4) — before the gates:
         // the refresh call spends no API budget, so it is armed even
-        // during a rate-limit pause. The tick loop drains the flag right
-        // after planning (≤ one TICK later; the reactive net covers the
-        // gap).
-        if self.pending_refresh.is_none()
-            && self
-                .shared_refresh
-                .read()
-                .map(|s| s.is_some())
-                .unwrap_or(false)
+        // during a rate-limit pause. The tick loop drains it in the same
+        // tick through the gate. A spent credential (Reauth, keychain
+        // failure) never re-arms — the reconnect state owns the session.
+        if !self.pending_refresh
+            && !self.gate.exhausted()
+            && self.has_refresh_token()
             && self
                 .access_expires_at
                 .is_some_and(|at| now_epoch() + REFRESH_LEAD_SECS >= at)
         {
             log::debug!(
-                "token refresh due (expiry epoch {}, reason proactive)",
+                "token refresh due (expiry epoch {}) — proactive",
                 self.access_expires_at.unwrap_or(0)
             );
-            self.pending_refresh = Some(RefreshReason::Proactive);
+            self.pending_refresh = true;
         }
         if self.gated() {
             return Vec::new();
@@ -1207,29 +1363,15 @@ impl GithubState {
                 return;
             }
             401 => {
-                // Reactive refresh (docs/0011 §4.3): one conclusive
-                // attempt per credential before the reconnect state.
-                // `refresh_attempted` burns only on terminal outcomes —
-                // a transient network failure retries next tick without
-                // losing the chance.
-                let has_refresh = self
-                    .shared_refresh
-                    .read()
-                    .map(|s| s.is_some())
-                    .unwrap_or(false);
-                if has_refresh && !self.refresh_attempted {
-                    log::warn!(
-                        "{}: token rejected (401) — refresh scheduled",
-                        result.kind.kind_name()
-                    );
-                    self.pending_refresh = Some(RefreshReason::Reactive401);
-                } else {
-                    log::warn!(
-                        "{}: token rejected (401) — reconnect required",
-                        result.kind.kind_name()
-                    );
-                    self.auth = AuthStatus::TokenRejected;
-                }
+                // The 401 gate already spent its chance before this
+                // landed — the lead, the queue and the rotation retry all
+                // happen upstream of `apply` (docs/0028 §3.1). A 401 here
+                // means reconnect (docs/0005 Q9).
+                log::warn!(
+                    "{}: token rejected (401) — reconnect required",
+                    result.kind.kind_name()
+                );
+                self.auth = AuthStatus::TokenRejected;
                 return;
             }
             _ => {
@@ -1436,6 +1578,15 @@ impl GithubState {
         (unread, prs.max(0) as usize, issues.max(0) as usize)
     }
 
+    /// Refresh-token presence (docs/0028 §3.2) — the gate consults this
+    /// via the wrapper; slots only, never the token itself.
+    pub(crate) fn has_refresh_token(&self) -> bool {
+        self.shared_refresh
+            .read()
+            .map(|s| s.is_some())
+            .unwrap_or(false)
+    }
+
     /// Connect/refresh success path (docs/0011 §4.3): keychain FIRST —
     /// persist-before-publish — then the in-memory slots and state.
     pub(crate) fn install_credential(&mut self, cred: StoredCredential) -> Result<(), String> {
@@ -1447,45 +1598,52 @@ impl GithubState {
             *slot = cred.refresh_token;
         }
         self.access_expires_at = cred.access_expires_at;
-        self.refresh_attempted = false;
+        // A new credential moves the gate's generation and resets its
+        // chance accounting (docs/0028 §3.4) — also on the reconnect path.
+        self.gate.installed();
         self.auth = AuthStatus::Connected;
         self.rate_limited_until = None;
         self.needs_bootstrap = true;
         Ok(())
     }
 
-    /// Drain a finished refresh (docs/0011 §4.3): install, retry, or end
-    /// the session. Runs on the main thread from the tick loop.
-    fn apply_refresh(&mut self, outcome: RefreshOutcome) {
+    /// Drain a finished refresh (docs/0011 §4.3, docs/0028 §3.4): install,
+    /// retry, or end the session. Runs on the main thread from the gate
+    /// lead; returns the outcome the queue settles on.
+    fn apply_refresh(&mut self, outcome: RefreshOutcome) -> GateOutcome {
         match outcome {
-            // Terminal outcomes clear the flag defensively — the drain
-            // takes it first, but the method stays correct standalone.
             RefreshOutcome::Refreshed(cred) => {
-                self.pending_refresh = None;
+                self.pending_refresh = false;
                 if let Err(e) = self.install_credential(cred) {
                     // The old access token is already dead upstream —
                     // terminal for the session (docs/0011 §4.4).
                     log::warn!("token refresh keychain save failed: {e} — reconnect required");
                     self.auth = AuthStatus::KeychainError(e);
+                    self.gate.spend();
+                    GateOutcome::Surface
                 } else {
                     log::info!(
                         "token refreshed — new expiry epoch {}",
                         self.access_expires_at.unwrap_or(0)
                     );
+                    GateOutcome::Refreshed
                 }
             }
             RefreshOutcome::Transient(m) => {
-                // Nothing was invalidated upstream — retry next tick.
-                // The reason degrades to Proactive; it is informational
-                // only, and the reactive chance stays unburnt.
+                // Nothing was invalidated upstream — the flag re-arms the
+                // refresh on a later tick; queued runs get a network error
+                // now instead of a silent wait (docs/0028 Q4), and the
+                // credential's chance stays unburnt.
                 log::warn!("token refresh transient failure: {m} — retrying next tick");
-                self.pending_refresh = Some(RefreshReason::Proactive);
+                self.pending_refresh = true;
+                GateOutcome::SurfaceNetwork(m)
             }
             RefreshOutcome::Reauth(m) => {
-                self.pending_refresh = None;
+                self.pending_refresh = false;
                 log::warn!("token refresh failed: {m} — reconnect required");
-                self.refresh_attempted = true;
+                self.gate.spend();
                 self.auth = AuthStatus::TokenRejected;
+                GateOutcome::Surface
             }
         }
     }
@@ -1500,8 +1658,9 @@ impl GithubState {
             *slot = None;
         }
         self.access_expires_at = None;
-        self.pending_refresh = None;
-        self.refresh_attempted = false;
+        self.pending_refresh = false;
+        // No queued run may retry against cleared slots (docs/0028 §3.2).
+        self.gate.reset();
         self.cache.clear();
         self.user = None;
         self.orgs.clear();
@@ -1539,32 +1698,201 @@ fn etag_key(kind: Kind, ident: Option<&str>) -> String {
 // ---------------------------------------------------------------------------
 
 /// Run one spec with the global in-flight tracker around it (docs/0013
-/// D4): one `FetchSpec` run = one status-bar unit. Both runners (the tick
-/// loop below and `page.rs::run_specs`) go through here so `begin`/`end`
-/// cannot drift apart. The tracker calls marshal through `AsyncApp::update`,
-/// whose abort-on-released-app behavior is the same teardown contract the
-/// surrounding loops already rely on.
+/// D4): one `FetchSpec` run = one status-bar unit — spanning the whole
+/// run-⟲-refresh-⟲-retry cycle on a 401 (docs/0028 §3.3), so the
+/// indicator never flickers across a mid-run refresh. Both runners (the
+/// tick loop below and `page.rs::run_specs`) go through here so
+/// `begin`/`end` cannot drift apart. The tracker calls marshal through
+/// `AsyncApp::update`, whose abort-on-released-app behavior is the same
+/// teardown contract the surrounding loops already rely on.
 pub(crate) async fn run_spec_tracked(
-    client: Arc<dyn Http>,
+    state: Entity<GithubState>,
     spec: FetchSpec,
     cx: &mut AsyncApp,
 ) -> SpecResult {
     let id = cx.update(|cx| status::begin(cx, MODULE_ID.into()));
-    let result = cx
-        .background_executor()
-        .spawn(async move { run_spec(&*client, &spec) })
-        .await;
+    let (client, gate) =
+        cx.update(|cx| state.update(cx, |s, _| (s.client.clone(), s.gate.clone())));
+    let mut used_gen = gate.generation();
+    let mut rounds: u32 = 0;
+    let result = loop {
+        let result = cx
+            .background_executor()
+            .spawn({
+                let client = client.clone();
+                let spec = spec.clone();
+                async move { run_spec(&*client, &spec) }
+            })
+            .await;
+        if result.network.is_some() || result.status != 401 {
+            break result;
+        }
+        let has_refresh = cx.update(|cx| state.read(cx).has_refresh_token());
+        let outcome = match gate.on_401(used_gen, rounds > 0, has_refresh) {
+            GateEntry::RetryFresh => {
+                // Rotation landed while we were in flight (docs/0028 Q3)
+                // — retry against the current token, nothing spent.
+                used_gen = gate.generation();
+                continue;
+            }
+            GateEntry::Surface => break result,
+            GateEntry::Lead(rx) => {
+                log::debug!("{}: 401 — refresh leading", spec.kind.kind_name());
+                run_refresh(state.clone(), cx).await;
+                rx.await.unwrap_or(GateOutcome::Surface)
+            }
+            GateEntry::Wait(rx) => {
+                log::debug!("{}: 401 — joined in-flight refresh", spec.kind.kind_name());
+                rx.await.unwrap_or(GateOutcome::Surface)
+            }
+        };
+        match outcome {
+            GateOutcome::Refreshed => {
+                used_gen = gate.generation();
+                rounds += 1;
+            }
+            GateOutcome::Surface => break result,
+            GateOutcome::SurfaceNetwork(m) => {
+                break transient_refresh_result(spec.kind, spec.ident.clone(), m);
+            }
+        }
+    };
     cx.update(|cx| status::end(cx, id));
     result
+}
+
+/// Synthesize the network-error result a run surfaces when the refresh
+/// failed transiently (docs/0028 Q4): it must land in the existing
+/// network-loss paths — stale data, page-local error — never in
+/// `TokenRejected` (docs/0011 Q5).
+fn transient_refresh_result(kind: Kind, ident: Option<String>, msg: String) -> SpecResult {
+    log::warn!("{}: token refresh unavailable: {msg}", kind.kind_name());
+    SpecResult {
+        kind,
+        ident,
+        status: 0,
+        etag: None,
+        rate: None,
+        body: None,
+        network: Some(format!("token refresh unavailable: {msg}")),
+        cursor: None,
+    }
+}
+
+/// The single refresh procedure (docs/0028 §3.2): the gate lead only.
+/// Reads the grant inputs on the main thread, runs the grant on the
+/// background executor, applies the outcome on the main thread (install
+/// is persist-before-publish, docs/0011 §4.4), then completes the queue.
+/// A sign-out or another install that landed mid-refresh drops the
+/// result — the slots it would overwrite no longer belong to this
+/// session.
+async fn run_refresh(state: Entity<GithubState>, cx: &mut AsyncApp) {
+    let (gate, client, refresh_token, used_gen) = cx.update(|cx| {
+        state.update(cx, |s, _| {
+            (
+                s.gate.clone(),
+                s.client.clone(),
+                s.shared_refresh.read().ok().and_then(|t| t.clone()),
+                s.gate.generation(),
+            )
+        })
+    });
+    let Some(refresh_token) = refresh_token else {
+        // Sign-out raced the lead — its reset already drained the queue;
+        // the guard's drop completes defensively (a no-op then).
+        log::debug!("token refresh skipped — no refresh token in slot");
+        return;
+    };
+    let mut guard = LeadGuard { gate, armed: true };
+    let outcome = cx
+        .background_executor()
+        .spawn(async move { refresh(&*client, &refresh_token) })
+        .await;
+    if guard.gate.generation() != used_gen {
+        log::debug!("token refresh landed after a session change — dropped");
+        return; // the guard drains any waiter that raced in
+    }
+    // Entity observers fire only on cx.notify — a window.refresh repaint
+    // never triggers them. The page sync + crumb (docs/0009 D6, docs/0014
+    // D1/D6) and the card badge rely on these notifies.
+    let gate_outcome = cx.update(|cx| {
+        state.update(cx, |s, cx| {
+            let o = s.apply_refresh(outcome);
+            cx.notify();
+            o
+        })
+    });
+    let drained = guard.gate.complete(gate_outcome.clone());
+    match gate_outcome {
+        GateOutcome::Refreshed => {
+            log::info!("refresh ok — retrying {drained} queued request(s)");
+        }
+        GateOutcome::Surface => {
+            log::warn!("refresh reauth — surfacing auth failure to {drained} request(s)");
+        }
+        GateOutcome::SurfaceNetwork(_) => {
+            log::warn!("refresh transient — surfacing network error to {drained} request(s)");
+        }
+    }
+    guard.disarm();
+}
+
+/// Drains the queue if its lead is cancelled before completing
+/// (docs/0028 §3.2) — a torn-down task must never hang the waiters.
+struct LeadGuard {
+    gate: Arc<AuthGate>,
+    armed: bool,
+}
+
+impl LeadGuard {
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for LeadGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            let drained = self.gate.complete(GateOutcome::Surface);
+            if drained > 0 {
+                log::warn!("refresh lead cancelled — surfaced to {drained} request(s)");
+            }
+        }
+    }
+}
+
+/// The tick loop's proactive drain (docs/0028 §3.4): lead or join the
+/// in-flight refresh through the gate. `None` = spent or absent —
+/// nothing to wait for; the next tick re-plans.
+async fn drain_refresh(state: &Entity<GithubState>, cx: &mut AsyncApp) -> Option<GateOutcome> {
+    let (gate, has_refresh) = cx.update(|cx| {
+        let s = state.read(cx);
+        (s.gate.clone(), s.has_refresh_token())
+    });
+    match gate.refresh_now(has_refresh) {
+        None => None,
+        Some(GateEntry::Lead(rx)) => {
+            log::debug!("token refresh drain (proactive — leading)");
+            run_refresh(state.clone(), cx).await;
+            Some(rx.await.unwrap_or(GateOutcome::Surface))
+        }
+        Some(GateEntry::Wait(rx)) => {
+            log::debug!("token refresh drain (proactive — joining in-flight)");
+            Some(rx.await.unwrap_or(GateOutcome::Surface))
+        }
+        Some(_) => None,
+    }
 }
 
 /// The PR page's write path (docs/0016 §6.2 D2): one mutation, tracked
 /// like a fetch (one status-bar unit, 0013 D4) and on the exact same
 /// transport — `post_graphql` with a different document string, the
 /// authed client, and page-side non-200 forwarding for the shared
-/// 401/403 handling.
+/// 401/403 handling. Retries through the gate like any other run
+/// (docs/0028 §3.1): a 401 rejected the write before it executed, so
+/// the re-dispatch cannot double-apply.
 pub(crate) async fn run_mutation(
-    client: Arc<dyn Http>,
+    state: Entity<GithubState>,
     mutation: Mutation,
     variables: Value,
     ident: String,
@@ -1578,11 +1906,12 @@ pub(crate) async fn run_mutation(
         max_pages: 1,
         variables: Some(variables),
     };
-    run_spec_tracked(client, spec, cx).await
+    run_spec_tracked(state, spec, cx).await
 }
 
-/// The 60-second service loop (Q7/Q8): plan → background-run → apply →
-/// refresh. Self-gates on auth state and rate-limit windows.
+/// The 60-second service loop (Q7/Q8): plan → (drain) → background-run →
+/// apply. Self-gates on auth state and rate-limit windows; a proactive
+/// refresh armed by planning drains in the same tick (docs/0028 §3.4).
 pub fn spawn_tick_loop(state: Entity<GithubState>, window: AnyWindowHandle, cx: &mut App) {
     cx.spawn(async move |cx| {
         let mut tick: u64 = 0;
@@ -1592,44 +1921,21 @@ pub fn spawn_tick_loop(state: Entity<GithubState>, window: AnyWindowHandle, cx: 
             // TICK sleep. Subsequent beats land on the 60s cadence.
             tick += 1;
 
-            // Token refresh drain (docs/0011 §4.3) — before planning so
-            // a successful refresh feeds this same tick's fetches (the
-            // bootstrap it arms plans immediately below).
-            let pending = cx.update(|cx| state.update(cx, |s, _| s.pending_refresh.take()));
-            if let Some(reason) = pending {
-                log::debug!("token refresh drain (reason {reason:?})");
-                let (client, refresh_token) = cx.update(|cx| {
-                    state.update(cx, |s, _| {
-                        (
-                            s.client.clone(),
-                            s.shared_refresh.read().ok().and_then(|t| t.clone()),
-                        )
-                    })
-                });
-                if let Some(refresh_token) = refresh_token {
-                    let outcome = cx
-                        .background_executor()
-                        .spawn(async move { refresh(&*client, &refresh_token) })
-                        .await;
-                    // Entity observers fire only on cx.notify — a
-                    // window.refresh repaint never triggers them. The
-                    // page sync + crumb (docs/0009 D6, docs/0014 D1/D6)
-                    // and the card badge rely on these notifies.
-                    cx.update(|cx| {
-                        state.update(cx, |s, cx| {
-                            s.apply_refresh(outcome);
-                            cx.notify();
-                        })
-                    });
-                } else {
-                    // Sign-out raced the drain — drop the flag.
-                    log::debug!("token refresh skipped — no refresh token in slot");
+            let (mut specs, pending) = cx.update(|cx| {
+                state.update(cx, |s, _| {
+                    let specs = s.plan_tick(tick);
+                    (specs, std::mem::take(&mut s.pending_refresh))
+                })
+            });
+            // Proactive drain (docs/0028 §3.4): planning armed the flag —
+            // refresh through the gate now; on success re-plan in this
+            // same tick so the bootstrap it arms runs immediately (the
+            // old top-of-next-tick drain hop is gone).
+            if pending {
+                if let Some(GateOutcome::Refreshed) = drain_refresh(&state, cx).await {
+                    specs = cx.update(|cx| state.update(cx, |s, _| s.plan_tick(tick)));
                 }
-                let _ = window.update(cx, |_, window, _| window.refresh());
             }
-
-            let (client, specs) =
-                cx.update(|cx| state.update(cx, |s, _| (s.client.clone(), s.plan_tick(tick))));
             log::trace!(
                 "tick {tick}: {}",
                 if specs.is_empty() {
@@ -1643,7 +1949,7 @@ pub fn spawn_tick_loop(state: Entity<GithubState>, window: AnyWindowHandle, cx: 
                 }
             );
             for spec in specs {
-                let result = run_spec_tracked(client.clone(), spec, cx).await;
+                let result = run_spec_tracked(state.clone(), spec, cx).await;
                 cx.update(|cx| {
                     state.update(cx, |s, cx| {
                         s.apply(result);
@@ -1806,7 +2112,9 @@ mod tests {
     use super::*;
     use crate::auth::MockTokenStore;
     use crate::http::HttpResult;
-    use crate::http::mock::MockHttp;
+    use crate::http::mock::{MockHttp, Recorded};
+    use gpui::AppContext as _;
+    use std::collections::HashMap;
 
     fn make_state(http: Arc<MockHttp>) -> GithubState {
         let shared: SharedToken = Arc::new(std::sync::RwLock::new(Some("t0k".into())));
@@ -2842,7 +3150,7 @@ mod tests {
         state.repos = vec![repo("o/r")];
         state.repo_cursor = Some("c1".into());
         state.access_expires_at = Some(1_799_999_999);
-        state.pending_refresh = Some(RefreshReason::Proactive);
+        state.pending_refresh = true;
 
         state.sign_out();
         assert_eq!(state.auth, AuthStatus::Disconnected);
@@ -2852,7 +3160,9 @@ mod tests {
         // docs/0011: the refresh slot and scheduling fields go too.
         assert!(refresh.read().unwrap().is_none());
         assert_eq!(state.access_expires_at, None);
-        assert_eq!(state.pending_refresh, None);
+        assert!(!state.pending_refresh);
+        // docs/0028: the gate spends the credential until the next connect.
+        assert!(state.gate.exhausted());
     }
 
     // --- Token refresh (docs/0011 §6) ---------------------------------
@@ -2896,18 +3206,18 @@ mod tests {
         );
         // 8 h out (≫ 600 s lead): fetches plan normally, nothing armed.
         assert!(!state.plan_tick(1).is_empty());
-        assert_eq!(state.pending_refresh, None);
+        assert!(!state.pending_refresh);
 
         // Inside the lead window: armed + fetches gated.
         state.access_expires_at = Some(now_epoch() + 300);
         assert!(state.plan_tick(2).is_empty());
-        assert_eq!(state.pending_refresh, Some(RefreshReason::Proactive));
+        assert!(state.pending_refresh);
 
         // Past expiry arms too (wake-from-suspend / stale boot).
-        state.pending_refresh = None;
+        state.pending_refresh = false;
         state.access_expires_at = Some(now_epoch() - 10);
         assert!(state.plan_tick(3).is_empty());
-        assert_eq!(state.pending_refresh, Some(RefreshReason::Proactive));
+        assert!(state.pending_refresh);
     }
 
     #[test]
@@ -2917,19 +3227,23 @@ mod tests {
         let mut state = make_state(Arc::new(MockHttp::new(vec![])));
         state.access_expires_at = Some(now_epoch() - 10);
         assert!(!state.plan_tick(1).is_empty());
-        assert_eq!(state.pending_refresh, None);
+        assert!(!state.pending_refresh);
     }
 
     #[test]
-    fn reactive_401_arms_refresh_while_the_chance_remains() {
+    fn apply_401_rejects_even_when_a_refresh_would_exist() {
+        // docs/0028 §3.4: `apply` never refreshes — the gate owns that,
+        // upstream of `apply`. A 401 that still reaches `apply` (gate
+        // spent / legacy credential) means reconnect, refresh token or
+        // not.
         let mut state = make_refresh_state(
             Arc::new(MockTokenStore::with_credential(expiring_cred())),
             slots_with_refresh(),
             "refresh-401",
         );
         state.apply(result_401());
-        assert_eq!(state.auth, AuthStatus::Connected);
-        assert_eq!(state.pending_refresh, Some(RefreshReason::Reactive401));
+        assert_eq!(state.auth, AuthStatus::TokenRejected);
+        assert!(!state.pending_refresh);
         assert!(state.plan_tick(1).is_empty());
     }
 
@@ -2942,7 +3256,8 @@ mod tests {
             (token_slot.clone(), refresh_slot.clone()),
             "refresh-ok",
         );
-        state.pending_refresh = Some(RefreshReason::Proactive);
+        state.pending_refresh = true;
+        assert!(!state.gate.exhausted());
         state.needs_bootstrap = false;
 
         state.apply_refresh(RefreshOutcome::Refreshed(crate::auth::StoredCredential {
@@ -2952,7 +3267,10 @@ mod tests {
         }));
 
         assert_eq!(state.auth, AuthStatus::Connected);
-        assert_eq!(state.pending_refresh, None);
+        assert!(!state.pending_refresh);
+        // The gate's generation moved and the chance is fresh again
+        // (docs/0028 §3.4).
+        assert!(!state.gate.exhausted());
         assert!(state.needs_bootstrap);
         assert_eq!(state.access_expires_at, Some(1_799_999_999));
         assert_eq!(token_slot.read().unwrap().as_deref(), Some("t1k"));
@@ -2963,35 +3281,38 @@ mod tests {
     }
 
     #[test]
-    fn apply_refresh_reauth_ends_session_and_burns_the_chance() {
+    fn apply_refresh_reauth_ends_session_and_spends_the_gate() {
         let store = Arc::new(MockTokenStore::with_credential(expiring_cred()));
         let mut state = make_refresh_state(store.clone(), slots_with_refresh(), "refresh-reauth");
-        state.apply(result_401()); // arms the reactive chance
-        state.apply_refresh(RefreshOutcome::Reauth("invalid_grant".into()));
+        let outcome = state.apply_refresh(RefreshOutcome::Reauth("invalid_grant".into()));
+        assert!(matches!(outcome, GateOutcome::Surface));
         assert_eq!(state.auth, AuthStatus::TokenRejected);
-        assert_eq!(state.pending_refresh, None);
-        assert!(state.refresh_attempted);
-        // A second 401 (e.g. an in-flight spec landing late) must not
-        // re-arm the spent chance — it stays in the reconnect state.
+        assert!(!state.pending_refresh);
+        assert!(state.gate.exhausted());
+        // A later 401 stays in the reconnect state; the gate would also
+        // decline any further attempt for this credential.
         state.apply(result_401());
         assert_eq!(state.auth, AuthStatus::TokenRejected);
-        assert_eq!(state.pending_refresh, None);
+        assert!(state.gate.refresh_now(state.has_refresh_token()).is_none());
         // The stored pair is only removed by sign-out — reconnect offers
         // the device flow (docs/0011 §6.5).
         assert!(store.slot.lock().unwrap().is_some());
     }
 
     #[test]
-    fn apply_refresh_transient_keeps_pending_and_retries() {
+    fn apply_refresh_transient_surfaces_network_and_retries_later() {
         let mut state = make_refresh_state(
             Arc::new(MockTokenStore::with_credential(expiring_cred())),
             slots_with_refresh(),
             "refresh-transient",
         );
-        state.apply_refresh(RefreshOutcome::Transient("dns".into()));
+        let outcome = state.apply_refresh(RefreshOutcome::Transient("dns".into()));
+        // Queued runs settle as network errors — never TokenRejected
+        // (docs/0028 Q4, docs/0011 Q5).
+        assert!(matches!(outcome, GateOutcome::SurfaceNetwork(m) if m == "dns"));
         assert_eq!(state.auth, AuthStatus::Connected);
-        assert_eq!(state.pending_refresh, Some(RefreshReason::Proactive));
-        assert!(!state.refresh_attempted); // the chance is not burned
+        assert!(state.pending_refresh); // re-arms the refresh next tick
+        assert!(!state.gate.exhausted()); // the chance is not burned
         assert!(state.plan_tick(1).is_empty()); // still gated while pending
     }
 
@@ -3006,7 +3327,7 @@ mod tests {
             "refresh-keychain",
         );
         state.auth = AuthStatus::Connected;
-        state.pending_refresh = Some(RefreshReason::Proactive);
+        state.pending_refresh = true;
 
         state.apply_refresh(RefreshOutcome::Refreshed(crate::auth::StoredCredential {
             access_token: "t1k".into(),
@@ -3018,6 +3339,7 @@ mod tests {
             state.auth,
             AuthStatus::KeychainError("keychain unavailable (scripted)".into())
         );
+        assert!(state.gate.exhausted()); // docs/0028: the chance is spent
         assert_eq!(token_slot.read().unwrap().as_deref(), Some("t0k"));
         assert_eq!(refresh_slot.read().unwrap().as_deref(), Some("ghr_r0"));
         assert_eq!(state.access_expires_at, None);
@@ -3084,5 +3406,409 @@ mod tests {
         let mut state = make_state(http);
         state.selected = None;
         assert_eq!(state.mark_refetch_specs().len(), 1);
+    }
+
+    // --- Auth gate (docs/0028 §5) -----------------------------------------
+
+    fn gate() -> AuthGate {
+        AuthGate::new()
+    }
+
+    /// Await a oneshot receiver synchronously (the gate never leaves a
+    /// receiver unresolved — every complete/reset/guard path sends).
+    fn settle(rx: oneshot::Receiver<GateOutcome>) -> GateOutcome {
+        futures::executor::block_on(rx).unwrap_or(GateOutcome::Surface)
+    }
+
+    #[test]
+    fn gate_single_flights_concurrent_401s() {
+        // docs/0028 §5.1: three concurrent 401s produce exactly one
+        // refresh — one Lead, two queued waiters.
+        let gate = gate();
+        assert!(matches!(gate.on_401(0, false, true), GateEntry::Lead(_)));
+        assert!(matches!(gate.on_401(0, false, true), GateEntry::Wait(_)));
+        assert!(matches!(gate.on_401(0, false, true), GateEntry::Wait(_)));
+    }
+
+    #[test]
+    fn gate_completes_every_queued_run_and_reopens() {
+        // docs/0028 §5.2: the lead's own oneshot is queue item #1; after
+        // the drain the gate is reusable (no leak, inflight cleared).
+        let gate = gate();
+        let GateEntry::Lead(lead_rx) = gate.on_401(0, false, true) else {
+            panic!("first 401 must lead");
+        };
+        let GateEntry::Wait(w1) = gate.on_401(0, false, true) else {
+            panic!("second 401 must queue");
+        };
+        let GateEntry::Wait(w2) = gate.on_401(0, false, true) else {
+            panic!("third 401 must queue");
+        };
+        assert_eq!(gate.complete(GateOutcome::Refreshed), 3);
+        assert!(matches!(settle(lead_rx), GateOutcome::Refreshed));
+        assert!(matches!(settle(w1), GateOutcome::Refreshed));
+        assert!(matches!(settle(w2), GateOutcome::Refreshed));
+        // All settled, nothing in flight — the next 401 leads again.
+        assert!(matches!(
+            gate.on_401(gate.generation(), false, true),
+            GateEntry::Lead(_)
+        ));
+    }
+
+    #[test]
+    fn gate_retries_fresh_after_rotation_without_spending() {
+        // docs/0028 §5.3: a 401 from a pre-rotation dispatch re-dispatches
+        // (RetryFresh) instead of spending the new credential's chance;
+        // a post-rotation 401 leads normally; a second round surfaces.
+        let gate = gate();
+        let used_gen = gate.generation();
+        let GateEntry::Lead(_rx) = gate.on_401(used_gen, false, true) else {
+            panic!("first 401 must lead");
+        };
+        gate.complete(GateOutcome::Surface); // the lead finishes (simulated)
+        gate.installed(); // rotation lands (gen + 1, chance reset)
+        assert!(matches!(
+            gate.on_401(used_gen, false, true),
+            GateEntry::RetryFresh
+        ));
+        let new_gen = gate.generation();
+        assert!(matches!(
+            gate.on_401(new_gen, false, true),
+            GateEntry::Lead(_)
+        ));
+        // The run already consumed its one refresh round (docs/0028 Q2).
+        assert!(matches!(
+            gate.on_401(new_gen, true, true),
+            GateEntry::Surface
+        ));
+    }
+
+    #[test]
+    fn gate_surfaces_when_spent_or_legacy() {
+        // docs/0028 §5.7: a legacy credential (no refresh token) and a
+        // spent credential both surface immediately; the proactive entry
+        // declines the same way.
+        let gate = gate();
+        assert!(matches!(
+            gate.on_401(gate.generation(), false, false),
+            GateEntry::Surface
+        ));
+        gate.spend();
+        assert!(matches!(
+            gate.on_401(gate.generation(), false, true),
+            GateEntry::Surface
+        ));
+        assert!(gate.refresh_now(true).is_none());
+    }
+
+    #[test]
+    fn gate_reset_surfaces_waiters_and_blocks_until_install() {
+        // docs/0028 §5.8: sign-out drains the queue with Surface and the
+        // gate stays spent until an install (reconnect) reopens it.
+        let gate = gate();
+        let gen_before_reset = gate.generation();
+        let GateEntry::Lead(_lead) = gate.on_401(gen_before_reset, false, true) else {
+            panic!("first 401 must lead");
+        };
+        let GateEntry::Wait(waiter) = gate.on_401(gen_before_reset, false, true) else {
+            panic!("second 401 must queue");
+        };
+        gate.reset();
+        gate.complete(GateOutcome::Surface); // the abandoned lead finishes
+        assert!(matches!(settle(waiter), GateOutcome::Surface));
+        assert!(gate.exhausted());
+        // A run dispatched before the reset sees only the rotation.
+        assert!(matches!(
+            gate.on_401(gen_before_reset, false, true),
+            GateEntry::RetryFresh
+        ));
+        // Post-reset dispatches surface; an install reopens the gate.
+        assert!(matches!(
+            gate.on_401(gate.generation(), false, true),
+            GateEntry::Surface
+        ));
+        gate.installed();
+        assert!(!gate.exhausted());
+        assert!(matches!(
+            gate.on_401(gate.generation(), false, true),
+            GateEntry::Lead(_)
+        ));
+    }
+
+    #[test]
+    fn gate_lead_cancelled_drains_the_queue() {
+        // docs/0028 §5.12: a lead dropped before completing (task
+        // teardown) settles the waiters instead of hanging them.
+        let gate = std::sync::Arc::new(AuthGate::new());
+        let GateEntry::Lead(_rx) = gate.on_401(0, false, true) else {
+            panic!("first 401 must lead");
+        };
+        let GateEntry::Wait(waiter) = gate.on_401(0, false, true) else {
+            panic!("second 401 must queue");
+        };
+        let guard = LeadGuard {
+            gate: std::sync::Arc::clone(&gate),
+            armed: true,
+        };
+        drop(guard); // the lead task was torn down before completing
+        assert!(matches!(settle(waiter), GateOutcome::Surface));
+        // inflight cleared — the gate is usable again.
+        assert!(matches!(
+            gate.on_401(gate.generation(), false, true),
+            GateEntry::Lead(_)
+        ));
+    }
+
+    // --- Wrapper integration (docs/0028 §5, async) -------------------------
+
+    /// The rotated-pair refresh grant response (docs/0011 §4.2 wire shape).
+    fn refresh_ok_body() -> String {
+        r#"{"access_token":"t1k","refresh_token":"ghr_r1","expires_in":28800}"#.into()
+    }
+
+    fn api_result(status: u16, body: &str) -> Result<HttpResult, HttpError> {
+        Ok(HttpResult {
+            status,
+            etag: None,
+            rate: None,
+            body: Some(body.into()),
+        })
+    }
+
+    fn notifications_spec() -> FetchSpec {
+        FetchSpec {
+            kind: Kind::Notifications,
+            url: api::notifications_url(1),
+            etag: None,
+            ident: None,
+            max_pages: 1,
+            variables: None,
+        }
+    }
+
+    fn gate_state_entity(
+        cx: &mut gpui::TestAppContext,
+        http: Arc<dyn Http>,
+        tag: &str,
+    ) -> Entity<GithubState> {
+        let (token, refresh) = slots_with_refresh();
+        cx.new(|_| {
+            GithubState::new(
+                http.clone(),
+                Arc::new(MockTokenStore::with_credential(expiring_cred())),
+                token,
+                refresh,
+                GithubCache::at_tmp(tag),
+            )
+        })
+    }
+
+    fn run_task(
+        cx: &mut gpui::TestAppContext,
+        state: &Entity<GithubState>,
+    ) -> gpui::Task<SpecResult> {
+        cx.spawn({
+            let state = state.clone();
+            let spec = notifications_spec();
+            move |mut cx: gpui::AsyncApp| async move {
+                run_spec_tracked(state, spec, &mut cx).await
+            }
+        })
+    }
+
+    #[gpui::test]
+    async fn wrapper_retries_the_401d_request_after_refresh(cx: &mut gpui::TestAppContext) {
+        // docs/0028 §5: the reactive flow — the 401'd request itself is
+        // retried after the refresh + install, no tick, no bootstrap.
+        cx.update(dashboard_core::status::init);
+        let http = Arc::new(MockHttp::new(vec![
+            api_result(401, r#"{"message":"Bad credentials"}"#),
+            api_result(200, &refresh_ok_body()),
+            api_result(200, "[]"),
+        ]));
+        let state = gate_state_entity(cx, http.clone(), "gate-retry");
+
+        let result = run_task(cx, &state).await;
+
+        assert_eq!(result.status, 200);
+        let recorded = http.recorded();
+        assert_eq!(recorded.len(), 3);
+        assert_eq!(recorded[1].url, crate::auth::TOKEN_URL); // the grant
+        // The rotated pair was installed on the shared slots.
+        let (auth, expiry) = cx.update(|cx| {
+            let s = state.read(cx);
+            (s.auth.clone(), s.access_expires_at)
+        });
+        assert_eq!(auth, AuthStatus::Connected);
+        assert!(expiry.is_some());
+    }
+
+    /// URL-routing transport for concurrent tests: each URL pops from its
+    /// own script, so task scheduling cannot cross-consume responses
+    /// (MockHttp is strictly FIFO).
+    struct RoutedHttp {
+        routes: std::sync::Mutex<
+            HashMap<String, std::collections::VecDeque<Result<HttpResult, HttpError>>>,
+        >,
+        requests: std::sync::Mutex<Vec<Recorded>>,
+    }
+
+    impl RoutedHttp {
+        fn new(routes: Vec<(String, Vec<Result<HttpResult, HttpError>>)>) -> Self {
+            Self {
+                routes: std::sync::Mutex::new(
+                    routes
+                        .into_iter()
+                        .map(|(url, script)| (url.to_string(), script.into()))
+                        .collect(),
+                ),
+                requests: std::sync::Mutex::new(Vec::new()),
+            }
+        }
+    }
+
+    impl Http for RoutedHttp {
+        fn request(
+            &self,
+            verb: Verb,
+            url: &str,
+            _body: Option<&str>,
+            _etag: Option<&str>,
+        ) -> Result<HttpResult, HttpError> {
+            self.requests.lock().unwrap().push(Recorded {
+                verb,
+                url: url.into(),
+                body: None,
+                etag: None,
+            });
+            self.routes
+                .lock()
+                .unwrap()
+                .get_mut(url)
+                .expect("request to an unscripted url")
+                .pop_front()
+                .expect("script exhausted")
+        }
+
+        fn post_graphql(
+            &self,
+            _query: &str,
+            _variables: &serde_json::Value,
+        ) -> Result<HttpResult, HttpError> {
+            panic!("graphql is not scripted in gate tests")
+        }
+    }
+
+    #[gpui::test]
+    async fn wrapper_single_flights_two_concurrent_401_runs(cx: &mut gpui::TestAppContext) {
+        // docs/0028 §5.1: two concurrent 401 runs → exactly one refresh
+        // grant (rotation is single-use), both runs settle on their retry.
+        // Per-URL scripts keep the test scheduling-insensitive.
+        cx.update(dashboard_core::status::init);
+        let http = Arc::new(RoutedHttp::new(vec![
+            (
+                api::notifications_url(1),
+                vec![
+                    api_result(401, r#"{"message":"Bad credentials"}"#),
+                    api_result(200, "[]"),
+                ],
+            ),
+            (
+                api::repo_notifications_url("o", "r", 1),
+                vec![
+                    api_result(401, r#"{"message":"Bad credentials"}"#),
+                    api_result(200, "[]"),
+                ],
+            ),
+            (
+                crate::auth::TOKEN_URL.to_string(),
+                vec![api_result(200, &refresh_ok_body())],
+            ),
+        ]));
+        let state = gate_state_entity(cx, http.clone(), "gate-single");
+
+        let t1 = cx.spawn({
+            let state = state.clone();
+            let spec = notifications_spec();
+            move |mut cx: gpui::AsyncApp| async move {
+                run_spec_tracked(state, spec, &mut cx).await
+            }
+        });
+        let t2 = cx.spawn({
+            let state = state.clone();
+            let spec = FetchSpec {
+                kind: Kind::RepoNotifications,
+                url: api::repo_notifications_url("o", "r", 1),
+                etag: None,
+                ident: Some("o/r".into()),
+                max_pages: 1,
+                variables: None,
+            };
+            move |mut cx: gpui::AsyncApp| async move {
+                run_spec_tracked(state, spec, &mut cx).await
+            }
+        });
+        let (r1, r2) = futures::join!(t1, t2);
+
+        assert_eq!(r1.status, 200);
+        assert_eq!(r2.status, 200);
+        let grants = http
+            .requests
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|r| r.url == crate::auth::TOKEN_URL)
+            .count();
+        assert_eq!(grants, 1, "exactly one refresh grant");
+    }
+
+    #[gpui::test]
+    async fn wrapper_surfaces_the_401_when_refresh_reauths(cx: &mut gpui::TestAppContext) {
+        // docs/0028 §5.5: a rejected grant surfaces the original 401 and
+        // ends the session (TokenRejected); the gate is spent.
+        cx.update(dashboard_core::status::init);
+        let http = Arc::new(MockHttp::new(vec![
+            api_result(401, r#"{"message":"Bad credentials"}"#),
+            api_result(200, r#"{"error":"invalid_grant"}"#),
+        ]));
+        let state = gate_state_entity(cx, http.clone(), "gate-reauth");
+
+        let result = run_task(cx, &state).await;
+
+        assert_eq!(result.status, 401);
+        let (auth, exhausted) = cx.update(|cx| {
+            let s = state.read(cx);
+            (s.auth.clone(), s.gate.exhausted())
+        });
+        assert_eq!(auth, AuthStatus::TokenRejected);
+        assert!(exhausted);
+    }
+
+    #[gpui::test]
+    async fn wrapper_transient_refresh_surfaces_network_error(cx: &mut gpui::TestAppContext) {
+        // docs/0028 §5.6: a transport-failed grant surfaces a synthesized
+        // network error — never TokenRejected — and burns nothing.
+        cx.update(dashboard_core::status::init);
+        let http = Arc::new(MockHttp::new(vec![
+            api_result(401, r#"{"message":"Bad credentials"}"#),
+            Err(HttpError("dns lookup failed".into())),
+        ]));
+        let state = gate_state_entity(cx, http.clone(), "gate-transient");
+
+        let result = run_task(cx, &state).await;
+
+        assert_eq!(result.status, 0);
+        assert!(
+            result
+                .network
+                .as_deref()
+                .is_some_and(|m| m.contains("token refresh unavailable"))
+        );
+        let (auth, exhausted) = cx.update(|cx| {
+            let s = state.read(cx);
+            (s.auth.clone(), s.gate.exhausted())
+        });
+        assert_eq!(auth, AuthStatus::Connected);
+        assert!(!exhausted);
     }
 }

@@ -149,7 +149,16 @@ even that out of layout/paint.
 | github auth | device flow started (interval, expires_in) | info |
 | github auth | token acquired (login); connected | info |
 | github auth | token rejected / disconnect | warn |
-| github auth | token refresh due (expiry, reason proactive/reactive-401) | debug |
+> **Amended by 0028 (immediate 401 refresh):** the reactive 401 no longer
+> arms a tick-drained flag — the gate rows below supersede the
+> `token refresh due … reason proactive/reactive-401` row of 0011 §4.5.
+
+| github auth | token refresh due (expiry) — proactive | debug |
+| github auth | 401 → refresh leading (kind) / joined in-flight | debug |
+| github auth | refresh ok — retrying N queued request(s) | info |
+| github auth | refresh reauth — surfacing auth failure to N request(s) | warn |
+| github auth | refresh transient — surfacing network error to N request(s) | warn |
+| github auth | refresh lead cancelled — surfaced to N request(s) | warn |
 | github auth | token refreshed (new expiry) | info |
 | github auth | token refresh failed (reason) — reconnect required | warn |
 | github auth | legacy non-expiring token loaded (no refresh) | debug |

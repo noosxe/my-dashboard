@@ -307,7 +307,7 @@ impl IssueDetailPage {
         if !self.state.read(cx).auth.connected() {
             return; // the page is about to be torn down by the auth gate
         }
-        let client = self.state.update(cx, |s, _| s.client.clone());
+        let state = self.state.clone();
         let spec = Self::detail_spec(&self.repo, self.number);
         log::debug!(
             "issue-detail: fetching {}",
@@ -317,7 +317,7 @@ impl IssueDetailPage {
         self.load_error = None;
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result = run_spec_tracked(client, spec, cx).await;
+            let result = run_spec_tracked(state, spec, cx).await;
             let _ = this.update(cx, |page, cx| page.apply_detail_result(result, cx));
         })
         .detach();
@@ -870,7 +870,7 @@ impl IssueDetailPage {
         if !self.state.read(cx).auth.connected() {
             return; // the page is about to be torn down by the auth gate
         }
-        let client = self.state.update(cx, |s, _| s.client.clone());
+        let state = self.state.clone();
         let (owner, name) = split_repo(&self.repo);
         let (kind, query_name) = match source {
             PickerSource::Labels => (Kind::RepoLabels, "repo-labels"),
@@ -893,7 +893,7 @@ impl IssueDetailPage {
         }
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result = run_spec_tracked(client, spec, cx).await;
+            let result = run_spec_tracked(state, spec, cx).await;
             let _ = this.update(cx, |page, cx| page.apply_source_result(source, result, cx));
         })
         .detach();
@@ -1240,10 +1240,10 @@ impl IssueDetailPage {
         window: &Window,
         cx: &mut Context<Self>,
     ) {
-        let client = self.state.update(cx, |s, _| s.client.clone());
+        let state = self.state.clone();
         let ident = format!("{}#{} {:?}", self.repo, self.number, op);
         cx.spawn_in(window, async move |this, cx| {
-            let result = run_mutation(client, mutation, variables, ident, cx).await;
+            let result = run_mutation(state, mutation, variables, ident, cx).await;
             let _ = cx.update(|window, app| {
                 this.update(app, |page, cx| {
                     page.apply_mutation_result(op, result, window, cx)

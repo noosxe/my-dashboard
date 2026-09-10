@@ -125,10 +125,10 @@ impl NewIssuePage {
         self.mutation_error = None;
         self.busy = Some(CreateBusy::Create);
         cx.notify();
-        let client = self.state.update(cx, |s, _| s.client.clone());
+        let state = self.state.clone();
         let ident = format!("{} new-issue", self.repo);
         cx.spawn_in(window, async move |this, cx| {
-            let result = run_mutation(client, Mutation::CreateIssue, variables, ident, cx).await;
+            let result = run_mutation(state, Mutation::CreateIssue, variables, ident, cx).await;
             let _ = cx.update(|window, app| {
                 this.update(app, |page, cx| {
                     page.apply_mutation_result(result, window, cx)

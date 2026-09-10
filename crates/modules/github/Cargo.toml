@@ -17,6 +17,8 @@ pulldown-cmark.workspace = true
 linkify.workspace = true
 ureq.workspace = true
 chrono.workspace = true
+# The 401 gate's FIFO queue hand-off (docs/0028 §3.2): oneshot channels.
+futures.workspace = true
 keyring.workspace = true
 
 [dev-dependencies]
