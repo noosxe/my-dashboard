@@ -133,7 +133,7 @@ pure, table-tested:
 | subject.type | API → web mapping |
 | --- | --- |
 | `Issue` | `/repos/{o}/{r}/issues/{n}` → `github.com/{o}/{r}/issues/{n}` |
-| `PullRequest` | `.../pulls/{n}` → `github.com/{o}/{r}/pulls/{n}` |
+| `PullRequest` | `.../pulls/{n}` → `github.com/{o}/{r}/pull/{n}` — canonical web path is `/pull/N` singular (API segment stays plural, #173) |
 | `Discussion` | `.../discussions/{n}` → `github.com/{o}/{r}/discussions/{n}` |
 | `Commit` | `.../commits/{sha}` → `github.com/{o}/{r}/commit/{sha}` |
 | anything else | no derivation → repo notifications page (0015 target) |
