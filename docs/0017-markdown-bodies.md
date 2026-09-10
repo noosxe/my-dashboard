@@ -89,7 +89,12 @@ the flag exists if wanted later).
 GFM-spec extension pulldown does **not** parse — GitHub links them
 automatically and bot comments are full of them. Post-process plain-text
 runs with the `linkify` crate (the same pairing zed's markdown crate
-uses) and emit link runs; visible text stays as written.
+uses) and emit link runs; visible text stays as written. The pass emits
+exactly one run per matched span and always advances its cursor past
+it — `LinkKind` is `#[non_exhaustive]` upstream (0.11: `Url`/`Email`
+only), so unknown future kinds render verbatim as plain text, neither
+duplicated nor dropped (#169); the kind→URL mapping lives in a free
+fn (`autolink_target`) unit-tested without `LinkFinder`.
 
 **GitHub platform expansions are out of scope** (server-side
 post-processing, not markdown — no parser provides them; they render as
@@ -194,7 +199,8 @@ ranges inside it, not separate nodes — the bridge will not show them
   markers, ordered start index, table shape + alignment capture, link URL
   extraction, autolink, soft vs hard break, HTML dropped, code fence info
   string; alert tags (recognized, unknown); bare-URL runs through the
-  linkify pass.
+  linkify pass; autolink round-trip (every input byte survives exactly
+  once, mixed links/email/plain) and the kind→URL mapping (#169).
 - Run-style mapping tests (strong/em/strike/code/link → `RunStyle`).
 - Renderer smoke via the existing `#[gpui::test]` pattern where cheap;
   geometry/interaction is bridge + owner territory (below).

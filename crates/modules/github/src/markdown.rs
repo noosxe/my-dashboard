@@ -362,30 +362,26 @@ impl ParseState {
         for span in finder.spans(text) {
             let Some(kind) = span.kind() else { continue };
             let (s, e) = (span.start(), span.end());
+            let raw = &text[s..e];
+            // Exactly one run per matched span, and `base` always
+            // advances past it (#169): an unknown LinkKind
+            // (non_exhaustive upstream) stays plain text — neither
+            // duplicated (base stuck behind the already-pushed prefix,
+            // re-pushed by the flush) nor dropped.
             if s > base {
                 self.push_run_plain(&text[base..s]);
             }
-            let raw = &text[s..e];
-            let url = match *kind {
-                LinkKind::Email => Some(format!("mailto:{raw}")),
-                LinkKind::Url => Some(
-                    if raw.starts_with("http://") || raw.starts_with("https://") {
-                        raw.to_string()
-                    } else {
-                        format!("http://{raw}")
-                    },
-                ),
-                // LinkKind is non-exhaustive upstream; unknown kinds
-                // stay plain text.
-                _ => None,
-            };
-            let Some(url) = url else { continue };
-            let mut style = self.style.clone();
-            style.link = Some(url);
-            self.runs.push(Run {
-                text: raw.to_string(),
-                style,
-            });
+            match autolink_target(kind, raw) {
+                Some(url) => {
+                    let mut style = self.style.clone();
+                    style.link = Some(url);
+                    self.runs.push(Run {
+                        text: raw.to_string(),
+                        style,
+                    });
+                }
+                None => self.push_run_plain(raw),
+            }
             base = e;
         }
         if base < text.len() {
@@ -444,6 +440,25 @@ pub(crate) fn render_blocks(blocks: &[Block], id_prefix: &str, cx: &App) -> AnyE
                 .map(|(ix, block)| render_block(block, &format!("{id_prefix}-{ix}"), cx)),
         )
         .into_any_element()
+}
+
+/// Target URL a matched linkify span should open, or `None` when the
+/// kind must stay plain text — `LinkKind` is `#[non_exhaustive]`
+/// upstream, so unknown future kinds render verbatim (#169). Kept a
+/// free fn so the mapping (incl. the scheme-less fallback) is unit-
+/// testable without going through `LinkFinder`.
+fn autolink_target(kind: &LinkKind, raw: &str) -> Option<String> {
+    match *kind {
+        LinkKind::Email => Some(format!("mailto:{raw}")),
+        LinkKind::Url => Some(
+            if raw.starts_with("http://") || raw.starts_with("https://") {
+                raw.to_string()
+            } else {
+                format!("http://{raw}")
+            },
+        ),
+        _ => None,
+    }
 }
 
 fn render_block(block: &Block, id: &str, cx: &App) -> AnyElement {
@@ -750,6 +765,49 @@ mod tests {
         let Block::Paragraph(runs) = &blocks[0] else {
             panic!("paragraph expected");
         };
+        let urls: Vec<&str> = runs
+            .iter()
+            .filter_map(|r| r.style.link.as_deref())
+            .collect();
+        assert_eq!(urls, vec!["https://example.com/p", "mailto:a@b.io"]);
+    }
+
+    #[test]
+    fn autolink_target_maps_kinds() {
+        // Email → mailto, http(s) passthrough, scheme-less fallback
+        // (defensive: linkify only matches schemed URLs with default
+        // settings, #169).
+        assert_eq!(
+            autolink_target(&LinkKind::Email, "a@b.io").as_deref(),
+            Some("mailto:a@b.io")
+        );
+        assert_eq!(
+            autolink_target(&LinkKind::Url, "https://x.y/z").as_deref(),
+            Some("https://x.y/z")
+        );
+        assert_eq!(
+            autolink_target(&LinkKind::Url, "http://x.y/z").as_deref(),
+            Some("http://x.y/z")
+        );
+        assert_eq!(
+            autolink_target(&LinkKind::Url, "example.com/z").as_deref(),
+            Some("http://example.com/z")
+        );
+    }
+
+    #[test]
+    fn autolink_pass_never_duplicates_or_drops_text() {
+        // The #169 invariant: every character of the input survives the
+        // autolink pass exactly once — mixed links, email, plain text
+        // and a bare www. (matched as no link at all today).
+        let input = "go https://example.com/p mail a@b.io www.example.com/x end";
+        let blocks = parse(input);
+        let Block::Paragraph(runs) = &blocks[0] else {
+            panic!("paragraph expected");
+        };
+        let joined: String = runs.iter().map(|r| r.text.as_str()).collect();
+        assert_eq!(joined, input);
+        // And the two linkable spans are the only links.
         let urls: Vec<&str> = runs
             .iter()
             .filter_map(|r| r.style.link.as_deref())
