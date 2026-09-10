@@ -372,7 +372,11 @@ impl Render for SettingsPage {
 - Group **Account**:
   - `SettingItem::render` row: avatar + login + `AuthStatus` line when
     connected; "Disconnect" `Button::danger` (reuses existing auth teardown;
-    disabled/not-shown when disconnected); "Sign in" row when disconnected.
+    disabled/not-shown when disconnected); "Sign in" row — enabled in the
+    terminal/retry states (Disconnected, Denied, Expired, Failed,
+    TokenRejected, KeychainError) and disabled while a flow is in flight
+    (RequestingCode/AwaitApproval, #172) or Connected, via the pure
+    `sign_in_allowed` fn (table-tested in settings.rs).
   - Kept deliberately thin: token/keychain UX already lives in the module's
     own page; settings links to it rather than duplicating the connect flow.
 - Group **Notifications** (stretch, only if owner wants): poll interval
