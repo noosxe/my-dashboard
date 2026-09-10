@@ -159,7 +159,12 @@ Q5–Q10 stand per the silence rule on merge.
 - **Q5 — Token lifecycle:** token read from keychain at module init (lazy,
   once); held inside the client only — never cloned into entities, state
   files, or logs (Authorization headers redacted in any tracing). Sign-out
-  = delete keychain entry + drop in-memory token + clear caches. A revoked
+  = delete keychain entry + drop in-memory token + clear caches; fetches
+  already in flight when the user signs out land afterwards but their
+  results are dropped at the top of `apply` — they must not repopulate
+  state or recreate the just-deleted cache dir (only `Connected` and
+  `TokenRejected` sessions accept results; the latter because that user
+  is still signed in with a rejected credential, #168). A revoked
   token surfaces as the reconnect state (§6.4), never a raw error dialog.
 - **Q6 — Caching:** transient API data is **not** user data → lives under
   the **cache root** (`AppPaths.cache`, 0004): `github/etags.json` (URL →

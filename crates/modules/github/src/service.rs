@@ -1325,6 +1325,21 @@ impl GithubState {
     /// handle 401/403 (Q9). Malformed payloads degrade to stale data with a
     /// stderr note — never a dialog.
     pub fn apply(&mut self, result: SpecResult) {
+        // Inactive-session guard (#168): fetches launched before a
+        // sign-out (or before any session exists) keep flying; their
+        // results must not repopulate state — a snapshot would even
+        // resurrect the just-deleted cache dir via `persist_snapshot`.
+        // `TokenRejected` still applies: that user is signed in with a
+        // rejected credential (docs/0005 Q9) and legitimate 200s can land
+        // around a failed refresh (docs/0028) — only a signed-out or
+        // never-connected session is dead.
+        if !self.auth.connected() && !matches!(self.auth, AuthStatus::TokenRejected) {
+            log::debug!(
+                "{}: dropping fetch result — session inactive",
+                result.kind.kind_name()
+            );
+            return;
+        }
         if let Some(m) = result.network {
             log::warn!("{}: network error: {m}", result.kind.kind_name());
             return;
@@ -3043,6 +3058,48 @@ mod tests {
         state.apply(run_spec(&*http, &spec));
         assert_eq!(state.auth, AuthStatus::TokenRejected);
         assert!(state.plan_tick(1).is_empty());
+    }
+
+    #[test]
+    fn apply_drops_in_flight_results_after_sign_out() {
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.auth = AuthStatus::Connected;
+        state.sign_out();
+
+        // A late 200 snapshot must not resurrect user/repos — and via
+        // persist_snapshot must not recreate the just-deleted cache dir.
+        let body = gql_page(false, "unused", &repo_node("o/a", 1, &pr_node(1)));
+        state.apply(snapshot_result(&body, None));
+        assert!(state.user.is_none());
+        assert!(state.repos.is_empty());
+        assert!(!state.cache.root.exists(), "cache dir must stay deleted");
+
+        // A late 401 must not flip a signed-out session into the
+        // reconnect state either.
+        state.apply(SpecResult {
+            kind: Kind::Notifications,
+            ident: None,
+            status: 401,
+            etag: None,
+            rate: None,
+            body: None,
+            network: None,
+            cursor: None,
+        });
+        assert_eq!(state.auth, AuthStatus::Disconnected);
+    }
+
+    #[test]
+    fn apply_still_takes_results_while_token_rejected() {
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.auth = AuthStatus::TokenRejected;
+
+        // Still signed in (rejected credential, docs/0005 Q9): in-flight
+        // 200s keep painting — the guard must not over-drop.
+        let body = gql_page(false, "unused", &repo_node("o/a", 1, &pr_node(1)));
+        state.apply(snapshot_result(&body, None));
+        assert_eq!(state.user.as_ref().unwrap().login, "noosxe");
+        assert_eq!(state.repos.len(), 1);
     }
 
     #[test]
