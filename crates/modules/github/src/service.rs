@@ -1194,7 +1194,11 @@ impl GithubState {
             self.needs_bootstrap = false;
             return vec![
                 self.snapshot_spec(),
-                self.spec(Kind::Notifications, api::notifications_url(1), None),
+                self.spec(
+                    Kind::Notifications,
+                    api::notifications_url(1),
+                    Some(MAX_PAGES),
+                ),
             ];
         }
         if self.gated() {
@@ -2470,12 +2474,19 @@ mod tests {
         state.auth = AuthStatus::Connected;
 
         // Bootstrap: snapshot + notifications, then the flag is consumed.
+        // The notifications spec paginates to the full MAX_PAGES walk —
+        // the first 100 unread must not silently truncate (#170).
         state.needs_bootstrap = true;
         let specs = state.plan_tick(1);
         assert_eq!(
             specs.iter().map(|s| s.kind).collect::<Vec<_>>(),
             vec![Kind::Snapshot, Kind::Notifications]
         );
+        let notif = specs
+            .iter()
+            .find(|s| s.kind == Kind::Notifications)
+            .unwrap();
+        assert_eq!(notif.max_pages, MAX_PAGES);
         assert!(!state.needs_bootstrap);
 
         // Ticks 2–4: notifications only.
