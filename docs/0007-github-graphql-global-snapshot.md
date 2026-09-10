@@ -168,7 +168,7 @@ naturally.
 
 | When | Work |
 | --- | --- |
-| bootstrap | snapshot + global notifications (REST) |
+| bootstrap | snapshot + global notifications (REST, MAX_PAGES — same walk as every tick, #170) |
 | every tick | global notifications (REST, ETag, MAX_PAGES — unchanged) |
 | every 5th tick | snapshot |
 | repo view opened | repo-scoped snapshot (GraphQL) + repo-scoped notifications (REST, once) |
