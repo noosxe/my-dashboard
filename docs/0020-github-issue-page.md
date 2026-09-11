@@ -264,7 +264,9 @@ Three `GroupBox` panels, stacked, content-hugging:
 - **State:**
   - Open: **Close** button (`Button::danger`, `issue-close`) + — per Q3 — a
     close-reason `Select` (`issue-close-reason`: Completed / Not planned,
-    default Completed). Gated by `viewerCanClose` (button hidden, not
+    default Completed; a successful close resets it to Completed, so a
+    reopen→close cycle never silently reuses a stale draft reason, #176).
+    Gated by `viewerCanClose` (button hidden, not
     disabled, when the viewer lacks it — affordance honesty per 0019 D3).
   - Closed: **Reopen** button (`issue-reopen`, default variant) gated by
     `viewerCanReopen`; below it a muted line "closed N ago · <reason>".

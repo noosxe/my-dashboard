@@ -1334,7 +1334,17 @@ impl IssueDetailPage {
                 // dismisses itself on click).
                 IssueBusyOp::ToggleReaction | IssueBusyOp::ToggleLock => {}
                 // The refetch repaints the badge and swaps the panel.
-                IssueBusyOp::Close | IssueBusyOp::Reopen => {}
+                // A successful close also resets the reason Select to
+                // its Completed default (0020 Q3), so a reopen→close
+                // cycle doesn't silently reuse the stale draft reason
+                // (#176) — same window-needing set call as Comment.
+                IssueBusyOp::Close => {
+                    let default_reason: SharedString = CloseReason::Completed.label().into();
+                    self.close_reason.update(cx, |state, cx| {
+                        state.set_selected_value(&default_reason, window, cx)
+                    });
+                }
+                IssueBusyOp::Reopen => {}
             }
         }
         self.fetch_detail(cx);
@@ -3646,10 +3656,36 @@ mod tests {
 
                 // A state-write failure lands in the rail scope instead
                 // (0020 D5) — same result plumbing, different surface.
+                let not_planned: gpui::SharedString = CloseReason::NotPlanned.label().into();
+                page.close_reason.update(cx, |state, cx| {
+                    state.set_selected_value(&not_planned, window, cx)
+                });
+                assert_eq!(
+                    page.selected_close_reason(cx),
+                    Some(CloseReason::NotPlanned),
+                    "precondition: draft reason selected"
+                );
                 page.apply_mutation_result(IssueBusyOp::Close, ok(err_body), window, cx);
                 assert_eq!(
                     page.mutation_error.as_ref().expect("rail failure").scope,
                     crate::pr_page::ErrorScope::Rail
+                );
+
+                // 0020 Q3 / #176: a failed close keeps the drafted
+                // reason; a successful close resets the Select back to
+                // its Completed default.
+                // The failed close above kept the drafted reason —
+                // only success resets the Select (0020 Q3 / #176).
+                assert_eq!(
+                    page.selected_close_reason(cx),
+                    Some(CloseReason::NotPlanned),
+                    "failures keep the drafted close reason"
+                );
+                page.apply_mutation_result(IssueBusyOp::Close, ok(ok_body), window, cx);
+                assert_eq!(
+                    page.selected_close_reason(cx),
+                    Some(CloseReason::Completed),
+                    "success must reset the close-reason Select (#176)"
                 );
             });
         });
