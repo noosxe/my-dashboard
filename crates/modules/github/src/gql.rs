@@ -564,12 +564,15 @@ pub fn check_run_state(status: Option<&str>, conclusion: Option<&str>) -> CheckS
     }
 }
 
-/// `StatusContext.state` (SUCCESS / ERROR / FAILURE / PENDING) → unified.
+/// `StatusContext.state` (GraphQL `StatusState`: SUCCESS / ERROR /
+/// EXPECTED / FAILURE / PENDING) → unified. `EXPECTED` is a required
+/// status that hasn't reported yet — Pending, matching `rollup_state`
+/// (#174); `rollup_state`'s doc lists the same enum.
 pub fn status_context_state(state: Option<&str>) -> CheckState {
     match state {
         Some("SUCCESS") => CheckState::Success,
         Some("ERROR") | Some("FAILURE") => CheckState::Failure,
-        Some("PENDING") => CheckState::Pending,
+        Some("PENDING") | Some("EXPECTED") => CheckState::Pending,
         _ => CheckState::Neutral,
     }
 }
@@ -2369,6 +2372,7 @@ mod tests {
         assert_eq!(status_context_state(Some("ERROR")), CheckState::Failure);
         assert_eq!(status_context_state(Some("FAILURE")), CheckState::Failure);
         assert_eq!(status_context_state(Some("PENDING")), CheckState::Pending);
+        assert_eq!(status_context_state(Some("EXPECTED")), CheckState::Pending);
         assert_eq!(status_context_state(None), CheckState::Neutral);
     }
 
