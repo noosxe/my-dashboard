@@ -358,8 +358,6 @@ impl NotificationDetailPage {
 
     /// The Issue/PR hand-off (docs/0026 D6): parse the subject's API URL;
     /// other kinds never emit — the ↗ button is their whole hand-off.
-    /// The Issue/PR hand-off (docs/0026 D6): parse the subject's API URL;
-    /// other kinds never emit — the ↗ button is their whole hand-off.
     /// `anchor` (docs/0026 D9) rides only from the latest-comment jump;
     /// the plain subject click opens the conversation from the top.
     fn open_subject(&mut self, anchor: Option<i64>, _: &mut Window, cx: &mut Context<Self>) {
