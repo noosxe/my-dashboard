@@ -343,6 +343,10 @@ relative age. A muted caption when `commits.totalCount > nodes.len()`:
   warning tone, and pending/neutral buckets word as "running"/"skipped" in the
   summary line. The details affordance is a trailing external-link button; rows
   without a URL show none.
+  StatusContext rows map their `StatusState` the same way: SUCCESS →
+  success, ERROR/FAILURE → danger, PENDING and EXPECTED (a required
+  status not yet reported) → pending — matching the rollup glyph mapping
+  (0007 §6, #174); null/unknown → muted.
 
 ### D8 — Files changed tab
 
