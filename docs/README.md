@@ -61,6 +61,7 @@ cross-platform, multi-modular universal personal dashboard built with Rust and
 | [0026](0026-github-notification-detail-page.md) | GitHub Module: Notification Detail Page (in-app thread view, auto-seen, read state) |
 | [0027](0027-ci-workflows.md) | CI — GitHub Actions Gates on Self-Hosted Runners (fmt/clippy/test, no Nix) |
 | [0028](0028-github-401-refresh-retry.md) | GitHub Module: Immediate 401 Refresh with Retry Queue (single-flight gate, FIFO retries; amends 0011 §4.3) |
+| [0029](0029-github-module-architecture.md) | GitHub Module: Architectural Overview (what works, gaps, improvement roadmap) |
 | [0030](0030-pr-review-threads.md) | GitHub Module: PR Review Threads (inline code review on the Files tab — read + write design) |
 
 ## Planned docs (roadmap, not yet written)
