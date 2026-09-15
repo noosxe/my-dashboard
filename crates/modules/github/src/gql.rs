@@ -1680,6 +1680,42 @@ mutation PrAddReview($input: AddPullRequestReviewInput!) {
 }
 "#;
 
+/// Publish one line/file comment thread immediately (docs/0030 D4):
+/// `AddPullRequestReviewThreadInput { pullRequestId path line side body }`
+/// — `pullRequestId` (not `pullRequestReviewId`) means the thread goes out
+/// as its own COMMENT review; `line` omitted only for file-subject
+/// threads; `side` defaults RIGHT server-side but the page always sends it.
+pub const PR_ADD_REVIEW_THREAD_MUTATION: &str = r#"
+mutation PrAddReviewThread($input: AddPullRequestReviewThreadInput!) {
+  addPullRequestReviewThread(input: $input) { thread { id } }
+}
+"#;
+
+/// Reply to an existing review comment (docs/0030 D4):
+/// `AddPullRequestReviewCommentInput { body inReplyTo }` — replies
+/// publish immediately and cannot ride a draft batch (§3).
+pub const PR_ADD_REVIEW_COMMENT_MUTATION: &str = r#"
+mutation PrAddReviewComment($input: AddPullRequestReviewCommentInput!) {
+  addPullRequestReviewComment(input: $input) { comment { id } }
+}
+"#;
+
+/// Resolve a review thread (docs/0030 D5) — `resolutionReason` stays
+/// unset in v1 (input is optional; the picker is a follow-up).
+pub const PR_RESOLVE_THREAD_MUTATION: &str = r#"
+mutation PrResolveReviewThread($input: ResolveReviewThreadInput!) {
+  resolveReviewThread(input: $input) { thread { id isResolved } }
+}
+"#;
+
+/// Unresolve a review thread (docs/0030 D5) — same shape as resolve,
+/// different operation name.
+pub const PR_UNRESOLVE_THREAD_MUTATION: &str = r#"
+mutation PrUnresolveReviewThread($input: UnresolveReviewThreadInput!) {
+  unresolveReviewThread(input: $input) { thread { id isResolved } }
+}
+"#;
+
 /// Edit the description (`UpdateIssueInput { id body }` — a PR is an
 /// issue, so `updateIssue` takes the PR node id).
 pub const PR_UPDATE_DESCRIPTION_MUTATION: &str = r#"
@@ -2116,6 +2152,24 @@ pub struct PrThreadsData {
 pub enum DiffSide {
     Left,
     Right,
+}
+
+impl DiffSide {
+    /// The write-side wire value (docs/0030 §3 asymmetry: reads say
+    /// `diffSide`, the write inputs say `side` with the same enum).
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            DiffSide::Left => "LEFT",
+            DiffSide::Right => "RIGHT",
+        }
+    }
+    /// The lowercase bridge-id token (docs/0030 D8).
+    pub(crate) fn id_token(self) -> &'static str {
+        match self {
+            DiffSide::Left => "left",
+            DiffSide::Right => "right",
+        }
+    }
 }
 
 /// `PullRequestReviewThreadSubjectType` — a diff line or the whole file.

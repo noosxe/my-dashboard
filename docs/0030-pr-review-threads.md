@@ -348,3 +348,24 @@ design text:
 - **Suggestion cards (D6)**: the Copy button writes the raw fence content
   to the clipboard; suggestion code renders one non-wrapping mono row per
   line (the diff-pane convention; gpui has no pre-wrap mode).
+
+### Stage 2 — write side (#208)
+
+- **D7 (variant count)**: five `Mutation` variants, four new documents —
+  `ReviewBatch` reuses the existing `addPullRequestReview` document (the
+  batch is the same input plus its `threads` array), so `PR_ADD_REVIEW_MUTATION`
+  gained a second caller.
+- **D4 (reply target)**: a reply posts against the thread's **latest**
+  comment (the GitHub-web convention); the API threads it into the whole
+  thread either way. A thread vanishing under an open reply box (refetch
+  race) closes the box instead of firing.
+- **D4 (composer invariants)**: one row composer and one reply box at a
+  time; opening another row discards the previous unsubmitted text — drafts
+  are explicit via **Start a review**. On failure every composer stays open
+  with its text (the 0019 pattern); success closes the surface that fired.
+- **Plus affordance**: the per-row comment button is always visible (muted
+  ghost icon), not hover-revealed — the 0019 row-actions precedent; hover
+  reveal also risks hover-only discovery for bridge/AT users.
+- **Busy handling**: while any write is in flight every Files-tab button
+  disables; Submit reads **Submitting…**. Post-mutation the threads refetch
+  re-renders the pane — the detail query (and patches) are not refetched.
