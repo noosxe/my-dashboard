@@ -14,12 +14,15 @@
 //! `TreeState` (upstream emits no selection event — clicks notify the
 //! entity, the page observes and reads `selected_entry()`).
 
+use std::collections::BTreeMap;
+
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 
 use gpui_component::{
     ActiveTheme, Icon, IconName, IndexPath, Sizable as _,
     badge::Badge,
+    button::{Button, ButtonVariants},
     h_flex,
     input::Input,
     list::{List, ListDelegate, ListItem, ListState},
@@ -29,9 +32,11 @@ use gpui_component::{
 };
 
 use crate::api::PrFile;
-use crate::pr_page::PrDetailPage;
-use crate::service::PatchLine;
-
+use crate::gql::{DiffSide, PrThread, ThreadSubject};
+use crate::markdown;
+use crate::page::relative_age;
+use crate::pr_page::{PrDetailPage, ThreadsFetch};
+use crate::service::{AnchoredLine, PatchLine, anchor_patch};
 /// Files sidebar view mode (0018 D3). `List` is the default — the flat
 /// rendering is the closest to the accordion it replaces.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -406,6 +411,7 @@ fn diff_pane(page: &PrDetailPage, files: &[PrFile], cx: &Context<PrDetailPage>) 
         return empty_pane(cx);
     };
     let (dir, name) = split_path(&file.filename);
+    let placed = thread_placement(page, file);
     v_flex()
         .id("pr-file-diff")
         .flex_1()
@@ -459,11 +465,24 @@ fn diff_pane(page: &PrDetailPage, files: &[PrFile], cx: &Context<PrDetailPage>) 
         .child(
             v_flex()
                 .id("pr-diff-scroll")
+                .debug_selector(|| "pr-diff-scroll-key".into())
                 .flex_1()
                 .min_h_0()
                 .overflow_y_scroll()
                 .py_2()
-                .child(diff_body(file, cx)),
+                // FILE-subject threads sit under the header, above the diff
+                // (0030 D3).
+                .children(
+                    placed
+                        .file_level
+                        .iter()
+                        .map(|&(ix, t)| thread_card(page, ix, t, cx)),
+                )
+                .child(diff_body(page, file, &placed, cx))
+                .children(threads_fetch_row(page, cx))
+                // Outdated / unanchorable threads: the end-of-file bucket
+                // (0030 D3) — collapsed by default, never dropped.
+                .children(stray_bucket(page, &placed, cx)),
         )
         .into_any_element()
 }
@@ -472,6 +491,7 @@ fn diff_pane(page: &PrDetailPage, files: &[PrFile], cx: &Context<PrDetailPage>) 
 fn empty_pane(cx: &Context<PrDetailPage>) -> AnyElement {
     div()
         .id("pr-diff-empty")
+        .debug_selector(|| "pr-diff-empty-key".into())
         .flex_1()
         .min_w_0()
         .min_h_0()
@@ -598,11 +618,101 @@ pub(crate) fn split_path(path: &str) -> (Option<&str>, &str) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Review threads on the diff (docs/0030 D2/D3/D6) — stage 1 read side
+// ---------------------------------------------------------------------------
+
+/// A thread positioned against one file's diff, tagged with its index in
+/// the page's thread list (`pr-thread-{ix}` ids and md-cache keys ride it).
+pub(crate) type Placed<'a> = (usize, &'a PrThread);
+
+/// Threads placed against one file's diff (0030 D3). Pure — table-tested.
+pub(crate) struct ThreadPlacement<'a> {
+    /// LINE threads anchored under a diff row, keyed by that row's index
+    /// in the `anchor_patch` output. A row hosts at most one side's line
+    /// number, so the key is unique per thread anchor.
+    pub(crate) anchored: BTreeMap<usize, Vec<Placed<'a>>>,
+    /// FILE-subject threads — rendered under the file header.
+    pub(crate) file_level: Vec<Placed<'a>>,
+    /// Outdated threads, plus LINE threads whose line is not in the
+    /// current diff (patch truncated, force-push mid-session) — the
+    /// end-of-file bucket. Never dropped.
+    pub(crate) stray: Vec<Placed<'a>>,
+}
+
+/// Place the page's threads against one file's diff rows (0030 D3):
+/// the pure core table tests hit directly.
+pub(crate) fn place_threads<'a>(
+    threads: &'a [PrThread],
+    path: &str,
+    rows: &[AnchoredLine],
+) -> ThreadPlacement<'a> {
+    let mut placed = ThreadPlacement {
+        anchored: BTreeMap::new(),
+        file_level: Vec::new(),
+        stray: Vec::new(),
+    };
+    // Index the diff rows by their line numbers per side.
+    let mut anchor_at: std::collections::HashMap<(DiffSide, u32), usize> = Default::default();
+    for (ix, row) in rows.iter().enumerate() {
+        if let Some(new) = row.new {
+            anchor_at.insert((DiffSide::Right, new), ix);
+        }
+        if let Some(old) = row.old {
+            anchor_at.insert((DiffSide::Left, old), ix);
+        }
+    }
+    for (ix, t) in threads.iter().enumerate() {
+        if t.path != path {
+            continue;
+        }
+        match t.subject {
+            ThreadSubject::File => placed.file_level.push((ix, t)),
+            ThreadSubject::Line => {
+                let line = t
+                    .line
+                    .and_then(|l| u32::try_from(l).ok())
+                    .filter(|l| *l != 0);
+                let slot = match (t.is_outdated, line) {
+                    (true, _) | (_, None) => None,
+                    (false, Some(l)) => anchor_at.get(&(t.side, l)).copied(),
+                };
+                match slot {
+                    Some(row_ix) => placed.anchored.entry(row_ix).or_default().push((ix, t)),
+                    None => placed.stray.push((ix, t)),
+                }
+            }
+        }
+    }
+    placed
+}
+
+/// Place the page's threads against one file's diff (0030 D3): the
+/// render-side wrapper — rows come from the file's own patch.
+pub(crate) fn thread_placement<'a>(page: &'a PrDetailPage, file: &PrFile) -> ThreadPlacement<'a> {
+    let threads = page.threads_nodes();
+    if threads.is_empty() {
+        return ThreadPlacement {
+            anchored: BTreeMap::new(),
+            file_level: Vec::new(),
+            stray: Vec::new(),
+        };
+    }
+    let rows = file.patch.as_deref().map(anchor_patch).unwrap_or_default();
+    place_threads(threads, &file.filename, &rows)
+}
+
 /// The diff body (moved from pr_page, 0018): horizontal scroll, mono
 /// `text_xs`, `flex_none` rows — no soft wrap. Tints come from the
 /// semantic tokens at low opacity (0016 D10); the sign glyph carries
-/// the saturated color.
-fn diff_body(file: &PrFile, cx: &Context<PrDetailPage>) -> AnyElement {
+/// the saturated color. 0030 D2: rows gain a two-column line-number
+/// gutter and anchored thread cards render under their rows.
+fn diff_body(
+    page: &PrDetailPage,
+    file: &PrFile,
+    placed: &ThreadPlacement<'_>,
+    cx: &Context<PrDetailPage>,
+) -> AnyElement {
     let Some(patch) = file.patch.as_deref() else {
         return div()
             .px_3()
@@ -612,21 +722,47 @@ fn diff_body(file: &PrFile, cx: &Context<PrDetailPage>) -> AnyElement {
             .child("Binary file or diff not shown")
             .into_any_element();
     };
-    let rows: Vec<AnyElement> = crate::service::parse_patch(patch)
-        .into_iter()
-        .map(|line| diff_row(line, cx))
+    let rows = anchor_patch(patch);
+    let elements: Vec<AnyElement> = rows
+        .iter()
+        .enumerate()
+        .flat_map(|(ix, anchored)| {
+            let mut out = vec![diff_row(anchored, cx)];
+            if let Some(threads) = placed.anchored.get(&ix) {
+                out.extend(
+                    threads
+                        .iter()
+                        .map(|&(tix, t)| thread_card(page, tix, t, cx)),
+                );
+            }
+            out
+        })
         .collect();
     v_flex()
         .id(SharedString::from(format!("pr-diff-{}", file.filename)))
         .min_w_0()
         .overflow_x_scroll()
-        .children(rows)
+        .children(elements)
         .into_any_element()
 }
 
-fn diff_row(line: PatchLine, cx: &Context<PrDetailPage>) -> AnyElement {
+/// The gutter cells for one row (0030 D2): old-side number, new-side
+/// number — muted, fixed width, blank on hunk rows and unanchored rows.
+fn gutter_cell(n: Option<u32>, cx: &App) -> Div {
+    div()
+        .flex_none()
+        .w(px(44.))
+        .text_right()
+        .pr_2()
+        .text_xs()
+        .font_family(cx.theme().mono_font_family.clone())
+        .text_color(cx.theme().muted_foreground)
+        .child(n.map(|v| v.to_string()).unwrap_or_default())
+}
+
+fn diff_row(anchored: &AnchoredLine, cx: &Context<PrDetailPage>) -> AnyElement {
     let mono = cx.theme().mono_font_family.clone();
-    match line {
+    match &anchored.line {
         PatchLine::Hunk(text) => div()
             .flex_none()
             .whitespace_nowrap()
@@ -636,26 +772,32 @@ fn diff_row(line: PatchLine, cx: &Context<PrDetailPage>) -> AnyElement {
             .font_family(mono)
             .text_color(cx.theme().muted_foreground)
             .bg(cx.theme().accent.opacity(0.15))
-            .child(text),
-        PatchLine::Context(text) => div()
+            .child(text.clone()),
+        PatchLine::Context(text) => h_flex()
             .flex_none()
             .whitespace_nowrap()
+            .child(gutter_cell(anchored.old, cx))
+            .child(gutter_cell(anchored.new, cx))
             .px_2()
             .text_xs()
             .font_family(mono)
             .child(format!(" {text}")),
-        PatchLine::Add(text) => div()
+        PatchLine::Add(text) => h_flex()
             .flex_none()
             .whitespace_nowrap()
+            .child(gutter_cell(anchored.old, cx))
+            .child(gutter_cell(anchored.new, cx))
             .px_2()
             .text_xs()
             .font_family(mono)
             .bg(cx.theme().success.opacity(0.12))
             .text_color(cx.theme().success)
             .child(format!("+{text}")),
-        PatchLine::Del(text) => div()
+        PatchLine::Del(text) => h_flex()
             .flex_none()
             .whitespace_nowrap()
+            .child(gutter_cell(anchored.old, cx))
+            .child(gutter_cell(anchored.new, cx))
             .px_2()
             .text_xs()
             .font_family(mono)
@@ -664,6 +806,309 @@ fn diff_row(line: PatchLine, cx: &Context<PrDetailPage>) -> AnyElement {
             .child(format!("−{text}")),
     }
     .into_any_element()
+}
+
+/// While threads are loading: a muted hint under the diff; on failure a
+/// retry row — the diff itself must never break (0030 D1).
+fn threads_fetch_row(page: &PrDetailPage, cx: &Context<PrDetailPage>) -> Option<AnyElement> {
+    match &page.threads {
+        ThreadsFetch::Idle | ThreadsFetch::Ready(_) => None,
+        ThreadsFetch::Fetching => Some(
+            div()
+                .px_3()
+                .py_2()
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .child("Loading review threads…")
+                .into_any_element(),
+        ),
+        ThreadsFetch::Failed(msg) => Some(
+            h_flex()
+                .id("pr-threads-error")
+                .px_3()
+                .py_2()
+                .gap_2()
+                .text_xs()
+                .text_color(cx.theme().danger)
+                .child(msg.clone())
+                .child(
+                    Button::new("pr-threads-retry")
+                        .ghost()
+                        .xsmall()
+                        .icon(IconName::RotateCw)
+                        .tooltip("Retry")
+                        .on_click(cx.listener(|this, _, _, cx| this.fetch_threads(cx))),
+                )
+                .into_any_element(),
+        ),
+    }
+}
+
+/// The end-of-file bucket for outdated / unanchorable threads (0030 D3):
+/// collapsed by default, expandable per file; expand state is page state
+/// keyed by path so refetches don't collapse it behind the user's back.
+fn stray_bucket(
+    page: &PrDetailPage,
+    placed: &ThreadPlacement<'_>,
+    cx: &Context<PrDetailPage>,
+) -> Option<AnyElement> {
+    if placed.stray.is_empty() {
+        return None;
+    }
+    let path = placed
+        .stray
+        .first()
+        .map(|(_, t)| t.path.clone())
+        .unwrap_or_default();
+    let open = page
+        .outdated_open
+        .get(path.as_str())
+        .copied()
+        .unwrap_or(false);
+    let n = placed.stray.len();
+    let mut out = vec![
+        div()
+            .debug_selector(|| "pr-outdated-toggle-key".into())
+            .child(
+                Button::new("pr-outdated-toggle")
+                    .ghost()
+                    .small()
+                    .label(if open {
+                        format!("Hide outdated conversations ({n})")
+                    } else {
+                        format!("Outdated conversations ({n})")
+                    })
+                    .icon(if open {
+                        IconName::ChevronDown
+                    } else {
+                        IconName::ChevronRight
+                    })
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        let entry = this.outdated_open.entry(path.clone()).or_insert(false);
+                        *entry = !*entry;
+                        cx.notify();
+                    })),
+            )
+            .into_any_element(),
+    ];
+    if open {
+        out.extend(
+            placed
+                .stray
+                .iter()
+                .map(|&(ix, t)| thread_card(page, ix, t, cx)),
+        );
+    }
+    Some(
+        v_flex()
+            .id("pr-outdated-bucket")
+            .px_3()
+            .py_1()
+            .gap_1()
+            .children(out)
+            .into_any_element(),
+    )
+}
+
+/// One review thread card (0030 D3/D6): header (author, comment count,
+/// resolved/outdated chips, Open on GitHub) over the comment bodies —
+/// markdown with suggestion blocks rendered as cards (D6). Read-only in
+/// stage 1: reply/resolve affordances land with stage 2 (#208).
+fn thread_card(
+    page: &PrDetailPage,
+    ix: usize,
+    t: &PrThread,
+    cx: &Context<PrDetailPage>,
+) -> AnyElement {
+    let author = t
+        .comments
+        .first()
+        .and_then(|c| c.author.as_ref())
+        .map(|a| a.login.clone())
+        .unwrap_or_else(|| "ghost".into());
+    let replies = t.comments.len().saturating_sub(1);
+    let permalink = t.comments.first().and_then(|c| c.url.clone());
+    div()
+        .debug_selector(move || format!("pr-thread-{ix}-card"))
+        .id(SharedString::from(format!("pr-thread-{ix}")))
+        .w_full()
+        .min_w_0()
+        .mt_1()
+        .rounded_md()
+        .border_1()
+        .border_color(cx.theme().border)
+        .p_2()
+        .gap_1()
+        .child(
+            h_flex()
+                .w_full()
+                .min_w_0()
+                .gap_2()
+                .items_center()
+                .child(
+                    div()
+                        .min_w_0()
+                        .truncate()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(if replies > 0 {
+                            format!("{author} · {} replies", replies + 1)
+                        } else {
+                            author.clone()
+                        }),
+                )
+                .child(thread_chip(t, cx))
+                .child(div().flex_1())
+                .when_some(permalink, |row, url| {
+                    row.child(
+                        Button::new(SharedString::from(format!("pr-thread-{ix}-open")))
+                            .ghost()
+                            .xsmall()
+                            .icon(IconName::ExternalLink)
+                            .tooltip("Open on GitHub")
+                            .on_click(move |_, _, cx| cx.open_url(&url)),
+                    )
+                }),
+        )
+        .children(
+            t.comments
+                .iter()
+                .enumerate()
+                .map(|(m, c)| thread_comment(page, ix, m, c, cx)),
+        )
+        .into_any_element()
+}
+
+/// The resolved / outdated chip on a thread header (0030 D3).
+fn thread_chip(t: &PrThread, cx: &App) -> AnyElement {
+    if t.is_resolved {
+        let by = t
+            .resolved_by
+            .as_deref()
+            .map(|l| format!("Resolved by {l}"))
+            .unwrap_or_else(|| "Resolved".into());
+        Badge::new()
+            .xsmall()
+            .color(cx.theme().success)
+            .child(by)
+            .into_any_element()
+    } else if t.is_outdated {
+        Badge::new()
+            .xsmall()
+            .color(cx.theme().muted_foreground)
+            .child("Outdated")
+            .into_any_element()
+    } else {
+        div().into_any_element()
+    }
+}
+
+/// One comment inside a thread card (0030 D6): author + age over the
+/// markdown body; ```suggestion blocks render as suggestion cards.
+fn thread_comment(
+    page: &PrDetailPage,
+    ix: usize,
+    m: usize,
+    c: &crate::gql::PrThreadComment,
+    cx: &Context<PrDetailPage>,
+) -> AnyElement {
+    let author = c
+        .author
+        .as_ref()
+        .map(|a| a.login.clone())
+        .unwrap_or_else(|| "ghost".into());
+    let age = relative_age(c.created_at.as_deref());
+    let blocks = page.md.get(&format!("thread-{ix}-comment-{m}")).cloned();
+    div()
+        .id(SharedString::from(format!("pr-thread-{ix}-comment-{m}")))
+        .w_full()
+        .min_w_0()
+        .border_t_1()
+        .border_color(cx.theme().border)
+        .pt_1()
+        .child(
+            div()
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .child(format!("{author} · {age}")),
+        )
+        .children(blocks.map(|blocks| {
+            v_flex()
+                .w_full()
+                .min_w_0()
+                .text_sm()
+                .gap_1()
+                .children(blocks.iter().enumerate().map(|(b, block)| match block {
+                    markdown::Block::Code {
+                        lang: Some(lang),
+                        code,
+                    } if lang == "suggestion" => suggestion_card(ix, m, b, code, cx),
+                    _ => markdown::render_block(
+                        block,
+                        &format!("pr-thread-{ix}-comment-{m}-{b}"),
+                        cx,
+                    ),
+                }))
+                .into_any_element()
+        }))
+        .into_any_element()
+}
+
+/// The suggestion card (0030 D6): label + the replacement lines + Copy —
+/// applying has no public API, so the flow finishes on GitHub (the card
+/// above the thread links out).
+fn suggestion_card(
+    ix: usize,
+    m: usize,
+    b: usize,
+    code: &str,
+    cx: &Context<PrDetailPage>,
+) -> AnyElement {
+    let id = SharedString::from(format!("pr-suggestion-{ix}-{m}-{b}-copy"));
+    let payload = code.to_string();
+    v_flex()
+        .id(SharedString::from(format!("pr-suggestion-{ix}-{m}-{b}")))
+        .debug_selector(move || format!("pr-suggestion-{ix}-{m}-{b}-card"))
+        .w_full()
+        .min_w_0()
+        .rounded_md()
+        .border_1()
+        .border_color(cx.theme().border)
+        .p_2()
+        .gap_1()
+        .child(
+            h_flex()
+                .gap_2()
+                .items_center()
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child("Suggested change"),
+                )
+                .child(
+                    Button::new(id)
+                        .ghost()
+                        .xsmall()
+                        .label("Copy")
+                        .on_click(move |_, _, cx| {
+                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(payload.clone()));
+                        }),
+                ),
+        )
+        .child(
+            // Suggestion code renders one non-wrapping row per line — the
+            // diff-pane convention (0018 D8); gpui has no pre-wrap mode.
+            v_flex()
+                .min_w_0()
+                .font_family(cx.theme().mono_font_family.clone())
+                .text_xs()
+                .children(
+                    code.lines()
+                        .map(|l| div().flex_none().whitespace_nowrap().child(l.to_string())),
+                ),
+        )
+        .into_any_element()
 }
 
 #[cfg(test)]
@@ -785,5 +1230,126 @@ mod tests {
                 dels: 3,
             }
         );
+    }
+
+    // --- thread placement (docs/0030 D3/§5) ------------------------------
+
+    use crate::files::place_threads;
+    use crate::gql::{DiffSide, PrThread, PrThreadComment, ThreadSubject};
+    use crate::service::{AnchoredLine, anchor_patch};
+
+    fn fixture_thread(
+        ix: usize,
+        path: &str,
+        line: Option<i64>,
+        side: DiffSide,
+        subject: ThreadSubject,
+        outdated: bool,
+    ) -> PrThread {
+        PrThread {
+            id: format!("T_{ix}"),
+            path: path.into(),
+            line,
+            start_line: None,
+            side,
+            subject,
+            is_outdated: outdated,
+            is_resolved: false,
+            resolved_by: None,
+            viewer_can_reply: false,
+            viewer_can_resolve: false,
+            viewer_can_unresolve: false,
+            comments: vec![PrThreadComment {
+                id: format!("T_{ix}_C_0"),
+                author: None,
+                body: "body".into(),
+                created_at: None,
+                updated_at: None,
+                last_edited_at: None,
+                url: None,
+                viewer_can_update: false,
+                viewer_can_delete: false,
+                viewer_did_author: false,
+            }],
+        }
+    }
+
+    fn rows_for(patch: &str) -> Vec<AnchoredLine> {
+        anchor_patch(patch)
+    }
+
+    #[test]
+    fn placement_anchors_threads_on_both_sides() {
+        // Rows: 0 hunk, 1 ctx(new 11), 2 del(old 11), 3 add(new 12).
+        let rows = rows_for("@@ -10,2 +11,2 @@\n ctx\n-del\n+add");
+        let threads = [
+            fixture_thread(
+                0,
+                "f.rs",
+                Some(11),
+                DiffSide::Right,
+                ThreadSubject::Line,
+                false,
+            ),
+            fixture_thread(
+                1,
+                "f.rs",
+                Some(11),
+                DiffSide::Left,
+                ThreadSubject::Line,
+                false,
+            ),
+        ];
+        let placed = place_threads(&threads, "f.rs", &rows);
+        // RIGHT@11 is the context row (1); LEFT@11 is the deleted row (2).
+        assert_eq!(placed.anchored.get(&1).unwrap().len(), 1);
+        assert_eq!(placed.anchored.get(&2).unwrap()[0].0, 1);
+        assert!(placed.stray.is_empty() && placed.file_level.is_empty());
+    }
+
+    #[test]
+    fn placement_buckets_outdated_unanchorable_and_file_threads() {
+        let rows = rows_for("@@ -10,2 +11,2 @@\n ctx\n-del");
+        let threads = [
+            // Outdated but line present → stray (the bucket, not the row).
+            fixture_thread(
+                0,
+                "f.rs",
+                Some(11),
+                DiffSide::Right,
+                ThreadSubject::Line,
+                true,
+            ),
+            // Line outside the diff (force-push mid-session) → stray.
+            fixture_thread(
+                1,
+                "f.rs",
+                Some(999),
+                DiffSide::Right,
+                ThreadSubject::Line,
+                false,
+            ),
+            // FILE-subject → the header group.
+            fixture_thread(2, "f.rs", None, DiffSide::Right, ThreadSubject::File, false),
+            // Another path → ignored entirely.
+            fixture_thread(
+                3,
+                "other.rs",
+                Some(11),
+                DiffSide::Right,
+                ThreadSubject::Line,
+                false,
+            ),
+            // LINE thread with no line at all → stray.
+            fixture_thread(4, "f.rs", None, DiffSide::Right, ThreadSubject::Line, false),
+        ];
+        let placed = place_threads(&threads, "f.rs", &rows);
+        assert!(placed.anchored.is_empty());
+        assert_eq!(
+            placed.stray.iter().map(|&(ix, _)| ix).collect::<Vec<_>>(),
+            vec![0, 1, 4]
+        );
+        assert_eq!(placed.file_level.len(), 1);
+        assert_eq!(placed.file_level[0].0, 2);
     }
 }

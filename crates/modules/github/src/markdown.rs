@@ -11,7 +11,7 @@ use gpui::{
 };
 use gpui_component::{ActiveTheme, h_flex, v_flex};
 use linkify::{LinkFinder, LinkKind};
-use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 
 /// One markdown document, folded from pulldown events into owned blocks
 /// (D2). Held across frames via the page-level cache — never re-parsed per
@@ -24,7 +24,12 @@ pub(crate) enum Block {
         runs: Vec<Run>,
     },
     /// Fenced or indented code; one string, trailing newline trimmed.
-    Code(String),
+    /// `lang` is the fence info's first token — 0030 D6 needs it to
+    /// recognize ```suggestion blocks; indented fences carry None.
+    Code {
+        lang: Option<String>,
+        code: String,
+    },
     /// Blockquote; `alert` is the GFM `[!NOTE]`-style tag (D1, `ENABLE_GFM`).
     Quote {
         alert: Option<Alert>,
@@ -109,6 +114,8 @@ struct ParseState {
     style: RunStyle,
     saved: Vec<RunStyle>,
     code: Option<String>,
+    /// The active fenced block's info string (0030 D6); indented → None.
+    code_lang: Option<String>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -229,9 +236,19 @@ impl ParseState {
                     row: Vec::new(),
                 });
             }
-            Tag::CodeBlock(_) => {
+            Tag::CodeBlock(kind) => {
                 self.flush_inline();
                 self.code = Some(String::new());
+                // 0030 D6: the fence info's first token ("suggestion",
+                // "rust", …). Indented blocks carry no info string.
+                self.code_lang = match kind {
+                    CodeBlockKind::Fenced(info) => info
+                        .split(|c: char| c.is_whitespace())
+                        .next()
+                        .filter(|t| !t.is_empty())
+                        .map(str::to_string),
+                    CodeBlockKind::Indented => None,
+                };
             }
             Tag::Strong => {
                 self.saved.push(self.style.clone());
@@ -314,15 +331,16 @@ impl ParseState {
                     *head = Some(std::mem::take(row));
                 }
             }
-            TagEnd::TableRow => {
-                if let Some(Frame::Table { rows, row, .. }) = self.stack.last_mut() {
-                    rows.push(std::mem::take(row));
-                }
-            }
             TagEnd::CodeBlock => {
                 if let Some(code) = self.code.take() {
                     let text = code.trim_end_matches('\n').to_string();
-                    self.flush_block(Block::Code(text));
+                    let lang = self.code_lang.take();
+                    self.flush_block(Block::Code { lang, code: text });
+                }
+            }
+            TagEnd::TableRow => {
+                if let Some(Frame::Table { rows, row, .. }) = self.stack.last_mut() {
+                    rows.push(std::mem::take(row));
                 }
             }
             TagEnd::Strong
@@ -461,7 +479,7 @@ fn autolink_target(kind: &LinkKind, raw: &str) -> Option<String> {
     }
 }
 
-fn render_block(block: &Block, id: &str, cx: &App) -> AnyElement {
+pub(crate) fn render_block(block: &Block, id: &str, cx: &App) -> AnyElement {
     match block {
         Block::Paragraph(runs) => render_runs(runs, id, cx).into_any_element(),
         Block::Heading { level, runs } => {
@@ -479,11 +497,11 @@ fn render_block(block: &Block, id: &str, cx: &App) -> AnyElement {
             };
             text_wrap(sized).into_any_element()
         }
-        Block::Code(text) => text_wrap(
+        Block::Code { code, .. } => text_wrap(
             div()
                 .font_family(cx.theme().mono_font_family.clone())
                 .text_xs()
-                .child(text.clone()),
+                .child(code.clone()),
         )
         .rounded_md()
         .border_1()
@@ -871,7 +889,45 @@ mod tests {
     #[test]
     fn fenced_code_extracts_text_without_trailing_newline() {
         let blocks = parse("```\nlet x = 1;\nlet y = 2;\n```");
-        assert_eq!(blocks, vec![Block::Code("let x = 1;\nlet y = 2;".into())]);
+        assert_eq!(
+            blocks,
+            vec![Block::Code {
+                lang: None,
+                code: "let x = 1;\nlet y = 2;".into(),
+            }]
+        );
+    }
+
+    #[test]
+    fn fenced_code_carries_the_info_token() {
+        // 0030 D6: the fence info's first token survives the parse —
+        // that's how ```suggestion blocks are recognized downstream.
+        let blocks = parse("```suggestion\nfn fixed() {}\n```");
+        assert_eq!(
+            blocks,
+            vec![Block::Code {
+                lang: Some("suggestion".into()),
+                code: "fn fixed() {}".into(),
+            }]
+        );
+        // Extra info words ("rust ignore") keep only the first token;
+        // indented code blocks carry None.
+        let blocks = parse("```rust ignore\nx\n```");
+        assert_eq!(
+            blocks,
+            vec![Block::Code {
+                lang: Some("rust".into()),
+                code: "x".into(),
+            }]
+        );
+        let blocks = parse("    indented");
+        assert_eq!(
+            blocks,
+            vec![Block::Code {
+                lang: None,
+                code: "indented".into(),
+            }]
+        );
     }
 
     #[test]

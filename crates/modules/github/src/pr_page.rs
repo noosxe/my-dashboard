@@ -133,7 +133,18 @@ pub(crate) struct PrDetailPage {
     /// Changed-files fetch lifecycle (D8): lazy — `Idle` until the
     /// Files tab is first opened, then one REST walk; `Ready` keeps the
     /// parsed list (a refresh refetches it).
-    files: FilesFetch,
+    /// Changed-files fetch lifecycle (D8): lazy — `Idle` until the
+    /// Files tab is first opened, then one REST walk; `Ready` keeps the
+    /// parsed list (a refresh refetches it).
+    pub(crate) files: FilesFetch,
+    /// Review-threads fetch lifecycle (docs/0030 D1): lazy like the
+    /// files walk — one GraphQL one-shot when the Files tab first opens,
+    /// refetched on refresh (once loaded) and after thread mutations.
+    pub(crate) threads: ThreadsFetch,
+    /// Per-file expand state for the outdated/stray thread bucket
+    /// (docs/0030 D3), keyed by path so a refetch never collapses it
+    /// behind the user's back.
+    pub(crate) outdated_open: BTreeMap<String, bool>,
     /// Files sidebar (docs/0018 D3/D6/D7): view mode + the path-keyed
     /// List selection (the Tree's selection lives in `file_tree`). The
     /// sidebar entities are built once in `new` — which has the window
@@ -146,7 +157,7 @@ pub(crate) struct PrDetailPage {
     pub(crate) file_tree: Entity<TreeState>,
     /// Parsed markdown bodies (docs/0017 D6) keyed by card id — rebuilt
     /// whenever a detail payload lands, never re-parsed per frame.
-    md: BTreeMap<String, Arc<[markdown::Block]>>,
+    pub(crate) md: BTreeMap<String, Arc<[markdown::Block]>>,
     /// docs/0026 D9 (#154): the notification hand-off's comment anchor —
     /// see [`CommentAnchor`]. `Idle` unless opened from the jump.
     pub(crate) anchor: CommentAnchor,
@@ -159,10 +170,20 @@ pub(crate) struct PrDetailPage {
 }
 
 /// The Files tab's fetch lifecycle (docs/0016 D8).
-enum FilesFetch {
+pub(crate) enum FilesFetch {
     Idle,
     Fetching,
     Ready(Vec<PrFile>),
+    Failed(String),
+}
+
+/// The review-threads fetch lifecycle (docs/0030 D1) — the threads
+/// sibling of [`FilesFetch`]. Failure never takes the diff pane down:
+/// the pane renders a retry row instead (files.rs).
+pub(crate) enum ThreadsFetch {
+    Idle,
+    Fetching,
+    Ready(gql::PrThreads),
     Failed(String),
 }
 
@@ -255,6 +276,8 @@ impl PrDetailPage {
             methods: Vec::new(),
             method_select: None,
             files: FilesFetch::Idle,
+            threads: ThreadsFetch::Idle,
+            outdated_open: BTreeMap::new(),
             files_view: FilesView::default(),
             selected_file: None,
             view_select: view_select.clone(),
@@ -393,6 +416,9 @@ impl PrDetailPage {
                                 detail.commits.nodes.len()
                             );
                             self.md = build_md_cache(&detail);
+                            // Thread keys live in the same cache — a detail
+                            // refetch wipes it, so re-fold them (0030 D1).
+                            self.extend_threads_md();
                             self.detail = Some(detail);
                             // 0019 D4: an editor/confirm whose node is gone
                             // with the new payload has nothing left to edit —
@@ -582,6 +608,118 @@ impl PrDetailPage {
             // per-view selection); selecting entry 0 would pick a folder.
         });
         cx.notify();
+    }
+
+    // --- review threads (docs/0030 D1) --------------------------------------
+
+    /// The thread nodes behind [`Self::threads`] — empty unless `Ready`.
+    /// files.rs reads this for placement; keep it cheap, it runs per render.
+    pub(crate) fn threads_nodes(&self) -> &[gql::PrThread] {
+        match &self.threads {
+            ThreadsFetch::Ready(t) => &t.nodes,
+            _ => &[],
+        }
+    }
+
+    /// The threads spec: one GraphQL one-shot (docs/0030 D1) — same
+    /// variables and endpoint as the detail query, page-owned like it.
+    fn threads_spec(repo: &str, number: i64) -> FetchSpec {
+        let (owner, name) = split_repo(repo);
+        FetchSpec {
+            kind: Kind::PrThreads,
+            url: gql::GRAPHQL_ENDPOINT.to_string(),
+            etag: None,
+            ident: Some(format!("{repo}#{number}")),
+            max_pages: 1,
+            variables: Some(serde_json::json!({ "owner": owner, "name": name, "number": number })),
+        }
+    }
+
+    /// Lazy fetch (docs/0030 D1): fired when the Files tab first opens,
+    /// on refresh once a thread list is showing, and after thread
+    /// mutations (stage 2).
+    pub(crate) fn fetch_threads(&mut self, cx: &mut Context<Self>) {
+        if !self.state.read(cx).auth.connected() {
+            return; // the page is about to be torn down by the auth gate
+        }
+        let state = self.state.clone();
+        let spec = Self::threads_spec(&self.repo, self.number);
+        log::debug!(
+            "pr-threads: fetching {}",
+            spec.ident.as_deref().unwrap_or("?")
+        );
+        self.threads = ThreadsFetch::Fetching;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = run_spec_tracked(state, spec, cx).await;
+            let _ = this.update(cx, |page, cx| page.apply_threads_result(result, cx));
+        })
+        .detach();
+    }
+
+    fn apply_threads_result(&mut self, result: crate::service::SpecResult, cx: &mut Context<Self>) {
+        if let Some(m) = &result.network {
+            self.threads = ThreadsFetch::Failed(format!("Network error: {m}"));
+        } else if result.status != 200 {
+            // Shared 401/403 handling, same as the detail fetch (0030 D1).
+            let status = result.status;
+            self.state.update(cx, |s, cx| {
+                s.apply(result);
+                cx.notify();
+            });
+            self.threads = ThreadsFetch::Failed(format!("GitHub answered HTTP {status}"));
+        } else {
+            let parsed = result.body.as_deref().and_then(|body| {
+                serde_json::from_str::<gql::Envelope<gql::PrThreadsData>>(body)
+                    .ok()
+                    .and_then(|env| {
+                        for e in &env.errors {
+                            log::warn!("pr-threads: {}", e.message);
+                        }
+                        env.data
+                            .and_then(|d| d.repository)
+                            .as_ref()
+                            .and_then(gql::pr_threads_from_value)
+                    })
+            });
+            match parsed {
+                Some(t) => {
+                    log::info!(
+                        "pr-threads applied: {}#{} — {} threads",
+                        self.repo,
+                        self.number,
+                        t.nodes.len()
+                    );
+                    self.threads = ThreadsFetch::Ready(t);
+                    self.extend_threads_md();
+                }
+                None => {
+                    // A null repository/pullRequest node on an open PR is
+                    // bizarre — degrade to an empty set so the diff pane
+                    // keeps working (docs/0030 D1).
+                    log::warn!("pr-threads: repository/pullRequest null — empty set");
+                    self.threads = ThreadsFetch::Ready(gql::PrThreads::default());
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    /// Parse every thread comment body once per threads payload (the
+    /// 0017 D6 rule) and fold the blocks into the page cache under
+    /// `thread-{n}-comment-{m}` keys.
+    fn extend_threads_md(&mut self) {
+        let ThreadsFetch::Ready(t) = &self.threads else {
+            return;
+        };
+        for (ix, thread) in t.nodes.iter().enumerate() {
+            for (m, comment) in thread.comments.iter().enumerate() {
+                self.md.insert(
+                    format!("thread-{ix}-comment-{m}"),
+                    markdown::parse_markdown(&comment.body),
+                );
+            }
+        }
     }
 
     /// The shared filter (docs/0018 D6): the List through its delegate
@@ -1110,6 +1248,9 @@ impl PrDetailPage {
                                 if matches!(this.files, FilesFetch::Ready(_)) {
                                     this.fetch_files(cx);
                                 }
+                                if matches!(this.threads, ThreadsFetch::Ready(_)) {
+                                    this.fetch_threads(cx);
+                                }
                             })),
                     )
                     .child(
@@ -1153,10 +1294,19 @@ impl PrDetailPage {
             .on_click(cx.listener(|this, ix: &usize, _, cx| {
                 if let Some(tab) = PrTab::from_index(*ix) {
                     this.tab = tab;
-                    // Lazy files fetch (D8): the REST walk starts the
-                    // first time the Files tab opens, not on page open.
-                    if tab == PrTab::Files && matches!(this.files, FilesFetch::Idle) {
-                        this.fetch_files(cx);
+                    // Lazy fetches (0016 D8 / 0030 D1): the files REST walk and
+                    // the threads one-shot both start the first time the Files
+                    // tab opens, not on page open.
+                    if tab == PrTab::Files {
+                        // Lazy fetches (0016 D8 / 0030 D1): the files REST
+                        // walk and the threads one-shot both start the first
+                        // time the Files tab opens, not on page open.
+                        if matches!(this.files, FilesFetch::Idle) {
+                            this.fetch_files(cx);
+                        }
+                        if matches!(this.threads, ThreadsFetch::Idle) {
+                            this.fetch_threads(cx);
+                        }
                     }
                     cx.notify();
                 }
@@ -2926,9 +3076,184 @@ mod tests {
         );
     }
 
+    // --- review threads on the diff (docs/0030 §5) ----------------------
+
+    /// The threads probe's fixture thread.
+    fn probe_thread(ix: usize, line: Option<i64>, outdated: bool, body: &str) -> gql::PrThread {
+        gql::PrThread {
+            id: format!("T_{ix}"),
+            path: "src/main.rs".into(),
+            line,
+            start_line: None,
+            side: gql::DiffSide::Right,
+            subject: gql::ThreadSubject::Line,
+            is_outdated: outdated,
+            is_resolved: false,
+            resolved_by: None,
+            viewer_can_reply: false,
+            viewer_can_resolve: false,
+            viewer_can_unresolve: false,
+            comments: vec![gql::PrThreadComment {
+                id: format!("T_{ix}_C_0"),
+                author: Some(gql::Author {
+                    login: "reviewer".into(),
+                    avatar_url: String::new(),
+                }),
+                body: body.into(),
+                created_at: Some("2026-09-10T00:00:00Z".into()),
+                updated_at: None,
+                last_edited_at: None,
+                url: Some(format!("https://github.com/o/r/pull/7#_{ix}")),
+                viewer_can_update: false,
+                viewer_can_delete: false,
+                viewer_did_author: false,
+            }],
+        }
+    }
+
+    #[gpui::test]
+    fn threads_render_in_the_files_tab(cx: &mut gpui::TestAppContext) {
+        // docs/0030 §5: the Files tab renders anchored thread cards under
+        // their diff rows, suggestion bodies as cards, and keeps outdated
+        // threads in the collapsed end-of-file bucket until expanded.
+        cx.update(gpui_component::init);
+        let state = cx.update(|cx| {
+            let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
+            let store: std::sync::Arc<dyn crate::auth::TokenStore> =
+                std::sync::Arc::new(ProbeStore);
+            cx.new(|_| {
+                GithubState::new(
+                    client,
+                    store,
+                    Default::default(),
+                    Default::default(),
+                    GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                )
+            })
+        });
+        let (page, vcx) = cx.add_window_view(|window, cx| {
+            let summary = gql::PullRequest {
+                key: "o/r#7".into(),
+                database_id: None,
+                number: 7,
+                title: "threads probe".into(),
+                draft: false,
+                state: None,
+                author: None,
+                updated_at: None,
+                url: "https://probe".into(),
+                status: None,
+            };
+            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
+            page.tab = PrTab::Files;
+            // probe_file's patch anchors +b at new-side line 1.
+            page.files = FilesFetch::Ready(vec![probe_file("src/main.rs")]);
+            page.threads = ThreadsFetch::Ready(gql::PrThreads {
+                total_count: 2,
+                nodes: vec![
+                    probe_thread(0, Some(1), false, "looks fine"),
+                    // Outdated → the end-of-file bucket, collapsed.
+                    probe_thread(1, Some(999), true, "stale comment"),
+                ],
+            });
+            page.extend_threads_md();
+            page.apply_files_payload(cx);
+            page
+        });
+        // button; the suggestion body parses into the md cache.
+        assert!(
+            vcx.debug_bounds("pr-thread-0-card").is_some(),
+            "anchored thread card missing"
+        );
+        let card = vcx.debug_bounds("pr-thread-0-card").unwrap();
+        let diff = vcx.debug_bounds("pr-diff-scroll-key").unwrap();
+        assert!(
+            diff.contains(&card.origin),
+            "thread card must sit inside the diff pane"
+        );
+        // The outdated thread stays collapsed until expanded.
+        assert!(
+            vcx.debug_bounds("pr-outdated-toggle-key").is_some(),
+            "bucket toggle missing"
+        );
+        assert_eq!(
+            vcx.debug_bounds("pr-thread-1-card"),
+            None,
+            "stray card must not render while collapsed"
+        );
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                // The expand path the toggle drives, applied directly.
+                p.outdated_open.insert("src/main.rs".into(), true);
+                cx.notify();
+            });
+        });
+        assert!(
+            vcx.debug_bounds("pr-thread-1-card").is_some(),
+            "stray card missing after expand"
+        );
+    }
+
+    #[gpui::test]
+    fn suggestion_bodies_render_as_cards(cx: &mut gpui::TestAppContext) {
+        // docs/0030 D6: a ```suggestion fence in a thread comment renders
+        // as the suggestion card, not a plain code block.
+        cx.update(gpui_component::init);
+        let state = cx.update(|cx| {
+            let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
+            let store: std::sync::Arc<dyn crate::auth::TokenStore> =
+                std::sync::Arc::new(ProbeStore);
+            cx.new(|_| {
+                GithubState::new(
+                    client,
+                    store,
+                    Default::default(),
+                    Default::default(),
+                    GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                )
+            })
+        });
+        let (_page, vcx) = cx.add_window_view(|window, cx| {
+            let summary = gql::PullRequest {
+                key: "o/r#7".into(),
+                database_id: None,
+                number: 7,
+                title: "suggestion probe".into(),
+                draft: false,
+                state: None,
+                author: None,
+                updated_at: None,
+                url: "https://probe".into(),
+                status: None,
+            };
+            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
+            page.tab = PrTab::Files;
+            page.files = FilesFetch::Ready(vec![probe_file("src/main.rs")]);
+            page.threads = ThreadsFetch::Ready(gql::PrThreads {
+                total_count: 1,
+                nodes: vec![probe_thread(
+                    0,
+                    Some(1),
+                    false,
+                    // The fence is block 0 — the assert keys ride that.
+                    "```suggestion\nfn fixed() {}\n```",
+                )],
+            });
+            page.extend_threads_md();
+            page.apply_files_payload(cx);
+            page
+        });
+        assert!(
+            vcx.debug_bounds("pr-suggestion-0-0-0-card").is_some(),
+            "suggestion card missing"
+        );
+    }
+
     // --- timeline-row edit/delete (docs/0019 §5) ------------------------
 
-    use crate::pr_page::{build_md_cache, delete_row, edit_row, node_kind, row_is_edited};
+    use crate::pr_page::{
+        ThreadsFetch, build_md_cache, delete_row, edit_row, node_kind, row_is_edited,
+    };
     use crate::service::{Kind, Mutation, SpecResult};
 
     /// docs/0026 D9: the anchor variant — the notification hand-off's jump
