@@ -20,11 +20,11 @@ use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 
 use gpui_component::{
-    ActiveTheme, Icon, IconName, IndexPath, Sizable as _,
+    ActiveTheme, Disableable, Icon, IconName, IndexPath, Sizable as _,
     badge::Badge,
     button::{Button, ButtonVariants},
     h_flex,
-    input::Input,
+    input::{Input, Textarea, TextareaState},
     list::{List, ListDelegate, ListItem, ListState},
     select::Select,
     tree::{TreeEntry, TreeItem, tree},
@@ -35,7 +35,7 @@ use crate::api::PrFile;
 use crate::gql::{DiffSide, PrThread, ThreadSubject};
 use crate::markdown;
 use crate::page::relative_age;
-use crate::pr_page::{PrDetailPage, ThreadsFetch};
+use crate::pr_page::{ErrorScope, FinishEvent, PrDetailPage, ThreadsFetch, review_batch_allowed};
 use crate::service::{AnchoredLine, PatchLine, anchor_patch};
 /// Files sidebar view mode (0018 D3). `List` is the default — the flat
 /// rendering is the closest to the accordion it replaces.
@@ -462,6 +462,7 @@ fn diff_pane(page: &PrDetailPage, files: &[PrFile], cx: &Context<PrDetailPage>) 
                         .child(file_status_badge(&file.status, cx)),
                 ),
         )
+        .children(files_error_row(page, cx))
         .child(
             v_flex()
                 .id("pr-diff-scroll")
@@ -484,6 +485,9 @@ fn diff_pane(page: &PrDetailPage, files: &[PrFile], cx: &Context<PrDetailPage>) 
                 // (0030 D3) — collapsed by default, never dropped.
                 .children(stray_bucket(page, &placed, cx)),
         )
+        // 0030 D4: the Finish-review bar — sticky under the diff while
+        // drafts exist (outside the scroll).
+        .children(finish_review_bar(page, cx))
         .into_any_element()
 }
 
@@ -727,7 +731,7 @@ fn diff_body(
         .iter()
         .enumerate()
         .flat_map(|(ix, anchored)| {
-            let mut out = vec![diff_row(anchored, cx)];
+            let mut out = vec![diff_row(&file.filename, anchored, cx)];
             if let Some(threads) = placed.anchored.get(&ix) {
                 out.extend(
                     threads
@@ -735,6 +739,10 @@ fn diff_body(
                         .map(|&(tix, t)| thread_card(page, tix, t, cx)),
                 );
             }
+            // The row composer and this row's queued drafts (0030 D4)
+            // sit directly under the row they anchor to.
+            out.extend(line_composer_card(page, &file.filename, anchored, cx));
+            out.extend(draft_rows(page, &file.filename, anchored, cx));
             out
         })
         .collect();
@@ -760,7 +768,18 @@ fn gutter_cell(n: Option<u32>, cx: &App) -> Div {
         .child(n.map(|v| v.to_string()).unwrap_or_default())
 }
 
-fn diff_row(anchored: &AnchoredLine, cx: &Context<PrDetailPage>) -> AnyElement {
+/// The row's comment anchor (docs/0030 D2/D4): Add/Context rows arm
+/// RIGHT + new-side line; Del rows arm LEFT + old-side line; hunk and
+/// unanchored rows arm nothing.
+fn row_anchor(anchored: &AnchoredLine) -> Option<(DiffSide, u32)> {
+    match &anchored.line {
+        PatchLine::Hunk(_) => None,
+        PatchLine::Context(_) | PatchLine::Add(_) => anchored.new.map(|n| (DiffSide::Right, n)),
+        PatchLine::Del(_) => anchored.old.map(|o| (DiffSide::Left, o)),
+    }
+}
+
+fn diff_row(path: &str, anchored: &AnchoredLine, cx: &Context<PrDetailPage>) -> AnyElement {
     let mono = cx.theme().mono_font_family.clone();
     match &anchored.line {
         PatchLine::Hunk(text) => div()
@@ -781,7 +800,8 @@ fn diff_row(anchored: &AnchoredLine, cx: &Context<PrDetailPage>) -> AnyElement {
             .px_2()
             .text_xs()
             .font_family(mono)
-            .child(format!(" {text}")),
+            .child(format!(" {text}"))
+            .children(row_comment_button(path, anchored, cx)),
         PatchLine::Add(text) => h_flex()
             .flex_none()
             .whitespace_nowrap()
@@ -792,7 +812,8 @@ fn diff_row(anchored: &AnchoredLine, cx: &Context<PrDetailPage>) -> AnyElement {
             .font_family(mono)
             .bg(cx.theme().success.opacity(0.12))
             .text_color(cx.theme().success)
-            .child(format!("+{text}")),
+            .child(format!("+{text}"))
+            .children(row_comment_button(path, anchored, cx)),
         PatchLine::Del(text) => h_flex()
             .flex_none()
             .whitespace_nowrap()
@@ -803,9 +824,159 @@ fn diff_row(anchored: &AnchoredLine, cx: &Context<PrDetailPage>) -> AnyElement {
             .font_family(mono)
             .bg(cx.theme().danger.opacity(0.12))
             .text_color(cx.theme().danger)
-            .child(format!("−{text}")),
+            .child(format!("−{text}"))
+            .children(row_comment_button(path, anchored, cx)),
     }
     .into_any_element()
+}
+
+/// The hover comment affordance for one armable row (docs/0030 D4/D8):
+/// hidden until its row is hovered; opens the row composer.
+fn row_comment_button(
+    path: &str,
+    anchored: &AnchoredLine,
+    cx: &Context<PrDetailPage>,
+) -> Option<AnyElement> {
+    let (side, line) = row_anchor(anchored)?;
+    let path = path.to_string();
+    let id = SharedString::from(format!("pr-line-{}-{line}-comment", side.id_token()));
+    Some(
+        div()
+            .child(
+                Button::new(id)
+                    .ghost()
+                    .xsmall()
+                    .icon(IconName::Plus)
+                    .tooltip("Comment on this line")
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.open_line_composer(path.clone(), side, line, window, cx)
+                    })),
+            )
+            .into_any_element(),
+    )
+}
+
+/// The row composer (docs/0030 D4), rendered under its armed row while
+/// open: **Add single comment** publishes an immediate thread,
+/// **Start a review** queues a local draft for the Finish-review bar.
+fn line_composer_card(
+    page: &PrDetailPage,
+    path: &str,
+    anchored: &AnchoredLine,
+    cx: &Context<PrDetailPage>,
+) -> Option<AnyElement> {
+    let composer = page.line_composer.as_ref()?;
+    let (side, line) = row_anchor(anchored)?;
+    if composer.path != path || composer.side != side || composer.line != line {
+        return None;
+    }
+    let busy = page.busy.is_some();
+    Some(
+        v_flex()
+            .debug_selector(|| "pr-line-composer-key".into())
+            .id("pr-line-composer")
+            .w_full()
+            .min_w_0()
+            .mt_1()
+            .rounded_md()
+            .border_1()
+            .border_color(cx.theme().border)
+            .p_2()
+            .gap_1()
+            .child(Textarea::new(&composer.editor))
+            .child(
+                h_flex()
+                    .gap_2()
+                    .child(
+                        Button::new("pr-line-comment-send")
+                            .primary()
+                            .xsmall()
+                            .label("Add single comment")
+                            .disabled(busy)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.add_single_comment(window, cx)
+                            })),
+                    )
+                    .child(
+                        Button::new("pr-line-review-start")
+                            .ghost()
+                            .xsmall()
+                            .label("Start a review")
+                            .disabled(busy)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.start_review_draft(window, cx)
+                            })),
+                    )
+                    .child(
+                        Button::new("pr-line-comment-cancel")
+                            .ghost()
+                            .xsmall()
+                            .label("Cancel")
+                            .disabled(busy)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.cancel_line_composer(window, cx)
+                            })),
+                    ),
+            )
+            .into_any_element(),
+    )
+}
+
+/// The queued drafts anchored to this row (docs/0030 D4) — *Pending*
+/// chips like GitHub's; each discards individually, the Finish-review
+/// bar publishes the whole batch.
+fn draft_rows(
+    page: &PrDetailPage,
+    path: &str,
+    anchored: &AnchoredLine,
+    cx: &Context<PrDetailPage>,
+) -> Vec<AnyElement> {
+    let Some((side, line)) = row_anchor(anchored) else {
+        return Vec::new();
+    };
+    page.drafts
+        .iter()
+        .enumerate()
+        .filter(|(_, d)| d.path == path && d.side == side && d.line == line)
+        .map(|(ix, d)| {
+            v_flex()
+                .debug_selector(move || format!("pr-draft-{ix}-key"))
+                .id(SharedString::from(format!("pr-draft-{ix}")))
+                .w_full()
+                .min_w_0()
+                .mt_1()
+                .rounded_md()
+                .border_1()
+                .border_color(cx.theme().border)
+                .p_2()
+                .gap_1()
+                .child(
+                    h_flex()
+                        .gap_2()
+                        .items_center()
+                        .child(
+                            Badge::new()
+                                .xsmall()
+                                .color(cx.theme().warning)
+                                .child("Pending"),
+                        )
+                        .child(div().flex_1())
+                        .child(
+                            Button::new(SharedString::from(format!("pr-draft-{ix}-discard")))
+                                .ghost()
+                                .xsmall()
+                                .icon(IconName::CircleX)
+                                .tooltip("Discard draft")
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.drafts.remove(ix);
+                                    cx.notify();
+                                })),
+                        ),
+                )
+                .child(div().w_full().min_w_0().text_sm().child(d.body.clone()))
+                .into_any_element()
+        })
+        .collect()
 }
 
 /// While threads are loading: a muted hint under the diff; on failure a
@@ -959,14 +1130,51 @@ fn thread_card(
                 )
                 .child(thread_chip(t, cx))
                 .child(div().flex_1())
-                .when_some(permalink, |row, url| {
+                // 0030 D4/D5: reply and resolve/unresolve — schema-gated
+                // (viewerCanReply / viewerCanResolve / viewerCanUnresolve).
+                .when(t.viewer_can_reply, |row| {
                     row.child(
-                        Button::new(SharedString::from(format!("pr-thread-{ix}-open")))
+                        Button::new(SharedString::from(format!("pr-thread-{ix}-reply")))
                             .ghost()
                             .xsmall()
-                            .icon(IconName::ExternalLink)
-                            .tooltip("Open on GitHub")
-                            .on_click(move |_, _, cx| cx.open_url(&url)),
+                            .label("Reply")
+                            .disabled(page.busy.is_some())
+                            .on_click({
+                                let thread_id = t.id.clone();
+                                cx.listener(move |this, _, window, cx| {
+                                    this.open_reply(thread_id.clone(), window, cx)
+                                })
+                            }),
+                    )
+                })
+                .when(t.viewer_can_resolve && !t.is_resolved, |row| {
+                    row.child(
+                        Button::new(SharedString::from(format!("pr-thread-{ix}-resolve")))
+                            .ghost()
+                            .xsmall()
+                            .label("Resolve")
+                            .disabled(page.busy.is_some())
+                            .on_click({
+                                let thread_id = t.id.clone();
+                                cx.listener(move |this, _, window, cx| {
+                                    this.set_thread_resolved(thread_id.clone(), true, window, cx)
+                                })
+                            }),
+                    )
+                })
+                .when(t.viewer_can_unresolve && t.is_resolved, |row| {
+                    row.child(
+                        Button::new(SharedString::from(format!("pr-thread-{ix}-unresolve")))
+                            .ghost()
+                            .xsmall()
+                            .label("Unresolve")
+                            .disabled(page.busy.is_some())
+                            .on_click({
+                                let thread_id = t.id.clone();
+                                cx.listener(move |this, _, window, cx| {
+                                    this.set_thread_resolved(thread_id.clone(), false, window, cx)
+                                })
+                            }),
                     )
                 }),
         )
@@ -976,7 +1184,164 @@ fn thread_card(
                 .enumerate()
                 .map(|(m, c)| thread_comment(page, ix, m, c, cx)),
         )
+        .when_some(permalink, |row, url| {
+            row.child(
+                Button::new(SharedString::from(format!("pr-thread-{ix}-open")))
+                    .ghost()
+                    .xsmall()
+                    .icon(IconName::ExternalLink)
+                    .tooltip("Open on GitHub")
+                    .on_click(move |_, _, cx| cx.open_url(&url)),
+            )
+        })
+        .when_some(
+            page.reply_composer
+                .as_ref()
+                .filter(|(tid, _)| tid == &t.id)
+                .map(|(_, editor)| editor.clone()),
+            |card, editor| card.child(reply_box(page.busy.is_some(), ix, editor, cx)),
+        )
         .into_any_element()
+}
+
+/// The thread's open reply box (docs/0030 D4) — Send posts immediately
+/// via `addPullRequestReviewComment { body, inReplyTo }` (replies
+/// cannot ride a draft batch).
+fn reply_box(
+    busy: bool,
+    ix: usize,
+    editor: Entity<TextareaState>,
+    cx: &Context<PrDetailPage>,
+) -> AnyElement {
+    v_flex()
+        .id(SharedString::from(format!("pr-thread-{ix}-reply-box")))
+        .w_full()
+        .min_w_0()
+        .mt_1()
+        .rounded_md()
+        .border_1()
+        .border_color(cx.theme().border)
+        .p_2()
+        .gap_1()
+        .child(Textarea::new(&editor))
+        .child(
+            h_flex()
+                .gap_2()
+                .child(
+                    Button::new(SharedString::from(format!("pr-thread-{ix}-reply-send")))
+                        .primary()
+                        .xsmall()
+                        .label("Send")
+                        .disabled(busy)
+                        .on_click(cx.listener(|this, _, window, cx| this.send_reply(window, cx))),
+                )
+                .child(
+                    Button::new(SharedString::from(format!("pr-thread-{ix}-reply-cancel")))
+                        .ghost()
+                        .xsmall()
+                        .label("Cancel")
+                        .disabled(busy)
+                        .on_click(cx.listener(|this, _, window, cx| this.cancel_reply(window, cx))),
+                ),
+        )
+        .into_any_element()
+}
+
+/// The sticky Finish-review bar (docs/0030 D4) — present while drafts
+/// exist: optional summary, the event choice (Comment default),
+/// **Submit** running ONE batched `addPullRequestReview`, and Discard.
+fn finish_review_bar(page: &PrDetailPage, cx: &Context<PrDetailPage>) -> Option<AnyElement> {
+    let n = page.drafts.len();
+    if n == 0 {
+        return None;
+    }
+    let busy = page.busy.is_some();
+    let mut bar = v_flex()
+        .debug_selector(|| "pr-finish-review-key".into())
+        .id("pr-finish-review")
+        .w_full()
+        .px_3()
+        .py_2()
+        .gap_2()
+        .border_t_1()
+        .border_color(cx.theme().border);
+    if let Some(summary) = page.finish_summary.as_ref() {
+        bar = bar.child(
+            div()
+                .id("pr-finish-review-summary")
+                .w_full()
+                .min_w_0()
+                .child(Textarea::new(summary)),
+        );
+    }
+    let mut actions = h_flex().w_full().gap_2().items_center().child(
+        div()
+            .text_xs()
+            .text_color(cx.theme().muted_foreground)
+            .child(if n == 1 {
+                "1 pending comment — finish your review".to_string()
+            } else {
+                format!("{n} pending comments — finish your review")
+            }),
+    );
+    for (label, event) in FinishEvent::CHOICES {
+        let selected = page.finish_event == event;
+        let id = SharedString::from(format!("pr-finish-review-event-{}", event.id_token()));
+        let button = if selected {
+            Button::new(id).primary().xsmall().label(label)
+        } else {
+            Button::new(id).ghost().xsmall().label(label)
+        };
+        actions = actions.child(
+            button
+                .disabled(busy)
+                .on_click(cx.listener(move |this, _, _, cx| this.set_finish_event(event, cx))),
+        );
+    }
+    actions = actions
+        .child(div().flex_1())
+        .child(
+            Button::new("pr-finish-review-submit")
+                .primary()
+                .xsmall()
+                .label(if busy {
+                    "Submitting…"
+                } else {
+                    "Submit review"
+                })
+                .disabled(!review_batch_allowed(n, busy))
+                .on_click(cx.listener(|this, _, window, cx| this.submit_review(window, cx))),
+        )
+        .child(
+            Button::new("pr-finish-review-discard")
+                .ghost()
+                .xsmall()
+                .label("Discard")
+                .disabled(busy)
+                .on_click(cx.listener(|this, _, window, cx| this.discard_review(window, cx))),
+        );
+    Some(bar.child(actions).into_any_element())
+}
+
+/// The Files-scope mutation error (docs/0030 D7) — an inline danger row
+/// above the diff; never modal, never breaks the pane.
+fn files_error_row(page: &PrDetailPage, cx: &Context<PrDetailPage>) -> Option<AnyElement> {
+    let error = page
+        .mutation_error
+        .as_ref()
+        .filter(|e| e.scope == ErrorScope::Files)?;
+    Some(
+        div()
+            .id("pr-files-error")
+            .debug_selector(|| "pr-files-error-key".into())
+            .w_full()
+            .px_3()
+            .py_2()
+            .text_xs()
+            .text_color(cx.theme().danger)
+            .child(format!("Review comment failed: {}", error.message))
+            .into_any_element(),
+    )
 }
 
 /// The resolved / outdated chip on a thread header (0030 D3).
@@ -1115,7 +1480,7 @@ fn suggestion_card(
 mod tests {
     use super::{
         FileEntry, FileListDelegate, FilesSummary, build_file_forest, files_summary, path_matches,
-        split_path,
+        row_anchor, split_path,
     };
     fn entry(path: &str) -> FileEntry {
         FileEntry {
@@ -1236,7 +1601,7 @@ mod tests {
 
     use crate::files::place_threads;
     use crate::gql::{DiffSide, PrThread, PrThreadComment, ThreadSubject};
-    use crate::service::{AnchoredLine, anchor_patch};
+    use crate::service::{AnchoredLine, PatchLine, anchor_patch};
 
     fn fixture_thread(
         ix: usize,
@@ -1351,5 +1716,43 @@ mod tests {
         );
         assert_eq!(placed.file_level.len(), 1);
         assert_eq!(placed.file_level[0].0, 2);
+    }
+    #[test]
+    fn row_anchor_arms_the_right_side_and_line() {
+        // docs/0030 D2/D4: Add/Context rows arm RIGHT + new line; Del rows
+        // arm LEFT + old line; hunk rows and unanchored rows arm nothing.
+        let anchored =
+            |line: PatchLine, old: Option<u32>, new: Option<u32>| AnchoredLine { line, old, new };
+        type Arm = (PatchLine, Option<u32>, Option<u32>, Option<(DiffSide, u32)>);
+        let cases: [Arm; 5] = [
+            (
+                PatchLine::Hunk("@@ -1,2 +1,2 @@".into()),
+                Some(1),
+                Some(1),
+                None,
+            ),
+            (
+                PatchLine::Context("ok".into()),
+                Some(7),
+                Some(7),
+                Some((DiffSide::Right, 7)),
+            ),
+            (
+                PatchLine::Add("new".into()),
+                None,
+                Some(9),
+                Some((DiffSide::Right, 9)),
+            ),
+            (
+                PatchLine::Del("old".into()),
+                Some(3),
+                None,
+                Some((DiffSide::Left, 3)),
+            ),
+            (PatchLine::Add("no line".into()), None, None, None),
+        ];
+        for (line, old, new, want) in cases {
+            assert_eq!(row_anchor(&anchored(line, old, new)), want);
+        }
     }
 }

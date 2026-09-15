@@ -113,9 +113,9 @@ pub(crate) struct PrDetailPage {
     action_select: Entity<SelectState<SearchableVec<SharedString>>>,
     /// The write path in flight (D4/D5) — one at a time; every write
     /// surface disables while set.
-    busy: Option<BusyOp>,
+    pub(crate) busy: Option<BusyOp>,
     /// The last mutation failure, scoped to the surface that shows it.
-    mutation_error: Option<MutationError>,
+    pub(crate) mutation_error: Option<MutationError>,
     /// Prefilled textarea while the description is being edited (D4).
     description_edit: Option<Entity<TextareaState>>,
     /// Row-level editor (0019 D4): (node id, editor). At most one editor
@@ -124,6 +124,21 @@ pub(crate) struct PrDetailPage {
     timeline_edit: Option<(String, Entity<TextareaState>)>,
     /// Node id awaiting delete confirmation (0019 D4, inline two-step).
     delete_confirm: Option<String>,
+    /// 0030 D4: the armed row composer on the Files tab — one at a time;
+    /// opening another row's composer discards the previous unsubmitted
+    /// text (drafts are explicit via "Start a review").
+    pub(crate) line_composer: Option<LineComposer>,
+    /// 0030 D4: the open reply box — (thread node id, editor); one at a
+    /// time, gated by the thread's `viewerCanReply`.
+    pub(crate) reply_composer: Option<(String, Entity<TextareaState>)>,
+    /// 0030 D4: queued draft comments — page-local, submitted as ONE
+    /// batch by the Finish-review bar. Session-only (closing the page
+    /// discards), like every other draft surface here.
+    pub(crate) drafts: Vec<LineDraft>,
+    /// The Finish bar's summary editor — built with the first draft.
+    pub(crate) finish_summary: Option<Entity<TextareaState>>,
+    /// The event the Finish bar will submit (docs/0030 D4; Comment default).
+    pub(crate) finish_event: FinishEvent,
     /// Methods the repo allows (D5), from the detail payload — drives the
     /// method Select and the Merge button verb.
     methods: Vec<MergeMethod>,
@@ -277,6 +292,11 @@ impl PrDetailPage {
             method_select: None,
             files: FilesFetch::Idle,
             threads: ThreadsFetch::Idle,
+            line_composer: None,
+            reply_composer: None,
+            drafts: Vec::new(),
+            finish_summary: None,
+            finish_event: FinishEvent::default(),
             outdated_open: BTreeMap::new(),
             files_view: FilesView::default(),
             selected_file: None,
@@ -1007,6 +1027,266 @@ impl PrDetailPage {
         self.spawn_mutation(BusyOp::Close, Mutation::Close, variables, window, cx);
     }
 
+    // --- Files-tab review writes (docs/0030 D4/D5/D7) -------------------
+
+    /// Arm the row composer on a diff line (D4). One composer at a time:
+    /// opening another row's discards the previous unsubmitted text.
+    pub(crate) fn open_line_composer(
+        &mut self,
+        path: String,
+        side: gql::DiffSide,
+        line: u32,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.busy.is_some() {
+            return;
+        }
+        let editor = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .auto_grow(2, 10)
+                .placeholder("Leave a review comment")
+        });
+        self.reply_composer = None;
+        self.line_composer = Some(LineComposer {
+            path,
+            side,
+            line,
+            editor,
+        });
+        cx.notify();
+    }
+
+    pub(crate) fn cancel_line_composer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.line_composer = None;
+        self.refocus_page(window, cx);
+        cx.notify();
+    }
+
+    /// Add single comment (D4): `addPullRequestReviewThread` publishes
+    /// immediately as its own COMMENT review. The composer stays open
+    /// with its text until success closes it (draft retained on failure,
+    /// the 0019 pattern).
+    pub(crate) fn add_single_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(d) = self.detail.clone() else { return };
+        let Some(composer) = self.line_composer.as_ref() else {
+            return;
+        };
+        if self.busy.is_some() || d.id.is_empty() {
+            return;
+        }
+        let body = composer.editor.read(cx).value().trim().to_string();
+        if !composer_body_allowed(&body) {
+            return;
+        }
+        let (path, side, line) = (composer.path.clone(), composer.side, composer.line);
+        let variables = json!({ "input": {
+            "pullRequestId": d.id,
+            "path": path,
+            "line": line,
+            "side": side.as_str(),
+            "body": body,
+        } });
+        self.mutation_error = None;
+        self.busy = Some(BusyOp::LineComment);
+        cx.notify();
+        self.spawn_mutation(
+            BusyOp::LineComment,
+            Mutation::ReviewThread,
+            variables,
+            window,
+            cx,
+        );
+    }
+
+    /// Queue the composer's text as a local draft (D4) — published later
+    /// by the Finish-review bar as one batch. The draft list is
+    /// session-only page state (D4).
+    pub(crate) fn start_review_draft(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(composer) = self.line_composer.as_ref() else {
+            return;
+        };
+        let body = composer.editor.read(cx).value().trim().to_string();
+        if !composer_body_allowed(&body) {
+            return;
+        }
+        let draft = LineDraft {
+            path: composer.path.clone(),
+            side: composer.side,
+            line: composer.line,
+            body,
+        };
+        if self.finish_summary.is_none() {
+            self.finish_summary = Some(cx.new(|cx| {
+                TextareaState::new(window, cx)
+                    .rows(2)
+                    .placeholder("Summarize your review (optional)")
+            }));
+        }
+        self.line_composer = None;
+        self.drafts.push(draft);
+        self.refocus_page(window, cx);
+        cx.notify();
+    }
+
+    /// Open the reply box on a thread (D4) — one at a time; the caller
+    /// gates on the thread's `viewerCanReply`.
+    pub(crate) fn open_reply(
+        &mut self,
+        thread_id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.busy.is_some() || thread_id.is_empty() {
+            return;
+        }
+        self.line_composer = None;
+        let editor = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .auto_grow(1, 8)
+                .placeholder("Reply…")
+        });
+        self.reply_composer = Some((thread_id, editor));
+        cx.notify();
+    }
+
+    pub(crate) fn cancel_reply(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.reply_composer = None;
+        self.refocus_page(window, cx);
+        cx.notify();
+    }
+
+    /// Send the reply (D4): `addPullRequestReviewComment { body,
+    /// inReplyTo }` — immediate; replies cannot ride a draft batch (§3).
+    /// The box stays open with its text until success closes it.
+    pub(crate) fn send_reply(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((thread_id, editor)) = self.reply_composer.as_ref() else {
+            return;
+        };
+        if self.busy.is_some() {
+            return;
+        }
+        let body = editor.read(cx).value().trim().to_string();
+        if !composer_body_allowed(&body) {
+            return;
+        }
+        // Reply to the thread's latest comment (the GitHub-web
+        // convention); the API shows the reply in the whole thread
+        // either way. The thread vanishing under the box (refetch race)
+        // closes it.
+        let Some(in_reply_to) = self
+            .threads_nodes()
+            .iter()
+            .find(|t| t.id == *thread_id)
+            .and_then(|t| t.comments.last())
+            .map(|c| c.id.clone())
+        else {
+            self.reply_composer = None;
+            cx.notify();
+            return;
+        };
+        if in_reply_to.is_empty() {
+            return; // degraded node — nothing to anchor the reply to
+        }
+        let variables = json!({ "input": { "body": body, "inReplyTo": in_reply_to } });
+        self.mutation_error = None;
+        self.busy = Some(BusyOp::ReviewReply);
+        cx.notify();
+        self.spawn_mutation(
+            BusyOp::ReviewReply,
+            Mutation::ReviewThreadReply,
+            variables,
+            window,
+            cx,
+        );
+    }
+
+    /// Resolve / unresolve (D5) — schema-gated buttons upstream;
+    /// `resolutionReason` stays unset in v1.
+    pub(crate) fn set_thread_resolved(
+        &mut self,
+        thread_id: String,
+        resolved: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.busy.is_some() || thread_id.is_empty() {
+            return;
+        }
+        let (op, mutation) = if resolved {
+            (BusyOp::ThreadResolve, Mutation::ThreadResolve)
+        } else {
+            (BusyOp::ThreadUnresolve, Mutation::ThreadUnresolve)
+        };
+        let variables = json!({ "input": { "threadId": thread_id } });
+        self.mutation_error = None;
+        self.busy = Some(op);
+        cx.notify();
+        self.spawn_mutation(op, mutation, variables, window, cx);
+    }
+
+    pub(crate) fn set_finish_event(&mut self, event: FinishEvent, cx: &mut Context<Self>) {
+        self.finish_event = event;
+        cx.notify();
+    }
+
+    /// Submit the whole draft batch (D4): ONE `addPullRequestReview`
+    /// carrying the `threads` array and the chosen event — no
+    /// server-PENDING review ever exists. The summary body is omitted
+    /// when empty.
+    pub(crate) fn submit_review(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(d) = self.detail.clone() else { return };
+        if !review_batch_allowed(self.drafts.len(), self.busy.is_some()) || d.id.is_empty() {
+            return;
+        }
+        let threads: Vec<serde_json::Value> = self
+            .drafts
+            .iter()
+            .map(|draft| {
+                json!({
+                    "body": draft.body,
+                    "path": draft.path,
+                    "line": draft.line,
+                    "side": draft.side.as_str(),
+                })
+            })
+            .collect();
+        let mut input = json!({
+            "pullRequestId": d.id,
+            "event": self.finish_event.as_str(),
+            "threads": threads,
+        });
+        if let Some(summary) = self.finish_summary.as_ref() {
+            let body = summary.read(cx).value().trim().to_string();
+            if !body.is_empty() {
+                input["body"] = json!(body);
+            }
+        }
+        let variables = json!({ "input": input });
+        self.mutation_error = None;
+        self.busy = Some(BusyOp::ReviewBatch);
+        cx.notify();
+        self.spawn_mutation(
+            BusyOp::ReviewBatch,
+            Mutation::ReviewBatch,
+            variables,
+            window,
+            cx,
+        );
+    }
+
+    /// Discard every draft (D4) — the bar disappears with them.
+    pub(crate) fn discard_review(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.drafts.is_empty() {
+            return;
+        }
+        self.drafts.clear();
+        self.finish_summary = None;
+        self.finish_event = FinishEvent::default();
+        self.refocus_page(window, cx);
+        cx.notify();
+    }
+
     /// The description editor holds keyboard focus while open; dropping
     /// its entity (cancel, or save success) would leave the page with a
     /// dead focus handle — no key context, so `Esc` would stop working
@@ -1116,9 +1396,32 @@ impl PrDetailPage {
                     self.delete_confirm = None;
                 }
                 BusyOp::Merge | BusyOp::Close => {}
+                // 0030 D7: Files-tab successes close the surface they
+                // came from; the threads refetch below repaints the pane.
+                BusyOp::LineComment => {
+                    self.line_composer = None;
+                    self.refocus_page(window, cx);
+                }
+                BusyOp::ReviewReply => {
+                    self.reply_composer = None;
+                    self.refocus_page(window, cx);
+                }
+                BusyOp::ReviewBatch => {
+                    self.drafts.clear();
+                    self.finish_summary = None;
+                    self.finish_event = FinishEvent::default();
+                }
+                BusyOp::ThreadResolve | BusyOp::ThreadUnresolve => {}
             }
         }
-        self.fetch_detail(cx);
+        if op.error_scope() == ErrorScope::Files {
+            // 0030 D7: the threads refetch re-renders the diff pane;
+            // patches are not refetched — only merge/close change them,
+            // and those end the page's useful life anyway.
+            self.fetch_threads(cx);
+        } else {
+            self.fetch_detail(cx);
+        }
         cx.notify();
     }
     fn request_close(&mut self, cx: &mut Context<Self>) {
@@ -2282,6 +2585,14 @@ pub(crate) enum BusyOp {
     CommentDelete,
     ReviewEdit,
     ReviewDelete,
+    // 0030 D7: the Files-tab review writes — errors land in the diff
+    // pane (ErrorScope::Files), and success refetches threads (not the
+    // detail — patches don't change).
+    LineComment,
+    ReviewReply,
+    ReviewBatch,
+    ThreadResolve,
+    ThreadUnresolve,
 }
 
 impl BusyOp {
@@ -2296,6 +2607,13 @@ impl BusyOp {
             | BusyOp::ReviewEdit
             | BusyOp::ReviewDelete => ErrorScope::Timeline,
             BusyOp::Merge | BusyOp::Close => ErrorScope::Panel,
+            // 0030 D7: Files-tab failures render in the diff pane —
+            // inline, never modal (the composer stays open with its draft).
+            BusyOp::LineComment
+            | BusyOp::ReviewReply
+            | BusyOp::ReviewBatch
+            | BusyOp::ThreadResolve
+            | BusyOp::ThreadUnresolve => ErrorScope::Files,
         }
     }
 }
@@ -2309,6 +2627,9 @@ pub(crate) enum ErrorScope {
     /// The issue page's state panel (docs/0020 D5) — the PR page never
     /// produces it, the issue page never produces Panel.
     Rail,
+    /// The diff pane (docs/0030 D7) — above the diff body; only the
+    /// Files-tab review writes produce it.
+    Files,
 }
 
 /// The last mutation failure — kept until the next attempt or success, so
@@ -2317,6 +2638,73 @@ pub(crate) enum ErrorScope {
 pub(crate) struct MutationError {
     pub(crate) scope: ErrorScope,
     pub(crate) message: String,
+}
+
+/// One armed diff row's composer (docs/0030 D4): the row it anchors to
+/// plus its editor.
+pub(crate) struct LineComposer {
+    pub(crate) path: String,
+    pub(crate) side: gql::DiffSide,
+    pub(crate) line: u32,
+    pub(crate) editor: Entity<TextareaState>,
+}
+
+/// One queued draft comment (docs/0030 D4) — page-local until the
+/// Finish-review bar submits the whole batch as one mutation.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct LineDraft {
+    pub(crate) path: String,
+    pub(crate) side: gql::DiffSide,
+    pub(crate) line: u32,
+    pub(crate) body: String,
+}
+
+/// The event the Finish-review bar submits with (docs/0030 D4).
+/// DISMISS is never offered — it is what Discard means locally.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum FinishEvent {
+    #[default]
+    Comment,
+    Approve,
+    RequestChanges,
+}
+
+impl FinishEvent {
+    /// `PullRequestReviewEvent` wire value (docs/0030 §3).
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            FinishEvent::Comment => "COMMENT",
+            FinishEvent::Approve => "APPROVE",
+            FinishEvent::RequestChanges => "REQUEST_CHANGES",
+        }
+    }
+
+    /// The bridge-id token (docs/0030 D8).
+    pub(crate) fn id_token(self) -> &'static str {
+        match self {
+            FinishEvent::Comment => "comment",
+            FinishEvent::Approve => "approve",
+            FinishEvent::RequestChanges => "request-changes",
+        }
+    }
+
+    /// The bar's event buttons, (label, variant) in display order.
+    pub(crate) const CHOICES: [(&'static str, FinishEvent); 3] = [
+        ("Comment", FinishEvent::Comment),
+        ("Approve", FinishEvent::Approve),
+        ("Request changes", FinishEvent::RequestChanges),
+    ];
+}
+
+/// The composer's send gating (docs/0030 §5): a non-blank body.
+pub(crate) fn composer_body_allowed(body: &str) -> bool {
+    !body.trim().is_empty()
+}
+
+/// The Finish-review bar's Submit gating (docs/0030 D4/§5): at least one
+/// draft, nothing else in flight.
+pub(crate) fn review_batch_allowed(drafts: usize, busy: bool) -> bool {
+    drafts > 0 && !busy
 }
 
 /// A merge method the repo allows (D5).
@@ -2947,11 +3335,11 @@ mod tests {
     use crate::gql;
     use crate::gql::MergeMethods;
     use crate::pr_page::{
-        BusyOp, ChecksCounts, ChecksTone, ErrorScope, FilesFetch, MergeLineTone, MergeMethod,
-        PrDetailPage, PrStateTone, PrTab, ReviewTone, TimelineKind, allowed_methods, checks_counts,
-        checks_header_line, comment_action_allowed, default_method, merge_enabled,
-        merge_state_line, pr_state_tone, review_event, review_state_label, rollup_summary,
-        short_sha, split_repo, timeline_order,
+        BusyOp, ChecksCounts, ChecksTone, ErrorScope, FilesFetch, FinishEvent, MergeLineTone,
+        MergeMethod, PrDetailPage, PrStateTone, PrTab, ReviewTone, TimelineKind, allowed_methods,
+        checks_counts, checks_header_line, comment_action_allowed, composer_body_allowed,
+        default_method, merge_enabled, merge_state_line, pr_state_tone, review_batch_allowed,
+        review_event, review_state_label, rollup_summary, short_sha, split_repo, timeline_order,
     };
     use crate::service::{GithubCache, GithubState};
     use gpui::AppContext as _;
@@ -4112,5 +4500,181 @@ mod tests {
         assert_eq!(BusyOp::Description.error_scope(), ErrorScope::Timeline);
         assert_eq!(BusyOp::Merge.error_scope(), ErrorScope::Panel);
         assert_eq!(BusyOp::Close.error_scope(), ErrorScope::Panel);
+    }
+
+    #[test]
+    fn files_op_error_scopes_and_wire_values() {
+        // docs/0030 D7: every Files-tab write errors into the diff pane;
+        // D4: the event choice maps to PullRequestReviewEvent wire values;
+        // DISMISS is never offered.
+        assert_eq!(BusyOp::LineComment.error_scope(), ErrorScope::Files);
+        assert_eq!(BusyOp::ReviewReply.error_scope(), ErrorScope::Files);
+        assert_eq!(BusyOp::ReviewBatch.error_scope(), ErrorScope::Files);
+        assert_eq!(BusyOp::ThreadResolve.error_scope(), ErrorScope::Files);
+        assert_eq!(BusyOp::ThreadUnresolve.error_scope(), ErrorScope::Files);
+        assert_eq!(FinishEvent::default(), FinishEvent::Comment);
+        assert_eq!(FinishEvent::Comment.as_str(), "COMMENT");
+        assert_eq!(FinishEvent::Approve.as_str(), "APPROVE");
+        assert_eq!(FinishEvent::RequestChanges.as_str(), "REQUEST_CHANGES");
+        assert_eq!(FinishEvent::Comment.id_token(), "comment");
+        assert_eq!(FinishEvent::Approve.id_token(), "approve");
+        assert_eq!(FinishEvent::RequestChanges.id_token(), "request-changes");
+        assert_eq!(FinishEvent::CHOICES.len(), 3);
+    }
+
+    #[test]
+    fn composer_and_batch_gating_tables() {
+        // docs/0030 §5: the composer's gating is the same pure fn the
+        // buttons render with — blank bodies never send, empty batches
+        // and busy pages never submit.
+        assert!(composer_body_allowed("nit"));
+        assert!(!composer_body_allowed(""));
+        assert!(!composer_body_allowed("   \n  "));
+        assert!(review_batch_allowed(1, false));
+        assert!(review_batch_allowed(4, false));
+        assert!(!review_batch_allowed(0, false));
+        assert!(!review_batch_allowed(2, true));
+    }
+
+    #[gpui::test]
+    fn finish_bar_and_draft_rows_track_page_state(cx: &mut gpui::TestAppContext) {
+        // docs/0030 D4/§5: the Finish-review bar exists only while drafts
+        // exist; each queued draft renders as a Pending row under its
+        // anchored diff line; the row composer renders only while armed.
+        cx.update(gpui_component::init);
+        let state = cx.update(|cx| {
+            let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
+            let store: std::sync::Arc<dyn crate::auth::TokenStore> =
+                std::sync::Arc::new(ProbeStore);
+            cx.new(|_| {
+                GithubState::new(
+                    client,
+                    store,
+                    Default::default(),
+                    Default::default(),
+                    GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                )
+            })
+        });
+        let (page, vcx) = cx.add_window_view(|window, cx| {
+            let summary = gql::PullRequest {
+                key: "o/r#7".into(),
+                database_id: None,
+                number: 7,
+                title: "finish bar probe".into(),
+                draft: false,
+                state: None,
+                author: None,
+                updated_at: None,
+                url: "https://probe".into(),
+                status: None,
+            };
+            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
+            page.tab = PrTab::Files;
+            page.files = FilesFetch::Ready(vec![probe_file("src/main.rs")]);
+            page.threads = ThreadsFetch::Ready(gql::PrThreads::default());
+            page.extend_threads_md();
+            page.apply_files_payload(cx);
+            page
+        });
+        // No drafts → no bar, no pending rows.
+        assert!(vcx.debug_bounds("pr-finish-review-key").is_none());
+        // Arm the composer on the +b row (Right side, line 1).
+        vcx.update(|window, cx| {
+            page.update(cx, |p, cx| {
+                p.open_line_composer("src/main.rs".into(), gql::DiffSide::Right, 1, window, cx);
+            });
+        });
+        assert!(
+            vcx.debug_bounds("pr-line-composer-key").is_some(),
+            "composer card must render while armed"
+        );
+        // Queue a draft — the composer closes, the bar and a Pending row
+        // appear.
+        vcx.update(|window, cx| {
+            page.update(cx, |p, cx| {
+                let editor = p.line_composer.as_ref().unwrap().editor.clone();
+                editor.update(cx, |state, cx| {
+                    state.set_value("please reconsider", window, cx);
+                });
+                p.start_review_draft(window, cx);
+            });
+        });
+        assert!(vcx.debug_bounds("pr-line-composer-key").is_none());
+        assert!(
+            vcx.debug_bounds("pr-finish-review-key").is_some(),
+            "finish bar must render while drafts exist"
+        );
+        assert!(
+            vcx.debug_bounds("pr-draft-0-key").is_some(),
+            "queued draft must render as a Pending row"
+        );
+        // Discard everything — bar and rows vanish with the drafts.
+        vcx.update(|window, cx| {
+            page.update(cx, |p, cx| p.discard_review(window, cx));
+        });
+        assert!(vcx.debug_bounds("pr-finish-review-key").is_none());
+        assert!(vcx.debug_bounds("pr-draft-0-key").is_none());
+    }
+
+    #[gpui::test]
+    fn files_scoped_errors_render_inline(cx: &mut gpui::TestAppContext) {
+        // docs/0030 D7: Files-scope mutation failures land in the diff
+        // pane as an inline row — never modal, and other scopes never
+        // leak into it.
+        cx.update(gpui_component::init);
+        let state = cx.update(|cx| {
+            let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
+            let store: std::sync::Arc<dyn crate::auth::TokenStore> =
+                std::sync::Arc::new(ProbeStore);
+            cx.new(|_| {
+                GithubState::new(
+                    client,
+                    store,
+                    Default::default(),
+                    Default::default(),
+                    GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                )
+            })
+        });
+        let (page, vcx) = cx.add_window_view(|window, cx| {
+            let summary = gql::PullRequest {
+                key: "o/r#7".into(),
+                database_id: None,
+                number: 7,
+                title: "files error probe".into(),
+                draft: false,
+                state: None,
+                author: None,
+                updated_at: None,
+                url: "https://probe".into(),
+                status: None,
+            };
+            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
+            page.tab = PrTab::Files;
+            page.files = FilesFetch::Ready(vec![probe_file("src/main.rs")]);
+            page.threads = ThreadsFetch::Ready(gql::PrThreads::default());
+            page.extend_threads_md();
+            page.apply_files_payload(cx);
+            page.mutation_error = Some(super::MutationError {
+                scope: ErrorScope::Files,
+                message: "GitHub answered HTTP 422".into(),
+            });
+            page
+        });
+        assert!(
+            vcx.debug_bounds("pr-files-error-key").is_some(),
+            "Files-scope error must render in the diff pane"
+        );
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.mutation_error = Some(super::MutationError {
+                    scope: ErrorScope::Timeline,
+                    message: "conversation scope".into(),
+                });
+                cx.notify();
+            });
+        });
+        assert!(vcx.debug_bounds("pr-files-error-key").is_none());
     }
 }

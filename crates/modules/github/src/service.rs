@@ -442,6 +442,14 @@ pub enum Mutation {
     // 0024 D5: the creator's own document — the minimum input
     // (repositoryId + title, body optional), one op identity.
     CreateIssue,
+    // 0030 D7: the Files-tab review writes — one variant per document,
+    // except ReviewBatch: the batch rides the existing addPullRequestReview
+    // document (the same input, plus its `threads` array).
+    ReviewThread,
+    ReviewThreadReply,
+    ReviewBatch,
+    ThreadResolve,
+    ThreadUnresolve,
     // 0020 D2: the issue page reuses the shared addComment /
     // updateIssue / updateIssueComment / deleteIssueComment documents;
     // the page passes those existing variants unchanged.
@@ -946,6 +954,14 @@ fn run_pr_mutation(http: &dyn Http, spec: &FetchSpec, mutation: Mutation) -> Spe
         Mutation::UnlockIssue => gql::UNLOCK_LOCKABLE_MUTATION,
         // 0024 D5: the creator's document.
         Mutation::CreateIssue => gql::CREATE_ISSUE_MUTATION,
+        // 0030 D7: the Files-tab review writes. ReviewBatch reuses the
+        // addPullRequestReview document — the draft batch is the same
+        // input plus its `threads` array (D4).
+        Mutation::ReviewThread => gql::PR_ADD_REVIEW_THREAD_MUTATION,
+        Mutation::ReviewThreadReply => gql::PR_ADD_REVIEW_COMMENT_MUTATION,
+        Mutation::ReviewBatch => gql::PR_ADD_REVIEW_MUTATION,
+        Mutation::ThreadResolve => gql::PR_RESOLVE_THREAD_MUTATION,
+        Mutation::ThreadUnresolve => gql::PR_UNRESOLVE_THREAD_MUTATION,
     };
     let mut status = 0u16;
     let mut rate = None;
@@ -2275,6 +2291,79 @@ mod tests {
                 Mutation::DeleteReview,
                 "deletePullRequestReview",
                 serde_json::json!({ "input": { "pullRequestReviewId": "PRR_1" } }),
+            ),
+        ];
+        for (mutation, op, variables) in cases {
+            let http = Arc::new(MockHttp::ok(200, r#"{"data":{}}"#));
+            let spec = FetchSpec {
+                kind: Kind::PrMutation(mutation),
+                url: gql::GRAPHQL_ENDPOINT.into(),
+                etag: None,
+                ident: Some("o/r#7 probe".into()),
+                max_pages: 1,
+                variables: Some(variables.clone()),
+            };
+            let result = run_pr_mutation(http.as_ref(), &spec, mutation);
+            assert_eq!(result.status, 200, "{op}");
+            let recorded = http.recorded();
+            assert_eq!(recorded.len(), 1, "{op}");
+            let sent: serde_json::Value =
+                serde_json::from_str(recorded[0].body.as_deref().expect("POST body")).unwrap();
+            assert!(
+                sent["query"].as_str().expect("query").contains(op),
+                "{op} missing from its document"
+            );
+            assert_eq!(sent["variables"], variables, "{op} variables");
+        }
+    }
+
+    #[test]
+    fn files_review_mutations_post_their_documents() {
+        // docs/0030 D7: the Files-tab review writes — one document per
+        // variant except ReviewBatch, which rides the addPullRequestReview
+        // document with the draft batch in its `threads` array (D4).
+        let cases: Vec<(Mutation, &str, serde_json::Value)> = vec![
+            (
+                Mutation::ReviewThread,
+                "addPullRequestReviewThread",
+                serde_json::json!({ "input": {
+                    "pullRequestId": "PR_1",
+                    "path": "src/main.rs",
+                    "line": 14,
+                    "side": "RIGHT",
+                    "body": "nit"
+                } }),
+            ),
+            (
+                Mutation::ReviewThreadReply,
+                "addPullRequestReviewComment",
+                serde_json::json!({ "input": { "body": "agreed", "inReplyTo": "RC_9" } }),
+            ),
+            (
+                // D4: the whole draft review is ONE request — the batch
+                // rides the threads array; the summary body is optional and
+                // present here.
+                Mutation::ReviewBatch,
+                "addPullRequestReview",
+                serde_json::json!({ "input": {
+                    "pullRequestId": "PR_1",
+                    "event": "COMMENT",
+                    "threads": [
+                        { "body": "first", "path": "src/main.rs", "line": 14, "side": "RIGHT" },
+                        { "body": "second", "path": "src/lib.rs", "line": 2, "side": "LEFT" },
+                    ],
+                    "body": "two nits"
+                } }),
+            ),
+            (
+                Mutation::ThreadResolve,
+                "resolveReviewThread",
+                serde_json::json!({ "input": { "threadId": "RT_1" } }),
+            ),
+            (
+                Mutation::ThreadUnresolve,
+                "unresolveReviewThread",
+                serde_json::json!({ "input": { "threadId": "RT_1" } }),
             ),
         ];
         for (mutation, op, variables) in cases {
