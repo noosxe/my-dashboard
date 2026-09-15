@@ -133,7 +133,9 @@ green-local PRs mid-flight.
 Exactly one third-party action, `actions/checkout`, pinned by commit SHA
 (`3d3c42e…` = v7.0.1) with `persist-credentials: false`.
 `dependabot.yml` gains a `github-actions` ecosystem so the pin gets weekly
-update PRs. No other actions, no cache service, no secrets — the workflow is
+update PRs; each ecosystem's updates are grouped into a single PR
+(`groups` with an all-matching pattern). No other actions, no cache service,
+no secrets — the workflow is
 fork-safe by construction.
 
 ### D6 — What deliberately stays out

@@ -1,19 +1,30 @@
 version: 2
 updates:
-  # Weekly version updates for the Cargo workspace (root Cargo.toml + Cargo.lock).
+  # Weekly version updates for the Cargo workspace (root Cargo.toml + Cargo.lock),
+  # grouped into a single PR per run.
   # Note: the git dependencies (zed's gpui/gpui_platform/reqwest_client,
   # longbridge's gpui-component/gpui-component-assets) are pinned by rev in
   # Cargo.lock only, so Dependabot re-resolves each git source as a whole —
-  # expect one real update per repository plus superseded duplicate PRs for
-  # the sibling crates (merge one, close the rest).
+  # one re-resolve can move several sibling crates at once; they all land in
+  # the same grouped PR. Independent (non-git) crates are grouped too.
   - package-ecosystem: "cargo"
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      cargo:
+        applies-to: version-updates
+        patterns:
+          - "*"
   # Weekly updates for the pinned workflow action (docs/0027 D5):
   # actions/checkout is SHA-pinned in .github/workflows/ci.yml; Dependabot
-  # opens PRs that move the pin to the newest release.
+  # opens PRs that move the pin to the newest release, grouped into a single PR.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      github-actions:
+        applies-to: version-updates
+        patterns:
+          - "*"
