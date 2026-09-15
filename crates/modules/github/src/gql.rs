@@ -2056,6 +2056,234 @@ impl RateLimitField {
 }
 
 // ---------------------------------------------------------------------------
+// PR review threads (docs/0030 D1/D3) — stage 1 read side
+// ---------------------------------------------------------------------------
+
+pub const PR_THREADS_QUERY: &str = r#"
+query PrThreads($owner: String!, $name: String!, $number: Int!) {
+  rateLimit { cost remaining resetAt }
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      id
+      reviewThreads(first: 100) {
+        totalCount
+        nodes {
+          id
+          path
+          line
+          startLine
+          diffSide
+          isOutdated
+          isResolved
+          resolvedBy { login }
+          subjectType
+          viewerCanReply
+          viewerCanResolve
+          viewerCanUnresolve
+          comments(first: 100) {
+            totalCount
+            nodes {
+              id
+              author { login avatarUrl }
+              body
+              createdAt
+              updatedAt
+              lastEditedAt
+              url
+              viewerCanUpdate
+              viewerCanDelete
+              viewerDidAuthor
+            }
+          }
+        }
+      }
+    }
+  }
+}
+"#;
+
+/// Envelope data for the threads query — the repository node stays raw so
+/// the parse runs through [`pr_threads_from_value`] with the same per-node
+/// degradation rules as the detail (doc 0007 D3).
+#[derive(Debug, Deserialize)]
+pub struct PrThreadsData {
+    pub repository: Option<serde_json::Value>,
+}
+
+/// Which side of the diff a thread anchors to (`DiffSide`). Read-side
+/// name is `diffSide`; the write inputs say `side` (0030 §3 asymmetry).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DiffSide {
+    Left,
+    Right,
+}
+
+/// `PullRequestReviewThreadSubjectType` — a diff line or the whole file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThreadSubject {
+    Line,
+    File,
+}
+
+/// The PR's review threads (docs/0030 D3). Session-only, page-owned.
+#[derive(Debug, Clone, Default)]
+pub struct PrThreads {
+    pub total_count: i64,
+    pub nodes: Vec<PrThread>,
+}
+
+/// One review thread. A node without `id` or `path` drops alone —
+/// nothing else on it is anchorable (0007 D3 degrade).
+#[derive(Debug, Clone)]
+pub struct PrThread {
+    pub id: String,
+    pub path: String,
+    /// End line of the anchored range; `None` for file-subject threads.
+    pub line: Option<i64>,
+    /// Start line (multi-line threads only).
+    pub start_line: Option<i64>,
+    pub side: DiffSide,
+    pub subject: ThreadSubject,
+    pub is_outdated: bool,
+    pub is_resolved: bool,
+    pub resolved_by: Option<String>,
+    pub viewer_can_reply: bool,
+    pub viewer_can_resolve: bool,
+    pub viewer_can_unresolve: bool,
+    /// Authored order preserved.
+    pub comments: Vec<PrThreadComment>,
+}
+
+/// One comment inside a thread (docs/0030 D3). The `url` permalink backs
+/// the thread header's Open-on-GitHub button (D6 — applying suggested
+/// changes has no public API, so that is where the flow finishes).
+#[derive(Debug, Clone)]
+pub struct PrThreadComment {
+    pub id: String,
+    pub author: Option<Author>,
+    pub body: String,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+    pub last_edited_at: Option<String>,
+    pub url: Option<String>,
+    /// Stage-2 affordance gates, selected now so the payload doesn't
+    /// change later (0030 D3).
+    pub viewer_can_update: bool,
+    pub viewer_can_delete: bool,
+    pub viewer_did_author: bool,
+}
+
+/// Parse one `repository` wrapper node for its PR's review threads.
+/// `None` only when the pullRequest node is missing/malformed — the caller
+/// degrades to an empty thread set then (the diff pane must not break).
+pub fn pr_threads_from_value(value: &serde_json::Value) -> Option<PrThreads> {
+    let pr = value.get("pullRequest")?;
+    if !pr.is_object() {
+        return None;
+    }
+    let nodes = pr
+        .pointer("/reviewThreads/nodes")
+        .and_then(|n| n.as_array());
+    let threads: Vec<PrThread> = nodes
+        .map(|nodes| nodes.iter().filter_map(thread_from_node).collect())
+        .unwrap_or_default();
+    let total_count = pr
+        .pointer("/reviewThreads/totalCount")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(threads.len() as i64);
+    Some(PrThreads {
+        total_count,
+        nodes: threads,
+    })
+}
+
+fn diff_side(v: Option<&serde_json::Value>) -> DiffSide {
+    match v.and_then(|v| v.as_str()) {
+        Some("LEFT") => DiffSide::Left,
+        _ => DiffSide::Right,
+    }
+}
+
+fn thread_from_node(n: &serde_json::Value) -> Option<PrThread> {
+    let id = n.get("id")?.as_str()?.to_string();
+    let path = n.get("path")?.as_str()?.to_string();
+    let comments = n
+        .pointer("/comments/nodes")
+        .and_then(|c| c.as_array())
+        .map(|nodes| nodes.iter().filter_map(thread_comment_from_node).collect())
+        .unwrap_or_default();
+    Some(PrThread {
+        id,
+        path,
+        line: n.get("line").and_then(|v| v.as_i64()),
+        start_line: n.get("startLine").and_then(|v| v.as_i64()),
+        side: diff_side(n.get("diffSide")),
+        subject: match n.get("subjectType").and_then(|v| v.as_str()) {
+            Some("FILE") => ThreadSubject::File,
+            _ => ThreadSubject::Line,
+        },
+        is_outdated: n
+            .get("isOutdated")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        is_resolved: n
+            .get("isResolved")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        resolved_by: n
+            .pointer("/resolvedBy/login")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        viewer_can_reply: n
+            .get("viewerCanReply")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        viewer_can_resolve: n
+            .get("viewerCanResolve")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        viewer_can_unresolve: n
+            .get("viewerCanUnresolve")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        comments,
+    })
+}
+
+fn thread_comment_from_node(n: &serde_json::Value) -> Option<PrThreadComment> {
+    Some(PrThreadComment {
+        id: n.get("id")?.as_str()?.to_string(),
+        author: author_from_value(n.get("author")),
+        body: n.get("body")?.as_str()?.to_string(),
+        created_at: n
+            .get("createdAt")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        updated_at: n
+            .get("updatedAt")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        last_edited_at: n
+            .get("lastEditedAt")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        url: n.get("url").and_then(|v| v.as_str()).map(str::to_string),
+        viewer_can_update: n
+            .get("viewerCanUpdate")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        viewer_can_delete: n
+            .get("viewerCanDelete")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        viewer_did_author: n
+            .get("viewerDidAuthor")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -3053,5 +3281,91 @@ mod tests {
         let d = issue_detail_from_value(&env.data.unwrap().repository.unwrap()).unwrap();
         assert!(d.events.is_empty());
         assert!(!d.events_capped);
+    }
+    // --- PR review threads (docs/0030 §5) --------------------------------
+
+    fn threads_repo(pr: &str) -> serde_json::Value {
+        serde_json::json!({ "pullRequest": serde_json::from_str::<serde_json::Value>(pr).unwrap() })
+    }
+
+    #[test]
+    fn pr_threads_parse_happy_path() {
+        let repo = threads_repo(
+            r#"{"id":"PR_1","reviewThreads":{"totalCount":2,"nodes":[
+                {"id":"T_1","path":"src/main.rs","line":14,"startLine":12,
+                 "diffSide":"LEFT","subjectType":"LINE","isOutdated":false,
+                 "isResolved":true,"resolvedBy":{"login":"rev"},
+                 "viewerCanReply":true,"viewerCanResolve":true,
+                 "viewerCanUnresolve":false,
+                 "comments":{"totalCount":2,"nodes":[
+                     {"id":"C_1","author":{"login":"a","avatarUrl":"u"},
+                      "body":"first","createdAt":"2026-09-01T00:00:00Z",
+                      "updatedAt":"2026-09-01T00:00:00Z","lastEditedAt":null,
+                      "url":"https://x/1","viewerCanUpdate":true,
+                      "viewerCanDelete":true,"viewerDidAuthor":true},
+                     {"id":"C_2","body":"reply","createdAt":"2026-09-02T00:00:00Z",
+                      "updatedAt":"2026-09-02T00:00:00Z","lastEditedAt":null,
+                      "url":"https://x/2","viewerCanUpdate":false,
+                      "viewerCanDelete":false,"viewerDidAuthor":false}]}}
+            ]}}"#,
+        );
+        let t = pr_threads_from_value(&repo).unwrap();
+        assert_eq!(t.total_count, 2);
+        assert_eq!(t.nodes.len(), 1);
+        let th = &t.nodes[0];
+        assert_eq!(th.id, "T_1");
+        assert_eq!(th.path, "src/main.rs");
+        assert_eq!(th.line, Some(14));
+        assert_eq!(th.start_line, Some(12));
+        assert_eq!(th.side, DiffSide::Left);
+        assert_eq!(th.subject, ThreadSubject::Line);
+        assert!(th.is_resolved);
+        assert!(!th.is_outdated);
+        assert_eq!(th.resolved_by.as_deref(), Some("rev"));
+        assert!(th.viewer_can_reply && th.viewer_can_resolve);
+        assert!(!th.viewer_can_unresolve);
+        assert_eq!(th.comments.len(), 2);
+        assert_eq!(th.comments[0].author.as_ref().unwrap().login, "a");
+        assert_eq!(th.comments[0].url.as_deref(), Some("https://x/1"));
+        assert!(th.comments[1].author.is_none());
+    }
+
+    #[test]
+    fn pr_threads_degrade_per_node() {
+        // docs/0030 §5: a thread without id or path drops alone; a comment
+        // without id/body drops alone; unknown diffSide/subjectType degrade
+        // to Right/LINE; a missing connection yields an empty set, not an
+        // error — the diff pane must not break (D1/D3).
+        let repo = threads_repo(
+            r#"{"id":"PR_1","reviewThreads":{"totalCount":3,"nodes":[
+                {"path":"no-id.rs","line":1,"diffSide":"RIGHT","comments":{"nodes":[]}},
+                {"id":"T_2","path":"src/lib.rs","line":3,
+                 "diffSide":"WARP","subjectType":"PLANET","comments":{"nodes":[
+                     {"body":"no id"},
+                     {"id":"C_2"},
+                     {"id":"C_3","body":"ok"}]}},
+                {"id":"T_3","path":"file-level.rs","subjectType":"FILE",
+                 "isOutdated":true,"comments":{"nodes":[]}}
+            ]}}"#,
+        );
+        let t = pr_threads_from_value(&repo).unwrap();
+        assert_eq!(t.total_count, 3, "server count kept even when nodes drop");
+        assert_eq!(t.nodes.len(), 2);
+        assert_eq!(t.nodes[0].side, DiffSide::Right, "unknown side degrades");
+        assert_eq!(t.nodes[0].subject, ThreadSubject::Line);
+        assert_eq!(t.nodes[0].comments.len(), 1, "bad comments drop alone");
+        assert_eq!(t.nodes[0].comments[0].id, "C_3");
+        assert_eq!(t.nodes[1].subject, ThreadSubject::File);
+        assert!(t.nodes[1].is_outdated);
+    }
+
+    #[test]
+    fn pr_threads_missing_connection_is_empty_not_none() {
+        let repo = threads_repo(r#"{"id":"PR_1"}"#);
+        let t = pr_threads_from_value(&repo).unwrap();
+        assert_eq!(t.total_count, 0);
+        assert!(t.nodes.is_empty());
+        // A null pullRequest node is the only None case.
+        assert!(pr_threads_from_value(&serde_json::json!({})).is_none());
     }
 }

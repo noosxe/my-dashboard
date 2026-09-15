@@ -321,3 +321,30 @@ makes it a review *surface*. Both keep the gates and the bridge contract.
   reviewable, testable unit.)
 - **Q4 — resolve without a reason picker (D5)**: omit `resolutionReason` in
   v1? (Lean: yes; server records its default.)
+
+## 8. Shipped — stage 1, read side (#207)
+
+Implemented as designed in one stage. Implementation notes beyond the
+design text:
+
+- **D2 (parse_patch removed)**: `anchor_patch` fully superseded
+  `parse_patch` — same tolerant classification, plus both-side line
+  numbers — so `parse_patch` and its table were deleted rather than kept
+  as dead code. The old classification table re-runs through the anchored
+  walk (`anchor_walk_preserves_parse_patch_classification`). The walk also
+  handles single-count hunk headers (`@@ -1 +1 @@`, common on one-line
+  diffs) and `\ No newline` markers (no anchor, no advance).
+- **Placement (D3)**: the pure core is `place_threads(threads, path,
+  rows)`; `thread_placement(page, file)` is the render-side wrapper.
+  Placement ignores zero/absent line numbers (file-subject and unanchorable
+  LINE threads never match a diff row by accident).
+- **Probe mechanics (adds to §5)**: `debug_bounds` sees only
+  `.debug_selector()` keys, so the test anchors are
+  `pr-thread-{n}-card`, `pr-suggestion-{n}-{m}-{b}-card`,
+  `pr-outdated-toggle-key` (a wrapper div around the toggle Button), and
+  `pr-diff-scroll-key` on the scroll container; accesskit ids (D8) are
+  unchanged. The bucket-expand probe drives the same page state the
+  toggle's handler writes (`outdated_open`).
+- **Suggestion cards (D6)**: the Copy button writes the raw fence content
+  to the clipboard; suggestion code renders one non-wrapping mono row per
+  line (the diff-pane convention; gpui has no pre-wrap mode).

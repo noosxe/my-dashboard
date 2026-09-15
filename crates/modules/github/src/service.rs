@@ -370,8 +370,14 @@ pub enum Kind {
     /// page the first time the Files tab opens (and again on refresh
     /// once loaded). Same page-owned result convention as
     /// [`Kind::PrDetail`]: the page parses the stitched 200 body;
-    /// non-200 results forward to [`GithubState::apply`].
     PrFiles,
+    /// non-200 results forward to [`GithubState::apply`].
+    /// One PR's review threads (docs/0030 D1) — one-shot GraphQL
+    /// (`PR_THREADS_QUERY`), fetched lazily by the PR page the first
+    /// time the Files tab opens (and again on refresh once loaded, and
+    /// after thread mutations). Same page-owned result convention as
+    /// [`Kind::PrDetail`].
+    PrThreads,
     /// One issue's detail payload (docs/0020 D2) — the issue page's
     /// sibling of [`Kind::PrDetail`], same page-owned result convention:
     /// the page parses 200 bodies; only non-200 results are forwarded to
@@ -500,6 +506,7 @@ pub fn run_spec(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
         Kind::RepoMilestones => {
             run_graphql_fetch(http, spec, gql::REPO_MILESTONES_QUERY, "repo-milestones")
         }
+        Kind::PrThreads => run_graphql_fetch(http, spec, gql::PR_THREADS_QUERY, "pr-threads"),
         Kind::Notifications | Kind::RepoNotifications | Kind::PrFiles => run_rest(http, spec),
     }
 }
@@ -990,25 +997,103 @@ pub(crate) enum PatchLine {
     Del(String),
 }
 
-/// Parse a REST `patch` field into rows (docs/0016 D8 — pure, so the
-/// render path stays dumb and the parser is table-testable). Tolerant by
-/// design: empty input is an empty list; any line that does not start
-/// with `@@`, `+` or `-` (including blank context lines) is context.
-pub(crate) fn parse_patch(patch: &str) -> Vec<PatchLine> {
-    patch
-        .lines()
-        .map(|line| {
-            if line.starts_with("@@") {
-                PatchLine::Hunk(line.to_string())
-            } else if let Some(rest) = line.strip_prefix('+') {
-                PatchLine::Add(rest.to_string())
-            } else if let Some(rest) = line.strip_prefix('-') {
-                PatchLine::Del(rest.to_string())
-            } else {
-                PatchLine::Context(line.strip_prefix(' ').unwrap_or(line).to_string())
+/// One classified diff row plus its file line numbers on both sides
+/// (docs/0030 D2). `old`/`new` are `None` on hunk headers, on any row
+/// before a parseable hunk header, and on the side a row does not touch
+/// (an Add has no old line, a Del no new line).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct AnchoredLine {
+    pub(crate) line: PatchLine,
+    pub(crate) old: Option<u32>,
+    pub(crate) new: Option<u32>,
+}
+
+/// The `@@ -o,s +n,s @@` header's start lines (docs/0030 D2). `None` on
+/// anything that does not parse — the walk then emits unanchored rows
+/// until the next valid header (parse_patch's tolerant precedent).
+fn hunk_starts(header: &str) -> Option<(u32, u32)> {
+    let rest = header.strip_prefix("@@ -")?;
+    let plus_at = rest.find(" +")?;
+    // Counts are optional in unified-diff headers (`@@ -1 +1 @@` for
+    // single-line hunks) — split on both separators, not just the comma.
+    let old: u32 = rest[..plus_at].split([',', ' ']).next()?.parse().ok()?;
+    let new: u32 = rest[plus_at + 1..]
+        .strip_prefix('+')?
+        .split([',', ' '])
+        .next()?
+        .parse()
+        .ok()?;
+    Some((old, new))
+}
+
+/// Walk a REST `patch` and compute each row's file line numbers on both
+/// sides (docs/0030 D2 — the anchor surface review threads hang on).
+/// Pure: hunk headers seed the counters, Context advances both, Add
+/// advances new, Del advances old. `\\ No newline` markers and rows
+/// without a valid header anchor at `None` and advance nothing.
+pub(crate) fn anchor_patch(patch: &str) -> Vec<AnchoredLine> {
+    let (mut old, mut new) = (0u32, 0u32);
+    let mut out = Vec::new();
+    for raw in patch.lines() {
+        if raw.starts_with("@@") {
+            match hunk_starts(raw) {
+                Some((o, n)) => {
+                    old = o;
+                    new = n;
+                }
+                None => {
+                    // Unparseable header: no anchor until the next one.
+                    (old, new) = (0, 0);
+                }
             }
-        })
-        .collect()
+            out.push(AnchoredLine {
+                line: PatchLine::Hunk(raw.to_string()),
+                old: None,
+                new: None,
+            });
+            continue;
+        }
+        if raw.starts_with('\\') {
+            // `\ No newline at end of file` — renders as a context row,
+            // but it is a marker, not a file line: no number, no advance.
+            out.push(AnchoredLine {
+                line: PatchLine::Context(raw.to_string()),
+                old: None,
+                new: None,
+            });
+            continue;
+        }
+        let line = if let Some(rest) = raw.strip_prefix('+') {
+            let n = (new != 0).then_some(new);
+            new = new.saturating_add(1);
+            out.push(AnchoredLine {
+                line: PatchLine::Add(rest.to_string()),
+                old: None,
+                new: n,
+            });
+            continue;
+        } else if let Some(rest) = raw.strip_prefix('-') {
+            let o = (old != 0).then_some(old);
+            old = old.saturating_add(1);
+            out.push(AnchoredLine {
+                line: PatchLine::Del(rest.to_string()),
+                old: o,
+                new: None,
+            });
+            continue;
+        } else {
+            PatchLine::Context(raw.strip_prefix(' ').unwrap_or(raw).to_string())
+        };
+        let (o, n) = ((old != 0).then_some(old), (new != 0).then_some(new));
+        old = old.saturating_add(1);
+        new = new.saturating_add(1);
+        out.push(AnchoredLine {
+            line,
+            old: o,
+            new: n,
+        });
+    }
+    out
 }
 
 impl Kind {
@@ -1024,6 +1109,7 @@ impl Kind {
             Kind::RepoAssignableUsers => "repo-assignable-users",
             Kind::RepoMilestones => "repo-milestones",
             Kind::PrFiles => "pr-files",
+            Kind::PrThreads => "pr-threads",
             Kind::RepoNotifications => "repo-notifs",
             Kind::ThreadDetail => "thread-detail",
             Kind::ThreadMutation(_) => "thread-mutation",
@@ -1518,6 +1604,7 @@ impl GithubState {
             Kind::PrDetail
             | Kind::PrMutation(_)
             | Kind::PrFiles
+            | Kind::PrThreads
             | Kind::IssueDetail
             | Kind::RepoLabels
             | Kind::RepoAssignableUsers
@@ -2413,11 +2500,14 @@ mod tests {
     // --- Tick planning (docs/0007 D6) ---------------------------------
 
     #[test]
-    fn parse_patch_classifies_every_line_kind() {
-        let patch = "@@ -1,3 +1,4 @@\n fn one() {}\n+fn two() {}\n-fn zero() {}\n@@ -10,2 +11,2 @@\n context with no leading space";
-        let rows = parse_patch(patch);
+    fn anchor_walk_preserves_parse_patch_classification() {
+        // The old parse_patch table, re-run through the anchored walk:
+        // classification is identical, the walk only adds line numbers.
+        let rows = anchor_patch(
+            "@@ -1,3 +1,4 @@\n fn one() {}\n+fn two() {}\n-fn zero() {}\n@@ -10,2 +11,2 @@\n context with no leading space",
+        );
         assert_eq!(
-            rows,
+            rows.iter().map(|a| a.line.clone()).collect::<Vec<_>>(),
             vec![
                 PatchLine::Hunk("@@ -1,3 +1,4 @@".into()),
                 PatchLine::Context("fn one() {}".into()),
@@ -2429,21 +2519,53 @@ mod tests {
                 PatchLine::Context("context with no leading space".into()),
             ]
         );
+        assert!(anchor_patch("").is_empty());
+    }
+
+    // --- anchor_patch (docs/0030 D2/§5) ----------------------------------
+
+    use crate::service::{AnchoredLine, anchor_patch};
+
+    fn nums(a: &AnchoredLine) -> (Option<u32>, Option<u32>) {
+        (a.old, a.new)
     }
 
     #[test]
-    fn parse_patch_empty_and_blank_lines() {
-        assert!(parse_patch("").is_empty());
-        // A blank context line is a Context row, not a dropped one —
-        // the row count must match what GitHub served.
-        assert_eq!(
-            parse_patch("@@ -1,1 +1,2 @@\n \n+added"),
-            vec![
-                PatchLine::Hunk("@@ -1,1 +1,2 @@".into()),
-                PatchLine::Context(String::new()),
-                PatchLine::Add("added".into()),
-            ]
+    fn anchor_walk_seeds_and_advances_both_sides() {
+        let rows = anchor_patch("@@ -10,3 +11,4 @@\n ctx\n-del\n+add\n ctx2\n+add2");
+        assert_eq!(rows.len(), 6);
+        assert_eq!(nums(&rows[0]), (None, None), "hunk header anchors at None");
+        assert_eq!(nums(&rows[1]), (Some(10), Some(11)), "context: both");
+        assert_eq!(nums(&rows[2]), (Some(11), None), "del: old only");
+        assert_eq!(nums(&rows[3]), (None, Some(12)), "add: new only");
+        assert_eq!(nums(&rows[4]), (Some(12), Some(13)), "counters keep up");
+        assert_eq!(nums(&rows[5]), (None, Some(14)));
+    }
+
+    #[test]
+    fn anchor_walk_reseeds_per_hunk() {
+        let rows = anchor_patch("@@ -1,1 +2,1 @@\n a\n@@ -50,1 +60,1 @@\n b");
+        assert_eq!(nums(&rows[1]), (Some(1), Some(2)));
+        assert_eq!(nums(&rows[3]), (Some(50), Some(60)));
+    }
+
+    #[test]
+    fn anchor_walk_tolerates_bad_headers_and_newline_markers() {
+        // Rows before/between parseable headers anchor at None and
+        // advance nothing; `\\ No newline` markers are not file lines.
+        let rows = anchor_patch(
+            "junk line\n@@ -bogus @@\n a\n\\ No newline at end of file\n@@ -1,1 +1,1 @@\n b",
         );
+        assert_eq!(rows.len(), 6);
+        assert_eq!(nums(&rows[0]), (None, None));
+        assert_eq!(nums(&rows[2]), (None, None), "after a bad header");
+        assert_eq!(nums(&rows[3]), (None, None), "newline marker");
+        assert_eq!(nums(&rows[5]), (Some(1), Some(1)), "valid header re-arms");
+    }
+
+    #[test]
+    fn anchor_walk_empty_patch_is_empty() {
+        assert!(anchor_patch("").is_empty());
     }
 
     #[test]
