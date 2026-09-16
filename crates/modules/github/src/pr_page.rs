@@ -134,6 +134,13 @@ pub(crate) struct PrDetailPage {
     /// 0030 #213: the open resolve-reason picker — (thread node id); one
     /// at a time, gated by the thread's `viewerCanResolve`.
     pub(crate) resolve_picker: Option<String>,
+    /// #212: the review-thread comment editor — (comment node id,
+    /// editor). One editor anywhere on the page (0019 D4); timeline
+    /// surfaces yield to it and vice versa.
+    pub(crate) thread_edit: Option<(String, Entity<TextareaState>)>,
+    /// #212: the review-thread comment id awaiting delete confirmation
+    /// (0019 D4 inline two-step).
+    pub(crate) thread_delete_confirm: Option<String>,
     /// 0030 D4: queued draft comments — page-local, submitted as ONE
     /// batch by the Finish-review bar. Session-only (closing the page
     /// discards), like every other draft surface here.
@@ -299,6 +306,8 @@ impl PrDetailPage {
             reply_composer: None,
             drafts: Vec::new(),
             resolve_picker: None,
+            thread_edit: None,
+            thread_delete_confirm: None,
             finish_summary: None,
             finish_event: FinishEvent::default(),
             outdated_open: BTreeMap::new(),
@@ -910,6 +919,9 @@ impl PrDetailPage {
         }
         self.description_edit = None;
         self.delete_confirm = None;
+        // #212: thread surfaces yield to this editor too.
+        self.thread_edit = None;
+        self.thread_delete_confirm = None;
         let editor = cx.new(|cx| {
             let mut state = TextareaState::new(window, cx)
                 // Grows with the body; scrolls internally past 30 rows.
@@ -965,6 +977,9 @@ impl PrDetailPage {
         self.description_edit = None;
         self.timeline_edit = None;
         self.delete_confirm = Some(node_id);
+        // #212: thread surfaces yield to this confirm too.
+        self.thread_edit = None;
+        self.thread_delete_confirm = None;
         cx.notify();
     }
 
@@ -1226,6 +1241,103 @@ impl PrDetailPage {
         cx.notify();
     }
 
+    // --- review-thread comment edit/delete (#212) ---------------------
+    // The 0019 D4/D5 row pattern applied to thread comments: one editor
+    // anywhere on the page, inline two-step delete confirm, Save gated
+    // on a non-blank body, failures land in the Files scope with the
+    // surface retained.
+
+    pub(crate) fn start_thread_edit(
+        &mut self,
+        node_id: String,
+        body: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.busy.is_some() || node_id.is_empty() {
+            return;
+        }
+        self.description_edit = None;
+        self.timeline_edit = None;
+        self.delete_confirm = None;
+        self.thread_delete_confirm = None;
+        self.resolve_picker = None;
+        let editor = cx.new(|cx| {
+            let mut state = TextareaState::new(window, cx).auto_grow(4, 30);
+            state.set_value(body, window, cx);
+            state
+        });
+        self.thread_edit = Some((node_id, editor));
+        cx.notify();
+    }
+
+    pub(crate) fn cancel_thread_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.thread_edit = None;
+        self.refocus_page(window, cx);
+        cx.notify();
+    }
+
+    /// Save the thread-comment editor (#212). The id field is
+    /// `pullRequestReviewCommentId` (verified live 2026-09-16), unlike
+    /// the timeline edits' `id` / `pullRequestReviewId`.
+    pub(crate) fn save_thread_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((node_id, editor)) = self.thread_edit.as_ref() else {
+            return;
+        };
+        if self.busy.is_some() {
+            return;
+        }
+        let body = editor.read(cx).value().trim().to_string();
+        if body.is_empty() {
+            return;
+        }
+        let op = BusyOp::ReviewCommentEdit;
+        let mutation = Mutation::UpdateReviewComment;
+        let variables = json!({
+            "input": { "pullRequestReviewCommentId": node_id, "body": body }
+        });
+        self.mutation_error = None;
+        self.busy = Some(op);
+        cx.notify();
+        self.spawn_mutation(op, mutation, variables, window, cx);
+    }
+
+    pub(crate) fn start_thread_delete_confirm(&mut self, node_id: String, cx: &mut Context<Self>) {
+        if self.busy.is_some() || node_id.is_empty() {
+            return;
+        }
+        self.description_edit = None;
+        self.timeline_edit = None;
+        self.delete_confirm = None;
+        self.thread_edit = None;
+        self.resolve_picker = None;
+        self.thread_delete_confirm = Some(node_id);
+        cx.notify();
+    }
+
+    pub(crate) fn cancel_thread_delete_confirm(&mut self, cx: &mut Context<Self>) {
+        self.thread_delete_confirm = None;
+        cx.notify();
+    }
+
+    /// Fire the confirmed thread-comment delete (#212,
+    /// `DeletePullRequestReviewCommentInput { id }`). The confirm stays
+    /// up while the op is in flight; the success arm clears it.
+    pub(crate) fn confirm_thread_delete(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(node_id) = self.thread_delete_confirm.clone() else {
+            return;
+        };
+        if self.busy.is_some() {
+            return;
+        }
+        let op = BusyOp::ReviewCommentDelete;
+        let mutation = Mutation::DeleteReviewComment;
+        let variables = json!({ "input": { "id": node_id } });
+        self.mutation_error = None;
+        self.busy = Some(op);
+        cx.notify();
+        self.spawn_mutation(op, mutation, variables, window, cx);
+    }
     /// Resolve / unresolve (D5) — schema-gated buttons upstream. Since
     /// #213 the resolve path carries an optional `resolutionReason`
     /// (`PullRequestReviewThreadResolutionReason`, verified live
@@ -1446,6 +1558,16 @@ impl PrDetailPage {
                     self.finish_event = FinishEvent::default();
                 }
                 BusyOp::ThreadResolve | BusyOp::ThreadUnresolve => {}
+                // #212: success closes the surface it came from; the
+                // threads refetch below repaints the pane (a deleted
+                // thread root takes its whole card with it).
+                BusyOp::ReviewCommentEdit => {
+                    self.thread_edit = None;
+                    self.refocus_page(window, cx);
+                }
+                BusyOp::ReviewCommentDelete => {
+                    self.thread_delete_confirm = None;
+                }
             }
         }
         if op.error_scope() == ErrorScope::Files {
@@ -2627,6 +2749,10 @@ pub(crate) enum BusyOp {
     ReviewBatch,
     ThreadResolve,
     ThreadUnresolve,
+    // #212: review-thread comment writes — Files scope like the rest of
+    // the review surfaces.
+    ReviewCommentEdit,
+    ReviewCommentDelete,
 }
 
 impl BusyOp {
@@ -2647,7 +2773,9 @@ impl BusyOp {
             | BusyOp::ReviewReply
             | BusyOp::ReviewBatch
             | BusyOp::ThreadResolve
-            | BusyOp::ThreadUnresolve => ErrorScope::Files,
+            | BusyOp::ThreadUnresolve
+            | BusyOp::ReviewCommentEdit
+            | BusyOp::ReviewCommentDelete => ErrorScope::Files,
         }
     }
 }
@@ -4587,6 +4715,8 @@ mod tests {
         assert_eq!(BusyOp::ReviewBatch.error_scope(), ErrorScope::Files);
         assert_eq!(BusyOp::ThreadResolve.error_scope(), ErrorScope::Files);
         assert_eq!(BusyOp::ThreadUnresolve.error_scope(), ErrorScope::Files);
+        assert_eq!(BusyOp::ReviewCommentEdit.error_scope(), ErrorScope::Files);
+        assert_eq!(BusyOp::ReviewCommentDelete.error_scope(), ErrorScope::Files);
         assert_eq!(FinishEvent::default(), FinishEvent::Comment);
         assert_eq!(FinishEvent::Comment.as_str(), "COMMENT");
         assert_eq!(FinishEvent::Approve.as_str(), "APPROVE");
@@ -4826,5 +4956,94 @@ mod tests {
             page.update(cx, |p, cx| p.cancel_resolve_picker(cx));
         });
         assert!(vcx.debug_bounds("pr-resolve-picker-key").is_none());
+    }
+
+    #[gpui::test]
+    fn thread_comment_edit_and_delete_swap_in(cx: &mut gpui::TestAppContext) {
+        // #212: the 0019 D4 row swap applied to thread comments — the
+        // editor and the delete confirm replace the comment body while
+        // armed, keyed to that one comment.
+        cx.update(gpui_component::init);
+        let state = cx.update(|cx| {
+            let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
+            let store: std::sync::Arc<dyn crate::auth::TokenStore> =
+                std::sync::Arc::new(ProbeStore);
+            cx.new(|_| {
+                GithubState::new(
+                    client,
+                    store,
+                    Default::default(),
+                    Default::default(),
+                    GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                )
+            })
+        });
+        let (page, vcx) = cx.add_window_view(|window, cx| {
+            let summary = gql::PullRequest {
+                key: "o/r#7".into(),
+                database_id: None,
+                number: 7,
+                title: "thread edit probe".into(),
+                draft: false,
+                state: None,
+                author: None,
+                updated_at: None,
+                url: "https://probe".into(),
+                status: None,
+            };
+            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
+            page.tab = PrTab::Files;
+            page.files = FilesFetch::Ready(vec![probe_file("src/main.rs")]);
+            let mut thread = probe_thread(0, Some(1), false, "please fix");
+            thread.comments[0].viewer_can_update = true;
+            thread.comments[0].viewer_can_delete = true;
+            page.threads = ThreadsFetch::Ready(gql::PrThreads {
+                total_count: 1,
+                nodes: vec![thread],
+            });
+            page.extend_threads_md();
+            page.apply_files_payload(cx);
+            page
+        });
+        assert!(
+            vcx.debug_bounds("pr-thread-0-comment-0-edit-card")
+                .is_none()
+        );
+        assert!(
+            vcx.debug_bounds("pr-thread-0-comment-0-delete-confirm-card")
+                .is_none()
+        );
+        vcx.update(|window, cx| {
+            page.update(cx, |p, cx| {
+                p.start_thread_edit("T_0_C_0".into(), "please fix".into(), window, cx);
+            });
+        });
+        assert!(
+            vcx.debug_bounds("pr-thread-0-comment-0-edit-card")
+                .is_some(),
+            "editor must swap in while armed"
+        );
+        // Editors yield to the delete confirm (one editor anywhere).
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.start_thread_delete_confirm("T_0_C_0".into(), cx);
+            });
+        });
+        assert!(
+            vcx.debug_bounds("pr-thread-0-comment-0-edit-card")
+                .is_none()
+        );
+        assert!(
+            vcx.debug_bounds("pr-thread-0-comment-0-delete-confirm-card")
+                .is_some(),
+            "delete confirm must swap in while armed"
+        );
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| p.cancel_thread_delete_confirm(cx));
+        });
+        assert!(
+            vcx.debug_bounds("pr-thread-0-comment-0-delete-confirm-card")
+                .is_none()
+        );
     }
 }

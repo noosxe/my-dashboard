@@ -36,7 +36,8 @@ use crate::gql::{DiffSide, PrThread, ThreadSubject};
 use crate::markdown;
 use crate::page::relative_age;
 use crate::pr_page::{
-    ErrorScope, FinishEvent, PrDetailPage, ResolutionReason, ThreadsFetch, review_batch_allowed,
+    ErrorScope, FinishEvent, PrDetailPage, ResolutionReason, ThreadsFetch, delete_confirm_card,
+    inline_edit_card, review_batch_allowed, row_is_edited,
 };
 use crate::service::{AnchoredLine, PatchLine, anchor_patch};
 /// Files sidebar view mode (0018 D3). `List` is the default — the flat
@@ -1464,7 +1465,11 @@ fn thread_comment(
         .as_ref()
         .map(|a| a.login.clone())
         .unwrap_or_else(|| "ghost".into());
-    let age = relative_age(c.created_at.as_deref());
+    let key = format!("pr-thread-{ix}-comment-{m}");
+    let mut age = relative_age(c.created_at.as_deref());
+    if row_is_edited(c.created_at.as_deref(), c.updated_at.as_deref()) {
+        age.push_str(" (edited)");
+    }
     let blocks = page.md.get(&format!("thread-{ix}-comment-{m}")).cloned();
     div()
         .id(SharedString::from(format!("pr-thread-{ix}-comment-{m}")))
@@ -1474,10 +1479,88 @@ fn thread_comment(
         .border_color(cx.theme().border)
         .pt_1()
         .child(
-            div()
-                .text_xs()
-                .text_color(cx.theme().muted_foreground)
-                .child(format!("{author} · {age}")),
+            h_flex()
+                .w_full()
+                .min_w_0()
+                .gap_2()
+                .child(
+                    div()
+                        .flex_1()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(format!("{author} · {age}")),
+                )
+                // #212: edit/delete on the viewer's own comments — the
+                // 0019 D4 affordances, schema-gated (viewerCanUpdate /
+                // viewerCanDelete).
+                .when(c.viewer_can_update, |row| {
+                    row.child(
+                        Button::new(SharedString::from(format!("{key}-edit")))
+                            .ghost()
+                            .xsmall()
+                            .label("Edit")
+                            .disabled(page.busy.is_some())
+                            .on_click({
+                                let node_id = c.id.clone();
+                                let body = c.body.clone();
+                                cx.listener(move |this, _, window, cx| {
+                                    this.start_thread_edit(
+                                        node_id.clone(),
+                                        body.clone(),
+                                        window,
+                                        cx,
+                                    )
+                                })
+                            }),
+                    )
+                })
+                .when(c.viewer_can_delete, |row| {
+                    row.child(
+                        Button::new(SharedString::from(format!("{key}-delete")))
+                            .ghost()
+                            .xsmall()
+                            .label("Delete")
+                            .disabled(page.busy.is_some())
+                            .on_click({
+                                let node_id = c.id.clone();
+                                cx.listener(move |this, _, _, cx| {
+                                    this.start_thread_delete_confirm(node_id.clone(), cx)
+                                })
+                            }),
+                    )
+                }),
+        )
+        // #212: the comment swaps to its editor or delete confirm while
+        // one is active for this node (0019 D4).
+        .when_some(
+            page.thread_edit
+                .as_ref()
+                .filter(|(nid, _)| nid == &c.id)
+                .map(|(_, e)| e.clone()),
+            |row, editor| {
+                row.child(inline_edit_card(
+                    &format!("{key}-edit"),
+                    "Editing comment",
+                    &editor,
+                    page.busy.is_some(),
+                    cx.listener(|this, _, window, cx| this.save_thread_edit(window, cx)),
+                    cx.listener(|this, _, window, cx| this.cancel_thread_edit(window, cx)),
+                    cx,
+                ))
+            },
+        )
+        .when(
+            page.thread_delete_confirm.as_deref() == Some(c.id.as_str()),
+            |row| {
+                row.child(delete_confirm_card(
+                    &format!("{key}-delete"),
+                    "Delete this comment?",
+                    page.busy.is_some(),
+                    cx.listener(|this, _, window, cx| this.confirm_thread_delete(window, cx)),
+                    cx.listener(|this, _, _, cx| this.cancel_thread_delete_confirm(cx)),
+                    cx,
+                ))
+            },
         )
         .children(blocks.map(|blocks| {
             v_flex()
