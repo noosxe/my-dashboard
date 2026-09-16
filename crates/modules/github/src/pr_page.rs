@@ -131,6 +131,9 @@ pub(crate) struct PrDetailPage {
     /// 0030 D4: the open reply box — (thread node id, editor); one at a
     /// time, gated by the thread's `viewerCanReply`.
     pub(crate) reply_composer: Option<(String, Entity<TextareaState>)>,
+    /// 0030 #213: the open resolve-reason picker — (thread node id); one
+    /// at a time, gated by the thread's `viewerCanResolve`.
+    pub(crate) resolve_picker: Option<String>,
     /// 0030 D4: queued draft comments — page-local, submitted as ONE
     /// batch by the Finish-review bar. Session-only (closing the page
     /// discards), like every other draft surface here.
@@ -295,6 +298,7 @@ impl PrDetailPage {
             line_composer: None,
             reply_composer: None,
             drafts: Vec::new(),
+            resolve_picker: None,
             finish_summary: None,
             finish_event: FinishEvent::default(),
             outdated_open: BTreeMap::new(),
@@ -1201,12 +1205,36 @@ impl PrDetailPage {
         );
     }
 
-    /// Resolve / unresolve (D5) — schema-gated buttons upstream;
-    /// `resolutionReason` stays unset in v1.
+    /// Open the resolve-reason picker (#213) — the Resolve button no
+    /// longer fires immediately; the picker row offers the enum reasons
+    /// plus a plain resolve (field omitted).
+    pub(crate) fn open_resolve_picker(
+        &mut self,
+        thread_id: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.busy.is_some() || thread_id.is_empty() {
+            return;
+        }
+        self.resolve_picker = Some(thread_id);
+        cx.notify();
+    }
+
+    pub(crate) fn cancel_resolve_picker(&mut self, cx: &mut Context<Self>) {
+        self.resolve_picker = None;
+        cx.notify();
+    }
+
+    /// Resolve / unresolve (D5) — schema-gated buttons upstream. Since
+    /// #213 the resolve path carries an optional `resolutionReason`
+    /// (`PullRequestReviewThreadResolutionReason`, verified live
+    /// 2026-09-16); the field is omitted for a plain resolve.
     pub(crate) fn set_thread_resolved(
         &mut self,
         thread_id: String,
         resolved: bool,
+        reason: Option<ResolutionReason>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -1218,8 +1246,14 @@ impl PrDetailPage {
         } else {
             (BusyOp::ThreadUnresolve, Mutation::ThreadUnresolve)
         };
-        let variables = json!({ "input": { "threadId": thread_id } });
+        let mut input = serde_json::Map::new();
+        input.insert("threadId".into(), json!(thread_id));
+        if let Some(reason) = reason {
+            input.insert("resolutionReason".into(), json!(reason.as_str()));
+        }
+        let variables = json!({ "input": input });
         self.mutation_error = None;
+        self.resolve_picker = None;
         self.busy = Some(op);
         cx.notify();
         self.spawn_mutation(op, mutation, variables, window, cx);
@@ -2696,6 +2730,46 @@ impl FinishEvent {
     ];
 }
 
+/// Why a thread is being resolved (#213) — `PullRequestReviewThread
+/// ResolutionReason`, verified live (2026-09-16 introspection): the
+/// enum is `ADDRESSED | WONT_FIX | INVALID`; the input field is optional
+/// and omitted for a plain resolve. The *read* schema has no
+/// `resolutionReason` field, so resolved chips stay generic.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ResolutionReason {
+    Addressed,
+    WontFix,
+    Invalid,
+}
+
+impl ResolutionReason {
+    /// Wire value (`PullRequestReviewThreadResolutionReason`).
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            ResolutionReason::Addressed => "ADDRESSED",
+            ResolutionReason::WontFix => "WONT_FIX",
+            ResolutionReason::Invalid => "INVALID",
+        }
+    }
+
+    /// The bridge-id token (docs/0030 D8).
+    pub(crate) fn id_token(self) -> &'static str {
+        match self {
+            ResolutionReason::Addressed => "addressed",
+            ResolutionReason::WontFix => "wont-fix",
+            ResolutionReason::Invalid => "invalid",
+        }
+    }
+
+    /// The picker's buttons, (label, reason) in display order — the
+    /// plain "Resolve" (no reason) and Cancel buttons are separate.
+    pub(crate) const CHOICES: [(&'static str, ResolutionReason); 3] = [
+        ("Addressed", ResolutionReason::Addressed),
+        ("Won't fix", ResolutionReason::WontFix),
+        ("Invalid", ResolutionReason::Invalid),
+    ];
+}
+
 /// The composer's send gating (docs/0030 §5): a non-blank body.
 pub(crate) fn composer_body_allowed(body: &str) -> bool {
     !body.trim().is_empty()
@@ -3640,7 +3714,8 @@ mod tests {
     // --- timeline-row edit/delete (docs/0019 §5) ------------------------
 
     use crate::pr_page::{
-        ThreadsFetch, build_md_cache, delete_row, edit_row, node_kind, row_is_edited,
+        ResolutionReason, ThreadsFetch, build_md_cache, delete_row, edit_row, node_kind,
+        row_is_edited,
     };
     use crate::service::{Kind, Mutation, SpecResult};
 
@@ -4676,5 +4751,80 @@ mod tests {
             });
         });
         assert!(vcx.debug_bounds("pr-files-error-key").is_none());
+    }
+
+    #[test]
+    fn resolution_reason_wire_values() {
+        // #213: `PullRequestReviewThreadResolutionReason`, verified live
+        // (2026-09-16 introspection) — the read schema has no such field,
+        // so these tokens only ever ride the resolve input.
+        assert_eq!(ResolutionReason::Addressed.as_str(), "ADDRESSED");
+        assert_eq!(ResolutionReason::WontFix.as_str(), "WONT_FIX");
+        assert_eq!(ResolutionReason::Invalid.as_str(), "INVALID");
+        assert_eq!(ResolutionReason::Addressed.id_token(), "addressed");
+        assert_eq!(ResolutionReason::WontFix.id_token(), "wont-fix");
+        assert_eq!(ResolutionReason::Invalid.id_token(), "invalid");
+        assert_eq!(ResolutionReason::CHOICES.len(), 3);
+    }
+
+    #[gpui::test]
+    fn resolve_picker_opens_under_its_thread(cx: &mut gpui::TestAppContext) {
+        // #213: Resolve no longer fires immediately — the picker row
+        // renders under the thread card until a choice or Cancel.
+        cx.update(gpui_component::init);
+        let state = cx.update(|cx| {
+            let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
+            let store: std::sync::Arc<dyn crate::auth::TokenStore> =
+                std::sync::Arc::new(ProbeStore);
+            cx.new(|_| {
+                GithubState::new(
+                    client,
+                    store,
+                    Default::default(),
+                    Default::default(),
+                    GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                )
+            })
+        });
+        let (page, vcx) = cx.add_window_view(|window, cx| {
+            let summary = gql::PullRequest {
+                key: "o/r#7".into(),
+                database_id: None,
+                number: 7,
+                title: "resolve picker probe".into(),
+                draft: false,
+                state: None,
+                author: None,
+                updated_at: None,
+                url: "https://probe".into(),
+                status: None,
+            };
+            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
+            page.tab = PrTab::Files;
+            page.files = FilesFetch::Ready(vec![probe_file("src/main.rs")]);
+            let mut thread = probe_thread(0, Some(1), false, "please fix");
+            thread.viewer_can_resolve = true;
+            page.threads = ThreadsFetch::Ready(gql::PrThreads {
+                total_count: 1,
+                nodes: vec![thread],
+            });
+            page.extend_threads_md();
+            page.apply_files_payload(cx);
+            page
+        });
+        assert!(vcx.debug_bounds("pr-resolve-picker-key").is_none());
+        vcx.update(|window, cx| {
+            page.update(cx, |p, cx| {
+                p.open_resolve_picker("T_0".into(), window, cx);
+            });
+        });
+        assert!(
+            vcx.debug_bounds("pr-resolve-picker-key").is_some(),
+            "picker row must render while open"
+        );
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| p.cancel_resolve_picker(cx));
+        });
+        assert!(vcx.debug_bounds("pr-resolve-picker-key").is_none());
     }
 }

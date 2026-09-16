@@ -35,7 +35,9 @@ use crate::api::PrFile;
 use crate::gql::{DiffSide, PrThread, ThreadSubject};
 use crate::markdown;
 use crate::page::relative_age;
-use crate::pr_page::{ErrorScope, FinishEvent, PrDetailPage, ThreadsFetch, review_batch_allowed};
+use crate::pr_page::{
+    ErrorScope, FinishEvent, PrDetailPage, ResolutionReason, ThreadsFetch, review_batch_allowed,
+};
 use crate::service::{AnchoredLine, PatchLine, anchor_patch};
 /// Files sidebar view mode (0018 D3). `List` is the default — the flat
 /// rendering is the closest to the accordion it replaces.
@@ -1157,7 +1159,7 @@ fn thread_card(
                             .on_click({
                                 let thread_id = t.id.clone();
                                 cx.listener(move |this, _, window, cx| {
-                                    this.set_thread_resolved(thread_id.clone(), true, window, cx)
+                                    this.open_resolve_picker(thread_id.clone(), window, cx)
                                 })
                             }),
                     )
@@ -1172,7 +1174,13 @@ fn thread_card(
                             .on_click({
                                 let thread_id = t.id.clone();
                                 cx.listener(move |this, _, window, cx| {
-                                    this.set_thread_resolved(thread_id.clone(), false, window, cx)
+                                    this.set_thread_resolved(
+                                        thread_id.clone(),
+                                        false,
+                                        None,
+                                        window,
+                                        cx,
+                                    )
                                 })
                             }),
                     )
@@ -1194,6 +1202,19 @@ fn thread_card(
                     .on_click(move |_, _, cx| cx.open_url(&url)),
             )
         })
+        .when(
+            page.resolve_picker.as_deref() == Some(t.id.as_str())
+                && t.viewer_can_resolve
+                && !t.is_resolved,
+            |card| {
+                card.child(resolve_picker_row(
+                    page.busy.is_some(),
+                    ix,
+                    t.id.clone(),
+                    cx,
+                ))
+            },
+        )
         .when_some(
             page.reply_composer
                 .as_ref()
@@ -1202,6 +1223,67 @@ fn thread_card(
             |card, editor| card.child(reply_box(page.busy.is_some(), ix, editor, cx)),
         )
         .into_any_element()
+}
+
+/// The resolve-reason picker (#213) — the Resolve button opens this
+/// row; every choice fires the resolve immediately (the enum's
+/// `ADDRESSED | WONT_FIX | INVALID`, or the plain resolve with the
+/// field omitted). Always visible once open (0019 house style — no
+/// hover-only discovery).
+fn resolve_picker_row(
+    busy: bool,
+    ix: usize,
+    thread_id: String,
+    cx: &Context<PrDetailPage>,
+) -> AnyElement {
+    let mut row = h_flex()
+        .debug_selector(|| "pr-resolve-picker-key".into())
+        .id(SharedString::from(format!("pr-thread-{ix}-resolve-picker")))
+        .w_full()
+        .min_w_0()
+        .mt_1()
+        .flex_wrap()
+        .gap_2()
+        .child(
+            Button::new(SharedString::from(format!("pr-thread-{ix}-resolve-plain")))
+                .ghost()
+                .xsmall()
+                .label("Resolve (no reason)")
+                .disabled(busy)
+                .on_click({
+                    let thread_id = thread_id.clone();
+                    cx.listener(move |this, _, window, cx| {
+                        this.set_thread_resolved(thread_id.clone(), true, None, window, cx)
+                    })
+                }),
+        );
+    for (label, reason) in ResolutionReason::CHOICES {
+        row = row.child(
+            Button::new(SharedString::from(format!(
+                "pr-thread-{ix}-resolve-{}",
+                reason.id_token()
+            )))
+            .ghost()
+            .xsmall()
+            .label(label)
+            .disabled(busy)
+            .on_click({
+                let thread_id = thread_id.clone();
+                cx.listener(move |this, _, window, cx| {
+                    this.set_thread_resolved(thread_id.clone(), true, Some(reason), window, cx)
+                })
+            }),
+        );
+    }
+    row.child(
+        Button::new(SharedString::from(format!("pr-thread-{ix}-resolve-cancel")))
+            .ghost()
+            .xsmall()
+            .label("Cancel")
+            .disabled(busy)
+            .on_click(cx.listener(|this, _, _, cx| this.cancel_resolve_picker(cx))),
+    )
+    .into_any_element()
 }
 
 /// The thread's open reply box (docs/0030 D4) — Send posts immediately

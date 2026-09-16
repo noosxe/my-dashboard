@@ -2361,6 +2361,13 @@ mod tests {
                 serde_json::json!({ "input": { "threadId": "RT_1" } }),
             ),
             (
+                // #213: the same document carries the optional reason —
+                // `PullRequestReviewThreadResolutionReason` enum token.
+                Mutation::ThreadResolve,
+                "resolveReviewThread",
+                serde_json::json!({ "input": { "threadId": "RT_1", "resolutionReason": "WONT_FIX" } }),
+            ),
+            (
                 Mutation::ThreadUnresolve,
                 "unresolveReviewThread",
                 serde_json::json!({ "input": { "threadId": "RT_1" } }),
