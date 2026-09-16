@@ -369,3 +369,22 @@ design text:
 - **Busy handling**: while any write is in flight every Files-tab button
   disables; Submit reads **Submitting…**. Post-mutation the threads refetch
   re-renders the pane — the detail query (and patches) are not refetched.
+
+### Follow-up — resolve-reason picker (#213)
+
+- **Live-verified schema (2026-09-16 introspection)**:
+  `ResolveReviewThreadInput.resolutionReason: PullRequestReviewThreadResolutionReason`
+  (optional enum, `ADDRESSED | WONT_FIX | INVALID`) — §3's record holds.
+  The **read** side `PullRequestReviewThread` has **no `resolutionReason`
+  field**, so the resolved chip stays generic ("Resolved by {login}") —
+  only the input carries the reason.
+- **Interaction**: the Resolve button no longer fires immediately; it
+  opens an always-visible picker row under the thread card (0019 house
+  style): **Resolve (no reason)** — field omitted, today's default —,
+  **Addressed**, **Won't fix**, **Invalid**, **Cancel**. One picker at a
+  time; it closes on any choice (success or failure — on failure the
+  Files-scope error row shows and the picker can be reopened).
+- **Bridge ids (D8)**: `pr-thread-{n}-resolve-picker`,
+  `-resolve-plain`, `-resolve-addressed`, `-resolve-wont-fix`,
+  `-resolve-invalid`, `-resolve-cancel`; probe selector
+  `pr-resolve-picker-key`.
