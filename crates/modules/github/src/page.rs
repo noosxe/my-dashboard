@@ -10,6 +10,8 @@
 
 use std::sync::Arc;
 
+use std::time::Duration;
+
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::{
@@ -40,6 +42,12 @@ use crate::service::{
     AuthStatus, ConnectPhase, FetchSpec, GithubState, Kind, ThreadOp, run_read_deduped,
     run_spec_tracked, start_connect,
 };
+
+/// docs/0032 D7: the detail-page refresh cadences. The heartbeat is
+/// aligned with the snapshot `TICK` — one mental model for "how fresh is
+/// this app"; the focus threshold filters alt-tab churn.
+const AUTO_REFRESH_INTERVAL: Duration = Duration::from_secs(60);
+const FOCUS_MIN_AGE: Duration = Duration::from_secs(15);
 
 pub(crate) struct GithubPage {
     state: Entity<GithubState>,
@@ -161,6 +169,32 @@ impl GithubPage {
             this.return_to_root(window, cx);
         })
         .detach();
+
+        // Auto-refresh triggers (docs/0032 D1/D3): one host-owned
+        // heartbeat and one window-activation observer. Both funnel into
+        // `refresh_open_page`, which is nav-gated so nothing refetches
+        // while another module owns the screen — pages stay alive behind
+        // other modules, which is exactly why the gate lives here.
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(AUTO_REFRESH_INTERVAL).await;
+                if this
+                    .update(cx, |this, cx| {
+                        this.refresh_open_page(AUTO_REFRESH_INTERVAL, cx)
+                    })
+                    .is_err()
+                {
+                    break; // the module root is gone — stop beating
+                }
+            }
+        })
+        .detach();
+        cx.observe_window_activation(window, |this, window, cx| {
+            if window.is_window_active() {
+                this.refresh_open_page(FOCUS_MIN_AGE, cx);
+            }
+        })
+        .detach();
         let page = Self {
             state,
             nav,
@@ -188,6 +222,25 @@ impl GithubPage {
             this.sync_from_state_in(window, cx);
         });
         page
+    }
+
+    /// docs/0032 D1: the heartbeat/focus entry point — refresh whichever
+    /// detail page is open, only while the github module owns the screen.
+    fn refresh_open_page(&mut self, min_age: Duration, cx: &mut Context<Self>) {
+        if !matches!(
+            self.nav.read(cx).page,
+            Page::Module(ref id) if id.as_ref() == "github"
+        ) {
+            return;
+        }
+        // Mutual exclusion (docs/0020 D1) — at most one slot is Some.
+        if let Some(page) = self.pr.as_ref() {
+            page.update(cx, |p, cx| p.auto_refresh(min_age, cx));
+        } else if let Some(page) = self.issue.as_ref() {
+            page.update(cx, |p, cx| p.auto_refresh(min_age, cx));
+        } else if let Some(page) = self.notification.as_ref() {
+            page.update(cx, |p, cx| p.auto_refresh(min_age, cx));
+        }
     }
 
     /// Effective org login: the Select choice or the default (first =
@@ -2105,6 +2158,104 @@ mod tests {
             "issues 137/100 shows the +37 more cell under the rows"
         );
     }
+    // --- auto-refresh host gating (docs/0032 D1) --------------------------
+
+    /// The heartbeat/focus entry point is nav-gated and slot-gated: no
+    /// dispatch while another module owns the screen, none with no page
+    /// open, one per beat while the github module shows an open page.
+    #[gpui::test]
+    fn refresh_open_page_gates_on_nav_and_slots(cx: &mut TestAppContext) {
+        use std::sync::Arc;
+        use std::time::Duration;
+
+        use crate::auth::MockTokenStore;
+        use crate::http::{Http, SharedToken, mock::MockHttp};
+        use crate::pr_page;
+        use crate::service::{AuthStatus, GithubCache, GithubState};
+        use dashboard_core::nav::{Navigator, Page};
+        use dashboard_core::paths::AppPaths;
+
+        cx.update(gpui_component::init);
+        cx.update(dashboard_core::status::init);
+        let cx = cx.add_empty_window();
+
+        // 1: the eager detail fetch; 2: the one gated-in beat.
+        let mock = Arc::new(MockHttp::new(vec![
+            Err(crate::http::HttpError("probe".into())),
+            Err(crate::http::HttpError("probe".into())),
+        ]));
+        let (_state, nav, page) = cx.update(|window, cx| {
+            let shared: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let refresh: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let state = cx.new(|_| {
+                GithubState::new(
+                    mock.clone() as Arc<dyn Http>,
+                    Arc::new(MockTokenStore::with("t0k".into())),
+                    shared,
+                    refresh,
+                    GithubCache::new(AppPaths::init()),
+                )
+            });
+            state.update(cx, |s, _| {
+                s.selected = Some("acme/one".into());
+                s.auth = AuthStatus::Connected;
+            });
+            let nav = cx.new(|_| Navigator::default());
+            let page = cx.new(|cx| GithubPage::new(state.clone(), nav.clone(), window, cx));
+            page.update(cx, |p, cx| {
+                let summary = crate::gql::PullRequest {
+                    key: "acme/one#7".into(),
+                    database_id: None,
+                    number: 7,
+                    title: "gating probe".into(),
+                    draft: false,
+                    state: None,
+                    author: None,
+                    updated_at: None,
+                    url: "https://probe".into(),
+                    status: None,
+                };
+                p.pr = Some(cx.new(|cx| {
+                    pr_page::PrDetailPage::new(
+                        state.clone(),
+                        "acme/one".into(),
+                        summary,
+                        None,
+                        window,
+                        cx,
+                    )
+                }));
+            });
+            (state, nav, page)
+        });
+
+        cx.run_until_parked();
+        assert_eq!(mock.recorded().len(), 1, "the eager detail fetch only");
+
+        // Another module owns the screen (Navigator defaults to Home):
+        // the beat must not touch the open page.
+        cx.update(|_, cx| page.update(cx, |p, cx| p.refresh_open_page(Duration::ZERO, cx)));
+        assert_eq!(mock.recorded().len(), 1, "nav-inactive beats are no-ops");
+
+        // The github module active + a failed detail lane: the beat
+        // dispatches exactly once.
+        cx.update(|_, cx| {
+            nav.update(cx, |n, _| n.page = Page::Module("github".into()));
+            page.update(cx, |p, cx| p.refresh_open_page(Duration::ZERO, cx));
+        });
+        cx.run_until_parked();
+        assert_eq!(mock.recorded().len(), 2, "nav-active beat refreshes");
+
+        // No page open: nothing to refresh.
+        cx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.pr = None;
+                p.refresh_open_page(Duration::ZERO, cx)
+            });
+        });
+        assert_eq!(mock.recorded().len(), 2, "no page, no beat");
+    }
+
     /// Module-crumb re-entry (docs/0014 §5 D7, issue #100):
     /// `return_to_root` drops the repo selection (state + List
     /// highlight) and closes the PR sub-page; the navigator is left
