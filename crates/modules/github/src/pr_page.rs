@@ -56,7 +56,7 @@ use crate::gql;
 use crate::markdown;
 use crate::page::relative_age;
 use crate::service::{
-    Fetch, FetchSpec, GithubState, Kind, Mutation, run_mutation, run_read_deduped,
+    Fetch, FetchSpec, GithubState, Kind, Mutation, run_mutation, run_spec_tracked,
 };
 
 actions!(github, [DismissPrPage]);
@@ -382,14 +382,14 @@ impl PrDetailPage {
             "pr-detail: fetching {}",
             spec.ident.as_deref().unwrap_or("?")
         );
-        // Arm the shared guard synchronously (docs/0031 D1/D2): a duplicate
-        // dispatch (a second refresh click while one is in flight) skips
-        // before the record's `begin` can orphan it. The wrapper's re-arm
-        // is idempotent for the key holder and its clear always follows
-        // the run.
-        let armed = self
-            .state
-            .update(cx, |s, _| s.in_flight_arm((spec.kind, spec.ident.clone())));
+        // Arm the shared guard synchronously (docs/0031 D1/D2): a
+        // duplicate dispatch (a second refresh click while one is in
+        // flight) skips before the record's `begin` can orphan it.
+        // Record-owning fetches dispatch on the raw lane and clear their
+        // own guard when the run lands — the wrapper's skip decision is
+        // for the stateless lanes only (docs/0031 §8).
+        let key = (spec.kind, spec.ident.clone());
+        let armed = self.state.update(cx, |s, _| s.in_flight_arm(key.clone()));
         if !armed {
             log::debug!("pr-detail: skipped — an identical read is in flight");
             return;
@@ -397,9 +397,8 @@ impl PrDetailPage {
         self.detail.begin();
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let Some(result) = run_read_deduped(state, spec, cx).await else {
-                return;
-            };
+            let result = run_spec_tracked(state.clone(), spec, cx).await;
+            cx.update(|cx| state.update(cx, |s, _| s.in_flight_clear(&key)));
             let _ = this.update(cx, |page, cx| page.apply_detail_result(result, cx));
         })
         .detach();
@@ -567,9 +566,8 @@ impl PrDetailPage {
             "pr-files: fetching {}",
             spec.ident.as_deref().unwrap_or("?")
         );
-        let armed = self
-            .state
-            .update(cx, |s, _| s.in_flight_arm((spec.kind, spec.ident.clone())));
+        let key = (spec.kind, spec.ident.clone());
+        let armed = self.state.update(cx, |s, _| s.in_flight_arm(key.clone()));
         if !armed {
             log::debug!("pr-files: skipped — an identical read is in flight");
             return;
@@ -577,9 +575,8 @@ impl PrDetailPage {
         self.files.begin();
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let Some(result) = run_read_deduped(state, spec, cx).await else {
-                return;
-            };
+            let result = run_spec_tracked(state.clone(), spec, cx).await;
+            cx.update(|cx| state.update(cx, |s, _| s.in_flight_clear(&key)));
             let _ = this.update(cx, |page, cx| page.apply_files_result(result, cx));
         })
         .detach();
@@ -683,9 +680,8 @@ impl PrDetailPage {
             "pr-threads: fetching {}",
             spec.ident.as_deref().unwrap_or("?")
         );
-        let armed = self
-            .state
-            .update(cx, |s, _| s.in_flight_arm((spec.kind, spec.ident.clone())));
+        let key = (spec.kind, spec.ident.clone());
+        let armed = self.state.update(cx, |s, _| s.in_flight_arm(key.clone()));
         if !armed {
             log::debug!("pr-threads: skipped — an identical read is in flight");
             return;
@@ -693,9 +689,8 @@ impl PrDetailPage {
         self.threads.begin();
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let Some(result) = run_read_deduped(state, spec, cx).await else {
-                return;
-            };
+            let result = run_spec_tracked(state.clone(), spec, cx).await;
+            cx.update(|cx| state.update(cx, |s, _| s.in_flight_clear(&key)));
             let _ = this.update(cx, |page, cx| page.apply_threads_result(result, cx));
         })
         .detach();
@@ -3691,6 +3686,80 @@ mod tests {
             changes: 3,
             patch: Some("@@ -1 +1 @@\n-a\n+b".into()),
         }
+    }
+
+    // --- fetch_detail through the guard (docs/0031 §5, #222 regression) -
+
+    /// A page-owned fetch arms the guard synchronously, dispatches on the
+    /// raw lane, and clears the guard when the run lands. The regression
+    /// this pins: dispatching through `run_read_deduped` made its re-arm
+    /// see the holder's key (`insert` → false), skip, and orphan the
+    /// record in-flight forever. ProbeHttp always errors, so a LANDED
+    /// error proves the apply path ran end-to-end.
+    #[gpui::test]
+    fn fetch_detail_lands_through_the_guard(cx: &mut gpui::TestAppContext) {
+        cx.update(dashboard_core::status::init);
+        cx.update(gpui_component::init);
+        let state: gpui::Entity<GithubState> = cx.update(|cx| {
+            let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
+            let store: std::sync::Arc<dyn crate::auth::TokenStore> =
+                std::sync::Arc::new(ProbeStore);
+            cx.new(|_| {
+                GithubState::new(
+                    client,
+                    store,
+                    Default::default(),
+                    Default::default(),
+                    GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                )
+            })
+        });
+        // fetch_detail refuses to dispatch while disconnected — connect
+        // the probe state (the real flow connects before pages exist).
+        cx.update(|cx| state.update(cx, |s, _| s.auth = crate::service::AuthStatus::Connected));
+
+        let (page, _vcx) = cx.add_window_view(|window, cx| {
+            let summary = gql::PullRequest {
+                key: "o/r#7".into(),
+                database_id: None,
+                number: 7,
+                title: "guard probe".into(),
+                draft: false,
+                state: None,
+                author: None,
+                updated_at: None,
+                url: "https://probe".into(),
+                status: None,
+            };
+            // `new` dispatches the first fetch — the transport errors.
+            PrDetailPage::new(state.clone(), "o/r".into(), summary, None, window, cx)
+        });
+
+        cx.run_until_parked();
+        let (landed, clear) = cx.update(|cx| {
+            (
+                page.read(cx).detail.load_error().is_some(),
+                state.read(cx).in_flight.is_empty(),
+            )
+        });
+        assert!(
+            landed,
+            "the fetch must land (here: as the scripted transport error) — \
+             a stuck in-flight record means the guard swallowed the dispatch"
+        );
+        assert!(clear, "the guard clears when the run lands");
+
+        // A second dispatch (the refresh click) runs the same way.
+        cx.update(|cx| page.update(cx, |page, cx| page.fetch_detail(cx)));
+        cx.run_until_parked();
+        let (landed, clear) = cx.update(|cx| {
+            (
+                page.read(cx).detail.load_error().is_some(),
+                state.read(cx).in_flight.is_empty(),
+            )
+        });
+        assert!(landed);
+        assert!(clear);
     }
 
     #[gpui::test]

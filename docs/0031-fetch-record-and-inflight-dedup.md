@@ -248,11 +248,14 @@ indicator will carry the ids/roles per 0010 D10, and can read
 - **`run_read_deduped`** (D1/D2/D6) wraps `run_spec_tracked`; skip is a
   `None` return. The tick loop and `GithubPage::run_specs` migrated.
 - **Page-owned fetches arm the guard synchronously** before their local
-  record's `begin()` (a refinement of D1: a duplicate refresh click must
-  skip *before* the record can be left orphaned in-flight), then dispatch
-  through the wrapper — whose re-arm is idempotent for the key holder and
-  whose clear always follows the run. PR page detail/files/threads and the
-  issue page detail all use this shape; their `FilesFetch`/`ThreadsFetch`
+  record's `begin()` (a duplicate refresh click must skip *before* the
+  record can be left orphaned in-flight) and dispatch on the **raw lane**,
+  clearing their guard when the run lands. An intermediate build dispatched
+  them through the wrapper instead — its re-arm saw the holder's key
+  (`insert` → `false`), skipped *every* page fetch, and stuck the detail
+  record in-flight; caught in owner testing (#222) and pinned by
+  `fetch_detail_lands_through_the_guard`. PR page detail/files/threads and
+  the issue page detail use this shape; their `FilesFetch`/`ThreadsFetch`
   enums and `detail`/`loading`/`load_error` triples are gone.
 - **Rendering unchanged where it was already shipped**: the files pane's
   error row (with retry) still replaces the pane on failure — including a
