@@ -1061,6 +1061,21 @@ impl PrDetailPage {
         if self.busy.is_some() {
             return;
         }
+        // #211: with the composer already open on this file+side, a
+        // click on another row extends the range to it — the range is
+        // always between the last two clicked rows; clicking the end
+        // row again collapses back to a single line. Same side only in
+        // v1; a different side or file starts a fresh composer.
+        if let Some(c) = self.line_composer.as_mut() {
+            if c.path == path && c.side == side {
+                if let Some((s, e)) = normalize_range((side, c.line), (side, line)) {
+                    c.line = e.1;
+                    c.start = if s.1 == e.1 { None } else { Some(s) };
+                    cx.notify();
+                    return;
+                }
+            }
+        }
         let editor = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(2, 10)
@@ -1071,6 +1086,7 @@ impl PrDetailPage {
             path,
             side,
             line,
+            start: None,
             editor,
         });
         cx.notify();
@@ -1099,13 +1115,20 @@ impl PrDetailPage {
             return;
         }
         let (path, side, line) = (composer.path.clone(), composer.side, composer.line);
-        let variables = json!({ "input": {
+        let start = composer.start;
+        let mut input = json!({
             "pullRequestId": d.id,
             "path": path,
             "line": line,
             "side": side.as_str(),
             "body": body,
-        } });
+        });
+        // #211: `startLine`/`startSide` ride along for ranges; omitted
+        // (byte-identical variables) for single-line comments.
+        for (k, v) in start_fields(start) {
+            input[k] = v;
+        }
+        let variables = json!({ "input": input });
         self.mutation_error = None;
         self.busy = Some(BusyOp::LineComment);
         cx.notify();
@@ -1133,6 +1156,7 @@ impl PrDetailPage {
             path: composer.path.clone(),
             side: composer.side,
             line: composer.line,
+            start: composer.start,
             body,
         };
         if self.finish_summary.is_none() {
@@ -1389,12 +1413,16 @@ impl PrDetailPage {
             .drafts
             .iter()
             .map(|draft| {
-                json!({
+                let mut thread = json!({
                     "body": draft.body,
                     "path": draft.path,
                     "line": draft.line,
                     "side": draft.side.as_str(),
-                })
+                });
+                for (k, v) in start_fields(draft.start) {
+                    thread[k] = v;
+                }
+                thread
             })
             .collect();
         let mut input = json!({
@@ -2806,8 +2834,13 @@ pub(crate) struct MutationError {
 /// plus its editor.
 pub(crate) struct LineComposer {
     pub(crate) path: String,
+    /// The range's END line (GitHub's `line`/`side` fields).
     pub(crate) side: gql::DiffSide,
     pub(crate) line: u32,
+    /// #211: the range's START line when a second row was picked — same
+    /// side only in v1 (cross-side spans need diff-order rules). None =
+    /// single-line comment.
+    pub(crate) start: Option<(gql::DiffSide, u32)>,
     pub(crate) editor: Entity<TextareaState>,
 }
 
@@ -2818,6 +2851,8 @@ pub(crate) struct LineDraft {
     pub(crate) path: String,
     pub(crate) side: gql::DiffSide,
     pub(crate) line: u32,
+    /// #211: the range's START line, when the draft spans lines.
+    pub(crate) start: Option<(gql::DiffSide, u32)>,
     pub(crate) body: String,
 }
 
@@ -2896,6 +2931,38 @@ impl ResolutionReason {
         ("Won't fix", ResolutionReason::WontFix),
         ("Invalid", ResolutionReason::Invalid),
     ];
+}
+
+/// #211: order two row anchors into a `(start, end)` range — same side
+/// only in v1 (cross-side spans need diff-order rules); None when the
+/// sides differ. Equal lines collapse (start == end).
+pub(crate) fn normalize_range(
+    a: (gql::DiffSide, u32),
+    b: (gql::DiffSide, u32),
+) -> Option<((gql::DiffSide, u32), (gql::DiffSide, u32))> {
+    if a.0 != b.0 {
+        return None;
+    }
+    if a.1 <= b.1 {
+        Some((a, b))
+    } else {
+        Some((b, a))
+    }
+}
+
+/// #211: the optional `startLine`/`startSide` input fields of
+/// `DraftPullRequestReviewThread` (verified live 2026-09-16) — an empty
+/// map for single-line comments, so the variables stay byte-identical
+/// to the pre-#211 shape.
+pub(crate) fn start_fields(
+    start: Option<(gql::DiffSide, u32)>,
+) -> serde_json::Map<String, serde_json::Value> {
+    let mut fields = serde_json::Map::new();
+    if let Some((side, line)) = start {
+        fields.insert("startLine".into(), json!(line));
+        fields.insert("startSide".into(), json!(side.as_str()));
+    }
+    fields
 }
 
 /// The composer's send gating (docs/0030 §5): a non-blank body.
@@ -3843,7 +3910,7 @@ mod tests {
 
     use crate::pr_page::{
         ResolutionReason, ThreadsFetch, build_md_cache, delete_row, edit_row, node_kind,
-        row_is_edited,
+        normalize_range, row_is_edited, start_fields,
     };
     use crate::service::{Kind, Mutation, SpecResult};
 
@@ -5044,6 +5111,106 @@ mod tests {
         assert!(
             vcx.debug_bounds("pr-thread-0-comment-0-delete-confirm-card")
                 .is_none()
+        );
+    }
+    #[test]
+    fn normalize_range_and_start_fields_tables() {
+        // #211: same-side anchors order into (start, end); different
+        // sides can't extend in v1; equal lines collapse. start_fields
+        // emits the exact DraftPullRequestReviewThread range fields and
+        // stays empty for single-line comments.
+        let (r, l) = (gql::DiffSide::Right, gql::DiffSide::Left);
+        assert_eq!(normalize_range((r, 5), (r, 2)), Some(((r, 2), (r, 5))));
+        assert_eq!(normalize_range((r, 2), (r, 5)), Some(((r, 2), (r, 5))));
+        assert_eq!(normalize_range((r, 3), (r, 3)), Some(((r, 3), (r, 3))));
+        assert_eq!(normalize_range((r, 3), (l, 3)), None);
+        assert_eq!(start_fields(None), serde_json::Map::new());
+        let mut want = serde_json::Map::new();
+        want.insert("startLine".into(), serde_json::json!(2));
+        want.insert("startSide".into(), serde_json::json!("RIGHT"));
+        assert_eq!(start_fields(Some((r, 2))), want);
+    }
+
+    #[gpui::test]
+    fn range_composer_extends_and_draft_lands_on_end_row(cx: &mut gpui::TestAppContext) {
+        // #211: clicking a second row extends the composer's range; the
+        // queued draft renders under the range's END row (GitHub renders
+        // range threads at the end line).
+        cx.update(gpui_component::init);
+        let state = cx.update(|cx| {
+            let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
+            let store: std::sync::Arc<dyn crate::auth::TokenStore> =
+                std::sync::Arc::new(ProbeStore);
+            cx.new(|_| {
+                GithubState::new(
+                    client,
+                    store,
+                    Default::default(),
+                    Default::default(),
+                    GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                )
+            })
+        });
+        let (page, vcx) = cx.add_window_view(|window, cx| {
+            let summary = gql::PullRequest {
+                key: "o/r#7".into(),
+                database_id: None,
+                number: 7,
+                title: "range probe".into(),
+                draft: false,
+                state: None,
+                author: None,
+                updated_at: None,
+                url: "https://probe".into(),
+                status: None,
+            };
+            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
+            page.tab = PrTab::Files;
+            page.files = FilesFetch::Ready(vec![PrFile {
+                filename: "src/main.rs".into(),
+                status: "modified".into(),
+                additions: 2,
+                deletions: 2,
+                changes: 4,
+                patch: Some("@@ -1,2 +1,2 @@\n-a\n-b\n+c\n+d".into()),
+            }]);
+            page.threads = ThreadsFetch::Ready(gql::PrThreads::default());
+            page.extend_threads_md();
+            page.apply_files_payload(cx);
+            page
+        });
+        // Arm on the +c row (RIGHT, line 1), extend on the +d row (RIGHT,
+        // line 2) — the range is lines 1\u{2013}2.
+        vcx.update(|window, cx| {
+            page.update(cx, |p, cx| {
+                p.open_line_composer("src/main.rs".into(), gql::DiffSide::Right, 1, window, cx);
+            });
+        });
+        vcx.update(|window, cx| {
+            page.update(cx, |p, cx| {
+                p.open_line_composer("src/main.rs".into(), gql::DiffSide::Right, 2, window, cx);
+            });
+        });
+        vcx.update(|window, cx| {
+            page.update(cx, |p, cx| {
+                assert_eq!(
+                    p.line_composer.as_ref().map(|c| (c.start, c.line)),
+                    Some((Some((gql::DiffSide::Right, 1)), 2)),
+                    "composer must hold the extended range"
+                );
+                let editor = p.line_composer.as_ref().unwrap().editor.clone();
+                editor.update(cx, |state, cx| {
+                    state.set_value("both lines", window, cx);
+                });
+                p.start_review_draft(window, cx);
+            });
+        });
+        // The composer closed; the draft renders under the range's END
+        // row (line 2), not the start row.
+        assert!(vcx.debug_bounds("pr-line-composer-key").is_none());
+        assert!(
+            vcx.debug_bounds("pr-draft-0-key").is_some(),
+            "range draft must render under its end row"
         );
     }
 }
