@@ -45,7 +45,9 @@ use gpui_component::{
 
 use crate::api;
 use crate::page::{notification_url, relative_age};
-use crate::service::{FetchSpec, GithubState, Kind, ThreadOp, run_spec_tracked};
+use std::time::Duration;
+
+use crate::service::{Fetch, FetchSpec, GithubState, Kind, ThreadOp, run_spec_tracked};
 
 actions!(github, [DismissNotificationPage]);
 
@@ -96,9 +98,10 @@ pub(crate) struct NotificationDetailPage {
     /// The row that opened the page — instant header paint while the
     /// thread GET is in flight (docs/0026 D2).
     seed: api::Notification,
-    /// The full thread payload (docs/0026 §2.1) — `None` until the GET
-    /// lands; the page degrades to the seed render when it never does.
-    thread: Option<api::Notification>,
+    /// The full thread payload (docs/0026 §2.1) — the 0031/0032 fetch
+    /// record: `Idle` until the GET lands, seed-degraded render while it
+    /// never does, stale-on-error keeps the payload (docs/0032 D4).
+    thread: Fetch<api::Thread>,
     /// The rendered read state (docs/0026 D3): starts from the row,
     /// flips to Read the instant the mark fires, reverts only on a
     /// failed mark. The thread GET can confirm Read, never undo it.
@@ -108,9 +111,6 @@ pub(crate) struct NotificationDetailPage {
     /// the button, `Failed` re-arms it as the retry. No optimistic
     /// flip — a settled done closes the page instead of repainting it.
     done: MarkState,
-    /// The thread GET in flight.
-    loading: bool,
-    load_error: Option<String>,
     focus_handle: FocusHandle,
 }
 
@@ -136,12 +136,10 @@ impl NotificationDetailPage {
         let mut page = Self {
             state,
             seed,
-            thread: None,
+            thread: Fetch::new(),
             read,
             mark: MarkState::Idle,
             done: MarkState::Idle,
-            loading: false,
-            load_error: None,
             focus_handle: cx.focus_handle(),
         };
         if !read {
@@ -160,7 +158,7 @@ impl NotificationDetailPage {
     /// lands, the seed until then (docs/0026 D2 — the page is never
     /// blank while loading).
     fn effective(&self) -> &api::Notification {
-        self.thread.as_ref().unwrap_or(&self.seed)
+        self.thread.data().unwrap_or(&self.seed)
     }
 
     // --- network -------------------------------------------------------------
@@ -306,20 +304,34 @@ impl NotificationDetailPage {
         let state = self.state.clone();
         let spec = self.thread_spec();
         log::debug!("thread-detail: fetching {}", self.thread_id());
-        self.loading = true;
-        self.load_error = None;
+        // Page-owned dispatch (docs/0031 §8): arm the shared guard
+        // synchronously, run on the raw lane, clear on land.
+        let key = (spec.kind, spec.ident.clone());
+        let armed = self.state.update(cx, |s, _| s.in_flight_arm(key.clone()));
+        if !armed {
+            log::debug!("thread-detail: skipped — an identical read is in flight");
+            return;
+        }
+        self.thread.begin();
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result = run_spec_tracked(state, spec, cx).await;
+            let result = run_spec_tracked(state.clone(), spec, cx).await;
+            cx.update(|cx| state.update(cx, |s, _| s.in_flight_clear(&key)));
             let _ = this.update(cx, |page, cx| page.apply_thread_result(result, cx));
         })
         .detach();
     }
 
+    /// docs/0032 D2/D4: the host heartbeat and focus trigger land here.
+    pub(crate) fn auto_refresh(&mut self, min_age: Duration, cx: &mut Context<Self>) {
+        if self.thread.needs_refresh(min_age) {
+            self.fetch_thread(cx);
+        }
+    }
+
     fn apply_thread_result(&mut self, result: crate::service::SpecResult, cx: &mut Context<Self>) {
-        self.loading = false;
         if let Some(m) = &result.network {
-            self.load_error = Some(format!("Network error: {m}"));
+            self.thread.fail(format!("Network error: {m}"));
         } else if result.status != 200 {
             // Shared auth/rate-limit handling (page-owned convention).
             let status = result.status;
@@ -327,7 +339,7 @@ impl NotificationDetailPage {
                 s.apply(result);
                 cx.notify();
             });
-            self.load_error = Some(format!("GitHub answered HTTP {status}"));
+            self.thread.fail(format!("GitHub answered HTTP {status}"));
         } else if let Some(body) = result.body {
             match serde_json::from_str::<api::Thread>(&body) {
                 Ok(thread) => {
@@ -342,9 +354,9 @@ impl NotificationDetailPage {
                     if !thread.unread {
                         self.read = true;
                     }
-                    self.thread = Some(thread);
+                    self.thread.land(thread);
                 }
-                Err(e) => self.load_error = Some(format!("thread payload: {e}")),
+                Err(e) => self.thread.fail(format!("thread payload: {e}")),
             }
         }
         cx.notify();
@@ -407,7 +419,7 @@ impl NotificationDetailPage {
 
     fn render_header(&self, cx: &Context<Self>) -> AnyElement {
         let n = self.effective();
-        let repo = if self.thread.is_some() {
+        let repo = if self.thread.is_ready() {
             n.repository.full_name.clone()
         } else {
             self.seed.repository.full_name.clone()
@@ -449,7 +461,7 @@ impl NotificationDetailPage {
                                     .child("Unread")
                             })
                             .when(
-                                self.loading
+                                self.thread.is_loading()
                                     || self.mark == MarkState::InFlight
                                     || self.done == MarkState::InFlight,
                                 |row| row.child(Spinner::new().xsmall()),
@@ -651,7 +663,7 @@ impl Render for NotificationDetailPage {
             .p_4()
             .gap_3()
             .child(self.render_header(cx))
-            .when_some(self.load_error.clone(), |col, err| {
+            .when_some(self.thread.load_error().map(str::to_string), |col, err| {
                 col.child(
                     div()
                         .id("notification-load-error")
@@ -902,7 +914,7 @@ mod tests {
         assert_eq!(mark, MarkState::Failed);
         // Thread GET landed fine — no load error, and the retry button
         // is visible (hidden-not-disabled while Read).
-        assert!(vcx.read(|cx| page.read(cx).load_error.is_none()));
+        assert!(vcx.read(|cx| page.read(cx).thread.load_error().is_none()));
         assert!(vcx.debug_bounds("notification-mark-read").is_some());
         // Real click on the retry button.
         let button = vcx
@@ -929,6 +941,50 @@ mod tests {
         assert!(vcx.read(|cx| page.read(cx).read));
     }
 
+    // --- auto_refresh (docs/0032 D2/D4) -----------------------------------
+
+    #[gpui::test]
+    fn auto_refresh_dispatches_stale_and_skips_fresh(cx: &mut gpui::TestAppContext) {
+        use std::time::Duration;
+        // Zero threshold = "stale enough" — the beat dispatches; a huge
+        // one sees the just-landed record as fresh and must not fetch.
+        let mock = lane_mock(0, 200, thread_payload("Issue", Some("u"), false));
+        let (page, vcx) = probe_page(cx, probe_seed(false, "Issue", Some("u")), mock.clone());
+        vcx.run_until_parked();
+        assert_eq!(mock.verbs(), vec![Verb::Get], "the open-time GET only");
+
+        vcx.update(|_, cx| page.update(cx, |p, cx| p.auto_refresh(Duration::ZERO, cx)));
+        vcx.run_until_parked();
+        assert_eq!(
+            mock.verbs(),
+            vec![Verb::Get, Verb::Get],
+            "a stale (age >= min_age) lane re-dispatches"
+        );
+
+        vcx.update(|_, cx| page.update(cx, |p, cx| p.auto_refresh(Duration::from_secs(3600), cx)));
+        vcx.run_until_parked();
+        assert_eq!(
+            mock.verbs(),
+            vec![Verb::Get, Verb::Get],
+            "fresh data is never re-fetched"
+        );
+    }
+
+    #[gpui::test]
+    fn auto_refresh_retries_a_failed_thread_at_any_age(cx: &mut gpui::TestAppContext) {
+        use std::time::Duration;
+        // The GET fails -> Failed record -> the next trigger self-heals
+        // (docs/0032 D2), regardless of the threshold.
+        let mock = lane_mock(0, 500, thread_payload("Issue", Some("u"), false));
+        let (page, vcx) = probe_page(cx, probe_seed(false, "Issue", Some("u")), mock.clone());
+        vcx.run_until_parked();
+        assert!(vcx.read(|cx| page.read(cx).thread.load_error().is_some()));
+
+        vcx.update(|_, cx| page.update(cx, |p, cx| p.auto_refresh(Duration::from_secs(3600), cx)));
+        vcx.run_until_parked();
+        assert_eq!(mock.verbs(), vec![Verb::Get, Verb::Get]);
+    }
+
     #[gpui::test]
     fn thread_get_failure_degrades_to_seed(cx: &mut gpui::TestAppContext) {
         // docs/0026 D2: a failed thread GET keeps the seed-rendered page
@@ -938,7 +994,10 @@ mod tests {
         vcx.run_until_parked();
         let (err, thread) = vcx.read(|cx| {
             let p = page.read(cx);
-            (p.load_error.clone(), p.thread.is_some())
+            (
+                p.thread.load_error().map(str::to_string),
+                p.thread.is_ready(),
+            )
         });
         assert!(err.is_some());
         assert!(!thread);

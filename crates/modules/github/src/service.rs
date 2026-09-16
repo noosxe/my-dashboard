@@ -605,6 +605,18 @@ impl<T> Fetch<T> {
     pub(crate) fn age(&self) -> Option<Duration> {
         self.fetched_at().map(|t| t.elapsed())
     }
+
+    /// The 0032 refresh policy (D2): a lane wants a re-dispatch iff it
+    /// is not in flight and either failed (self-heal — `Failed` and
+    /// failed-refreshes-over-data both count via `load_error`) or holds
+    /// landed data at least `min_age` old. Untouched (`Idle`) lanes
+    /// never qualify, so a background beat cannot fetch a surface the
+    /// user has not opened.
+    pub(crate) fn needs_refresh(&self, min_age: Duration) -> bool {
+        !self.is_loading()
+            && (self.load_error().is_some()
+                || (self.is_ready() && self.age().is_some_and(|age| age >= min_age)))
+    }
 }
 #[derive(Clone, Debug)]
 pub struct FetchSpec {
@@ -3621,6 +3633,35 @@ mod tests {
     fn slug_is_filename_safe() {
         assert_eq!(slug("owner/repo.name-x"), "owner__repo.name-x");
         assert_eq!(slug("weird/name~!"), "weird__name__");
+    }
+
+    #[test]
+    fn needs_refresh_policy_table() {
+        // docs/0032 D2: loading never; Idle never (no surprise fetch of
+        // an unopened lane); Ready by age; failed retries at any age.
+        let fresh = Duration::from_secs(3600);
+        let stale = Duration::ZERO;
+
+        let mut loading = Fetch::<u8>::new();
+        loading.begin();
+        assert!(!loading.needs_refresh(stale));
+
+        let idle = Fetch::<u8>::new();
+        assert!(
+            !idle.needs_refresh(stale),
+            "Idle lanes are never beat-eligible"
+        );
+
+        let ready = Fetch::ready(1u8);
+        assert!(
+            !ready.needs_refresh(fresh),
+            "fresh data is never re-fetched"
+        );
+        assert!(ready.needs_refresh(stale), "age >= min_age dispatches");
+
+        let mut failed = Fetch::<u8>::new();
+        failed.fail("boom".into());
+        assert!(failed.needs_refresh(fresh), "Failed lanes self-heal");
     }
 
     #[test]

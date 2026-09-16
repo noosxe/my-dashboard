@@ -23,6 +23,7 @@
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
+use std::time::Duration;
 
 use gpui_component::{
     ActiveTheme, Disableable, IconName, Sizable as _,
@@ -329,6 +330,13 @@ impl IssueDetailPage {
             let _ = this.update(cx, |page, cx| page.apply_detail_result(result, cx));
         })
         .detach();
+    }
+
+    /// docs/0032 D2: the host heartbeat and focus trigger land here.
+    pub(crate) fn auto_refresh(&mut self, min_age: Duration, cx: &mut Context<Self>) {
+        if self.detail.needs_refresh(min_age) {
+            self.fetch_detail(cx);
+        }
     }
 
     fn apply_detail_result(&mut self, result: crate::service::SpecResult, cx: &mut Context<Self>) {

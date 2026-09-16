@@ -696,6 +696,21 @@ impl PrDetailPage {
         .detach();
     }
 
+    /// docs/0032 D2: the host heartbeat and focus trigger land here —
+    /// each lane re-dispatches by its own record (stale or failed);
+    /// unopened (Idle) lanes stay untouched.
+    pub(crate) fn auto_refresh(&mut self, min_age: Duration, cx: &mut Context<Self>) {
+        if self.detail.needs_refresh(min_age) {
+            self.fetch_detail(cx);
+        }
+        if self.files.needs_refresh(min_age) {
+            self.fetch_files(cx);
+        }
+        if self.threads.needs_refresh(min_age) {
+            self.fetch_threads(cx);
+        }
+    }
+
     fn apply_threads_result(&mut self, result: crate::service::SpecResult, cx: &mut Context<Self>) {
         if let Some(m) = &result.network {
             self.threads.fail(format!("Network error: {m}"));
@@ -3689,6 +3704,109 @@ mod tests {
     }
 
     // --- fetch_detail through the guard (docs/0031 §5, #222 regression) -
+
+    // --- auto_refresh policy (docs/0032 D2) -------------------------------
+
+    /// One page, the whole policy table over real dispatches: stale and
+    /// failed lanes re-dispatch, a fresh lane never does, Idle lanes
+    /// (threads here) stay untouched, and the in-flight guard swallows a
+    /// beat that races a manual refresh. MockHttp records every request;
+    /// its script panics on unexpected ones.
+    #[gpui::test]
+    fn auto_refresh_policy_over_real_dispatches(cx: &mut gpui::TestAppContext) {
+        use std::sync::Arc;
+        use std::time::Duration;
+
+        use crate::auth::MockTokenStore;
+        use crate::http::{Http, SharedToken, mock::MockHttp};
+        use crate::service::{GithubCache, GithubState};
+
+        cx.update(dashboard_core::status::init);
+        cx.update(gpui_component::init);
+        // 1: the eager detail fetch at `new`; 2-5: the beat dispatches
+        // (the files refetch fails too, so it becomes a Failed lane and
+        // retries on the following beat — that IS the policy).
+        let mock = Arc::new(MockHttp::new(vec![
+            Err(crate::http::HttpError("probe".into())),
+            Err(crate::http::HttpError("probe".into())),
+            Err(crate::http::HttpError("probe".into())),
+            Err(crate::http::HttpError("probe".into())),
+            Err(crate::http::HttpError("probe".into())),
+            Err(crate::http::HttpError("probe".into())),
+            Err(crate::http::HttpError("probe".into())),
+            Err(crate::http::HttpError("probe".into())),
+        ]));
+        let state: gpui::Entity<GithubState> = cx.update(|cx| {
+            let shared: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let refresh: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            cx.new(|_| {
+                GithubState::new(
+                    mock.clone() as Arc<dyn Http>,
+                    Arc::new(MockTokenStore::with("t0k".into())),
+                    shared,
+                    refresh,
+                    GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                )
+            })
+        });
+        cx.update(|cx| state.update(cx, |s, _| s.auth = crate::service::AuthStatus::Connected));
+
+        let (page, _vcx) = cx.add_window_view(|window, cx| {
+            let summary = gql::PullRequest {
+                key: "o/r#7".into(),
+                database_id: None,
+                number: 7,
+                title: "policy probe".into(),
+                draft: false,
+                state: None,
+                author: None,
+                updated_at: None,
+                url: "https://probe".into(),
+                status: None,
+            };
+            PrDetailPage::new(state.clone(), "o/r".into(), summary, None, window, cx)
+        });
+        cx.run_until_parked();
+        assert_eq!(mock.recorded().len(), 1, "the eager detail fetch only");
+        cx.update(|cx| {
+            page.update(cx, |p, _| {
+                p.files = Fetch::ready(vec![probe_file("src/a.rs")])
+            })
+        });
+
+        // Beat at zero threshold: detail (Failed) + files (stale enough)
+        // dispatch; threads (Idle — never opened) must not.
+        cx.update(|cx| page.update(cx, |p, cx| p.auto_refresh(Duration::ZERO, cx)));
+        cx.run_until_parked();
+        assert_eq!(
+            mock.recorded().len(),
+            3,
+            "failed + stale dispatch, Idle skips"
+        );
+
+        // Beat at an hour threshold: both failed lanes retry (the files
+        // refetch just failed — failed lanes self-heal at any age); the
+        // threads lane stays untouched.
+        cx.update(|cx| page.update(cx, |p, cx| p.auto_refresh(Duration::from_secs(3600), cx)));
+        cx.run_until_parked();
+        assert_eq!(mock.recorded().len(), 5, "Failed lanes retry at any age");
+
+        // A beat racing a manual refresh: with every other lane fresh,
+        // arm the detail key as if a dispatch were in flight — the beat
+        // must swallow it and dispatch nothing.
+        cx.update(|cx| {
+            page.update(cx, |p, _| {
+                p.files = Fetch::ready(vec![probe_file("src/a.rs")])
+            });
+            let detail = (crate::service::Kind::PrDetail, Some("o/r#7".to_string()));
+            state.update(cx, |s, _| {
+                s.in_flight_arm(detail);
+            });
+            page.update(cx, |p, cx| p.auto_refresh(Duration::from_secs(3600), cx));
+        });
+        cx.run_until_parked();
+        assert_eq!(mock.recorded().len(), 5, "the guard ate the racing beat");
+    }
 
     /// A page-owned fetch arms the guard synchronously, dispatches on the
     /// raw lane, and clears the guard when the run lands. The regression

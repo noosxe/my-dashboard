@@ -218,3 +218,32 @@ Single issue, ordered so each step ships green:
 - **(d) Backoff on repeated failures** — a `Failed` lane retries each
   beat; with the transport down that is one failing request/60s. Default:
   accept for v1; file as deferred if it ever shows in logs.
+
+## 8. Shipped (#227)
+
+All decisions shipped as designed, with two recorded refinements:
+
+- **D2 refinement — `Idle` lanes never qualify.** The policy landed as
+  `Fetch::needs_refresh(min_age)` in service.rs: `!is_loading() && (load_error.is_some()
+  || (is_ready() && age >= min_age))`. The design formula did not exclude never-fetched
+  (`Idle`) lanes; doing so is what makes a background beat unable to fetch a surface the
+  user has not opened (an unopened Files tab, a threads lane that only materializes on
+  the diff). Fresh-skip and stale-dispatch are both exercised through the same
+  `min_age` parameter the two constants feed, so the threshold tests (§5.3) run as
+  3600s-vs-ZERO on the policy function; the focus callback itself is glue over
+  `is_window_active()`.
+- **The notification page's seed-degrade survives the record swap (D4).**
+  `thread: Option<api::Notification>` became `Fetch<api::Thread>` (`Thread` is an
+  existing alias); `effective()` reads `data().unwrap_or(&seed)`, the spinner condition
+  and the error row render from the record, and the page-owned dispatch arms the guard
+  synchronously / clears it on land (0031 §8 pattern). `MarkState` lifecycles and the
+  GET-confirms-Read rule are untouched.
+
+Shipped surface: `AUTO_REFRESH_INTERVAL`/`FOCUS_MIN_AGE` in page.rs (D7); the detached
+heartbeat loop and the `observe_window_activation` subscription in `GithubPage::new`;
+`refresh_open_page(min_age)` (nav-gated on `Page::Module("github")`, slot-gated on the
+open page); `auto_refresh(min_age)` on all three detail pages. The notification tests
+cover stale-dispatch / fresh-skip / failed-retry over a counting verb mock; the PR-page
+policy table runs over real dispatches with a scripted-transport count (including the
+beat that races an armed guard and must dispatch nothing); the host gating test pins
+nav-inactive no-op / gated-in single dispatch / no-page no-op.
