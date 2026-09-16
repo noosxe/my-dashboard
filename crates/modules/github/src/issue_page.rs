@@ -171,8 +171,8 @@ struct PickerDraft {
     checked: Vec<bool>,
 }
 
-/// The picker source fetch lifecycle (0022 D5) — the files-sidebar
-/// `FilesFetch` pattern, generic over the parsed page.
+/// The picker source fetch lifecycle (0022 D5) — the page fetch-record
+/// pattern (docs/0031 `Fetch<T>`), generic over the parsed page.
 #[derive(Debug, Default)]
 enum PickerFetch<T> {
     #[default]
