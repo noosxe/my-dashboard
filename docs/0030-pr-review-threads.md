@@ -414,3 +414,29 @@ design text:
   `{key}-confirm`/`{key}-cancel`; probe keys
   `pr-thread-{i}-comment-{m}-edit-card` and
   `pr-thread-{i}-comment-{m}-delete-confirm-card`.
+
+### Follow-up — multi-line comment authoring (#211)
+
+- **Live-verified schema (2026-09-16 introspection)**:
+  `DraftPullRequestReviewThread { path, line, side, startLine, startSide,
+  body }` — §3's record holds; the range fields are optional, so
+  single-line variables stay byte-identical to the pre-#211 shape.
+- **Gesture**: with the row composer open on a file+side, clicking
+  another row's `+` extends the range — the range is always between the
+  last two clicked rows (`normalize_range`, same side only in v1);
+  clicking the end row again collapses back to a single line. A click on
+  a different file or side starts a fresh composer (one unsubmitted text
+  at a time, D4). Cross-side ranges (a span covering a hunk's Del→Add
+  rows) are possible on GitHub web but need diff-order rules — follow-up
+  material, not attempted here.
+- **Wire shape**: `startLine`/`startSide` are emitted by one helper
+  (`start_fields`) used by both the single-thread post and the batched
+  `threads` array; `line`/`side` always carry the range END.
+- **Placement (D3)**: a range thread anchors when ANY line of its span
+  maps to a diff row — under the LAST mapped row (GitHub renders range
+  threads at the range end); spans wider than 10k lines fall back to the
+  end row alone. Thread cards read "lines s–e" in the header; drafts and
+  the open composer show the span under their end row.
+- **Tests**: `normalize_range`/`start_fields` tables, range round-trips
+  (single + batch), placement table (inside / partial / inverted /
+  missing spans), and a probe (extend → draft lands on the end row).

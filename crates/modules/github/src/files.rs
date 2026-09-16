@@ -680,9 +680,23 @@ pub(crate) fn place_threads<'a>(
                     .line
                     .and_then(|l| u32::try_from(l).ok())
                     .filter(|l| *l != 0);
+                let start_line = t
+                    .start_line
+                    .and_then(|l| u32::try_from(l).ok())
+                    .filter(|l| *l != 0);
                 let slot = match (t.is_outdated, line) {
                     (true, _) | (_, None) => None,
-                    (false, Some(l)) => anchor_at.get(&(t.side, l)).copied(),
+                    (false, Some(end)) => match start_line {
+                        // #211: ranges anchor under the LAST row their
+                        // span maps to (GitHub renders the card at the
+                        // range end); a span that only partly overlaps
+                        // the patch still anchors. Absurd spans fall
+                        // back to the end row alone.
+                        Some(s) if s < end && end - s <= 10_000 => (s..=end)
+                            .rev()
+                            .find_map(|l| anchor_at.get(&(t.side, l)).copied()),
+                        _ => anchor_at.get(&(t.side, end)).copied(),
+                    },
                 };
                 match slot {
                     Some(row_ix) => placed.anchored.entry(row_ix).or_default().push((ix, t)),
@@ -886,6 +900,17 @@ fn line_composer_card(
             .border_color(cx.theme().border)
             .p_2()
             .gap_1()
+            .when_some(composer.start, |card, (_, s)| {
+                card.child(
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(format!(
+                            "Commenting on lines {}\u{2013}{} — pick another row to extend",
+                            s, composer.line
+                        )),
+                )
+            })
             .child(Textarea::new(&composer.editor))
             .child(
                 h_flex()
@@ -963,6 +988,14 @@ fn draft_rows(
                                 .color(cx.theme().warning)
                                 .child("Pending"),
                         )
+                        .when_some(d.start, |chip, (_, s)| {
+                            chip.child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(format!("lines {}\u{2013}{}", s, d.line)),
+                            )
+                        })
                         .child(div().flex_1())
                         .child(
                             Button::new(SharedString::from(format!("pr-draft-{ix}-discard")))
@@ -1102,6 +1135,29 @@ fn thread_card(
         .unwrap_or_else(|| "ghost".into());
     let replies = t.comments.len().saturating_sub(1);
     let permalink = t.comments.first().and_then(|c| c.url.clone());
+    // #211: multi-line threads say which lines they span.
+    let end = t
+        .line
+        .and_then(|l| u32::try_from(l).ok())
+        .filter(|l| *l != 0);
+    let start = t
+        .start_line
+        .and_then(|l| u32::try_from(l).ok())
+        .filter(|l| *l != 0);
+    let span = match (start, end) {
+        (Some(s), Some(e)) if s < e => format!("lines {s}\u{2013}{e}"),
+        (_, Some(e)) => format!("line {e}"),
+        _ => String::new(),
+    };
+    let header = if replies > 0 && !span.is_empty() {
+        format!("{author} · {span} · {} replies", replies + 1)
+    } else if replies > 0 {
+        format!("{author} · {} replies", replies + 1)
+    } else if !span.is_empty() {
+        format!("{author} · {span}")
+    } else {
+        author.clone()
+    };
     div()
         .debug_selector(move || format!("pr-thread-{ix}-card"))
         .id(SharedString::from(format!("pr-thread-{ix}")))
@@ -1125,11 +1181,7 @@ fn thread_card(
                         .truncate()
                         .text_xs()
                         .text_color(cx.theme().muted_foreground)
-                        .child(if replies > 0 {
-                            format!("{author} · {} replies", replies + 1)
-                        } else {
-                            author.clone()
-                        }),
+                        .child(header),
                 )
                 .child(thread_chip(t, cx))
                 .child(div().flex_1())
@@ -1776,11 +1828,23 @@ mod tests {
         subject: ThreadSubject,
         outdated: bool,
     ) -> PrThread {
+        fixture_thread_range(ix, path, line, None, side, subject, outdated)
+    }
+
+    fn fixture_thread_range(
+        ix: usize,
+        path: &str,
+        line: Option<i64>,
+        start_line: Option<i64>,
+        side: DiffSide,
+        subject: ThreadSubject,
+        outdated: bool,
+    ) -> PrThread {
         PrThread {
             id: format!("T_{ix}"),
             path: path.into(),
             line,
-            start_line: None,
+            start_line,
             side,
             subject,
             is_outdated: outdated,
@@ -1806,6 +1870,66 @@ mod tests {
 
     fn rows_for(patch: &str) -> Vec<AnchoredLine> {
         anchor_patch(patch)
+    }
+
+    #[test]
+    fn placement_anchors_ranges_at_their_last_mapped_row() {
+        // #211 (D3): a thread spanning lines anchors when ANY line of
+        // its range maps to a row — under the LAST such row, GitHub's
+        // range-end convention. Rows: 0 hunk, 1 ctx(new 11), 2 del(old
+        // 11), 3 add(new 12).
+        let rows = rows_for("@@ -10,2 +11,2 @@\n ctx\n-del\n+add");
+        let threads = [
+            // 2..=12 on RIGHT: only 11 and 12 map; anchors under row 3.
+            fixture_thread_range(
+                0,
+                "f.rs",
+                Some(12),
+                Some(2),
+                DiffSide::Right,
+                ThreadSubject::Line,
+                false,
+            ),
+            // 1..=11 on RIGHT: only 11 maps (range start outside the
+            // patch) — still anchored, under row 1.
+            fixture_thread_range(
+                1,
+                "f.rs",
+                Some(11),
+                Some(1),
+                DiffSide::Right,
+                ThreadSubject::Line,
+                false,
+            ),
+            // 12..=40 on RIGHT: inverted span falls back to the end row.
+            fixture_thread_range(
+                2,
+                "f.rs",
+                Some(12),
+                Some(40),
+                DiffSide::Right,
+                ThreadSubject::Line,
+                false,
+            ),
+            // 1..=5 on RIGHT: nothing in range maps — stray.
+            fixture_thread_range(
+                3,
+                "f.rs",
+                Some(5),
+                Some(1),
+                DiffSide::Right,
+                ThreadSubject::Line,
+                false,
+            ),
+        ];
+        let placed = place_threads(&threads, "f.rs", &rows);
+        assert_eq!(placed.anchored.get(&3).unwrap()[0].0, 0);
+        assert_eq!(placed.anchored.get(&1).unwrap()[0].0, 1);
+        assert_eq!(
+            placed.stray.iter().map(|&(ix, _)| ix).collect::<Vec<_>>(),
+            vec![3]
+        );
+        assert!(placed.file_level.is_empty());
     }
 
     #[test]

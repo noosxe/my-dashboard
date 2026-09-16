@@ -2341,6 +2341,21 @@ mod tests {
                 } }),
             ),
             (
+                // #211: the same document carries the optional range —
+                // `startLine`/`startSide` (verified live 2026-09-16).
+                Mutation::ReviewThread,
+                "addPullRequestReviewThread",
+                serde_json::json!({ "input": {
+                    "pullRequestId": "PR_1",
+                    "path": "src/main.rs",
+                    "line": 16,
+                    "side": "RIGHT",
+                    "startLine": 14,
+                    "startSide": "RIGHT",
+                    "body": "nit on both lines"
+                } }),
+            ),
+            (
                 Mutation::ReviewThreadReply,
                 "addPullRequestReviewComment",
                 serde_json::json!({ "input": { "body": "agreed", "inReplyTo": "RC_9" } }),
@@ -2357,8 +2372,9 @@ mod tests {
                     "threads": [
                         { "body": "first", "path": "src/main.rs", "line": 14, "side": "RIGHT" },
                         { "body": "second", "path": "src/lib.rs", "line": 2, "side": "LEFT" },
+                        { "body": "third", "path": "src/main.rs", "line": 16, "side": "RIGHT", "startLine": 14, "startSide": "RIGHT" },
                     ],
-                    "body": "two nits"
+                    "body": "three nits"
                 } }),
             ),
             (
