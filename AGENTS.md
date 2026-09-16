@@ -35,6 +35,7 @@ Working rules for AI agents in this repository. Follow precisely.
 ### PR discipline (both flows)
 
 - **PRs stay focused.** Any issue that does not directly interfere with the current feature implementation must be filed on GitHub for later pickup. Suggested improvements and follow-ups must also be filed, not implemented opportunistically.
+- **Cut work is filed, not memorized.** Anything a design doc deliberately excludes (its *Non-goals* section) or a PR consciously defers gets a GitHub issue before the doc's implementation merges — the non-goal section records the decision, the issue keeps the work actionable. Tag those issues `deferred` so consciously postponed work is one label filter away; pure roadmap items (docs/0029 §5) that were never in anyone's scope stay untagged.
 - PR bodies carry a human-check list — interactive/visual verification is the product owner's job. For UI-facing changes, exercise the change through the debug bridge first (see below) and say so in the PR body.
 - Run the gates before pushing: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets` (zero warnings), `cargo test --workspace`. The clippy gate includes the token-discipline lints from `clippy.toml` (docs/0002 D5/D9/D10: no ad-hoc `text_size`/`line_height`, no literal color constructors) — a `disallowed_methods` warning means a styling rule was broken, not a false positive; exceptions need `#[allow(clippy::disallowed_methods)]` plus a justifying comment.
 
