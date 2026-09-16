@@ -388,3 +388,29 @@ design text:
   `-resolve-plain`, `-resolve-addressed`, `-resolve-wont-fix`,
   `-resolve-invalid`, `-resolve-cancel`; probe selector
   `pr-resolve-picker-key`.
+
+### Follow-up — review-comment edit/delete (#212)
+
+- **Live-verified schema (2026-09-16 introspection)**:
+  `UpdatePullRequestReviewCommentInput { pullRequestReviewCommentId: ID!,
+  body }` — the id field is **`pullRequestReviewCommentId`**, unlike the
+  timeline edits' `id` / `pullRequestReviewId`;
+  `DeletePullRequestReviewCommentInput { id: ID! }`.
+- **The 0019 D4/D5 row pattern applied to thread comments**: Edit/Delete
+  ghost buttons on the viewer's own comments (`viewerCanUpdate` /
+  `viewerCanDelete`, parsed since stage 1); the comment swaps to the
+  shared `inline_edit_card` / `delete_confirm_card` while armed. One
+  editor anywhere on the page — thread surfaces yield to the timeline
+  editor/description/confirm and vice versa, and clear the resolve
+  picker. Save gated on a non-blank body (derived in `inline_edit_card`,
+  re-checked in the handler).
+- Failures land in `ErrorScope::Files` (inline in the diff pane, D7);
+  the surface that fired stays open with its text. Deleting a thread's
+  root comment removes the whole thread card after the threads refetch.
+- The comment's meta row now shows **(edited)** via the shared
+  `row_is_edited` stamp rule (updatedAt strictly newer than createdAt).
+- **Bridge ids (D8)**: `pr-thread-{i}-comment-{m}-edit` / `-delete`;
+  the shared cards bring `{key}-save`/`{key}-cancel` and
+  `{key}-confirm`/`{key}-cancel`; probe keys
+  `pr-thread-{i}-comment-{m}-edit-card` and
+  `pr-thread-{i}-comment-{m}-delete-confirm-card`.

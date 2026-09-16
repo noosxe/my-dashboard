@@ -420,6 +420,10 @@ pub enum Mutation {
     DeleteComment,
     UpdateReview,
     DeleteReview,
+    // #212: review-thread comments — edit (note the input's
+    // `pullRequestReviewCommentId` id field) and delete.
+    UpdateReviewComment,
+    DeleteReviewComment,
     // 0020 D2: the issue page's two write documents — same transport,
     // different input shapes.
     IssueClose,
@@ -938,6 +942,8 @@ fn run_pr_mutation(http: &dyn Http, spec: &FetchSpec, mutation: Mutation) -> Spe
         Mutation::DeleteComment => gql::PR_DELETE_COMMENT_MUTATION,
         Mutation::UpdateReview => gql::PR_UPDATE_REVIEW_MUTATION,
         Mutation::DeleteReview => gql::PR_DELETE_REVIEW_MUTATION,
+        Mutation::UpdateReviewComment => gql::PR_UPDATE_REVIEW_COMMENT_MUTATION,
+        Mutation::DeleteReviewComment => gql::PR_DELETE_REVIEW_COMMENT_MUTATION,
         Mutation::IssueClose => gql::ISSUE_CLOSE_MUTATION,
         Mutation::IssueReopen => gql::ISSUE_REOPEN_MUTATION,
         // 0022 D1: one document, four op identities — the input's
@@ -2371,6 +2377,19 @@ mod tests {
                 Mutation::ThreadUnresolve,
                 "unresolveReviewThread",
                 serde_json::json!({ "input": { "threadId": "RT_1" } }),
+            ),
+            (
+                // #212: edit — note the `pullRequestReviewCommentId` id
+                // field (verified live 2026-09-16), unlike `id`/
+                // `pullRequestReviewId` on the timeline edits.
+                Mutation::UpdateReviewComment,
+                "updatePullRequestReviewComment",
+                serde_json::json!({ "input": { "pullRequestReviewCommentId": "RC_9", "body": "edited" } }),
+            ),
+            (
+                Mutation::DeleteReviewComment,
+                "deletePullRequestReviewComment",
+                serde_json::json!({ "input": { "id": "RC_9" } }),
             ),
         ];
         for (mutation, op, variables) in cases {

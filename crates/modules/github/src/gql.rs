@@ -1754,6 +1754,23 @@ mutation PrDeleteComment($input: DeleteIssueCommentInput!) {
 }
 "#;
 
+/// Edit a review-thread comment (#212 — `UpdatePullRequestReviewComment
+/// Input { pullRequestReviewCommentId body }`, verified live
+/// 2026-09-16: the id field is `pullRequestReviewCommentId`, not `id`).
+pub const PR_UPDATE_REVIEW_COMMENT_MUTATION: &str = r#"
+mutation PrUpdateReviewComment($input: UpdatePullRequestReviewCommentInput!) {
+  updatePullRequestReviewComment(input: $input) { clientMutationId }
+}
+"#;
+
+/// Delete a review-thread comment (#212 —
+/// `DeletePullRequestReviewCommentInput { id }`, verified live
+/// 2026-09-16).
+pub const PR_DELETE_REVIEW_COMMENT_MUTATION: &str = r#"
+mutation PrDeleteReviewComment($input: DeletePullRequestReviewCommentInput!) {
+  deletePullRequestReviewComment(input: $input) { clientMutationId }
+}
+"#;
 /// Edit a review summary body (docs/0019 D5,
 /// `UpdatePullRequestReviewInput { pullRequestReviewId body }`).
 pub const PR_UPDATE_REVIEW_MUTATION: &str = r#"
