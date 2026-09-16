@@ -50,7 +50,7 @@ use std::sync::Arc;
 
 use crate::gql;
 use crate::markdown;
-use crate::page::relative_age;
+use crate::page::{relative_age, synced_label};
 use crate::pr_page::{
     ANCHOR_FADE, CommentAnchor, ErrorScope, MutationError, body_card, cap_row, delete_confirm_card,
     inline_edit_card, split_repo,
@@ -337,6 +337,9 @@ impl IssueDetailPage {
         if self.detail.needs_refresh(min_age) {
             self.fetch_detail(cx);
         }
+        // The #192 label's clock: even a skipped beat re-renders the
+        // header so the relative age advances (docs/0033 D4).
+        cx.notify();
     }
 
     fn apply_detail_result(&mut self, result: crate::service::SpecResult, cx: &mut Context<Self>) {
@@ -1534,6 +1537,15 @@ impl IssueDetailPage {
                 h_flex()
                     .gap_2()
                     .items_center()
+                    .when_some(synced_label(self.detail.age()), |row, label| {
+                        row.child(
+                            div()
+                                .debug_selector(|| "issue-synced".to_string())
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(label),
+                        )
+                    })
                     .when(self.detail.is_loading(), |row| {
                         row.child(Spinner::new().small())
                     })

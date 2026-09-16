@@ -54,7 +54,7 @@ use crate::api::{self, PrFile};
 use crate::files::{self, FileEntry, FileListDelegate, FilesView, build_file_forest, path_matches};
 use crate::gql;
 use crate::markdown;
-use crate::page::relative_age;
+use crate::page::{relative_age, synced_label};
 use crate::service::{
     Fetch, FetchSpec, GithubState, Kind, Mutation, run_mutation, run_spec_tracked,
 };
@@ -709,6 +709,9 @@ impl PrDetailPage {
         if self.threads.needs_refresh(min_age) {
             self.fetch_threads(cx);
         }
+        // The #192 label's clock: even a fully-skipped beat re-renders the
+        // header so the relative age advances (docs/0033 D4).
+        cx.notify();
     }
 
     fn apply_threads_result(&mut self, result: crate::service::SpecResult, cx: &mut Context<Self>) {
@@ -1751,6 +1754,15 @@ impl PrDetailPage {
                 h_flex()
                     .gap_2()
                     .items_center()
+                    .when_some(synced_label(self.detail.age()), |row, label| {
+                        row.child(
+                            div()
+                                .debug_selector(|| "pr-synced".to_string())
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(label),
+                        )
+                    })
                     .when(self.detail.is_loading(), |row| {
                         row.child(Spinner::new().small())
                     })
@@ -3814,6 +3826,62 @@ mod tests {
     /// see the holder's key (`insert` → false), skip, and orphan the
     /// record in-flight forever. ProbeHttp always errors, so a LANDED
     /// error proves the apply path ran end-to-end.
+    /// docs/0033 D2: no confirmed sync, no label; a landed record shows
+    /// one. ProbeHttp never lands, so the label is driven by the record
+    /// alone — absence first, then presence once a Ready record is set.
+    #[gpui::test]
+    fn synced_indicator_follows_the_record(cx: &mut gpui::TestAppContext) {
+        cx.update(dashboard_core::status::init);
+        cx.update(gpui_component::init);
+        let state: gpui::Entity<GithubState> = cx.update(|cx| {
+            let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
+            let store: std::sync::Arc<dyn crate::auth::TokenStore> =
+                std::sync::Arc::new(ProbeStore);
+            cx.new(|_| {
+                GithubState::new(
+                    client,
+                    store,
+                    Default::default(),
+                    Default::default(),
+                    GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                )
+            })
+        });
+        cx.update(|cx| state.update(cx, |s, _| s.auth = crate::service::AuthStatus::Connected));
+
+        let (page, vcx) = cx.add_window_view(|window, cx| {
+            let summary = gql::PullRequest {
+                key: "o/r#7".into(),
+                database_id: None,
+                number: 7,
+                title: "synced probe".into(),
+                draft: false,
+                state: None,
+                author: None,
+                updated_at: None,
+                url: "https://probe".into(),
+                status: None,
+            };
+            PrDetailPage::new(state, "o/r".into(), summary, None, window, cx)
+        });
+        vcx.run_until_parked();
+        assert!(
+            vcx.debug_bounds("pr-synced").is_none(),
+            "a never-landed record renders no label"
+        );
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.detail = Fetch::ready(probe_detail());
+                cx.notify();
+            });
+        });
+        let _ = vcx.debug_bounds("pr-synced"); // flush frames
+        assert!(
+            vcx.debug_bounds("pr-synced").is_some(),
+            "a landed record renders the label"
+        );
+    }
+
     #[gpui::test]
     fn fetch_detail_lands_through_the_guard(cx: &mut gpui::TestAppContext) {
         cx.update(dashboard_core::status::init);

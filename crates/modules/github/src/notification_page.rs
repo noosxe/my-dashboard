@@ -44,7 +44,7 @@ use gpui_component::{
 };
 
 use crate::api;
-use crate::page::{notification_url, relative_age};
+use crate::page::{notification_url, relative_age, synced_label};
 use std::time::Duration;
 
 use crate::service::{Fetch, FetchSpec, GithubState, Kind, ThreadOp, run_spec_tracked};
@@ -327,6 +327,9 @@ impl NotificationDetailPage {
         if self.thread.needs_refresh(min_age) {
             self.fetch_thread(cx);
         }
+        // The #192 label's clock: even a skipped beat re-renders the
+        // header so the relative age advances (docs/0033 D4).
+        cx.notify();
     }
 
     fn apply_thread_result(&mut self, result: crate::service::SpecResult, cx: &mut Context<Self>) {
@@ -522,6 +525,15 @@ impl NotificationDetailPage {
                 h_flex()
                     .gap_2()
                     .items_center()
+                    .when_some(synced_label(self.thread.age()), |row, label| {
+                        row.child(
+                            div()
+                                .debug_selector(|| "notification-synced".to_string())
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(label),
+                        )
+                    })
                     // Mark as read: hidden while Read (hidden-not-
                     // disabled) — visible as the auto-mark's retry (D4).
                     .when(!self.read, |row| {
@@ -897,6 +909,8 @@ mod tests {
         vcx.run_until_parked();
         assert_eq!(mock.verbs(), vec![Verb::Get]);
         assert!(vcx.read(|cx| page.read(cx).read));
+        // The landed thread record shows the synced label (docs/0033 D2).
+        assert!(vcx.debug_bounds("notification-synced").is_some());
     }
 
     #[gpui::test]
@@ -992,6 +1006,8 @@ mod tests {
         let mock = lane_mock(0, 500, thread_payload("Issue", Some("u"), false));
         let (page, vcx) = probe_page(cx, probe_seed(true, "Issue", Some("u")), mock);
         vcx.run_until_parked();
+        // Nothing confirmed — the synced label must be absent (docs/0033 D2).
+        assert!(vcx.debug_bounds("notification-synced").is_none());
         let (err, thread) = vcx.read(|cx| {
             let p = page.read(cx);
             (
