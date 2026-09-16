@@ -66,6 +66,7 @@ cross-platform, multi-modular universal personal dashboard built with Rust and
 | [0031](0031-fetch-record-and-inflight-dedup.md) | GitHub Module: Fetch Record + Per-Key In-Flight Dedup (shared freshness substrate for #188/#192/#193/#194) |
 | [0032](0032-auto-refresh-detail-pages.md) | GitHub Module: Auto-Refresh Detail Pages (heartbeat + focus triggers on the 0031 records; #188, folds #194) |
 | [0033](0033-last-synced-indicator.md) | GitHub Module: Last-Synced Indicator (per-record `fetched_at` labels on the detail pages; #192) |
+| [0034](0034-cache-ttl-and-staleness-marking.md) | GitHub Module: Cache TTL & Staleness Marking (cold-start cache ages + stale chips; mark-not-evict, #193) |
 
 ## Planned docs (roadmap, not yet written)
 
