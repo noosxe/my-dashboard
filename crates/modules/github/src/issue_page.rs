@@ -55,7 +55,7 @@ use crate::pr_page::{
     inline_edit_card, split_repo,
 };
 use crate::service::{
-    Fetch, FetchSpec, GithubState, Kind, Mutation, run_mutation, run_read_deduped, run_spec_tracked,
+    Fetch, FetchSpec, GithubState, Kind, Mutation, run_mutation, run_spec_tracked,
 };
 
 actions!(github, [DismissIssuePage]);
@@ -312,12 +312,11 @@ impl IssueDetailPage {
             spec.ident.as_deref().unwrap_or("?")
         );
         // Arm the shared guard synchronously (docs/0031 D1/D2) — same
-        // shape as the PR page's fetches: a duplicate dispatch skips
-        // before the record's `begin` can orphan it; the wrapper's re-arm
-        // is idempotent and its clear follows the run.
-        let armed = self
-            .state
-            .update(cx, |s, _| s.in_flight_arm((spec.kind, spec.ident.clone())));
+        // shape as the PR page's fetches: record-owning fetches dispatch
+        // on the raw lane and clear their own guard when the run lands
+        // (docs/0031 §8).
+        let key = (spec.kind, spec.ident.clone());
+        let armed = self.state.update(cx, |s, _| s.in_flight_arm(key.clone()));
         if !armed {
             log::debug!("issue-detail: skipped — an identical read is in flight");
             return;
@@ -325,9 +324,8 @@ impl IssueDetailPage {
         self.detail.begin();
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let Some(result) = run_read_deduped(state, spec, cx).await else {
-                return;
-            };
+            let result = run_spec_tracked(state.clone(), spec, cx).await;
+            cx.update(|cx| state.update(cx, |s, _| s.in_flight_clear(&key)));
             let _ = this.update(cx, |page, cx| page.apply_detail_result(result, cx));
         })
         .detach();
