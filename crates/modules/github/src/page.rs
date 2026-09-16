@@ -1797,6 +1797,18 @@ fn connect_panel(auth: &AuthStatus, cx: &mut Context<GithubPage>) -> AnyElement 
     panel.into_any_element()
 }
 
+/// "synced 3m ago" — `None` when nothing has been confirmed yet (docs/0033
+/// D2/D3): an honest blank beats a fabricated timestamp.
+pub(crate) fn synced_label(age: Option<Duration>) -> Option<SharedString> {
+    let secs = age?.as_secs();
+    Some(match secs {
+        0..=59 => "synced just now".into(),
+        60..=3599 => format!("synced {}m ago", secs / 60).into(),
+        3600..=86399 => format!("synced {}h ago", secs / 3600).into(),
+        _ => format!("synced {}d ago", secs / 86400).into(),
+    })
+}
+
 /// "2h" / "3d" / "now" from an RFC-3339 timestamp.
 pub(crate) fn relative_age(updated_at: Option<&str>) -> String {
     let Some(ts) = updated_at.and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok()) else {

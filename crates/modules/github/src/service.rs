@@ -592,8 +592,6 @@ impl<T> Fetch<T> {
         }
     }
 
-    // The #192/#193 consumers read these; they land after the record.
-    #[allow(dead_code)]
     pub(crate) fn fetched_at(&self) -> Option<Instant> {
         match &self.status {
             FetchStatus::Ready { fetched_at, .. } => Some(*fetched_at),
@@ -601,7 +599,6 @@ impl<T> Fetch<T> {
         }
     }
 
-    #[allow(dead_code)]
     pub(crate) fn age(&self) -> Option<Duration> {
         self.fetched_at().map(|t| t.elapsed())
     }
@@ -3666,6 +3663,17 @@ mod tests {
 
     #[test]
     fn age_buckets() {
+        use crate::page::synced_label;
+        use std::time::Duration;
+        assert_eq!(synced_label(None), None, "no sync, no label (0033 D2)");
+        let label = |secs: u64| synced_label(Some(Duration::from_secs(secs)));
+        assert_eq!(label(0).as_deref(), Some("synced just now"));
+        assert_eq!(label(59).as_deref(), Some("synced just now"));
+        assert_eq!(label(60).as_deref(), Some("synced 1m ago"));
+        assert_eq!(label(3599).as_deref(), Some("synced 59m ago"));
+        assert_eq!(label(3600).as_deref(), Some("synced 1h ago"));
+        assert_eq!(label(86399).as_deref(), Some("synced 23h ago"));
+        assert_eq!(label(86400).as_deref(), Some("synced 1d ago"));
         assert_eq!(crate::page::relative_age(None), "");
         let now = chrono::Utc::now();
         assert_eq!(crate::page::relative_age(Some(&now.to_rfc3339())), "now");
