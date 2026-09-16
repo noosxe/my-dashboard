@@ -55,7 +55,9 @@ use crate::files::{self, FileEntry, FileListDelegate, FilesView, build_file_fore
 use crate::gql;
 use crate::markdown;
 use crate::page::relative_age;
-use crate::service::{FetchSpec, GithubState, Kind, Mutation, run_mutation, run_spec_tracked};
+use crate::service::{
+    Fetch, FetchSpec, GithubState, Kind, Mutation, run_mutation, run_read_deduped,
+};
 
 actions!(github, [DismissPrPage]);
 
@@ -103,9 +105,7 @@ pub(crate) struct PrDetailPage {
     /// The snapshot row that opened the page — instant header paint while
     /// the detail query is in flight.
     summary: gql::PullRequest,
-    detail: Option<gql::PrDetail>,
-    loading: bool,
-    load_error: Option<String>,
+    detail: Fetch<gql::PrDetail>,
     tab: PrTab,
     focus_handle: FocusHandle,
     /// Comment box (D4): draft textarea + action select.
@@ -161,11 +161,11 @@ pub(crate) struct PrDetailPage {
     /// Changed-files fetch lifecycle (D8): lazy — `Idle` until the
     /// Files tab is first opened, then one REST walk; `Ready` keeps the
     /// parsed list (a refresh refetches it).
-    pub(crate) files: FilesFetch,
+    pub(crate) files: Fetch<Vec<PrFile>>,
     /// Review-threads fetch lifecycle (docs/0030 D1): lazy like the
     /// files walk — one GraphQL one-shot when the Files tab first opens,
     /// refetched on refresh (once loaded) and after thread mutations.
-    pub(crate) threads: ThreadsFetch,
+    pub(crate) threads: Fetch<gql::PrThreads>,
     /// Per-file expand state for the outdated/stray thread bucket
     /// (docs/0030 D3), keyed by path so a refetch never collapses it
     /// behind the user's back.
@@ -192,24 +192,6 @@ pub(crate) struct PrDetailPage {
     /// One-shot guard for the jump (docs/0026 D9): the builder arms the
     /// scroll exactly once, the frame the jumped card first renders.
     jump_done: Cell<bool>,
-}
-
-/// The Files tab's fetch lifecycle (docs/0016 D8).
-pub(crate) enum FilesFetch {
-    Idle,
-    Fetching,
-    Ready(Vec<PrFile>),
-    Failed(String),
-}
-
-/// The review-threads fetch lifecycle (docs/0030 D1) — the threads
-/// sibling of [`FilesFetch`]. Failure never takes the diff pane down:
-/// the pane renders a retry row instead (files.rs).
-pub(crate) enum ThreadsFetch {
-    Idle,
-    Fetching,
-    Ready(gql::PrThreads),
-    Failed(String),
 }
 
 /// The notification hand-off's comment anchor (docs/0026 D9, #154).
@@ -286,9 +268,7 @@ impl PrDetailPage {
             repo,
             number,
             summary,
-            detail: None,
-            loading: false,
-            load_error: None,
+            detail: Fetch::new(),
             tab: PrTab::Conversation,
             focus_handle: cx.focus_handle(),
             comment,
@@ -300,8 +280,8 @@ impl PrDetailPage {
             delete_confirm: None,
             methods: Vec::new(),
             method_select: None,
-            files: FilesFetch::Idle,
-            threads: ThreadsFetch::Idle,
+            files: Fetch::new(),
+            threads: Fetch::new(),
             line_composer: None,
             reply_composer: None,
             drafts: Vec::new(),
@@ -402,20 +382,32 @@ impl PrDetailPage {
             "pr-detail: fetching {}",
             spec.ident.as_deref().unwrap_or("?")
         );
-        self.loading = true;
-        self.load_error = None;
+        // Arm the shared guard synchronously (docs/0031 D1/D2): a duplicate
+        // dispatch (a second refresh click while one is in flight) skips
+        // before the record's `begin` can orphan it. The wrapper's re-arm
+        // is idempotent for the key holder and its clear always follows
+        // the run.
+        let armed = self
+            .state
+            .update(cx, |s, _| s.in_flight_arm((spec.kind, spec.ident.clone())));
+        if !armed {
+            log::debug!("pr-detail: skipped — an identical read is in flight");
+            return;
+        }
+        self.detail.begin();
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result = run_spec_tracked(state, spec, cx).await;
+            let Some(result) = run_read_deduped(state, spec, cx).await else {
+                return;
+            };
             let _ = this.update(cx, |page, cx| page.apply_detail_result(result, cx));
         })
         .detach();
     }
 
     fn apply_detail_result(&mut self, result: crate::service::SpecResult, cx: &mut Context<Self>) {
-        self.loading = false;
         if let Some(m) = &result.network {
-            self.load_error = Some(format!("Network error: {m}"));
+            self.detail.fail(format!("Network error: {m}"));
         } else if result.status != 200 {
             // Forward failures to the state entity so the shared 401
             // (reactive refresh / TokenRejected) and 403 (rate-limit pause)
@@ -426,7 +418,7 @@ impl PrDetailPage {
                 s.apply(result);
                 cx.notify();
             });
-            self.load_error = Some(format!("GitHub answered HTTP {status}"));
+            self.detail.fail(format!("GitHub answered HTTP {status}"));
         } else if let Some(body) = result.body {
             match serde_json::from_str::<gql::Envelope<gql::PrDetailData>>(body.as_str()) {
                 Ok(env) => {
@@ -452,13 +444,12 @@ impl PrDetailPage {
                             // Thread keys live in the same cache — a detail
                             // refetch wipes it, so re-fold them (0030 D1).
                             self.extend_threads_md();
-                            self.detail = Some(detail);
                             // 0019 D4: an editor/confirm whose node is gone
                             // with the new payload has nothing left to edit —
                             // drop it (deleted elsewhere, refetch race).
-                            let d = self.detail.as_ref().unwrap();
                             let still_there = |id: &str| {
-                                node_kind(&d.comments.nodes, &d.reviews.nodes, id).is_some()
+                                node_kind(&detail.comments.nodes, &detail.reviews.nodes, id)
+                                    .is_some()
                             };
                             if let Some((id, _)) = &self.timeline_edit {
                                 if !still_there(id) {
@@ -470,19 +461,21 @@ impl PrDetailPage {
                                     self.delete_confirm = None;
                                 }
                             }
+                            self.detail.land(detail);
                             // docs/0026 D9: the payload is in — try to arm
                             // the notification jump against it.
                             self.resolve_comment_anchor();
                         }
                         None => {
                             log::warn!("pr-detail: repository/pullRequest null — keeping header");
-                            self.load_error = Some("PR not found (removed, or access lost)".into());
+                            self.detail
+                                .fail("PR not found (removed, or access lost)".into());
                         }
                     }
                 }
                 Err(e) => {
                     log::warn!("pr-detail payload: {e}");
-                    self.load_error = Some("Malformed payload".into());
+                    self.detail.fail("Malformed payload".into());
                 }
             }
         }
@@ -497,7 +490,7 @@ impl PrDetailPage {
         };
         self.anchor = self
             .detail
-            .as_ref()
+            .data()
             .and_then(|d| {
                 d.comments
                     .nodes
@@ -574,10 +567,19 @@ impl PrDetailPage {
             "pr-files: fetching {}",
             spec.ident.as_deref().unwrap_or("?")
         );
-        self.files = FilesFetch::Fetching;
+        let armed = self
+            .state
+            .update(cx, |s, _| s.in_flight_arm((spec.kind, spec.ident.clone())));
+        if !armed {
+            log::debug!("pr-files: skipped — an identical read is in flight");
+            return;
+        }
+        self.files.begin();
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result = run_spec_tracked(state, spec, cx).await;
+            let Some(result) = run_read_deduped(state, spec, cx).await else {
+                return;
+            };
             let _ = this.update(cx, |page, cx| page.apply_files_result(result, cx));
         })
         .detach();
@@ -585,7 +587,7 @@ impl PrDetailPage {
 
     fn apply_files_result(&mut self, result: crate::service::SpecResult, cx: &mut Context<Self>) {
         if let Some(m) = &result.network {
-            self.files = FilesFetch::Failed(format!("Network error: {m}"));
+            self.files.fail(format!("Network error: {m}"));
         } else if result.status != 200 {
             // Shared 401/403 handling, same as the detail fetch (D2).
             let status = result.status;
@@ -593,7 +595,7 @@ impl PrDetailPage {
                 s.apply(result);
                 cx.notify();
             });
-            self.files = FilesFetch::Failed(format!("GitHub answered HTTP {status}"));
+            self.files.fail(format!("GitHub answered HTTP {status}"));
         } else {
             match serde_json::from_str::<Vec<PrFile>>(result.body.as_deref().unwrap_or("[]")) {
                 Ok(files) => {
@@ -603,12 +605,12 @@ impl PrDetailPage {
                         self.number,
                         files.len()
                     );
-                    self.files = FilesFetch::Ready(files);
+                    self.files.land(files);
                     self.apply_files_payload(cx);
                 }
                 Err(e) => {
                     log::warn!("pr-files payload: {e}");
-                    self.files = FilesFetch::Failed("Malformed payload".into());
+                    self.files.fail("Malformed payload".into());
                 }
             }
         }
@@ -620,7 +622,7 @@ impl PrDetailPage {
     /// clear it), then auto-select the first visible file so the diff pane
     /// is never mysteriously empty.
     fn apply_files_payload(&mut self, cx: &mut Context<Self>) {
-        let FilesFetch::Ready(files) = &self.files else {
+        let Some(files) = self.files.data() else {
             return;
         };
         let entries: Vec<FileEntry> = files.iter().map(FileEntry::from_api).collect();
@@ -648,9 +650,9 @@ impl PrDetailPage {
     /// The thread nodes behind [`Self::threads`] — empty unless `Ready`.
     /// files.rs reads this for placement; keep it cheap, it runs per render.
     pub(crate) fn threads_nodes(&self) -> &[gql::PrThread] {
-        match &self.threads {
-            ThreadsFetch::Ready(t) => &t.nodes,
-            _ => &[],
+        match self.threads.data() {
+            Some(t) => &t.nodes,
+            None => &[],
         }
     }
 
@@ -681,10 +683,19 @@ impl PrDetailPage {
             "pr-threads: fetching {}",
             spec.ident.as_deref().unwrap_or("?")
         );
-        self.threads = ThreadsFetch::Fetching;
+        let armed = self
+            .state
+            .update(cx, |s, _| s.in_flight_arm((spec.kind, spec.ident.clone())));
+        if !armed {
+            log::debug!("pr-threads: skipped — an identical read is in flight");
+            return;
+        }
+        self.threads.begin();
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result = run_spec_tracked(state, spec, cx).await;
+            let Some(result) = run_read_deduped(state, spec, cx).await else {
+                return;
+            };
             let _ = this.update(cx, |page, cx| page.apply_threads_result(result, cx));
         })
         .detach();
@@ -692,7 +703,7 @@ impl PrDetailPage {
 
     fn apply_threads_result(&mut self, result: crate::service::SpecResult, cx: &mut Context<Self>) {
         if let Some(m) = &result.network {
-            self.threads = ThreadsFetch::Failed(format!("Network error: {m}"));
+            self.threads.fail(format!("Network error: {m}"));
         } else if result.status != 200 {
             // Shared 401/403 handling, same as the detail fetch (0030 D1).
             let status = result.status;
@@ -700,7 +711,7 @@ impl PrDetailPage {
                 s.apply(result);
                 cx.notify();
             });
-            self.threads = ThreadsFetch::Failed(format!("GitHub answered HTTP {status}"));
+            self.threads.fail(format!("GitHub answered HTTP {status}"));
         } else {
             let parsed = result.body.as_deref().and_then(|body| {
                 serde_json::from_str::<gql::Envelope<gql::PrThreadsData>>(body)
@@ -723,7 +734,7 @@ impl PrDetailPage {
                         self.number,
                         t.nodes.len()
                     );
-                    self.threads = ThreadsFetch::Ready(t);
+                    self.threads.land(t);
                     self.extend_threads_md();
                 }
                 None => {
@@ -731,7 +742,7 @@ impl PrDetailPage {
                     // bizarre — degrade to an empty set so the diff pane
                     // keeps working (docs/0030 D1).
                     log::warn!("pr-threads: repository/pullRequest null — empty set");
-                    self.threads = ThreadsFetch::Ready(gql::PrThreads::default());
+                    self.threads.land(gql::PrThreads::default());
                 }
             }
         }
@@ -742,7 +753,7 @@ impl PrDetailPage {
     /// 0017 D6 rule) and fold the blocks into the page cache under
     /// `thread-{n}-comment-{m}` keys.
     fn extend_threads_md(&mut self) {
-        let ThreadsFetch::Ready(t) = &self.threads else {
+        let Some(t) = self.threads.data() else {
             return;
         };
         for (ix, thread) in t.nodes.iter().enumerate() {
@@ -806,7 +817,9 @@ impl PrDetailPage {
     /// (body optional). Gating is the same pure fn the button renders
     /// with — re-checked here as the honest guard.
     fn submit_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(d) = self.detail.clone() else { return };
+        let Some(d) = self.detail.data().cloned() else {
+            return;
+        };
         if self.busy.is_some() || d.id.is_empty() {
             return;
         }
@@ -851,7 +864,7 @@ impl PrDetailPage {
         self.delete_confirm = None;
         let body = self
             .detail
-            .as_ref()
+            .data()
             .and_then(|d| d.body.clone())
             .unwrap_or_default();
         let editor = cx.new(|cx| {
@@ -879,7 +892,7 @@ impl PrDetailPage {
     /// Save the edited description (`updateIssue`, D4) — the PR node id is
     /// the issue id; empty bodies never get here (Save renders disabled).
     fn save_description(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (Some(d), Some(editor)) = (self.detail.as_ref(), self.description_edit.as_ref()) else {
+        let (Some(d), Some(editor)) = (self.detail.data(), self.description_edit.as_ref()) else {
             return;
         };
         if self.busy.is_some() || d.id.is_empty() {
@@ -943,7 +956,7 @@ impl PrDetailPage {
     /// and its input shape. Empty bodies never get here (Save renders
     /// disabled and the guard re-checks).
     fn save_edit_row(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(d) = self.detail.as_ref() else {
+        let Some(d) = self.detail.data() else {
             return;
         };
         let Some((node_id, editor)) = self.timeline_edit.as_ref() else {
@@ -992,7 +1005,7 @@ impl PrDetailPage {
     /// while the op is in flight — it shows which row is being deleted —
     /// and the success arm clears it.
     fn confirm_delete_row(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(d) = self.detail.as_ref() else {
+        let Some(d) = self.detail.data() else {
             return;
         };
         let Some(node_id) = self.delete_confirm.clone() else {
@@ -1014,7 +1027,9 @@ impl PrDetailPage {
     }
     /// Merge the PR (D5) with the selected (or only) method.
     fn merge_pr(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(d) = self.detail.clone() else { return };
+        let Some(d) = self.detail.data().cloned() else {
+            return;
+        };
         if !merge_enabled(
             d.state.as_deref(),
             d.draft,
@@ -1035,7 +1050,9 @@ impl PrDetailPage {
 
     /// Close the PR (D5).
     fn close_pr(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(d) = self.detail.clone() else { return };
+        let Some(d) = self.detail.data().cloned() else {
+            return;
+        };
         if self.busy.is_some() || d.id.is_empty() || d.state.as_deref() != Some("OPEN") {
             return;
         }
@@ -1103,7 +1120,9 @@ impl PrDetailPage {
     /// with its text until success closes it (draft retained on failure,
     /// the 0019 pattern).
     pub(crate) fn add_single_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(d) = self.detail.clone() else { return };
+        let Some(d) = self.detail.data().cloned() else {
+            return;
+        };
         let Some(composer) = self.line_composer.as_ref() else {
             return;
         };
@@ -1405,7 +1424,9 @@ impl PrDetailPage {
     /// server-PENDING review ever exists. The summary body is omitted
     /// when empty.
     pub(crate) fn submit_review(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(d) = self.detail.clone() else { return };
+        let Some(d) = self.detail.data().cloned() else {
+            return;
+        };
         if !review_batch_allowed(self.drafts.len(), self.busy.is_some()) || d.id.is_empty() {
             return;
         }
@@ -1614,7 +1635,7 @@ impl PrDetailPage {
 
     // --- regions -----------------------------------------------------------
 
-    fn render_header(&self, detail: &Option<gql::PrDetail>, cx: &Context<Self>) -> AnyElement {
+    fn render_header(&self, detail: Option<&gql::PrDetail>, cx: &Context<Self>) -> AnyElement {
         let (title, number, tone, author, base, head, age, url) = match detail {
             Some(d) => (
                 d.title.clone(),
@@ -1720,7 +1741,9 @@ impl PrDetailPage {
                 h_flex()
                     .gap_2()
                     .items_center()
-                    .when(self.loading, |row| row.child(Spinner::new().small()))
+                    .when(self.detail.is_loading(), |row| {
+                        row.child(Spinner::new().small())
+                    })
                     .child(
                         Button::new("pr-refresh")
                             .ghost()
@@ -1732,10 +1755,10 @@ impl PrDetailPage {
                                 // A refresh with files already loaded
                                 // refetches the list too (D8) — collapse
                                 // states reset with the new payload.
-                                if matches!(this.files, FilesFetch::Ready(_)) {
+                                if this.files.is_ready() {
                                     this.fetch_files(cx);
                                 }
-                                if matches!(this.threads, ThreadsFetch::Ready(_)) {
+                                if this.threads.is_ready() {
                                     this.fetch_threads(cx);
                                 }
                             })),
@@ -1752,7 +1775,7 @@ impl PrDetailPage {
             .into_any_element()
     }
 
-    fn render_tabs(&self, detail: &Option<gql::PrDetail>, cx: &Context<Self>) -> AnyElement {
+    fn render_tabs(&self, detail: Option<&gql::PrDetail>, cx: &Context<Self>) -> AnyElement {
         // Counts render only with a detail payload — while loading the tabs
         // stay bare so nothing flashes a wrong "0" (docs/0016 D3).
         let labels = match detail {
@@ -1788,10 +1811,10 @@ impl PrDetailPage {
                         // Lazy fetches (0016 D8 / 0030 D1): the files REST
                         // walk and the threads one-shot both start the first
                         // time the Files tab opens, not on page open.
-                        if matches!(this.files, FilesFetch::Idle) {
+                        if this.files.is_idle() {
                             this.fetch_files(cx);
                         }
-                        if matches!(this.threads, ThreadsFetch::Idle) {
+                        if this.threads.is_idle() {
                             this.fetch_threads(cx);
                         }
                     }
@@ -1805,7 +1828,7 @@ impl PrDetailPage {
             .into_any_element()
     }
 
-    fn render_tab_content(&self, detail: &Option<gql::PrDetail>, cx: &Context<Self>) -> AnyElement {
+    fn render_tab_content(&self, detail: Option<&gql::PrDetail>, cx: &Context<Self>) -> AnyElement {
         match self.tab {
             PrTab::Conversation => self.render_conversation(detail, cx),
             PrTab::Commits => self.render_commits(detail, cx),
@@ -1818,9 +1841,9 @@ impl PrDetailPage {
     /// back to `author.name`), `messageHeadline` (`text_sm`), 7-char SHA
     /// (mono, muted), relative age; muted truncation caption when the
     /// connection holds more than the `first: 100` page.
-    fn render_commits(&self, detail: &Option<gql::PrDetail>, cx: &Context<Self>) -> AnyElement {
+    fn render_commits(&self, detail: Option<&gql::PrDetail>, cx: &Context<Self>) -> AnyElement {
         let Some(d) = detail else {
-            if let Some(err) = &self.load_error {
+            if let Some(err) = self.detail.load_error() {
                 return error_cell(err, cx);
             }
             return skeleton_list();
@@ -1911,9 +1934,9 @@ impl PrDetailPage {
     /// counts, pure fn), then one row per `statusCheckRollup.contexts`
     /// member — icon + tone from the unified state, trailing
     /// details-link button when the union member carries a URL.
-    fn render_checks(&self, detail: &Option<gql::PrDetail>, cx: &Context<Self>) -> AnyElement {
+    fn render_checks(&self, detail: Option<&gql::PrDetail>, cx: &Context<Self>) -> AnyElement {
         let Some(d) = detail else {
-            if let Some(err) = &self.load_error {
+            if let Some(err) = self.detail.load_error() {
                 return error_cell(err, cx);
             }
             return skeleton_list();
@@ -2044,11 +2067,11 @@ impl PrDetailPage {
     }
     fn render_conversation(
         &self,
-        detail: &Option<gql::PrDetail>,
+        detail: Option<&gql::PrDetail>,
         cx: &Context<Self>,
     ) -> AnyElement {
         let Some(d) = detail else {
-            if let Some(err) = &self.load_error {
+            if let Some(err) = self.detail.load_error() {
                 return error_cell(err, cx);
             }
             return skeleton_list();
@@ -2540,7 +2563,7 @@ impl Render for PrDetailPage {
         // on the first render that has a detail payload — once per page
         // (a repo's allowed methods can't change while the page is open).
         if self.method_select.is_none() {
-            if let Some(d) = &self.detail {
+            if let Some(d) = self.detail.data() {
                 let methods = allowed_methods(&d.merge_methods);
                 if !methods.is_empty() {
                     let labels: Vec<SharedString> = methods
@@ -2560,7 +2583,7 @@ impl Render for PrDetailPage {
                 }
             }
         }
-        let detail = self.detail.clone();
+        let detail = self.detail.data();
         v_flex()
             .id("pr-detail")
             .key_context("GithubPrPage")
@@ -2572,9 +2595,9 @@ impl Render for PrDetailPage {
             .min_w_0()
             .p_4()
             .gap_3()
-            .child(self.render_header(&detail, cx))
-            .child(self.render_tabs(&detail, cx))
-            .child(self.render_tab_content(&detail, cx))
+            .child(self.render_header(detail, cx))
+            .child(self.render_tabs(detail, cx))
+            .child(self.render_tab_content(detail, cx))
     }
 }
 
@@ -3568,10 +3591,11 @@ pub(crate) fn cap_row(id: &'static str, missing: i64, url: &str, cx: &App) -> An
 /// parsed diff body. The REST fetch is lazy — `fetch_files` fires on the
 /// first Files-tab selection, so opening the page never costs a walk.
 fn render_files(page: &PrDetailPage, cx: &Context<PrDetailPage>) -> AnyElement {
-    match &page.files {
-        FilesFetch::Idle => skeleton_list(),
-        FilesFetch::Fetching => skeleton_list(),
-        FilesFetch::Failed(msg) => v_flex()
+    // Zero UX drift from the pre-0031 shape: an error row (with retry)
+    // replaces the pane, including after a failed refresh — D3 keeps the
+    // payload in the record, so the next successful land repaints it.
+    if let Some(msg) = page.files.load_error() {
+        return v_flex()
             .id("pr-files-error")
             .flex_1()
             .min_h_0()
@@ -3580,7 +3604,7 @@ fn render_files(page: &PrDetailPage, cx: &Context<PrDetailPage>) -> AnyElement {
             .gap_2()
             .text_sm()
             .text_color(cx.theme().danger)
-            .child(msg.clone())
+            .child(msg.to_string())
             .child(
                 Button::new("pr-files-retry")
                     .ghost()
@@ -3589,9 +3613,15 @@ fn render_files(page: &PrDetailPage, cx: &Context<PrDetailPage>) -> AnyElement {
                     .tooltip("Retry")
                     .on_click(cx.listener(|this, _, _, cx| this.fetch_files(cx))),
             )
-            .into_any_element(),
-        FilesFetch::Ready(files) if files.is_empty() => empty_cell("No file changes", cx),
-        FilesFetch::Ready(files) => files::render_split(page, files, cx),
+            .into_any_element();
+    }
+    if page.files.is_loading() {
+        return skeleton_list();
+    }
+    match page.files.data() {
+        Some(files) if files.is_empty() => empty_cell("No file changes", cx),
+        Some(files) => files::render_split(page, files, cx),
+        None => skeleton_list(),
     }
 }
 
@@ -3604,11 +3634,11 @@ mod tests {
     use crate::gql;
     use crate::gql::MergeMethods;
     use crate::pr_page::{
-        BusyOp, ChecksCounts, ChecksTone, ErrorScope, FilesFetch, FinishEvent, MergeLineTone,
-        MergeMethod, PrDetailPage, PrStateTone, PrTab, ReviewTone, TimelineKind, allowed_methods,
-        checks_counts, checks_header_line, comment_action_allowed, composer_body_allowed,
-        default_method, merge_enabled, merge_state_line, pr_state_tone, review_batch_allowed,
-        review_event, review_state_label, rollup_summary, short_sha, split_repo, timeline_order,
+        BusyOp, ChecksCounts, ChecksTone, ErrorScope, FinishEvent, MergeLineTone, MergeMethod,
+        PrDetailPage, PrStateTone, PrTab, ReviewTone, TimelineKind, allowed_methods, checks_counts,
+        checks_header_line, comment_action_allowed, composer_body_allowed, default_method,
+        merge_enabled, merge_state_line, pr_state_tone, review_batch_allowed, review_event,
+        review_state_label, rollup_summary, short_sha, split_repo, timeline_order,
     };
     use crate::service::{GithubCache, GithubState};
     use gpui::AppContext as _;
@@ -3695,7 +3725,7 @@ mod tests {
             };
             let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
             page.tab = PrTab::Files;
-            page.files = FilesFetch::Ready(vec![
+            page.files = Fetch::ready(vec![
                 probe_file("src/main.rs"),
                 probe_file("src/lib.rs"),
                 probe_file("docs/readme.md"),
@@ -3804,8 +3834,8 @@ mod tests {
             let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
             page.tab = PrTab::Files;
             // probe_file's patch anchors +b at new-side line 1.
-            page.files = FilesFetch::Ready(vec![probe_file("src/main.rs")]);
-            page.threads = ThreadsFetch::Ready(gql::PrThreads {
+            page.files = Fetch::ready(vec![probe_file("src/main.rs")]);
+            page.threads = Fetch::ready(gql::PrThreads {
                 total_count: 2,
                 nodes: vec![
                     probe_thread(0, Some(1), false, "looks fine"),
@@ -3885,8 +3915,8 @@ mod tests {
             };
             let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
             page.tab = PrTab::Files;
-            page.files = FilesFetch::Ready(vec![probe_file("src/main.rs")]);
-            page.threads = ThreadsFetch::Ready(gql::PrThreads {
+            page.files = Fetch::ready(vec![probe_file("src/main.rs")]);
+            page.threads = Fetch::ready(gql::PrThreads {
                 total_count: 1,
                 nodes: vec![probe_thread(
                     0,
@@ -3909,8 +3939,8 @@ mod tests {
     // --- timeline-row edit/delete (docs/0019 §5) ------------------------
 
     use crate::pr_page::{
-        ResolutionReason, ThreadsFetch, build_md_cache, delete_row, edit_row, node_kind,
-        normalize_range, row_is_edited, start_fields,
+        Fetch, ResolutionReason, build_md_cache, delete_row, edit_row, node_kind, normalize_range,
+        row_is_edited, start_fields,
     };
     use crate::service::{Kind, Mutation, SpecResult};
 
@@ -3951,8 +3981,8 @@ mod tests {
                 status: None,
             };
             let mut page = PrDetailPage::new(state, "o/r".into(), summary, anchor, window, cx);
-            page.detail = Some(probe_detail());
-            page.md = build_md_cache(page.detail.as_ref().unwrap());
+            page.detail = Fetch::ready(probe_detail());
+            page.md = build_md_cache(page.detail.data().unwrap());
             page
         })
     }
@@ -4133,8 +4163,8 @@ mod tests {
                 status: None,
             };
             let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
-            page.detail = Some(probe_detail());
-            page.md = build_md_cache(page.detail.as_ref().unwrap());
+            page.detail = Fetch::ready(probe_detail());
+            page.md = build_md_cache(page.detail.data().unwrap());
             page
         });
         for sel in [
@@ -4239,8 +4269,8 @@ mod tests {
                 status: None,
             };
             let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
-            page.detail = Some(probe_detail());
-            page.md = build_md_cache(page.detail.as_ref().unwrap());
+            page.detail = Fetch::ready(probe_detail());
+            page.md = build_md_cache(page.detail.data().unwrap());
             page
         });
         // probe_detail() carries every node it counts — nothing hidden.
@@ -4299,7 +4329,7 @@ mod tests {
                 status: None,
             };
             let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
-            page.detail = Some(probe_detail());
+            page.detail = Fetch::ready(probe_detail());
             page.timeline_edit = Some((
                 "IC_1".into(),
                 cx.new(|cx| gpui_component::input::TextareaState::new(window, cx)),
@@ -4843,8 +4873,8 @@ mod tests {
             };
             let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
             page.tab = PrTab::Files;
-            page.files = FilesFetch::Ready(vec![probe_file("src/main.rs")]);
-            page.threads = ThreadsFetch::Ready(gql::PrThreads::default());
+            page.files = Fetch::ready(vec![probe_file("src/main.rs")]);
+            page.threads = Fetch::ready(gql::PrThreads::default());
             page.extend_threads_md();
             page.apply_files_payload(cx);
             page
@@ -4924,8 +4954,8 @@ mod tests {
             };
             let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
             page.tab = PrTab::Files;
-            page.files = FilesFetch::Ready(vec![probe_file("src/main.rs")]);
-            page.threads = ThreadsFetch::Ready(gql::PrThreads::default());
+            page.files = Fetch::ready(vec![probe_file("src/main.rs")]);
+            page.threads = Fetch::ready(gql::PrThreads::default());
             page.extend_threads_md();
             page.apply_files_payload(cx);
             page.mutation_error = Some(super::MutationError {
@@ -4998,10 +5028,10 @@ mod tests {
             };
             let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
             page.tab = PrTab::Files;
-            page.files = FilesFetch::Ready(vec![probe_file("src/main.rs")]);
+            page.files = Fetch::ready(vec![probe_file("src/main.rs")]);
             let mut thread = probe_thread(0, Some(1), false, "please fix");
             thread.viewer_can_resolve = true;
-            page.threads = ThreadsFetch::Ready(gql::PrThreads {
+            page.threads = Fetch::ready(gql::PrThreads {
                 total_count: 1,
                 nodes: vec![thread],
             });
@@ -5060,11 +5090,11 @@ mod tests {
             };
             let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
             page.tab = PrTab::Files;
-            page.files = FilesFetch::Ready(vec![probe_file("src/main.rs")]);
+            page.files = Fetch::ready(vec![probe_file("src/main.rs")]);
             let mut thread = probe_thread(0, Some(1), false, "please fix");
             thread.comments[0].viewer_can_update = true;
             thread.comments[0].viewer_can_delete = true;
-            page.threads = ThreadsFetch::Ready(gql::PrThreads {
+            page.threads = Fetch::ready(gql::PrThreads {
                 total_count: 1,
                 nodes: vec![thread],
             });
@@ -5166,7 +5196,7 @@ mod tests {
             };
             let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
             page.tab = PrTab::Files;
-            page.files = FilesFetch::Ready(vec![PrFile {
+            page.files = Fetch::ready(vec![PrFile {
                 filename: "src/main.rs".into(),
                 status: "modified".into(),
                 additions: 2,
@@ -5174,7 +5204,7 @@ mod tests {
                 changes: 4,
                 patch: Some("@@ -1,2 +1,2 @@\n-a\n-b\n+c\n+d".into()),
             }]);
-            page.threads = ThreadsFetch::Ready(gql::PrThreads::default());
+            page.threads = Fetch::ready(gql::PrThreads::default());
             page.extend_threads_md();
             page.apply_files_payload(cx);
             page

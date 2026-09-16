@@ -36,8 +36,8 @@ use crate::gql::{DiffSide, PrThread, ThreadSubject};
 use crate::markdown;
 use crate::page::relative_age;
 use crate::pr_page::{
-    ErrorScope, FinishEvent, PrDetailPage, ResolutionReason, ThreadsFetch, delete_confirm_card,
-    inline_edit_card, review_batch_allowed, row_is_edited,
+    ErrorScope, FinishEvent, PrDetailPage, ResolutionReason, delete_confirm_card, inline_edit_card,
+    review_batch_allowed, row_is_edited,
 };
 use crate::service::{AnchoredLine, PatchLine, anchor_patch};
 /// Files sidebar view mode (0018 D3). `List` is the default — the flat
@@ -1015,21 +1015,22 @@ fn draft_rows(
         .collect()
 }
 
-/// While threads are loading: a muted hint under the diff; on failure a
-/// retry row — the diff itself must never break (0030 D1).
+/// While threads load with nothing landed: a muted hint under the diff;
+/// on failure (nothing landed) a retry row — the diff itself must never
+/// break (0030 D1, docs/0031 D3).
 fn threads_fetch_row(page: &PrDetailPage, cx: &Context<PrDetailPage>) -> Option<AnyElement> {
-    match &page.threads {
-        ThreadsFetch::Idle | ThreadsFetch::Ready(_) => None,
-        ThreadsFetch::Fetching => Some(
-            div()
-                .px_3()
-                .py_2()
-                .text_xs()
-                .text_color(cx.theme().muted_foreground)
-                .child("Loading review threads…")
-                .into_any_element(),
-        ),
-        ThreadsFetch::Failed(msg) => Some(
+    // Idle-with-data renders no row (the threads are up); a first-load
+    // fetch shows the hint; a failure — with nothing landed — the retry
+    // row (0030 D1). A failed refresh of landed data also shows the retry
+    // row: `load_error` covers `Failed` and the D3 `last_error` slot.
+    if page.threads.is_idle() && !page.threads.in_flight {
+        return None;
+    }
+    if page.threads.data().is_some() && page.threads.load_error().is_none() {
+        return None;
+    }
+    if let Some(msg) = page.threads.load_error() {
+        return Some(
             h_flex()
                 .id("pr-threads-error")
                 .px_3()
@@ -1037,7 +1038,7 @@ fn threads_fetch_row(page: &PrDetailPage, cx: &Context<PrDetailPage>) -> Option<
                 .gap_2()
                 .text_xs()
                 .text_color(cx.theme().danger)
-                .child(msg.clone())
+                .child(msg.to_string())
                 .child(
                     Button::new("pr-threads-retry")
                         .ghost()
@@ -1047,8 +1048,20 @@ fn threads_fetch_row(page: &PrDetailPage, cx: &Context<PrDetailPage>) -> Option<
                         .on_click(cx.listener(|this, _, _, cx| this.fetch_threads(cx))),
                 )
                 .into_any_element(),
-        ),
+        );
     }
+    if page.threads.is_loading() {
+        return Some(
+            div()
+                .px_3()
+                .py_2()
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .child("Loading review threads…")
+                .into_any_element(),
+        );
+    }
+    None
 }
 
 /// The end-of-file bucket for outdated / unanchorable threads (0030 D3):
