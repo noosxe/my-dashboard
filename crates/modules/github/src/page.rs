@@ -37,8 +37,8 @@ use crate::new_issue_page::{NewIssuePage, NewIssuePageEvent};
 use crate::notification_page::{self, NotificationPageEvent};
 use crate::pr_page;
 use crate::service::{
-    AuthStatus, ConnectPhase, FetchSpec, GithubState, Kind, ThreadOp, run_spec_tracked,
-    start_connect,
+    AuthStatus, ConnectPhase, FetchSpec, GithubState, Kind, ThreadOp, run_read_deduped,
+    run_spec_tracked, start_connect,
 };
 
 pub(crate) struct GithubPage {
@@ -826,7 +826,12 @@ impl GithubPage {
         let window_handle = window.window_handle();
         cx.spawn(async move |_this, cx| {
             for spec in specs {
-                let result = run_spec_tracked(state.clone(), spec, cx).await;
+                // All `run_specs` traffic is reads (repo-open slices, mark
+                // refetches) — the skip guard applies (docs/0031 D1/D2);
+                // a skipped spec simply waits for its next trigger.
+                let Some(result) = run_read_deduped(state.clone(), spec, cx).await else {
+                    continue;
+                };
                 cx.update(|cx| {
                     state.update(cx, |s, cx| {
                         s.apply(result);

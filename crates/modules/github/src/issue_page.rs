@@ -54,7 +54,9 @@ use crate::pr_page::{
     ANCHOR_FADE, CommentAnchor, ErrorScope, MutationError, body_card, cap_row, delete_confirm_card,
     inline_edit_card, split_repo,
 };
-use crate::service::{FetchSpec, GithubState, Kind, Mutation, run_mutation, run_spec_tracked};
+use crate::service::{
+    Fetch, FetchSpec, GithubState, Kind, Mutation, run_mutation, run_read_deduped, run_spec_tracked,
+};
 
 actions!(github, [DismissIssuePage]);
 
@@ -71,9 +73,7 @@ pub(crate) struct IssueDetailPage {
     /// The snapshot row that opened the page — instant header paint while
     /// the detail query is in flight.
     summary: gql::Issue,
-    detail: Option<gql::IssueDetail>,
-    loading: bool,
-    load_error: Option<String>,
+    detail: Fetch<gql::IssueDetail>,
     focus_handle: FocusHandle,
     /// Comment box draft textarea (0020 D4).
     comment: Entity<TextareaState>,
@@ -264,9 +264,7 @@ impl IssueDetailPage {
             repo,
             number,
             summary,
-            detail: None,
-            loading: false,
-            load_error: None,
+            detail: Fetch::new(),
             focus_handle: cx.focus_handle(),
             comment,
             close_reason,
@@ -313,20 +311,31 @@ impl IssueDetailPage {
             "issue-detail: fetching {}",
             spec.ident.as_deref().unwrap_or("?")
         );
-        self.loading = true;
-        self.load_error = None;
+        // Arm the shared guard synchronously (docs/0031 D1/D2) — same
+        // shape as the PR page's fetches: a duplicate dispatch skips
+        // before the record's `begin` can orphan it; the wrapper's re-arm
+        // is idempotent and its clear follows the run.
+        let armed = self
+            .state
+            .update(cx, |s, _| s.in_flight_arm((spec.kind, spec.ident.clone())));
+        if !armed {
+            log::debug!("issue-detail: skipped — an identical read is in flight");
+            return;
+        }
+        self.detail.begin();
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result = run_spec_tracked(state, spec, cx).await;
+            let Some(result) = run_read_deduped(state, spec, cx).await else {
+                return;
+            };
             let _ = this.update(cx, |page, cx| page.apply_detail_result(result, cx));
         })
         .detach();
     }
 
     fn apply_detail_result(&mut self, result: crate::service::SpecResult, cx: &mut Context<Self>) {
-        self.loading = false;
         if let Some(m) = &result.network {
-            self.load_error = Some(format!("Network error: {m}"));
+            self.detail.fail(format!("Network error: {m}"));
         } else if result.status != 200 {
             // Forward failures to the state entity so the shared 401/403
             // handling runs exactly as for every other fetch (0020 D2).
@@ -335,7 +344,7 @@ impl IssueDetailPage {
                 s.apply(result);
                 cx.notify();
             });
-            self.load_error = Some(format!("GitHub answered HTTP {status}"));
+            self.detail.fail(format!("GitHub answered HTTP {status}"));
         } else if let Some(body) = result.body {
             match serde_json::from_str::<gql::Envelope<gql::IssueDetailData>>(body.as_str()) {
                 Ok(env) => {
@@ -358,14 +367,12 @@ impl IssueDetailPage {
                                 detail.labels.len()
                             );
                             self.md = build_issue_md_cache(&detail);
-                            self.detail = Some(detail);
                             // 0019 D4 pattern: an editor/confirm whose node
                             // is gone with the new payload has nothing left
                             // to edit — drop it (deleted elsewhere,
                             // refetch race).
-                            let d = self.detail.as_ref().unwrap();
                             let still_there =
-                                |id: &str| d.comments.nodes.iter().any(|c| c.id == id);
+                                |id: &str| detail.comments.nodes.iter().any(|c| c.id == id);
                             if let Some((id, _)) = &self.timeline_edit {
                                 if !still_there(id) {
                                     self.timeline_edit = None;
@@ -390,20 +397,21 @@ impl IssueDetailPage {
                             if let Some(source) = open_picker {
                                 self.realign_open_picker(source, cx);
                             }
+                            self.detail.land(detail);
                             // docs/0026 D9: the payload is in — try to arm
                             // the notification jump against it.
                             self.resolve_comment_anchor();
                         }
                         None => {
                             log::warn!("issue-detail: repository/issue null — keeping header");
-                            self.load_error =
-                                Some("Issue not found (removed, or access lost)".into());
+                            self.detail
+                                .fail("Issue not found (removed, or access lost)".into());
                         }
                     }
                 }
                 Err(e) => {
                     log::warn!("issue-detail payload: {e}");
-                    self.load_error = Some("Malformed payload".into());
+                    self.detail.fail("Malformed payload".into());
                 }
             }
         }
@@ -418,7 +426,7 @@ impl IssueDetailPage {
         };
         self.anchor = self
             .detail
-            .as_ref()
+            .data()
             .and_then(|d| {
                 d.comments
                     .nodes
@@ -477,7 +485,9 @@ impl IssueDetailPage {
     /// is the same pure fn the button renders with — re-checked here as
     /// the honest guard.
     fn submit_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(d) = self.detail.clone() else { return };
+        let Some(d) = self.detail.data().cloned() else {
+            return;
+        };
         let body = self.comment.read(cx).value().trim().to_string();
         if !comment_submit_allowed(body.is_empty(), self.busy.is_some()) || d.id.is_empty() {
             return;
@@ -504,7 +514,7 @@ impl IssueDetailPage {
         self.yield_all_editors();
         let body = self
             .detail
-            .as_ref()
+            .data()
             .and_then(|d| d.body.clone())
             .unwrap_or_default();
         let editor = cx.new(|cx| {
@@ -531,7 +541,7 @@ impl IssueDetailPage {
     /// description edit's document; 0020 D2). Empty bodies never get here
     /// (Save renders disabled).
     fn save_description(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (Some(d), Some(editor)) = (self.detail.as_ref(), self.description_edit.as_ref()) else {
+        let (Some(d), Some(editor)) = (self.detail.data(), self.description_edit.as_ref()) else {
             return;
         };
         if self.busy.is_some() || d.id.is_empty() {
@@ -588,7 +598,7 @@ impl IssueDetailPage {
     /// Save the row editor (`updateIssueComment { id body }` — 0019 D5's
     /// document, unchanged for issues). Empty bodies never get here.
     fn save_edit_row(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(d) = self.detail.as_ref() else {
+        let Some(d) = self.detail.data() else {
             return;
         };
         let Some((node_id, editor)) = self.timeline_edit.as_ref() else {
@@ -638,7 +648,7 @@ impl IssueDetailPage {
     /// Fire the confirmed delete (`deleteIssueComment { id }`). The
     /// confirm card stays up while the op is in flight; success clears it.
     fn confirm_delete_row(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(d) = self.detail.as_ref() else {
+        let Some(d) = self.detail.data() else {
             return;
         };
         let Some(node_id) = self.delete_confirm.clone() else {
@@ -670,7 +680,9 @@ impl IssueDetailPage {
     /// Close the issue (`closeIssue { issueId stateReason }`) — the
     /// panel's reason always rides along (0020 D2).
     fn close_issue(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(d) = self.detail.clone() else { return };
+        let Some(d) = self.detail.data().cloned() else {
+            return;
+        };
         if d.id.is_empty() {
             return;
         }
@@ -695,7 +707,9 @@ impl IssueDetailPage {
 
     /// Reopen the issue (`reopenIssue { issueId }`).
     fn reopen_issue(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(d) = self.detail.clone() else { return };
+        let Some(d) = self.detail.data().cloned() else {
+            return;
+        };
         if d.id.is_empty() {
             return;
         }
@@ -772,7 +786,7 @@ impl IssueDetailPage {
         self.yield_all_editors();
         let title = self
             .detail
-            .as_ref()
+            .data()
             .map(|d| d.title.clone())
             .unwrap_or_default();
         let editor = cx.new(|cx| {
@@ -795,7 +809,7 @@ impl IssueDetailPage {
     /// titles never get here (Save renders disabled, the comment-editor
     /// submit gate).
     fn save_title(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (Some(d), Some(editor)) = (self.detail.as_ref(), self.title_edit.as_ref()) else {
+        let (Some(d), Some(editor)) = (self.detail.data(), self.title_edit.as_ref()) else {
             return;
         };
         if self.busy.is_some() || d.id.is_empty() {
@@ -848,7 +862,9 @@ impl IssueDetailPage {
     /// Rail lock toggle (D5): direction derives from the fetched state —
     /// no optimistic flip; the refetch repaints tag and composer gate.
     fn toggle_lock(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(d) = self.detail.clone() else { return };
+        let Some(d) = self.detail.data().cloned() else {
+            return;
+        };
         if self.busy.is_some() || d.id.is_empty() {
             return;
         }
@@ -960,7 +976,9 @@ impl IssueDetailPage {
     /// A source page just landed (or the detail refetched underneath an
     /// open picker): rebuild the frozen draft, preserving choices by id.
     fn realign_open_picker(&mut self, source: PickerSource, cx: &mut Context<Self>) {
-        let Some(d) = self.detail.clone() else { return };
+        let Some(d) = self.detail.data().cloned() else {
+            return;
+        };
         let rebuilding = match (&self.rail_edit, source) {
             (Some(RailEditor::Labels(_)), PickerSource::Labels) => 0,
             (Some(RailEditor::Assignees(_)), PickerSource::Assignees) => 1,
@@ -1012,7 +1030,9 @@ impl IssueDetailPage {
     }
 
     fn start_labels_picker(&mut self, cx: &mut Context<Self>) {
-        let Some(d) = self.detail.clone() else { return };
+        let Some(d) = self.detail.data().cloned() else {
+            return;
+        };
         if self.busy.is_some() || self.rail_edit.is_some() || !labels_edit_arming(&d) {
             return;
         }
@@ -1046,7 +1066,9 @@ impl IssueDetailPage {
     }
 
     fn start_assignees_picker(&mut self, cx: &mut Context<Self>) {
-        let Some(d) = self.detail.clone() else { return };
+        let Some(d) = self.detail.data().cloned() else {
+            return;
+        };
         if self.busy.is_some() || self.rail_edit.is_some() || !assignees_edit_arming(&d) {
             return;
         }
@@ -1075,7 +1097,9 @@ impl IssueDetailPage {
     }
 
     fn start_milestones_picker(&mut self, cx: &mut Context<Self>) {
-        let Some(d) = self.detail.clone() else { return };
+        let Some(d) = self.detail.data().cloned() else {
+            return;
+        };
         if self.busy.is_some() || self.rail_edit.is_some() || !milestone_edit_arming(&d) {
             return;
         }
@@ -1154,7 +1178,9 @@ impl IssueDetailPage {
     /// Save the labels draft (D1/D3): the input carries the complete
     /// target id list — replace semantics upstream.
     fn save_labels(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(d) = self.detail.clone() else { return };
+        let Some(d) = self.detail.data().cloned() else {
+            return;
+        };
         let Some(RailEditor::Labels(draft)) = &self.rail_edit else {
             return;
         };
@@ -1176,7 +1202,9 @@ impl IssueDetailPage {
     }
 
     fn save_assignees(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(d) = self.detail.clone() else { return };
+        let Some(d) = self.detail.data().cloned() else {
+            return;
+        };
         let Some(RailEditor::Assignees(draft)) = &self.rail_edit else {
             return;
         };
@@ -1200,7 +1228,9 @@ impl IssueDetailPage {
     /// Save the milestone choice — `milestoneId: null` clears (§2.1).
     /// An unchanged choice closes without a pointless write.
     fn save_milestone(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(d) = self.detail.clone() else { return };
+        let Some(d) = self.detail.data().cloned() else {
+            return;
+        };
         let Some(RailEditor::Milestone { chosen, .. }) = &self.rail_edit else {
             return;
         };
@@ -1362,7 +1392,7 @@ impl IssueDetailPage {
     /// otherwise (hidden, not disabled).
     fn render_title_area(
         &self,
-        detail: &Option<gql::IssueDetail>,
+        detail: Option<&gql::IssueDetail>,
         badge_label: &'static str,
         badge_tone: IssueBadgeTone,
         title: String,
@@ -1426,7 +1456,7 @@ impl IssueDetailPage {
             .into_any_element()
     }
 
-    fn render_header(&self, detail: &Option<gql::IssueDetail>, cx: &Context<Self>) -> AnyElement {
+    fn render_header(&self, detail: Option<&gql::IssueDetail>, cx: &Context<Self>) -> AnyElement {
         let (title, number, author, age, url) = match detail {
             Some(d) => (
                 d.title.clone(),
@@ -1498,7 +1528,9 @@ impl IssueDetailPage {
                 h_flex()
                     .gap_2()
                     .items_center()
-                    .when(self.loading, |row| row.child(Spinner::new().small()))
+                    .when(self.detail.is_loading(), |row| {
+                        row.child(Spinner::new().small())
+                    })
                     .child(
                         Button::new("issue-refresh")
                             .ghost()
@@ -1523,9 +1555,9 @@ impl IssueDetailPage {
     /// the rail. No tab bar: issues carry no commits/checks/files (0020
     /// D3). The split uses the PR page's shipped mechanism (`items_start`
     /// + timeline `h_full()`) — the rail hugs its content, never the scroll.
-    fn render_body(&self, detail: &Option<gql::IssueDetail>, cx: &Context<Self>) -> AnyElement {
+    fn render_body(&self, detail: Option<&gql::IssueDetail>, cx: &Context<Self>) -> AnyElement {
         let Some(d) = detail else {
-            if let Some(err) = &self.load_error {
+            if let Some(err) = self.detail.load_error() {
                 return error_cell(err, cx);
             }
             return skeleton_list();
@@ -2669,7 +2701,7 @@ impl Render for IssueDetailPage {
                 self.start_anchor_fade(cx);
             }
         }
-        let detail = self.detail.clone();
+        let detail = self.detail.data();
         v_flex()
             .id("issue-detail")
             .key_context("GithubIssuePage")
@@ -2685,8 +2717,8 @@ impl Render for IssueDetailPage {
             .min_w_0()
             .p_4()
             .gap_3()
-            .child(self.render_header(&detail, cx))
-            .child(self.render_body(&detail, cx))
+            .child(self.render_header(detail, cx))
+            .child(self.render_body(detail, cx))
     }
 }
 
@@ -3178,7 +3210,7 @@ mod tests {
         row_is_edited, sorted_timeline, state_reason_word, title_edit_visible,
     };
     use crate::pr_page::{ANCHOR_FADE, CommentAnchor};
-    use crate::service::{GithubCache, GithubState, Kind, Mutation, SpecResult};
+    use crate::service::{Fetch, GithubCache, GithubState, Kind, Mutation, SpecResult};
     use gpui::AppContext as _;
     use gpui::{Size, px};
 
@@ -3416,8 +3448,8 @@ mod tests {
         cx.add_window_view(|window, cx| {
             let mut page =
                 IssueDetailPage::new(state, "o/r".into(), probe_summary(), anchor, window, cx);
-            page.detail = Some(probe_issue());
-            page.md = build_issue_md_cache(page.detail.as_ref().unwrap());
+            page.detail = Fetch::ready(probe_issue());
+            page.md = build_issue_md_cache(page.detail.data().unwrap());
             page
         })
     }
@@ -3885,7 +3917,7 @@ mod tests {
         vcx.update(|_, cx| {
             page.update(cx, |page, cx| {
                 page.cancel_rail_editor(cx);
-                let d = page.detail.as_mut().unwrap();
+                let d = page.detail.data_mut().unwrap();
                 d.viewer_can_update = false;
                 d.viewer_can_label = false;
                 d.viewer_can_assign = false;
@@ -4230,7 +4262,7 @@ mod tests {
         // armed direction posts removeReaction through the same toggle.
         vcx.update(|window, cx| {
             page.update(cx, |page, cx| {
-                let groups = &page.detail.as_ref().unwrap().reaction_groups;
+                let groups = &page.detail.data().unwrap().reaction_groups;
                 assert!(reaction_direction(groups, gql::ReactionContent::ThumbsUp));
                 assert!(!reaction_direction(groups, gql::ReactionContent::Heart));
                 page.toggle_reaction(
@@ -4287,7 +4319,7 @@ mod tests {
         // comment on locked threads).
         vcx.update(|_, cx| {
             page.update(cx, |page, cx| {
-                let d = page.detail.as_mut().unwrap();
+                let d = page.detail.data_mut().unwrap();
                 d.locked = true;
                 d.active_lock_reason = Some("TOO_HEATED".into());
                 cx.notify();
@@ -4299,7 +4331,7 @@ mod tests {
         // composer swaps to the locked notice (D6).
         vcx.update(|_, cx| {
             page.update(cx, |page, cx| {
-                let d = page.detail.as_mut().unwrap();
+                let d = page.detail.data_mut().unwrap();
                 d.viewer_permission = None;
                 cx.notify();
             });
@@ -4312,7 +4344,7 @@ mod tests {
         // to do) and the composer returns.
         vcx.update(|_, cx| {
             page.update(cx, |page, cx| {
-                let d = page.detail.as_mut().unwrap();
+                let d = page.detail.data_mut().unwrap();
                 d.locked = false;
                 cx.notify();
             });
@@ -4324,7 +4356,7 @@ mod tests {
         // guards a second flip.
         vcx.update(|window, cx| {
             page.update(cx, |page, cx| {
-                let d = page.detail.as_mut().unwrap();
+                let d = page.detail.data_mut().unwrap();
                 d.viewer_permission = Some("TRIAGE".into());
                 cx.notify();
             });

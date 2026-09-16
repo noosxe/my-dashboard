@@ -237,3 +237,34 @@ indicator will carry the ids/roles per 0010 D10, and can read
 3. **`GithubState` list surfaces now or with #192?** D5 defers them;
    including them now would grow the PR meaningfully for no consumer
    benefit until an age is rendered.
+
+## 8. Shipped (#221)
+
+- **`Fetch<T>` + `FetchStatus<T>`** in service.rs, exactly per D3/D4, plus
+  `data_mut()` (test/mutation convenience) and a `cfg(test)` `ready()`
+  fixture constructor. `Kind`/`Mutation`/`ThreadOp` gained
+  `PartialOrd/Ord/Hash` so the guard key `(Kind, ident)` can live in a
+  `BTreeSet`.
+- **`run_read_deduped`** (D1/D2/D6) wraps `run_spec_tracked`; skip is a
+  `None` return. The tick loop and `GithubPage::run_specs` migrated.
+- **Page-owned fetches arm the guard synchronously** before their local
+  record's `begin()` (a refinement of D1: a duplicate refresh click must
+  skip *before* the record can be left orphaned in-flight), then dispatch
+  through the wrapper — whose re-arm is idempotent for the key holder and
+  whose clear always follows the run. PR page detail/files/threads and the
+  issue page detail all use this shape; their `FilesFetch`/`ThreadsFetch`
+  enums and `detail`/`loading`/`load_error` triples are gone.
+- **Rendering unchanged where it was already shipped**: the files pane's
+  error row (with retry) still replaces the pane on failure — including a
+  failed refresh (the payload stays in the record; the next successful
+  land repaints). The threads hint/retry row under the diff unchanged. Two
+  visible improvements fell out: a refresh of loaded files/threads keeps
+  the old list visible while refetching (the old code dropped to a
+  skeleton), and the header spinner now keys off the record.
+- **Notification page**: its one-shot `ThreadDetail` fetch stays on the raw
+  lane — it fires exactly once per page instance, has no guard-relevant
+  duplicate trigger, and adopting the record there is #188's business when
+  the hand-off page learns to refresh.
+- **Tests** per §5: `fetch_record_transitions` (pure table),
+  `read_deduped_skips_duplicate_dispatch` (arm → skip → no transport round
+  → clear → run), `read_deduped_never_blocks_the_raw_lane`.

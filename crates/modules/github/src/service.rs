@@ -19,7 +19,7 @@
 //!   `sign_out_now`) — every state write ends with the 0003 §3.12
 //!   unfocused refresh.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -344,7 +344,7 @@ fn slug(full_name: &str) -> String {
 // the background executor, applied back on the main thread.
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Kind {
     /// The global GraphQL snapshot (docs/0007 D1/D2/D4).
     Snapshot,
@@ -408,7 +408,7 @@ pub enum Kind {
 /// The five PR-page mutations (docs/0016 §6.2), each mapping to one
 /// GraphQL document — the page builds the input, the transport just
 /// swaps the document string (D2: "transport is identical").
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Mutation {
     Comment,
     Review,
@@ -465,12 +465,147 @@ pub enum Mutation {
 /// `PATCH /notifications/threads/{id}` (→ 205); `MarkDone` (`DELETE`,
 /// → 204, removes the thread from the inbox) fires from the
 /// notification page and the repo-view rows (#153).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ThreadOp {
     MarkRead,
     MarkDone,
 }
 
+/// Per-key in-flight guard identity for read dispatches (docs/0031 D1):
+/// `Kind` discriminates every read kind; `ident` carries the target
+/// (`owner/repo#number` for page kinds, `owner/repo` for repo kinds,
+/// `None` for globals) — §3 of the doc verified the pair is unique per
+/// read target. Mutation kinds never enter the guard: they bypass it
+/// entirely (D1).
+pub(crate) type InFlightKey = (Kind, Option<String>);
+
+/// Shared fetch lifecycle for page surfaces (docs/0031 D3/D4): the
+/// record carries the last good payload and when it landed;
+/// `in_flight` stays orthogonal so "show data while a refetch runs"
+/// needs no extra state. `fail` never drops a landed payload — the
+/// error becomes `last_error` instead (stale-on-error, 0005's
+/// stale-data-over-error principle); only a failure with nothing
+/// landed is terminal. `fetched_at` is apply-time and session-local:
+/// no TTL policy lives here (#193 owns that decision).
+pub(crate) struct Fetch<T> {
+    status: FetchStatus<T>,
+    pub(crate) in_flight: bool,
+    pub(crate) last_error: Option<String>,
+}
+
+enum FetchStatus<T> {
+    Idle,
+    // Read only through `Fetch::fetched_at`/`age` — the freshness
+    // consumers (#192/#193) land after the record itself (docs/0031 D4),
+    // so the lib target sees no reader yet.
+    #[allow(dead_code)]
+    Ready {
+        data: T,
+        fetched_at: Instant,
+    },
+    Failed {
+        error: String,
+    },
+}
+
+impl<T> Default for Fetch<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T> Fetch<T> {
+    pub(crate) const fn new() -> Self {
+        Self {
+            status: FetchStatus::Idle,
+            in_flight: false,
+            last_error: None,
+        }
+    }
+
+    /// A landed record without a fetch — fixtures and header paint.
+    #[cfg(test)]
+    pub(crate) fn ready(data: T) -> Self {
+        let mut f = Self::new();
+        f.land(data);
+        f
+    }
+
+    pub(crate) fn begin(&mut self) {
+        self.in_flight = true;
+    }
+
+    pub(crate) fn land(&mut self, data: T) {
+        self.in_flight = false;
+        self.last_error = None;
+        self.status = FetchStatus::Ready {
+            data,
+            fetched_at: Instant::now(),
+        };
+    }
+
+    /// With landed data the record keeps it and surfaces `last_error`;
+    /// without, the failure is terminal.
+    pub(crate) fn fail(&mut self, error: String) {
+        self.in_flight = false;
+        match self.status {
+            FetchStatus::Ready { .. } => self.last_error = Some(error),
+            _ => self.status = FetchStatus::Failed { error },
+        }
+    }
+
+    pub(crate) fn data(&self) -> Option<&T> {
+        match &self.status {
+            FetchStatus::Ready { data, .. } => Some(data),
+            _ => None,
+        }
+    }
+
+    // Test/mutation-surface convenience (docs/0031 §8).
+    #[allow(dead_code)]
+    pub(crate) fn data_mut(&mut self) -> Option<&mut T> {
+        match &mut self.status {
+            FetchStatus::Ready { data, .. } => Some(data),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn is_idle(&self) -> bool {
+        matches!(self.status, FetchStatus::Idle)
+    }
+
+    pub(crate) fn is_ready(&self) -> bool {
+        matches!(self.status, FetchStatus::Ready { .. })
+    }
+
+    /// First-load spinner: in flight with nothing landed yet.
+    pub(crate) fn is_loading(&self) -> bool {
+        self.in_flight && !self.is_ready()
+    }
+
+    /// Terminal failure (nothing ever landed), or a failed refresh of
+    /// landed data.
+    pub(crate) fn load_error(&self) -> Option<&str> {
+        match &self.status {
+            FetchStatus::Failed { error } => Some(error),
+            _ => self.last_error.as_deref(),
+        }
+    }
+
+    // The #192/#193 consumers read these; they land after the record.
+    #[allow(dead_code)]
+    pub(crate) fn fetched_at(&self) -> Option<Instant> {
+        match &self.status {
+            FetchStatus::Ready { fetched_at, .. } => Some(*fetched_at),
+            _ => None,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn age(&self) -> Option<Duration> {
+        self.fetched_at().map(|t| t.elapsed())
+    }
+}
 #[derive(Clone, Debug)]
 pub struct FetchSpec {
     pub kind: Kind,
@@ -1183,6 +1318,10 @@ pub struct GithubState {
     /// access token — keychain + slot only, never in state or logs.
     pub(crate) shared_refresh: SharedToken,
     pub(crate) cache: GithubCache,
+    /// Per-key in-flight guard for read dispatches (docs/0031 D1/D2):
+    /// armed at dispatch, cleared when the result lands. A dispatch
+    /// finding its key armed is skipped, never queued.
+    pub(crate) in_flight: BTreeSet<InFlightKey>,
 }
 
 impl GithubState {
@@ -1242,12 +1381,23 @@ impl GithubState {
             needs_bootstrap: auth.connected(),
             auth,
             etags,
+            in_flight: BTreeSet::new(),
             client,
             store,
             shared_token,
             shared_refresh,
             cache,
         }
+    }
+
+    /// Arm the guard for a read dispatch — `false` = an identical read
+    /// is already in flight and the dispatch must be skipped.
+    pub(crate) fn in_flight_arm(&mut self, key: InFlightKey) -> bool {
+        self.in_flight.insert(key)
+    }
+
+    pub(crate) fn in_flight_clear(&mut self, key: &InFlightKey) {
+        self.in_flight.remove(key);
     }
 
     /// Rate-limit / auth gate (Q9): no requests while disconnected, mid
@@ -1907,6 +2057,33 @@ fn transient_refresh_result(kind: Kind, ident: Option<String>, msg: String) -> S
     }
 }
 
+/// Read dispatch behind the per-key skip guard (docs/0031 D1/D2): when an
+/// identical `(Kind, ident)` read is already in flight the new dispatch is
+/// skipped — the caller gets `None` and applies nothing, converging on its
+/// next trigger (skip, never queue; a dropped tick/focus/manual dispatch
+/// always has a successor). Mutations and the connect flow stay on
+/// [`run_spec_tracked`]: they are user-initiated one-shots gated by
+/// `BusyOp`/`ConnectPhase`, and a retry after a failed write's refetch
+/// must never be blocked.
+pub(crate) async fn run_read_deduped(
+    state: Entity<GithubState>,
+    spec: FetchSpec,
+    cx: &mut AsyncApp,
+) -> Option<SpecResult> {
+    let kind_name = spec.kind.kind_name();
+    let key: InFlightKey = (spec.kind, spec.ident.clone());
+    // A failed `cx.update` means the app is tearing down — skipping is
+    // the harmless answer.
+    let armed = cx.update(|cx| state.update(cx, |s, _| s.in_flight_arm(key.clone())));
+    if !armed {
+        log::debug!("{kind_name}: skipped — an identical read is in flight");
+        return None;
+    }
+    let result = run_spec_tracked(state.clone(), spec, cx).await;
+    cx.update(|cx| state.update(cx, |s, _| s.in_flight_clear(&key)));
+    Some(result)
+}
+
 /// The single refresh procedure (docs/0028 §3.2): the gate lead only.
 /// Reads the grant inputs on the main thread, runs the grant on the
 /// background executor, applies the outcome on the main thread (install
@@ -2077,7 +2254,12 @@ pub fn spawn_tick_loop(state: Entity<GithubState>, window: AnyWindowHandle, cx: 
                 }
             );
             for spec in specs {
-                let result = run_spec_tracked(state.clone(), spec, cx).await;
+                // Tick traffic is reads — the skip guard applies (docs/0031
+                // D1/D2): a spec whose twin is still running (a page lane
+                // refetch) waits for the next beat.
+                let Some(result) = run_read_deduped(state.clone(), spec, cx).await else {
+                    continue;
+                };
                 cx.update(|cx| {
                     state.update(cx, |s, cx| {
                         s.apply(result);
@@ -3935,6 +4117,125 @@ mod tests {
                 run_spec_tracked(state, spec, &mut cx).await
             }
         })
+    }
+
+    // --- Fetch<T> record + run_read_deduped guard (docs/0031 §5) ---------
+
+    fn dedup_spec(kind: Kind, ident: Option<&str>) -> FetchSpec {
+        FetchSpec {
+            kind,
+            url: api::notifications_url(1),
+            etag: None,
+            ident: ident.map(Into::into),
+            max_pages: 1,
+            variables: None,
+        }
+    }
+
+    #[test]
+    fn fetch_record_transitions() {
+        // docs/0031 D3/D4: `land` stamps fetched_at and clears errors;
+        // `fail` with nothing landed is terminal; `fail` over landed data
+        // keeps the payload and surfaces `last_error` (stale-on-error).
+        let mut f: Fetch<&'static str> = Fetch::new();
+        assert!(f.is_idle());
+        assert!(!f.is_loading() && f.data().is_none());
+
+        f.begin();
+        assert!(f.is_loading(), "first-load spinner: in flight, no data");
+
+        f.fail("boom".into());
+        assert!(!f.in_flight);
+        assert_eq!(f.load_error(), Some("boom"));
+
+        f.begin();
+        f.land("data");
+        assert!(f.is_ready() && !f.in_flight);
+        assert_eq!(f.data(), Some(&"data"));
+        assert!(f.fetched_at().is_some());
+        assert!(f.age().is_some());
+
+        f.fail("late error".into());
+        assert_eq!(f.data(), Some(&"data"), "stale-on-error keeps the payload");
+        assert_eq!(f.load_error(), Some("late error"));
+
+        f.land("fresh");
+        assert_eq!(f.data(), Some(&"fresh"));
+        assert_eq!(f.load_error(), None, "landing clears last_error");
+    }
+
+    #[gpui::test]
+    async fn read_deduped_skips_duplicate_dispatch(cx: &mut gpui::TestAppContext) {
+        cx.update(dashboard_core::status::init);
+        let http = Arc::new(MockHttp::new(vec![api_result(200, "[]")]));
+        let state = gate_state_entity(cx, http.clone(), "dedup-skip");
+
+        // Lane A mid-flight, simulated deterministically: the key is
+        // armed without a transport round (docs/0031 §5).
+        let key: InFlightKey = (Kind::Notifications, None);
+        cx.update(|cx| {
+            state.update(cx, |s, _| assert!(s.in_flight_arm(key.clone())));
+        });
+
+        // Lane B: same key → skipped, no transport round, no result.
+        let skipped = cx
+            .spawn({
+                let state = state.clone();
+                move |mut cx: gpui::AsyncApp| async move {
+                    run_read_deduped(state, dedup_spec(Kind::Notifications, None), &mut cx).await
+                }
+            })
+            .await;
+        assert!(skipped.is_none());
+        assert!(
+            http.recorded().is_empty(),
+            "a skipped dispatch never hits the transport"
+        );
+
+        // The holder clears; the next dispatch runs and clears behind it.
+        cx.update(|cx| {
+            state.update(cx, |s, _| s.in_flight_clear(&key));
+        });
+        let result = cx
+            .spawn({
+                let state = state.clone();
+                move |mut cx: gpui::AsyncApp| async move {
+                    run_read_deduped(state, dedup_spec(Kind::Notifications, None), &mut cx).await
+                }
+            })
+            .await;
+        assert!(result.is_some());
+        assert_eq!(http.recorded().len(), 1);
+        assert!(
+            cx.update(|cx| state.read(cx).in_flight.is_empty()),
+            "the guard clears when the run lands"
+        );
+    }
+
+    #[gpui::test]
+    async fn read_deduped_never_blocks_the_raw_lane(cx: &mut gpui::TestAppContext) {
+        // Mutations and the connect flow stay on `run_spec_tracked`, which
+        // never consults the guard (docs/0031 D1) — a write retry must go
+        // out even while an identical-keyed read is in flight.
+        cx.update(dashboard_core::status::init);
+        let http = Arc::new(MockHttp::new(vec![api_result(200, "[]")]));
+        let state = gate_state_entity(cx, http.clone(), "dedup-mutation");
+
+        let key: InFlightKey = (Kind::Notifications, None);
+        cx.update(|cx| {
+            state.update(cx, |s, _| assert!(s.in_flight_arm(key.clone())));
+        });
+
+        let result = cx
+            .spawn({
+                let state = state.clone();
+                move |mut cx: gpui::AsyncApp| async move {
+                    run_spec_tracked(state, dedup_spec(Kind::Notifications, None), &mut cx).await
+                }
+            })
+            .await;
+        assert_eq!(result.status, 200);
+        assert_eq!(http.recorded().len(), 1, "the raw lane is unguarded");
     }
 
     #[gpui::test]
