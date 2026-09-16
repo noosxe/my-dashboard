@@ -63,6 +63,7 @@ cross-platform, multi-modular universal personal dashboard built with Rust and
 | [0028](0028-github-401-refresh-retry.md) | GitHub Module: Immediate 401 Refresh with Retry Queue (single-flight gate, FIFO retries; amends 0011 §4.3) |
 | [0029](0029-github-module-architecture.md) | GitHub Module: Architectural Overview (what works, gaps, improvement roadmap) |
 | [0030](0030-pr-review-threads.md) | GitHub Module: PR Review Threads (inline code review on the Files tab — read + write design) |
+| [0031](0031-fetch-record-and-inflight-dedup.md) | GitHub Module: Fetch Record + Per-Key In-Flight Dedup (shared freshness substrate for #188/#192/#193/#194) |
 
 ## Planned docs (roadmap, not yet written)
 
