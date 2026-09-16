@@ -275,7 +275,7 @@ impl GithubCache {
     }
 
     #[cfg(test)]
-    fn at_tmp(tag: &str) -> Self {
+    pub(crate) fn at_tmp(tag: &str) -> Self {
         Self {
             root: std::env::temp_dir().join(format!(
                 "dash-gh-cache-{tag}-{}",
@@ -291,7 +291,7 @@ impl GithubCache {
         self.root.join("etags.json")
     }
 
-    fn last_known_path(&self, rel: &str) -> PathBuf {
+    pub(crate) fn last_known_path(&self, rel: &str) -> PathBuf {
         self.root.join("last-known").join(format!("{rel}.json"))
     }
 
@@ -310,6 +310,18 @@ impl GithubCache {
 
     pub fn load<T: DeserializeOwned>(&self, rel: &str) -> Option<T> {
         store::load_json(&self.last_known_path(rel)).ok().flatten()
+    }
+
+    /// Age of a last-known blob — its mtime, which the atomic-rename
+    /// write (`store::save_json_atomic`) keeps equal to the last `put`
+    /// (docs/0034 D1). `None`: no blob (first run — nothing seeded,
+    /// nothing to mark).
+    pub fn age(&self, rel: &str) -> Option<Duration> {
+        std::fs::metadata(self.last_known_path(rel))
+            .and_then(|m| m.modified())
+            .ok()?
+            .elapsed()
+            .ok()
     }
 
     pub fn put<T: Serialize>(&self, rel: &str, value: &T) {
@@ -1319,6 +1331,11 @@ pub struct GithubState {
     pub rate_limited_until: Option<u64>,
     /// Set when a connect flow should fetch the snapshot on next tick.
     pub needs_bootstrap: bool,
+    /// docs/0034 D2 — disk-seeded cache ages, read at construction.
+    /// A landed sync clears them: from there the session records own
+    /// freshness (docs/0031/0032) and the staleness chip goes away.
+    pub snapshot_age: Option<Duration>,
+    pub notifications_age: Option<Duration>,
     pub(crate) etags: BTreeMap<String, String>,
     pub(crate) client: Arc<dyn Http>,
     pub(crate) store: Arc<dyn TokenStore>,
@@ -1377,6 +1394,8 @@ impl GithubState {
                 .then(|| cache.load("notifications"))
                 .flatten()
                 .unwrap_or_default(),
+            snapshot_age: seeded.then(|| cache.age(gql::SNAPSHOT_CACHE_KEY)).flatten(),
+            notifications_age: seeded.then(|| cache.age("notifications")).flatten(),
             repo_notifications: BTreeMap::new(),
             selected: None,
             repo_cursor: None,
@@ -1572,6 +1591,9 @@ impl GithubState {
     fn apply_notifications(&mut self, items: Vec<Notification>) {
         let unread = items.iter().filter(|n| n.unread).count();
         self.notifications = items;
+        // A landed sync owns freshness now (docs/0034 D2) — the ETag-304
+        // path counts: the server just confirmed the blob is current.
+        self.notifications_age = None;
         log::debug!("notifications applied: {unread} unread");
         if let Some(sel) = self.selected.clone() {
             let derived: Vec<Notification> = self
@@ -1721,6 +1743,8 @@ impl GithubState {
                             self.repo_cursor = result.cursor.clone();
                         }
                         self.persist_snapshot();
+                        // A landed sync owns freshness now (docs/0034 D2).
+                        self.snapshot_age = None;
                         // One concise landing note — the owner's log
                         // verification point (docs/0007 §8).
                         let open_prs: i64 = self.repos.iter().map(|r| r.prs.total_count).sum();
@@ -1746,6 +1770,7 @@ impl GithubState {
                                     let ident = result.ident.clone().unwrap_or_default();
                                     self.merge_repos(vec![repo], false);
                                     self.persist_snapshot();
+                                    self.snapshot_age = None;
                                     log::info!("repo-snapshot applied: {ident}, {prs} open PRs");
                                 }
                                 None => {
@@ -3659,6 +3684,114 @@ mod tests {
         let mut failed = Fetch::<u8>::new();
         failed.fail("boom".into());
         assert!(failed.needs_refresh(fresh), "Failed lanes self-heal");
+    }
+
+    #[test]
+    fn stale_chip_buckets() {
+        use crate::page::stale_chip_label;
+        use std::time::Duration;
+        // Nothing seeded, or everything under the threshold — no chip.
+        assert_eq!(stale_chip_label(None, None), None);
+        assert_eq!(
+            stale_chip_label(Some(Duration::from_secs(29 * 60)), None),
+            None,
+            "just under STALE_AGE stays unmarked"
+        );
+        // The older age wins; the boundary itself marks (>=).
+        assert_eq!(
+            stale_chip_label(
+                Some(Duration::from_secs(10)),
+                Some(Duration::from_secs(30 * 60))
+            )
+            .as_deref(),
+            Some("last synced 30m ago — reconnect to update")
+        );
+    }
+
+    #[test]
+    fn cache_age_reads_blob_mtime() {
+        use std::time::SystemTime;
+        let cache = GithubCache::at_tmp("age");
+        assert_eq!(cache.age("notifications"), None, "no blob, no age");
+
+        cache.put("notifications", &serde_json::json!([]));
+        let fresh = cache.age("notifications").expect("blob exists");
+        assert!(fresh.as_secs() < 60, "a just-written blob is fresh");
+
+        // Backdate the mtime (std File::set_times — no new dependency,
+        // docs/0034 D1).
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .open(cache.last_known_path("notifications"))
+            .unwrap();
+        file.set_times(
+            std::fs::FileTimes::new()
+                .set_modified(SystemTime::now() - Duration::from_secs(2 * 3600)),
+        )
+        .unwrap();
+        drop(file);
+        let age = cache.age("notifications").unwrap();
+        assert!(
+            age.as_secs() >= 2 * 3600 - 5 && age.as_secs() <= 2 * 3600 + 60,
+            "backdated mtime reads as a ~2h age, got {age:?}"
+        );
+    }
+
+    #[test]
+    fn disk_seeded_ages_land_and_a_landed_apply_clears() {
+        use std::time::SystemTime;
+
+        fn backdate(cache: &GithubCache, rel: &str) {
+            let file = std::fs::OpenOptions::new()
+                .write(true)
+                .open(cache.last_known_path(rel))
+                .unwrap();
+            file.set_times(
+                std::fs::FileTimes::new()
+                    .set_modified(SystemTime::now() - Duration::from_secs(2 * 3600)),
+            )
+            .unwrap();
+        }
+
+        // Connected state (the mock store holds a token): both ages seed
+        // from the backdated blobs (docs/0034 D2).
+        let cache = GithubCache::at_tmp("seed");
+        cache.put("notifications", &serde_json::json!([]));
+        // A blob that fails to parse would be quarantined (renamed away)
+        // by new()'s cache.load — the seed must survive it (0004 store).
+        let snapshot = gql::SnapshotCache {
+            schema: 2,
+            user: None,
+            orgs: vec![],
+            repos: vec![],
+        };
+        cache.put(gql::SNAPSHOT_CACHE_KEY, &snapshot);
+        backdate(&cache, "notifications");
+        backdate(&cache, gql::SNAPSHOT_CACHE_KEY);
+        let mut state = make_state_at(Arc::new(MockHttp::new(vec![])), cache);
+        assert!(state.snapshot_age.unwrap().as_secs() >= 2 * 3600 - 5);
+        assert!(state.notifications_age.unwrap().as_secs() >= 2 * 3600 - 5);
+
+        // A landed snapshot apply clears the snapshot age only.
+        state.apply(snapshot_result(
+            &gql_page(false, "unused", &repo_node("o/a", 0, "")),
+            None,
+        ));
+        assert_eq!(state.snapshot_age, None, "a landed sync owns freshness");
+        assert!(state.notifications_age.is_some());
+
+        // A landed notifications apply clears the other.
+        state.apply(SpecResult {
+            kind: Kind::Notifications,
+            ident: None,
+            status: 200,
+            etag: None,
+            rate: None,
+            body: Some(one_notification().to_string()),
+            network: None,
+            cursor: None,
+        });
+        assert_eq!(state.notifications_age, None);
     }
 
     #[test]

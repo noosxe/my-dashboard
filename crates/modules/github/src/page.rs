@@ -1437,6 +1437,10 @@ impl Render for GithubPage {
 
 impl GithubPage {
     fn render_left_column(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let (snapshot_age, notifications_age) = {
+            let state = self.state.read(cx);
+            (state.snapshot_age, state.notifications_age)
+        };
         v_flex()
             .w(px(280.))
             .flex_none()
@@ -1445,6 +1449,20 @@ impl GithubPage {
             .border_color(cx.theme().border)
             .p_2()
             .gap_2()
+            // Cold-start staleness chip (docs/0034 D3) — top of the
+            // module main page, independent of any repo selection.
+            .when_some(
+                stale_chip_label(snapshot_age, notifications_age),
+                |col, chip| {
+                    col.child(
+                        div()
+                            .debug_selector(|| "github-stale".to_string())
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(chip),
+                    )
+                },
+            )
             // The Select's outer wrapper is hardcoded `size_full()`
             // (select.rs RenderOnce) and style refinements only reach
             // the inner trigger — in this full-height column it would
@@ -1795,6 +1813,22 @@ fn connect_panel(auth: &AuthStatus, cx: &mut Context<GithubPage>) -> AnyElement 
         );
     }
     panel.into_any_element()
+}
+
+/// Cold-start staleness threshold (docs/0034 D3/D6) — the disk-seeded
+/// state is marked once the older cache blob exceeds this.
+pub(crate) const STALE_AGE: Duration = Duration::from_secs(30 * 60);
+
+/// The 0034 chip: the older of the two disk-seeded ages past
+/// [`STALE_AGE`], as copy — `None` when fresh enough or nothing was
+/// seeded (first run renders no staleness it cannot have).
+pub(crate) fn stale_chip_label(
+    snapshot_age: Option<Duration>,
+    notifications_age: Option<Duration>,
+) -> Option<SharedString> {
+    let age = snapshot_age.max(notifications_age)?;
+    let label = synced_label(Some(age)).unwrap_or_default();
+    (age >= STALE_AGE).then(|| format!("last {label} — reconnect to update").into())
 }
 
 /// "synced 3m ago" — `None` when nothing has been confirmed yet (docs/0033
@@ -2266,6 +2300,111 @@ mod tests {
             });
         });
         assert_eq!(mock.recorded().len(), 2, "no page, no beat");
+    }
+
+    /// docs/0034 D3: a stale disk-seeded state marks both cold-start
+    /// surfaces (home card, module main page); clearing the ages clears
+    /// the chips. The clear RULE itself — a landed apply — is pinned in
+    /// the service tests; here it is the render wiring.
+    #[gpui::test]
+    fn stale_seed_marks_card_and_main_page(cx: &mut TestAppContext) {
+        use std::sync::Arc;
+        use std::time::{Duration, SystemTime};
+
+        use crate::auth::MockTokenStore;
+        use crate::card::GithubCard;
+        use crate::http::{Http, SharedToken, mock::MockHttp};
+        use crate::service::{GithubCache, GithubState};
+        use dashboard_core::nav::Navigator;
+
+        cx.update(gpui_component::init);
+        cx.update(dashboard_core::status::init);
+
+        // A stale-seeded connected state: the legacy mock token connects
+        // at construction; both blobs backdated past STALE_AGE (2h).
+        let cache = GithubCache::at_tmp("chip");
+        cache.put("notifications", &serde_json::json!([]));
+        let snapshot = gql::SnapshotCache {
+            schema: 2,
+            user: None,
+            orgs: vec![],
+            repos: vec![],
+        };
+        cache.put(gql::SNAPSHOT_CACHE_KEY, &snapshot);
+        for rel in ["notifications", gql::SNAPSHOT_CACHE_KEY] {
+            let file = std::fs::OpenOptions::new()
+                .write(true)
+                .open(cache.last_known_path(rel))
+                .unwrap();
+            file.set_times(
+                std::fs::FileTimes::new()
+                    .set_modified(SystemTime::now() - Duration::from_secs(2 * 3600)),
+            )
+            .unwrap();
+        }
+        let (state, nav) = cx.update(|cx| {
+            let shared: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let refresh: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let state = cx.new(|_| {
+                GithubState::new(
+                    Arc::new(MockHttp::new(vec![])) as Arc<dyn Http>,
+                    Arc::new(MockTokenStore::with("t0k".into())),
+                    shared,
+                    refresh,
+                    cache,
+                )
+            });
+            let nav = cx.new(|_| Navigator::default());
+            (state, nav)
+        });
+
+        // The card surface: chip present while the ages are stale.
+        {
+            let (_card, card_vcx) =
+                cx.add_window_view(|_, cx| GithubCard::new(state.clone(), nav.clone(), cx));
+            let _ = card_vcx.debug_bounds("github-card-stale"); // flush frames
+            assert!(
+                card_vcx.debug_bounds("github-card-stale").is_some(),
+                "the stale-seeded card shows the chip"
+            );
+        }
+
+        // The main-page surface: same seed, same chip at the column top.
+        {
+            let (_page, page_vcx) = cx.add_window_view(|window, cx| {
+                GithubPage::new(state.clone(), nav.clone(), window, cx)
+            });
+            assert!(
+                page_vcx.debug_bounds("github-stale").is_some(),
+                "the stale-seeded main page shows the chip"
+            );
+
+            // Ages cleared (a landed apply does this — service-tested):
+            // the chip goes away. The page syncs from the state.
+            page_vcx.update(|_, cx| {
+                state.update(cx, |s, cx| {
+                    s.snapshot_age = None;
+                    s.notifications_age = None;
+                    cx.notify();
+                });
+            });
+            assert!(
+                page_vcx.debug_bounds("github-stale").is_none(),
+                "cleared ages: no main-page chip"
+            );
+        }
+
+        // The card re-mounted on the cleared state: no chip. (The card's
+        // own clear-on-render — it observes the state.)
+        {
+            let (_card, card_vcx) =
+                cx.add_window_view(|_, cx| GithubCard::new(state.clone(), nav.clone(), cx));
+            let _ = card_vcx.debug_bounds("github-card-stale"); // flush frames
+            assert!(
+                card_vcx.debug_bounds("github-card-stale").is_none(),
+                "cleared ages: no card chip"
+            );
+        }
     }
 
     /// Module-crumb re-entry (docs/0014 §5 D7, issue #100):

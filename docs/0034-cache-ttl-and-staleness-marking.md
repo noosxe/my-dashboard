@@ -79,6 +79,27 @@ module; a follow-up can wire it into the settings page (docs/0006) if wanted.
 - **Card probe**: a stale-seeded connected state renders the chip on the GithubCard; a
   landed apply removes it. Main-page chip: same fixture pattern as the header tests.
 
-## 4. Shipped
+## 4. Shipped (#231)
 
-*(filled by the implementation PR)*
+As designed, D1–D6. Shipped surface:
+
+- `GithubCache::age(rel)` — the mtime read (D1); `at_tmp`/`last_known_path` widened
+  to `pub(crate)` under `cfg(test)` so render tests can seed and backdate blobs.
+- `snapshot_age`/`notifications_age` on `GithubState` (D2) — seeded in `new` behind the
+  same connected gate as the loads; cleared by the snapshot, repo-snapshot and
+  notifications applies. The ETag-304 notifications path counts as landed (the server
+  just confirmed the blob) — the clear lives in `apply_notifications`, which both paths
+  funnel through.
+- `STALE_AGE` + `stale_chip_label(...)` in page.rs (D3/D6) — the older age past
+  30 min becomes "last synced 2h ago — reconnect to update", reusing the 0033 bucket
+  formatter. Rendered `text_xs` in `muted_foreground` at the top of the module main
+  page's left column (`github-stale`) and under the card counts
+  (`github-card-stale`, `warning` token).
+- One seed subtlety the tests caught: a cache blob that fails to parse is
+  **quarantined** (renamed away) by the 0004 store during `new`'s `cache.load` — which
+  erases the mtime the age reads. The chip tests therefore seed valid blobs; a real
+  corrupt blob honestly reports no age (nothing seeded → no chip, D1's rule).
+
+Tests: mtime read (fresh/backdated/missing), seed + clear-on-apply (both lanes),
+threshold boundary in `stale_chip_buckets`, and the card + main-page render probe
+(present when stale-seeded, gone once the ages clear).

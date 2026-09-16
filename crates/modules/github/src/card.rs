@@ -1,11 +1,13 @@
 //! Home overview card (docs/0005 §6.1): counts when connected, a connect
 //! prompt otherwise — every [DG] state designed.
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::{ActiveTheme, Sizable as _, button::Button, spinner::Spinner, v_flex};
 
 use dashboard_core::nav::{Navigator, Page};
 
+use crate::page::stale_chip_label;
 use crate::service::{AuthStatus, ConnectPhase, GithubState, start_connect};
 
 pub(crate) const GITHUB_MARK: &str = "icons/github.svg";
@@ -74,6 +76,20 @@ impl Render for GithubCard {
                                 div()
                                     .text_color(cx.theme().muted_foreground)
                                     .child(format!("Open Issues {issues}")),
+                            )
+                            // Cold-start staleness chip (docs/0034 D3):
+                            // the disk-seeded counts may be days old.
+                            .when_some(
+                                stale_chip_label(state.snapshot_age, state.notifications_age),
+                                |col, chip| {
+                                    col.child(
+                                        div()
+                                            .debug_selector(|| "github-card-stale".to_string())
+                                            .text_xs()
+                                            .text_color(cx.theme().warning)
+                                            .child(chip),
+                                    )
+                                },
                             ),
                     )
                     .into_any_element()
