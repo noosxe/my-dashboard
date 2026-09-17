@@ -69,6 +69,7 @@ cross-platform, multi-modular universal personal dashboard built with Rust and
 | [0034](0034-cache-ttl-and-staleness-marking.md) | GitHub Module: Cache TTL & Staleness Marking (cold-start cache ages + stale chips; mark-not-evict, #193) |
 | [0035](0035-list-surface-auto-refresh.md) | GitHub Module: List-Surface Auto-Refresh (heartbeat for the open repo page's rows; #224) |
 | [0036](0036-refresh-backoff.md) | GitHub Module: Refresh Backoff (per-lane exponential backoff + rate-limit gate; minimize-pause rejected, #225) |
+| [0037](0037-freshness-system.md) | GitHub Module: Freshness System (one clock trait + header component; detail-page / list-surface patterns; repo-page synced label as pilot) |
 
 ## Planned docs (roadmap, not yet written)
 
