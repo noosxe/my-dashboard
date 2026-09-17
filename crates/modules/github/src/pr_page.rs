@@ -4361,6 +4361,8 @@ mod tests {
                 updated_at: None,
                 url: "https://probe".into(),
                 status: None,
+                labels: None,
+                review_requests: None,
             };
             PrDetailPage::new(state.clone(), "o/r".into(), summary, None, window, cx)
         });
@@ -4475,6 +4477,8 @@ mod tests {
                 updated_at: None,
                 url: "https://probe".into(),
                 status: None,
+                labels: None,
+                review_requests: None,
             };
             PrDetailPage::new(state, "o/r".into(), summary, None, window, cx)
         });
@@ -4534,6 +4538,8 @@ mod tests {
                 updated_at: None,
                 url: "https://probe".into(),
                 status: None,
+                labels: None,
+                review_requests: None,
             };
             // `new` dispatches the first fetch — the transport errors.
             PrDetailPage::new(state.clone(), "o/r".into(), summary, None, window, cx)
@@ -4599,6 +4605,8 @@ mod tests {
                 updated_at: None,
                 url: "https://probe".into(),
                 status: None,
+                labels: None,
+                review_requests: None,
             };
             let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
             page.tab = PrTab::Files;
@@ -4711,6 +4719,8 @@ mod tests {
                 updated_at: None,
                 url: "https://probe".into(),
                 status: None,
+                labels: None,
+                review_requests: None,
             };
             let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
             page.tab = PrTab::Files;
@@ -4788,6 +4798,8 @@ mod tests {
                 updated_at: None,
                 url: "https://probe".into(),
                 status: None,
+                labels: None,
+                review_requests: None,
             };
             let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
             page.tab = PrTab::Files;
@@ -4871,6 +4883,8 @@ mod tests {
                 updated_at: None,
                 url: "https://probe".into(),
                 status: None,
+                labels: None,
+                review_requests: None,
             };
             let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
             page.tab = PrTab::Files;
@@ -4945,6 +4959,8 @@ mod tests {
                 updated_at: None,
                 url: "https://probe".into(),
                 status: None,
+                labels: None,
+                review_requests: None,
             };
             let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
             page.tab = PrTab::Files;
@@ -5031,6 +5047,8 @@ mod tests {
                 updated_at: None,
                 url: "https://probe".into(),
                 status: None,
+                labels: None,
+                review_requests: None,
             };
             let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
             page.tab = PrTab::Files;
@@ -5102,6 +5120,8 @@ mod tests {
                 updated_at: None,
                 url: "https://probe".into(),
                 status: None,
+                labels: None,
+                review_requests: None,
             };
             let mut page = PrDetailPage::new(state, "o/r".into(), summary, anchor, window, cx);
             page.detail = Fetch::ready(probe_detail());
@@ -5288,6 +5308,8 @@ mod tests {
                 updated_at: None,
                 url: "https://probe".into(),
                 status: None,
+                labels: None,
+                review_requests: None,
             };
             let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
             page.detail = Fetch::ready(probe_detail());
@@ -5398,6 +5420,8 @@ mod tests {
                 updated_at: None,
                 url: "https://probe".into(),
                 status: None,
+                labels: None,
+                review_requests: None,
             };
             let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
             page.detail = Fetch::ready(probe_detail());
@@ -5462,6 +5486,8 @@ mod tests {
                 updated_at: None,
                 url: "https://probe".into(),
                 status: None,
+                labels: None,
+                review_requests: None,
             };
             let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
             page.detail = Fetch::ready(probe_detail());
@@ -5561,6 +5587,8 @@ mod tests {
             updated_at: None,
             url: "https://probe".into(),
             status: None,
+            labels: None,
+            review_requests: None,
         }
     }
 
@@ -6400,6 +6428,8 @@ mod tests {
                 updated_at: None,
                 url: "https://probe".into(),
                 status: None,
+                labels: None,
+                review_requests: None,
             };
             let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
             page.tab = PrTab::Files;
@@ -6485,6 +6515,8 @@ mod tests {
                 updated_at: None,
                 url: "https://probe".into(),
                 status: None,
+                labels: None,
+                review_requests: None,
             };
             let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
             page.tab = PrTab::Files;
@@ -6563,6 +6595,8 @@ mod tests {
                 updated_at: None,
                 url: "https://probe".into(),
                 status: None,
+                labels: None,
+                review_requests: None,
             };
             let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
             page.tab = PrTab::Files;
@@ -6629,6 +6663,8 @@ mod tests {
                 updated_at: None,
                 url: "https://probe".into(),
                 status: None,
+                labels: None,
+                review_requests: None,
             };
             let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
             page.tab = PrTab::Files;
@@ -6739,6 +6775,8 @@ mod tests {
                 updated_at: None,
                 url: "https://probe".into(),
                 status: None,
+                labels: None,
+                review_requests: None,
             };
             let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
             page.tab = PrTab::Files;

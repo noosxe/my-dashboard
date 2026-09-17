@@ -93,7 +93,7 @@ developers open GitHub:
 
 | Missing | Impact |
 |---------|--------|
-| **No filter / sort on lists** | "Open PRs", "Open Issues", and "Notifications" lists become unusable above ~20 items. |
+| **No filter / sort on lists** | "Open PRs", "Open Issues", and "Notifications" lists become unusable above ~20 items. *(→ addressed by docs/0042)* |
 | **No cross-reference linking** | `#123` and `@username` in markdown body text are not auto-linked (only bare URLs via `linkify`). |
 | **No global search** | Cannot search across repos for PRs/issues. |
 | **Label / assignee picker caps at 50** | Large repos with many labels require scrolling without type-ahead. |

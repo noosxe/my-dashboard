@@ -60,6 +60,19 @@ query Snapshot($cursor: String) {
             updatedAt
             url
             statusCheckRollup { state }
+            labels(first: 8) {
+              totalCount
+              nodes { name color }
+            }
+            reviewRequests(first: 20) {
+              totalCount
+              nodes {
+                requestedReviewer {
+                  __typename
+                  ... on User { login }
+                }
+              }
+            }
           }
         }
         issues(states: OPEN, first: 100,
@@ -72,6 +85,10 @@ query Snapshot($cursor: String) {
             author { login avatarUrl }
             updatedAt
             url
+            labels(first: 8) {
+              totalCount
+              nodes { name color }
+            }
           }
         }
       }
@@ -109,6 +126,19 @@ query RepoSnapshot($owner: String!, $name: String!) {
         updatedAt
         url
         statusCheckRollup { state }
+        labels(first: 8) {
+          totalCount
+          nodes { name color }
+        }
+        reviewRequests(first: 20) {
+          totalCount
+          nodes {
+            requestedReviewer {
+              __typename
+              ... on User { login }
+            }
+          }
+        }
       }
     }
     issues(states: OPEN, first: 100,
@@ -121,6 +151,10 @@ query RepoSnapshot($owner: String!, $name: String!) {
         author { login avatarUrl }
         updatedAt
         url
+        labels(first: 8) {
+          totalCount
+          nodes { name color }
+        }
       }
     }
   }
@@ -341,6 +375,12 @@ pub struct PullRequest {
     /// `statusCheckRollup.state` — the CI signal 0005 deferred,
     /// gathered in 0007 D2 and surfaced in the PR rows (#67).
     pub status: Option<String>,
+    /// docs/0042 D4 — labels; `None` = pre-field cache (serde default).
+    #[serde(default)]
+    pub labels: Option<LabelSummary>,
+    /// docs/0042 D4 — review requests; `None` = pre-field cache.
+    #[serde(default)]
+    pub review_requests: Option<ReviewRequestsSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -354,6 +394,86 @@ pub struct Issue {
     pub updated_at: Option<String>,
     /// Row click → browser (UI layer).
     pub url: String,
+    /// docs/0042 D4: labels for the repo-view label filter + row dots.
+    /// `None` = the cached snapshot predates the field — degrade to no
+    /// label filtering/dots until the next snapshot lands.
+    #[serde(default)]
+    pub labels: Option<LabelSummary>,
+}
+
+/// docs/0042 D4 — a repo-view node's label set (`labels(first: 8)`):
+/// the exact `totalCount` plus the first-page refs.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LabelSummary {
+    pub total_count: i64,
+    #[serde(default)]
+    pub nodes: Vec<LabelRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LabelRef {
+    pub name: String,
+    /// GitHub hex6 (`#1d76db`); `None` degrades the dot, never the name.
+    #[serde(default)]
+    pub color: Option<String>,
+}
+
+/// docs/0042 D4 — a PR node's review requests
+/// (`reviewRequests(first: 20)`): the exact `totalCount` plus the
+/// first-page refs, carrying who was asked.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewRequestsSummary {
+    pub total_count: i64,
+    #[serde(default)]
+    pub nodes: Vec<ReviewRequestRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewRequestRef {
+    #[serde(default)]
+    pub requested_reviewer: Option<RequestedReviewer>,
+}
+
+/// `RequestedReviewer` union member, narrowed to what the repo-view
+/// review filter needs (docs/0042 D4): a user login — teams, mannequins,
+/// bots and enterprise teams ride as [`RequestedReviewer::Other`].
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RequestedReviewer {
+    User { login: String },
+    Other,
+}
+
+impl<'de> serde::Deserialize<'de> for RequestedReviewer {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let v = serde_json::Value::deserialize(d)?;
+        Ok(Self::from_value(&v).unwrap_or(Self::Other))
+    }
+}
+
+impl RequestedReviewer {
+    /// Parse the raw `requestedReviewer { __typename … on User { login } }`
+    /// value: a `User` node carries its login; every other union member
+    /// narrows to [`RequestedReviewer::Other`]. `None` = value absent.
+    pub fn from_value(v: &serde_json::Value) -> Option<Self> {
+        match v.get("__typename").and_then(|t| t.as_str())? {
+            "User" => Some(Self::User {
+                login: v.get("login")?.as_str()?.to_string(),
+            }),
+            _ => Some(Self::Other),
+        }
+    }
+
+    /// The login when this is a user request.
+    pub fn user_login(&self) -> Option<&str> {
+        match self {
+            Self::User { login } => Some(login),
+            Self::Other => None,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1884,6 +2004,8 @@ pub fn created_issue_from_body(body: &str, repo_full: &str) -> Option<Issue> {
         author: None,
         updated_at: issue.updated_at,
         url: issue.url,
+        // A just-created issue carries no labels (docs/0042 D4).
+        labels: None,
     })
 }
 /// docs/0022 D1 — every metadata write (title, labels, assignees,
@@ -2018,6 +2140,10 @@ struct PrNode {
     #[serde(default)]
     url: String,
     status_check_rollup: Option<StatusRollupNode>,
+    #[serde(default)]
+    labels: Option<LabelSummary>,
+    #[serde(default)]
+    review_requests: Option<ReviewRequestsSummary>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2036,6 +2162,8 @@ struct IssueNode {
     updated_at: Option<String>,
     #[serde(default)]
     url: String,
+    #[serde(default)]
+    labels: Option<LabelSummary>,
 }
 
 /// Parse a list of raw nodes tolerantly: per-item failures log a warning
@@ -2082,6 +2210,8 @@ pub fn repo_from_value(value: &serde_json::Value) -> Option<Repo> {
                     updated_at: pr.updated_at,
                     url: pr.url,
                     status: pr.status_check_rollup.and_then(|r| r.state),
+                    labels: pr.labels,
+                    review_requests: pr.review_requests,
                 })
                 .collect(),
         },
@@ -2097,6 +2227,7 @@ pub fn repo_from_value(value: &serde_json::Value) -> Option<Repo> {
                     author: issue.author,
                     updated_at: issue.updated_at,
                     url: issue.url,
+                    labels: issue.labels,
                 })
                 .collect(),
         },
@@ -2457,6 +2588,94 @@ mod tests {
             full_name.split('/').nth(1).unwrap_or(full_name),
         ))
         .unwrap()
+    }
+
+    #[test]
+    fn snapshot_queries_carry_label_and_review_request_selections() {
+        // docs/0042 D4: both snapshot queries fetch the repo-view filter
+        // inputs — labels on PRs AND issues, review requests on PRs.
+        for (name, doc) in [
+            ("GLOBAL_SNAPSHOT_QUERY", GLOBAL_SNAPSHOT_QUERY),
+            ("REPO_SNAPSHOT_QUERY", REPO_SNAPSHOT_QUERY),
+        ] {
+            assert_eq!(
+                doc.matches("labels(first: 8)").count(),
+                2,
+                "{name}: labels selection on PR and Issue nodes"
+            );
+            assert!(
+                doc.contains("reviewRequests(first: 20)"),
+                "{name}: PR reviewRequests selection missing"
+            );
+            assert!(
+                doc.contains("... on User { login }"),
+                "{name}: requestedReviewer login narrowing missing"
+            );
+            assert!(
+                doc.contains("requestedReviewer {\n                  __typename")
+                    || doc.contains("requestedReviewer {\n              __typename"),
+                "{name}: __typename discriminant missing"
+            );
+        }
+    }
+
+    #[test]
+    fn pr_nodes_parse_labels_and_review_requests_with_continuity() {
+        // New shape: labels parse with colors; review requests narrow —
+        // a User keeps its login, a Team degrades to Other (docs/0042 D4).
+        let prs = r##"{"databaseId":1,"number":1,"title":"t","isDraft":false,
+            "author":{"login":"octo","avatarUrl":"https://a/o.png"},"updatedAt":"u","url":"u",
+            "labels":{"totalCount":9,"nodes":[{"name":"bug","color":"#d73a4a"},{"name":"ui","color":null}]},
+            "reviewRequests":{"totalCount":2,"nodes":[
+                {"requestedReviewer":{"__typename":"User","login":"me"}},
+                {"requestedReviewer":{"__typename":"Team"}}]}}"##;
+        let repo = repo_from_value(&repo_value("o/r", prs, 1)).unwrap();
+        let pr = &repo.prs.nodes[0];
+        let labels = pr.labels.as_ref().expect("labels parse");
+        assert_eq!(labels.total_count, 9);
+        assert_eq!(labels.nodes[0].name, "bug");
+        assert_eq!(labels.nodes[0].color.as_deref(), Some("#d73a4a"));
+        assert_eq!(labels.nodes[1].color, None);
+        let rr = pr.review_requests.as_ref().expect("review requests parse");
+        assert_eq!(
+            rr.nodes[0]
+                .requested_reviewer
+                .as_ref()
+                .unwrap()
+                .user_login(),
+            Some("me")
+        );
+        assert_eq!(
+            rr.nodes[1].requested_reviewer,
+            Some(RequestedReviewer::Other)
+        );
+
+        // Old cached snapshots lack both keys: None — the filter UI
+        // degrades to author/sort only (docs/0042 D4).
+        let prs = r#"{"databaseId":2,"number":2,"title":"old","isDraft":false,
+            "author":{"login":"octo","avatarUrl":"https://a/o.png"},"updatedAt":"u","url":"u"}"#;
+        let repo = repo_from_value(&repo_value("o/r", prs, 1)).unwrap();
+        let pr = &repo.prs.nodes[0];
+        assert_eq!(pr.labels, None);
+        assert_eq!(pr.review_requests, None);
+
+        // Issue labels ride the same wire shape; old nodes → None.
+        let mut value = repo_value("o/r", "", 0);
+        value["issues"]["nodes"][0]["labels"] = serde_json::json!({
+            "totalCount": 1,
+            "nodes": [{"name": "docs", "color": "#0e8a16"}]
+        });
+        let repo = repo_from_value(&value).unwrap();
+        let issue = &repo.issues.nodes[0];
+        let labels = issue.labels.as_ref().expect("issue labels parse");
+        assert_eq!(labels.nodes[0].name, "docs");
+        value["issues"]["nodes"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("labels")
+            .unwrap();
+        let repo = repo_from_value(&value).unwrap();
+        assert_eq!(repo.issues.nodes[0].labels, None);
     }
 
     #[test]
