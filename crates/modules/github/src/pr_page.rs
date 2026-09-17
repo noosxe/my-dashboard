@@ -56,7 +56,8 @@ use crate::gql;
 use crate::markdown;
 use crate::page::{LaneClass, lane_min_age};
 use crate::service::{
-    Fetch, FetchSpec, GithubState, Kind, Mutation, run_mutation, run_spec_tracked,
+    Fetch, FetchSpec, GithubState, Kind, Mutation, run_check_log_chain, run_mutation,
+    run_spec_tracked,
 };
 use dashboard_core::freshness::{Freshness, freshness_row, relative_age};
 
@@ -65,6 +66,91 @@ actions!(github, [DismissPrPage]);
 /// Ask the hosting `GithubPage` to close the PR sub-page (docs/0016 D1).
 pub(crate) enum PrPageEvent {
     CloseRequested,
+}
+
+/// One check row's log-pane lifecycle (docs/0039 D4/D5). Content is the
+/// pane-ready tail (already escape-stripped and \r-folded), so a render
+/// clone is an Arc bump, not a 512 KiB copy.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum CheckLogState {
+    /// The resolution chain is running.
+    Running,
+    Ready {
+        text: SharedString,
+        truncated: bool,
+    },
+    Failed(String),
+}
+
+/// The pane's tail cap (docs/0039 D4): CI conclusions — the failure —
+/// live at the end of the log; 512 KiB is ~10k lines of terminal-width
+/// text, far past any reading need.
+pub(crate) const LOG_TAIL_CAP: usize = 512 * 1024;
+
+/// Pane-ready text from a raw job log (docs/0039 D4): fold `\r` progress
+/// overwrites to the segment a terminal would show, strip terminal
+/// escape sequences (CI logs carry CSI commands and OSC hyperlinks —
+/// gpui renders neither), then keep the tail at the cap on a line
+/// boundary without splitting a UTF-8 character. Returns
+/// `(text, truncated)`.
+pub(crate) fn prepare_log_body(raw: &str, cap: usize) -> (String, bool) {
+    // A `\r\n` is a plain newline — only a bare `\r` overwrites.
+    let normalized = raw.replace("\r\n", "\n");
+    let cleaned: String = normalized
+        .split('\n')
+        .map(|line| strip_escapes(line.split('\r').next_back().unwrap_or(line)))
+        .collect::<Vec<_>>()
+        .join("\n");
+    if cleaned.len() <= cap {
+        return (cleaned, false);
+    }
+    let mut start = cleaned.len() - cap;
+    while start < cleaned.len() && !cleaned.is_char_boundary(start) {
+        start += 1;
+    }
+    // Drop the partial line at the cut — the pane opens at a line start.
+    let cut = cleaned[start..]
+        .find('\n')
+        .map_or(start, |i| (start + i + 1).min(cleaned.len()));
+    (cleaned[cut..].to_string(), true)
+}
+
+/// Strip ANSI/ECMA-48 escape sequences from one `\r`-folded segment:
+/// CSI (`ESC [ … final-byte`) and OSC (`ESC ] … BEL | ESC \`) vanish;
+/// a lone ESC is dropped. Bytes outside sequences pass through.
+fn strip_escapes(segment: &str) -> String {
+    let mut out = String::with_capacity(segment.len());
+    let mut chars = segment.chars();
+    while let Some(c) = chars.next() {
+        if c != '\u{1b}' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('[') => {
+                // CSI parameter/intermediate bytes, then a final @..~.
+                for n in chars.by_ref() {
+                    if ('@'..='~').contains(&n) {
+                        break;
+                    }
+                }
+            }
+            Some(']') => {
+                // OSC: terminated by BEL or ESC \.
+                for n in chars.by_ref() {
+                    if n == '\u{7}' {
+                        break;
+                    }
+                    if n == '\u{1b}' {
+                        chars.next();
+                        break;
+                    }
+                }
+            }
+            _ => {} // a lone or truncated escape — drop it
+        }
+    }
+    out
 }
 
 /// The four tabs (docs/0016 D3). Stage 1 renders Conversation; the other
@@ -163,6 +249,13 @@ pub(crate) struct PrDetailPage {
     /// Files tab is first opened, then one REST walk; `Ready` keeps the
     /// parsed list (a refresh refetches it).
     pub(crate) files: Fetch<Vec<PrFile>>,
+    /// Check log panes (docs/0039 D4/D5), keyed by check name — unique
+    /// across the head ref's checks. `Ready` content is immutable (a
+    /// completed job's log never changes) and cached per job fetch;
+    /// `Failed` keeps the message until a Retry re-runs the chain.
+    check_logs: BTreeMap<String, CheckLogState>,
+    /// The accordion: at most one expanded check at a time (D4).
+    expanded_check: Option<String>,
     /// Review-threads fetch lifecycle (docs/0030 D1): lazy like the
     /// files walk — one GraphQL one-shot when the Files tab first opens,
     /// refetched on refresh (once loaded) and after thread mutations.
@@ -282,6 +375,8 @@ impl PrDetailPage {
             methods: Vec::new(),
             method_select: None,
             files: Fetch::new(),
+            check_logs: BTreeMap::new(),
+            expanded_check: None,
             threads: Fetch::new(),
             line_composer: None,
             reply_composer: None,
@@ -553,6 +648,79 @@ impl PrDetailPage {
             max_pages: 30,
             variables: None,
         }
+    }
+
+    // --- check log panes (docs/0039) ----------------------------------------
+
+    /// Expander toggle (D4): the accordion is one-open-at-a-time;
+    /// re-toggling the open row collapses it. Cached `Ready` content
+    /// re-expands instantly (immutable, D5); everything else chains.
+    fn toggle_check_log(&mut self, name: &str, cx: &mut Context<Self>) {
+        if self.expanded_check.as_deref() == Some(name) {
+            self.expanded_check = None;
+            cx.notify();
+            return;
+        }
+        self.expanded_check = Some(name.to_string());
+        if !matches!(self.check_logs.get(name), Some(CheckLogState::Ready { .. })) {
+            self.start_check_log_chain(name, cx);
+        }
+        cx.notify();
+    }
+
+    /// Retry (D5): drop the failed state and re-run the chain — the
+    /// resolution steps re-resolve, so a re-run's new job ids are picked
+    /// up naturally.
+    fn retry_check_log(&mut self, name: &str, cx: &mut Context<Self>) {
+        self.check_logs.remove(name);
+        self.start_check_log_chain(name, cx);
+    }
+
+    fn start_check_log_chain(&mut self, name: &str, cx: &mut Context<Self>) {
+        if !self.state.read(cx).auth.connected() {
+            return; // the page is about to be torn down by the auth gate
+        }
+        let Some(head_oid) = self.detail.data().and_then(|d| d.head_oid.clone()) else {
+            self.check_logs.insert(
+                name.to_string(),
+                CheckLogState::Failed("No head commit on this pull request".into()),
+            );
+            cx.notify();
+            return;
+        };
+        let ident = format!("{}#{}#{}", self.repo, self.number, name);
+        let key = (Kind::JobLog, Some(ident.clone()));
+        let armed = self.state.update(cx, |s, _| s.in_flight_arm(key.clone()));
+        if !armed {
+            log::debug!("check-log: skipped — an identical chain is in flight");
+            return;
+        }
+        self.check_logs
+            .insert(name.to_string(), CheckLogState::Running);
+        cx.notify();
+        let state = self.state.clone();
+        let repo = self.repo.clone();
+        let number = self.number;
+        let name = name.to_string();
+        cx.spawn(async move |this, cx| {
+            let outcome =
+                run_check_log_chain(state.clone(), &repo, number, &head_oid, &name, cx).await;
+            cx.update(|cx| state.update(cx, |s, _| s.in_flight_clear(&key)));
+            let _ = this.update(cx, |page, cx| {
+                page.check_logs.insert(
+                    name.clone(),
+                    match outcome {
+                        Ok((text, truncated)) => CheckLogState::Ready {
+                            text: SharedString::from(text),
+                            truncated,
+                        },
+                        Err(e) => CheckLogState::Failed(e),
+                    },
+                );
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// Lazy fetch (D8): fired once, when the Files tab is first opened,
@@ -1991,14 +2159,18 @@ impl PrDetailPage {
             .enumerate()
             .map(|(i, check)| {
                 let (icon, color) = check_visual(check.state, cx);
-                h_flex()
+                let expanded = self.expanded_check.as_deref() == Some(check.name.as_str());
+                // docs/0039 D3: only completed Actions-origin check runs
+                // have job logs — statuses, third-party checks and
+                // in-progress rows keep the external-link affordance.
+                let loggable = check.origin == gql::CheckOrigin::Actions
+                    && check.state != gql::CheckState::Pending;
+                let row = h_flex()
                     .id(SharedString::from(format!("pr-check-{i}")))
                     .gap_2()
                     .items_center()
                     .px_3()
                     .py_2()
-                    .border_b_1()
-                    .border_color(cx.theme().border)
                     .child(Icon::new(icon).size_4().text_color(color))
                     .child(
                         div()
@@ -2007,16 +2179,47 @@ impl PrDetailPage {
                             .flex_1()
                             .truncate()
                             .child(check.name.clone()),
+                    );
+                let row = row.when(loggable, |row| {
+                    let page = cx.entity();
+                    let name = check.name.clone();
+                    row.child(
+                        // The wrapper carries the probe selector (docs/0010
+                        // D10 id discipline lives on the Button itself).
+                        div()
+                            .debug_selector(move || format!("check-log-toggle-{i}"))
+                            .child(
+                                Button::new(SharedString::from(format!("check-log-toggle-{i}")))
+                                    .ghost()
+                                    .xsmall()
+                                    .icon(if expanded {
+                                        IconName::ChevronDown
+                                    } else {
+                                        IconName::ChevronRight
+                                    })
+                                    .tooltip(if expanded { "Hide log" } else { "View log" })
+                                    .on_click(move |_, _, cx| {
+                                        page.update(cx, |this, cx| this.toggle_check_log(&name, cx))
+                                    }),
+                            ),
                     )
-                    .when_some(check.details_url.clone(), |row, url| {
-                        row.child(
-                            Button::new(SharedString::from(format!("pr-check-open-{i}")))
-                                .ghost()
-                                .xsmall()
-                                .icon(IconName::ExternalLink)
-                                .tooltip("View details")
-                                .on_click(move |_, _, cx| cx.open_url(&url)),
-                        )
+                });
+                let row = row.when_some(check.details_url.clone(), |row, url| {
+                    row.child(
+                        Button::new(SharedString::from(format!("pr-check-open-{i}")))
+                            .ghost()
+                            .xsmall()
+                            .icon(IconName::ExternalLink)
+                            .tooltip("View details")
+                            .on_click(move |_, _, cx| cx.open_url(&url)),
+                    )
+                });
+                v_flex()
+                    .border_b_1()
+                    .border_color(cx.theme().border)
+                    .child(row)
+                    .when(expanded && loggable, |col| {
+                        col.child(self.render_check_log_pane(i, check, cx))
                     })
                     .into_any_element()
             })
@@ -2034,6 +2237,102 @@ impl PrDetailPage {
                     .overflow_y_scroll()
                     .child(v_flex().children(rows)),
             )
+            .into_any_element()
+    }
+
+    /// The expanded check's log pane (docs/0039 D4): an inset panel
+    /// under the row — running indicator, tail-truncated monospace body
+    /// (markdown code-block styling), or an inline failure with Retry
+    /// plus the external hand-off. Never holds the uncapped body: the
+    /// page keeps only the pane-ready tail.
+    fn render_check_log_pane(
+        &self,
+        i: usize,
+        check: &gql::PrCheck,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        let body: AnyElement = match self.check_logs.get(check.name.as_str()) {
+            None | Some(CheckLogState::Running) => div()
+                .text_sm()
+                .text_color(cx.theme().muted_foreground)
+                .child("Loading log…")
+                .into_any_element(),
+            Some(CheckLogState::Ready { text, truncated }) => {
+                let open_full = check.details_url.clone().map(|url| {
+                    Button::new(SharedString::from(format!("check-log-full-{i}")))
+                        .ghost()
+                        .xsmall()
+                        .label("Open full log")
+                        .on_click(move |_, _, cx| cx.open_url(&url))
+                });
+                v_flex()
+                    .gap_1()
+                    .children(truncated.then(|| {
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(format!("Showing the last {} KiB", LOG_TAIL_CAP / 1024))
+                    }))
+                    .child(if text.is_empty() {
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child("(no log output)")
+                            .into_any_element()
+                    } else {
+                        div()
+                            .id(SharedString::from(format!("check-log-pane-{i}")))
+                            .overflow_y_scroll()
+                            .max_h(px(384.))
+                            .font_family(cx.theme().mono_font_family.clone())
+                            .text_xs()
+                            .child(text.clone())
+                            .into_any_element()
+                    })
+                    .children(open_full)
+                    .into_any_element()
+            }
+            Some(CheckLogState::Failed(message)) => {
+                let page = cx.entity();
+                let name = check.name.clone();
+                let open_full = check.details_url.clone().map(|url| {
+                    Button::new(SharedString::from(format!("check-log-full-{i}")))
+                        .ghost()
+                        .xsmall()
+                        .label("Open on github.com")
+                        .on_click(move |_, _, cx| cx.open_url(&url))
+                });
+                v_flex()
+                    .gap_1()
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().danger)
+                            .child(message.clone()),
+                    )
+                    .child(
+                        Button::new(SharedString::from(format!("check-log-retry-{i}")))
+                            .ghost()
+                            .xsmall()
+                            .label("Retry")
+                            .on_click(move |_, _, cx| {
+                                page.update(cx, |this, cx| this.retry_check_log(&name, cx))
+                            }),
+                    )
+                    .children(open_full)
+                    .into_any_element()
+            }
+        };
+        div()
+            .debug_selector(move || format!("check-log-pane-{i}"))
+            .mx_3()
+            .mb_2()
+            .rounded_md()
+            .border_1()
+            .border_color(cx.theme().border)
+            .bg(cx.theme().muted.opacity(0.4))
+            .p_2()
+            .child(body)
             .into_any_element()
     }
 
@@ -4661,6 +4960,7 @@ mod tests {
             name: name.into(),
             state,
             details_url: None,
+            origin: gql::CheckOrigin::StatusContext,
         }
     }
 
@@ -4684,6 +4984,331 @@ mod tests {
             }
         );
         assert_eq!(checks_counts(&[]), ChecksCounts::default());
+    }
+
+    // --- check log panes (docs/0039) ------------------------------------
+
+    use super::{CheckLogState, prepare_log_body};
+
+    /// The summary row literal shared by the log-pane probes (the real
+    /// page builds it from the snapshot row that opened the page).
+    fn probe_summary(key: &str, number: i64) -> gql::PullRequest {
+        gql::PullRequest {
+            key: key.into(),
+            database_id: None,
+            number,
+            title: "check-log probe".into(),
+            draft: false,
+            state: None,
+            author: None,
+            updated_at: None,
+            url: "https://probe".into(),
+            status: None,
+        }
+    }
+
+    #[test]
+    fn prepare_log_body_cases() {
+        // \r progress overwrites fold to what a terminal shows (D4).
+        let (text, truncated) = prepare_log_body("a\rb\nc", 512);
+        assert_eq!(text, "b\nc");
+        assert!(!truncated);
+        // CSI color sequences vanish; payload text stays.
+        let (text, _) = prepare_log_body("ok\u{1b}[31mred\u{1b}[0m", 512);
+        assert_eq!(text, "okred");
+        // OSC hyperlink sequences (BEL- and ST-terminated) vanish.
+        let (text, _) = prepare_log_body("\u{1b}]8;;https://x\u{7}link\u{1b}]0;;\u{1b}\\", 512);
+        assert_eq!(text, "link");
+        // An empty log stays empty and untruncated.
+        let (text, truncated) = prepare_log_body("", 512);
+        assert_eq!(text, "");
+        assert!(!truncated);
+    }
+
+    #[test]
+    fn prepare_log_body_keeps_the_tail_on_line_boundaries() {
+        let long = ["aaaa", "bbbbbbbb", "cccccccc"].repeat(10).join("\n");
+        let (text, truncated) = prepare_log_body(&long, 24);
+        assert!(truncated);
+        // The cut lands on a line boundary: every kept line is whole.
+        for line in text.split('\n') {
+            assert!(!line.is_empty(), "cut produced a partial line: {text:?}");
+            assert!(
+                ["aaaa", "bbbbbbbb", "cccccccc"].contains(&line),
+                "unexpected partial line {line:?}"
+            );
+        }
+        // The tail is honest: the last line of the input ends the output.
+        assert!(text.ends_with("cccccccc"));
+    }
+
+    #[test]
+    fn prepare_log_body_respects_char_boundaries() {
+        // A cap that lands mid-codepoint must not panic (multibyte é = 2B).
+        let long = "é".repeat(64);
+        let (text, truncated) = prepare_log_body(&long, 10);
+        assert!(truncated);
+        assert!(text.chars().all(|c| c == 'é'));
+    }
+
+    #[gpui::test]
+    fn check_log_chain_resolves_and_lands(cx: &mut gpui::TestAppContext) {
+        use crate::http::HttpResult;
+        use crate::http::mock::MockHttp;
+        use crate::service::{AuthStatus, GithubCache};
+        use std::sync::Arc;
+        use std::sync::RwLock;
+
+        cx.update(gpui_component::init);
+        cx.update(dashboard_core::status::init);
+        let mock = Arc::new(MockHttp::new(vec![
+            // The page's own detail fetch fires first — fail it benignly.
+            Err(crate::http::HttpError("probe: detail fetch ignored".into())),
+            Ok(HttpResult {
+                status: 200,
+                etag: None,
+                rate: None,
+                body: Some(
+                    r#"{"check_runs":[{"name":"build","status":"COMPLETED","conclusion":"FAILURE","check_suite":{"id":5},"app":{"slug":"github-actions"}}]}"#.into(),
+                ),
+            }),
+            Ok(HttpResult {
+                status: 200,
+                etag: None,
+                rate: None,
+                body: Some(r#"{"total_count":1,"workflow_runs":[{"id":7}]}"#.into()),
+            }),
+            Ok(HttpResult {
+                status: 200,
+                etag: None,
+                rate: None,
+                body: Some(
+                    r#"{"total_count":2,"jobs":[{"id":1,"name":"use-existing-src"},{"id":9,"name":"build"}]}"#.into(),
+                ),
+            }),
+            Ok(HttpResult {
+                status: 200,
+                etag: None,
+                rate: None,
+                body: Some("step1\r\nstep2 \u{1b}[31mfailed\u{1b}[0m".into()),
+            }),
+        ]));
+        let state = cx.update(|cx| {
+            let shared: crate::http::SharedToken = Arc::new(RwLock::new(None));
+            let refresh: crate::http::SharedToken = Arc::new(RwLock::new(None));
+            let state = cx.new(|_| {
+                GithubState::new(
+                    mock.clone() as Arc<dyn crate::http::Http>,
+                    Arc::new(crate::auth::MockTokenStore::with("t0k".into())),
+                    shared,
+                    refresh,
+                    GithubCache::at_tmp("check-log-chain"),
+                )
+            });
+            state.update(cx, |s, _| s.auth = AuthStatus::Connected);
+            state
+        });
+        let (page, _vcx) = cx.add_window_view(|window, cx| {
+            let summary = probe_summary("o/r#7", 7);
+            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
+            let value = serde_json::json!({ "pullRequest": {
+                "id": "PR_1", "number": 7, "title": "t", "url": "u",
+                "state": "OPEN", "isDraft": false, "headRefOid": "abc123",
+            }});
+            page.detail = Fetch::ready(gql::pr_detail_from_value(&value).unwrap());
+            page
+        });
+        cx.update(|cx| {
+            page.update(cx, |p, cx| p.toggle_check_log("build", cx));
+        });
+        cx.run_until_parked();
+        let recorded = mock.recorded();
+        // [0] is the page's own detail fetch (a GraphQL POST, failed
+        // benignly by the script pad) — the chain is [1..=4].
+        assert_eq!(recorded.len(), 5, "the whole chain fires: {:?}", recorded);
+        assert_eq!(recorded[0].verb, crate::http::Verb::Post);
+        assert!(
+            recorded[1]
+                .url
+                .contains("/commits/abc123/check-runs?check_name=build")
+        );
+        assert!(recorded[2].url.contains("/actions/runs?check_suite_id=5"));
+        assert!(recorded[3].url.contains("/actions/runs/7/jobs"));
+        assert!(recorded[4].url.contains("/actions/jobs/9/logs"));
+        cx.update(|cx| {
+            page.update(cx, |p, _| match p.check_logs.get("build") {
+                Some(CheckLogState::Ready { text, truncated }) => {
+                    assert!(!truncated);
+                    assert_eq!(text.as_ref(), "step1\nstep2 failed");
+                }
+                other => panic!("expected Ready, got {other:?}"),
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn check_log_chain_failure_names_the_step(cx: &mut gpui::TestAppContext) {
+        use crate::http::HttpResult;
+        use crate::http::mock::MockHttp;
+        use crate::service::{AuthStatus, GithubCache};
+        use std::sync::Arc;
+        use std::sync::RwLock;
+
+        cx.update(gpui_component::init);
+        cx.update(dashboard_core::status::init);
+        // Step 3 misses the name: the job was renamed upstream.
+        let mock = Arc::new(MockHttp::new(vec![
+            // The page's own detail fetch fires first — fail it benignly.
+            Err(crate::http::HttpError("probe: detail fetch ignored".into())),
+            Ok(HttpResult {
+                status: 200,
+                etag: None,
+                rate: None,
+                body: Some(
+                    r#"{"check_runs":[{"name":"build","status":"COMPLETED","conclusion":"FAILURE","check_suite":{"id":5},"app":{"slug":"github-actions"}}]}"#.into(),
+                ),
+            }),
+            Ok(HttpResult {
+                status: 200,
+                etag: None,
+                rate: None,
+                body: Some(r#"{"total_count":1,"workflow_runs":[{"id":7}]}"#.into()),
+            }),
+            Ok(HttpResult {
+                status: 200,
+                etag: None,
+                rate: None,
+                body: Some(r#"{"total_count":1,"jobs":[{"id":2,"name":"renamed-job"}]}"#.into()),
+            }),
+        ]));
+        let state = cx.update(|cx| {
+            let shared: crate::http::SharedToken = Arc::new(RwLock::new(None));
+            let refresh: crate::http::SharedToken = Arc::new(RwLock::new(None));
+            let state = cx.new(|_| {
+                GithubState::new(
+                    mock.clone() as Arc<dyn crate::http::Http>,
+                    Arc::new(crate::auth::MockTokenStore::with("t0k".into())),
+                    shared,
+                    refresh,
+                    GithubCache::at_tmp("check-log-fail"),
+                )
+            });
+            state.update(cx, |s, _| s.auth = AuthStatus::Connected);
+            state
+        });
+        let (page, _vcx) = cx.add_window_view(|window, cx| {
+            let summary = probe_summary("o/r#7", 7);
+            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
+            let value = serde_json::json!({ "pullRequest": {
+                "id": "PR_1", "number": 7, "title": "t", "url": "u",
+                "state": "OPEN", "isDraft": false, "headRefOid": "abc123",
+            }});
+            page.detail = Fetch::ready(gql::pr_detail_from_value(&value).unwrap());
+            page
+        });
+        cx.update(|cx| {
+            page.update(cx, |p, cx| p.toggle_check_log("build", cx));
+        });
+        cx.run_until_parked();
+        cx.update(|cx| {
+            page.update(cx, |p, _| match p.check_logs.get("build") {
+                Some(CheckLogState::Failed(message)) => {
+                    assert!(message.contains("No job with this name"), "{message}");
+                }
+                other => panic!("expected Failed, got {other:?}"),
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn check_log_expander_gates_on_origin_and_completion(cx: &mut gpui::TestAppContext) {
+        use crate::service::{AuthStatus, GithubCache};
+        use std::sync::Arc;
+        use std::sync::RwLock;
+
+        cx.update(gpui_component::init);
+        cx.update(dashboard_core::status::init);
+        let state = cx.update(|cx| {
+            let shared: crate::http::SharedToken = Arc::new(RwLock::new(None));
+            let refresh: crate::http::SharedToken = Arc::new(RwLock::new(None));
+            let state = cx.new(|_| {
+                GithubState::new(
+                    Arc::new(ProbeHttp) as Arc<dyn crate::http::Http>,
+                    Arc::new(ProbeStore) as Arc<dyn crate::auth::TokenStore>,
+                    shared,
+                    refresh,
+                    GithubCache::at_tmp("check-log-gate"),
+                )
+            });
+            state.update(cx, |s, _| s.auth = AuthStatus::Connected);
+            state
+        });
+        let detail_body = r#"{"data":{"repository":{"pullRequest":{
+            "id":"PR_1","number":7,"title":"t","url":"u","state":"OPEN","isDraft":false,
+            "headRefOid":"abc123",
+            "statusCheckRollup":{"state":"FAILURE","contexts":{"totalCount":3,"nodes":[
+                {"__typename":"CheckRun","name":"done","status":"COMPLETED",
+                 "conclusion":"FAILURE","checkSuite":{"app":{"slug":"github-actions"}}},
+                {"__typename":"CheckRun","name":"running","status":"IN_PROGRESS",
+                 "conclusion":null,"checkSuite":{"app":{"slug":"github-actions"}}},
+                {"__typename":"StatusContext","context":"cla","state":"SUCCESS"}
+            ]}}}}}}"#;
+        let (page, vcx) = cx.add_window_view(|window, cx| {
+            let summary = probe_summary("o/r#7", 7);
+            PrDetailPage::new(state, "o/r".into(), summary, None, window, cx)
+        });
+        vcx.simulate_resize(gpui::Size {
+            width: px(1024.),
+            height: px(768.),
+        });
+        // The checks tab is the visible one, and the detail lands the way
+        // the real fetch delivers it — through apply_detail_result.
+        vcx.update(|_, cx| {
+            page.update(cx, |page, cx| {
+                page.tab = PrTab::Checks;
+                page.apply_detail_result(
+                    SpecResult {
+                        kind: Kind::PrDetail,
+                        ident: Some("o/r".into()),
+                        status: 200,
+                        etag: None,
+                        rate: None,
+                        body: Some(detail_body.to_string()),
+                        network: None,
+                        cursor: None,
+                    },
+                    cx,
+                );
+            });
+        });
+        // Paint the frame the applied detail drives before asserting
+        // bounds (the anchor probes' explicit draw).
+        vcx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+        });
+        let _ = vcx.debug_bounds("pr-checks-0"); // flush frames
+        let (ready, nchecks, tab) = vcx.read(|cx| {
+            let p = page.read(cx);
+            (
+                p.detail.is_ready(),
+                p.detail.data().map(|d| d.checks.nodes.len()),
+                p.tab.index(),
+            )
+        });
+        // The expander wrappers are the probe surface (debug_selector);
+        // toggle-0 Some proves the checks rows rendered at all.
+        assert!(
+            vcx.debug_bounds("check-log-toggle-0").is_some(),
+            "completed Actions row gets the expander (ready={ready}, nchecks={nchecks:?}, tab={tab})"
+        );
+        assert!(
+            vcx.debug_bounds("check-log-toggle-1").is_none(),
+            "in-progress row: no expander (D3)"
+        );
+        assert!(
+            vcx.debug_bounds("check-log-toggle-2").is_none(),
+            "status context row: no expander (D3)"
+        );
     }
 
     #[test]

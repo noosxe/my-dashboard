@@ -382,6 +382,7 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
       changedFiles
       baseRefName
       headRefName
+      headRefOid
       url
       createdAt
       author { login avatarUrl }
@@ -394,7 +395,7 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
           totalCount
           nodes {
             __typename
-            ... on CheckRun { name status conclusion detailsUrl }
+            ... on CheckRun { name status conclusion detailsUrl checkSuite { app { slug } } }
             ... on StatusContext { context state targetUrl }
           }
         }
@@ -474,6 +475,10 @@ pub struct PrDetail {
     pub changed_files: Option<i64>,
     pub base_ref: Option<String>,
     pub head_ref: Option<String>,
+    /// The PR head commit SHA (docs/0039 D1) — the check-run lookup key
+    /// for the log chain. Unambiguous under any commit count (the
+    /// `commits.nodes` page is order-dependent; this field is not).
+    pub head_oid: Option<String>,
     pub url: String,
     pub created_at: Option<String>,
     pub author: Option<Author>,
@@ -513,11 +518,24 @@ pub struct PrChecks {
 /// One check row, normalized across the union members
 /// (live-verified 2026-09-03: `CheckRun { name status conclusion detailsUrl }`,
 /// `StatusContext { context state targetUrl }`).
+/// Where a checks-tab row came from (docs/0039 D3): only Actions-origin
+/// check runs have job logs; commit statuses and third-party check runs
+/// keep the external-link affordance. Live-verified 2026-09-17: the
+/// CheckRun fragment fetches `checkSuite { app { slug } }` and Actions
+/// runs carry `slug: "github-actions"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CheckOrigin {
+    Actions,
+    OtherCheckRun,
+    StatusContext,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct PrCheck {
     pub name: String,
     pub state: CheckState,
     pub details_url: Option<String>,
+    pub origin: CheckOrigin,
 }
 
 /// Unified check outcome for tone/icon mapping (D7).
@@ -1579,6 +1597,7 @@ pub fn pr_detail_from_value(value: &serde_json::Value) -> Option<PrDetail> {
             .or(files_total),
         base_ref: str_field("baseRefName"),
         head_ref: str_field("headRefName"),
+        head_oid: str_field("headRefOid"),
         url: str_field("url").unwrap_or_default(),
         created_at: str_field("createdAt"),
         author: author_from_value(pr.get("author")),
@@ -1626,18 +1645,32 @@ fn gql_pr_checks(pr: &serde_json::Value) -> PrChecks {
                             .find_map(|k| str_field(k))
                     };
                     match node.get("__typename").and_then(|v| v.as_str()) {
-                        Some("CheckRun") => Some(PrCheck {
-                            name: str_field("name")?,
-                            state: check_run_state(
-                                node.get("status").and_then(|v| v.as_str()),
-                                node.get("conclusion").and_then(|v| v.as_str()),
-                            ),
-                            details_url: url(),
-                        }),
+                        Some("CheckRun") => {
+                            let actions = node
+                                .get("checkSuite")
+                                .and_then(|cs| cs.get("app"))
+                                .and_then(|app| app.get("slug"))
+                                .and_then(|v| v.as_str())
+                                == Some("github-actions");
+                            Some(PrCheck {
+                                name: str_field("name")?,
+                                state: check_run_state(
+                                    node.get("status").and_then(|v| v.as_str()),
+                                    node.get("conclusion").and_then(|v| v.as_str()),
+                                ),
+                                details_url: url(),
+                                origin: if actions {
+                                    CheckOrigin::Actions
+                                } else {
+                                    CheckOrigin::OtherCheckRun
+                                },
+                            })
+                        }
                         Some("StatusContext") => Some(PrCheck {
                             name: str_field("context")?,
                             state: status_context_state(node.get("state").and_then(|v| v.as_str())),
                             details_url: url(),
+                            origin: CheckOrigin::StatusContext,
                         }),
                         _ => None,
                     }
@@ -2680,13 +2713,19 @@ mod tests {
         let body = pr_detail_body(
             r#"{
                 "id": "PR_7", "number": 7,
+                "headRefName": "log-panes", "headRefOid": "f00dfeed",
                 "statusCheckRollup": {
                   "state": "FAILURE",
                   "contexts": {"totalCount": 5, "nodes": [
                     {"__typename": "CheckRun", "name": "build", "status": "COMPLETED",
-                     "conclusion": "SUCCESS", "detailsUrl": "https://ci/build"},
+                     "conclusion": "SUCCESS", "detailsUrl": "https://ci/build",
+                     "checkSuite": {"app": {"slug": "github-actions"}}},
                     {"__typename": "CheckRun", "name": "test", "status": "IN_PROGRESS",
-                     "conclusion": null, "detailsUrl": null},
+                     "conclusion": null, "detailsUrl": null,
+                     "checkSuite": {"app": {"slug": "github-actions"}}},
+                    {"__typename": "CheckRun", "name": "netlify", "status": "COMPLETED",
+                     "conclusion": "SUCCESS", "detailsUrl": "https://netlify/deploy",
+                     "checkSuite": {"app": {"slug": "netlify"}}},
                     {"__typename": "StatusContext", "context": "license/cla",
                      "state": "SUCCESS", "targetUrl": "https://cla"},
                     {"__typename": "StatusContext", "context": "codecov",
@@ -2705,16 +2744,43 @@ mod tests {
         // (unknown typename; CheckRun without a name).
         assert_eq!(d.checks.total_count, 5);
         let nodes = &d.checks.nodes;
-        assert_eq!(nodes.len(), 4);
+        assert_eq!(nodes.len(), 5);
+        assert_eq!(d.head_oid.as_deref(), Some("f00dfeed"));
+        // docs/0039 D3: the origin survives normalization — Actions by
+        // suite slug, third-party check runs and statuses distinct.
         assert_eq!(nodes[0].name, "build");
         assert_eq!(nodes[0].state, CheckState::Success);
         assert_eq!(nodes[0].details_url.as_deref(), Some("https://ci/build"));
+        assert_eq!(nodes[0].origin, CheckOrigin::Actions);
         assert_eq!(nodes[1].state, CheckState::Pending);
         assert_eq!(nodes[1].details_url, None);
-        assert_eq!(nodes[2].name, "license/cla");
-        assert_eq!(nodes[2].state, CheckState::Success);
-        assert_eq!(nodes[3].name, "codecov");
-        assert_eq!(nodes[3].state, CheckState::Failure);
+        assert_eq!(nodes[1].origin, CheckOrigin::Actions);
+        assert_eq!(nodes[2].name, "netlify");
+        assert_eq!(nodes[2].origin, CheckOrigin::OtherCheckRun);
+        assert_eq!(nodes[3].name, "license/cla");
+        assert_eq!(nodes[3].state, CheckState::Success);
+        assert_eq!(nodes[3].origin, CheckOrigin::StatusContext);
+        assert_eq!(nodes[4].name, "codecov");
+        assert_eq!(nodes[4].state, CheckState::Failure);
+    }
+
+    #[test]
+    fn checkrun_without_suite_is_other_origin() {
+        // A suite-less CheckRun (possible on legacy payloads) is not an
+        // Actions check — no log expander (docs/0039 D3).
+        let body = pr_detail_body(
+            r#"{
+                "id": "PR_9", "number": 9,
+                "statusCheckRollup": {"state": "SUCCESS", "contexts": {"totalCount": 1, "nodes": [
+                    {"__typename": "CheckRun", "name": "mystery", "status": "COMPLETED",
+                     "conclusion": "SUCCESS"}
+                ]}}
+            }"#,
+        );
+        let env: Envelope<PrDetailData> = serde_json::from_str(&body).unwrap();
+        let value = env.data.unwrap().repository.unwrap();
+        let d = pr_detail_from_value(&value).unwrap();
+        assert_eq!(d.checks.nodes[0].origin, CheckOrigin::OtherCheckRun);
     }
 
     #[test]

@@ -396,6 +396,14 @@ pub enum Kind {
     /// once loaded). Same page-owned result convention as
     /// [`Kind::PrDetail`]: the page parses the stitched 200 body;
     PrFiles,
+    /// One completed job's log text (docs/0039 D2) — the four-call
+    /// resolution chain's last hop, fetched lazily when a check row is
+    /// expanded. Same page-owned result convention as [`Kind::PrFiles`]:
+    /// the page parses the 200 body (plain text — nothing for serde);
+    /// only non-200 results are forwarded to [`GithubState::apply`]. The
+    /// freshness system deliberately does not engage: a completed job's
+    /// log is immutable, so there is nothing to re-fetch.
+    JobLog,
     /// non-200 results forward to [`GithubState::apply`].
     /// One PR's review threads (docs/0030 D1) — one-shot GraphQL
     /// (`PR_THREADS_QUERY`), fetched lazily by the PR page the first
@@ -780,6 +788,47 @@ pub fn run_spec(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
         }
         Kind::PrThreads => run_graphql_fetch(http, spec, gql::PR_THREADS_QUERY, "pr-threads"),
         Kind::Notifications | Kind::RepoNotifications | Kind::PrFiles => run_rest(http, spec),
+        Kind::JobLog => run_plain_get(http, spec),
+    }
+}
+
+/// One plain GET — no paging, no JSON expectations (docs/0039 D2): the
+/// job-log transport. ureq follows the 302 to the 1-minute signed URL
+/// (its default redirect policy never forwards the authorization header
+/// cross-host), so the response this returns is the final 200 with the
+/// log text. A 200 body is returned as-is; the page truncates.
+fn run_plain_get(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
+    let mut status = 0u16;
+    let mut rate = None;
+    let mut network = None;
+    let mut body = None;
+    let sent_at = Instant::now();
+    match http.request(Verb::Get, &spec.url, None, None) {
+        Err(HttpError(m)) => network = Some(m),
+        Ok(result) => {
+            status = result.status;
+            rate = result.rate;
+            body = result.body;
+            log::debug!(
+                "fetch {}: → {status} in {}ms",
+                spec.kind.kind_name(),
+                sent_at.elapsed().as_millis()
+            );
+        }
+    }
+    SpecResult {
+        kind: spec.kind,
+        ident: spec.ident.clone(),
+        status,
+        etag: None,
+        rate,
+        body: if network.is_none() && status == 200 {
+            body
+        } else {
+            None
+        },
+        network,
+        cursor: None,
     }
 }
 
@@ -1391,6 +1440,7 @@ impl Kind {
             Kind::RepoAssignableUsers => "repo-assignable-users",
             Kind::RepoMilestones => "repo-milestones",
             Kind::PrFiles => "pr-files",
+            Kind::JobLog => "check-log",
             Kind::PrThreads => "pr-threads",
             Kind::RepoNotifications => "repo-notifs",
             Kind::ThreadDetail => "thread-detail",
@@ -2041,6 +2091,7 @@ impl GithubState {
             Kind::PrDetail
             | Kind::PrMutation(_)
             | Kind::PrFiles
+            | Kind::JobLog
             | Kind::PrThreads
             | Kind::IssueDetail
             | Kind::RepoLabels
@@ -2356,6 +2407,134 @@ pub(crate) async fn run_read_deduped(
     let result = run_spec_tracked(state.clone(), spec, cx).await;
     cx.update(|cx| state.update(cx, |s, _| s.in_flight_clear(&key)));
     Some(result)
+}
+
+/// The docs/0039 D1 resolution chain — four documented GETs from the
+/// expanded check's (head SHA, name) to its log text. Runs on the
+/// page's spawn; the caller arms one `(Kind::JobLog, ident)` dedup key
+/// for the whole chain and clears it after. Each hop's non-200 forwards
+/// through [`GithubState::apply`] for the shared auth/rate-limit
+/// handling before the chain fails; network errors surface without the
+/// forward (the files-walk convention, docs/0016 §3 D8).
+pub(crate) async fn run_check_log_chain(
+    state: Entity<GithubState>,
+    repo: &str,
+    number: i64,
+    head_oid: &str,
+    check_name: &str,
+    cx: &mut AsyncApp,
+) -> Result<(String, bool), String> {
+    let Some((owner, name)) = repo.split_once('/') else {
+        return Err("Malformed repository id".into());
+    };
+    let ident = format!("{repo}#{number}#{check_name}");
+    let spec_for = |url: String| FetchSpec {
+        kind: Kind::JobLog,
+        url,
+        etag: None,
+        ident: Some(ident.clone()),
+        max_pages: 1,
+        variables: None,
+    };
+    async fn fetch(
+        state: Entity<GithubState>,
+        spec_for: &dyn Fn(String) -> FetchSpec,
+        url: String,
+        cx: &mut AsyncApp,
+    ) -> SpecResult {
+        run_spec_tracked(state, spec_for(url), cx).await
+    }
+    async fn forward_non_200(result: SpecResult, state: &Entity<GithubState>, cx: &mut AsyncApp) {
+        cx.update(|cx| {
+            state.update(cx, |s, cx| {
+                s.apply(result);
+                cx.notify();
+            })
+        });
+    }
+    let http_err = |status: u16| format!("GitHub answered HTTP {status}");
+
+    // Step 1 — the check run, matched server-side by name on the head
+    // commit; Actions-origin enforced here too (a third-party check with
+    // the same name must not win the match).
+    let url = api::check_runs_for_sha_url(owner, name, head_oid, check_name);
+    let result = fetch(state.clone(), &spec_for, url, cx).await;
+    if let Some(m) = result.network {
+        return Err(format!("Network error: {m}"));
+    }
+    if result.status != 200 {
+        let status = result.status;
+        forward_non_200(result, &state, cx).await;
+        return Err(http_err(status));
+    }
+    let page: api::CheckRunsPage = serde_json::from_str(result.body.as_deref().unwrap_or_default())
+        .map_err(|e| format!("Malformed check-runs payload ({e})"))?;
+    let node = page
+        .check_runs
+        .into_iter()
+        .find(|c| c.app.as_ref().and_then(|a| a.slug.as_deref()) == Some("github-actions"))
+        .ok_or("No GitHub Actions check with this name on the head commit")?;
+    let suite_id = node
+        .check_suite
+        .map(|s| s.id)
+        .ok_or("The matching check carries no suite id")?;
+
+    // Step 2 — the one workflow run behind the suite.
+    let url = api::workflow_runs_by_suite_url(owner, name, suite_id);
+    let result = fetch(state.clone(), &spec_for, url, cx).await;
+    if let Some(m) = result.network {
+        return Err(format!("Network error: {m}"));
+    }
+    if result.status != 200 {
+        let status = result.status;
+        forward_non_200(result, &state, cx).await;
+        return Err(http_err(status));
+    }
+    let page: api::WorkflowRunsPage =
+        serde_json::from_str(result.body.as_deref().unwrap_or_default())
+            .map_err(|e| format!("Malformed workflow-runs payload ({e})"))?;
+    let run_id = page
+        .workflow_runs
+        .first()
+        .map(|r| r.id)
+        .ok_or("No workflow run found for this check")?;
+
+    // Step 3 — the run's jobs, name-matched (docs/0039 D1: the sanctioned
+    // iterate-and-match, exact names on both sides, matrices included).
+    let url = api::run_jobs_url(owner, name, run_id);
+    let result = fetch(state.clone(), &spec_for, url, cx).await;
+    if let Some(m) = result.network {
+        return Err(format!("Network error: {m}"));
+    }
+    if result.status != 200 {
+        let status = result.status;
+        forward_non_200(result, &state, cx).await;
+        return Err(http_err(status));
+    }
+    let page: api::JobsPage = serde_json::from_str(result.body.as_deref().unwrap_or_default())
+        .map_err(|e| format!("Malformed jobs payload ({e})"))?;
+    let job_id = page
+        .jobs
+        .iter()
+        .find(|j| j.name == check_name)
+        .map(|j| j.id)
+        .ok_or("No job with this name in the workflow run — it may have been renamed")?;
+
+    // Step 4 — the log text itself (302 followed by the transport).
+    let url = api::job_logs_url(owner, name, job_id);
+    let result = fetch(state.clone(), &spec_for, url, cx).await;
+    if let Some(m) = result.network {
+        return Err(format!("Network error: {m}"));
+    }
+    if result.status != 200 {
+        let status = result.status;
+        forward_non_200(result, &state, cx).await;
+        return Err(http_err(status));
+    }
+    Ok(crate::pr_page::prepare_log_body(
+        result.body.as_deref().unwrap_or_default(),
+        crate::pr_page::LOG_TAIL_CAP,
+    ))
 }
 
 /// The single refresh procedure (docs/0028 §3.2): the gate lead only.
