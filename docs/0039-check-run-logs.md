@@ -202,7 +202,7 @@ row, `check-log-pane-{idx}` on the pane.
 - Step-level logs (cli/cli#11157's ask) — the API offers only whole-job logs.
 - Re-run / cancel job actions — mutation scope, separate issue if wanted.
 
-## 7 Shipped
+## 7 Shipped (#249)
 
 - The four-call chain shipped as designed (D1) and was **verified
   end-to-end against live GitHub** on 2026-09-17 before implementation:
