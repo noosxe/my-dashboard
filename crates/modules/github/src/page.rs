@@ -878,8 +878,6 @@ impl GithubPage {
         }
     }
 
-    /// Manual refresh (Q7): notifications + a fresh global snapshot, now.
-
     /// Row-level mark-as-done (docs/0026 D8, #153, owner decision
     /// §4.5): the repo-view rows fire the DELETE directly — no page
     /// takeover. A settled done runs the post-write refetch
