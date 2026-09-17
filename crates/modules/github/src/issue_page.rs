@@ -385,7 +385,7 @@ impl IssueDetailPage {
                                 detail.events.len(),
                                 detail.labels.len()
                             );
-                            self.md = build_issue_md_cache(&detail);
+                            self.md = build_issue_md_cache(&self.repo, &detail);
                             // 0019 D4 pattern: an editor/confirm whose node
                             // is gone with the new payload has nothing left
                             // to edit — drop it (deleted elsewhere,
@@ -3104,19 +3104,19 @@ pub(crate) fn event_sentence(event: &gql::IssueEvent) -> EventSentence {
 /// docs/0017 D6 for the issue page: parse every timeline body once per
 /// detail payload — never per frame. Rebuilt (invalidating) each time a
 /// detail lands.
-fn build_issue_md_cache(d: &gql::IssueDetail) -> BTreeMap<String, Arc<[markdown::Block]>> {
+fn build_issue_md_cache(
+    repo: &str,
+    d: &gql::IssueDetail,
+) -> BTreeMap<String, Arc<[markdown::Block]>> {
     let mut map = BTreeMap::new();
+    // Ambient repo for bare `#123` cross-references (docs/0017 D1
+    // extension).
+    let md = |body: &str| markdown::parse_markdown_in_repo(body, Some(repo));
     if let Some(body) = &d.body {
-        map.insert(
-            "issue-description".to_string(),
-            markdown::parse_markdown(body),
-        );
+        map.insert("issue-description".to_string(), md(body));
     }
     for (ix, comment) in d.comments.nodes.iter().enumerate() {
-        map.insert(
-            format!("issue-comment-{ix}"),
-            markdown::parse_markdown(&comment.body),
-        );
+        map.insert(format!("issue-comment-{ix}"), md(&comment.body));
     }
     map
 }
@@ -3434,7 +3434,7 @@ mod tests {
             let mut page =
                 IssueDetailPage::new(state, "o/r".into(), probe_summary(), anchor, window, cx);
             page.detail = Fetch::ready(probe_issue());
-            page.md = build_issue_md_cache(page.detail.data().unwrap());
+            page.md = build_issue_md_cache(&page.repo, page.detail.data().unwrap());
             page
         })
     }

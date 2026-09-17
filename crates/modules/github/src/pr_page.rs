@@ -578,7 +578,7 @@ impl PrDetailPage {
                                 detail.reviews.nodes.len(),
                                 detail.commits.nodes.len()
                             );
-                            self.md = build_md_cache(&detail);
+                            self.md = build_md_cache(&self.repo, &detail);
                             // Thread keys live in the same cache — a detail
                             // refetch wipes it, so re-fold them (0030 D1).
                             self.extend_threads_md();
@@ -1210,11 +1210,12 @@ impl PrDetailPage {
         let Some(t) = self.threads.data() else {
             return;
         };
+        // Ambient repo for bare `#123` refs (docs/0017 D1 extension).
         for (ix, thread) in t.nodes.iter().enumerate() {
             for (m, comment) in thread.comments.iter().enumerate() {
                 self.md.insert(
                     format!("thread-{ix}-comment-{m}"),
-                    markdown::parse_markdown(&comment.body),
+                    markdown::parse_markdown_in_repo(&comment.body, Some(&self.repo)),
                 );
             }
         }
@@ -4064,20 +4065,20 @@ pub(crate) fn body_card(
 
 /// docs/0017 D6: parse every timeline body once per detail payload —
 /// never per frame. Rebuilt (invalidating) each time a detail lands.
-fn build_md_cache(d: &gql::PrDetail) -> BTreeMap<String, Arc<[markdown::Block]>> {
+fn build_md_cache(repo: &str, d: &gql::PrDetail) -> BTreeMap<String, Arc<[markdown::Block]>> {
     let mut map = BTreeMap::new();
+    // Ambient repo for bare `#123` cross-references (docs/0017 D1
+    // extension).
+    let md = |body: &str| markdown::parse_markdown_in_repo(body, Some(repo));
     if let Some(body) = &d.body {
-        map.insert("pr-description".to_string(), markdown::parse_markdown(body));
+        map.insert("pr-description".to_string(), md(body));
     }
     for (ix, comment) in d.comments.nodes.iter().enumerate() {
-        map.insert(
-            format!("pr-comment-{ix}"),
-            markdown::parse_markdown(&comment.body),
-        );
+        map.insert(format!("pr-comment-{ix}"), md(&comment.body));
     }
     for (ix, review) in d.reviews.nodes.iter().enumerate() {
         if let Some(body) = review.body.as_deref().filter(|b| !b.is_empty()) {
-            map.insert(format!("pr-review-{ix}"), markdown::parse_markdown(body));
+            map.insert(format!("pr-review-{ix}"), md(body));
         }
     }
     map
@@ -5306,7 +5307,7 @@ mod tests {
             };
             let mut page = PrDetailPage::new(state, "o/r".into(), summary, anchor, window, cx);
             page.detail = Fetch::ready(probe_detail());
-            page.md = build_md_cache(page.detail.data().unwrap());
+            page.md = build_md_cache(&page.repo, page.detail.data().unwrap());
             page
         })
     }
@@ -5511,7 +5512,7 @@ mod tests {
             };
             let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
             page.detail = Fetch::ready(probe_detail());
-            page.md = build_md_cache(page.detail.data().unwrap());
+            page.md = build_md_cache(&page.repo, page.detail.data().unwrap());
             page
         });
         for sel in [
@@ -5627,7 +5628,7 @@ mod tests {
             };
             let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
             page.detail = Fetch::ready(probe_detail());
-            page.md = build_md_cache(page.detail.data().unwrap());
+            page.md = build_md_cache(&page.repo, page.detail.data().unwrap());
             page
         });
         // The body row renders: the armed chip plus the + affordance; the
@@ -5735,7 +5736,7 @@ mod tests {
             };
             let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
             page.detail = Fetch::ready(probe_detail());
-            page.md = build_md_cache(page.detail.data().unwrap());
+            page.md = build_md_cache(&page.repo, page.detail.data().unwrap());
             page
         });
         // probe_detail() carries every node it counts — nothing hidden.
