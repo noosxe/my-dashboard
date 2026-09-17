@@ -1,5 +1,6 @@
 # CI — the AGENTS.md gates, enforced on every PR to main and every push
-# to main. Design: docs/0027-ci-workflows.md (D1–D6).
+# to main that touches build-affecting paths (docs-only changes skip —
+# D7). Design: docs/0027-ci-workflows.md (D1–D7).
 #
 # Environment: owner-provisioned self-hosted runners (labels below) —
 # see docs/0027 §5 for the one-time apt provisioning list. Nix-free by
@@ -10,8 +11,20 @@ name: CI
 on:
   pull_request:
     branches: [main]
+    # Path filtering (docs/0027 D7): documentation-only changes cannot
+    # affect a build, so they don't burn runner time. A denylist on
+    # purpose — any future build-affecting path keeps CI by default;
+    # an allowlist would silently drop it until the filter is updated.
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - "*.md"
   push:
     branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - "*.md"
 
 # One in-flight run per ref: superseded pushes cancel their queued run
 # and free the shared runners sooner.
