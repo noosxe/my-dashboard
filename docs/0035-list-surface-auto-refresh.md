@@ -187,3 +187,23 @@ surfaces by this design, two by explicit no-change with reasons.
   snapshot cadence, or should the open module root (no repo selected)
   tighten the *snapshot* lane too? The doc argues no (cost), but it is
   your call.
+
+## 8. Shipped (#235)
+
+D1–D5 as designed; Q1/Q2 accepted with the design (2026-09-17). The
+implementation landed exactly the designed surface:
+
+- `rows_landed: BTreeMap<String, Instant>` on the state; the
+  `RepoSnapshot` apply stamps its ident, the `Snapshot` apply stamps
+  every repo its page carries (G2: a just-ticked repo is never
+  re-fetched by the beat).
+- `repo_rows_refresh_specs(full, min_age)` beside `repo_open_specs`:
+  `None` while younger than `min_age`, the full open pair otherwise —
+  stale-at-`>=`, matching docs/0032's boundary.
+- `refresh_open_page`'s else-branch dispatches through the stored
+  window handle (the connect-flow hop — the beat itself is windowless).
+
+One test-side nuance worth recording: `Duration::ZERO` can never count
+as fresh under the stale-at-`>=` boundary (elapsed < 0 is impossible),
+so the gating test's "landed rows → beat is a no-op" phase pins with a
+real min_age (60 s) — test-only, not a design change.
