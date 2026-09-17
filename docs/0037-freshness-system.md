@@ -255,6 +255,14 @@ recording:
   visual delta of the migration (N4's byte-identical proof holds for
   the PR and issue pages, which were already in cluster order).
 
+**Post-merge fix**: the repo-page cluster first shipped as a third text
+row stacked under the description — full-width, left-aligned, nothing
+like the PR header's right-aligned cluster it was patterned on. It now
+renders in a `justify_between` header (title + description left,
+cluster right; the PR page's idiom), and the repo page's separate
+textual Refresh button is removed — the cluster's icon is that
+surface's only refresh affordance (docs/0024 D2 amended).
+
 Also shipped beyond the letter of the design: `freshness_row`'s
 refresh closure receives `&mut Window` (the repo page's manual refresh
 dispatches through `run_specs`, which needs it); `relative_age` moved

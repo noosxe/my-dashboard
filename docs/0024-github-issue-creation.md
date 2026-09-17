@@ -52,6 +52,10 @@ creation gate reads them.
 - **D2 — entry point: the repo header's actions row.** The row that
   right-aligns the Refresh button gains a ghost **"New issue"** button
   (crumb-adjacent, one obvious place — no per-list duplication).
+  *(Amended by docs/0038's freshness work: the textual Refresh button is
+  gone — the repo header's freshness cluster icon is the surface's only
+  refresh affordance, and the actions row carries just "New issue",
+  right-aligned.)*
   Visibility gate, hidden-not-disabled (docs/0005 D-gate discipline):
   connected ∧ repo selected ∧ `node_id.is_some()` ∧
   `has_issues_enabled`. Issues disabled or node id missing → button
