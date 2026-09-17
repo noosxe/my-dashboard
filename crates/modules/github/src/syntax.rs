@@ -216,11 +216,6 @@ impl HighlightCache {
         );
         computed
     }
-
-    /// Drop every entry — the page's file list was replaced (0040 D5).
-    pub(crate) fn clear(&self) {
-        self.0.borrow_mut().clear();
-    }
 }
 
 /// FNV-1a over the patch text — deterministic for the page's lifetime,
@@ -432,13 +427,6 @@ mod tests {
             .spans_for("lib.rs", " fn b() {}\n+let y = 2;", &rows, key.clone())
             .expect("recomputed");
         assert!(!Arc::ptr_eq(&first, &other));
-        // clear() (file-list replacement) drops entries — next call
-        // recomputes into a fresh Arc.
-        cache.clear();
-        let after_clear = cache
-            .spans_for("lib.rs", " fn a() {}\n+let x = 1;", &rows, key.clone())
-            .expect("recomputed after clear");
-        assert!(!Arc::ptr_eq(&first, &after_clear));
         // Plain files memo as a `None` hit — cheap forever.
         assert!(
             cache

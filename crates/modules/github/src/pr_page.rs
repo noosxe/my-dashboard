@@ -801,9 +801,10 @@ impl PrDetailPage {
                         files.len()
                     );
                     self.files.land(files);
-                    // The file list was replaced — drop stale per-file
-                    // memos (docs/0040 D5); entries re-derive on render.
-                    self.highlight_cache.clear();
+                    // No bulk memo clear here (docs/0040 D5, amended):
+                    // entries self-invalidate per file by patch hash, so
+                    // an unchanged diff survives the refresh without a
+                    // render-time re-tokenize spike.
                     self.apply_files_payload(cx);
                 }
                 Err(e) => {
@@ -825,10 +826,23 @@ impl PrDetailPage {
         };
         let entries: Vec<FileEntry> = files.iter().map(FileEntry::from_api).collect();
         let query = self.file_filter.read(cx).value().trim().to_string();
-        let selected = entries
-            .iter()
-            .find(|f| path_matches(f.path.as_ref(), &query))
-            .map(|f| f.path.clone());
+        // A refresh must not yank the reader to the first file (0018
+        // D6 amendment): keep the current selection while it still
+        // exists and matches the filter; fall back to the first match
+        // only when there is none (first open, deleted file).
+        let selected = match self.selected_file.as_ref() {
+            Some(current)
+                if entries
+                    .iter()
+                    .any(|f| &f.path == current && path_matches(f.path.as_ref(), &query)) =>
+            {
+                Some(current.clone())
+            }
+            _ => entries
+                .iter()
+                .find(|f| path_matches(f.path.as_ref(), &query))
+                .map(|f| f.path.clone()),
+        };
         self.selected_file = selected.clone();
         self.file_list.update(cx, |st, cx| {
             st.delegate_mut().set_files(entries.clone());

@@ -830,8 +830,14 @@ fn diff_row(
             .px_2()
             .text_xs()
             .font_family(mono)
-            .child(diff_content(" ", text, spans, cx))
+            .child(glyph_cell("", None))
+            .child(diff_content(text, spans, cx))
             .children(row_comment_button(path, anchored, cx)),
+        // docs/0040 §4 D6 (amended): the tint stays in the background,
+        // the sign glyph alone carries the saturated color (0016 D10's
+        // letter), and the content renders in ambient foreground with
+        // token spans — the old whole-row saturated `text_color` fought
+        // the token palette and made added-line keywords unreadable.
         PatchLine::Add(text) => h_flex()
             .flex_none()
             .whitespace_nowrap()
@@ -841,8 +847,8 @@ fn diff_row(
             .text_xs()
             .font_family(mono)
             .bg(cx.theme().success.opacity(0.12))
-            .text_color(cx.theme().success)
-            .child(diff_content("+", text, spans, cx))
+            .child(glyph_cell("+", Some(cx.theme().success)))
+            .child(diff_content(text, spans, cx))
             .children(row_comment_button(path, anchored, cx)),
         PatchLine::Del(text) => h_flex()
             .flex_none()
@@ -853,55 +859,52 @@ fn diff_row(
             .text_xs()
             .font_family(mono)
             .bg(cx.theme().danger.opacity(0.12))
-            .text_color(cx.theme().danger)
-            .child(diff_content("\u{2212}", text, spans, cx))
+            .child(glyph_cell("\u{2212}", Some(cx.theme().danger)))
+            .child(diff_content(text, spans, cx))
             .children(row_comment_button(path, anchored, cx)),
     }
     .into_any_element()
 }
 
-/// One row's content: the sign glyph plus the (spans-shifted) text.
-/// Without spans — plain file, over the cap, or nothing to color — this
-/// is the plain string exactly as before docs/0040 (D6). Ranges are
-/// byte offsets into `text`; shifting by the glyph's byte length keeps
-/// the glyph out of every highlight.
+/// The fixed-width sign cell (one of `" "`, `"+"`, `"\u{2212}"`) —
+/// colored separately from the content so token colors never compete
+/// with the row tint (docs/0040 §4 D6, amended).
+fn glyph_cell(glyph: &'static str, color: Option<Hsla>) -> Div {
+    let mut cell = div()
+        .flex_none()
+        .w(px(10.))
+        .text_center()
+        .text_xs()
+        .child(glyph);
+    if let Some(color) = color {
+        cell = cell.text_color(color);
+    }
+    cell
+}
+
+/// One row's content: the bare text, or the same text as a
+/// `StyledText` carrying the token spans (docs/0040 D6). Without spans
+/// — plain file, over the cap, or nothing to color — this is the plain
+/// string exactly as before docs/0040; the sign glyph is a separate
+/// cell, so span ranges need no re-basing.
 fn diff_content(
-    glyph: &str,
     text: &str,
     spans: Option<&[(Range<usize>, TokenKind)]>,
     cx: &Context<PrDetailPage>,
 ) -> AnyElement {
-    let content = format!("{glyph}{text}");
     let Some(spans) = spans else {
-        return content.into_any_element();
+        return text.to_string().into_any_element();
     };
     if spans.is_empty() {
-        return content.into_any_element();
+        return text.to_string().into_any_element();
     }
-    let mut highlights = Vec::with_capacity(spans.len());
-    for (range, kind) in shifted_ranges(glyph.len(), spans) {
-        if range.end > content.len() {
-            continue;
-        }
-        highlights.push((range, syntax::token_style(kind, cx.theme())));
-    }
-    if highlights.is_empty() {
-        return content.into_any_element();
-    }
-    StyledText::new(content)
+    let highlights: Vec<(Range<usize>, gpui::HighlightStyle)> = spans
+        .iter()
+        .map(|(range, kind)| (range.clone(), syntax::token_style(*kind, cx.theme())))
+        .collect();
+    StyledText::new(text.to_string())
         .with_highlights(highlights)
         .into_any_element()
-}
-
-/// Span ranges re-based onto the glyph+text content (byte offsets).
-fn shifted_ranges(
-    glyph_len: usize,
-    spans: &[(Range<usize>, TokenKind)],
-) -> Vec<(Range<usize>, TokenKind)> {
-    spans
-        .iter()
-        .map(|(r, k)| (glyph_len + r.start..glyph_len + r.end, *k))
-        .collect()
 }
 
 /// The hover comment affordance for one armable row (docs/0030 D4/D8):
@@ -1766,23 +1769,9 @@ fn suggestion_card(
 #[cfg(test)]
 mod tests {
     use super::{
-        FileEntry, FileListDelegate, FilesSummary, TokenKind, build_file_forest, files_summary,
-        path_matches, row_anchor, shifted_ranges, split_path,
+        FileEntry, FileListDelegate, FilesSummary, build_file_forest, files_summary, path_matches,
+        row_anchor, split_path,
     };
-    /// docs/0040 D6: a highlight span starts at or after the sign
-    /// glyph's bytes — the `+`/`−`/space prefix is never colored as code.
-    #[test]
-    fn shifted_ranges_never_cover_the_sign_glyph() {
-        let spans = vec![
-            (0..1usize, TokenKind::Keyword),
-            (3..9, TokenKind::StringLit),
-        ];
-        for glyph_len in [1usize, 3] {
-            for (range, _) in shifted_ranges(glyph_len, &spans) {
-                assert!(range.start >= glyph_len);
-            }
-        }
-    }
     fn entry(path: &str) -> FileEntry {
         FileEntry {
             path: path.into(),
