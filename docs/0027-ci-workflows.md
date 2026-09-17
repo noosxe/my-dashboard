@@ -5,7 +5,8 @@
 Enforce the AGENTS.md quality gates — `cargo fmt --all --check`,
 `cargo clippy --workspace --all-targets` at **zero warnings** (including the
 `clippy.toml` token-discipline lints), and `cargo test --workspace` — on every
-PR to `main` and every push to `main`.
+PR to `main` and every push to `main` that touches build-affecting paths
+(documentation-only changes skip the runners — D7).
 
 The CI is **nix-free** (owner decision, §4): the
 workflow installs its own toolchain (rustup, pinned) and everything
@@ -137,6 +138,32 @@ update PRs; each ecosystem's updates are grouped into a single PR
 (`groups` with an all-matching pattern). No other actions, no cache service,
 no secrets — the workflow is
 fork-safe by construction.
+
+### D7 — Path-based filtering: docs-only changes don't build anything
+
+Both triggers (`pull_request` and `push` to `main`) carry a `paths-ignore`
+**denylist**: `docs/**` and every Markdown file (`**/*.md` plus `*.md` for
+the repo root — README, AGENTS.md). Added 2026-09-17 after a docs-only
+design PR paid two full cold builds (~25 min of runner time) for changes
+that cannot affect a build.
+
+- **Denylist, not an allowlist, deliberately.** The repo's substance is
+  Rust, so an allowlist (`paths: crates/** …`) would silently drop CI for
+  any *future* build-affecting path — a new top-level directory, a new
+  config file — until someone remembers to extend the filter. A denylist
+  fails safe: only paths that provably cannot affect a build skip it;
+  everything else, known or future, runs both jobs.
+- **Per-event semantics.** Filters re-evaluate on every event: a PR mixing
+  docs and code runs; a PR that starts docs-only and later gains code runs
+  from the push that adds it.
+- **Required-check interaction.** A path-skipped run surfaces as a
+  "Skipped" check run; if `lint`/`test` are later enabled as required
+  status checks (a D6 repo-settings action), GitHub reports skipped checks
+  as satisfying the requirement on path-filtered events, so docs-only PRs
+  stay mergeable.
+- **The gates themselves are unchanged.** AGENTS.md's "run the gates
+  before pushing" stays the local contract; D7 only stops CI from
+  re-enforcing them where they cannot matter.
 
 ### D6 — What deliberately stays out
 
