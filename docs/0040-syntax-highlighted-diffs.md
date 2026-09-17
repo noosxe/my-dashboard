@@ -132,8 +132,18 @@ diffs):
 | `entity.name.function.`, `support.function.` | `link` | — |
 | `entity.name.tag.`, `support.type.` | `success` | — |
 | `variable.language.`, `variable.other.constant.` | `accent` | — |
-| `punctuation.` | `muted_foreground` | — |
 | `invalid.` | `danger` | — |
+
+**Amended at impl (2026-09-17, PR #252):** `punctuation.` → ambient and
+`keyword.operator.` → ambient (both rows above removed). Measured on a
+realistic Rust diff body: the two rows were ~half of all decoration
+runs (101 → 48 per 10 lines) and the churn was the prime suspect when
+diff scrolling jank was reported during human checks; delimiters and
+operators render ambient — matching github.com's diff view — while
+keywords/strings/comments/functions/types stay colored. Adjacent
+same-kind spans now also merge at tokenize time (the string-opening
+quote's punctuation scope falls back to the string scope instead of
+splitting the span).
 
 Matching walks the region's `ScopeStack` from the innermost (last)
 scope outward and takes the first table hit; the row's `HighlightStyle`

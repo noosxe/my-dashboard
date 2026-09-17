@@ -55,7 +55,6 @@ pub(crate) enum TokenKind {
     Keyword,
     Function,
     Type,
-    Punctuation,
     Invalid,
 }
 
@@ -74,7 +73,7 @@ pub(crate) fn tokenize_row(line: &str, state: &mut ParseState) -> Vec<(Range<usi
         Ok(ops) => ops,
         Err(_) => return Vec::new(), // tolerant: render the row plain
     };
-    let mut out = Vec::new();
+    let mut out: Vec<(Range<usize>, TokenKind)> = Vec::new();
     let mut stack = ScopeStack::new();
     // ScopeRangeIterator yields (region, op-that-governs-it): fold the
     // op into the running stack BEFORE classifying the region. Regions
@@ -87,6 +86,16 @@ pub(crate) fn tokenize_row(line: &str, state: &mut ParseState) -> Vec<(Range<usi
         }
         let end = range.end.min(line.len());
         if let Some(kind) = classify(&stack) {
+            // Merge into the previous span when contiguous and same
+            // kind — grammar boundaries (e.g. the string-opening quote's
+            // punctuation.definition scope falling back to the string
+            // scope) would otherwise emit runs that only cost paint.
+            if let Some((last, last_kind)) = out.last_mut() {
+                if last.end == range.start && *last_kind == kind {
+                    last.end = end;
+                    continue;
+                }
+            }
             out.push((range.start..end, kind));
         }
     }
@@ -112,6 +121,13 @@ fn classify(stack: &ScopeStack) -> Option<TokenKind> {
         if s.starts_with("constant.language") {
             return Some(Keyword);
         }
+        if s.starts_with("keyword.operator") {
+            // Operators stay ambient: coloring every `=`, `.`, `::` was
+            // the single biggest decoration-run churn in real diffs
+            // (~2x the runs — scroll cost) and reads louder than
+            // github.com. See docs/0040 §4 D3.
+            return None;
+        }
         if s.starts_with("keyword") || s.starts_with("storage") {
             return Some(Keyword);
         }
@@ -124,9 +140,9 @@ fn classify(stack: &ScopeStack) -> Option<TokenKind> {
         if s.starts_with("variable.language") || s.starts_with("variable.other.constant") {
             return Some(Keyword);
         }
-        if s.starts_with("punctuation") {
-            return Some(Punctuation);
-        }
+        // No `punctuation` arm: delimiters render ambient (as on
+        // github.com); coloring them muted tripled the per-line
+        // decoration runs for no readability gain (docs/0040 §4 D3).
         if s.starts_with("invalid") {
             return Some(Invalid);
         }
@@ -150,7 +166,6 @@ pub(crate) fn token_style(kind: TokenKind, theme: &ThemeColor) -> HighlightStyle
         Keyword => h.color = Some(theme.accent),
         Function => h.color = Some(theme.link),
         Type => h.color = Some(theme.success),
-        Punctuation => h.color = Some(theme.muted_foreground),
     }
     h
 }
@@ -298,17 +313,20 @@ mod tests {
     fn rust_line_gets_string_comment_keyword_spans() {
         let line = r#"let s = "x"; // tail"#;
         let spans = tokenize("main.rs", line);
-        // keyword.operator also lands on Keyword per the D3 table —
-        // assert the keyword itself rather than the full span set.
+        // Operators stay ambient (D3 trim); the keyword itself colors.
         assert!(spans_of(line, &spans, TokenKind::Keyword).contains(&"let"));
-        // The string CONTENT is the StringLit span; the quote glyphs and
-        // `;` carry punctuation-definition scopes — innermost-first
-        // lands them on Punctuation (grammar semantics, not a bug).
-        assert!(spans_of(line, &spans, TokenKind::StringLit).contains(&"x"));
-        assert!(spans_of(line, &spans, TokenKind::Punctuation).contains(&";"));
-        // The `//` glyphs are punctuation.definition.comment (innermost
-        // wins → Punctuation); the comment body is the Comment span.
-        assert_eq!(spans_of(line, &spans, TokenKind::Comment), vec![" tail"]);
+        // Quote glyphs fall back to the string scope and merge with the
+        // content; the `;` and `=` render ambient (no span).
+        assert_eq!(spans_of(line, &spans, TokenKind::StringLit), vec!["\"x\""]);
+        assert_eq!(spans_of(line, &spans, TokenKind::Comment), vec!["// tail"]);
+        // The `=` and `;` are ambient (operators/delimiters render
+        // uncolored after the D3 trim) — no span may cover them.
+        for byte_idx in [6usize, 11] {
+            assert!(
+                spans.iter().all(|(r, _)| !r.contains(&byte_idx)),
+                "byte {byte_idx} must be ambient",
+            );
+        }
     }
 
     #[test]
@@ -384,7 +402,6 @@ mod tests {
             (TokenKind::Keyword, theme.accent),
             (TokenKind::Function, theme.link),
             (TokenKind::Type, theme.success),
-            (TokenKind::Punctuation, theme.muted_foreground),
         ];
         for (kind, color) in table {
             assert_eq!(
