@@ -182,3 +182,32 @@ selectors, no labels.
   costs this makes a dead transport nearly free; too loose? (The reset
   on success is immediate, so the cap only bounds the wait to *retry*,
   not the recovery time once the transport is back.)
+
+## 8. Shipped (#238)
+
+D1–D5 as designed; Q1/Q2 ratified with the design (2026-09-17) — the
+minimize half stays rejected, the 10-minute cap stands. The
+implementation landed exactly the designed surface:
+
+- `Fetch<T>` carries `attempted_at` (stamped in `begin()`) +
+  `fail_streak` (bumped in `fail()`, zeroed in `land()`), both
+  `pub(crate)` like their siblings so tests backdate the clock instead
+  of waiting out real delays; `backoff_elapsed()` composes with
+  `needs_refresh` at all five lane call-sites (PR detail/files/threads,
+  issue detail, notification thread).
+- The repo-rows mirror lives state-side
+  (`rows_fail_streak`/`rows_attempted_at`), bumped by `run_specs`'s
+  landing arm for the repo-lane kinds only — unrelated specs must not
+  stamp the rows clock — and `repo_rows_refresh_specs` gates on it
+  before the age gate.
+- `refresh_open_page` early-returns on `state.gated()` — which is
+  broader than the design promised and deliberately so: the predicate
+  already unified rate-limit pause + auth loss + pending proactive
+  refresh, and all three are correct silences for a background beat.
+  The tick-loop gate was reused verbatim, not re-derived.
+
+One test-side nuance worth recording: `fail()` bumps the streak but
+does **not** move `attempted_at` — the clock is the last *dispatch*,
+not the last failure. So a second failure against an already-backdated
+clock compares elapsed-time against the doubled delay, which is the
+semantics the policy table pins (`fetch_backoff_policy_table`).

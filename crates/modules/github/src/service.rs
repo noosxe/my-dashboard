@@ -499,10 +499,34 @@ pub(crate) type InFlightKey = (Kind, Option<String>);
 /// stale-data-over-error principle); only a failure with nothing
 /// landed is terminal. `fetched_at` is apply-time and session-local:
 /// no TTL policy lives here (#193 owns that decision).
+/// docs/0036 D2: the first retry of a failing lane waits one beat (the
+/// cadence is unchanged), then the wait doubles per consecutive failure,
+/// capped — a dead transport settles at ~6 attempts/hour per lane
+/// instead of 60. Success zeroes the streak.
+pub(crate) const BACKOFF_BASE: Duration = Duration::from_secs(60);
+pub(crate) const BACKOFF_CAP: Duration = Duration::from_secs(600);
+
+/// The wait before the next attempt after `streak` consecutive
+/// failures: `min(BACKOFF_BASE * 2^(streak-1), BACKOFF_CAP)`. Streak 0
+/// has no wait — this is only called for streaks >= 1.
+fn backoff_delay(streak: u32) -> Duration {
+    debug_assert!(streak >= 1);
+    let exp = streak.saturating_sub(1).min(20);
+    BACKOFF_BASE.saturating_mul(1u32 << exp).min(BACKOFF_CAP)
+}
+
 pub(crate) struct Fetch<T> {
     status: FetchStatus<T>,
     pub(crate) in_flight: bool,
     pub(crate) last_error: Option<String>,
+    /// When the last dispatch was stamped (`begin()`), successful or
+    /// not — the backoff clock for a failing lane (docs/0036 D2).
+    /// `pub(crate)` like `in_flight`/`last_error`: tests backdate the
+    /// clock instead of waiting out real delays.
+    pub(crate) attempted_at: Option<Instant>,
+    /// Consecutive failed dispatches; zeroed by any `land()` (docs/0036
+    /// D2).
+    pub(crate) fail_streak: u32,
 }
 
 enum FetchStatus<T> {
@@ -532,6 +556,8 @@ impl<T> Fetch<T> {
             status: FetchStatus::Idle,
             in_flight: false,
             last_error: None,
+            attempted_at: None,
+            fail_streak: 0,
         }
     }
 
@@ -545,11 +571,13 @@ impl<T> Fetch<T> {
 
     pub(crate) fn begin(&mut self) {
         self.in_flight = true;
+        self.attempted_at = Some(Instant::now());
     }
 
     pub(crate) fn land(&mut self, data: T) {
         self.in_flight = false;
         self.last_error = None;
+        self.fail_streak = 0;
         self.status = FetchStatus::Ready {
             data,
             fetched_at: Instant::now(),
@@ -560,6 +588,7 @@ impl<T> Fetch<T> {
     /// without, the failure is terminal.
     pub(crate) fn fail(&mut self, error: String) {
         self.in_flight = false;
+        self.fail_streak = self.fail_streak.saturating_add(1);
         match self.status {
             FetchStatus::Ready { .. } => self.last_error = Some(error),
             _ => self.status = FetchStatus::Failed { error },
@@ -625,6 +654,21 @@ impl<T> Fetch<T> {
         !self.is_loading()
             && (self.load_error().is_some()
                 || (self.is_ready() && self.age().is_some_and(|age| age >= min_age)))
+    }
+
+    /// docs/0036 D2: the second dispatch gate, composed with
+    /// `needs_refresh` by the pages — a lane whose last attempt failed
+    /// waits `backoff_delay(fail_streak)` (stale-at-`>=`, docs/0032's
+    /// boundary) before re-firing. A healthy lane (streak 0) never
+    /// waits; a never-dispatched lane has no clock to wait on.
+    pub(crate) fn backoff_elapsed(&self) -> bool {
+        if self.fail_streak == 0 {
+            return true;
+        }
+        let Some(attempted_at) = self.attempted_at else {
+            return true;
+        };
+        attempted_at.elapsed() >= backoff_delay(self.fail_streak)
     }
 }
 #[derive(Clone, Debug)]
@@ -1342,6 +1386,11 @@ pub struct GithubState {
     /// carries). In-session freshness only — never persisted, never
     /// seeded; a missing entry means "never landed this session".
     pub(crate) rows_landed: BTreeMap<String, Instant>,
+    /// docs/0036 D3: the repo-rows lane has no `Fetch` record (results
+    /// land through `apply`), so its backoff lives here — bumped by the
+    /// page's `run_specs` landing arm for the repo-lane kinds.
+    pub(crate) rows_fail_streak: u32,
+    pub(crate) rows_attempted_at: Option<Instant>,
     pub(crate) etags: BTreeMap<String, String>,
     pub(crate) client: Arc<dyn Http>,
     pub(crate) store: Arc<dyn TokenStore>,
@@ -1417,6 +1466,8 @@ impl GithubState {
             etags,
             in_flight: BTreeSet::new(),
             rows_landed: BTreeMap::new(),
+            rows_fail_streak: 0,
+            rows_attempted_at: None,
             client,
             store,
             shared_token,
@@ -1437,7 +1488,7 @@ impl GithubState {
 
     /// Rate-limit / auth gate (Q9): no requests while disconnected, mid
     /// connect-flow, token-rejected, or paused until the window resets.
-    fn gated(&self) -> bool {
+    pub(crate) fn gated(&self) -> bool {
         // A pending (proactive) refresh defers fetches — they would 401
         // against a dying token (docs/0028 §3.4).
         if self.pending_refresh {
@@ -1556,6 +1607,13 @@ impl GithubState {
         full_name: &str,
         min_age: Duration,
     ) -> Option<Vec<FetchSpec>> {
+        if let Some(attempted_at) = self.rows_attempted_at {
+            if self.rows_fail_streak > 0
+                && attempted_at.elapsed() < backoff_delay(self.rows_fail_streak)
+            {
+                return None;
+            }
+        }
         if self
             .rows_landed
             .get(full_name)
@@ -1564,6 +1622,18 @@ impl GithubState {
             return None;
         }
         Some(self.repo_open_specs(full_name))
+    }
+
+    /// docs/0036 D3: the repo-rows backoff bookkeeping, called from the
+    /// page's `run_specs` landing arm for the repo-lane kinds — the
+    /// page owns the dispatch, the state owns the clock.
+    pub(crate) fn bump_rows_backoff(&mut self, ok: bool) {
+        self.rows_attempted_at = Some(Instant::now());
+        if ok {
+            self.rows_fail_streak = 0;
+        } else {
+            self.rows_fail_streak = self.rows_fail_streak.saturating_add(1);
+        }
     }
 
     /// Post-write refetch (docs/0026 D3/D8): the global unread list plus
@@ -3232,6 +3302,84 @@ mod tests {
         let r = state.repos.iter().find(|r| r.full_name == "o/r").unwrap();
         assert_eq!(r.prs.total_count, 3);
         assert_eq!(r.prs.nodes[0].key, "o/r#7");
+    }
+
+    #[test]
+    fn fetch_backoff_policy_table() {
+        // docs/0036 D2: streak -> delay, stale-at->=.
+        assert_eq!(backoff_delay(1), Duration::from_secs(60));
+        assert_eq!(backoff_delay(2), Duration::from_secs(120));
+        assert_eq!(backoff_delay(3), Duration::from_secs(240));
+        assert_eq!(backoff_delay(4), Duration::from_secs(480));
+        assert_eq!(backoff_delay(5), BACKOFF_CAP);
+        assert_eq!(backoff_delay(50), BACKOFF_CAP);
+
+        let mut f: Fetch<u8> = Fetch::new();
+        assert!(f.backoff_elapsed(), "never-dispatched: no clock to wait on");
+
+        f.begin();
+        assert!(f.backoff_elapsed(), "a healthy lane (streak 0) never waits");
+        f.fail("probe".into());
+        assert!(
+            !f.backoff_elapsed(),
+            "a fresh attempt after a failure waits"
+        );
+        f.attempted_at = Some(Instant::now() - backoff_delay(1));
+        assert!(f.backoff_elapsed(), "stale-at->=: elapsed delay re-fires");
+
+        // The second failure doubles the wait — and the clock only
+        // moves at `begin()`, so the still-backdated attempt is 60s
+        // old against a 120s delay.
+        f.fail("probe".into());
+        assert!(!f.backoff_elapsed());
+        f.land(1);
+        assert!(f.backoff_elapsed(), "any land resets the streak");
+        assert_eq!(f.fail_streak, 0);
+    }
+
+    #[test]
+    fn repo_rows_backoff_gates_and_resets() {
+        use std::time::Instant;
+
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.auth = AuthStatus::Connected;
+
+        // A failed pair bumps the streak; a fresh attempt gates the
+        // lane even though the rows never landed (never-landed would
+        // otherwise always be refreshable).
+        state.bump_rows_backoff(false);
+        assert_eq!(state.rows_fail_streak, 1);
+        assert!(
+            state
+                .repo_rows_refresh_specs("o/r", Duration::ZERO)
+                .is_none()
+        );
+
+        // Success resets.
+        state.bump_rows_backoff(true);
+        assert_eq!(state.rows_fail_streak, 0);
+        assert!(
+            state
+                .repo_rows_refresh_specs("o/r", Duration::ZERO)
+                .is_some()
+        );
+
+        // Backoff elapsed: stale-at->= (docs/0032's boundary). Streak 2
+        // waits 120s.
+        state.bump_rows_backoff(false);
+        state.bump_rows_backoff(false);
+        state.rows_attempted_at = Some(Instant::now() - Duration::from_secs(119));
+        assert!(
+            state
+                .repo_rows_refresh_specs("o/r", Duration::ZERO)
+                .is_none()
+        );
+        state.rows_attempted_at = Some(Instant::now() - Duration::from_secs(120));
+        assert!(
+            state
+                .repo_rows_refresh_specs("o/r", Duration::ZERO)
+                .is_some()
+        );
     }
 
     /// docs/0035 D1/D2: both lanes that write a repo's rows count as

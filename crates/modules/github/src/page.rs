@@ -233,6 +233,13 @@ impl GithubPage {
         ) {
             return;
         }
+        // The rate-limit pause (and auth loss / a pending proactive
+        // refresh) silences the whole beat — the same gate the tick
+        // loop obeys (docs/0036 D4): a background heartbeat never
+        // feeds an exhausted point budget.
+        if self.state.read(cx).gated() {
+            return;
+        }
         // Mutual exclusion (docs/0020 D1) — at most one slot is Some.
         if let Some(page) = self.pr.as_ref() {
             page.update(cx, |p, cx| p.auto_refresh(min_age, cx));
@@ -905,8 +912,17 @@ impl GithubPage {
                 let Some(result) = run_read_deduped(state.clone(), spec, cx).await else {
                     continue;
                 };
+                // The repo-rows lane's backoff bookkeeping (docs/0036
+                // D3): the page owns the dispatch, the state owns the
+                // clock. Only the repo-lane kinds count — unrelated
+                // specs must not stamp the rows clock.
+                let rows_lane = matches!(result.kind, Kind::RepoSnapshot | Kind::RepoNotifications);
+                let rows_ok = result.network.is_none() && (200..300).contains(&result.status);
                 cx.update(|cx| {
                     state.update(cx, |s, cx| {
+                        if rows_lane {
+                            s.bump_rows_backoff(rows_ok);
+                        }
                         s.apply(result);
                         cx.notify();
                     })
@@ -2245,10 +2261,9 @@ mod tests {
         cx.update(dashboard_core::status::init);
         let cx = cx.add_empty_window();
 
-        // 1: the eager detail fetch; 2: the one gated-in beat; 3+4:
-        // the selected repo's row pair (docs/0035 D2).
+        // 1: the eager detail fetch (fails -> the lane backoffs, docs/
+        // 0036 D2); 2+3: the selected repo's row pair (docs/0035 D2).
         let mock = Arc::new(MockHttp::new(vec![
-            Err(crate::http::HttpError("probe".into())),
             Err(crate::http::HttpError("probe".into())),
             Err(crate::http::HttpError("probe".into())),
             Err(crate::http::HttpError("probe".into())),
@@ -2306,29 +2321,46 @@ mod tests {
         cx.update(|_, cx| page.update(cx, |p, cx| p.refresh_open_page(Duration::ZERO, cx)));
         assert_eq!(mock.recorded().len(), 1, "nav-inactive beats are no-ops");
 
-        // The github module active + a failed detail lane: the beat
-        // dispatches exactly once.
+        // The github module active + a failed detail lane whose last
+        // attempt is fresh (docs/0036 D2): the beat no longer fires it
+        // — the first retry waits out the backoff.
         cx.update(|_, cx| {
             nav.update(cx, |n, _| n.page = Page::Module("github".into()));
             page.update(cx, |p, cx| p.refresh_open_page(Duration::ZERO, cx));
         });
         cx.run_until_parked();
-        assert_eq!(mock.recorded().len(), 2, "nav-active beat refreshes");
+        assert_eq!(
+            mock.recorded().len(),
+            1,
+            "a fresh attempt backoffs the retry"
+        );
 
-        // No detail slot, repo selected (docs/0035 D2): the module
-        // main page is the list surface, and the rows were never
-        // landed this session → the beat dispatches the open pair
-        // (repo snapshot + repo-slice notifications).
+        // The rate-limit pause silences the whole beat (docs/0036 D4):
+        // no slot, a repo selected, rows never landed — still nothing.
         cx.update(|_, cx| {
-            page.update(cx, |p, cx| {
-                p.pr = None;
-                p.refresh_open_page(Duration::ZERO, cx)
-            });
+            page.update(cx, |p, _| p.pr = None);
+            state.update(cx, |s, _| s.rate_limited_until = Some(u64::MAX / 2));
+            page.update(cx, |p, cx| p.refresh_open_page(Duration::ZERO, cx));
         });
         cx.run_until_parked();
         assert_eq!(
             mock.recorded().len(),
-            4,
+            1,
+            "the rate-limit pause gates the beat"
+        );
+
+        // Pause lifted: the repo-rows arm fires — the module main page
+        // is the list surface and the rows were never landed this
+        // session → the open pair (repo snapshot + repo-slice
+        // notifications) dispatches (docs/0035 D2).
+        cx.update(|_, cx| {
+            state.update(cx, |s, _| s.rate_limited_until = None);
+            page.update(cx, |p, cx| p.refresh_open_page(Duration::ZERO, cx));
+        });
+        cx.run_until_parked();
+        assert_eq!(
+            mock.recorded().len(),
+            3,
             "selected repo: the row pair refreshes on the beat"
         );
 
@@ -2343,7 +2375,7 @@ mod tests {
             page.update(cx, |p, cx| p.refresh_open_page(Duration::from_secs(60), cx));
         });
         cx.run_until_parked();
-        assert_eq!(mock.recorded().len(), 4, "fresh rows: beat is a no-op");
+        assert_eq!(mock.recorded().len(), 3, "fresh rows: beat is a no-op");
     }
 
     /// docs/0034 D3: a stale disk-seeded state marks both cold-start

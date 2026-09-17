@@ -700,13 +700,16 @@ impl PrDetailPage {
     /// each lane re-dispatches by its own record (stale or failed);
     /// unopened (Idle) lanes stay untouched.
     pub(crate) fn auto_refresh(&mut self, min_age: Duration, cx: &mut Context<Self>) {
-        if self.detail.needs_refresh(min_age) {
+        // The backoff gate composes with the age policy (docs/0036 D2):
+        // a failing lane waits out `backoff_delay(streak)` between
+        // attempts instead of re-firing on every beat.
+        if self.detail.needs_refresh(min_age) && self.detail.backoff_elapsed() {
             self.fetch_detail(cx);
         }
-        if self.files.needs_refresh(min_age) {
+        if self.files.needs_refresh(min_age) && self.files.backoff_elapsed() {
             self.fetch_files(cx);
         }
-        if self.threads.needs_refresh(min_age) {
+        if self.threads.needs_refresh(min_age) && self.threads.backoff_elapsed() {
             self.fetch_threads(cx);
         }
         // The #192 label's clock: even a fully-skipped beat re-renders the
@@ -3735,14 +3738,10 @@ mod tests {
 
         cx.update(dashboard_core::status::init);
         cx.update(gpui_component::init);
-        // 1: the eager detail fetch at `new`; 2-5: the beat dispatches
-        // (the files refetch fails too, so it becomes a Failed lane and
-        // retries on the following beat — that IS the policy).
+        // 1: the eager detail fetch at `new` (fails -> streak 1); 2: the
+        // beat's files dispatch (also fails -> streak 1); 3+4: the
+        // backdated beat retries both failed lanes (docs/0036 D2).
         let mock = Arc::new(MockHttp::new(vec![
-            Err(crate::http::HttpError("probe".into())),
-            Err(crate::http::HttpError("probe".into())),
-            Err(crate::http::HttpError("probe".into())),
-            Err(crate::http::HttpError("probe".into())),
             Err(crate::http::HttpError("probe".into())),
             Err(crate::http::HttpError("probe".into())),
             Err(crate::http::HttpError("probe".into())),
@@ -3786,22 +3785,38 @@ mod tests {
             })
         });
 
-        // Beat at zero threshold: detail (Failed) + files (stale enough)
-        // dispatch; threads (Idle — never opened) must not.
+        // Beat at zero threshold: the detail lane's last attempt is
+        // fresh — its first retry waits out the backoff (docs/0036 D2);
+        // files (stale enough, never failed) dispatch; threads (Idle —
+        // never opened) must not.
         cx.update(|cx| page.update(cx, |p, cx| p.auto_refresh(Duration::ZERO, cx)));
         cx.run_until_parked();
         assert_eq!(
             mock.recorded().len(),
-            3,
-            "failed + stale dispatch, Idle skips"
+            2,
+            "failed lane backoffs, stale dispatch, Idle skips"
         );
 
-        // Beat at an hour threshold: both failed lanes retry (the files
-        // refetch just failed — failed lanes self-heal at any age); the
-        // threads lane stays untouched.
+        // Beat at an hour threshold with both lanes freshly failed
+        // (the files dispatch just failed too): both are in backoff —
+        // the beat is quiet.
         cx.update(|cx| page.update(cx, |p, cx| p.auto_refresh(Duration::from_secs(3600), cx)));
         cx.run_until_parked();
-        assert_eq!(mock.recorded().len(), 5, "Failed lanes retry at any age");
+        assert_eq!(mock.recorded().len(), 2, "freshly failed lanes stay quiet");
+
+        // The clocks pass the streak-1 delay: both failed lanes retry —
+        // failed lanes still self-heal at any age (docs/0032 D2), now
+        // paced by the backoff (docs/0036 D2).
+        cx.update(|cx| {
+            page.update(cx, |p, _| {
+                let back = Some(std::time::Instant::now() - Duration::from_secs(61));
+                p.detail.attempted_at = back;
+                p.files.attempted_at = back;
+            });
+            page.update(cx, |p, cx| p.auto_refresh(Duration::from_secs(3600), cx));
+        });
+        cx.run_until_parked();
+        assert_eq!(mock.recorded().len(), 4, "backoff elapsed: lanes rejoin");
 
         // A beat racing a manual refresh: with every other lane fresh,
         // arm the detail key as if a dispatch were in flight — the beat
@@ -3817,7 +3832,7 @@ mod tests {
             page.update(cx, |p, cx| p.auto_refresh(Duration::from_secs(3600), cx));
         });
         cx.run_until_parked();
-        assert_eq!(mock.recorded().len(), 5, "the guard ate the racing beat");
+        assert_eq!(mock.recorded().len(), 4, "the guard ate the racing beat");
     }
 
     /// A page-owned fetch arms the guard synchronously, dispatches on the
