@@ -28,8 +28,24 @@ pub(crate) struct GithubCard {
 }
 
 impl GithubCard {
-    pub fn new(state: Entity<GithubState>, nav: Entity<Navigator>, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        state: Entity<GithubState>,
+        nav: Entity<Navigator>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         cx.observe(&state, |_, _, cx| cx.notify()).detach();
+        // docs/0038 D7: the card is the ever-visible monitoring surface
+        // — it co-maintains the engagement flag (the service tick reads
+        // it) even when the module page is closed. Seeded from the real
+        // window state: the observers only fire on edges.
+        let active = window.is_window_active();
+        state.update(cx, |s, _| s.focus_engaged = active);
+        cx.observe_window_activation(window, |this, window, cx| {
+            let active = window.is_window_active();
+            this.state.update(cx, |s, _| s.focus_engaged = active);
+        })
+        .detach();
         Self { state, nav }
     }
 

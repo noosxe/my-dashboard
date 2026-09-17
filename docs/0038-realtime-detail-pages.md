@@ -212,8 +212,9 @@ the hottest possible usage, against a 60s-idle cost of ~15% of that. 15s was
 considered and rejected: it doubles the burn for a latency improvement
 (30s→15s) that no watcher can perceive (Q2 for the owner's taste).
 
-The implementation PR records the *measured* point cost per engaged query in
-§8 — if reality surprises, `ENGAGED_GQL_MIN_AGE` is the one-line correction.
+The implementation PR records how the per-query cost stays observable (§7)
+— if a live session's numbers surprise, `ENGAGED_GQL_MIN_AGE` is the
+one-line correction.
 
 ### D7 — The global notifications lane rides engaged (Q1: picked yes, scoped)
 
@@ -283,6 +284,30 @@ ever becomes someone's pinned dashboard tile.
   default): 30s** — D6 stands: double the burn buys a latency change no
   watcher can perceive.
 
-## 7 Shipped
+## 7 Shipped (#244)
 
-Lands with the implementation PR (§8 there).
+D1–D7 as designed, with the implementation findings worth recording:
+
+- **The 304/etag-save ordering.** `GithubState::apply` returns before its
+  etag bookkeeping when a result carries no body — and a 304 has no body,
+  so a 304 never refreshes the stored etag. That is correct (the stored
+  etag is exactly the one the server just validated); the page arms
+  forward 304s for the shared 401/403 handling, not for etag rotation.
+  The tests pin the 200 path's storage — the path the engaged tier
+  actually depends on.
+- **Cold-session 304s are structurally impossible** for the page-owned
+  lanes: the spec builders attach the stored etag only when the lane
+  already holds data (`is_ready` filter). A fresh session with a disk
+  etag always full-fetches first — the list lanes solve the same problem
+  with last-known restores; the pages did not need the extra machinery.
+- **The tick re-base trap was real**: `SNAPSHOT_EVERY` is tick-relative,
+  and the 5→30 re-derivation is pinned by the cadence table (5 minutes
+  stays 5 minutes at the 10 s wake).
+
+Engagement plumbing: `focus_engaged` on state, seeded by the page and
+card constructors from the real window state — the activation observers
+only fire on edges, so a window born focused would otherwise idle
+forever — and maintained by both surfaces' observers. The GraphQL point
+cost per engaged query stays observable via the parsed `x-ratelimit`
+headers (`RateLimit` on every `HttpResult`); the 30 s constant is the
+knob if a live session's numbers surprise.

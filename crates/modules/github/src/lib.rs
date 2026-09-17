@@ -91,11 +91,12 @@ impl Module for GithubModule {
         let state =
             cx.new(|_| GithubState::new(client, store, shared_token, shared_refresh, cache));
 
-        // 60 s service loop — self-gates on auth/rate-limit state and
-        // refreshes per tick (0003 §3.12 pattern, docs/0005 Q8).
+        // 10 s service loop (docs/0038 D7) — self-gates on
+        // auth/rate-limit state and refreshes per tick (0003 §3.12
+        // pattern, docs/0005 Q8); the lanes decide what actually fires.
         spawn_tick_loop(state.clone(), window_handle, cx);
 
-        let overview = cx.new(|cx| card::GithubCard::new(state.clone(), nav.clone(), cx));
+        let overview = cx.new(|cx| card::GithubCard::new(state.clone(), nav.clone(), window, cx));
         let main_page = cx.new(|cx| page::GithubPage::new(state.clone(), nav.clone(), window, cx));
 
         // Settings subpage (docs/0006 §4.3): the provider captures the

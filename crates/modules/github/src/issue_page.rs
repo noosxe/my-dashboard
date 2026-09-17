@@ -50,6 +50,7 @@ use std::sync::Arc;
 
 use crate::gql;
 use crate::markdown;
+use crate::page::{LaneClass, lane_min_age};
 use crate::pr_page::{
     ANCHOR_FADE, CommentAnchor, ErrorScope, MutationError, body_card, cap_row, delete_confirm_card,
     inline_edit_card, split_repo,
@@ -333,9 +334,17 @@ impl IssueDetailPage {
     }
 
     /// docs/0032 D2: the host heartbeat and focus trigger land here.
-    pub(crate) fn auto_refresh(&mut self, min_age: Duration, cx: &mut Context<Self>) {
+    pub(crate) fn auto_refresh(
+        &mut self,
+        engaged: bool,
+        force_min_age: Option<Duration>,
+        cx: &mut Context<Self>,
+    ) {
         // One composed gate (docs/0037 D4) — see pr_page::auto_refresh.
-        if self.detail.wants_refresh(min_age) {
+        // docs/0038 D3: the issue lane is GraphQL-only — one class, and
+        // a 304 can never arrive here (no upstream conditional path).
+        let gql_min = force_min_age.unwrap_or_else(|| lane_min_age(LaneClass::Gql, engaged));
+        if self.detail.wants_refresh(gql_min) {
             self.fetch_detail(cx);
         }
         // The #192 label's clock: even a skipped beat re-renders the
