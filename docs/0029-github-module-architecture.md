@@ -87,7 +87,7 @@ developers open GitHub:
 |---------|--------|
 | **Create PR** | Must use browser or CLI. |
 | **PR metadata editing** (labels, assignees, milestones, reviewers) | Issue page has these pickers; PR page does not. |
-| **PR reactions** | Issue comments have reactions; PR comments do not yet. |
+| **PR reactions** | Issue comments have reactions; PR comments do not yet. *(→ shipped in #196, docs/0023 §10)* |
 
 ### Navigation & discovery
 
@@ -162,7 +162,7 @@ Organized by impact on the "replace GitHub" goal.
 | **Cache TTL / staleness marking** | Small | Flag data older than N minutes with a visual indicator; refuse to paint cache older than a threshold without a disclaimer. |
 | **Refresh-on-focus** | Small | Re-fetch when the app window regains focus — catches up after being backgrounded. |
 | **Cross-reference autolinks** (`#123`, `@user`) | Small | Makes markdown bodies feel complete rather than missing links GitHub would render. |
-| **PR reactions parity** | Small | Already built for issues; extending to PRs is mechanical. |
+| **PR reactions parity** | Small | Already built for issues; extending to PRs is mechanical. *(→ shipped in #196)* |
 
 ### Tier 3 — Polish the daily-driver experience
 

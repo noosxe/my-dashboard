@@ -351,3 +351,22 @@ Consequences, all simplifications:
   `reaction_menu_item_click_commits` pins the whole chain (open → row
   click → deferred post → scoped error applied) with real simulated
   clicks.
+
+### 2026-09-17 (issue #196): PR surfaces join
+
+The same D1–D7 semantics now cover the PR conversation tab — the port is
+deliberately mechanical:
+
+- **Surfaces**: the PR body (`pr-reaction-row`), review summaries
+  (`pr-review-{ix}-reaction-row`) and issue comments
+  (`pr-comment-{ix}-reaction-row`). All four GitHub types (`PullRequest`,
+  `IssueComment`, `PullRequestReview`) implement `Reactable` (schema
+  verified 2026-09-17); `viewerCanReact` + `reactionGroups` select on all
+  three rendered surfaces, degrading per node as on the issue page.
+- **Reuse, not copy**: `reaction_chips` / `reaction_direction` stay the
+  issue page's `pub(crate)` helpers; the PR page ports only the row
+  renderer and the toggle (its own `BusyOp::Reaction`, Timeline error
+  scope, same add/remove mutations and D7 refetch). Probe keys keep the
+  `pr-` stem; picker rows are `pr-reaction-pick-{CONTENT}`.
+- **Tests**: parse/degrade per node, query-shape (three selections), and
+  a page probe asserting chips, gated pickers and single-flight.

@@ -30,6 +30,7 @@ use gpui_component::{
     h_flex,
     input::{InputEvent, InputState, Textarea, TextareaState},
     list::{ListEvent, ListState},
+    menu::{DropdownMenu as _, PopupMenuItem},
     scroll::ScrollableElement as _,
     searchable_list::SearchableVec,
     select::{Select, SelectEvent, SelectState},
@@ -54,6 +55,7 @@ pub(crate) const ANCHOR_FADE: Duration = Duration::from_secs(3);
 use crate::api::{self, PrFile};
 use crate::files::{self, FileEntry, FileListDelegate, FilesView, build_file_forest, path_matches};
 use crate::gql;
+use crate::issue_page::{reaction_chips, reaction_direction};
 use crate::markdown;
 use crate::page::{LaneClass, lane_min_age};
 use crate::service::{
@@ -2098,6 +2100,9 @@ impl PrDetailPage {
                 BusyOp::ReviewCommentDelete => {
                     self.thread_delete_confirm = None;
                 }
+                // #196: no surface to close — the refetch below repaints
+                // the chips row from the fresh groups.
+                BusyOp::Reaction => {}
             }
         }
         if op.error_scope() == ErrorScope::Files {
@@ -2110,6 +2115,155 @@ impl PrDetailPage {
         }
         cx.notify();
     }
+    // --- reactions (docs/0023 D3 ported to the PR surfaces, #196) ----------
+
+    /// Chip click (docs/0023 D3): armed removes, otherwise adds.
+    /// Single-flight — busy is checked by render and re-checked here as
+    /// the honest guard. Same mutations the issue page posts; the
+    /// subject id is the PR, review, or comment node id.
+    fn toggle_reaction(
+        &mut self,
+        subject_id: String,
+        remove: bool,
+        content: gql::ReactionContent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.busy.is_some() || subject_id.is_empty() {
+            return;
+        }
+        let variables = json!({ "input": { "subjectId": subject_id, "content": content.wire() } });
+        self.mutation_error = None;
+        self.busy = Some(BusyOp::Reaction);
+        cx.notify();
+        let mutation = if remove {
+            Mutation::RemoveReaction
+        } else {
+            Mutation::AddReaction
+        };
+        self.spawn_mutation(BusyOp::Reaction, mutation, variables, window, cx);
+    }
+
+    /// docs/0023 D3 — one chips row: filtered groups (`reaction_chips`) +
+    /// the gated `+` affordance. `prefix` is the probe-key stem
+    /// (`pr-reaction-row` for the body,
+    /// `pr-comment-{ix}-reaction-row` / `pr-review-{ix}-reaction-row`
+    /// for timeline rows); chips extend it with the content's wire name.
+    /// Returns `None` when there is nothing to show — no chips and the
+    /// viewer cannot react.
+    fn render_reaction_row(
+        &self,
+        prefix: &str,
+        subject_id: &str,
+        groups: &[gql::ReactionGroup],
+        can_react: bool,
+        cx: &Context<Self>,
+    ) -> Option<AnyElement> {
+        let chips = reaction_chips(groups);
+        if chips.is_empty() && !can_react {
+            return None;
+        }
+        let busy = self.busy.is_some();
+        let mut row = h_flex().gap_1().flex_wrap();
+        for g in &chips {
+            let id = format!("{prefix}-{}", g.content.wire());
+            let probe = id.clone();
+            let armed = g.viewer_has_reacted;
+            let subject_id = subject_id.to_string();
+            let content = g.content;
+            row = row.child(
+                Button::new(id)
+                    .debug_selector(move || probe.clone())
+                    .when(armed, |b| b.outline())
+                    .when(!armed, |b| b.ghost())
+                    .small()
+                    .label(format!("{} {}", g.content.glyph(), g.total))
+                    .tooltip(g.content.label())
+                    .disabled(busy)
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.toggle_reaction(subject_id.clone(), armed, content, window, cx)
+                    })),
+            );
+        }
+        if can_react {
+            let subject_id = subject_id.to_string();
+            let groups = groups.to_vec();
+            let weak = cx.entity().downgrade();
+            let picker_id = format!("{prefix}-add");
+            let probe = picker_id.clone();
+            row = row.child(
+                Button::new(picker_id)
+                    .debug_selector(move || probe.clone())
+                    .ghost()
+                    .small()
+                    .label("+")
+                    .tooltip("Add reaction")
+                    .disabled(busy)
+                    .dropdown_menu(move |menu, _, _| {
+                        // docs/0023 D4 (§10 amendment): the static
+                        // eight-row picker rides the + button as a
+                        // PopupMenu. Rows freeze at open — built from
+                        // this render's snapshot, so a refetch mid-pick
+                        // repaints chips, never the open menu — and a
+                        // row commits on click (the mutation is the
+                        // commit; no Save ritual).
+                        let mut next = menu;
+                        for content in gql::ReactionContent::ALL {
+                            let armed = reaction_direction(&groups, content);
+                            let count = groups
+                                .iter()
+                                .find(|g| g.content == content)
+                                .map(|g| g.total)
+                                .unwrap_or(0);
+                            let subject = subject_id.clone();
+                            let item_weak = weak.clone();
+                            let probe = format!("pr-reaction-pick-{}", content.wire());
+                            next = next.item(
+                                PopupMenuItem::element(move |_, _| {
+                                    // Probe-visible row (0010 D10) — the
+                                    // plain Item variant is not.
+                                    let key = probe.clone();
+                                    h_flex()
+                                        .debug_selector(move || key.clone())
+                                        .gap_2()
+                                        .child(format!(
+                                            "{} {} ({})",
+                                            content.glyph(),
+                                            content.label(),
+                                            count
+                                        ))
+                                        .when(armed, |row| row.child("· you"))
+                                })
+                                .checked(armed)
+                                .disabled(busy)
+                                .on_click(move |_, window, cx| {
+                                    // The click dispatches inside the window's
+                                    // update — any re-entrant window update here
+                                    // fails ("window not found"). Defer to the end
+                                    // of the effect cycle, then post from the live
+                                    // context (the page.rs spawn pattern, inline).
+                                    let weak = item_weak.clone();
+                                    let subject = subject.clone();
+                                    window.defer(cx, move |window, cx| {
+                                        let _ = weak.update(cx, |page, cx| {
+                                            page.toggle_reaction(
+                                                subject, armed, content, window, cx,
+                                            )
+                                        });
+                                    });
+                                }),
+                            );
+                        }
+                        next
+                    }),
+            );
+        }
+        Some(
+            row.debug_selector(move || format!("{prefix}-row"))
+                .into_any_element(),
+        )
+    }
+
     fn request_close(&mut self, cx: &mut Context<Self>) {
         cx.emit(PrPageEvent::CloseRequested);
     }
@@ -2716,7 +2870,14 @@ impl PrDetailPage {
                     d.body.as_deref(),
                     self.md.get("pr-description").map(Arc::as_ref),
                     edit,
-                    None,
+                    // docs/0023 D3 (#196): the body's chips row.
+                    self.render_reaction_row(
+                        "pr-reaction-row",
+                        &d.id,
+                        &d.reaction_groups,
+                        d.viewer_can_react,
+                        cx,
+                    ),
                     false,
                     cx,
                 )
@@ -2786,7 +2947,14 @@ impl PrDetailPage {
                             c.viewer_can_delete,
                             cx,
                         ),
-                        None,
+                        // docs/0023 D3 (#196): the comment's chips row.
+                        self.render_reaction_row(
+                            &format!("{key}-reaction-row"),
+                            &c.id,
+                            &c.reaction_groups,
+                            c.viewer_can_react,
+                            cx,
+                        ),
                         anchored,
                         cx,
                     ));
@@ -2854,7 +3022,14 @@ impl PrDetailPage {
                         r.body.as_deref().filter(|b| !b.is_empty()),
                         self.md.get(&key).map(Arc::as_ref),
                         trailing,
-                        None,
+                        // docs/0023 D3 (#196): the review's chips row.
+                        self.render_reaction_row(
+                            &format!("{key}-reaction-row"),
+                            &r.id,
+                            &r.reaction_groups,
+                            r.viewer_can_react,
+                            cx,
+                        ),
                         false,
                         cx,
                     ));
@@ -3408,6 +3583,10 @@ pub(crate) enum BusyOp {
     // the review surfaces.
     ReviewCommentEdit,
     ReviewCommentDelete,
+    // #196: reaction toggles on the conversation tab (body, review
+    // summaries, issue comments) — Timeline scope like the other
+    // conversation writes; the refetch repaints the chips.
+    Reaction,
 }
 
 impl BusyOp {
@@ -3420,7 +3599,8 @@ impl BusyOp {
             | BusyOp::CommentEdit
             | BusyOp::CommentDelete
             | BusyOp::ReviewEdit
-            | BusyOp::ReviewDelete => ErrorScope::Timeline,
+            | BusyOp::ReviewDelete
+            | BusyOp::Reaction => ErrorScope::Timeline,
             BusyOp::Merge | BusyOp::Close => ErrorScope::Panel,
             // 0030 D7: Files-tab failures render in the diff pane —
             // inline, never modal (the composer stays open with its draft).
@@ -4241,6 +4421,7 @@ mod tests {
     use crate::files::{FilesSummary, files_summary, split_path};
     use crate::gql;
     use crate::gql::MergeMethods;
+    use crate::issue_page::reaction_direction;
     use crate::pr_page::{
         BusyOp, ChecksCounts, ChecksTone, ErrorScope, FinishEvent, MergeLineTone, MergeMethod,
         PrDetailPage, PrStateTone, PrTab, ReviewTone, TimelineKind, allowed_methods, checks_counts,
@@ -5195,10 +5376,22 @@ mod tests {
             "id": "PR_2", "number": 7, "title": "layout probe", "url": "u",
             "state": "OPEN", "isDraft": false,
             "createdAt": "2026-09-01T00:00:00Z",
+            "viewerCanReact": true,
+            "reactionGroups": [
+                {"content": "THUMBS_UP", "viewerHasReacted": true,
+                 "reactors": {"totalCount": 3}},
+                {"content": "EYES", "viewerHasReacted": false,
+                 "reactors": {"totalCount": 0}}
+            ],
             "reviews": {"totalCount": 2, "nodes": [
                 {"id": "PRR_1", "viewerCanUpdate": true, "viewerCanDelete": true,
                  "author": {"login": "bob"}, "state": "APPROVED", "body": "lgtm",
-                 "submittedAt": "2026-09-01T01:00:00Z"},
+                 "submittedAt": "2026-09-01T01:00:00Z",
+                 "viewerCanReact": true,
+                 "reactionGroups": [
+                     {"content": "HEART", "viewerHasReacted": false,
+                      "reactors": {"totalCount": 2}}
+                 ]},
                 {"author": {"login": "carol"}, "state": "COMMENTED", "body": "note",
                  "submittedAt": "2026-09-02T01:00:00Z"}
             ]},
@@ -5207,7 +5400,12 @@ mod tests {
                  "viewerCanUpdate": true, "viewerCanDelete": false,
                  "updatedAt": "2026-09-03T02:00:00Z",
                  "author": {"login": "dave"}, "body": "nice",
-                 "createdAt": "2026-09-03T01:00:00Z"},
+                 "createdAt": "2026-09-03T01:00:00Z",
+                 "viewerCanReact": true,
+                 "reactionGroups": [
+                     {"content": "HEART", "viewerHasReacted": true,
+                      "reactors": {"totalCount": 1}}
+                 ]},
                 {"author": {"login": "erin"}, "body": "plain",
                  "createdAt": "2026-09-04T01:00:00Z"}
             ]}
@@ -5381,6 +5579,118 @@ mod tests {
                     "empty node id must not open an editor"
                 );
                 page.timeline_edit = None;
+            });
+        });
+    }
+
+    /// docs/0023 D3 ported to the PR surfaces (#196): the body, review
+    /// summaries and issue comments render chips rows; chip clicks are
+    /// single-flight; the picker direction rides the pure helper.
+    #[gpui::test]
+    fn reaction_rows_toggle_and_single_flight(cx: &mut gpui::TestAppContext) {
+        cx.update(dashboard_core::status::init);
+        // The toggle really spawns (ProbeHttp fails it) — the in-flight
+        // tracker global must exist, same contract as main().
+        cx.update(gpui_component::init);
+        // The page schedules background tokenization (docs/0040 D5) —
+        // let the deterministic test executor park instead of spinning
+        // on the outstanding task.
+        cx.update(|cx| cx.background_executor().allow_parking());
+        let state = cx.update(|cx| {
+            let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
+            let store: std::sync::Arc<dyn crate::auth::TokenStore> =
+                std::sync::Arc::new(ProbeStore);
+            cx.new(|_| {
+                GithubState::new(
+                    client,
+                    store,
+                    Default::default(),
+                    Default::default(),
+                    GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                )
+            })
+        });
+        let (page, vcx) = cx.add_window_view(|window, cx| {
+            let summary = gql::PullRequest {
+                key: "o/r#7".into(),
+                database_id: None,
+                number: 7,
+                title: "layout probe".into(),
+                draft: false,
+                state: None,
+                author: None,
+                updated_at: None,
+                url: "https://probe".into(),
+                status: None,
+                labels: None,
+                review_requests: None,
+            };
+            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
+            page.detail = Fetch::ready(probe_detail());
+            page.md = build_md_cache(page.detail.data().unwrap());
+            page
+        });
+        // The body row renders: the armed chip plus the + affordance; the
+        // zero-count EYES group renders no chip (D3).
+        assert!(vcx.debug_bounds("pr-reaction-row-THUMBS_UP").is_some());
+        assert!(vcx.debug_bounds("pr-reaction-row-EYES").is_none());
+        assert!(vcx.debug_bounds("pr-reaction-row-add").is_some());
+        // Comment 0 and review 0 carry their own rows; comment 1 (no
+        // fields) and review 1 stay clean.
+        assert!(
+            vcx.debug_bounds("pr-comment-0-reaction-row-HEART")
+                .is_some()
+        );
+        assert!(vcx.debug_bounds("pr-comment-1-reaction-row-add").is_none());
+        assert!(vcx.debug_bounds("pr-review-0-reaction-row-HEART").is_some());
+        assert!(vcx.debug_bounds("pr-review-1-reaction-row-add").is_none());
+
+        // Chip click: armed → remove is the direction; single-flight holds.
+        vcx.update(|window, cx| {
+            page.update(cx, |page, cx| {
+                page.toggle_reaction(
+                    "PR_2".into(),
+                    true,
+                    gql::ReactionContent::ThumbsUp,
+                    window,
+                    cx,
+                );
+                assert_eq!(page.busy, Some(BusyOp::Reaction));
+            });
+        });
+        // Busy blocks a second write (docs/0023 D7 single-flight).
+        vcx.update(|window, cx| {
+            page.update(cx, |page, cx| {
+                page.toggle_reaction(
+                    "PR_2".into(),
+                    false,
+                    gql::ReactionContent::Heart,
+                    window,
+                    cx,
+                );
+                assert_eq!(page.busy, Some(BusyOp::Reaction), "no second write");
+                page.busy = None;
+            });
+        });
+
+        // The picker is a component-owned PopupMenu on the + button — no
+        // page state to drive. The frozen per-row direction is the pure
+        // helper; the armed direction posts removeReaction through the
+        // same toggle.
+        vcx.update(|window, cx| {
+            page.update(cx, |page, cx| {
+                let groups = &page.detail.data().unwrap().reaction_groups;
+                assert!(reaction_direction(groups, gql::ReactionContent::ThumbsUp));
+                assert!(!reaction_direction(groups, gql::ReactionContent::Heart));
+                page.toggle_reaction(
+                    "PR_2".into(),
+                    reaction_direction(groups, gql::ReactionContent::ThumbsUp),
+                    gql::ReactionContent::ThumbsUp,
+                    window,
+                    cx,
+                );
+                assert_eq!(page.busy, Some(BusyOp::Reaction));
+                page.busy = None;
             });
         });
     }
@@ -6060,6 +6370,10 @@ mod tests {
             viewer_can_update: false,
             viewer_can_delete: false,
             updated_at: None,
+            // 0023 D1 (#196): the degraded defaults the production parse
+            // produces when the payload omits the reaction fields.
+            viewer_can_react: false,
+            reaction_groups: Vec::new(),
         }
     }
 
