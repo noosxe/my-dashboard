@@ -87,14 +87,21 @@ pub(crate) struct ListItem {
 /// Parse a markdown body (D1): CommonMark plus the GFM extensions
 /// (tables, strikethrough, tasklists, blockquote alerts). Raw HTML events
 /// are dropped; footnotes stay disabled. Bare URLs/emails in plain text
-/// become link runs (linkify).
-pub(crate) fn parse_markdown(body: &str) -> Arc<[Block]> {
+/// become link runs (linkify); GitHub cross-references autolink too
+/// (`owner/repo#123`, `@user` always, bare `#123` when `repo_key` names
+/// the ambient repo — an `owner/repo` string or an `owner/repo#N` page
+/// key; anything else degrades to no ambient repo and bare refs stay
+/// plain text).
+pub(crate) fn parse_markdown_in_repo(body: &str, repo_key: Option<&str>) -> Arc<[Block]> {
     let mut opts = Options::empty();
     opts.insert(Options::ENABLE_TABLES);
     opts.insert(Options::ENABLE_STRIKETHROUGH);
     opts.insert(Options::ENABLE_TASKLISTS);
     opts.insert(Options::ENABLE_GFM);
-    let mut p = ParseState::default();
+    let mut p = ParseState {
+        repo: repo_key.and_then(ambient_repo).map(str::to_string),
+        ..ParseState::default()
+    };
     for ev in Parser::new_ext(body, opts) {
         p.event(ev);
     }
@@ -104,6 +111,9 @@ pub(crate) fn parse_markdown(body: &str) -> Arc<[Block]> {
 
 #[derive(Default)]
 struct ParseState {
+    /// Ambient `owner/repo` for bare `#123` cross-references (docs/0017
+    /// D1 extension); `None` leaves them plain text.
+    repo: Option<String>,
     root: Vec<Block>,
     stack: Vec<Frame>,
     runs: Vec<Run>,
@@ -370,35 +380,63 @@ impl ParseState {
     fn push_text(&mut self, text: &str) {
         // D1: bare URLs/emails autolink (linkify), except inside existing
         // links — code spans/blocks never autolink (they don't come here).
+        // The D1 extension adds GitHub cross-references (`#123`,
+        // `owner/repo#123`, `@user`); linkify wins overlaps — a ref-text
+        // inside a URL or email belongs to that link.
         if self.style.link.is_some() {
             self.push_run_plain(text);
             return;
         }
         let mut finder = LinkFinder::new();
         finder.kinds(&[LinkKind::Url, LinkKind::Email]);
-        let mut base = 0usize;
+        let mut merged: Vec<(usize, usize, Option<String>)> = Vec::new();
+        let mut covered: Vec<(usize, usize)> = Vec::new();
         for span in finder.spans(text) {
-            let Some(kind) = span.kind() else { continue };
+            let Some(kind) = span.kind() else {
+                continue;
+            };
             let (s, e) = (span.start(), span.end());
-            let raw = &text[s..e];
+            merged.push((s, e, autolink_target(kind, &text[s..e])));
+            covered.push((s, e));
+        }
+        merged.extend(
+            xref_spans(text, self.repo.as_deref(), &covered)
+                .into_iter()
+                .map(|x| (x.start, x.end, Some(x.url))),
+        );
+        merged.sort_by_key(|&(s, _, _)| s);
+        // Both sources are individually disjoint and ascending; the
+        // sort is stable so linkify spans win same-start ties, and any
+        // xref overlapping a kept span is dropped — the stronger parse
+        // (a real URL/email) claims the bytes.
+        let mut last_end = 0usize;
+        merged.retain(|&(s, e, _)| {
+            let keep = s >= last_end;
+            if keep {
+                last_end = e;
+            }
+            keep
+        });
+        let mut base = 0usize;
+        for (s, e, url) in merged {
             // Exactly one run per matched span, and `base` always
-            // advances past it (#169): an unknown LinkKind
-            // (non_exhaustive upstream) stays plain text — neither
-            // duplicated (base stuck behind the already-pushed prefix,
-            // re-pushed by the flush) nor dropped.
+            // advances past it (#169): a `None` target stays plain
+            // text — neither duplicated (base stuck behind the
+            // already-pushed prefix, re-pushed by the flush) nor
+            // dropped.
             if s > base {
                 self.push_run_plain(&text[base..s]);
             }
-            match autolink_target(kind, raw) {
+            match url {
                 Some(url) => {
                     let mut style = self.style.clone();
                     style.link = Some(url);
                     self.runs.push(Run {
-                        text: raw.to_string(),
+                        text: text[s..e].to_string(),
                         style,
                     });
                 }
-                None => self.push_run_plain(raw),
+                None => self.push_run_plain(&text[s..e]),
             }
             base = e;
         }
@@ -458,6 +496,160 @@ pub(crate) fn render_blocks(blocks: &[Block], id_prefix: &str, cx: &App) -> AnyE
                 .map(|(ix, block)| render_block(block, &format!("{id_prefix}-{ix}"), cx)),
         )
         .into_any_element()
+}
+
+/// The `owner/repo` prefix of an `owner/repo` string or `owner/repo#N`
+/// page key; `None` without a `/`-bearing prefix (degrades to no ambient
+/// repo — bare `#123` stays plain text).
+fn ambient_repo(repo_key: &str) -> Option<&str> {
+    let prefix = repo_key.split('#').next().unwrap_or(repo_key);
+    prefix.contains('/').then_some(prefix)
+}
+
+/// One GitHub cross-reference match (docs/0017 D1 extension): the byte
+/// range `[start, end)` plus the github.com target it opens.
+struct XrefSpan {
+    start: usize,
+    end: usize,
+    url: String,
+}
+
+fn is_word(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
+}
+
+/// Scan plain text for GitHub cross-references — `owner/repo#123`,
+/// bare `#123` (needs the ambient repo), `@user` — as disjoint
+/// ascending spans. Boundary rules keep them deterministic and out of
+/// other syntax: a match must start on a non-word boundary (`#` may not
+/// follow a word char or `&` — HTML entities; `@` may not follow a word
+/// char — emails; an owner may not follow a word char or `/` — paths),
+/// the digits/name run must end on a boundary (`#123abc` stays plain),
+/// and any match starting inside a linkify span is skipped (`covered`;
+/// linkify wins — ref-text inside a URL or email belongs to that link).
+fn xref_spans(text: &str, repo: Option<&str>, covered: &[(usize, usize)]) -> Vec<XrefSpan> {
+    fn is_covered(covered: &[(usize, usize)], at: usize) -> bool {
+        covered.iter().any(|&(s, e)| at >= s && at < e)
+    }
+    let b = text.as_bytes();
+    let mut spans = Vec::new();
+    let mut i = 0usize;
+    while i < b.len() {
+        // Matches start at ASCII bytes, which are always char
+        // boundaries; non-ASCII bytes are stepped over one at a time.
+        let start = i;
+        let span = match b[i] {
+            b'@' if !is_covered(covered, i) && (i == 0 || !is_word(b[i - 1])) => mention_span(b, i)
+                .map(|(end, name)| XrefSpan {
+                    start,
+                    end,
+                    url: format!("https://github.com/{name}"),
+                }),
+            b'#' if repo.is_some()
+                && !is_covered(covered, i)
+                && (i == 0 || (!is_word(b[i - 1]) && b[i - 1] != b'&')) =>
+            {
+                number_span(b, i, i + 1).map(|end| XrefSpan {
+                    start,
+                    end,
+                    url: format!(
+                        "https://github.com/{}/issues/{}",
+                        repo.expect("guarded above"),
+                        &text[i + 1..end]
+                    ),
+                })
+            }
+            _ if b[i].is_ascii_alphanumeric()
+                && !is_covered(covered, i)
+                && (i == 0 || (!is_word(b[i - 1]) && b[i - 1] != b'/')) =>
+            {
+                // `owner/repo#N` — the owner run starts here.
+                repo_number_span(b, i)
+                    .filter(|end| b[*end - 1].is_ascii_digit())
+                    .map(|end| {
+                        // Split `owner/repo` off the front of the
+                        // matched run.
+                        let hash = text[start..end].rfind('#').expect("digits after #");
+                        XrefSpan {
+                            start,
+                            end,
+                            url: format!(
+                                "https://github.com/{}/issues/{}",
+                                &text[start..start + hash],
+                                &text[start + hash + 1..end]
+                            ),
+                        }
+                    })
+            }
+            _ => None,
+        };
+        match span {
+            Some(sp) => {
+                i = sp.end;
+                spans.push(sp);
+            }
+            None => i += 1,
+        }
+    }
+    spans
+}
+
+/// `#N` starting at the `#` (`at`): the digit run, ending on a boundary
+/// — the next byte is not alphanumeric or `_`.
+fn number_span(b: &[u8], hash: usize, digits: usize) -> Option<usize> {
+    debug_assert_eq!(b[hash], b'#');
+    // `digits` is the first candidate digit byte — right after the `#`
+    // for bare refs, after `owner/repo` for repo refs.
+    if !b.get(digits).is_some_and(|d| d.is_ascii_digit()) {
+        return None;
+    }
+    let mut end = digits + 1;
+    while end < b.len() && b[end].is_ascii_digit() {
+        end += 1;
+    }
+    (end >= b.len() || !is_word(b[end])).then_some(end)
+}
+
+/// `owner/repo#N` starting at the owner run (`at`): two `.`/`-`/word
+/// runs around a `/`, then [`number_span`]. The caller checks the last
+/// matched byte is a digit (no digits → not a ref).
+fn repo_number_span(b: &[u8], at: usize) -> Option<usize> {
+    fn name_run(b: &[u8], mut i: usize) -> usize {
+        while i < b.len() && (is_word(b[i]) || b[i] == b'.' || b[i] == b'-') {
+            i += 1;
+        }
+        i
+    }
+    let slash = name_run(b, at);
+    if slash >= b.len() || b[slash] != b'/' {
+        return None;
+    }
+    let repo_end = name_run(b, slash + 1);
+    if repo_end >= b.len() || b[repo_end] != b'#' {
+        return None;
+    }
+    number_span(b, repo_end, repo_end + 1)
+}
+
+/// `@name` starting at the `@` (`at`): an alphanumeric start, then word
+/// chars and hyphens, trailing hyphens trimmed off the linked name; the
+/// byte after the run may not be a word char or hyphen.
+fn mention_span(b: &[u8], at: usize) -> Option<(usize, &str)> {
+    let mut end = at + 1;
+    if end >= b.len() || !b[end].is_ascii_alphanumeric() {
+        return None;
+    }
+    while end < b.len() && (is_word(b[end]) || b[end] == b'-') {
+        end += 1;
+    }
+    // Trim trailing hyphens off the linked name (GitHub usernames may
+    // not end in one); the run was consumed greedily, so what follows
+    // it is already a boundary.
+    let mut name_end = end;
+    while name_end > at + 1 && b[name_end - 1] == b'-' {
+        name_end -= 1;
+    }
+    Some((name_end, std::str::from_utf8(&b[at + 1..name_end]).ok()?))
 }
 
 /// Target URL a matched linkify span should open, or `None` when the
@@ -683,7 +875,20 @@ mod tests {
     use super::*;
 
     fn parse(body: &str) -> Vec<Block> {
-        parse_markdown(body).to_vec()
+        parse_markdown_in_repo(body, None).to_vec()
+    }
+
+    /// Parse with the ambient repo (bare `#123` support).
+    fn parse_in(body: &str, repo: &str) -> Vec<Block> {
+        parse_markdown_in_repo(body, Some(repo)).to_vec()
+    }
+
+    /// All link targets of a body's first paragraph, in run order.
+    fn links(blocks: &[Block]) -> Vec<String> {
+        let Block::Paragraph(runs) = &blocks[0] else {
+            panic!("paragraph expected");
+        };
+        runs.iter().filter_map(|r| r.style.link.clone()).collect()
     }
 
     fn plain(text: &str) -> Run {
@@ -788,6 +993,68 @@ mod tests {
             .filter_map(|r| r.style.link.as_deref())
             .collect();
         assert_eq!(urls, vec!["https://example.com/p", "mailto:a@b.io"]);
+    }
+
+    #[test]
+    fn cross_refs_autolink_with_the_ambient_repo() {
+        // docs/0017 D1 extension: `#123`, `owner/repo#456` and `@user`
+        // become github.com links riding the existing run machinery.
+        let blocks = parse_in("fix #123, see acme/other#456 by @octocat", "acme/one");
+        assert_eq!(
+            links(&blocks),
+            vec![
+                "https://github.com/acme/one/issues/123",
+                "https://github.com/acme/other/issues/456",
+                "https://github.com/octocat",
+            ]
+        );
+        let Block::Paragraph(runs) = &blocks[0] else {
+            panic!("paragraph expected");
+        };
+        let joined: String = runs.iter().map(|r| r.text.as_str()).collect();
+        assert_eq!(joined, "fix #123, see acme/other#456 by @octocat");
+    }
+
+    #[test]
+    fn bare_refs_stay_plain_without_the_ambient_repo() {
+        // No repo context → `#123` is ambiguous — plain text; the
+        // self-scoped forms still link.
+        let blocks = parse("fix #123, see acme/other#456 by @octocat");
+        assert_eq!(
+            links(&blocks),
+            vec![
+                "https://github.com/acme/other/issues/456",
+                "https://github.com/octocat",
+            ]
+        );
+    }
+
+    #[test]
+    fn cross_refs_respect_boundaries() {
+        // Word char before `#` (x#1), entity escape (`&#35;` decodes to
+        // a bare `#`), trailing word chars (`#123abc`), email mentions
+        // and `a/b/c#1` path tails all stay plain; URLs keep winning
+        // their inner ref-text.
+        let blocks = parse_in(
+            "x#1 &#35; #123abc a@b.io acme/sub/dir#9 https://x.dev/#7",
+            "acme/one",
+        );
+        assert_eq!(links(&blocks), vec!["mailto:a@b.io", "https://x.dev/#7"]);
+    }
+
+    #[test]
+    fn refs_inside_links_and_code_stay_plain() {
+        let blocks = parse_in(
+            "see [docs](https://e.dev) and `#123` and [x](https://y.dev#9)",
+            "acme/one",
+        );
+        assert_eq!(links(&blocks), vec!["https://e.dev", "https://y.dev#9"]);
+    }
+
+    #[test]
+    fn mention_trims_trailing_hyphens_but_never_mid_word() {
+        let blocks = parse_in("hey @octo-cat-, not @-x", "acme/one");
+        assert_eq!(links(&blocks), vec!["https://github.com/octo-cat"]);
     }
 
     #[test]

@@ -249,3 +249,36 @@ all recorded here so the doc stays the source of truth:
 Gates as always (`fmt`, clippy zero warnings — token lints included —
 `cargo test --workspace`). New unit tests per D9. No live mutation needed:
 bodies are read-only data already fetched.
+
+## 8. Amendment (2026-09-17, #195): GitHub cross-reference autolinks
+
+The D1 autolink pass gains a second detector: GitHub cross-references
+in plain text — `owner/repo#123`, bare `#123`, `@user` — become link
+runs through the *same* machinery as D1 (`RunStyle::link` →
+`InteractiveText` → `open_url`); render-side is untouched.
+
+- **Scanner, not regex**: a hand-rolled `xref_spans` walk (no new
+  dependency). Boundary rules keep it deterministic and out of other
+  syntax: a match must start on a non-word boundary (`#` may not follow
+  a word char or `&` — decoded HTML entities; `@` may not follow a word
+  char — emails; an owner run may not follow a word char or `/` —
+  path tails like `a/b/c#1` stay plain); the digits/name run must end on
+  a boundary (`#123abc` stays plain); `@`-names are greedy over
+  `[A-Za-z0-9-]` with trailing hyphens trimmed (usernames can't end in
+  one).
+- **Linkify wins overlaps**: both span sources merge into one ascending
+  list; any cross-ref starting inside a linkify span is dropped —
+  ref-text inside a URL or email belongs to that link.
+- **Ambient repo**: bare `#123` is ambiguous without a repo. New
+  `parse_markdown_in_repo(body, repo_key)` (`parse_markdown` delegates
+  with `None`) — every detail page passes its `owner/repo` (the pages'
+  `repo` field; the new-issue preview its target repo). Without it, bare
+  refs stay plain and the self-scoped forms still link.
+- **Targets**: issues/PRs open `github.com/{owner}/{repo}/issues/{n}`
+  (GitHub redirects across the issue/PR split); mentions open
+  `github.com/{user}`.
+- **Not in-app navigation**: links open the browser like every other
+  markdown link v1 — routing refs into in-app pages needs a callback
+  plumbed through every markdown consumer; filed as a follow-up.
+- **Code and existing links excluded**: code spans/blocks never reach
+  `push_text`; runs inside markdown links short-circuit as before.

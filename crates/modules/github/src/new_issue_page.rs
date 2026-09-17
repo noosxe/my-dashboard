@@ -206,7 +206,8 @@ impl NewIssuePage {
             self.preview = false;
         } else {
             let body = self.body.read(cx).value().trim().to_string();
-            self.md = Some(markdown::parse_markdown(&body));
+            // Ambient repo for bare `#123` refs (docs/0017 D1 extension).
+            self.md = Some(markdown::parse_markdown_in_repo(&body, Some(&self.repo)));
             self.preview = true;
         }
         cx.notify();

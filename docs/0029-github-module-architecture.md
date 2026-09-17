@@ -94,7 +94,7 @@ developers open GitHub:
 | Missing | Impact |
 |---------|--------|
 | **No filter / sort on lists** | "Open PRs", "Open Issues", and "Notifications" lists become unusable above ~20 items. *(→ addressed by docs/0042)* |
-| **No cross-reference linking** | `#123` and `@username` in markdown body text are not auto-linked (only bare URLs via `linkify`). |
+| **No cross-reference linking** | `#123` and `@username` in markdown body text are not auto-linked (only bare URLs via `linkify`). *(→ shipped in #195, docs/0017 §8)* |
 | **No global search** | Cannot search across repos for PRs/issues. |
 | **Label / assignee picker caps at 50** | Large repos with many labels require scrolling without type-ahead. |
 | **Home card doesn't route to notification page** | The card shows counts but clicking doesn't navigate. |
@@ -161,7 +161,7 @@ Organized by impact on the "replace GitHub" goal.
 | **"Last synced" indicator** | Small | A subtle timestamp or dot showing sync recency lets users gauge freshness at a glance. |
 | **Cache TTL / staleness marking** | Small | Flag data older than N minutes with a visual indicator; refuse to paint cache older than a threshold without a disclaimer. |
 | **Refresh-on-focus** | Small | Re-fetch when the app window regains focus — catches up after being backgrounded. |
-| **Cross-reference autolinks** (`#123`, `@user`) | Small | Makes markdown bodies feel complete rather than missing links GitHub would render. |
+| **Cross-reference autolinks** (`#123`, `@user`) | Small | Makes markdown bodies feel complete rather than missing links GitHub would render. *(→ shipped in #195)* |
 | **PR reactions parity** | Small | Already built for issues; extending to PRs is mechanical. *(→ shipped in #196)* |
 
 ### Tier 3 — Polish the daily-driver experience
