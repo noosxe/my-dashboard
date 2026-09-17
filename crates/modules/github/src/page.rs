@@ -1622,43 +1622,45 @@ impl GithubPage {
                                 .min_w_0()
                                 .flex_1()
                                 .child(
-                            h_flex()
-                                .id("repo-link")
-                                .gap_1p5()
-                                .items_center()
-                                .cursor_pointer()
-                                .hover(|s| s.underline())
-                                // Same affordance as PR rows: the repo title
-                                // links to the repo on github.com. URL is
-                                // derived from full_name — cache-proof (no
-                                // dependency on html_url being present in
-                                // last-known payloads).
-                                .on_click({
-                                    let full_name = repo.full_name.clone();
-                                    move |_, _, cx| {
-                                        cx.open_url(&format!("https://github.com/{full_name}"))
-                                    }
-                                })
+                                    h_flex()
+                                        .id("repo-link")
+                                        .gap_1p5()
+                                        .items_center()
+                                        .cursor_pointer()
+                                        .hover(|s| s.underline())
+                                        // Same affordance as PR rows: the repo title
+                                        // links to the repo on github.com. URL is
+                                        // derived from full_name — cache-proof (no
+                                        // dependency on html_url being present in
+                                        // last-known payloads).
+                                        .on_click({
+                                            let full_name = repo.full_name.clone();
+                                            move |_, _, cx| {
+                                                cx.open_url(&format!(
+                                                    "https://github.com/{full_name}"
+                                                ))
+                                            }
+                                        })
+                                        .child(
+                                            div()
+                                                .text_base()
+                                                .font_weight(FontWeight::MEDIUM)
+                                                .child(repo.full_name.clone()),
+                                        )
+                                        .when(repo.private, |row| {
+                                            row.child(private_lock(cx.theme().muted_foreground))
+                                        }),
+                                )
                                 .child(
                                     div()
-                                        .text_base()
-                                        .font_weight(FontWeight::MEDIUM)
-                                        .child(repo.full_name.clone()),
-                                )
-                                .when(repo.private, |row| {
-                                    row.child(private_lock(cx.theme().muted_foreground))
-                                }),
-                        )
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(
-                                        repo.description
-                                            .clone()
-                                            .unwrap_or_else(|| "No description".into()),
-                                    ),
-                            ),
+                                        .text_sm()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child(
+                                            repo.description
+                                                .clone()
+                                                .unwrap_or_else(|| "No description".into()),
+                                        ),
+                                ),
                         )
                         // The freshness cluster (docs/0037 D6): the
                         // synced label reads the same `rows_landed`
@@ -1695,22 +1697,19 @@ impl GithubPage {
                         .as_ref()
                         .map(|r| create_allowed(r, connected))
                         .unwrap_or(false);
-                    h_flex()
-                        .justify_end()
-                        .gap_2()
-                        .when(gate, |row| {
-                            let repo = selected_repo.clone().unwrap();
-                            row.child(
-                                Button::new("new-issue-open")
-                                    .debug_selector(|| "new-issue-open".to_string())
-                                    .label("New issue")
-                                    .ghost()
-                                    .small()
-                                    .on_click(cx.listener(move |this, _, window, cx| {
-                                        this.open_creator(&repo, window, cx);
-                                    })),
-                            )
-                        })
+                    h_flex().justify_end().gap_2().when(gate, |row| {
+                        let repo = selected_repo.clone().unwrap();
+                        row.child(
+                            Button::new("new-issue-open")
+                                .debug_selector(|| "new-issue-open".to_string())
+                                .label("New issue")
+                                .ghost()
+                                .small()
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.open_creator(&repo, window, cx);
+                                })),
+                        )
+                    })
                 })
                 .child(
                     GroupBox::new()
