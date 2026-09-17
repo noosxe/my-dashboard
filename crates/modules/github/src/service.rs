@@ -1336,6 +1336,12 @@ pub struct GithubState {
     /// freshness (docs/0031/0032) and the staleness chip goes away.
     pub snapshot_age: Option<Duration>,
     pub notifications_age: Option<Duration>,
+    /// Rows landed at, per repo full name (docs/0035 D1): both lanes
+    /// that write a repo's rows bump its entry — the repo-scoped
+    /// snapshot (its ident) and the global snapshot (every repo it
+    /// carries). In-session freshness only — never persisted, never
+    /// seeded; a missing entry means "never landed this session".
+    pub(crate) rows_landed: BTreeMap<String, Instant>,
     pub(crate) etags: BTreeMap<String, String>,
     pub(crate) client: Arc<dyn Http>,
     pub(crate) store: Arc<dyn TokenStore>,
@@ -1410,6 +1416,7 @@ impl GithubState {
             auth,
             etags,
             in_flight: BTreeSet::new(),
+            rows_landed: BTreeMap::new(),
             client,
             store,
             shared_token,
@@ -1536,6 +1543,27 @@ impl GithubState {
                 Some(2),
             ),
         ]
+    }
+
+    /// Heartbeat refresh for the open repo page's rows (docs/0035 D2):
+    /// the [`Self::repo_open_specs`] pair when the repo's rows are at
+    /// least `min_age` old — the same stale-at-`>=` boundary as
+    /// `Fetch::needs_refresh` (docs/0032). `None` while fresh, so a
+    /// beat stays a no-op; the ident-keyed dispatch dedups against a
+    /// just-fired open (docs/0031).
+    pub(crate) fn repo_rows_refresh_specs(
+        &self,
+        full_name: &str,
+        min_age: Duration,
+    ) -> Option<Vec<FetchSpec>> {
+        if self
+            .rows_landed
+            .get(full_name)
+            .is_some_and(|t| t.elapsed() < min_age)
+        {
+            return None;
+        }
+        Some(self.repo_open_specs(full_name))
     }
 
     /// Post-write refetch (docs/0026 D3/D8): the global unread list plus
@@ -1739,6 +1767,12 @@ impl GithubState {
                             let completed = result.cursor.is_none();
                             let incoming: Vec<Repo> =
                                 page.nodes.iter().filter_map(gql::repo_from_value).collect();
+                            // The rows these repos render just landed
+                            // (docs/0035 D1) — the global tick counts
+                            // as fresh for every repo it carries.
+                            let now = Instant::now();
+                            self.rows_landed
+                                .extend(incoming.iter().map(|r| (r.full_name.clone(), now)));
                             self.merge_repos(incoming, completed);
                             self.repo_cursor = result.cursor.clone();
                         }
@@ -1771,6 +1805,7 @@ impl GithubState {
                                     self.merge_repos(vec![repo], false);
                                     self.persist_snapshot();
                                     self.snapshot_age = None;
+                                    self.rows_landed.insert(ident.clone(), Instant::now());
                                     log::info!("repo-snapshot applied: {ident}, {prs} open PRs");
                                 }
                                 None => {
@@ -3197,6 +3232,79 @@ mod tests {
         let r = state.repos.iter().find(|r| r.full_name == "o/r").unwrap();
         assert_eq!(r.prs.total_count, 3);
         assert_eq!(r.prs.nodes[0].key, "o/r#7");
+    }
+
+    /// docs/0035 D1/D2: both lanes that write a repo's rows count as
+    /// freshness; `repo_rows_refresh_specs` gates on the landed age with
+    /// the stale-at-`>=` boundary (docs/0032).
+    #[test]
+    fn repo_rows_refresh_specs_gate_on_landed_age() {
+        use std::time::Instant;
+
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.auth = AuthStatus::Connected;
+
+        // Never landed this session → refreshable, and it is the full
+        // open pair (rows + repo-slice notifications).
+        let specs = state
+            .repo_rows_refresh_specs("o/r", Duration::from_secs(60))
+            .expect("never-landed is refreshable");
+        assert_eq!(specs.len(), 2);
+        assert_eq!(specs[0].kind, Kind::RepoSnapshot);
+        assert_eq!(specs[1].kind, Kind::RepoNotifications);
+
+        // A landed repo-snapshot makes the rows fresh — the beat is a
+        // no-op.
+        state.apply(SpecResult {
+            kind: Kind::RepoSnapshot,
+            ident: Some("o/r".into()),
+            status: 200,
+            etag: None,
+            rate: None,
+            body: Some(format!(
+                r#"{{"data":{{"repository":{}}}}}"#,
+                repo_node("o/r", 3, "")
+            )),
+            network: None,
+            cursor: None,
+        });
+        assert!(
+            state
+                .repo_rows_refresh_specs("o/r", Duration::from_secs(60))
+                .is_none(),
+            "just-landed repo rows are fresh"
+        );
+
+        // A global snapshot carrying the repo counts as fresh too
+        // (D1) — and only for the repos it carries.
+        state.apply(snapshot_result(
+            &gql_page(false, "unused", &repo_node("o/r", 0, "")),
+            None,
+        ));
+        assert!(
+            state
+                .repo_rows_refresh_specs("o/r", Duration::from_secs(60))
+                .is_none(),
+            "the global tick freshens every repo it carries"
+        );
+        assert!(
+            state
+                .repo_rows_refresh_specs("o/other", Duration::from_secs(60))
+                .is_some(),
+            "a repo the page didn't carry stays refreshable"
+        );
+
+        // Backdated to exactly min_age → stale at the `>=` boundary
+        // (docs/0032 semantics).
+        state
+            .rows_landed
+            .insert("o/r".into(), Instant::now() - Duration::from_secs(60));
+        assert!(
+            state
+                .repo_rows_refresh_specs("o/r", Duration::from_secs(60))
+                .is_some(),
+            "stale at >="
+        );
     }
 
     #[test]

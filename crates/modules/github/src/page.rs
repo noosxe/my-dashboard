@@ -240,6 +240,26 @@ impl GithubPage {
             page.update(cx, |p, cx| p.auto_refresh(min_age, cx));
         } else if let Some(page) = self.notification.as_ref() {
             page.update(cx, |p, cx| p.auto_refresh(min_age, cx));
+        } else if let Some(full) = self.state.read(cx).selected.clone() {
+            // No slot open, a repo selected: the module main page is
+            // the list surface — refresh its rows when stale
+            // (docs/0035 D2). The beat is windowless, so the dispatch
+            // hops through the stored window handle (the connect-flow
+            // hop); the ident-keyed dedup absorbs a collision with a
+            // just-fired open (docs/0031).
+            if let Some(specs) = self
+                .state
+                .update(cx, |s, _| s.repo_rows_refresh_specs(&full, min_age))
+            {
+                let window = self.window;
+                let page = cx.entity();
+                cx.spawn(async move |_this, cx| {
+                    let _ = window.update(cx, |_, window, cx| {
+                        page.update(cx, |this, cx| this.run_specs(specs, window, cx));
+                    });
+                })
+                .detach();
+            }
         }
     }
 
@@ -2225,12 +2245,15 @@ mod tests {
         cx.update(dashboard_core::status::init);
         let cx = cx.add_empty_window();
 
-        // 1: the eager detail fetch; 2: the one gated-in beat.
+        // 1: the eager detail fetch; 2: the one gated-in beat; 3+4:
+        // the selected repo's row pair (docs/0035 D2).
         let mock = Arc::new(MockHttp::new(vec![
             Err(crate::http::HttpError("probe".into())),
             Err(crate::http::HttpError("probe".into())),
+            Err(crate::http::HttpError("probe".into())),
+            Err(crate::http::HttpError("probe".into())),
         ]));
-        let (_state, nav, page) = cx.update(|window, cx| {
+        let (state, nav, page) = cx.update(|window, cx| {
             let shared: SharedToken = Arc::new(std::sync::RwLock::new(None));
             let refresh: SharedToken = Arc::new(std::sync::RwLock::new(None));
             let state = cx.new(|_| {
@@ -2292,14 +2315,35 @@ mod tests {
         cx.run_until_parked();
         assert_eq!(mock.recorded().len(), 2, "nav-active beat refreshes");
 
-        // No page open: nothing to refresh.
+        // No detail slot, repo selected (docs/0035 D2): the module
+        // main page is the list surface, and the rows were never
+        // landed this session → the beat dispatches the open pair
+        // (repo snapshot + repo-slice notifications).
         cx.update(|_, cx| {
             page.update(cx, |p, cx| {
                 p.pr = None;
                 p.refresh_open_page(Duration::ZERO, cx)
             });
         });
-        assert_eq!(mock.recorded().len(), 2, "no page, no beat");
+        cx.run_until_parked();
+        assert_eq!(
+            mock.recorded().len(),
+            4,
+            "selected repo: the row pair refreshes on the beat"
+        );
+
+        // Landed rows make the beat a no-op (docs/0035 D1): with a
+        // real min_age, a just-landed entry is fresh. (ZERO can never
+        // be fresh — stale-at->= — hence the 60s here.)
+        cx.update(|_, cx| {
+            state.update(cx, |s, _| {
+                s.rows_landed
+                    .insert("acme/one".into(), std::time::Instant::now());
+            });
+            page.update(cx, |p, cx| p.refresh_open_page(Duration::from_secs(60), cx));
+        });
+        cx.run_until_parked();
+        assert_eq!(mock.recorded().len(), 4, "fresh rows: beat is a no-op");
     }
 
     /// docs/0034 D3: a stale disk-seeded state marks both cold-start
