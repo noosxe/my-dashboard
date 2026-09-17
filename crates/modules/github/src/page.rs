@@ -1078,21 +1078,22 @@ impl GithubPage {
                                 div()
                                     .text_color(cx.theme().muted_foreground)
                                     .child(format!("#{}", pr.number)),
-                            ),
+                            )
+                            // docs/0042 D7 (amended): named label pills
+                            // right of #N — github.com's treatment.
+                            .when_some(pr.labels.as_ref(), |row, labels| {
+                                row.child(label_chips(
+                                    labels,
+                                    &format!("pr-labels-{}", pr.key),
+                                    cx.theme().tokens.group_box.into(),
+                                    cx,
+                                ))
+                            }),
                     )
                     .child(
                         h_flex()
                             .gap_2()
                             .items_center()
-                            .when_some(pr.labels.as_ref(), |row, labels| {
-                                // docs/0042 D7: passive label dots —
-                                // zero layout risk, tooltip carries names.
-                                row.child(label_dots(
-                                    labels,
-                                    &format!("pr-labels-{}", pr.key),
-                                    cx.theme().tokens.group_box.into(),
-                                ))
-                            })
                             .when_some(pr.author.as_ref(), |row, author| {
                                 row.child(
                                     h_flex()
@@ -1188,20 +1189,21 @@ impl GithubPage {
                                 div()
                                     .text_color(cx.theme().muted_foreground)
                                     .child(format!("#{}", issue.number)),
-                            ),
+                            )
+                            // docs/0042 D7 (amended): as on PR rows.
+                            .when_some(issue.labels.as_ref(), |row, labels| {
+                                row.child(label_chips(
+                                    labels,
+                                    &format!("issue-labels-{}", issue.key),
+                                    cx.theme().tokens.group_box.into(),
+                                    cx,
+                                ))
+                            }),
                     )
                     .child(
                         h_flex()
                             .gap_2()
                             .items_center()
-                            .when_some(issue.labels.as_ref(), |row, labels| {
-                                // docs/0042 D7: label dots, as on PR rows.
-                                row.child(label_dots(
-                                    labels,
-                                    &format!("issue-labels-{}", issue.key),
-                                    cx.theme().tokens.group_box.into(),
-                                ))
-                            })
                             .when_some(issue.author.as_ref(), |row, author| {
                                 row.child(
                                     h_flex()
@@ -1332,43 +1334,72 @@ pub(crate) fn notification_url(repo_full_name: &str) -> String {
 /// as before. `rendered` is the node slice the query capped at 100, so
 /// the arithmetic fits either side of the i64/usize border. Pure —
 /// table-tested.
-/// Up to three label color dots (docs/0042 D7): GitHub's own label
-/// colors tinted through the docs/0002-sanctioned `data_color`
-/// exception — the same contrast treatment as the 0022 pills; garbled
-/// hex degrades that dot alone. The tooltip carries the shown names
-/// plus an `+n` overflow count.
-fn label_dots(labels: &gql::LabelSummary, key: &str, surface: gpui::Hsla) -> AnyElement {
-    const MAX_DOTS: usize = 3;
-    let mut dots = h_flex().gap_0p5().items_center();
-    let mut shown_names: Vec<&str> = Vec::new();
-    for (label, chip) in labels
-        .nodes
-        .iter()
-        .filter_map(|l| {
-            l.color.as_deref().and_then(|hex| {
-                dashboard_core::data_color::data_chip(hex, surface.into()).map(|c| (l, c))
-            })
-        })
-        .take(MAX_DOTS)
-    {
-        shown_names.push(&label.name);
-        dots = dots.child(div().size_1p5().rounded_full().bg(chip.bg));
-    }
-    if shown_names.is_empty() {
+/// One GitHub-style label chip (docs/0042 D7 as amended by owner
+/// feedback; the 0022 Q2 / #119 pill treatment): the label's own color
+/// when the API carried one — the docs/0002-sanctioned `data_color`
+/// exception, all construction inside `dashboard_core::data_color` —
+/// else the muted token pill. Shared with the issue page's rail, the
+/// only place a label name is rendered as its color.
+pub(crate) fn label_pill(name: &str, color: Option<&str>, surface: gpui::Hsla, cx: &App) -> Div {
+    let chip = color.and_then(|hex| dashboard_core::data_color::data_chip(hex, surface.into()));
+    let (bg, fg, border) = match chip {
+        Some(c) => (c.bg, c.fg, c.border),
+        None => (
+            cx.theme().transparent,
+            cx.theme().muted_foreground,
+            cx.theme().border,
+        ),
+    };
+    div()
+        .px_2()
+        .py_0p5()
+        .rounded_full()
+        .border_1()
+        .border_color(border)
+        .bg(bg)
+        .text_xs()
+        .text_color(fg)
+        .child(name.to_string())
+}
+
+/// Up to three named label chips (docs/0042 D7 as amended): GitHub's
+/// website treatment — the pills ride the row's title cluster, name
+/// visible in the label's own color through the docs/0002-sanctioned
+/// `data_color` exception. `total_count` beyond what's shown collapses
+/// into a muted `+n` pill whose tooltip carries the hidden names.
+fn label_chips(labels: &gql::LabelSummary, key: &str, surface: gpui::Hsla, cx: &App) -> AnyElement {
+    const MAX_CHIPS: usize = 3;
+    let shown = labels.nodes.iter().take(MAX_CHIPS).collect::<Vec<_>>();
+    if shown.is_empty() {
         return div().into_any_element();
     }
-    let overflow = labels.total_count as usize - shown_names.len();
-    let tip = if overflow > 0 {
-        format!("{}, +{} more", shown_names.join(", "), overflow)
-    } else {
-        shown_names.join(", ")
-    };
-    dots.id(SharedString::from(key.to_string()))
+    let mut chips = h_flex().gap_1().items_center();
+    for label in &shown {
+        chips = chips.child(label_pill(&label.name, label.color.as_deref(), surface, cx));
+    }
+    let overflow = labels.total_count as usize - shown.len();
+    if overflow > 0 {
+        let tip = labels
+            .nodes
+            .iter()
+            .skip(MAX_CHIPS)
+            .map(|l| l.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        // Tooltips need a stateful element — wrap the `+n` pill.
+        chips = chips.child(
+            div()
+                .id(SharedString::from(format!("{key}-more")))
+                .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+                .child(label_pill(&format!("+{overflow}"), None, surface, cx)),
+        );
+    }
+    chips
+        .id(SharedString::from(key.to_string()))
         .debug_selector({
             let probe = key.to_string();
             move || probe.clone()
         })
-        .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
         .into_any_element()
 }
 
@@ -2857,19 +2888,25 @@ mod tests {
     }
 
     #[gpui::test]
-    fn label_dots_render_on_labeled_rows(cx: &mut gpui::TestAppContext) {
-        // docs/0042 D7: colored dots ride rows that carry labels (via
-        // the probe-visible dots container).
+    fn label_chips_render_on_labeled_rows(cx: &mut gpui::TestAppContext) {
+        // docs/0042 D7 (amended): named pills ride the rows' title
+        // cluster (via the probe-visible chips container) — on labeled
+        // PR and issue rows alike; a color-less label still names
+        // itself through the muted pill.
         let (_page, vcx) = filters_probe_page(cx);
         let _ = vcx.debug_bounds("flush"); // first-paint flush
         vcx.run_until_parked();
         assert!(
             vcx.debug_bounds("pr-labels-acme/one#1").is_some(),
-            "label dots render on the labeled PR row"
+            "label chips render on the labeled PR row"
         );
         assert!(
             vcx.debug_bounds("pr-labels-acme/one#2").is_some(),
-            "labeled PR #2 renders dots too"
+            "labeled PR #2 renders chips too"
+        );
+        assert!(
+            vcx.debug_bounds("issue-labels-acme/one#9").is_some(),
+            "the color-less issue label still renders as a named pill"
         );
     }
 

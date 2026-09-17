@@ -273,3 +273,27 @@ Deterministic only — no live network, no screenshots:
 - Persist filter choices in settings (docs/0025)
 - Per-author filter dropdown, per-box search inputs (if D5's shared
   input disappoints)
+
+## 10. Shipped (2026-09-17, #261)
+
+Implemented as designed; the introspected wire facts held. Notes:
+
+- Engine, wire additions, toolbars, shared quick filter, count titles
+  and the repo-switch label reset all landed as specified; tests pin
+  the engine tables, query shape, old-shape serde continuity and the
+  page surfaces via `debug_bounds`.
+- PR/issue rows gained `debug_selector`s (docs/0010 D10) — their plain
+  `.id()`s were invisible to the dump and to tests.
+
+### 2026-09-17 (owner feedback): D7 dots become named pills
+
+The 6 px dots (D7) read as decoration, not labels. Rows now render up
+to three **GitHub-style named chips right of the row title and `#N`** —
+the website's treatment — reusing the 0022 Q2 / #119 pill styling
+through a shared `page::label_pill` builder (the issue page's rail
+delegates to it; one source of truth for the data-color pill).
+`total_count` beyond three collapses into a muted `+n` pill whose
+tooltip carries the hidden names; a label without a usable color still
+names itself through the muted token pill. Chip containers keep the
+`{pr,issue}-labels-{key}` probes; the row geometry stays single-line
+(the left cluster wraps the title, number and chips).
