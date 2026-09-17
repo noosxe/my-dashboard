@@ -29,6 +29,7 @@ use gpui_component::{
     v_flex,
 };
 
+use dashboard_core::freshness::{freshness_row, relative_age, synced_label};
 use dashboard_core::nav::{Crumb, NavEvent, Navigator, Page};
 
 use crate::api;
@@ -39,8 +40,8 @@ use crate::new_issue_page::{NewIssuePage, NewIssuePageEvent};
 use crate::notification_page::{self, NotificationPageEvent};
 use crate::pr_page;
 use crate::service::{
-    AuthStatus, ConnectPhase, FetchSpec, GithubState, Kind, ThreadOp, run_read_deduped,
-    run_spec_tracked, start_connect,
+    AuthStatus, ConnectPhase, FetchSpec, GithubState, Kind, LandedClock, ThreadOp,
+    run_read_deduped, run_spec_tracked, start_connect,
 };
 
 /// docs/0032 D7: the detail-page refresh cadences. The heartbeat is
@@ -1597,7 +1598,31 @@ impl GithubPage {
                                         .clone()
                                         .unwrap_or_else(|| "No description".into()),
                                 ),
-                        ),
+                        )
+                        // The freshness cluster (docs/0037 D6): the
+                        // synced label reads the same `rows_landed`
+                        // clock the beat gates on; blank until this
+                        // session's first landing (0033 D2). Manual
+                        // refresh dispatches the open pair, ignoring
+                        // age/backoff (user-invoked).
+                        .child(freshness_row(
+                            "repo-rows",
+                            &LandedClock(
+                                self.state
+                                    .read(cx)
+                                    .rows_landed
+                                    .get(&repo.full_name)
+                                    .copied(),
+                            ),
+                            cx,
+                            {
+                                let full = repo.full_name.clone();
+                                move |this, window, cx| {
+                                    let specs = this.state.read(cx).repo_open_specs(&full);
+                                    this.run_specs(specs, window, cx);
+                                }
+                            },
+                        )),
                 )
                 .child({
                     // The actions row (docs/0024 D2): New issue (gated,
@@ -1865,34 +1890,6 @@ pub(crate) fn stale_chip_label(
     let age = snapshot_age.max(notifications_age)?;
     let label = synced_label(Some(age)).unwrap_or_default();
     (age >= STALE_AGE).then(|| format!("last {label} — reconnect to update").into())
-}
-
-/// "synced 3m ago" — `None` when nothing has been confirmed yet (docs/0033
-/// D2/D3): an honest blank beats a fabricated timestamp.
-pub(crate) fn synced_label(age: Option<Duration>) -> Option<SharedString> {
-    let secs = age?.as_secs();
-    Some(match secs {
-        0..=59 => "synced just now".into(),
-        60..=3599 => format!("synced {}m ago", secs / 60).into(),
-        3600..=86399 => format!("synced {}h ago", secs / 3600).into(),
-        _ => format!("synced {}d ago", secs / 86400).into(),
-    })
-}
-
-/// "2h" / "3d" / "now" from an RFC-3339 timestamp.
-pub(crate) fn relative_age(updated_at: Option<&str>) -> String {
-    let Some(ts) = updated_at.and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok()) else {
-        return String::new();
-    };
-    let secs = (chrono::Utc::now() - ts.with_timezone(&chrono::Utc))
-        .num_seconds()
-        .max(0);
-    match secs {
-        0..=59 => "now".into(),
-        60..=3599 => format!("{}m", secs / 60),
-        3600..=86399 => format!("{}h", secs / 3600),
-        _ => format!("{}d", secs / 86400),
-    }
 }
 
 #[cfg(test)]
@@ -2376,6 +2373,89 @@ mod tests {
         });
         cx.run_until_parked();
         assert_eq!(mock.recorded().len(), 3, "fresh rows: beat is a no-op");
+    }
+
+    // docs/0037 D6: the repo page's freshness cluster — the synced
+    // label reads this session's `rows_landed` clock, blank until the
+    // first landing (0033 D2's honest blank), and the stale chip
+    // stays independent of it (module-level cold start).
+    #[gpui::test]
+    fn repo_page_freshness_cluster_tracks_rows_landed(cx: &mut TestAppContext) {
+        use std::sync::Arc;
+        use std::time::{Duration, Instant};
+
+        use crate::auth::MockTokenStore;
+        use crate::http::{Http, SharedToken, mock::MockHttp};
+        use crate::service::{AuthStatus, GithubCache, GithubState};
+        use dashboard_core::nav::Navigator;
+
+        cx.update(gpui_component::init);
+        cx.update(dashboard_core::status::init);
+        let (state, nav) = cx.update(|cx| {
+            let shared: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let refresh: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let state = cx.new(|_| {
+                GithubState::new(
+                    Arc::new(MockHttp::new(vec![])) as Arc<dyn Http>,
+                    Arc::new(MockTokenStore::with("t0k".into())),
+                    shared,
+                    refresh,
+                    GithubCache::at_tmp("rows-synced"),
+                )
+            });
+            state.update(cx, |s, _| {
+                s.auth = AuthStatus::Connected;
+                s.selected = Some("acme/one".into());
+            });
+            let nav = cx.new(|_| Navigator::default());
+            (state, nav)
+        });
+
+        // Nothing landed this session: the label is an honest blank.
+        {
+            let (_page, vcx) = cx.add_window_view(|window, cx| {
+                GithubPage::new(state.clone(), nav.clone(), window, cx)
+            });
+            let _ = vcx.debug_bounds("repo-rows-synced"); // flush frames
+            assert!(
+                vcx.debug_bounds("repo-rows-synced").is_none(),
+                "never-landed rows render no label"
+            );
+        }
+
+        // A repo-snapshot landing stamps the clock: the label appears.
+        cx.update(|cx| {
+            state.update(cx, |s, cx| {
+                // The cluster lives in the selected-repo header — the
+                // repo must be present for that header to render at all.
+                let repo = gql::repo_from_value(&serde_json::json!({
+                    "databaseId": 7,
+                    "name": "one",
+                    "nameWithOwner": "acme/one",
+                    "description": null,
+                    "isPrivate": false,
+                    "pushedAt": "2026-09-01T00:00:00Z",
+                    "owner": {"login": "o"},
+                    "pullRequests": {"totalCount": 0, "nodes": []},
+                    "issues": {"totalCount": 0, "nodes": []}
+                }))
+                .unwrap();
+                s.repos.push(repo);
+                s.rows_landed
+                    .insert("acme/one".into(), Instant::now() - Duration::from_secs(120));
+                cx.notify();
+            });
+        });
+        {
+            let (_page, vcx) = cx.add_window_view(|window, cx| {
+                GithubPage::new(state.clone(), nav.clone(), window, cx)
+            });
+            let _ = vcx.debug_bounds("repo-rows-synced"); // flush frames
+            assert!(
+                vcx.debug_bounds("repo-rows-synced").is_some(),
+                "landed rows show the synced label"
+            );
+        }
     }
 
     /// docs/0034 D3: a stale disk-seeded state marks both cold-start

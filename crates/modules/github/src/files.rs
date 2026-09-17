@@ -34,12 +34,12 @@ use gpui_component::{
 use crate::api::PrFile;
 use crate::gql::{DiffSide, PrThread, ThreadSubject};
 use crate::markdown;
-use crate::page::relative_age;
 use crate::pr_page::{
     ErrorScope, FinishEvent, PrDetailPage, ResolutionReason, delete_confirm_card, inline_edit_card,
     review_batch_allowed, row_is_edited,
 };
 use crate::service::{AnchoredLine, PatchLine, anchor_patch};
+use dashboard_core::freshness::relative_age;
 /// Files sidebar view mode (0018 D3). `List` is the default — the flat
 /// rendering is the closest to the accordion it replaces.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

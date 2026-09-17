@@ -50,7 +50,6 @@ use std::sync::Arc;
 
 use crate::gql;
 use crate::markdown;
-use crate::page::{relative_age, synced_label};
 use crate::pr_page::{
     ANCHOR_FADE, CommentAnchor, ErrorScope, MutationError, body_card, cap_row, delete_confirm_card,
     inline_edit_card, split_repo,
@@ -58,6 +57,7 @@ use crate::pr_page::{
 use crate::service::{
     Fetch, FetchSpec, GithubState, Kind, Mutation, run_mutation, run_spec_tracked,
 };
+use dashboard_core::freshness::{Freshness, freshness_row, relative_age};
 
 actions!(github, [DismissIssuePage]);
 
@@ -334,8 +334,8 @@ impl IssueDetailPage {
 
     /// docs/0032 D2: the host heartbeat and focus trigger land here.
     pub(crate) fn auto_refresh(&mut self, min_age: Duration, cx: &mut Context<Self>) {
-        // The backoff gate composes with the age policy (docs/0036 D2).
-        if self.detail.needs_refresh(min_age) && self.detail.backoff_elapsed() {
+        // One composed gate (docs/0037 D4) — see pr_page::auto_refresh.
+        if self.detail.wants_refresh(min_age) {
             self.fetch_detail(cx);
         }
         // The #192 label's clock: even a skipped beat re-renders the
@@ -1534,38 +1534,16 @@ impl IssueDetailPage {
                             .when_some(comment_count, |row, text| row.child(text)),
                     ),
             )
+            .child(freshness_row("issue", &self.detail, cx, |this, _, cx| {
+                this.fetch_detail(cx)
+            }))
             .child(
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .when_some(synced_label(self.detail.age()), |row, label| {
-                        row.child(
-                            div()
-                                .debug_selector(|| "issue-synced".to_string())
-                                .text_xs()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(label),
-                        )
-                    })
-                    .when(self.detail.is_loading(), |row| {
-                        row.child(Spinner::new().small())
-                    })
-                    .child(
-                        Button::new("issue-refresh")
-                            .ghost()
-                            .small()
-                            .icon(IconName::RotateCw)
-                            .tooltip("Refresh")
-                            .on_click(cx.listener(|this, _, _, cx| this.fetch_detail(cx))),
-                    )
-                    .child(
-                        Button::new("issue-open-github")
-                            .ghost()
-                            .small()
-                            .icon(IconName::ExternalLink)
-                            .tooltip("Open on GitHub")
-                            .on_click(move |_, _, cx| cx.open_url(&url)),
-                    ),
+                Button::new("issue-open-github")
+                    .ghost()
+                    .small()
+                    .icon(IconName::ExternalLink)
+                    .tooltip("Open on GitHub")
+                    .on_click(move |_, _, cx| cx.open_url(&url)),
             )
             .into_any_element()
     }

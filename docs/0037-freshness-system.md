@@ -225,3 +225,40 @@ session's rows).
   design review: lift to core** (header-table note) — the platform
   direction makes core the home from day one; the doc is amended
   (D1/D2/N3/§6).
+- ~~**Q1**: freshness cluster placement.~~ **Ratified via design
+  review: one freshness cluster per page** — on the repo page it lives
+  in the selected-repo header (title + description + freshness), which
+  is that page's header area; the 0034 stale chip remains the
+  module-level cold-start marker at the left-column top.
+
+## 8. Shipped (#241)
+
+D1–D6 as amended (core from day one, one cluster per page). The
+implementation landed the designed surface, with two findings worth
+recording:
+
+- **The `use gpui::*` / `#[test]` landmine.** gpui re-exports its own
+  `test` proc-macro at the crate root; a module that glob-imports
+  `gpui::*` and then has a test submodule doing `use super::*` gets
+  gpui's `test` in scope, and a bare `#[test]` resolves to it —
+  recursing gpui_macros until the compiler dies (SIGSEGV, observed
+  with a clean build, not a cache artifact). page.rs's test module
+  already carried a "no `use super::*`" note for exactly this; the new
+  core module hit it independently and its tests import explicitly.
+  Worth a lint someday.
+- **The notification header reordered one button.** The three
+  hand-rolled rows were not identical: the notification page
+  interleaved mark-read/mark-done between the label and the refresh
+  button. The cluster (label + spinner + refresh) groups them per Q1,
+  so refresh now sits beside the label and the mark actions follow.
+  Selectors and behavior are unchanged; flagged as the one deliberate
+  visual delta of the migration (N4's byte-identical proof holds for
+  the PR and issue pages, which were already in cluster order).
+
+Also shipped beyond the letter of the design: `freshness_row`'s
+refresh closure receives `&mut Window` (the repo page's manual refresh
+dispatches through `run_specs`, which needs it); `relative_age` moved
+to core with `synced_label` (its only consumers are module code, but
+splitting the copy helpers was pointless); and the repo page's cluster
+gains a manual refresh button — the first refresh affordance on that
+page, consistent with every other surface.

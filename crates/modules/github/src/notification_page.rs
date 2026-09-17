@@ -44,7 +44,8 @@ use gpui_component::{
 };
 
 use crate::api;
-use crate::page::{notification_url, relative_age, synced_label};
+use crate::page::notification_url;
+use dashboard_core::freshness::{Freshness, freshness_row, relative_age};
 use std::time::Duration;
 
 use crate::service::{Fetch, FetchSpec, GithubState, Kind, ThreadOp, run_spec_tracked};
@@ -324,8 +325,8 @@ impl NotificationDetailPage {
 
     /// docs/0032 D2/D4: the host heartbeat and focus trigger land here.
     pub(crate) fn auto_refresh(&mut self, min_age: Duration, cx: &mut Context<Self>) {
-        // The backoff gate composes with the age policy (docs/0036 D2).
-        if self.thread.needs_refresh(min_age) && self.thread.backoff_elapsed() {
+        // One composed gate (docs/0037 D4) — see pr_page::auto_refresh.
+        if self.thread.wants_refresh(min_age) {
             self.fetch_thread(cx);
         }
         // The #192 label's clock: even a skipped beat re-renders the
@@ -522,67 +523,55 @@ impl NotificationDetailPage {
                             .child(relative_age(n.updated_at.as_deref())),
                     ),
             )
+            // The freshness cluster (docs/0037 D3): label + spinner +
+            // refresh grouped — the refresh button now sits beside the
+            // label instead of after the mark actions (Q1's one-cluster
+            // ruling; the one deliberate visual delta of the migration).
+            .child(freshness_row(
+                "notification",
+                &self.thread,
+                cx,
+                |this, _, cx| this.fetch_thread(cx),
+            ))
+            // Mark as read: hidden while Read (hidden-not-
+            // disabled) — visible as the auto-mark's retry (D4).
+            .when(!self.read, |row| {
+                row.child(
+                    Button::new("notification-mark-read")
+                        .debug_selector(|| "notification-mark-read".to_string())
+                        .ghost()
+                        .small()
+                        .label("Mark as read")
+                        .tooltip("Mark this notification as read")
+                        .disabled(self.mark == MarkState::InFlight)
+                        .on_click(cx.listener(|this, _, _, cx| this.fire_mark_read(cx))),
+                )
+            })
+            // Mark as done (docs/0026 D8): always offered —
+            // Read included, done ≠ read (owner decision §4.5's
+            // page-level half). Disabled only while its DELETE
+            // is in flight; a failure re-arms it as retry.
             .child(
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .when_some(synced_label(self.thread.age()), |row, label| {
-                        row.child(
-                            div()
-                                .debug_selector(|| "notification-synced".to_string())
-                                .text_xs()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(label),
-                        )
-                    })
-                    // Mark as read: hidden while Read (hidden-not-
-                    // disabled) — visible as the auto-mark's retry (D4).
-                    .when(!self.read, |row| {
-                        row.child(
-                            Button::new("notification-mark-read")
-                                .debug_selector(|| "notification-mark-read".to_string())
-                                .ghost()
-                                .small()
-                                .label("Mark as read")
-                                .tooltip("Mark this notification as read")
-                                .disabled(self.mark == MarkState::InFlight)
-                                .on_click(cx.listener(|this, _, _, cx| this.fire_mark_read(cx))),
-                        )
-                    })
-                    // Mark as done (docs/0026 D8): always offered —
-                    // Read included, done ≠ read (owner decision §4.5's
-                    // page-level half). Disabled only while its DELETE
-                    // is in flight; a failure re-arms it as retry.
-                    .child(
-                        Button::new("notification-mark-done")
-                            .debug_selector(|| "notification-mark-done".to_string())
-                            .ghost()
-                            .small()
-                            .label("Mark as done")
-                            .tooltip("Remove this notification from your inbox")
-                            .disabled(self.done == MarkState::InFlight)
-                            .on_click(cx.listener(|this, _, _, cx| this.fire_mark_done(cx))),
-                    )
-                    .child(
-                        Button::new("notification-refresh")
-                            .ghost()
-                            .small()
-                            .icon(IconName::RotateCw)
-                            .tooltip("Refresh")
-                            .on_click(cx.listener(|this, _, _, cx| this.fetch_thread(cx))),
-                    )
-                    .child(
-                        Button::new("notification-open-github")
-                            .debug_selector(|| "notification-open-github".to_string())
-                            .ghost()
-                            .small()
-                            .icon(IconName::ExternalLink)
-                            .tooltip("Open on GitHub")
-                            .on_click({
-                                let url = self.web_url();
-                                move |_, _, cx| cx.open_url(&url)
-                            }),
-                    ),
+                Button::new("notification-mark-done")
+                    .debug_selector(|| "notification-mark-done".to_string())
+                    .ghost()
+                    .small()
+                    .label("Mark as done")
+                    .tooltip("Remove this notification from your inbox")
+                    .disabled(self.done == MarkState::InFlight)
+                    .on_click(cx.listener(|this, _, _, cx| this.fire_mark_done(cx))),
+            )
+            .child(
+                Button::new("notification-open-github")
+                    .debug_selector(|| "notification-open-github".to_string())
+                    .ghost()
+                    .small()
+                    .icon(IconName::ExternalLink)
+                    .tooltip("Open on GitHub")
+                    .on_click({
+                        let url = self.web_url();
+                        move |_, _, cx| cx.open_url(&url)
+                    }),
             )
             .into_any_element()
     }
