@@ -173,54 +173,114 @@ pub(crate) fn token_style(kind: TokenKind, theme: &ThemeColor) -> HighlightStyle
 /// One file's per-row spans, aligned 1:1 with `anchor_patch` indices.
 pub(crate) type RowSpans = Vec<(Range<usize>, TokenKind)>;
 
-/// Per-file memo entry (0040 D5): `None` rows is a cached miss (no
-/// grammar, or over the cap) — still a hit, so a miss costs once.
+pub(crate) type SpanList = Option<Arc<Vec<RowSpans>>>;
+
+/// Per-file memo entry (0040 D5, amended): tokenization runs on a
+/// background task — a Rust file costs ~0.6 ms/line (fancy-regex;
+/// measured 440 ms cold / 294 ms warm for 460 rows), far too slow to
+/// do inside render — so an entry is `Tokenizing` (render plain) until
+/// the task lands.
+#[derive(Clone)]
+pub(crate) enum HighlightFlight {
+    Tokenizing,
+    Done(SpanList),
+}
+
 #[derive(Clone)]
 pub(crate) struct HighlightEntry {
     patch_hash: u64,
     theme_key: SharedString,
-    rows: Option<Arc<Vec<RowSpans>>>,
+    pub(crate) flight: HighlightFlight,
 }
 
-/// Where the D5 memo lives. A `RefCell` because it fills from inside
-/// render (the diff body is drawn while the page entity is already
-/// borrowed); it is a pure memo — never warrants `cx.notify()`.
+/// Where the D5 memo lives. A `RefCell` because it fills from render
+/// and from task completion (the page entity is already borrowed at
+/// render time); it is a pure memo — never warrants `cx.notify()` on
+/// its own.
 #[derive(Default)]
 pub(crate) struct HighlightCache(RefCell<BTreeMap<String, HighlightEntry>>);
 
+/// The lookup outcome for one file on one frame.
+pub(crate) enum Lookup {
+    /// Spans ready (`None` = deliberately plain: no grammar or over cap).
+    Done(SpanList),
+    /// A background task is running — render plain, don't re-queue.
+    Tokenizing,
+    /// Nothing current — the caller queues a task.
+    Miss,
+}
+
 impl HighlightCache {
-    /// Span list for one file, computing on miss. Keyed by path;
-    /// invalidated by patch text or palette change via the entry fields.
-    pub(crate) fn spans_for(
-        &self,
-        path: &str,
-        patch: &str,
-        rows: &[AnchoredLine],
-        theme_key: SharedString,
-    ) -> Option<Arc<Vec<RowSpans>>> {
-        let patch_hash = hash_patch(patch);
+    /// Read-only check for the current frame.
+    pub(crate) fn lookup(&self, path: &str, patch_hash: u64, theme_key: &str) -> Lookup {
+        let cache = self.0.borrow();
+        match cache.get(path) {
+            Some(entry) if entry.patch_hash == patch_hash && entry.theme_key == theme_key => {
+                match &entry.flight {
+                    HighlightFlight::Done(rows) => Lookup::Done(rows.clone()),
+                    HighlightFlight::Tokenizing => Lookup::Tokenizing,
+                }
+            }
+            // A finished entry under a stale key is a miss (the caller
+            // re-queues; `finish` replaces the entry).
+            _ => Lookup::Miss,
+        }
+    }
+
+    /// Mark a task in flight; `false` if an equivalent one already is.
+    pub(crate) fn begin(&self, path: &str, patch_hash: u64, theme_key: SharedString) -> bool {
         let mut cache = self.0.borrow_mut();
         if let Some(entry) = cache.get(path) {
-            if entry.patch_hash == patch_hash && entry.theme_key == theme_key {
-                return entry.rows.clone();
+            if entry.patch_hash == patch_hash
+                && entry.theme_key == theme_key
+                && matches!(entry.flight, HighlightFlight::Tokenizing)
+            {
+                return false;
             }
         }
-        let computed = compute_rows(path, rows);
         cache.insert(
             path.to_string(),
             HighlightEntry {
                 patch_hash,
                 theme_key,
-                rows: computed.clone(),
+                flight: HighlightFlight::Tokenizing,
             },
         );
-        computed
+        true
+    }
+
+    /// Store a finished result — but only if the entry still points at
+    /// the same (hash, theme) the task was queued for; a refresh or
+    /// theme switch in the meantime replaced it and queued its own task.
+    pub(crate) fn finish(&self, path: &str, patch_hash: u64, theme_key: &str, rows: SpanList) {
+        let mut cache = self.0.borrow_mut();
+        if let Some(entry) = cache.get_mut(path) {
+            if entry.patch_hash == patch_hash
+                && entry.theme_key == theme_key
+                && matches!(entry.flight, HighlightFlight::Tokenizing)
+            {
+                entry.flight = HighlightFlight::Done(rows);
+            }
+        }
+    }
+
+    /// Store a settled result synchronously (no-grammar / over-cap
+    /// files: the plain look is the answer, no task needed).
+    pub(crate) fn store_plain(&self, path: &str, patch_hash: u64, theme_key: SharedString) {
+        self.0.borrow_mut().insert(
+            path.to_string(),
+            HighlightEntry {
+                patch_hash,
+                theme_key,
+                flight: HighlightFlight::Done(None),
+            },
+        );
     }
 }
 
 /// FNV-1a over the patch text — deterministic for the page's lifetime,
 /// which is all the memo's invalidation needs (0040 D5).
-fn hash_patch(patch: &str) -> u64 {
+pub(crate) fn hash_patch(patch: &str) -> u64 {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for byte in patch.as_bytes() {
         hash ^= u64::from(*byte);
@@ -232,12 +292,9 @@ fn hash_patch(patch: &str) -> u64 {
 /// Fold a file's classified rows into per-row spans (0040 D5/D2): one
 /// `ParseState` threads through the file-text rows in order; hunk
 /// headers and `\ No newline` markers get empty spans and are never fed
-/// to the parser. Over the cap, or no grammar for the path ⇒ `None`
-/// (plain rendering, 0040 D5).
-fn compute_rows(path: &str, rows: &[AnchoredLine]) -> Option<Arc<Vec<RowSpans>>> {
-    if rows.len() > SYNTAX_HIGHLIGHT_MAX_LINES {
-        return None;
-    }
+/// to the parser. No grammar for the path ⇒ `None`. Runs on a
+/// background task (0040 D5, amended) — never in render.
+pub(crate) fn compute_rows(path: &str, rows: &[AnchoredLine]) -> SpanList {
     let syntax = resolve_syntax(path)?;
     let mut state = ParseState::new(syntax);
     let spans: Vec<RowSpans> = rows
@@ -378,15 +435,6 @@ mod tests {
     }
 
     #[test]
-    fn over_cap_files_render_plain() {
-        let patch: String = (0..SYNTAX_HIGHLIGHT_MAX_LINES + 1)
-            .map(|_| "\n fn a() {}\n")
-            .collect();
-        let rows = anchor_patch(&patch);
-        assert_eq!(compute_rows("lib.rs", &rows), None);
-    }
-
-    #[test]
     fn token_style_derives_from_theme_tokens() {
         let theme = ThemeColor::default();
         let table = [
@@ -411,33 +459,59 @@ mod tests {
     }
 
     #[test]
-    fn cache_hits_and_invalidates() {
+    fn cache_flight_lifecycle() {
+        use super::{HighlightCache, Lookup};
         let cache = HighlightCache::default();
-        let rows = anchor_patch(" fn a() {}\n+let x = 1;");
         let key: gpui::SharedString = "Default Dark".into();
-        let first = cache
-            .spans_for("lib.rs", " fn a() {}\n+let x = 1;", &rows, key.clone())
-            .expect("rust patch highlights");
-        let hit = cache
-            .spans_for("lib.rs", " fn a() {}\n+let x = 1;", &rows, key.clone())
-            .expect("hit");
-        assert!(Arc::ptr_eq(&first, &hit), "a memo hit must be the same Arc");
-        // Patch text change invalidates (different hash → recompute).
-        let other = cache
-            .spans_for("lib.rs", " fn b() {}\n+let y = 2;", &rows, key.clone())
-            .expect("recomputed");
-        assert!(!Arc::ptr_eq(&first, &other));
-        // Plain files memo as a `None` hit — cheap forever.
+
+        // Miss → queue → in-flight → finish → hit (same Arc).
+        let hash = hash_patch(" fn a() {}\n+let x = 1;");
+        assert!(matches!(cache.lookup("lib.rs", hash, &key), Lookup::Miss));
+        assert!(cache.begin("lib.rs", hash, key.clone()));
         assert!(
-            cache
-                .spans_for("blob.unknownext", "x", &rows, key.clone())
-                .is_none()
+            matches!(cache.lookup("lib.rs", hash, &key), Lookup::Tokenizing),
+            "in-flight renders plain and must not re-queue"
         );
         assert!(
-            cache
-                .spans_for("blob.unknownext", "x", &rows, key.clone())
-                .is_none()
+            !cache.begin("lib.rs", hash, key.clone()),
+            "a second begin for the same (path, hash, theme) is refused"
         );
+        let spans: SpanList = Some(Arc::new(vec![vec![]]));
+        cache.finish("lib.rs", hash, &key, spans.clone());
+        let stored = spans.clone();
+        match cache.lookup("lib.rs", hash, &key) {
+            Lookup::Done(rows) => assert!(Arc::ptr_eq(&rows.unwrap(), &stored.unwrap())),
+            _ => panic!("finished entry must be Done"),
+        }
+
+        // Theme change invalidates: miss again, and the stale task's
+        // finish under the old key is ignored.
+        let other_key: gpui::SharedString = "Default Light".into();
+        assert!(matches!(
+            cache.lookup("lib.rs", hash, &other_key),
+            Lookup::Miss
+        ));
+        assert!(cache.begin("lib.rs", hash, other_key.clone()));
+        cache.finish("lib.rs", hash, &key, spans.clone());
+        assert!(
+            matches!(cache.lookup("lib.rs", hash, &other_key), Lookup::Tokenizing),
+            "a stale-theme finish must not satisfy the current queue"
+        );
+
+        // Patch change invalidates the same way.
+        let other_hash = hash_patch(" fn b() {}");
+        assert!(matches!(
+            cache.lookup("lib.rs", other_hash, &key),
+            Lookup::Miss
+        ));
+
+        // Plain files (no grammar / over cap) store a settled `None` —
+        // a hit, cheap forever.
+        cache.store_plain("blob.unknownext", hash_patch("x"), key.clone());
+        assert!(matches!(
+            cache.lookup("blob.unknownext", hash_patch("x"), &key),
+            Lookup::Done(None)
+        ));
     }
 
     #[test]

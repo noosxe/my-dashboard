@@ -142,6 +142,14 @@ the span). Delimiters and operators render ambient — matching
 github.com's diff view.
 
 **Second amendment (2026-09-17, PR #252, human-check feedback):**
+(diff rendering)
+
+- **The per-row comment button is hover-gated.** The 0030 D4 button
+  was rendered for every armable row unconditionally — a 460-row diff
+  carried ~460 gpui-component Buttons + tooltips in the tree on every
+  frame, which (not the token runs) dominated diff-pane scroll cost.
+  Rows are now stateful (`id`) with an `on_hover` listener; the page
+  tracks the hovered row id and renders exactly one button.
 
 1. **D6 — the sign glyph gets its own cell; content goes ambient.**
    The old rows painted the whole line in the saturated
@@ -158,6 +166,20 @@ github.com's diff view.
    selection while it still exists) and (b) the bulk memo clear forcing
    a render-time re-tokenize of the selected file on every refresh.
    Entries now self-invalidate per file by patch hash only.
+3. **D5 — tokenization is a background task, not render-time work.**
+   Measured with the real pipeline: syntect + fancy-regex costs
+   **~0.6 ms/row** (460-row Rust diff: 440 ms cold, ~294 ms warm) —
+   the §4-D5 "single-digit milliseconds" estimate was wrong by ~100×;
+   the row cap stays at 2,000 rows. The page now *pumps* the selected
+   file's queue from its `render` (the one `&mut Context` in the
+   render path): a memo miss marks the entry `Tokenizing`, spawns the
+   tokenizer onto the background executor, and the diff renders plain
+   until the task lands (`finish` notifies; next frame is colored).
+   `finish` only satisfies an entry still pointing at the same
+   (patch hash, theme) the task was queued for, and the pump
+   short-circuits on a settled or in-flight entry — re-queuing on
+   every render would notify forever (caught by the deterministic
+   tests as a livelock before it shipped).
 
 Matching walks the region's `ScopeStack` from the innermost (last)
 scope outward and takes the first table hit; the row's `HighlightStyle`

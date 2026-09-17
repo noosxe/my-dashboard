@@ -746,17 +746,23 @@ fn diff_body(
             .into_any_element();
     };
     let rows = anchor_patch(patch);
-    // docs/0040 D5: per-row highlight spans, memoized per file and
-    // re-derived on patch or palette change; `None` renders plain.
-    let spans =
-        page.highlight_cache
-            .spans_for(&file.filename, patch, &rows, syntax::theme_key(cx.theme()));
+    // docs/0040 D5 (amended): read-only lookup — scheduling happens in
+    // the page's `pump_highlight` (&mut Context lives there); a file
+    // whose task is still running renders plain this frame.
+    let spans = match page.highlight_cache.lookup(
+        &file.filename,
+        syntax::hash_patch(patch),
+        &syntax::theme_key(cx.theme()),
+    ) {
+        syntax::Lookup::Done(spans) => spans,
+        syntax::Lookup::Tokenizing | syntax::Lookup::Miss => None,
+    };
     let elements: Vec<AnyElement> = rows
         .iter()
         .enumerate()
         .flat_map(|(ix, anchored)| {
             let row_spans = spans.as_ref().and_then(|v| v.get(ix)).map(Vec::as_slice);
-            let mut out = vec![diff_row(&file.filename, anchored, row_spans, cx)];
+            let mut out = vec![diff_row(page, &file.filename, anchored, row_spans, cx)];
             if let Some(threads) = placed.anchored.get(&ix) {
                 out.extend(
                     threads
@@ -805,12 +811,17 @@ fn row_anchor(anchored: &AnchoredLine) -> Option<(DiffSide, u32)> {
 }
 
 fn diff_row(
+    page: &PrDetailPage,
     path: &str,
     anchored: &AnchoredLine,
     spans: Option<&[(Range<usize>, TokenKind)]>,
     cx: &Context<PrDetailPage>,
 ) -> AnyElement {
     let mono = cx.theme().mono_font_family.clone();
+    // docs/0040 §4 D6 amendment: the row's comment button renders only
+    // while this row is hovered — 460 always-on Buttons+tooltips were
+    // the diff-pane scroll jank.
+    let row_id = row_comment_id(path, anchored);
     match &anchored.line {
         PatchLine::Hunk(text) => div()
             .flex_none()
@@ -821,7 +832,8 @@ fn diff_row(
             .font_family(mono)
             .text_color(cx.theme().muted_foreground)
             .bg(cx.theme().accent.opacity(0.15))
-            .child(text.clone()),
+            .child(text.clone())
+            .into_any_element(),
         PatchLine::Context(text) => h_flex()
             .flex_none()
             .whitespace_nowrap()
@@ -832,7 +844,16 @@ fn diff_row(
             .font_family(mono)
             .child(glyph_cell("", None))
             .child(diff_content(text, spans, cx))
-            .children(row_comment_button(path, anchored, cx)),
+            .children(row_comment_button(page, &row_id, path, anchored, cx))
+            .id(row_id.clone())
+            .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
+                let next = hovered.then(|| row_id.clone());
+                if this.hovered_row != next {
+                    this.hovered_row = next;
+                    cx.notify();
+                }
+            }))
+            .into_any_element(),
         // docs/0040 §4 D6 (amended): the tint stays in the background,
         // the sign glyph alone carries the saturated color (0016 D10's
         // letter), and the content renders in ambient foreground with
@@ -849,7 +870,16 @@ fn diff_row(
             .bg(cx.theme().success.opacity(0.12))
             .child(glyph_cell("+", Some(cx.theme().success)))
             .child(diff_content(text, spans, cx))
-            .children(row_comment_button(path, anchored, cx)),
+            .children(row_comment_button(page, &row_id, path, anchored, cx))
+            .id(row_id.clone())
+            .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
+                let next = hovered.then(|| row_id.clone());
+                if this.hovered_row != next {
+                    this.hovered_row = next;
+                    cx.notify();
+                }
+            }))
+            .into_any_element(),
         PatchLine::Del(text) => h_flex()
             .flex_none()
             .whitespace_nowrap()
@@ -861,7 +891,16 @@ fn diff_row(
             .bg(cx.theme().danger.opacity(0.12))
             .child(glyph_cell("\u{2212}", Some(cx.theme().danger)))
             .child(diff_content(text, spans, cx))
-            .children(row_comment_button(path, anchored, cx)),
+            .children(row_comment_button(page, &row_id, path, anchored, cx))
+            .id(row_id.clone())
+            .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
+                let next = hovered.then(|| row_id.clone());
+                if this.hovered_row != next {
+                    this.hovered_row = next;
+                    cx.notify();
+                }
+            }))
+            .into_any_element(),
     }
     .into_any_element()
 }
@@ -909,12 +948,29 @@ fn diff_content(
 
 /// The hover comment affordance for one armable row (docs/0030 D4/D8):
 /// hidden until its row is hovered; opens the row composer.
+/// The stable identity of one armable diff row — the comment button's
+/// element id and the page's hovered-row key.
+fn row_comment_id(path: &str, anchored: &AnchoredLine) -> SharedString {
+    match row_anchor(anchored) {
+        Some((side, line)) => {
+            SharedString::from(format!("pr-line-{}-{line}-{path}-comment", side.id_token()))
+        }
+        None => SharedString::default(),
+    }
+}
+
 fn row_comment_button(
+    page: &PrDetailPage,
+    row_id: &SharedString,
     path: &str,
     anchored: &AnchoredLine,
     cx: &Context<PrDetailPage>,
 ) -> Option<AnyElement> {
     let (side, line) = row_anchor(anchored)?;
+    // docs/0040 §4 D6 amendment: one button under the pointer, not 460.
+    if page.hovered_row.as_ref() != Some(row_id) {
+        return None;
+    }
     let path = path.to_string();
     let id = SharedString::from(format!("pr-line-{}-{line}-comment", side.id_token()));
     Some(

@@ -57,9 +57,10 @@ use crate::gql;
 use crate::markdown;
 use crate::page::{LaneClass, lane_min_age};
 use crate::service::{
-    Fetch, FetchSpec, GithubState, Kind, Mutation, run_check_log_chain, run_mutation,
+    Fetch, FetchSpec, GithubState, Kind, Mutation, anchor_patch, run_check_log_chain, run_mutation,
     run_spec_tracked,
 };
+use crate::syntax;
 use dashboard_core::freshness::{Freshness, freshness_row, relative_age};
 
 actions!(github, [DismissPrPage]);
@@ -263,6 +264,10 @@ pub(crate) struct PrDetailPage {
     /// driven to the bottom on every expand/land so the failure is on
     /// screen first.
     check_log_scroll: ScrollHandle,
+    /// The row id under the pointer (docs/0040 §4 D6 amendment): the
+    /// per-row comment button renders only for this row — 460 always-on
+    /// Buttons+tooltips were the diff-pane scroll jank.
+    pub(crate) hovered_row: Option<SharedString>,
     /// The accordion: at most one expanded check at a time (D4).
     expanded_check: Option<String>,
     /// Review-threads fetch lifecycle (docs/0030 D1): lazy like the
@@ -388,6 +393,7 @@ impl PrDetailPage {
             check_logs: BTreeMap::new(),
             expanded_check: None,
             check_log_scroll: ScrollHandle::new(),
+            hovered_row: None,
             threads: Fetch::new(),
             line_composer: None,
             reply_composer: None,
@@ -855,6 +861,71 @@ impl PrDetailPage {
             // per-view selection); selecting entry 0 would pick a folder.
         });
         cx.notify();
+    }
+
+    /// Schedule background tokenization for the selected file when its
+    /// memo entry is missing (0040 D5 amended). The diff renders plain
+    /// until the task lands; `finish` notifies and the next frame is
+    /// colored. Measured: ~0.6 ms/row (fancy-regex) — 440 ms cold for a
+    /// 460-row Rust diff, never acceptable inside render.
+    fn pump_highlight(&mut self, cx: &mut Context<Self>) {
+        let Some(file) = self
+            .files
+            .data()
+            .and_then(|files| {
+                files
+                    .iter()
+                    .find(|f| Some(f.filename.as_str()) == self.selected_file.as_deref())
+            })
+            .cloned()
+        else {
+            return;
+        };
+        let Some(patch) = file.patch.clone() else {
+            return;
+        };
+        let path = file.filename;
+        let patch_hash = syntax::hash_patch(&patch);
+        let theme_key = syntax::theme_key(cx.theme());
+        // Already settled or already running for this exact (patch,
+        // theme)? Nothing to do — without this, every render would
+        // re-queue a task whose completion notifies, forever.
+        if !matches!(
+            self.highlight_cache.lookup(&path, patch_hash, &theme_key),
+            syntax::Lookup::Miss
+        ) {
+            return;
+        }
+        // Cheap settled answers stay synchronous; only real tokenization
+        // goes to a task.
+        if syntax::resolve_syntax(&path).is_none()
+            || anchor_patch(&patch).len() > syntax::SYNTAX_HIGHLIGHT_MAX_LINES
+        {
+            self.highlight_cache
+                .store_plain(&path, patch_hash, theme_key);
+            return;
+        }
+        if !self
+            .highlight_cache
+            .begin(&path, patch_hash, theme_key.clone())
+        {
+            return; // a task for this exact (patch, theme) is running
+        }
+        let rows = anchor_patch(&patch);
+        let task_path = path.clone();
+        let task_rows = rows;
+        cx.spawn(async move |this, cx| {
+            let computed = cx
+                .background_executor()
+                .spawn(async move { syntax::compute_rows(&task_path, &task_rows) })
+                .await;
+            let _ = this.update(cx, |page, cx| {
+                page.highlight_cache
+                    .finish(&path, patch_hash, &theme_key, computed);
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     // --- review threads (docs/0030 D1) --------------------------------------
@@ -2908,6 +2979,10 @@ impl Focusable for PrDetailPage {
 
 impl Render for PrDetailPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // docs/0040 D5 (amended): tokenization is a background task —
+        // pump the selected file's queue from the one &mut Context in
+        // the render path; diff_body only reads.
+        self.pump_highlight(cx);
         // docs/0026 D9: fire the armed jump the frame the target card
         // mounts — the anchor records its origin on paint, the offset lands
         // next frame. A card swapped for an editor/confirm (or a
@@ -4072,6 +4147,10 @@ mod tests {
 
         cx.update(dashboard_core::status::init);
         cx.update(gpui_component::init);
+        // The page schedules background tokenization (docs/0040 D5) —
+        // let the deterministic test executor park instead of spinning
+        // on the outstanding task.
+        cx.update(|cx| cx.background_executor().allow_parking());
         // 1: the eager detail fetch at `new` (fails -> streak 1); 2: the
         // beat's files dispatch (also fails -> streak 1); 3+4: the
         // backdated beat retries both failed lanes (docs/0036 D2).
@@ -4190,6 +4269,10 @@ mod tests {
     fn synced_indicator_follows_the_record(cx: &mut gpui::TestAppContext) {
         cx.update(dashboard_core::status::init);
         cx.update(gpui_component::init);
+        // The page schedules background tokenization (docs/0040 D5) —
+        // let the deterministic test executor park instead of spinning
+        // on the outstanding task.
+        cx.update(|cx| cx.background_executor().allow_parking());
         let state: gpui::Entity<GithubState> = cx.update(|cx| {
             let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
             let store: std::sync::Arc<dyn crate::auth::TokenStore> =
@@ -4243,6 +4326,10 @@ mod tests {
     fn fetch_detail_lands_through_the_guard(cx: &mut gpui::TestAppContext) {
         cx.update(dashboard_core::status::init);
         cx.update(gpui_component::init);
+        // The page schedules background tokenization (docs/0040 D5) —
+        // let the deterministic test executor park instead of spinning
+        // on the outstanding task.
+        cx.update(|cx| cx.background_executor().allow_parking());
         let state: gpui::Entity<GithubState> = cx.update(|cx| {
             let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
             let store: std::sync::Arc<dyn crate::auth::TokenStore> =
@@ -4308,6 +4395,10 @@ mod tests {
     #[gpui::test]
     fn files_split_has_real_layout(cx: &mut gpui::TestAppContext) {
         cx.update(gpui_component::init);
+        // The page schedules background tokenization (docs/0040 D5) —
+        // let the deterministic test executor park instead of spinning
+        // on the outstanding task.
+        cx.update(|cx| cx.background_executor().allow_parking());
         let state = cx.update(|cx| {
             let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
             let store: std::sync::Arc<dyn crate::auth::TokenStore> =
@@ -4416,6 +4507,10 @@ mod tests {
         // their diff rows, suggestion bodies as cards, and keeps outdated
         // threads in the collapsed end-of-file bucket until expanded.
         cx.update(gpui_component::init);
+        // The page schedules background tokenization (docs/0040 D5) —
+        // let the deterministic test executor park instead of spinning
+        // on the outstanding task.
+        cx.update(|cx| cx.background_executor().allow_parking());
         let state = cx.update(|cx| {
             let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
             let store: std::sync::Arc<dyn crate::auth::TokenStore> =
@@ -4498,6 +4593,10 @@ mod tests {
         // docs/0030 D6: a ```suggestion fence in a thread comment renders
         // as the suggestion card, not a plain code block.
         cx.update(gpui_component::init);
+        // The page schedules background tokenization (docs/0040 D5) —
+        // let the deterministic test executor park instead of spinning
+        // on the outstanding task.
+        cx.update(|cx| cx.background_executor().allow_parking());
         let state = cx.update(|cx| {
             let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
             let store: std::sync::Arc<dyn crate::auth::TokenStore> =
@@ -4564,6 +4663,10 @@ mod tests {
         anchor: Option<i64>,
     ) -> (gpui::Entity<PrDetailPage>, &mut gpui::VisualTestContext) {
         cx.update(gpui_component::init);
+        // The page schedules background tokenization (docs/0040 D5) —
+        // let the deterministic test executor park instead of spinning
+        // on the outstanding task.
+        cx.update(|cx| cx.background_executor().allow_parking());
         cx.update(dashboard_core::status::init);
         let state = cx.update(|cx| {
             let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
@@ -4747,6 +4850,10 @@ mod tests {
     #[gpui::test]
     fn row_affordances_follow_viewer_flags(cx: &mut gpui::TestAppContext) {
         cx.update(gpui_component::init);
+        // The page schedules background tokenization (docs/0040 D5) —
+        // let the deterministic test executor park instead of spinning
+        // on the outstanding task.
+        cx.update(|cx| cx.background_executor().allow_parking());
         let state = cx.update(|cx| {
             let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
             let store: std::sync::Arc<dyn crate::auth::TokenStore> =
@@ -4853,6 +4960,10 @@ mod tests {
     #[gpui::test]
     fn cap_row_covers_truncated_connections(cx: &mut gpui::TestAppContext) {
         cx.update(gpui_component::init);
+        // The page schedules background tokenization (docs/0040 D5) —
+        // let the deterministic test executor park instead of spinning
+        // on the outstanding task.
+        cx.update(|cx| cx.background_executor().allow_parking());
         let state = cx.update(|cx| {
             let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
             let store: std::sync::Arc<dyn crate::auth::TokenStore> =
@@ -4913,6 +5024,10 @@ mod tests {
     #[gpui::test]
     fn detail_apply_drops_editors_of_vanished_nodes(cx: &mut gpui::TestAppContext) {
         cx.update(gpui_component::init);
+        // The page schedules background tokenization (docs/0040 D5) —
+        // let the deterministic test executor park instead of spinning
+        // on the outstanding task.
+        cx.update(|cx| cx.background_executor().allow_parking());
         let state = cx.update(|cx| {
             let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
             let store: std::sync::Arc<dyn crate::auth::TokenStore> =
@@ -5094,6 +5209,10 @@ mod tests {
         use std::sync::RwLock;
 
         cx.update(gpui_component::init);
+        // The page schedules background tokenization (docs/0040 D5) —
+        // let the deterministic test executor park instead of spinning
+        // on the outstanding task.
+        cx.update(|cx| cx.background_executor().allow_parking());
         cx.update(dashboard_core::status::init);
         let mock = Arc::new(MockHttp::new(vec![
             // The page's own detail fetch fires first — fail it benignly.
@@ -5242,6 +5361,10 @@ mod tests {
         use std::sync::RwLock;
 
         cx.update(gpui_component::init);
+        // The page schedules background tokenization (docs/0040 D5) —
+        // let the deterministic test executor park instead of spinning
+        // on the outstanding task.
+        cx.update(|cx| cx.background_executor().allow_parking());
         cx.update(dashboard_core::status::init);
         // Step 3 misses the name: the job was renamed upstream.
         let mock = Arc::new(MockHttp::new(vec![
@@ -5314,6 +5437,10 @@ mod tests {
         use std::sync::RwLock;
 
         cx.update(gpui_component::init);
+        // The page schedules background tokenization (docs/0040 D5) —
+        // let the deterministic test executor park instead of spinning
+        // on the outstanding task.
+        cx.update(|cx| cx.background_executor().allow_parking());
         cx.update(dashboard_core::status::init);
         let state = cx.update(|cx| {
             let shared: crate::http::SharedToken = Arc::new(RwLock::new(None));
@@ -5835,6 +5962,10 @@ mod tests {
         // exist; each queued draft renders as a Pending row under its
         // anchored diff line; the row composer renders only while armed.
         cx.update(gpui_component::init);
+        // The page schedules background tokenization (docs/0040 D5) —
+        // let the deterministic test executor park instead of spinning
+        // on the outstanding task.
+        cx.update(|cx| cx.background_executor().allow_parking());
         let state = cx.update(|cx| {
             let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
             let store: std::sync::Arc<dyn crate::auth::TokenStore> =
@@ -5916,6 +6047,10 @@ mod tests {
         // pane as an inline row — never modal, and other scopes never
         // leak into it.
         cx.update(gpui_component::init);
+        // The page schedules background tokenization (docs/0040 D5) —
+        // let the deterministic test executor park instead of spinning
+        // on the outstanding task.
+        cx.update(|cx| cx.background_executor().allow_parking());
         let state = cx.update(|cx| {
             let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
             let store: std::sync::Arc<dyn crate::auth::TokenStore> =
@@ -5990,6 +6125,10 @@ mod tests {
         // #213: Resolve no longer fires immediately — the picker row
         // renders under the thread card until a choice or Cancel.
         cx.update(gpui_component::init);
+        // The page schedules background tokenization (docs/0040 D5) —
+        // let the deterministic test executor park instead of spinning
+        // on the outstanding task.
+        cx.update(|cx| cx.background_executor().allow_parking());
         let state = cx.update(|cx| {
             let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
             let store: std::sync::Arc<dyn crate::auth::TokenStore> =
@@ -6052,6 +6191,10 @@ mod tests {
         // editor and the delete confirm replace the comment body while
         // armed, keyed to that one comment.
         cx.update(gpui_component::init);
+        // The page schedules background tokenization (docs/0040 D5) —
+        // let the deterministic test executor park instead of spinning
+        // on the outstanding task.
+        cx.update(|cx| cx.background_executor().allow_parking());
         let state = cx.update(|cx| {
             let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
             let store: std::sync::Arc<dyn crate::auth::TokenStore> =
@@ -6158,6 +6301,10 @@ mod tests {
         // queued draft renders under the range's END row (GitHub renders
         // range threads at the end line).
         cx.update(gpui_component::init);
+        // The page schedules background tokenization (docs/0040 D5) —
+        // let the deterministic test executor park instead of spinning
+        // on the outstanding task.
+        cx.update(|cx| cx.background_executor().allow_parking());
         let state = cx.update(|cx| {
             let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
             let store: std::sync::Arc<dyn crate::auth::TokenStore> =
