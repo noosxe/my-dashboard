@@ -72,6 +72,7 @@ cross-platform, multi-modular universal personal dashboard built with Rust and
 | [0037](0037-freshness-system.md) | GitHub Module: Freshness System (one clock trait + header component; detail-page / list-surface patterns; repo-page synced label as pilot) |
 | [0038](0038-realtime-detail-pages.md) | GitHub Module: Realtime Detail Pages (engaged conditional polling; push rejected on evidence; 304 = unchanged landing; #226) |
 | [0039](0039-check-run-logs.md) | GitHub Module: Check-run Log Viewing (documented 4-call resolution chain; page-owned one-shot kind; inline accordion pane, tail-truncated; #201) |
+| [0040](0040-syntax-highlighted-diffs.md) | GitHub Module: Syntax-Highlighted Diffs (syntect tokenizer, theme-token color mapping; #202) |
 
 ## Planned docs (roadmap, not yet written)
 
