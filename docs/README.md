@@ -67,6 +67,7 @@ cross-platform, multi-modular universal personal dashboard built with Rust and
 | [0032](0032-auto-refresh-detail-pages.md) | GitHub Module: Auto-Refresh Detail Pages (heartbeat + focus triggers on the 0031 records; #188, folds #194) |
 | [0033](0033-last-synced-indicator.md) | GitHub Module: Last-Synced Indicator (per-record `fetched_at` labels on the detail pages; #192) |
 | [0034](0034-cache-ttl-and-staleness-marking.md) | GitHub Module: Cache TTL & Staleness Marking (cold-start cache ages + stale chips; mark-not-evict, #193) |
+| [0035](0035-list-surface-auto-refresh.md) | GitHub Module: List-Surface Auto-Refresh (heartbeat for the open repo page's rows; #224) |
 
 ## Planned docs (roadmap, not yet written)
 
