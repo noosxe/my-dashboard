@@ -5,6 +5,7 @@
 | Status | design |
 | Builds on | docs/0031 (`Fetch` record), 0032/0035 (heartbeat + repo-rows beat), 0033 (synced labels), 0034 (cold-start staleness), 0036 (backoff) |
 | Related | #192/#193/#224 (closed — their deferral loop is §1), the owner's "consistent systemic approach" direction |
+| Ratified | Q2 via design review: **dashboard-core from day one** — all modules are to share the same UI/UX and differ only in what they do |
 
 ## 1. Problem
 
@@ -39,9 +40,10 @@ synced indicator automatic instead of re-assembled.
 
 **Goals**
 
-- G1: One module owns freshness: the clock abstraction, the composed
-  refresh policy, and the header component. Adding the repo-page
-  synced label is a *consumer*, not another hand-wiring.
+- G1: **dashboard-core owns freshness**: the clock contract, the
+  standard refresh policy, and the header component — platform
+  primitives every module shares, like nav and status. Adding the
+  repo-page synced label is a *consumer*, not another hand-wiring.
 - G2: Two standard page patterns, documented as the way new pages get
   built: **detail-page** and **list-surface**. A new page that matches
   one declares its clocks and gets policy, backoff, labels, spinner
@@ -59,9 +61,11 @@ synced indicator automatic instead of re-assembled.
 - N2: The 0034 stale chip keeps its own rendering — its semantics are
   cold-start-specific (disk-seeded cache age, threshold-marked,
   reconnect copy), not lane freshness. It does not join the component.
-- N3: No cross-module lift yet: the module lives in the github crate.
-  A second consumer module is the trigger to move it to dashboard-core
-  (docs/0034 D6 reasoning).
+- N3: *Removed at design review* — the owner's platform direction
+  ("all our modules are going to have an exact same UI/UX just doing
+  different things") makes dashboard-core the home from day one. The
+  module keeps only what is genuinely module-local: the `Fetch<T>`
+  record, `rows_landed`, and the trait impls over them.
 - N4: No visual redesign — the migrated header rows render
   byte-identically (probe tests must stay green unchanged).
 
@@ -81,10 +85,17 @@ synced indicator automatic instead of re-assembled.
 
 ## 4. Design decisions
 
-**D1 — A `freshness` module in the github crate.** `freshness.rs`
-owns everything from this doc. Not `dashboard-core`: today exactly one
-module consumes it, and the crate boundary gets crossed when a second
-consumer appears (N3), not before.
+**D1 — `dashboard_core::freshness`, from day one.** Core is the
+shared UX-contract layer — nav, status, and now freshness. It owns the
+`Freshness` trait, the **standard refresh policy** (the 0032 age gate
+composed with the 0036 backoff, constants included — "how a dashboard
+behaves when a surface cannot refresh" is shell behavior, not
+module behavior), the `synced_label`/`relative_age` copy helpers
+(moved from github's page.rs), and the `FreshnessRow` component. A
+module that wants the standard UX implements the trait over its own
+records; a module that wants different policy overrides `wants_refresh`
+— but the shared default is one definition, in core, for every
+module.
 
 **D2 — One clock trait, three implementations.**
 
@@ -100,19 +111,34 @@ pub(crate) trait Freshness {
 }
 ```
 
-- `Fetch<T>` implements it directly (`age`/`is_loading` already exist;
-  `wants_refresh` composes `needs_refresh && backoff_elapsed` — the
-  five hand-composed sites become `lane.wants_refresh(min_age)`).
-- `LandedClock(Option<Instant>)` — the list-surface clock: a
-  `rows_landed` lookup wrapped up. `is_loading` is always false (rows
-  land in bulk, no per-page spinner); `wants_refresh` is the landed
-  age past `min_age` (the 0035 gate) — the backoff bookkeeping stays
-  state-side as shipped in 0036.
-- The 0034 cache-age clock stays **outside** the trait (N2): it is a
-  threshold marker, not a refresh gate.
+- Core ships the **standard implementation** alongside the trait — a
+  free function over the policy inputs so both sides can delegate:
 
-**D3 — `FreshnessRow`: the header component.** One function building
-the row all three pages hand-roll today:
+  ```rust
+  pub fn standard_wants_refresh(
+      age: Option<Duration>, loading: bool, failed: bool,
+      fail_streak: u32, attempted_at: Option<Instant>,
+      min_age: Duration,
+  ) -> bool
+  ```
+
+  The 0032 stale-or-failed gate + the 0036 backoff table
+  (`BACKOFF_BASE`/`BACKOFF_CAP` move with it). Github's `Fetch<T>`
+  implements `Freshness` by delegating — the five hand-composed sites
+  become `lane.wants_refresh(min_age)`, and a future module gets the
+  identical policy by implementing the same four accessors.
+- `LandedClock(Option<Instant>)` stays github-side (it wraps
+  `rows_landed`), implementing core's trait: `is_loading` always
+  false (rows land in bulk, no per-page spinner); `wants_refresh` is
+  the landed age past `min_age` (the 0035 gate) — the backoff
+  bookkeeping stays state-side as shipped in 0036.
+- The 0034 cache-age clock stays **outside** the trait (N2): it is a
+  threshold marker, not a refresh gate. Its label copy reuses core's
+  `synced_label`.
+
+**D3 — `FreshnessRow`: the header component, in core.** One function
+building the row all three pages hand-roll today, available to every
+module:
 
 ```rust
 pub(crate) fn freshness_row<F: Freshness>(
@@ -180,8 +206,10 @@ session's rows).
 
 ## 6. Implementation plan
 
-1. `freshness.rs`: trait, `Fetch` impl, `LandedClock`,
-   `wants_refresh`, `freshness_row`; unit tests.
+1. `dashboard_core::freshness`: trait, `standard_wants_refresh` (with
+   the backoff constants), `synced_label`/`relative_age` moved over,
+   `freshness_row`; unit tests. Github implements the trait for
+   `Fetch<T>` + `LandedClock` on top.
 2. Collapse the five lane gates to `wants_refresh`; migrate the three
    headers to `freshness_row` (probe tests must stay green, N4).
 3. The repo-page label (D6) + `repo-rows-synced` probe test.
@@ -190,9 +218,10 @@ session's rows).
 
 ## 7. Open questions (owner)
 
-- **Q1**: D6 placement — the label goes in the module main page's
-  header area next to the 0034 stale chip (one freshness cluster per
-  page) rather than floating near the rows. Right call?
-- **Q2**: N3 — the trait/component stay github-crate-local until a
-  second module needs them. Comfortable, or do you want the lift to
-  dashboard-core in the same PR since the point is systemic reuse?
+- **Q1** *(open)*: D6 placement — the label goes in the module main
+  page's header area next to the 0034 stale chip (one freshness
+  cluster per page) rather than floating near the rows. Right call?
+- ~~**Q2**: github-local vs lift to dashboard-core.~~ **Ratified via
+  design review: lift to core** (header-table note) — the platform
+  direction makes core the home from day one; the doc is amended
+  (D1/D2/N3/§6).
