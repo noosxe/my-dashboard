@@ -312,3 +312,13 @@ picks one and tests it).
   dedicated low-chroma mapping since logs are not source code.
 - Per-language syntax pack trimming (custom `dump-create` pack) if the
   binary delta ever matters.
+
+## 10. Shipped (2026-09-17, PR #252 — issue #202/#251)
+
+Implemented in PR #252 as designed, with two recorded facts (both in
+§4): release-binary delta **+846 KB** (under the D7 watch threshold)
+and the default pack's **missing Dockerfile grammar** (D4 fallback
+renders such diffs plain). One deviation-in-the-letter, none in
+spirit: the D5 theme invalidation key is the Debug rendering of
+exactly the tokens the D3 palette reads (robust for any mode switch,
+including System) rather than the theme's mode/name pair.
