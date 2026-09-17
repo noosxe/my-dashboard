@@ -13,6 +13,7 @@ pub mod api;
 pub mod auth;
 pub mod card;
 pub mod files;
+mod filters;
 pub mod gql;
 pub mod http;
 pub mod issue_page;

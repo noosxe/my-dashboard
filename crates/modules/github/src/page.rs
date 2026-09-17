@@ -21,7 +21,9 @@ use gpui_component::{
     button::{Button, ButtonVariants},
     group_box::GroupBox,
     h_flex,
+    input::{Input, InputEvent, InputState},
     list::{List, ListDelegate, ListEvent, ListItem, ListState},
+    menu::{DropdownMenu as _, PopupMenuItem},
     searchable_list::SearchableVec,
     select::{Select, SelectEvent, SelectState},
     spinner::Spinner,
@@ -34,6 +36,7 @@ use dashboard_core::nav::{Crumb, NavEvent, Navigator, Page};
 
 use crate::api;
 use crate::card::{REPO_LOCK, github_mark};
+use crate::filters;
 use crate::gql;
 use crate::issue_page;
 use crate::new_issue_page::{NewIssuePage, NewIssuePageEvent};
@@ -105,6 +108,13 @@ pub(crate) struct GithubPage {
     /// (opening one hides the other).
     creator: Option<Entity<NewIssuePage>>,
     creator_open: bool,
+    /// Repo-view filter/sort state (docs/0042 D2): session-scoped; the
+    /// label choices reset on repo switch (names are repo-local), the
+    /// rest survives switches but not app restarts.
+    filters: filters::RepoViewFilters,
+    /// The shared quick-filter input (docs/0042 D5) — one query narrows
+    /// all three boxes at once.
+    row_search: Entity<InputState>,
     /// Window access for observer-time entity updates (0009 D6).
     window: AnyWindowHandle,
     /// Last-synced item keys — compare-first background sync so untouched
@@ -150,6 +160,10 @@ impl GithubPage {
                     return;
                 };
                 this.org = Some(login.clone());
+                // Label choices are repo-local (docs/0042 D2) — a new
+                // org drops them with the selection.
+                this.filters.prs.label = None;
+                this.filters.issues.label = None;
                 this.state.update(cx, |s, cx| {
                     s.selected = None;
                     cx.notify();
@@ -240,6 +254,16 @@ impl GithubPage {
         // state — the observers only fire on edges, so a window born
         // focused would otherwise idle forever.
         state.update(cx, |s, _| s.focus_engaged = window.is_window_active());
+        // Shared quick filter (docs/0042 D5): one input narrows all
+        // three boxes; every keystroke is a plain in-memory rescan.
+        let row_search =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Filter rows… (#number or text)"));
+        cx.subscribe_in(&row_search, window, |this, _, event: &InputEvent, _, cx| {
+            if matches!(event, InputEvent::Change) {
+                this.apply_row_search(cx);
+            }
+        })
+        .detach();
         let page = Self {
             state,
             nav,
@@ -255,6 +279,8 @@ impl GithubPage {
             synced_orgs: Vec::new(),
             synced_repos: Vec::new(),
             row_done_inflight: std::collections::HashSet::new(),
+            filters: filters::RepoViewFilters::default(),
+            row_search,
         };
         // Seed from whatever the state already holds (last-known
         // caches) — but NOT here: Module::init runs inside
@@ -563,6 +589,10 @@ impl GithubPage {
             self.creator = None;
             self.creator_open = false;
         }
+        // Label choices are repo-local (docs/0042 D2): a switch to
+        // another repo resets them; author/sort/search survive.
+        self.filters.prs.label = None;
+        self.filters.issues.label = None;
         let specs = self.state.update(cx, |s, cx| {
             s.selected = Some(full_name.to_string());
             let specs = s.repo_open_specs(&full_name);
@@ -670,6 +700,8 @@ impl GithubPage {
     /// not "this repo without its PR".
     fn return_to_root(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         log::debug!("module crumb re-entered: returning to repo list");
+        self.filters.prs.label = None;
+        self.filters.issues.label = None;
         self.state.update(cx, |s, cx| {
             s.selected = None;
             cx.notify();
@@ -767,6 +799,8 @@ impl GithubPage {
                             updated_at: None,
                             url: String::new(),
                             status: None,
+                            labels: None,
+                            review_requests: None,
                         };
                         this.open_pr(full_name, &pr, *anchor, window, cx);
                     } else {
@@ -778,6 +812,7 @@ impl GithubPage {
                             author: None,
                             updated_at: None,
                             url: String::new(),
+                            labels: None,
                         };
                         this.open_issue(full_name, &issue, *anchor, window, cx);
                     }
@@ -993,6 +1028,12 @@ impl GithubPage {
         let row = pr.clone();
         div()
             .id(SharedString::from(format!("pr-{}", pr.key)))
+            // docs/0010 D10: id alone is not probe-visible — the dump
+            // and `debug_bounds` read the selector.
+            .debug_selector({
+                let probe = format!("pr-{}", pr.key);
+                move || probe.clone()
+            })
             .role(accesskit::Role::ListItem)
             .px_2()
             .py_1p5()
@@ -1043,6 +1084,15 @@ impl GithubPage {
                         h_flex()
                             .gap_2()
                             .items_center()
+                            .when_some(pr.labels.as_ref(), |row, labels| {
+                                // docs/0042 D7: passive label dots —
+                                // zero layout risk, tooltip carries names.
+                                row.child(label_dots(
+                                    labels,
+                                    &format!("pr-labels-{}", pr.key),
+                                    cx.theme().tokens.group_box.into(),
+                                ))
+                            })
                             .when_some(pr.author.as_ref(), |row, author| {
                                 row.child(
                                     h_flex()
@@ -1104,6 +1154,11 @@ impl GithubPage {
         let page = cx.entity();
         div()
             .id(SharedString::from(format!("issue-{}", issue.key)))
+            // docs/0010 D10: probe-visible row, mirroring the PR rows.
+            .debug_selector({
+                let probe = format!("issue-{}", issue.key);
+                move || probe.clone()
+            })
             .role(accesskit::Role::ListItem)
             .px_2()
             .py_1p5()
@@ -1139,6 +1194,14 @@ impl GithubPage {
                         h_flex()
                             .gap_2()
                             .items_center()
+                            .when_some(issue.labels.as_ref(), |row, labels| {
+                                // docs/0042 D7: label dots, as on PR rows.
+                                row.child(label_dots(
+                                    labels,
+                                    &format!("issue-labels-{}", issue.key),
+                                    cx.theme().tokens.group_box.into(),
+                                ))
+                            })
                             .when_some(issue.author.as_ref(), |row, author| {
                                 row.child(
                                     h_flex()
@@ -1269,6 +1332,46 @@ pub(crate) fn notification_url(repo_full_name: &str) -> String {
 /// as before. `rendered` is the node slice the query capped at 100, so
 /// the arithmetic fits either side of the i64/usize border. Pure —
 /// table-tested.
+/// Up to three label color dots (docs/0042 D7): GitHub's own label
+/// colors tinted through the docs/0002-sanctioned `data_color`
+/// exception — the same contrast treatment as the 0022 pills; garbled
+/// hex degrades that dot alone. The tooltip carries the shown names
+/// plus an `+n` overflow count.
+fn label_dots(labels: &gql::LabelSummary, key: &str, surface: gpui::Hsla) -> AnyElement {
+    const MAX_DOTS: usize = 3;
+    let mut dots = h_flex().gap_0p5().items_center();
+    let mut shown_names: Vec<&str> = Vec::new();
+    for (label, chip) in labels
+        .nodes
+        .iter()
+        .filter_map(|l| {
+            l.color.as_deref().and_then(|hex| {
+                dashboard_core::data_color::data_chip(hex, surface.into()).map(|c| (l, c))
+            })
+        })
+        .take(MAX_DOTS)
+    {
+        shown_names.push(&label.name);
+        dots = dots.child(div().size_1p5().rounded_full().bg(chip.bg));
+    }
+    if shown_names.is_empty() {
+        return div().into_any_element();
+    }
+    let overflow = labels.total_count as usize - shown_names.len();
+    let tip = if overflow > 0 {
+        format!("{}, +{} more", shown_names.join(", "), overflow)
+    } else {
+        shown_names.join(", ")
+    };
+    dots.id(SharedString::from(key.to_string()))
+        .debug_selector({
+            let probe = key.to_string();
+            move || probe.clone()
+        })
+        .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+        .into_any_element()
+}
+
 fn more_hint_count(total_count: i64, rendered: usize) -> Option<usize> {
     let rendered = rendered as i64;
     (total_count > rendered).then(|| (total_count - rendered) as usize)
@@ -1482,23 +1585,18 @@ impl Render for GithubPage {
             self.creator_open = false; // stale flag without a page —
         }
 
-        let (selected_full, prs, issues, repo_notifs) = {
+        // docs/0042 D1: rows render from the held snapshot nodes — the
+        // filter/sort engine runs inside render_right_column at render
+        // time, so the full node lists are handed over untouched.
+        let (selected_full, repo_notifs) = {
             let state = self.state.read(cx);
-            let (prs, issues) = state
-                .selected
-                .as_ref()
-                // Docs/0007 D2: repo views paint from the in-memory
-                // global snapshot — every repo's PRs are already here.
-                .and_then(|f| state.repos.iter().find(|r| &r.full_name == f))
-                .map(|r| (r.prs.nodes.clone(), r.issues.nodes.clone()))
-                .unwrap_or_default();
             let notifs = state
                 .selected
                 .as_ref()
                 .and_then(|f| state.repo_notifications.get(f))
                 .cloned()
                 .unwrap_or_default();
-            (state.selected.clone(), prs, issues, notifs)
+            (state.selected.clone(), notifs)
         };
         let selected_repo = selected_full.as_ref().and_then(|full| {
             self.state
@@ -1510,7 +1608,7 @@ impl Render for GithubPage {
         });
 
         let left = self.render_left_column(cx);
-        let right = self.render_right_column(&selected_repo, &prs, &issues, &repo_notifs, cx);
+        let right = self.render_right_column(&selected_repo, &repo_notifs, cx);
         h_flex()
             .size_full()
             .child(left)
@@ -1587,11 +1685,80 @@ impl GithubPage {
     fn render_right_column(
         &mut self,
         selected_repo: &Option<gql::Repo>,
-        prs: &[gql::PullRequest],
-        issues: &[gql::Issue],
         repo_notifs: &[api::Notification],
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        // docs/0042 D1/D8: filters/sort apply at render over the held
+        // snapshot nodes — no fetch, no snapshot mutation.
+        let (pr_rows, issue_rows, notif_rows, pr_filtered, issue_filtered, notif_filtered) = {
+            let viewer = self.state.read(cx).user.as_ref().map(|u| u.login.clone());
+            let search = self.filters.search.clone();
+            let notifs = filters::apply_notifs(&self.filters.notifs, repo_notifs, &search);
+            let notif_filtered = self.filters.notifs.is_filtered() || !search.is_empty();
+            let (pr_rows, issue_rows) = match selected_repo {
+                None => (Vec::new(), Vec::new()),
+                Some(repo) => (
+                    filters::apply_prs(
+                        &self.filters.prs,
+                        &repo.prs.nodes,
+                        viewer.as_deref(),
+                        &search,
+                    ),
+                    filters::apply_issues(
+                        &self.filters.issues,
+                        &repo.issues.nodes,
+                        viewer.as_deref(),
+                        &search,
+                    ),
+                ),
+            };
+            let pr_filtered = self.filters.prs.is_filtered() || !search.is_empty();
+            let issue_filtered = self.filters.issues.is_filtered() || !search.is_empty();
+            (
+                pr_rows,
+                issue_rows,
+                notifs,
+                pr_filtered,
+                issue_filtered,
+                notif_filtered,
+            )
+        };
+        // Filter-menu options derive from the data present (docs/0042
+        // D3): names/reasons/kinds among the held nodes — no extra
+        // fetches, and a truncation can't hide a filterable name the
+        // rows actually show.
+        let (pr_label_options, issue_label_options, notif_reasons, notif_kinds) =
+            match selected_repo {
+                None => Default::default(),
+                Some(repo) => {
+                    let mut pr_labels: std::collections::BTreeSet<String> = Default::default();
+                    for p in &repo.prs.nodes {
+                        for n in filters::label_names(p.labels.as_ref()) {
+                            pr_labels.insert(n.to_string());
+                        }
+                    }
+                    let mut issue_labels: std::collections::BTreeSet<String> = Default::default();
+                    for i in &repo.issues.nodes {
+                        for n in filters::label_names(i.labels.as_ref()) {
+                            issue_labels.insert(n.to_string());
+                        }
+                    }
+                    let mut reasons: std::collections::BTreeSet<String> = Default::default();
+                    let mut kinds: std::collections::BTreeSet<String> = Default::default();
+                    for n in repo_notifs {
+                        if let Some(r) = n.reason.as_ref() {
+                            reasons.insert(r.clone());
+                        }
+                        kinds.insert(n.subject.kind.clone());
+                    }
+                    (
+                        pr_labels.into_iter().collect::<Vec<_>>(),
+                        issue_labels.into_iter().collect::<Vec<_>>(),
+                        reasons.into_iter().collect::<Vec<_>>(),
+                        kinds.into_iter().collect::<Vec<_>>(),
+                    )
+                }
+            };
         let detail: AnyElement = match selected_repo {
             None => div()
                 .size_full()
@@ -1687,6 +1854,14 @@ impl GithubPage {
                             },
                         )),
                 )
+                .child(
+                    // Shared quick filter (docs/0042 D5): one input
+                    // narrows all three boxes; text or exact #number.
+                    div()
+                        .id("repo-row-search")
+                        .w_full()
+                        .child(Input::new(&self.row_search).small()),
+                )
                 .child({
                     // The actions row (docs/0024 D2): New issue (gated,
                     // hidden-not-disabled) + Refresh.
@@ -1712,56 +1887,117 @@ impl GithubPage {
                 .child(
                     GroupBox::new()
                         .id("prs-box")
-                        .title(format!("Open PRs ({})", repo.prs.total_count))
-                        .child(if prs.is_empty() {
-                            muted_cell("No open PRs", cx)
-                        } else {
+                        .title(filters::box_title(
+                            "Open PRs",
+                            repo.prs.total_count.max(pr_rows.len() as i64) as usize,
+                            pr_rows.len(),
+                            pr_filtered,
+                        ))
+                        .child(
                             v_flex()
                                 .gap_0p5()
-                                .children(prs.iter().map(|p| self.render_pr_row(p, cx)))
-                                // #87: the title already says the exact count;
-                                // the tail cell says what the cap swallowed.
-                                .when_some(
-                                    more_hint_count(repo.prs.total_count, prs.len()),
-                                    |col, n| col.child(more_cell(n, "repo-prs-more", cx)),
-                                )
-                                .into_any_element()
-                        }),
+                                .child(self.pr_filter_toolbar(&pr_label_options, cx))
+                                .child(if pr_rows.is_empty() {
+                                    if repo.prs.nodes.is_empty() {
+                                        muted_cell("No open PRs", cx)
+                                    } else {
+                                        muted_cell("No PRs match the current filters", cx)
+                                    }
+                                } else {
+                                    v_flex()
+                                        .gap_0p5()
+                                        .children(pr_rows.iter().map(|p| self.render_pr_row(p, cx)))
+                                        // #87: the tail cell says what the
+                                        // cap swallowed — while filtered the
+                                        // hidden rows are filtered, not
+                                        // capped, so the hint is
+                                        // unfiltered-only.
+                                        .when(!pr_filtered, |col| {
+                                            col.children(
+                                                more_hint_count(
+                                                    repo.prs.total_count,
+                                                    repo.prs.nodes.len(),
+                                                )
+                                                .map(|n| more_cell(n, "repo-prs-more", cx)),
+                                            )
+                                        })
+                                        .into_any_element()
+                                })
+                                .into_any_element(),
+                        ),
                 )
                 .child(
                     GroupBox::new()
                         .id("issues-box")
-                        .title(format!("Open Issues ({})", repo.issues.total_count))
-                        .child(if issues.is_empty() {
-                            muted_cell("No open issues", cx)
-                        } else {
+                        .title(filters::box_title(
+                            "Open Issues",
+                            repo.issues.total_count.max(issue_rows.len() as i64) as usize,
+                            issue_rows.len(),
+                            issue_filtered,
+                        ))
+                        .child(
                             v_flex()
                                 .gap_0p5()
-                                .children(issues.iter().map(|i| self.render_issue_row(i, cx)))
-                                // #87, mirroring prs-box.
-                                .when_some(
-                                    more_hint_count(repo.issues.total_count, issues.len()),
-                                    |col, n| col.child(more_cell(n, "repo-issues-more", cx)),
-                                )
-                                .into_any_element()
-                        }),
+                                .child(self.issue_filter_toolbar(&issue_label_options, cx))
+                                .child(if issue_rows.is_empty() {
+                                    if repo.issues.nodes.is_empty() {
+                                        muted_cell("No open issues", cx)
+                                    } else {
+                                        muted_cell("No issues match the current filters", cx)
+                                    }
+                                } else {
+                                    v_flex()
+                                        .gap_0p5()
+                                        .children(
+                                            issue_rows.iter().map(|i| self.render_issue_row(i, cx)),
+                                        )
+                                        // #87, mirroring prs-box (filtered
+                                        // hides rows, the cap hint doesn't).
+                                        .when(!issue_filtered, |col| {
+                                            col.children(
+                                                more_hint_count(
+                                                    repo.issues.total_count,
+                                                    repo.issues.nodes.len(),
+                                                )
+                                                .map(|n| more_cell(n, "repo-issues-more", cx)),
+                                            )
+                                        })
+                                        .into_any_element()
+                                })
+                                .into_any_element(),
+                        ),
                 )
                 .child(
                     GroupBox::new()
                         .id("notifs-box")
-                        .title(format!("Notifications ({})", repo_notifs.len()))
-                        .child(if repo_notifs.is_empty() {
-                            muted_cell("No unread notifications", cx)
-                        } else {
+                        .title(filters::box_title(
+                            "Notifications",
+                            repo_notifs.len(),
+                            notif_rows.len(),
+                            notif_filtered,
+                        ))
+                        .child(
                             v_flex()
                                 .gap_0p5()
-                                .children(
-                                    repo_notifs
-                                        .iter()
-                                        .map(|n| self.render_notification_row(n, cx)),
-                                )
-                                .into_any_element()
-                        }),
+                                .child(self.notif_filter_toolbar(&notif_reasons, &notif_kinds, cx))
+                                .child(if notif_rows.is_empty() {
+                                    if repo_notifs.is_empty() {
+                                        muted_cell("No unread notifications", cx)
+                                    } else {
+                                        muted_cell("No notifications match the current filters", cx)
+                                    }
+                                } else {
+                                    v_flex()
+                                        .gap_0p5()
+                                        .children(
+                                            notif_rows
+                                                .iter()
+                                                .map(|n| self.render_notification_row(n, cx)),
+                                        )
+                                        .into_any_element()
+                                })
+                                .into_any_element(),
+                        ),
                 )
                 .into_any_element(),
         };
@@ -1772,6 +2008,379 @@ impl GithubPage {
             .overflow_y_scroll()
             .child(detail)
             .into_any_element()
+    }
+
+    // ------------------------------------------------------------------
+    // Repo-view filter toolbars (docs/0042 D3/D6)
+    // ------------------------------------------------------------------
+
+    /// One dropdown filter button (docs/0022-style PopupMenu): the label
+    /// shows the active choice; a `•` prefix marks non-default state so
+    /// a forgotten filter is visible even collapsed. `apply` runs
+    /// deferred off the menu click (the docs/0023 D4 pattern).
+    #[allow(clippy::too_many_arguments)]
+    fn filter_menu_button<T: Clone + PartialEq + 'static>(
+        &self,
+        id: &'static str,
+        label: String,
+        non_default: bool,
+        choices: Vec<(String, T)>,
+        active: T,
+        apply: fn(&mut Self, T, &mut Context<Self>),
+        cx: &Context<Self>,
+    ) -> impl IntoElement {
+        let weak = cx.entity().downgrade();
+        Button::new(id)
+            .debug_selector({
+                let probe = id.to_string();
+                move || probe.clone()
+            })
+            .ghost()
+            .small()
+            .label(if non_default {
+                format!("• {label}")
+            } else {
+                label
+            })
+            .dropdown_menu(move |menu, _, _| {
+                let mut next = menu;
+                for (text, value) in choices.clone() {
+                    let is_checked = value == active;
+                    let weak = weak.clone();
+                    let probe = format!("{id}-{}", text);
+                    next = next.item(
+                        PopupMenuItem::element(move |_, _| {
+                            h_flex()
+                                .debug_selector({
+                                    let probe = probe.clone();
+                                    move || probe.clone()
+                                })
+                                .child(text.clone())
+                        })
+                        .checked(is_checked)
+                        .on_click(move |_, window, cx| {
+                            let weak = weak.clone();
+                            let value = value.clone();
+                            window.defer(cx, move |_, cx| {
+                                let _ = weak.update(cx, |this, cx| apply(this, value, cx));
+                            });
+                        }),
+                    );
+                }
+                next
+            })
+    }
+
+    /// The quick-filter event handler (docs/0042 D5): reads the input
+    /// and re-renders when it moved. Extracted from the subscription so
+    /// tests drive the same path (`set_value` suppresses events).
+    fn apply_row_search(&mut self, cx: &mut Context<Self>) {
+        let q = self.row_search.read(cx).value().trim().to_string();
+        if self.filters.search != q {
+            self.filters.search = q;
+            cx.notify();
+        }
+    }
+
+    fn set_pr_author(&mut self, v: filters::AuthorFilter, cx: &mut Context<Self>) {
+        self.filters.prs.author = v;
+        cx.notify();
+    }
+
+    fn set_pr_reviews(&mut self, v: filters::ReviewsFilter, cx: &mut Context<Self>) {
+        self.filters.prs.reviews = v;
+        cx.notify();
+    }
+
+    fn set_pr_label(&mut self, v: Option<String>, cx: &mut Context<Self>) {
+        self.filters.prs.label = v;
+        cx.notify();
+    }
+
+    fn set_pr_sort(&mut self, v: filters::Sort, cx: &mut Context<Self>) {
+        self.filters.prs.sort = v;
+        cx.notify();
+    }
+
+    fn set_issue_author(&mut self, v: filters::AuthorFilter, cx: &mut Context<Self>) {
+        self.filters.issues.author = v;
+        cx.notify();
+    }
+
+    fn set_issue_label(&mut self, v: Option<String>, cx: &mut Context<Self>) {
+        self.filters.issues.label = v;
+        cx.notify();
+    }
+
+    fn set_issue_sort(&mut self, v: filters::Sort, cx: &mut Context<Self>) {
+        self.filters.issues.sort = v;
+        cx.notify();
+    }
+
+    fn set_notif_reason(&mut self, v: Option<String>, cx: &mut Context<Self>) {
+        self.filters.notifs.reason = v;
+        cx.notify();
+    }
+
+    fn set_notif_kind(&mut self, v: Option<String>, cx: &mut Context<Self>) {
+        self.filters.notifs.kind = v;
+        cx.notify();
+    }
+
+    fn set_notif_sort(&mut self, v: filters::NotifSort, cx: &mut Context<Self>) {
+        self.filters.notifs.sort = v;
+        cx.notify();
+    }
+
+    fn clear_pr_filters(&mut self, cx: &mut Context<Self>) {
+        self.filters.prs = filters::PrFilter::default();
+        cx.notify();
+    }
+
+    fn clear_issue_filters(&mut self, cx: &mut Context<Self>) {
+        self.filters.issues = filters::IssueFilter::default();
+        cx.notify();
+    }
+
+    fn clear_notif_filters(&mut self, cx: &mut Context<Self>) {
+        self.filters.notifs = filters::NotifFilter::default();
+        cx.notify();
+    }
+
+    /// The PR box toolbar (docs/0042 D3): author, review requests,
+    /// label, sort — plus a Clear that appears only while filtered.
+    /// The label menu is hidden while the repo's rows carry no labels.
+    fn pr_filter_toolbar(&self, label_options: &[String], cx: &Context<Self>) -> AnyElement {
+        use filters::{AuthorFilter, ReviewsFilter, Sort};
+        let f = &self.filters.prs;
+        let author_label = match f.author {
+            AuthorFilter::All => "Author",
+            AuthorFilter::Mine => "Author: mine",
+            AuthorFilter::Others => "Author: others",
+        };
+        let reviews_label = match f.reviews {
+            ReviewsFilter::All => "Reviews",
+            ReviewsFilter::RequestedOfMe => "Reviews: requested of me",
+        };
+        let label_button_label = match &f.label {
+            None => "Label".to_string(),
+            Some(name) => format!("Label: {name}"),
+        };
+        let sort_label = match f.sort {
+            Sort::UpdatedDesc => "Updated ↓",
+            Sort::UpdatedAsc => "Updated ↑",
+            Sort::NumberDesc => "Newest #",
+            Sort::NumberAsc => "Oldest #",
+        };
+        let mut row = h_flex().gap_1().flex_wrap().child(self.filter_menu_button(
+            "pr-filter-author",
+            author_label.to_string(),
+            f.author != AuthorFilter::All,
+            vec![
+                ("All authors".to_string(), AuthorFilter::All),
+                ("Mine".to_string(), AuthorFilter::Mine),
+                ("Others".to_string(), AuthorFilter::Others),
+            ],
+            f.author,
+            Self::set_pr_author,
+            cx,
+        ));
+        row = row.child(self.filter_menu_button(
+            "pr-filter-reviews",
+            reviews_label.to_string(),
+            f.reviews != ReviewsFilter::All,
+            vec![
+                ("All reviews".to_string(), ReviewsFilter::All),
+                ("Requested of me".to_string(), ReviewsFilter::RequestedOfMe),
+            ],
+            f.reviews,
+            Self::set_pr_reviews,
+            cx,
+        ));
+        if !label_options.is_empty() {
+            let mut choices = vec![("All labels".to_string(), None::<String>)];
+            choices.extend(label_options.iter().map(|n| (n.clone(), Some(n.clone()))));
+            row = row.child(self.filter_menu_button(
+                "pr-filter-label",
+                label_button_label,
+                f.label.is_some(),
+                choices,
+                f.label.clone(),
+                Self::set_pr_label,
+                cx,
+            ));
+        }
+        row = row.child(self.filter_menu_button(
+            "pr-filter-sort",
+            sort_label.to_string(),
+            f.sort != Sort::default(),
+            vec![
+                ("Updated ↓".to_string(), Sort::UpdatedDesc),
+                ("Updated ↑".to_string(), Sort::UpdatedAsc),
+                ("Newest #".to_string(), Sort::NumberDesc),
+                ("Oldest #".to_string(), Sort::NumberAsc),
+            ],
+            f.sort,
+            Self::set_pr_sort,
+            cx,
+        ));
+        if f.is_filtered() {
+            row = row.child(
+                Button::new("pr-filter-clear")
+                    .debug_selector(|| "pr-filter-clear".to_string())
+                    .ghost()
+                    .small()
+                    .label("Clear")
+                    .on_click(cx.listener(|this, _, _, cx| this.clear_pr_filters(cx))),
+            );
+        }
+        row.into_any_element()
+    }
+
+    /// The issue box toolbar: author, label, sort (docs/0042 D3).
+    fn issue_filter_toolbar(&self, label_options: &[String], cx: &Context<Self>) -> AnyElement {
+        use filters::{AuthorFilter, Sort};
+        let f = &self.filters.issues;
+        let author_label = match f.author {
+            AuthorFilter::All => "Author",
+            AuthorFilter::Mine => "Author: mine",
+            AuthorFilter::Others => "Author: others",
+        };
+        let label_button_label = match &f.label {
+            None => "Label".to_string(),
+            Some(name) => format!("Label: {name}"),
+        };
+        let sort_label = match f.sort {
+            Sort::UpdatedDesc => "Updated ↓",
+            Sort::UpdatedAsc => "Updated ↑",
+            Sort::NumberDesc => "Newest #",
+            Sort::NumberAsc => "Oldest #",
+        };
+        let mut row = h_flex().gap_1().flex_wrap().child(self.filter_menu_button(
+            "issue-filter-author",
+            author_label.to_string(),
+            f.author != AuthorFilter::All,
+            vec![
+                ("All authors".to_string(), AuthorFilter::All),
+                ("Mine".to_string(), AuthorFilter::Mine),
+                ("Others".to_string(), AuthorFilter::Others),
+            ],
+            f.author,
+            Self::set_issue_author,
+            cx,
+        ));
+        if !label_options.is_empty() {
+            let mut choices = vec![("All labels".to_string(), None::<String>)];
+            choices.extend(label_options.iter().map(|n| (n.clone(), Some(n.clone()))));
+            row = row.child(self.filter_menu_button(
+                "issue-filter-label",
+                label_button_label,
+                f.label.is_some(),
+                choices,
+                f.label.clone(),
+                Self::set_issue_label,
+                cx,
+            ));
+        }
+        row = row.child(self.filter_menu_button(
+            "issue-filter-sort",
+            sort_label.to_string(),
+            f.sort != Sort::default(),
+            vec![
+                ("Updated ↓".to_string(), Sort::UpdatedDesc),
+                ("Updated ↑".to_string(), Sort::UpdatedAsc),
+                ("Newest #".to_string(), Sort::NumberDesc),
+                ("Oldest #".to_string(), Sort::NumberAsc),
+            ],
+            f.sort,
+            Self::set_issue_sort,
+            cx,
+        ));
+        if f.is_filtered() {
+            row = row.child(
+                Button::new("issue-filter-clear")
+                    .debug_selector(|| "issue-filter-clear".to_string())
+                    .ghost()
+                    .small()
+                    .label("Clear")
+                    .on_click(cx.listener(|this, _, _, cx| this.clear_issue_filters(cx))),
+            );
+        }
+        row.into_any_element()
+    }
+
+    /// The notifications toolbar: reason, kind, updated order
+    /// (docs/0042 D3) — options derive from the unread inbox rows.
+    fn notif_filter_toolbar(
+        &self,
+        reasons: &[String],
+        kinds: &[String],
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        use filters::NotifSort;
+        let f = &self.filters.notifs;
+        let reason_label = match &f.reason {
+            None => "Reason".to_string(),
+            Some(r) => format!("Reason: {r}"),
+        };
+        let kind_label = match &f.kind {
+            None => "Kind".to_string(),
+            Some(k) => format!("Kind: {k}"),
+        };
+        let sort_label = match f.sort {
+            NotifSort::UpdatedDesc => "Updated ↓",
+            NotifSort::UpdatedAsc => "Updated ↑",
+        };
+        let mut row = h_flex().gap_1().flex_wrap();
+        if !reasons.is_empty() {
+            let mut choices = vec![("All reasons".to_string(), None::<String>)];
+            choices.extend(reasons.iter().map(|r| (r.clone(), Some(r.clone()))));
+            row = row.child(self.filter_menu_button(
+                "notif-filter-reason",
+                reason_label,
+                f.reason.is_some(),
+                choices,
+                f.reason.clone(),
+                Self::set_notif_reason,
+                cx,
+            ));
+        }
+        if !kinds.is_empty() {
+            let mut choices = vec![("All kinds".to_string(), None::<String>)];
+            choices.extend(kinds.iter().map(|k| (k.clone(), Some(k.clone()))));
+            row = row.child(self.filter_menu_button(
+                "notif-filter-kind",
+                kind_label,
+                f.kind.is_some(),
+                choices,
+                f.kind.clone(),
+                Self::set_notif_kind,
+                cx,
+            ));
+        }
+        row = row.child(self.filter_menu_button(
+            "notif-filter-sort",
+            sort_label.to_string(),
+            f.sort != NotifSort::default(),
+            vec![
+                ("Updated ↓".to_string(), NotifSort::UpdatedDesc),
+                ("Updated ↑".to_string(), NotifSort::UpdatedAsc),
+            ],
+            f.sort,
+            Self::set_notif_sort,
+            cx,
+        ));
+        if f.is_filtered() {
+            row = row.child(
+                Button::new("notif-filter-clear")
+                    .debug_selector(|| "notif-filter-clear".to_string())
+                    .ghost()
+                    .small()
+                    .label("Clear")
+                    .on_click(cx.listener(|this, _, _, cx| this.clear_notif_filters(cx))),
+            );
+        }
+        row.into_any_element()
     }
 }
 
@@ -1952,12 +2561,317 @@ mod tests {
         GithubPage, IndexPath, RepoListDelegate, create_allowed, more_hint_count,
         next_org_selection, notification_url, reconcile_repo_crumb, repo_crumb_label,
     };
+    use crate::api;
     use crate::gql;
     use gpui::AppContext as _;
     use gpui::{SharedString, TestAppContext};
     use gpui_component::list::ListState;
     use gpui_component::searchable_list::SearchableVec;
     use gpui_component::select::SelectState;
+    use std::sync::Arc;
+
+    /// docs/0042 §6 fixture: labels + review requests + authors on one
+    /// repo; the viewer login is "me".
+    fn pr(number: i64, title: &str, author: Option<&str>) -> gql::PullRequest {
+        gql::PullRequest {
+            key: format!("acme/one#{number}"),
+            database_id: None,
+            number,
+            title: title.to_string(),
+            draft: false,
+            state: None,
+            author: author.map(|login| gql::Author {
+                login: login.to_string(),
+                avatar_url: String::new(),
+            }),
+            updated_at: None,
+            url: "https://probe".into(),
+            status: None,
+            labels: None,
+            review_requests: None,
+        }
+    }
+
+    fn notif(id: &str, kind: &str, reason: &str, title: &str) -> api::Notification {
+        api::Notification {
+            id: id.to_string(),
+            subject: api::Subject {
+                title: title.to_string(),
+                kind: kind.to_string(),
+                url: None,
+                latest_comment_url: None,
+            },
+            repository: api::RepoRef {
+                full_name: "acme/one".into(),
+            },
+            updated_at: None,
+            unread: true,
+            reason: Some(reason.to_string()),
+        }
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn filters_probe_page(
+        cx: &mut gpui::TestAppContext,
+    ) -> (gpui::Entity<GithubPage>, &mut gpui::VisualTestContext) {
+        use crate::auth::MockTokenStore;
+        use crate::http::{Http, SharedToken, mock::MockHttp};
+        use crate::service::{GithubCache, GithubState};
+        use dashboard_core::nav::Navigator;
+        use dashboard_core::paths::AppPaths;
+
+        cx.update(gpui_component::init);
+        cx.update(dashboard_core::status::init);
+        let state = cx.update(|cx| {
+            let client: Arc<dyn Http> = Arc::new(MockHttp::new(vec![
+                Err(crate::http::HttpError("probe".into())),
+                Err(crate::http::HttpError("probe".into())),
+                Err(crate::http::HttpError("probe".into())),
+                Err(crate::http::HttpError("probe".into())),
+            ]));
+            let shared: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let refresh: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            cx.new(|_| {
+                GithubState::new(
+                    client,
+                    Arc::new(MockTokenStore::with("t0k".into())),
+                    shared,
+                    refresh,
+                    GithubCache::new(AppPaths::init()),
+                )
+            })
+        });
+        let mut r = repo("acme/one", None);
+        let mut mine = pr(1, "my pr", Some("me"));
+        mine.labels = Some(gql::LabelSummary {
+            total_count: 1,
+            nodes: vec![gql::LabelRef {
+                name: "bug".into(),
+                color: Some("#d73a4a".into()),
+            }],
+        });
+        mine.review_requests = Some(gql::ReviewRequestsSummary {
+            total_count: 1,
+            nodes: vec![gql::ReviewRequestRef {
+                requested_reviewer: Some(gql::RequestedReviewer::User { login: "me".into() }),
+            }],
+        });
+        let mut theirs = pr(2, "their pr", Some("you"));
+        theirs.labels = Some(gql::LabelSummary {
+            total_count: 1,
+            nodes: vec![gql::LabelRef {
+                name: "ui".into(),
+                color: Some("#0e8a16".into()),
+            }],
+        });
+        r.prs.total_count = 2;
+        r.prs.nodes = vec![mine, theirs];
+        let mut issue = gql::Issue {
+            key: "acme/one#9".into(),
+            database_id: None,
+            number: 9,
+            title: "some issue".into(),
+            author: Some(gql::Author {
+                login: "you".into(),
+                avatar_url: String::new(),
+            }),
+            updated_at: None,
+            url: "https://probe".into(),
+            labels: None,
+        };
+        issue.labels = Some(gql::LabelSummary {
+            total_count: 1,
+            nodes: vec![gql::LabelRef {
+                name: "ui".into(),
+                color: None,
+            }],
+        });
+        r.issues.total_count = 1;
+        r.issues.nodes = vec![issue];
+        cx.update(|cx| {
+            state.update(cx, |s, cx| {
+                s.auth = crate::service::AuthStatus::Connected;
+                s.user = Some(gql::User {
+                    login: "me".into(),
+                    avatar_url: String::new(),
+                });
+                s.repos = vec![r];
+                s.selected = Some("acme/one".into());
+                s.repo_notifications.insert(
+                    "acme/one".into(),
+                    vec![
+                        notif("n1", "PullRequest", "review_requested", "PR one"),
+                        notif("n2", "Issue", "mention", "Issue two"),
+                    ],
+                );
+                cx.notify();
+            });
+        });
+        let nav = cx.update(|cx| cx.new(|_| Navigator::default()));
+        cx.add_window_view(|window, cx| GithubPage::new(state.clone(), nav.clone(), window, cx))
+    }
+
+    #[gpui::test]
+    fn repo_view_filter_toolbars_narrow_the_rows(cx: &mut gpui::TestAppContext) {
+        // docs/0042 §6: default shows everything; author/reviews/label
+        // filters narrow; Clear restores.
+        let (page, vcx) = filters_probe_page(cx);
+        let _ = vcx.debug_bounds("flush"); // first-paint flush
+        vcx.run_until_parked();
+        assert!(
+            vcx.debug_bounds("pr-acme/one#1").is_some(),
+            "all rows render"
+        );
+        assert!(vcx.debug_bounds("issue-acme/one#9").is_some());
+        assert!(vcx.debug_bounds("notif-n1").is_some());
+        assert!(
+            vcx.debug_bounds("pr-filter-author").is_some(),
+            "toolbar visible"
+        );
+
+        // Author=Others hides my row.
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.set_pr_author(crate::filters::AuthorFilter::Others, cx)
+            });
+        });
+        assert!(vcx.debug_bounds("pr-acme/one#1").is_none(), "my row hidden");
+        assert!(vcx.debug_bounds("pr-acme/one#2").is_some());
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.set_pr_author(crate::filters::AuthorFilter::All, cx)
+            });
+        });
+
+        // Requested of me: only the PR that requests "me".
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.set_pr_reviews(crate::filters::ReviewsFilter::RequestedOfMe, cx)
+            });
+        });
+        assert!(vcx.debug_bounds("pr-acme/one#1").is_some());
+        assert!(vcx.debug_bounds("pr-acme/one#2").is_none());
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.set_pr_reviews(crate::filters::ReviewsFilter::All, cx)
+            });
+        });
+
+        // Label=bug: only the labeled PR; issues box unaffected.
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| p.set_pr_label(Some("bug".into()), cx));
+        });
+        assert!(vcx.debug_bounds("pr-acme/one#2").is_none());
+        assert!(vcx.debug_bounds("issue-acme/one#9").is_some());
+
+        // Clear restores everything in the box.
+        vcx.update(|window, cx| {
+            page.update(cx, |p, cx| p.clear_pr_filters(cx));
+            let _ = window;
+        });
+        assert!(vcx.debug_bounds("pr-acme/one#2").is_some());
+    }
+
+    #[gpui::test]
+    fn shared_row_search_filters_all_three_boxes(cx: &mut gpui::TestAppContext) {
+        // docs/0042 D5/§6: the shared input narrows PRs, issues and
+        // notifications at once; #number matches exactly.
+        let (page, vcx) = filters_probe_page(cx);
+        let _ = vcx.debug_bounds("flush"); // first-paint flush
+        vcx.run_until_parked();
+        vcx.update(|window, cx| {
+            page.update(cx, |p, cx| {
+                p.row_search
+                    .update(cx, |input, cx| input.set_value("issue", window, cx));
+                // `set_value` suppresses Change events (upstream
+                // InputState) — run the same handler the event runs.
+                p.apply_row_search(cx);
+            });
+        });
+        // "issue" matches the issue and the "Issue two" notification,
+        // not the PRs.
+        assert!(vcx.debug_bounds("pr-acme/one#1").is_none());
+        assert!(vcx.debug_bounds("issue-acme/one#9").is_some());
+        assert!(vcx.debug_bounds("notif-n2").is_some());
+        assert!(vcx.debug_bounds("notif-n1").is_none());
+        vcx.update(|window, cx| {
+            page.update(cx, |p, cx| {
+                p.row_search
+                    .update(cx, |input, cx| input.set_value("", window, cx));
+                p.apply_row_search(cx);
+            });
+        });
+        assert!(vcx.debug_bounds("pr-acme/one#1").is_some());
+    }
+
+    #[gpui::test]
+    fn notif_reason_filter_narrows_the_inbox_box(cx: &mut gpui::TestAppContext) {
+        // docs/0042 §6: reason filter over the unread inbox rows.
+        let (page, vcx) = filters_probe_page(cx);
+        let _ = vcx.debug_bounds("flush"); // first-paint flush
+        vcx.run_until_parked();
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.set_notif_reason(Some("review_requested".into()), cx)
+            });
+        });
+        assert!(vcx.debug_bounds("notif-n1").is_some());
+        assert!(vcx.debug_bounds("notif-n2").is_none());
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| p.clear_notif_filters(cx));
+        });
+        assert!(vcx.debug_bounds("notif-n2").is_some());
+    }
+
+    #[gpui::test]
+    fn label_filter_resets_on_repo_switch_but_author_survives(cx: &mut gpui::TestAppContext) {
+        // docs/0042 D2/§6: label choices are repo-local; author/filter
+        // state survives the switch.
+        use crate::filters::AuthorFilter;
+        let (page, vcx) = filters_probe_page(cx);
+        let _ = vcx.debug_bounds("flush"); // first-paint flush
+        vcx.run_until_parked();
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.set_pr_label(Some("bug".into()), cx);
+                p.set_issue_label(Some("ui".into()), cx);
+                p.set_pr_author(AuthorFilter::Mine, cx);
+            });
+        });
+        vcx.update(|window, cx| {
+            page.update(cx, |p, cx| {
+                p.select_repo("acme/two".into(), window, cx);
+            });
+        });
+        vcx.update(|_, cx| {
+            page.update(cx, |p, _| {
+                assert_eq!(p.filters.prs.label, None, "label filter reset");
+                assert_eq!(p.filters.issues.label, None, "issue label filter reset");
+                assert_eq!(
+                    p.filters.prs.author,
+                    AuthorFilter::Mine,
+                    "author filter survives"
+                );
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn label_dots_render_on_labeled_rows(cx: &mut gpui::TestAppContext) {
+        // docs/0042 D7: colored dots ride rows that carry labels (via
+        // the probe-visible dots container).
+        let (_page, vcx) = filters_probe_page(cx);
+        let _ = vcx.debug_bounds("flush"); // first-paint flush
+        vcx.run_until_parked();
+        assert!(
+            vcx.debug_bounds("pr-labels-acme/one#1").is_some(),
+            "label dots render on the labeled PR row"
+        );
+        assert!(
+            vcx.debug_bounds("pr-labels-acme/one#2").is_some(),
+            "labeled PR #2 renders dots too"
+        );
+    }
 
     fn repo(key: &str, description: Option<&str>) -> gql::Repo {
         let (owner, name) = key.split_once('/').unwrap_or(("acme", key));
@@ -2166,6 +3080,8 @@ mod tests {
                 updated_at: None,
                 url: "https://probe".into(),
                 status: Some("SUCCESS".into()),
+                labels: None,
+                review_requests: None,
             },
             gql::PullRequest {
                 key: "acme/one#1".into(),
@@ -2178,6 +3094,8 @@ mod tests {
                 updated_at: None,
                 url: "https://probe".into(),
                 status: None,
+                labels: None,
+                review_requests: None,
             },
         ];
         cx.update(|cx| {
@@ -2253,6 +3171,8 @@ mod tests {
                 updated_at: None,
                 url: "https://probe".into(),
                 status: None,
+                labels: None,
+                review_requests: None,
             })
             .collect();
         r.issues.total_count = 137;
@@ -2265,6 +3185,7 @@ mod tests {
                 author: None,
                 updated_at: None,
                 url: "https://probe".into(),
+                labels: None,
             })
             .collect();
         cx.update(|cx| {
@@ -2346,6 +3267,8 @@ mod tests {
                     updated_at: None,
                     url: "https://probe".into(),
                     status: None,
+                    labels: None,
+                    review_requests: None,
                 };
                 p.pr = Some(cx.new(|cx| {
                     pr_page::PrDetailPage::new(
@@ -2699,6 +3622,8 @@ mod tests {
                     updated_at: None,
                     url: "https://probe".into(),
                     status: None,
+                    labels: None,
+                    review_requests: None,
                 };
                 p.pr = Some(cx.new(|cx| {
                     pr_page::PrDetailPage::new(

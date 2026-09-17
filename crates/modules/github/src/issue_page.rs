@@ -3367,6 +3367,7 @@ mod tests {
             author: None,
             updated_at: None,
             url: "https://probe".into(),
+            labels: None,
         }
     }
 
