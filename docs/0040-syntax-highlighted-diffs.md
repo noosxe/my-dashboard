@@ -135,15 +135,29 @@ diffs):
 | `invalid.` | `danger` | — |
 
 **Amended at impl (2026-09-17, PR #252):** `punctuation.` → ambient and
-`keyword.operator.` → ambient (both rows above removed). Measured on a
-realistic Rust diff body: the two rows were ~half of all decoration
-runs (101 → 48 per 10 lines) and the churn was the prime suspect when
-diff scrolling jank was reported during human checks; delimiters and
-operators render ambient — matching github.com's diff view — while
-keywords/strings/comments/functions/types stay colored. Adjacent
-same-kind spans now also merge at tokenize time (the string-opening
-quote's punctuation scope falls back to the string scope instead of
-splitting the span).
+`keyword.operator.` → ambient (both rows above removed); adjacent
+same-kind spans merge at tokenize time (the string-opening quote's
+punctuation scope falls back to the string scope instead of splitting
+the span). Delimiters and operators render ambient — matching
+github.com's diff view.
+
+**Second amendment (2026-09-17, PR #252, human-check feedback):**
+
+1. **D6 — the sign glyph gets its own cell; content goes ambient.**
+   The old rows painted the whole line in the saturated
+   success/danger color, which then fought the token palette (added-line
+   `pub`/`crate`/`fn` rendered unreadable). Now: background tint stays,
+   only the `+`/`−` glyph cell carries the saturated color (0016 D10's
+   letter), and the content renders in ambient foreground with token
+   spans — like github.com. Side benefit: span ranges no longer need
+   re-basing past the glyph.
+2. **D5 — no bulk cache clear on refetch.** Measured headless
+   (500 rows × 60 draws): styled rows cost ~1.65× plain — not the jank
+   source. The real regressions were (a) the files refresh re-selecting
+   the first file every minute (0018 D6 amendment: preserve the
+   selection while it still exists) and (b) the bulk memo clear forcing
+   a render-time re-tokenize of the selected file on every refresh.
+   Entries now self-invalidate per file by patch hash only.
 
 Matching walks the region's `ScopeStack` from the innermost (last)
 scope outward and takes the first table hit; the row's `HighlightStyle`
