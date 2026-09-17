@@ -201,3 +201,29 @@ row, `check-log-pane-{idx}` on the pane.
 - Log **search/filtering** within the pane (nice-to-have; unprompted scope).
 - Step-level logs (cli/cli#11157's ask) — the API offers only whole-job logs.
 - Re-run / cancel job actions — mutation scope, separate issue if wanted.
+
+## 7 Shipped
+
+- The four-call chain shipped as designed (D1) and was **verified
+  end-to-end against live GitHub** on 2026-09-17 before implementation:
+  `neovim/neovim` PR #41941, check `old-cmake` — suite `95386065554` →
+  run `35221210207` → job `105201539285` → 4,733-line plain-text log.
+- D3's fragment was live-verified the same day: `checkSuite { app { slug } }`
+  fetches on the CheckRun fragment and Actions runs carry
+  `slug: "github-actions"` — **no fallback needed**, the optimistic-expander
+  path was not taken.
+- **Deviation from D1, recorded**: the head SHA comes from a new
+  `headRefOid` field on the PR detail, not `commits.nodes[0].oid` — under
+  the commits query's default ordering `nodes[0]` is the *oldest* commit,
+  not the head; the dedicated field is unambiguous at any commit count.
+- **Addition within D4's letter**: the pane preprocessing folds `\r`
+  progress overwrites to the segment a terminal would show and strips
+  ANSI/CSI/OSC escape sequences (job logs carry terminal control bytes;
+  gpui renders neither) before the tail truncation. Unit-tested.
+- Probe surface follows the house convention: gpui-test assertions key on
+  `debug_selector` wrappers (`check-log-toggle-{i}`, `check-log-pane-{i}`),
+  while the interactive elements keep their 0010-D10 ids for the bridge.
+- Tests: +9 (chain happy path and name-miss failure via `MockHttp`,
+  expander gating, tail truncation on line boundaries and UTF-8 char
+  boundaries, escape/`\r` folding, chain URL builders + percent-encoding,
+  chain DTO parsing, `CheckOrigin` mapping incl. suite-less runs).

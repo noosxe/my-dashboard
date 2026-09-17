@@ -76,7 +76,7 @@ developers open GitHub:
 | **Draft reviews** | Cannot batch comments before submitting. |
 | **Split diff view** | Only unified diff. |
 | **Syntax highlighting** | Diffs are plain text. |
-| **Check-run logs** | Can see pass/fail, cannot view the actual CI output. |
+| **Check-run logs** | ~~Can see pass/fail, cannot view the actual CI output.~~ **Closed by docs/0039 (#201)**: completed Actions checks expand to an inline, tail-truncated log pane. |
 
 > Without line-level review, the app cannot serve as a code-review tool.
 > Users doing non-trivial reviews will always need the browser.
@@ -172,7 +172,7 @@ Organized by impact on the "replace GitHub" goal.
 | **Issue templates** | Medium | Repos with structured templates expect them in the creation flow. |
 | **Draft persistence** | Medium | Losing a half-written issue on app close is painful. |
 | **Home card → notification page routing** | Small | The card shows counts but doesn't navigate. |
-| **Check-run log viewing** | Large | Seeing CI output without leaving the app. |
+| **Check-run log viewing** | Large | ~~Seeing CI output without leaving the app.~~ **Shipped — docs/0039 (#201).** |
 | **Syntax-highlighted diffs** | Medium | Makes the Files tab usable for reading code. |
 | **Split diff view** | Medium | Preference-dependent but expected by many reviewers. |
 

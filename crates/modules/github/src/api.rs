@@ -178,6 +178,109 @@ pub fn pr_files_url(owner: &str, repo: &str, number: i64, page: u32) -> String {
     )
 }
 
+/// Percent-encode one query-parameter value: the RFC 3986 unreserved set
+/// passes through, everything else hex-escapes. Check and job names may
+/// carry spaces, parens, `&`, `#`, `%` — each builder below funnels its
+/// free-text pieces through here (docs/0039 D1).
+fn encode_query_value(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for b in value.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+/// `GET /repos/{o}/{r}/commits/{sha}/check-runs?check_name=` — step 1 of
+/// the log chain (docs/0039 D1): the check run for the expanded row,
+/// matched server-side, with its suite id and app slug.
+pub fn check_runs_for_sha_url(owner: &str, repo: &str, sha: &str, check_name: &str) -> String {
+    format!(
+        "{API_BASE}/repos/{owner}/{repo}/commits/{sha}/check-runs?check_name={}",
+        encode_query_value(check_name)
+    )
+}
+
+/// `GET /repos/{o}/{r}/actions/runs?check_suite_id=` — step 2: the one
+/// workflow run behind the check suite (docs/0039 D1).
+pub fn workflow_runs_by_suite_url(owner: &str, repo: &str, suite_id: u64) -> String {
+    format!("{API_BASE}/repos/{owner}/{repo}/actions/runs?check_suite_id={suite_id}")
+}
+
+/// `GET /repos/{o}/{r}/actions/runs/{run_id}/jobs` — step 3: the run's
+/// jobs, name-matched client-side for the job id (docs/0039 D1).
+pub fn run_jobs_url(owner: &str, repo: &str, run_id: u64) -> String {
+    format!("{API_BASE}/repos/{owner}/{repo}/actions/runs/{run_id}/jobs")
+}
+
+/// `GET /repos/{o}/{r}/actions/jobs/{job_id}/logs` — step 4: a 302 to a
+/// 1-minute signed URL; the transport follows it and hands back the
+/// plain-text log (docs/0039 §2.1, D2).
+pub fn job_logs_url(owner: &str, repo: &str, job_id: u64) -> String {
+    format!("{API_BASE}/repos/{owner}/{repo}/actions/jobs/{job_id}/logs")
+}
+
+/// Step-1 payload (docs/0039 D1): the server-filtered check runs for the
+/// expanded row's name.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CheckRunsPage {
+    #[serde(default)]
+    pub check_runs: Vec<CheckRunNode>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CheckRunNode {
+    pub name: String,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub conclusion: Option<String>,
+    #[serde(default)]
+    pub check_suite: Option<CheckSuiteRef>,
+    #[serde(default)]
+    pub app: Option<AppRef>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CheckSuiteRef {
+    pub id: u64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AppRef {
+    #[serde(default)]
+    pub slug: Option<String>,
+}
+
+/// Step-2 payload: the suite's workflow runs (exactly one per suite).
+#[derive(Debug, Clone, Deserialize)]
+pub struct WorkflowRunsPage {
+    #[serde(default)]
+    pub workflow_runs: Vec<WorkflowRunNode>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct WorkflowRunNode {
+    pub id: u64,
+}
+
+/// Step-3 payload: the run's jobs, name-matched for the job id.
+#[derive(Debug, Clone, Deserialize)]
+pub struct JobsPage {
+    #[serde(default)]
+    pub jobs: Vec<JobNode>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct JobNode {
+    pub id: u64,
+    pub name: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -194,6 +297,62 @@ mod tests {
         .unwrap();
         assert_eq!(n.subject.kind, "PullRequest");
         assert!(n.unread);
+    }
+
+    #[test]
+    fn log_chain_urls_are_well_formed_and_encoded() {
+        // docs/0039 D1: the four documented endpoints. The check name is
+        // free text — matrix names carry spaces and parens.
+        assert_eq!(
+            check_runs_for_sha_url("o", "r", "abc123", "build (linux)"),
+            format!(
+                "{API_BASE}/repos/o/r/commits/abc123/check-runs?check_name=build%20%28linux%29"
+            )
+        );
+        assert_eq!(
+            check_runs_for_sha_url("o", "r", "abc123", "a&b#c?d%e"),
+            format!("{API_BASE}/repos/o/r/commits/abc123/check-runs?check_name=a%26b%23c%3Fd%25e")
+        );
+        assert_eq!(
+            workflow_runs_by_suite_url("o", "r", 42),
+            format!("{API_BASE}/repos/o/r/actions/runs?check_suite_id=42")
+        );
+        assert_eq!(
+            run_jobs_url("o", "r", 7),
+            format!("{API_BASE}/repos/o/r/actions/runs/7/jobs")
+        );
+        assert_eq!(
+            job_logs_url("o", "r", 9),
+            format!("{API_BASE}/repos/o/r/actions/jobs/9/logs")
+        );
+    }
+
+    #[test]
+    fn log_chain_dto_parse_minimal_payloads() {
+        let page: CheckRunsPage = serde_json::from_str(
+            r#"{"total_count": 1, "check_runs": [
+                {"name": "build (linux)", "status": "COMPLETED", "conclusion": "FAILURE",
+                 "check_suite": {"id": 5}, "app": {"slug": "github-actions"}}
+            ]}"#,
+        )
+        .unwrap();
+        assert_eq!(page.check_runs.len(), 1);
+        assert_eq!(page.check_runs[0].check_suite.as_ref().unwrap().id, 5);
+        assert_eq!(
+            page.check_runs[0].app.as_ref().unwrap().slug.as_deref(),
+            Some("github-actions")
+        );
+        let runs: WorkflowRunsPage =
+            serde_json::from_str(r#"{"total_count": 1, "workflow_runs": [{"id": 77}]}"#).unwrap();
+        assert_eq!(runs.workflow_runs[0].id, 77);
+        let jobs: JobsPage = serde_json::from_str(
+            r#"{"total_count": 2, "jobs": [
+                {"id": 1, "name": "use-existing-src"}, {"id": 2, "name": "build (linux)"}
+            ]}"#,
+        )
+        .unwrap();
+        assert_eq!(jobs.jobs.len(), 2);
+        assert_eq!(jobs.jobs[1].name, "build (linux)");
     }
 
     #[test]
