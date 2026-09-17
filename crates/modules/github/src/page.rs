@@ -879,19 +879,6 @@ impl GithubPage {
     }
 
     /// Manual refresh (Q7): notifications + a fresh global snapshot, now.
-    fn refresh_now(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        log::debug!("manual refresh");
-        let mut specs = self.state.update(cx, |s, _| {
-            vec![
-                s.spec(Kind::Notifications, api::notifications_url(1), Some(10)),
-                s.snapshot_spec(),
-            ]
-        });
-        if let Some(full_name) = self.state.read(cx).selected.clone() {
-            specs.extend(self.state.update(cx, |s, _| s.repo_open_specs(&full_name)));
-        }
-        self.run_specs(specs, window, cx);
-    }
 
     /// Row-level mark-as-done (docs/0026 D8, #153, owner decision
     /// §4.5): the repo-view rows fire the DELETE directly — no page
@@ -1619,11 +1606,22 @@ impl GithubPage {
             Some(repo) => v_flex()
                 .p_4()
                 .gap_3()
-                // Header: exactly two text rows (owner-specified).
+                // Header (the PR page's idiom): title and description
+                // left, the freshness cluster right-aligned — one
+                // freshness cluster per page (docs/0037 Q1), not a
+                // third text row stacked under the description.
                 .child(
-                    v_flex()
-                        .gap_1()
+                    h_flex()
+                        .id("repo-header")
+                        .justify_between()
+                        .gap_3()
+                        .items_start()
                         .child(
+                            v_flex()
+                                .gap_1()
+                                .min_w_0()
+                                .flex_1()
+                                .child(
                             h_flex()
                                 .id("repo-link")
                                 .gap_1p5()
@@ -1651,22 +1649,25 @@ impl GithubPage {
                                     row.child(private_lock(cx.theme().muted_foreground))
                                 }),
                         )
-                        .child(
-                            div()
-                                .text_sm()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(
-                                    repo.description
-                                        .clone()
-                                        .unwrap_or_else(|| "No description".into()),
-                                ),
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(
+                                        repo.description
+                                            .clone()
+                                            .unwrap_or_else(|| "No description".into()),
+                                    ),
+                            ),
                         )
                         // The freshness cluster (docs/0037 D6): the
                         // synced label reads the same `rows_landed`
                         // clock the beat gates on; blank until this
                         // session's first landing (0033 D2). Manual
                         // refresh dispatches the open pair, ignoring
-                        // age/backoff (user-invoked).
+                        // age/backoff (user-invoked) — the surface's
+                        // only refresh affordance since the textual
+                        // button went away (docs/0024 D2 amended).
                         .child(freshness_row(
                             "repo-rows",
                             &LandedClock(
@@ -1710,15 +1711,6 @@ impl GithubPage {
                                     })),
                             )
                         })
-                        .child(
-                            Button::new("refresh")
-                                .label("Refresh")
-                                .ghost()
-                                .small()
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    this.refresh_now(window, cx);
-                                })),
-                        )
                 })
                 .child(
                     GroupBox::new()
