@@ -1446,6 +1446,7 @@ name = "dashboard-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "dirs 7.0.0",
  "flexi_logger",
  "gpui-component",

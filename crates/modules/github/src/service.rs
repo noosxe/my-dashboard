@@ -32,6 +32,7 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use dashboard_core::AppPaths;
+use dashboard_core::freshness::Freshness;
 use dashboard_core::status;
 use dashboard_core::store;
 use gpui::App;
@@ -498,23 +499,9 @@ pub(crate) type InFlightKey = (Kind, Option<String>);
 /// error becomes `last_error` instead (stale-on-error, 0005's
 /// stale-data-over-error principle); only a failure with nothing
 /// landed is terminal. `fetched_at` is apply-time and session-local:
+// The backoff constants and the policy tables live in
+// `dashboard_core::freshness` (docs/0037 D2) — this record delegates.
 /// no TTL policy lives here (#193 owns that decision).
-/// docs/0036 D2: the first retry of a failing lane waits one beat (the
-/// cadence is unchanged), then the wait doubles per consecutive failure,
-/// capped — a dead transport settles at ~6 attempts/hour per lane
-/// instead of 60. Success zeroes the streak.
-pub(crate) const BACKOFF_BASE: Duration = Duration::from_secs(60);
-pub(crate) const BACKOFF_CAP: Duration = Duration::from_secs(600);
-
-/// The wait before the next attempt after `streak` consecutive
-/// failures: `min(BACKOFF_BASE * 2^(streak-1), BACKOFF_CAP)`. Streak 0
-/// has no wait — this is only called for streaks >= 1.
-fn backoff_delay(streak: u32) -> Duration {
-    debug_assert!(streak >= 1);
-    let exp = streak.saturating_sub(1).min(20);
-    BACKOFF_BASE.saturating_mul(1u32 << exp).min(BACKOFF_CAP)
-}
-
 pub(crate) struct Fetch<T> {
     status: FetchStatus<T>,
     pub(crate) in_flight: bool,
@@ -651,24 +638,60 @@ impl<T> Fetch<T> {
     /// never qualify, so a background beat cannot fetch a surface the
     /// user has not opened.
     pub(crate) fn needs_refresh(&self, min_age: Duration) -> bool {
-        !self.is_loading()
-            && (self.load_error().is_some()
-                || (self.is_ready() && self.age().is_some_and(|age| age >= min_age)))
+        dashboard_core::freshness::standard_needs_refresh(
+            self.age(),
+            self.is_loading(),
+            self.load_error().is_some(),
+            min_age,
+        )
     }
 
-    /// docs/0036 D2: the second dispatch gate, composed with
-    /// `needs_refresh` by the pages — a lane whose last attempt failed
-    /// waits `backoff_delay(fail_streak)` (stale-at-`>=`, docs/0032's
-    /// boundary) before re-firing. A healthy lane (streak 0) never
-    /// waits; a never-dispatched lane has no clock to wait on.
+    /// docs/0036 D2: the second dispatch gate — a lane whose last
+    /// attempt failed waits `backoff_delay(fail_streak)` (stale-at-`>=`,
+    /// docs/0032's boundary) before re-firing.
     pub(crate) fn backoff_elapsed(&self) -> bool {
-        if self.fail_streak == 0 {
-            return true;
+        dashboard_core::freshness::standard_backoff_elapsed(self.fail_streak, self.attempted_at)
+    }
+}
+
+/// docs/0037 D2: the record implements the core freshness contract —
+/// the policy is core's standard one, accessed through the same
+/// inherent methods the policy tables pin.
+impl<T> Freshness for Fetch<T> {
+    fn age(&self) -> Option<Duration> {
+        Fetch::age(self)
+    }
+
+    fn is_loading(&self) -> bool {
+        Fetch::is_loading(self)
+    }
+
+    fn wants_refresh(&self, min_age: Duration) -> bool {
+        self.needs_refresh(min_age) && self.backoff_elapsed()
+    }
+}
+
+/// docs/0037 D6: the list-surface clock — a `rows_landed` lookup
+/// wrapped up for the repo page's freshness cluster. `is_loading` is
+/// always false (rows land in bulk, no per-page spinner);
+/// never-landed means refreshable (the 0035 gate) but renders no
+/// label (docs/0033 D2's honest blank).
+pub(crate) struct LandedClock(pub(crate) Option<Instant>);
+
+impl Freshness for LandedClock {
+    fn age(&self) -> Option<Duration> {
+        self.0.map(|t| t.elapsed())
+    }
+
+    fn is_loading(&self) -> bool {
+        false
+    }
+
+    fn wants_refresh(&self, min_age: Duration) -> bool {
+        match self.0 {
+            None => true,
+            Some(t) => t.elapsed() >= min_age,
         }
-        let Some(attempted_at) = self.attempted_at else {
-            return true;
-        };
-        attempted_at.elapsed() >= backoff_delay(self.fail_streak)
     }
 }
 #[derive(Clone, Debug)]
@@ -1609,7 +1632,8 @@ impl GithubState {
     ) -> Option<Vec<FetchSpec>> {
         if let Some(attempted_at) = self.rows_attempted_at {
             if self.rows_fail_streak > 0
-                && attempted_at.elapsed() < backoff_delay(self.rows_fail_streak)
+                && attempted_at.elapsed()
+                    < dashboard_core::freshness::backoff_delay(self.rows_fail_streak)
             {
                 return None;
             }
@@ -3307,6 +3331,7 @@ mod tests {
     #[test]
     fn fetch_backoff_policy_table() {
         // docs/0036 D2: streak -> delay, stale-at->=.
+        use dashboard_core::freshness::{BACKOFF_CAP, backoff_delay};
         assert_eq!(backoff_delay(1), Duration::from_secs(60));
         assert_eq!(backoff_delay(2), Duration::from_secs(120));
         assert_eq!(backoff_delay(3), Duration::from_secs(240));
@@ -3335,6 +3360,26 @@ mod tests {
         f.land(1);
         assert!(f.backoff_elapsed(), "any land resets the streak");
         assert_eq!(f.fail_streak, 0);
+    }
+
+    #[test]
+    fn landed_clock_gate_and_age() {
+        use std::time::{Duration, Instant};
+
+        use dashboard_core::freshness::Freshness;
+
+        // Never landed: refreshable (the 0035 gate) but no label age
+        // (0033 D2's honest blank).
+        let clock = LandedClock(None);
+        assert!(clock.wants_refresh(Duration::ZERO));
+        assert_eq!(clock.age(), None);
+
+        // Landed: stale-at->= on both the gate and the label clock.
+        let clock = LandedClock(Some(Instant::now() - Duration::from_secs(60)));
+        assert!(!clock.wants_refresh(Duration::from_secs(61)));
+        assert!(clock.wants_refresh(Duration::from_secs(60)));
+        assert_eq!(clock.age().unwrap().as_secs(), 60);
+        assert!(!clock.is_loading());
     }
 
     #[test]
@@ -4048,26 +4093,6 @@ mod tests {
             cursor: None,
         });
         assert_eq!(state.notifications_age, None);
-    }
-
-    #[test]
-    fn age_buckets() {
-        use crate::page::synced_label;
-        use std::time::Duration;
-        assert_eq!(synced_label(None), None, "no sync, no label (0033 D2)");
-        let label = |secs: u64| synced_label(Some(Duration::from_secs(secs)));
-        assert_eq!(label(0).as_deref(), Some("synced just now"));
-        assert_eq!(label(59).as_deref(), Some("synced just now"));
-        assert_eq!(label(60).as_deref(), Some("synced 1m ago"));
-        assert_eq!(label(3599).as_deref(), Some("synced 59m ago"));
-        assert_eq!(label(3600).as_deref(), Some("synced 1h ago"));
-        assert_eq!(label(86399).as_deref(), Some("synced 23h ago"));
-        assert_eq!(label(86400).as_deref(), Some("synced 1d ago"));
-        assert_eq!(crate::page::relative_age(None), "");
-        let now = chrono::Utc::now();
-        assert_eq!(crate::page::relative_age(Some(&now.to_rfc3339())), "now");
-        let hours_ago = (chrono::Utc::now() - chrono::Duration::hours(2)).to_rfc3339();
-        assert_eq!(crate::page::relative_age(Some(&hours_ago)), "2h");
     }
 
     #[test]

@@ -54,10 +54,10 @@ use crate::api::{self, PrFile};
 use crate::files::{self, FileEntry, FileListDelegate, FilesView, build_file_forest, path_matches};
 use crate::gql;
 use crate::markdown;
-use crate::page::{relative_age, synced_label};
 use crate::service::{
     Fetch, FetchSpec, GithubState, Kind, Mutation, run_mutation, run_spec_tracked,
 };
+use dashboard_core::freshness::{Freshness, freshness_row, relative_age};
 
 actions!(github, [DismissPrPage]);
 
@@ -700,16 +700,16 @@ impl PrDetailPage {
     /// each lane re-dispatches by its own record (stale or failed);
     /// unopened (Idle) lanes stay untouched.
     pub(crate) fn auto_refresh(&mut self, min_age: Duration, cx: &mut Context<Self>) {
-        // The backoff gate composes with the age policy (docs/0036 D2):
-        // a failing lane waits out `backoff_delay(streak)` between
-        // attempts instead of re-firing on every beat.
-        if self.detail.needs_refresh(min_age) && self.detail.backoff_elapsed() {
+        // One composed gate (docs/0037 D4): stale-or-failed (0032 D2)
+        // AND past backoff (0036 D2) — the policy lives in core, the
+        // call-site is one line per lane.
+        if self.detail.wants_refresh(min_age) {
             self.fetch_detail(cx);
         }
-        if self.files.needs_refresh(min_age) && self.files.backoff_elapsed() {
+        if self.files.wants_refresh(min_age) {
             self.fetch_files(cx);
         }
-        if self.threads.needs_refresh(min_age) && self.threads.backoff_elapsed() {
+        if self.threads.wants_refresh(min_age) {
             self.fetch_threads(cx);
         }
         // The #192 label's clock: even a fully-skipped beat re-renders the
@@ -1753,49 +1753,25 @@ impl PrDetailPage {
                             .child(relative_age(age.as_deref())),
                     ),
             )
+            .child(freshness_row("pr", &self.detail, cx, |this, _, cx| {
+                this.fetch_detail(cx);
+                // A refresh with files/threads already loaded refetches
+                // those lists too (0030 D8) — collapse states reset with
+                // the new payload.
+                if this.files.is_ready() {
+                    this.fetch_files(cx);
+                }
+                if this.threads.is_ready() {
+                    this.fetch_threads(cx);
+                }
+            }))
             .child(
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .when_some(synced_label(self.detail.age()), |row, label| {
-                        row.child(
-                            div()
-                                .debug_selector(|| "pr-synced".to_string())
-                                .text_xs()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(label),
-                        )
-                    })
-                    .when(self.detail.is_loading(), |row| {
-                        row.child(Spinner::new().small())
-                    })
-                    .child(
-                        Button::new("pr-refresh")
-                            .ghost()
-                            .small()
-                            .icon(IconName::RotateCw)
-                            .tooltip("Refresh")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.fetch_detail(cx);
-                                // A refresh with files already loaded
-                                // refetches the list too (D8) — collapse
-                                // states reset with the new payload.
-                                if this.files.is_ready() {
-                                    this.fetch_files(cx);
-                                }
-                                if this.threads.is_ready() {
-                                    this.fetch_threads(cx);
-                                }
-                            })),
-                    )
-                    .child(
-                        Button::new("pr-open-external")
-                            .ghost()
-                            .small()
-                            .icon(IconName::ExternalLink)
-                            .tooltip("Open on GitHub")
-                            .on_click(move |_, _, cx| cx.open_url(&url)),
-                    ),
+                Button::new("pr-open-external")
+                    .ghost()
+                    .small()
+                    .icon(IconName::ExternalLink)
+                    .tooltip("Open on GitHub")
+                    .on_click(move |_, _, cx| cx.open_url(&url)),
             )
             .into_any_element()
     }
