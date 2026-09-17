@@ -507,6 +507,10 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
       createdAt
       author { login avatarUrl }
       viewerCanUpdate
+      # docs/0023 D1 on the PR surfaces (#196): the body, review summaries
+      # and issue comments are all Reactable — one shared group shape.
+      viewerCanReact
+      reactionGroups { content viewerHasReacted reactors { totalCount } }
       mergeable
       mergeStateStatus
       statusCheckRollup {
@@ -535,7 +539,7 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
         totalCount
         # 0019 D2: node id + viewer gates + updatedAt per node — the
         # edit/delete affordances and the (edited) marker live off these.
-        nodes { id viewerCanUpdate viewerCanDelete updatedAt author { login avatarUrl } state body submittedAt }
+        nodes { id viewerCanUpdate viewerCanDelete updatedAt author { login avatarUrl } state body submittedAt viewerCanReact reactionGroups { content viewerHasReacted reactors { totalCount } } }
       }
       comments(first: 100) {
         totalCount
@@ -550,6 +554,8 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
           author { login avatarUrl }
           body
           createdAt
+          viewerCanReact
+          reactionGroups { content viewerHasReacted reactors { totalCount } }
         }
       }
       files(first: 1) { totalCount }
@@ -580,6 +586,11 @@ pub struct PrDetail {
     pub draft: bool,
     /// `viewerCanUpdate` — gates the description Edit affordance (D4).
     pub viewer_can_update: bool,
+    /// docs/0023 D1 on the PR body (#196) — gates the body's `+` picker.
+    pub viewer_can_react: bool,
+    /// docs/0023 D3 — the body's reaction groups. Absent fields degrade
+    /// to false/empty (chips hidden), never a parse failure.
+    pub reaction_groups: Vec<ReactionGroup>,
     /// `MergeableState` — MERGEABLE / CONFLICTING / UNKNOWN; the Merge
     /// button stays disabled on anything but MERGEABLE (D5).
     pub mergeable: Option<String>,
@@ -1513,6 +1524,10 @@ pub struct PrReview {
     pub viewer_can_delete: bool,
     /// The (edited) marker (0019 D4).
     pub updated_at: Option<String>,
+    /// docs/0023 D1 on review summaries (#196) — gates the row's `+`.
+    pub viewer_can_react: bool,
+    /// docs/0023 D3 — the review's own reaction chips.
+    pub reaction_groups: Vec<ReactionGroup>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -1667,6 +1682,13 @@ pub fn pr_detail_from_value(value: &serde_json::Value) -> Option<PrDetail> {
                         viewer_can_update,
                         viewer_can_delete,
                         updated_at,
+                        // docs/0023 D1 (#196) — degrade to false/empty when
+                        // the payload omits the reaction fields.
+                        viewer_can_react: r
+                            .get("viewerCanReact")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false),
+                        reaction_groups: reaction_groups_from_value(r.get("reactionGroups")),
                     }
                 })
                 .collect::<Vec<PrReview>>()
@@ -1704,6 +1726,13 @@ pub fn pr_detail_from_value(value: &serde_json::Value) -> Option<PrDetail> {
             .get("viewerCanUpdate")
             .and_then(|v| v.as_bool())
             .unwrap_or(false),
+        // docs/0023 D1 on the PR body (#196) — same degraded defaults as
+        // the comment parse.
+        viewer_can_react: pr
+            .get("viewerCanReact")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        reaction_groups: reaction_groups_from_value(pr.get("reactionGroups")),
         mergeable: str_field("mergeable"),
         merge_state_status: str_field("mergeStateStatus"),
         rollup_state: pr
@@ -3319,6 +3348,73 @@ mod tests {
             serde_json::from_str(r#"{"data":{"repository":{"issue":null}}}"#).unwrap();
         let value = env.data.unwrap().repository.unwrap();
         assert!(issue_detail_from_value(&value).is_none());
+    }
+
+    // #196 — the PR query selects the docs/0023 D1 shape on every
+    // Reactable surface it renders (body, review summaries, issue
+    // comments): three viewerCanReact flags, three group selections.
+    #[test]
+    fn pr_detail_query_selects_reaction_fields_on_every_surface() {
+        assert_eq!(PR_DETAIL_QUERY.matches("viewerCanReact").count(), 3);
+        assert_eq!(
+            PR_DETAIL_QUERY
+                .matches("reactionGroups { content viewerHasReacted reactors { totalCount } }")
+                .count(),
+            3
+        );
+    }
+
+    // #196 — reaction groups parse on the PR body, review summaries and
+    // issue comments; nodes whose payload omits the fields degrade to
+    // false/empty (chips hidden), never a parse failure.
+    #[test]
+    fn pr_reactions_parse_and_degrade_per_node() {
+        let value = serde_json::json!({ "pullRequest": {
+            "id": "PR_1", "number": 1, "title": "t", "url": "u",
+            "viewerCanReact": true,
+            "reactionGroups": [
+                {"content": "THUMBS_UP", "viewerHasReacted": true,
+                 "reactors": {"totalCount": 3}},
+                {"content": "EYES", "viewerHasReacted": false,
+                 "reactors": {"totalCount": 0}}
+            ],
+            "reviews": {"nodes": [
+                {"id": "PRR_1", "viewerCanReact": true,
+                 "reactionGroups": [
+                     {"content": "HEART", "viewerHasReacted": false,
+                      "reactors": {"totalCount": 2}}
+                 ]},
+                {"author": {"login": "carol"}, "state": "COMMENTED", "body": "x"}
+            ]},
+            "comments": {"nodes": [
+                {"id": "IC_1", "body": "c1", "viewerCanReact": true,
+                 "reactionGroups": [
+                     {"content": "HEART", "viewerHasReacted": true,
+                      "reactors": {"totalCount": 1}}
+                 ]},
+                {"author": {"login": "erin"}, "body": "c2"}
+            ]}
+        }});
+        let d = pr_detail_from_value(&value).expect("parses");
+        assert!(d.viewer_can_react);
+        assert_eq!(d.reaction_groups.len(), 2);
+        assert_eq!(d.reaction_groups[0].content, ReactionContent::ThumbsUp);
+        assert!(d.reaction_groups[0].viewer_has_reacted);
+        assert_eq!(d.reaction_groups[0].total, 3);
+        assert_eq!(d.reaction_groups[1].content, ReactionContent::Eyes);
+        assert_eq!(d.reaction_groups[1].total, 0);
+
+        assert!(d.reviews.nodes[0].viewer_can_react);
+        assert_eq!(d.reviews.nodes[0].reaction_groups.len(), 1);
+        assert_eq!(d.reviews.nodes[0].reaction_groups[0].total, 2);
+        // Degraded nodes: no fields → no affordance, no chips.
+        assert!(!d.reviews.nodes[1].viewer_can_react);
+        assert!(d.reviews.nodes[1].reaction_groups.is_empty());
+
+        assert!(d.comments.nodes[0].viewer_can_react);
+        assert!(d.comments.nodes[0].reaction_groups[0].viewer_has_reacted);
+        assert!(!d.comments.nodes[1].viewer_can_react);
+        assert!(d.comments.nodes[1].reaction_groups.is_empty());
     }
 
     // docs/0023 §2/D1/D2 — reaction groups parse on the issue and its
