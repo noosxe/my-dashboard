@@ -46,10 +46,22 @@ use crate::auth::{
 use crate::gql::{self, Org, Repo, User};
 use crate::http::{Http, HttpError, RateLimit, SharedToken, Verb};
 
-/// Tick cadence (docs/0005 Q7): the first beat runs immediately on open;
-/// afterwards notifications every tick, the global snapshot every 5th.
-pub const TICK: Duration = Duration::from_secs(60);
-const SNAPSHOT_EVERY: u64 = 5;
+/// Tick cadence (docs/0038 D7): a 10 s wake — the lanes decide what
+/// fires, so an idle minute is six no-op policy checks. List cadences
+/// are exact multiples of the tick, so nothing drifts. The first beat
+/// still runs immediately on open (docs/0005 Q7).
+pub const TICK: Duration = Duration::from_secs(10);
+/// The global snapshot every 30th tick = 5 min at the 10 s cadence
+/// (docs/0038 D7): re-derived when the tick was re-based — the old `5`
+/// would have silently snapshotted every 50 s.
+const SNAPSHOT_EVERY: u64 = 30;
+/// docs/0038 D7: the global notifications lane's engaged cadence —
+/// 304s are free (docs/0005 §3.3), so the card's rows can run near-live
+/// for nothing.
+pub(crate) const ENGAGED_LIST_MIN_AGE: Duration = Duration::from_secs(10);
+/// The idle cadence every lane falls back to when the window is not
+/// focused (docs/0038 D2/D3) — today's behavior, unchanged.
+pub(crate) const IDLE_MIN_AGE: Duration = Duration::from_secs(60);
 /// Page cap for the REST notifications pagination (docs/0005 §7).
 const MAX_PAGES: u32 = 10;
 /// Proactive refresh lead (docs/0011 Q7): the tick loop refreshes the
@@ -556,6 +568,17 @@ impl<T> Fetch<T> {
         f
     }
 
+    /// Tests backdate the landed clock instead of waiting out real
+    /// cadences (the `attempted_at` pattern from docs/0036 — docs/0038
+    /// D3's engagement tests need ages between the engaged and idle
+    /// floors).
+    #[cfg(test)]
+    pub(crate) fn backdate_fetched(&mut self, ago: std::time::Duration) {
+        if let FetchStatus::Ready { fetched_at, .. } = &mut self.status {
+            *fetched_at -= ago;
+        }
+    }
+
     pub(crate) fn begin(&mut self) {
         self.in_flight = true;
         self.attempted_at = Some(Instant::now());
@@ -569,6 +592,20 @@ impl<T> Fetch<T> {
             data,
             fetched_at: Instant::now(),
         };
+    }
+
+    /// docs/0038 D4: a conditional 304 lands as an unchanged payload —
+    /// freshness advances, the failure streak resets, nothing re-parses
+    /// or re-renders. An `Idle` record stays `Idle` (spec builders only
+    /// send the etag when the lane holds data, so this cannot strand a
+    /// cold session).
+    pub(crate) fn land_unchanged(&mut self) {
+        self.in_flight = false;
+        self.last_error = None;
+        self.fail_streak = 0;
+        if let FetchStatus::Ready { fetched_at, .. } = &mut self.status {
+            *fetched_at = Instant::now();
+        }
     }
 
     /// With landed data the record keeps it and surfaces `last_error`;
@@ -1414,6 +1451,19 @@ pub struct GithubState {
     /// page's `run_specs` landing arm for the repo-lane kinds.
     pub(crate) rows_fail_streak: u32,
     pub(crate) rows_attempted_at: Option<Instant>,
+    /// docs/0038 D7: engagement = the window is focused. Maintained by
+    /// the page and card activation observers (the service owns no
+    /// window handle); the constructors seed it from the real window
+    /// state — the observers only fire on edges, so a window born
+    /// focused would otherwise idle forever.
+    pub(crate) focus_engaged: bool,
+    /// docs/0038 D7: the global notifications lane's clocks — the
+    /// landed stamp age-gates the tick's spec, the 0036 pair backs off
+    /// a failing engaged lane. The lane has no `Fetch` record; its
+    /// books live here beside the repo-rows pair's.
+    pub(crate) notifications_landed: Option<Instant>,
+    pub(crate) notifications_fail_streak: u32,
+    pub(crate) notifications_attempted_at: Option<Instant>,
     pub(crate) etags: BTreeMap<String, String>,
     pub(crate) client: Arc<dyn Http>,
     pub(crate) store: Arc<dyn TokenStore>,
@@ -1491,6 +1541,10 @@ impl GithubState {
             rows_landed: BTreeMap::new(),
             rows_fail_streak: 0,
             rows_attempted_at: None,
+            focus_engaged: false,
+            notifications_landed: None,
+            notifications_fail_streak: 0,
+            notifications_attempted_at: None,
             client,
             store,
             shared_token,
@@ -1571,11 +1625,33 @@ impl GithubState {
         if self.gated() {
             return Vec::new();
         }
-        let mut specs = vec![self.spec(
-            Kind::Notifications,
-            api::notifications_url(1),
-            Some(MAX_PAGES),
-        )];
+        let mut specs = Vec::new();
+        // docs/0038 D7: the global notifications lane — age-gated by
+        // its landed clock at the engaged/idle cadence, backoff-gated
+        // like every lane (docs/0036). The tick wake is just a
+        // heartbeat; the lane decides.
+        let list_min_age = if self.focus_engaged {
+            ENGAGED_LIST_MIN_AGE
+        } else {
+            IDLE_MIN_AGE
+        };
+        let list_backed_off = self.notifications_attempted_at.is_some_and(|at| {
+            self.notifications_fail_streak > 0
+                && at.elapsed()
+                    < dashboard_core::freshness::backoff_delay(self.notifications_fail_streak)
+        });
+        if list_backed_off {
+            log::debug!("notifications: backed off — the lane waits");
+        } else if self
+            .notifications_landed
+            .is_none_or(|at| at.elapsed() >= list_min_age)
+        {
+            specs.push(self.spec(
+                Kind::Notifications,
+                api::notifications_url(1),
+                Some(MAX_PAGES),
+            ));
+        }
         if tick % SNAPSHOT_EVERY == 0 {
             specs.push(self.snapshot_spec());
         }
@@ -1684,6 +1760,15 @@ impl GithubState {
         specs
     }
 
+    /// docs/0038 D4: the stored conditional-revalidation etag for a
+    /// kind, if any — page-owned spec builders attach it only when the
+    /// lane already holds data: a cold session with a disk etag must
+    /// fetch a full 200 (a 304 against an empty record would strand it
+    /// with nothing to keep).
+    pub(crate) fn etag_for(&self, kind: Kind, ident: Option<&str>) -> Option<String> {
+        self.etags.get(&etag_key(kind, ident)).cloned()
+    }
+
     pub(crate) fn spec(&self, kind: Kind, url: String, max_pages: Option<u32>) -> FetchSpec {
         self.spec_ident(kind, None, url, max_pages)
     }
@@ -1716,6 +1801,9 @@ impl GithubState {
         // A landed sync owns freshness now (docs/0034 D2) — the ETag-304
         // path counts: the server just confirmed the blob is current.
         self.notifications_age = None;
+        // docs/0038 D7: the engaged-tier landed clock (the age gate
+        // reads it; the 304 restore lands here too).
+        self.notifications_landed = Some(Instant::now());
         log::debug!("notifications applied: {unread} unread");
         if let Some(sel) = self.selected.clone() {
             let derived: Vec<Notification> = self
@@ -1754,6 +1842,20 @@ impl GithubState {
                 result.kind.kind_name()
             );
             return;
+        }
+        // docs/0038 D7: the global notifications lane's backoff books
+        // (the 0036 pattern — the lane has no Fetch record). A 304
+        // counts as success: the server just confirmed the blob is
+        // current, and the restore path below stamps the landed clock.
+        if result.kind == Kind::Notifications {
+            let ok = result.network.is_none()
+                && (result.status == 304 || (200..300).contains(&result.status));
+            self.notifications_attempted_at = Some(Instant::now());
+            if ok {
+                self.notifications_fail_streak = 0;
+            } else {
+                self.notifications_fail_streak += 1;
+            }
         }
         if let Some(m) = result.network {
             log::warn!("{}: network error: {m}", result.kind.kind_name());
@@ -1951,7 +2053,16 @@ impl GithubState {
         // ETag keyed by logical resource (kind + ident), not raw URL, so
         // pagination page-1 etags stay stable. GraphQL kinds have no
         // conditional path — never stored.
-        if matches!(result.kind, Kind::Notifications | Kind::RepoNotifications) {
+        if matches!(
+            result.kind,
+            Kind::Notifications
+                | Kind::RepoNotifications
+                // docs/0038 D4: the page-owned REST kinds join the
+                // conditional path — their 200s stamp the etag, their
+                // 304s land unchanged (page-side).
+                | Kind::ThreadDetail
+                | Kind::PrFiles
+        ) {
             if let Some(etag) = &result.etag {
                 self.etags
                     .insert(etag_key(result.kind, result.ident.as_deref()), etag.clone());
@@ -2125,7 +2236,7 @@ fn split_full_name(full_name: &str) -> (String, String) {
     )
 }
 
-fn etag_key(kind: Kind, ident: Option<&str>) -> String {
+pub(crate) fn etag_key(kind: Kind, ident: Option<&str>) -> String {
     match (kind, ident) {
         (Kind::Notifications, _) => "notifications".into(),
         (Kind::RepoNotifications, Some(id)) => format!("rn:{id}"),
@@ -3087,7 +3198,8 @@ mod tests {
         assert_eq!(notif.max_pages, MAX_PAGES);
         assert!(!state.needs_bootstrap);
 
-        // Ticks 2–4: notifications only.
+        // A never-landed lane is stale at any cadence: notifications on
+        // every tick (docs/0038 D7 — the tick is just a heartbeat).
         for tick in 2..=4 {
             assert_eq!(
                 state
@@ -3099,10 +3211,20 @@ mod tests {
             );
         }
 
-        // 5th tick adds the snapshot.
+        // docs/0038 D7: the snapshot rides the re-based tick — every
+        // 30th beat = 5 min at the 10 s cadence (the old `5` would have
+        // silently snapshotted every 50 s).
         assert_eq!(
             state
-                .plan_tick(5)
+                .plan_tick(29)
+                .iter()
+                .map(|s| s.kind)
+                .collect::<Vec<_>>(),
+            vec![Kind::Notifications]
+        );
+        assert_eq!(
+            state
+                .plan_tick(30)
                 .iter()
                 .map(|s| s.kind)
                 .collect::<Vec<_>>(),
@@ -3111,8 +3233,133 @@ mod tests {
 
         // No per-tick repo-scoped fetches anymore.
         state.selected = Some("o/r".into());
-        let specs = state.plan_tick(6);
+        let specs = state.plan_tick(31);
         assert!(specs.iter().all(|s| s.kind == Kind::Notifications));
+    }
+
+    // docs/0038 D7: the list lane's engagement and backoff gates —
+    // focus shortens the age floor, a failure delays the lane no matter
+    // how engaged (docs/0036's shared delay).
+    #[test]
+    fn notifications_lane_engagement_and_backoff_table() {
+        use std::time::{Duration, Instant};
+
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.auth = AuthStatus::Connected;
+
+        let wants_notifications = |s: &mut GithubState| {
+            s.plan_tick(2)
+                .iter()
+                .any(|spec| spec.kind == Kind::Notifications)
+        };
+
+        // Never landed: stale at any cadence.
+        assert!(wants_notifications(&mut state));
+
+        // Landed just now: fresh at both cadences.
+        state.notifications_landed = Some(Instant::now());
+        assert!(!wants_notifications(&mut state), "idle: fresh lane skips");
+        state.focus_engaged = true;
+        assert!(
+            !wants_notifications(&mut state),
+            "engaged: fresh lane skips"
+        );
+
+        // Aged 11 s: engaged fires, idle still sees fresh (60 s floor).
+        state.notifications_landed = Some(Instant::now() - Duration::from_secs(11));
+        assert!(
+            wants_notifications(&mut state),
+            "engaged: past the 10 s floor"
+        );
+        state.focus_engaged = false;
+        assert!(
+            !wants_notifications(&mut state),
+            "idle: inside the 60 s floor"
+        );
+
+        // Backoff beats engagement: a failed lane waits out the shared
+        // delay even engaged and stale.
+        state.focus_engaged = true;
+        state.notifications_fail_streak = 1;
+        state.notifications_attempted_at = Some(Instant::now());
+        assert!(
+            !wants_notifications(&mut state),
+            "a failed lane waits out the backoff"
+        );
+        state.notifications_attempted_at = Some(Instant::now() - Duration::from_secs(61));
+        assert!(
+            wants_notifications(&mut state),
+            "past the streak-1 delay the lane re-fires"
+        );
+    }
+
+    // docs/0038 D7: a 304 counts as success in the lane's books — the
+    // streak zeroes and (via the last-known restore) the landed clock
+    // advances.
+    #[test]
+    fn notifications_304_resets_backoff_and_lands() {
+        use std::time::Instant;
+
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.auth = AuthStatus::Connected;
+        // The 304 restore re-applies the last-known blob.
+        state.cache.put("notifications", &serde_json::json!([]));
+        state.notifications_fail_streak = 2;
+        state.notifications_landed = Some(Instant::now() - std::time::Duration::from_secs(600));
+
+        state.apply(SpecResult {
+            kind: Kind::Notifications,
+            ident: None,
+            status: 304,
+            etag: Some("e9".into()),
+            rate: None,
+            body: None,
+            network: None,
+            cursor: None,
+        });
+        assert_eq!(state.notifications_fail_streak, 0, "304 is success");
+        assert!(
+            state
+                .notifications_landed
+                .is_some_and(|t| t.elapsed().as_secs() < 5),
+            "the restore path lands the clock"
+        );
+    }
+
+    // docs/0038 D4: the page-owned REST kinds store their etags — the
+    // page builders attach them on the next spec (when the lane holds
+    // data), so the engaged tier's polls revalidate for free.
+    #[test]
+    fn page_owned_rest_kinds_store_etags() {
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.auth = AuthStatus::Connected;
+
+        for (kind, ident) in [
+            (Kind::ThreadDetail, Some("th1".to_string())),
+            (Kind::PrFiles, Some("o/r#9".to_string())),
+        ] {
+            state.apply(SpecResult {
+                kind,
+                ident,
+                status: 200,
+                etag: Some("W/\"e1\"".into()),
+                rate: None,
+                // Page-owned: the 200 body is parsed page-side, never
+                // here — but a body must be present (apply returns
+                // before the etag bookkeeping otherwise).
+                body: Some("{}".into()),
+                network: None,
+                cursor: None,
+            });
+        }
+        assert_eq!(
+            state.etag_for(Kind::ThreadDetail, Some("th1")).as_deref(),
+            Some("W/\"e1\"")
+        );
+        assert_eq!(
+            state.etag_for(Kind::PrFiles, Some("o/r#9")).as_deref(),
+            Some("W/\"e1\"")
+        );
     }
 
     #[test]

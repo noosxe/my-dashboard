@@ -54,6 +54,7 @@ use crate::api::{self, PrFile};
 use crate::files::{self, FileEntry, FileListDelegate, FilesView, build_file_forest, path_matches};
 use crate::gql;
 use crate::markdown;
+use crate::page::{LaneClass, lane_min_age};
 use crate::service::{
     Fetch, FetchSpec, GithubState, Kind, Mutation, run_mutation, run_spec_tracked,
 };
@@ -542,12 +543,12 @@ impl PrDetailPage {
     /// transport (`run_rest`, 100/page). No ETag — page-owned like
     /// [`Self::detail_spec`]. 30 pages = GitHub's 3000-file cap; the
     /// walk stops at the first short page long before it.
-    fn files_spec(repo: &str, number: i64) -> FetchSpec {
+    fn files_spec(repo: &str, number: i64, etag: Option<String>) -> FetchSpec {
         let (owner, name) = split_repo(repo);
         FetchSpec {
             kind: Kind::PrFiles,
             url: api::pr_files_url(owner, name, number, 1),
-            etag: None,
+            etag,
             ident: Some(format!("{repo}#{number}")),
             max_pages: 30,
             variables: None,
@@ -561,7 +562,16 @@ impl PrDetailPage {
             return; // the page is about to be torn down by the auth gate
         }
         let state = self.state.clone();
-        let spec = Self::files_spec(&self.repo, self.number);
+        // docs/0038 D4: conditional revalidation when the lane holds
+        // data — a cold session with a disk etag must full-fetch (a 304
+        // against an empty record would strand it with nothing to keep).
+        let ident = format!("{}#{}", self.repo, self.number);
+        let etag = self
+            .state
+            .read(cx)
+            .etag_for(Kind::PrFiles, Some(&ident))
+            .filter(|_| self.files.is_ready());
+        let spec = Self::files_spec(&self.repo, self.number, etag);
         log::debug!(
             "pr-files: fetching {}",
             spec.ident.as_deref().unwrap_or("?")
@@ -585,6 +595,11 @@ impl PrDetailPage {
     fn apply_files_result(&mut self, result: crate::service::SpecResult, cx: &mut Context<Self>) {
         if let Some(m) = &result.network {
             self.files.fail(format!("Network error: {m}"));
+        } else if result.status == 304 {
+            // docs/0038 D4: unchanged — forward so a refreshed etag
+            // persists, then land without re-parsing.
+            self.state.update(cx, |s, _| s.apply(result));
+            self.files.land_unchanged();
         } else if result.status != 200 {
             // Shared 401/403 handling, same as the detail fetch (D2).
             let status = result.status;
@@ -699,17 +714,27 @@ impl PrDetailPage {
     /// docs/0032 D2: the host heartbeat and focus trigger land here —
     /// each lane re-dispatches by its own record (stale or failed);
     /// unopened (Idle) lanes stay untouched.
-    pub(crate) fn auto_refresh(&mut self, min_age: Duration, cx: &mut Context<Self>) {
+    pub(crate) fn auto_refresh(
+        &mut self,
+        engaged: bool,
+        force_min_age: Option<Duration>,
+        cx: &mut Context<Self>,
+    ) {
         // One composed gate (docs/0037 D4): stale-or-failed (0032 D2)
         // AND past backoff (0036 D2) — the policy lives in core, the
-        // call-site is one line per lane.
-        if self.detail.wants_refresh(min_age) {
+        // call-site is one line per lane. docs/0038 D3: the engaged
+        // tier shortens the threshold per transport class — detail and
+        // threads are GraphQL (paid, half pace), files is REST (free
+        // 304s, full pace).
+        let gql_min = force_min_age.unwrap_or_else(|| lane_min_age(LaneClass::Gql, engaged));
+        let rest_min = force_min_age.unwrap_or_else(|| lane_min_age(LaneClass::Rest, engaged));
+        if self.detail.wants_refresh(gql_min) {
             self.fetch_detail(cx);
         }
-        if self.files.wants_refresh(min_age) {
+        if self.files.wants_refresh(rest_min) {
             self.fetch_files(cx);
         }
-        if self.threads.wants_refresh(min_age) {
+        if self.threads.wants_refresh(gql_min) {
             self.fetch_threads(cx);
         }
         // The #192 label's clock: even a fully-skipped beat re-renders the
@@ -3765,7 +3790,7 @@ mod tests {
         // fresh — its first retry waits out the backoff (docs/0036 D2);
         // files (stale enough, never failed) dispatch; threads (Idle —
         // never opened) must not.
-        cx.update(|cx| page.update(cx, |p, cx| p.auto_refresh(Duration::ZERO, cx)));
+        cx.update(|cx| page.update(cx, |p, cx| p.auto_refresh(false, Some(Duration::ZERO), cx)));
         cx.run_until_parked();
         assert_eq!(
             mock.recorded().len(),
@@ -3776,7 +3801,11 @@ mod tests {
         // Beat at an hour threshold with both lanes freshly failed
         // (the files dispatch just failed too): both are in backoff —
         // the beat is quiet.
-        cx.update(|cx| page.update(cx, |p, cx| p.auto_refresh(Duration::from_secs(3600), cx)));
+        cx.update(|cx| {
+            page.update(cx, |p, cx| {
+                p.auto_refresh(false, Some(Duration::from_secs(3600)), cx)
+            })
+        });
         cx.run_until_parked();
         assert_eq!(mock.recorded().len(), 2, "freshly failed lanes stay quiet");
 
@@ -3789,7 +3818,9 @@ mod tests {
                 p.detail.attempted_at = back;
                 p.files.attempted_at = back;
             });
-            page.update(cx, |p, cx| p.auto_refresh(Duration::from_secs(3600), cx));
+            page.update(cx, |p, cx| {
+                p.auto_refresh(false, Some(Duration::from_secs(3600)), cx)
+            });
         });
         cx.run_until_parked();
         assert_eq!(mock.recorded().len(), 4, "backoff elapsed: lanes rejoin");
@@ -3805,7 +3836,9 @@ mod tests {
             state.update(cx, |s, _| {
                 s.in_flight_arm(detail);
             });
-            page.update(cx, |p, cx| p.auto_refresh(Duration::from_secs(3600), cx));
+            page.update(cx, |p, cx| {
+                p.auto_refresh(false, Some(Duration::from_secs(3600)), cx)
+            });
         });
         cx.run_until_parked();
         assert_eq!(mock.recorded().len(), 4, "the guard ate the racing beat");

@@ -45,6 +45,7 @@ use gpui_component::{
 
 use crate::api;
 use crate::page::notification_url;
+use crate::page::{LaneClass, lane_min_age};
 use dashboard_core::freshness::{Freshness, freshness_row, relative_age};
 use std::time::Duration;
 
@@ -287,11 +288,19 @@ impl NotificationDetailPage {
         cx.notify();
     }
 
-    fn thread_spec(&self) -> FetchSpec {
+    fn thread_spec(&self, cx: &Context<Self>) -> FetchSpec {
+        // docs/0038 D4: conditional revalidation when the lane holds
+        // data — a cold session with a disk etag must full-fetch (a 304
+        // against an empty record would strand it with nothing to keep).
+        let etag = self
+            .state
+            .read(cx)
+            .etag_for(Kind::ThreadDetail, Some(self.seed.id.as_str()))
+            .filter(|_| self.thread.is_ready());
         FetchSpec {
             kind: Kind::ThreadDetail,
             url: api::thread_url(self.thread_id()),
-            etag: None,
+            etag,
             ident: Some(self.seed.id.clone()),
             max_pages: 1,
             variables: None,
@@ -303,7 +312,7 @@ impl NotificationDetailPage {
             return;
         }
         let state = self.state.clone();
-        let spec = self.thread_spec();
+        let spec = self.thread_spec(cx);
         log::debug!("thread-detail: fetching {}", self.thread_id());
         // Page-owned dispatch (docs/0031 §8): arm the shared guard
         // synchronously, run on the raw lane, clear on land.
@@ -324,9 +333,17 @@ impl NotificationDetailPage {
     }
 
     /// docs/0032 D2/D4: the host heartbeat and focus trigger land here.
-    pub(crate) fn auto_refresh(&mut self, min_age: Duration, cx: &mut Context<Self>) {
+    pub(crate) fn auto_refresh(
+        &mut self,
+        engaged: bool,
+        force_min_age: Option<Duration>,
+        cx: &mut Context<Self>,
+    ) {
         // One composed gate (docs/0037 D4) — see pr_page::auto_refresh.
-        if self.thread.wants_refresh(min_age) {
+        // docs/0038 D4: REST lane — the engaged tier rides free 304s,
+        // full pace.
+        let rest_min = force_min_age.unwrap_or_else(|| lane_min_age(LaneClass::Rest, engaged));
+        if self.thread.wants_refresh(rest_min) {
             self.fetch_thread(cx);
         }
         // The #192 label's clock: even a skipped beat re-renders the
@@ -337,6 +354,11 @@ impl NotificationDetailPage {
     fn apply_thread_result(&mut self, result: crate::service::SpecResult, cx: &mut Context<Self>) {
         if let Some(m) = &result.network {
             self.thread.fail(format!("Network error: {m}"));
+        } else if result.status == 304 {
+            // docs/0038 D4: unchanged — forward so a refreshed etag
+            // persists, then land without re-parsing.
+            self.state.update(cx, |s, _| s.apply(result));
+            self.thread.land_unchanged();
         } else if result.status != 200 {
             // Shared auth/rate-limit handling (page-owned convention).
             let status = result.status;
@@ -948,6 +970,36 @@ mod tests {
     // --- auto_refresh (docs/0032 D2/D4) -----------------------------------
 
     #[gpui::test]
+    #[gpui::test]
+    fn engaged_tier_shortens_the_rest_lane(cx: &mut gpui::TestAppContext) {
+        use std::time::Duration;
+        // docs/0038 D3: the landed record is 35 s old — inside the idle
+        // floor (60 s), outside the engaged one (10 s). Engagement
+        // alone decides; the forced floor (the focus trigger's path)
+        // would fire it regardless.
+        let mock = lane_mock(0, 200, thread_payload("Issue", Some("u"), false));
+        let (page, vcx) = probe_page(cx, probe_seed(false, "Issue", Some("u")), mock.clone());
+        vcx.run_until_parked();
+        vcx.update(|_, cx| {
+            page.update(cx, |p, _| {
+                p.thread.backdate_fetched(Duration::from_secs(35))
+            });
+        });
+
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| p.auto_refresh(false, None, cx));
+        });
+        vcx.run_until_parked();
+        assert_eq!(mock.verbs().len(), 1, "idle: 35 s is inside the 60 s floor");
+
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| p.auto_refresh(true, None, cx));
+        });
+        vcx.run_until_parked();
+        assert_eq!(mock.verbs().len(), 2, "engaged: past the 10 s floor");
+    }
+
+    #[gpui::test]
     fn auto_refresh_dispatches_stale_and_skips_fresh(cx: &mut gpui::TestAppContext) {
         use std::time::Duration;
         // Zero threshold = "stale enough" — the beat dispatches; a huge
@@ -957,7 +1009,9 @@ mod tests {
         vcx.run_until_parked();
         assert_eq!(mock.verbs(), vec![Verb::Get], "the open-time GET only");
 
-        vcx.update(|_, cx| page.update(cx, |p, cx| p.auto_refresh(Duration::ZERO, cx)));
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| p.auto_refresh(false, Some(Duration::ZERO), cx))
+        });
         vcx.run_until_parked();
         assert_eq!(
             mock.verbs(),
@@ -965,7 +1019,11 @@ mod tests {
             "a stale (age >= min_age) lane re-dispatches"
         );
 
-        vcx.update(|_, cx| page.update(cx, |p, cx| p.auto_refresh(Duration::from_secs(3600), cx)));
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.auto_refresh(false, Some(Duration::from_secs(3600)), cx)
+            })
+        });
         vcx.run_until_parked();
         assert_eq!(
             mock.verbs(),
@@ -985,7 +1043,11 @@ mod tests {
         vcx.run_until_parked();
         assert!(vcx.read(|cx| page.read(cx).thread.load_error().is_some()));
 
-        vcx.update(|_, cx| page.update(cx, |p, cx| p.auto_refresh(Duration::from_secs(3600), cx)));
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.auto_refresh(false, Some(Duration::from_secs(3600)), cx)
+            })
+        });
         vcx.run_until_parked();
         assert_eq!(
             mock.verbs(),
@@ -1000,7 +1062,11 @@ mod tests {
                 p.thread.attempted_at = Some(std::time::Instant::now() - Duration::from_secs(61));
             })
         });
-        vcx.update(|_, cx| page.update(cx, |p, cx| p.auto_refresh(Duration::from_secs(3600), cx)));
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.auto_refresh(false, Some(Duration::from_secs(3600)), cx)
+            })
+        });
         vcx.run_until_parked();
         assert_eq!(mock.verbs(), vec![Verb::Get, Verb::Get]);
     }
