@@ -30,6 +30,7 @@ use gpui_component::{
     h_flex,
     input::{InputEvent, InputState, Textarea, TextareaState},
     list::{ListEvent, ListState},
+    scroll::ScrollableElement as _,
     searchable_list::SearchableVec,
     select::{Select, SelectEvent, SelectState},
     skeleton::Skeleton,
@@ -254,6 +255,10 @@ pub(crate) struct PrDetailPage {
     /// completed job's log never changes) and cached per job fetch;
     /// `Failed` keeps the message until a Retry re-runs the chain.
     check_logs: BTreeMap<String, CheckLogState>,
+    /// The one open log pane's scroll (D4 accordion — at most one pane);
+    /// driven to the bottom on every expand/land so the failure is on
+    /// screen first.
+    check_log_scroll: ScrollHandle,
     /// The accordion: at most one expanded check at a time (D4).
     expanded_check: Option<String>,
     /// Review-threads fetch lifecycle (docs/0030 D1): lazy like the
@@ -377,6 +382,7 @@ impl PrDetailPage {
             files: Fetch::new(),
             check_logs: BTreeMap::new(),
             expanded_check: None,
+            check_log_scroll: ScrollHandle::new(),
             threads: Fetch::new(),
             line_composer: None,
             reply_composer: None,
@@ -665,6 +671,9 @@ impl PrDetailPage {
         if !matches!(self.check_logs.get(name), Some(CheckLogState::Ready { .. })) {
             self.start_check_log_chain(name, cx);
         }
+        // The failure lives at the tail (D4) — every expansion opens at
+        // the bottom; the flag is consumed by the pane's next paint.
+        self.check_log_scroll.scroll_to_bottom();
         cx.notify();
     }
 
@@ -717,6 +726,7 @@ impl PrDetailPage {
                         Err(e) => CheckLogState::Failed(e),
                     },
                 );
+                page.check_log_scroll.scroll_to_bottom();
                 cx.notify();
             });
         })
@@ -2282,7 +2292,9 @@ impl PrDetailPage {
                     } else {
                         div()
                             .id(SharedString::from(format!("check-log-pane-{i}")))
+                            .track_scroll(&self.check_log_scroll)
                             .overflow_y_scroll()
+                            .vertical_scrollbar(&self.check_log_scroll)
                             .max_h(px(384.))
                             .font_family(cx.theme().mono_font_family.clone())
                             .text_xs()
@@ -5090,7 +5102,15 @@ mod tests {
                 status: 200,
                 etag: None,
                 rate: None,
-                body: Some("step1\r\nstep2 \u{1b}[31mfailed\u{1b}[0m".into()),
+                // Tall enough to overflow the 384px pane so the
+                // auto-scroll-to-end behavior is observable.
+                body: Some(
+                    ["step1\r\nstep2 \u{1b}[31mfailed\u{1b}[0m".to_string()]
+                        .into_iter()
+                        .chain(std::iter::repeat_n("filler line".to_string(), 400))
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                ),
             }),
         ]));
         let state = cx.update(|cx| {
@@ -5108,20 +5128,49 @@ mod tests {
             state.update(cx, |s, _| s.auth = AuthStatus::Connected);
             state
         });
-        let (page, _vcx) = cx.add_window_view(|window, cx| {
-            let summary = probe_summary("o/r#7", 7);
-            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
-            let value = serde_json::json!({ "pullRequest": {
-                "id": "PR_1", "number": 7, "title": "t", "url": "u",
-                "state": "OPEN", "isDraft": false, "headRefOid": "abc123",
-            }});
-            page.detail = Fetch::ready(gql::pr_detail_from_value(&value).unwrap());
-            page
+        let detail_body = r#"{"data":{"repository":{"pullRequest":{
+            "id":"PR_1","number":7,"title":"t","url":"u","state":"OPEN","isDraft":false,
+            "headRefOid":"abc123",
+            "statusCheckRollup":{"state":"FAILURE","contexts":{"totalCount":1,"nodes":[
+                {"__typename":"CheckRun","name":"build","status":"COMPLETED",
+                 "conclusion":"FAILURE","checkSuite":{"app":{"slug":"github-actions"}}}
+            ]}}}}}}"#;
+        let (page, vcx) = cx.add_window_view(|window, cx| {
+            PrDetailPage::new(
+                state,
+                "o/r".into(),
+                probe_summary("o/r#7", 7),
+                None,
+                window,
+                cx,
+            )
         });
-        cx.update(|cx| {
+        vcx.simulate_resize(gpui::Size {
+            width: px(1024.),
+            height: px(768.),
+        });
+        vcx.update(|_, cx| {
+            page.update(cx, |page, cx| {
+                page.tab = PrTab::Checks;
+                page.apply_detail_result(
+                    SpecResult {
+                        kind: Kind::PrDetail,
+                        ident: Some("o/r".into()),
+                        status: 200,
+                        etag: None,
+                        rate: None,
+                        body: Some(detail_body.to_string()),
+                        network: None,
+                        cursor: None,
+                    },
+                    cx,
+                );
+            });
+        });
+        vcx.update(|_, cx| {
             page.update(cx, |p, cx| p.toggle_check_log("build", cx));
         });
-        cx.run_until_parked();
+        vcx.run_until_parked();
         let recorded = mock.recorded();
         // [0] is the page's own detail fetch (a GraphQL POST, failed
         // benignly by the script pad) — the chain is [1..=4].
@@ -5135,15 +5184,31 @@ mod tests {
         assert!(recorded[2].url.contains("/actions/runs?check_suite_id=5"));
         assert!(recorded[3].url.contains("/actions/runs/7/jobs"));
         assert!(recorded[4].url.contains("/actions/jobs/9/logs"));
-        cx.update(|cx| {
-            page.update(cx, |p, _| match p.check_logs.get("build") {
+        // Paint the landed pane so the scroll_to_bottom flag is consumed,
+        // then assert state and the pinned-to-bottom offset.
+        vcx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+        });
+        let (landed, offset) = vcx.read(|cx| {
+            let p = page.read(cx);
+            let landed = match p.check_logs.get("build") {
                 Some(CheckLogState::Ready { text, truncated }) => {
                     assert!(!truncated);
-                    assert_eq!(text.as_ref(), "step1\nstep2 failed");
+                    assert!(text.starts_with("step1\nstep2 failed\n"));
+                    assert_eq!(text.lines().last(), Some("filler line"));
+                    true
                 }
                 other => panic!("expected Ready, got {other:?}"),
-            });
+            };
+            (landed, p.check_log_scroll.offset())
         });
+        assert!(landed);
+        // docs/0039 D4: the pane opens at the end — the offset is pinned
+        // to the bottom (negative y), not the top.
+        assert!(
+            offset.y < px(0.),
+            "the pane must open scrolled to the end, offset = {offset:?}"
+        );
     }
 
     #[gpui::test]

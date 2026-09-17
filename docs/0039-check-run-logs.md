@@ -220,6 +220,12 @@ row, `check-log-pane-{idx}` on the pane.
   progress overwrites to the segment a terminal would show and strips
   ANSI/CSI/OSC escape sequences (job logs carry terminal control bytes;
   gpui renders neither) before the tail truncation. Unit-tested.
+- **Post-review additions (still within D4's letter)**: the pane opens
+  **scrolled to the end** (`ScrollHandle::scroll_to_bottom` on every
+  expansion and landing — CI conclusions live at the tail) and carries a
+  **vertical scrollbar** (gpui-component's `ScrollableElement`
+  `.vertical_scrollbar`, tracking the same handle). A probe pins the
+  offset-to-bottom behavior against a 7.5k-px pane.
 - Probe surface follows the house convention: gpui-test assertions key on
   `debug_selector` wrappers (`check-log-toggle-{i}`, `check-log-pane-{i}`),
   while the interactive elements keep their 0010-D10 ids for the bridge.
