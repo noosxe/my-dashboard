@@ -217,7 +217,7 @@ The old implicit "the pane renders everything" cost stops bounding file
 - Apply the same virtualization to the check-log pane if its logs grow past
   viewport costs (currently fine at #249 sizes).
 
-## 10. Shipped (2026-09-17, PR — issue #256/#253)
+## 10. Shipped (2026-09-17, PR #257 — issue #256/#253)
 
 Implemented as designed (D1–D8), with two recorded deviations:
 
