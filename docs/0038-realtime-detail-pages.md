@@ -96,11 +96,12 @@ Verified against GitHub's docs on 2026-09-17 (not from memory):
 - **N2 — No check-run/CI surface.** The app fetches no checks today
   (no `Kind` for them). "Realtime CI" is the future CI-status feature's
   problem; it will inherit the engaged tier when it exists.
-- **N3 — List surfaces stay at the idle cadence.** Card rows and repo rows
-  (GraphQL `Snapshot`/`RepoSnapshot`) keep 60s: accelerating the repo-open
-  GraphQL pair is expensive for surfaces nobody stares at continuously. The
-  free-304 REST list lanes are a cheap future extension — deliberately not in
-  this scope (Q1).
+- **N3 — GraphQL list surfaces stay at the idle cadence.** `Snapshot` and
+  `RepoSnapshot` keep 60s: accelerating the repo-open GraphQL pair is
+  expensive for surfaces nobody stares at continuously. The *free* REST list
+  lanes are a different story — the global notifications lane rides the
+  engaged tier (D7, Q1 picked); the repo-scoped lane deliberately does not
+  (D7's consistency note).
 - **N4 — No `x-poll-interval` capture yet.** The endpoints this design
   accelerates (`/notifications/threads/{id}`, `/pulls/{n}/files`) do not
   advertise a poll interval; the notifications *list* does (60s, already
@@ -214,6 +215,42 @@ considered and rejected: it doubles the burn for a latency improvement
 The implementation PR records the *measured* point cost per engaged query in
 §8 — if reality surprises, `ENGAGED_GQL_MIN_AGE` is the one-line correction.
 
+### D7 — The global notifications lane rides engaged (Q1: picked yes, scoped)
+
+The card is the ever-visible monitoring surface, and its notification rows
+are REST + ETag — near-live at zero rate-limit cost. The original Q1 text
+called this "a follow-up constant, not new machinery"; that was optimistic.
+The real cost, recorded so it lands without surprises:
+
+- **Engagement signal service-side**: `focus_engaged: bool` on
+  `GithubState`, maintained by window-activation observers on both module
+  surfaces (the page has one; the card gains the same one-liner) — the
+  service owns no window handle, so focus is pushed in.
+- **A landed clock for the lane**: `notifications_landed: Option<Instant>`,
+  stamped by `apply_notifications` — the `rows_landed` pattern (0035) for
+  the one lane whose cadence was "the tick is the clock". `plan_tick`
+  age-gates the Notifications spec on it: engaged ? 10s : 60s.
+- **A backoff clock for the lane**: at 60s a persistently failing list
+  endpoint was hit once a minute forever (tolerable); at 10s engaged that
+  is hammering — D5's "cannot hammer a broken endpoint" promise needs the
+  0036 pair here too (`notifications_attempted_at` + `fail_streak`, shared
+  `backoff_delay`, zeroed on a 200 **or a 304** — the free tier's success).
+- **The service tick wakes at 10s** (same "wake faster, the lanes decide"
+  argument as D3 — six no-op policy checks an idle minute). Implementation
+  trap, recorded because it bites silently: the snapshot's `tick %
+  SNAPSHOT_EVERY` arithmetic is tick-relative — with a 10s tick that would
+  snapshot every 50s. The cadence re-derives from the new tick
+  (`SNAPSHOT_EVERY = 30`) or the check becomes Duration-based; either way
+  5 minutes stays 5 minutes, pinned by a test.
+
+Repo-scoped notifications deliberately **stay with their pair**: the repo
+view's rows share one landed clock and one backoff lane (0035/0036), and
+splitting the free REST lane out would make notification rows twitch every
+10s while the PR/issue rows beside them sit at 60s — visible inconsistency
+in exactly the view where the user browses rather than monitors. The card
+is the monitoring surface; the repo view is not. Revisit if a repo view
+ever becomes someone's pinned dashboard tile.
+
 ## 5 Testing
 
 - **Cadence table test**: `lane_min_age` over `{rest, gql} × {engaged, idle}`
@@ -228,19 +265,23 @@ The implementation PR records the *measured* point cost per engaged query in
   engaged flag).
 - **Dispatch counting**: the phases technique from #239/#241 — count scripted
   responses so the engaged tier's extra dispatches are pinned, not inferred.
+- **List-lane engagement (D7)**: the global notifications lane age-gates on
+  `notifications_landed` with the engaged/idle constants; `focus_engaged`
+  flips cadence without dispatch churn; the backoff pair suppresses a
+  failing engaged lane to the 10-minute ceiling; the snapshot cadence
+  survives the tick re-base (5 min stays 5 min).
 - **No UI delta**: no new selectors; existing probe tests green unchanged
   (G4's proof, the same argument as 0037's byte-identical migration).
 
 ## 6 Open questions
 
-- **Q1 — Should the free REST list lanes ride the engaged tier too?**
-  (`Notifications`, `RepoNotifications` at 10s — zero rate-limit cost, would
-  make the card's notification rows near-live when the window is focused.)
-  Cheap and genuinely useful for the monitoring use-case; left out of scope
-  only because this design is scoped to the issue's "detail pages". Answer
-  "yes" = a follow-up constant, not new machinery.
-- **Q2 — GraphQL engaged cadence: 30s (D6's pick) or 15s?** Double the burn
-  for double the freshness; the owner's monitoring habits decide.
+- ~~**Q1 — Should the free REST list lanes ride the engaged tier too?**~~
+  **Picked (sensible default): yes — the global notifications lane only**
+  (D7 carries the design, including the two clocks it honestly needs; the
+  repo-scoped lane stays paired, per D7's consistency note).
+- ~~**Q2 — GraphQL engaged cadence: 30s or 15s?**~~ **Picked (sensible
+  default): 30s** — D6 stands: double the burn buys a latency change no
+  watcher can perceive.
 
 ## 7 Shipped
 
