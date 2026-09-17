@@ -200,14 +200,18 @@ syntect = { version = "5", default-features = false, features = [
 
 Pure-Rust regex backend (no C/Oniguruma toolchain — keeps vendor builds
 and Nix closures clean), embedded default syntax pack (~60 languages),
-no theme/plist/yaml loaders we wouldn't use. The exact feature set is
-re-verified at impl (`cargo tree` must show `fancy-regex`, not `onig`);
-if a needed API sits behind another feature, widen it in the impl PR
-with a comment. `SyntaxSet` loads once into a `OnceLock<SyntaxSet>`
-lazily at first highlighted diff (the ~100 ms pack load must not run
-at app start; it amortizes to zero afterwards). Binary-size cost of
-the default syntax pack is measured in the impl PR and recorded here
-as an amendment if it exceeds ~3 MB.
+no theme/plist/yaml loaders we wouldn't use. The exact feature set was
+re-verified at impl (`cargo tree -i onig` matches nothing — fancy-regex
+only). `SyntaxSet` loads once into a `OnceLock<SyntaxSet>` lazily at
+first highlighted diff (the ~100 ms pack load must not run at app
+start; it amortizes to zero afterwards).
+
+**Impl measurement (2026-09-17):** release-binary delta **+846 KB**
+(72,191,248 → 73,037,440 bytes) — under the ~3 MB watch threshold; no
+further action. Pack-content note: the bundled pack has **no Dockerfile
+grammar** (verified 2026-09-17); Dockerfile diffs render plain under
+the D4 fallback until a grammar is added upstream or via a custom pack
+(follow-up).
 
 ### D8 — Module layout
 
