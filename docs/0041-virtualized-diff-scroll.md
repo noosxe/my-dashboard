@@ -128,6 +128,21 @@ Rows stay `whitespace_nowrap` (0018). The list element declares
 widest visible row. Vertical wheel lives in the list; horizontal wheel in the
 wrapper — same axes as today, now with vertical virtualization intact.
 
+### D5 (amended at impl, this PR) — horizontal width
+
+`ListHorizontalSizingBehavior::Unconstrained` (§3 fact 3) has **no setter on
+`gpui::list` in the pinned build** — the enum is dead code there. Worse,
+`ListSizingBehavior::Infer` inside an x-scroll wrapper disables vertical
+virtualization entirely (the wrapper measures height as MaxContent, so the
+list lays out every row — measured: 807 rows/frame on a 460-row file, worse
+than the div stack). What works, verified in the probe: keep the list
+`Auto` and give it an explicit **content-derived width**
+(`clamp(400, 120 + longest-row-chars × 8px, 16 384)` px — the row lengths
+are already cached in the `AnchorCache`) inside the x-scroll wrapper, with
+`.h_full()` pinning the viewport. Wheel axes unchanged; scrollbar travel is
+honest up to the cap (rows longer than ~2 000 chars clip, like GitHub's own
+wide-diff behavior).
+
 ### D6 — Scrollbars: `ScrollbarHandle for ListState`
 
 Attach the existing gpui-component `Scrollbar` overlay to the diff list
@@ -201,3 +216,25 @@ The old implicit "the pane renders everything" cost stops bounding file
 - Revisit `uniform_list` if cards ever leave the row flow (D1 note).
 - Apply the same virtualization to the check-log pane if its logs grow past
   viewport costs (currently fine at #249 sizes).
+
+## 10. Shipped (2026-09-17, PR — issue #256/#253)
+
+Implemented as designed (D1–D8), with two recorded deviations:
+
+- **D5 as amended above**: explicit content-derived list width instead of
+  the dead `Unconstrained` enum; `Infer` rejected on measured evidence.
+- **D2 superset**: the flattened item list also carries the file-level
+  threads, the threads fetch row, and the stray bucket (`FileThread`,
+  `FetchRow`, `StrayBucket` variants) — the list is now the pane's single
+  vertical scroller, so nothing outside it can jump while rows virtualize.
+
+Height-only changes (reply box, resolve picker, stray toggle, composer and
+reply-editor typing) resync via precise `ListState::splice` calls from the
+mutating event; composer/reply textareas are observed so per-keystroke
+growth re-measures.
+
+**Measured on the real page** (deterministic test
+`virtualized_diff_builds_viewport_rows_per_frame`, 1 001-row diff, 10
+mid-file scroll jumps): **838 rows built total ≈ 84/frame** — viewport +
+overdraw, file-size independent. The div stack built all 1 001 rows every
+frame; the pre-list headless bench measured 17 ms/frame at 2 000 rows.

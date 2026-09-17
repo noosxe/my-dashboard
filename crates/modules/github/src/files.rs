@@ -27,6 +27,7 @@ use gpui_component::{
     h_flex,
     input::{Input, Textarea, TextareaState},
     list::{List, ListDelegate, ListItem, ListState},
+    scroll::ScrollableElement as _,
     select::Select,
     tree::{TreeEntry, TreeItem, tree},
     v_flex,
@@ -259,6 +260,7 @@ impl ListDelegate for FileListDelegate {
 /// (border right) and the selected file's diff pane. Called only with a
 /// ready, non-empty payload.
 pub(crate) fn render_split(
+    page_h: &Entity<PrDetailPage>,
     page: &PrDetailPage,
     files: &[PrFile],
     cx: &Context<PrDetailPage>,
@@ -272,7 +274,7 @@ pub(crate) fn render_split(
         .min_h_0()
         .w_full()
         .child(sidebar(page, files, cx))
-        .child(diff_pane(page, files, cx))
+        .child(diff_pane(page_h, page, files, cx))
         .into_any_element()
 }
 
@@ -407,7 +409,12 @@ fn tree_row(entry: &TreeEntry, selected: bool, cx: &App) -> ListItem {
 /// The selected file's diff pane (0018 D8): header (path, badge,
 /// `+adds/−dels`) over the vertical scroll area holding the existing
 /// diff body. Empty state when the active view has no visible selection.
-fn diff_pane(page: &PrDetailPage, files: &[PrFile], cx: &Context<PrDetailPage>) -> AnyElement {
+fn diff_pane(
+    page_h: &Entity<PrDetailPage>,
+    page: &PrDetailPage,
+    files: &[PrFile],
+    cx: &Context<PrDetailPage>,
+) -> AnyElement {
     let selected = selected_file_path(page, cx);
     let file = selected
         .as_ref()
@@ -416,7 +423,9 @@ fn diff_pane(page: &PrDetailPage, files: &[PrFile], cx: &Context<PrDetailPage>) 
         return empty_pane(cx);
     };
     let (dir, name) = split_path(&file.filename);
-    let placed = thread_placement(page, file);
+    let rows = page
+        .anchor_cache
+        .rows_for(&file.filename, file.patch.as_deref().unwrap_or_default());
     v_flex()
         .id("pr-file-diff")
         .flex_1()
@@ -424,76 +433,59 @@ fn diff_pane(page: &PrDetailPage, files: &[PrFile], cx: &Context<PrDetailPage>) 
         // Structural height — same rationale as the sidebar.
         .self_stretch()
         .min_h_0()
-        .child(
-            h_flex()
-                .px_3()
-                .py_2()
-                .gap_2()
-                .items_center()
-                .border_b_1()
-                .border_color(cx.theme().border)
-                .child(
-                    h_flex()
-                        .min_w_0()
-                        .flex_1()
-                        .gap_1()
-                        .text_xs()
-                        .font_family(cx.theme().mono_font_family.clone())
-                        .when_some(dir, |row, dir| {
-                            row.child(
-                                div()
-                                    .truncate()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(format!("{dir}/")),
-                            )
-                        })
-                        .child(div().truncate().child(name.to_string())),
-                )
-                .child(
-                    h_flex()
-                        .flex_none()
-                        .gap_2()
-                        .text_xs()
-                        .child(
-                            div()
-                                .text_color(cx.theme().success)
-                                .child(format!("+{}", file.additions)),
-                        )
-                        .child(
-                            div()
-                                .text_color(cx.theme().danger)
-                                .child(format!("−{}", file.deletions)),
-                        )
-                        .child(file_status_badge(&file.status, cx)),
-                ),
-        )
+        .child(diff_header(file, dir, name, cx))
         .children(files_error_row(page, cx))
-        .child(
-            v_flex()
-                .id("pr-diff-scroll")
-                .debug_selector(|| "pr-diff-scroll-key".into())
-                .flex_1()
-                .min_h_0()
-                .overflow_y_scroll()
-                .py_2()
-                // FILE-subject threads sit under the header, above the diff
-                // (0030 D3).
-                .children(
-                    placed
-                        .file_level
-                        .iter()
-                        .map(|&(ix, t)| thread_card(page, ix, t, cx)),
-                )
-                .child(diff_body(page, file, &placed, cx))
-                .children(threads_fetch_row(page, cx))
-                // Outdated / unanchorable threads: the end-of-file bucket
-                // (0030 D3) — collapsed by default, never dropped.
-                .children(stray_bucket(page, &placed, cx)),
-        )
+        .child(diff_body(page_h, page, file, &rows, cx))
         // 0030 D4: the Finish-review bar — sticky under the diff while
         // drafts exist (outside the scroll).
         .children(finish_review_bar(page, cx))
         .into_any_element()
+}
+
+/// The selected file's header row: mono path with muted dir prefix
+/// (truncating from the front), +adds/−dels, change badge.
+fn diff_header(file: &PrFile, dir: Option<&str>, name: &str, cx: &Context<PrDetailPage>) -> Div {
+    h_flex()
+        .px_3()
+        .py_2()
+        .gap_2()
+        .items_center()
+        .border_b_1()
+        .border_color(cx.theme().border)
+        .child(
+            h_flex()
+                .min_w_0()
+                .flex_1()
+                .gap_1()
+                .text_xs()
+                .font_family(cx.theme().mono_font_family.clone())
+                .when_some(dir, |row, dir| {
+                    row.child(
+                        div()
+                            .truncate()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(format!("{dir}/")),
+                    )
+                })
+                .child(div().truncate().child(name.to_string())),
+        )
+        .child(
+            h_flex()
+                .flex_none()
+                .gap_2()
+                .text_xs()
+                .child(
+                    div()
+                        .text_color(cx.theme().success)
+                        .child(format!("+{}", file.additions)),
+                )
+                .child(
+                    div()
+                        .text_color(cx.theme().danger)
+                        .child(format!("\u{2212}{}", file.deletions)),
+                )
+                .child(file_status_badge(&file.status, cx)),
+        )
 }
 
 /// Centered muted state for an unselected pane (0018 D8).
@@ -710,9 +702,122 @@ pub(crate) fn place_threads<'a>(
     placed
 }
 
+/// One entry of the virtualized diff body (docs/0041 D2): a structural
+/// descriptor. Page state that changes a card's *height* is deliberately
+/// NOT part of the descriptor — height-only changes resync via
+/// `PrDetailPage::splice_diff_from` from the mutating event.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum DiffItem {
+    /// A file-level review thread (0030 D3), above the diff rows.
+    FileThread(usize),
+    /// A diff row, index into the file's anchored rows.
+    Row(usize),
+    /// A review thread card anchored under its row (`thread_ix` indexes
+    /// the page's thread list).
+    ThreadCard(usize),
+    /// The row composer (0030 D4), under the row it arms.
+    Composer(usize),
+    /// A queued draft chip, under its row.
+    Draft(usize),
+    /// Threads load hint / retry row (0030 D1).
+    FetchRow,
+    /// The end-of-file outdated bucket (0030 D3) — toggle + cards.
+    StrayBucket,
+}
+
+/// Cached rows for one file version: patch hash plus the parsed lines.
+type AnchorEntry = (u64, Arc<Vec<crate::service::AnchoredLine>>);
+
+/// Page-owned anchor cache (docs/0041 D4): one `anchor_patch` parse per
+/// file version, shared by thread placement, the diff body, and the
+/// highlight pump. Entries self-invalidate per path by patch hash.
+#[derive(Default)]
+pub(crate) struct AnchorCache(RefCell<BTreeMap<String, AnchorEntry>>);
+
+impl AnchorCache {
+    pub(crate) fn rows_for(
+        &self,
+        path: &str,
+        patch: &str,
+    ) -> Arc<Vec<crate::service::AnchoredLine>> {
+        let hash = crate::syntax::hash_patch(patch);
+        if let Some((h, rows)) = self.0.borrow().get(path) {
+            if *h == hash {
+                return rows.clone();
+            }
+        }
+        let rows = Arc::new(anchor_patch(patch));
+        self.0
+            .borrow_mut()
+            .insert(path.to_string(), (hash, rows.clone()));
+        rows
+    }
+}
+
+use std::cell::RefCell;
+use std::sync::Arc;
+
+/// Flatten one file's diff into the virtualized item list (docs/0041 D2),
+/// in the exact order the pre-list pane rendered: file-level threads,
+/// then per row [row, threads, composer?, drafts*], then the fetch row
+/// and the stray bucket.
+pub(crate) fn flatten_diff_items(
+    page: &PrDetailPage,
+    rows: &[crate::service::AnchoredLine],
+    placed: &ThreadPlacement<'_>,
+) -> Vec<DiffItem> {
+    let mut items = Vec::new();
+    for &(ix, _) in placed.file_level.iter() {
+        items.push(DiffItem::FileThread(ix));
+    }
+    for row_ix in 0..rows.len() {
+        items.push(DiffItem::Row(row_ix));
+        if let Some(threads) = placed.anchored.get(&row_ix) {
+            for &(ix, _) in threads.iter() {
+                items.push(DiffItem::ThreadCard(ix));
+            }
+        }
+        if let Some(anchored) = rows.get(row_ix) {
+            let armed = row_anchor(anchored);
+            let composer_here =
+                page.line_composer
+                    .as_ref()
+                    .zip(armed)
+                    .is_some_and(|(c, (side, line))| {
+                        c.path == page.selected_file.as_deref().unwrap_or_default()
+                            && c.side == side
+                            && c.line == line
+                    });
+            if composer_here {
+                items.push(DiffItem::Composer(row_ix));
+            }
+            if let Some((side, line)) = armed {
+                if page.drafts.iter().any(|d| {
+                    d.path == page.selected_file.as_deref().unwrap_or_default()
+                        && d.side == side
+                        && d.line == line
+                }) {
+                    items.push(DiffItem::Draft(row_ix));
+                }
+            }
+        }
+    }
+    if threads_fetch_row_present(page) {
+        items.push(DiffItem::FetchRow);
+    }
+    if !placed.stray.is_empty() {
+        items.push(DiffItem::StrayBucket);
+    }
+    items
+}
+
 /// Place the page's threads against one file's diff (0030 D3): the
 /// render-side wrapper — rows come from the file's own patch.
-pub(crate) fn thread_placement<'a>(page: &'a PrDetailPage, file: &PrFile) -> ThreadPlacement<'a> {
+pub(crate) fn thread_placement<'a>(
+    page: &'a PrDetailPage,
+    file: &PrFile,
+    rows: &'a [crate::service::AnchoredLine],
+) -> ThreadPlacement<'a> {
     let threads = page.threads_nodes();
     if threads.is_empty() {
         return ThreadPlacement {
@@ -721,68 +826,127 @@ pub(crate) fn thread_placement<'a>(page: &'a PrDetailPage, file: &PrFile) -> Thr
             stray: Vec::new(),
         };
     }
-    let rows = file.patch.as_deref().map(anchor_patch).unwrap_or_default();
-    place_threads(threads, &file.filename, &rows)
+    place_threads(threads, &file.filename, rows)
 }
 
 /// The diff body (moved from pr_page, 0018): horizontal scroll, mono
 /// `text_xs`, `flex_none` rows — no soft wrap. Tints come from the
 /// semantic tokens at low opacity (0016 D10); the sign glyph carries
 /// the saturated color. 0030 D2: rows gain a two-column line-number
-/// gutter and anchored thread cards render under their rows.
+/// The diff body (docs/0041 D1/D2): a virtualized `gpui::list` over the
+/// flattened `DiffItem` descriptors. Only viewport rows materialize per
+/// frame; the page's `diff_list` owns scroll position and cached heights.
+/// Horizontal scroll (rows stay `whitespace_nowrap`, 0018): the list is
+/// sized to a content-derived width (capped) inside an x-scroll wrapper —
+/// vertical wheel lives in the list, horizontal in the wrapper. Scrollbars:
+/// vertical tracks the `ListState`, horizontal the wrapper handle (D6).
+/// Tints come from the semantic tokens at low opacity (0016 D10); the sign
+/// glyph carries the saturated color (0040 §4 D6 amendment).
 fn diff_body(
+    page_h: &Entity<PrDetailPage>,
     page: &PrDetailPage,
     file: &PrFile,
-    placed: &ThreadPlacement<'_>,
+    rows: &[crate::service::AnchoredLine],
     cx: &Context<PrDetailPage>,
 ) -> AnyElement {
-    let Some(patch) = file.patch.as_deref() else {
-        return div()
-            .px_3()
-            .py_2()
-            .text_xs()
-            .text_color(cx.theme().muted_foreground)
-            .child("Binary file or diff not shown")
-            .into_any_element();
-    };
-    let rows = anchor_patch(patch);
-    // docs/0040 D5 (amended): read-only lookup — scheduling happens in
-    // the page's `pump_highlight` (&mut Context lives there); a file
-    // whose task is still running renders plain this frame.
+    let path = file.filename.clone();
     let spans = match page.highlight_cache.lookup(
-        &file.filename,
-        syntax::hash_patch(patch),
+        &path,
+        syntax::hash_patch(file.patch.as_deref().unwrap_or_default()),
         &syntax::theme_key(cx.theme()),
     ) {
         syntax::Lookup::Done(spans) => spans,
         syntax::Lookup::Tokenizing | syntax::Lookup::Miss => None,
     };
-    let elements: Vec<AnyElement> = rows
-        .iter()
-        .enumerate()
-        .flat_map(|(ix, anchored)| {
-            let row_spans = spans.as_ref().and_then(|v| v.get(ix)).map(Vec::as_slice);
-            let mut out = vec![diff_row(page, &file.filename, anchored, row_spans, cx)];
-            if let Some(threads) = placed.anchored.get(&ix) {
-                out.extend(
-                    threads
-                        .iter()
-                        .map(|&(tix, t)| thread_card(page, tix, t, cx)),
-                );
+    let items = page.diff_items.clone();
+    let state = page.diff_list.clone();
+    let x_handle = page.diff_x_scroll.clone();
+    let page_h = page_h.clone();
+    let rows: std::sync::Arc<[crate::service::AnchoredLine]> = rows.iter().cloned().collect();
+    let rows_for_width = rows.clone();
+    let list = list(
+        state.clone(),
+        move |ix: usize, window: &mut Window, cx: &mut App| {
+            let page = page_h.read(cx);
+            let empty = || div().into_any_element();
+            match items.get(ix) {
+                Some(DiffItem::FileThread(tix)) => match page.threads_nodes().get(*tix) {
+                    Some(t) => thread_card(page, &page_h, window, *tix, t, cx),
+                    None => empty(),
+                },
+                Some(DiffItem::Row(rix)) => {
+                    let Some(anchored) = rows.get(*rix) else {
+                        return empty();
+                    };
+                    let row_spans = spans.as_ref().and_then(|v| v.get(*rix)).map(Vec::as_slice);
+                    diff_row(page, &page_h, window, &path, anchored, row_spans, cx)
+                }
+                Some(DiffItem::ThreadCard(tix)) => match page.threads_nodes().get(*tix) {
+                    Some(t) => thread_card(page, &page_h, window, *tix, t, cx),
+                    None => empty(),
+                },
+                Some(DiffItem::Composer(rix)) => match rows.get(*rix) {
+                    Some(anchored) => {
+                        line_composer_card(page, &page_h, window, &path, anchored, cx)
+                            .unwrap_or_else(empty)
+                    }
+                    None => empty(),
+                },
+                Some(DiffItem::Draft(rix)) => {
+                    let mut cards = v_flex().w_full().min_w_0();
+                    if let Some(anchored) = rows.get(*rix) {
+                        for card in draft_rows(page, &page_h, window, &path, anchored, cx) {
+                            cards = cards.child(card);
+                        }
+                    }
+                    cards.into_any_element()
+                }
+                Some(DiffItem::FetchRow) => {
+                    threads_fetch_row(page, &page_h, window, cx).unwrap_or_else(empty)
+                }
+                Some(DiffItem::StrayBucket) => {
+                    let threads = page.threads_nodes();
+                    let placed = place_threads(threads, &path, &rows);
+                    stray_bucket(page, &page_h, window, &placed, cx).unwrap_or_else(empty)
+                }
+                None => empty(),
             }
-            // The row composer and this row's queued drafts (0030 D4)
-            // sit directly under the row they anchor to.
-            out.extend(line_composer_card(page, &file.filename, anchored, cx));
-            out.extend(draft_rows(page, &file.filename, anchored, cx));
-            out
-        })
-        .collect();
-    v_flex()
-        .id(SharedString::from(format!("pr-diff-{}", file.filename)))
+        },
+    );
+    div()
+        .id("pr-diff-scroll")
+        .debug_selector(|| "pr-diff-scroll-key".into())
+        .flex_1()
+        .min_h_0()
         .min_w_0()
         .overflow_x_scroll()
-        .children(elements)
+        .track_scroll(&x_handle)
+        .horizontal_scrollbar(&x_handle)
+        .vertical_scrollbar(&state)
+        // Padding the old scroll container had (py_2) lives on the items
+        // now; the list sizes itself, so keep the wrapper clean.
+        .child(list.w(px(content_width(&rows_for_width))).h_full())
         .into_any_element()
+}
+
+/// The list's content width (docs/0041 D5): the longest row's text at a
+/// generous mono advance, plus the gutter and padding, capped — honest
+/// scrollbar travel without unbounded width.
+fn content_width(rows: &[crate::service::AnchoredLine]) -> f32 {
+    const CHAR_W: f32 = 8.0;
+    const CHROME: f32 = 120.0;
+    const CAP: f32 = 16_384.0;
+    let max_len = rows.iter().map(row_text_len).max().unwrap_or(0) as f32;
+    (CHROME + max_len * CHAR_W).clamp(400.0, CAP)
+}
+
+fn row_text_len(anchored: &crate::service::AnchoredLine) -> usize {
+    match &anchored.line {
+        crate::service::PatchLine::Hunk(t)
+        | crate::service::PatchLine::Context(t)
+        | crate::service::PatchLine::Add(t)
+        | crate::service::PatchLine::Del(t) => t.chars().count(),
+    }
 }
 
 /// The gutter cells for one row (0030 D2): old-side number, new-side
@@ -810,13 +974,21 @@ fn row_anchor(anchored: &AnchoredLine) -> Option<(DiffSide, u32)> {
     }
 }
 
+#[cfg(test)]
+pub(crate) static DIFF_ROWS_BUILT: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
 fn diff_row(
     page: &PrDetailPage,
+    page_h: &Entity<PrDetailPage>,
+    window: &mut Window,
     path: &str,
     anchored: &AnchoredLine,
     spans: Option<&[(Range<usize>, TokenKind)]>,
-    cx: &Context<PrDetailPage>,
+    cx: &App,
 ) -> AnyElement {
+    #[cfg(test)]
+    DIFF_ROWS_BUILT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let mono = cx.theme().mono_font_family.clone();
     // docs/0040 §4 D6 amendment: the row's comment button renders only
     // while this row is hovered — 460 always-on Buttons+tooltips were
@@ -844,15 +1016,19 @@ fn diff_row(
             .font_family(mono)
             .child(glyph_cell("", None))
             .child(diff_content(text, spans, cx))
-            .children(row_comment_button(page, &row_id, path, anchored, cx))
+            .children(row_comment_button(
+                page, page_h, window, &row_id, path, anchored,
+            ))
             .id(row_id.clone())
-            .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
-                let next = hovered.then(|| row_id.clone());
-                if this.hovered_row != next {
-                    this.hovered_row = next;
-                    cx.notify();
-                }
-            }))
+            .on_hover(
+                window.listener_for(page_h, move |this, hovered: &bool, _, cx| {
+                    let next = hovered.then(|| row_id.clone());
+                    if this.hovered_row != next {
+                        this.hovered_row = next;
+                        cx.notify();
+                    }
+                }),
+            )
             .into_any_element(),
         // docs/0040 §4 D6 (amended): the tint stays in the background,
         // the sign glyph alone carries the saturated color (0016 D10's
@@ -870,15 +1046,19 @@ fn diff_row(
             .bg(cx.theme().success.opacity(0.12))
             .child(glyph_cell("+", Some(cx.theme().success)))
             .child(diff_content(text, spans, cx))
-            .children(row_comment_button(page, &row_id, path, anchored, cx))
+            .children(row_comment_button(
+                page, page_h, window, &row_id, path, anchored,
+            ))
             .id(row_id.clone())
-            .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
-                let next = hovered.then(|| row_id.clone());
-                if this.hovered_row != next {
-                    this.hovered_row = next;
-                    cx.notify();
-                }
-            }))
+            .on_hover(
+                window.listener_for(page_h, move |this, hovered: &bool, _, cx| {
+                    let next = hovered.then(|| row_id.clone());
+                    if this.hovered_row != next {
+                        this.hovered_row = next;
+                        cx.notify();
+                    }
+                }),
+            )
             .into_any_element(),
         PatchLine::Del(text) => h_flex()
             .flex_none()
@@ -891,15 +1071,19 @@ fn diff_row(
             .bg(cx.theme().danger.opacity(0.12))
             .child(glyph_cell("\u{2212}", Some(cx.theme().danger)))
             .child(diff_content(text, spans, cx))
-            .children(row_comment_button(page, &row_id, path, anchored, cx))
+            .children(row_comment_button(
+                page, page_h, window, &row_id, path, anchored,
+            ))
             .id(row_id.clone())
-            .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
-                let next = hovered.then(|| row_id.clone());
-                if this.hovered_row != next {
-                    this.hovered_row = next;
-                    cx.notify();
-                }
-            }))
+            .on_hover(
+                window.listener_for(page_h, move |this, hovered: &bool, _, cx| {
+                    let next = hovered.then(|| row_id.clone());
+                    if this.hovered_row != next {
+                        this.hovered_row = next;
+                        cx.notify();
+                    }
+                }),
+            )
             .into_any_element(),
     }
     .into_any_element()
@@ -926,11 +1110,7 @@ fn glyph_cell(glyph: &'static str, color: Option<Hsla>) -> Div {
 /// — plain file, over the cap, or nothing to color — this is the plain
 /// string exactly as before docs/0040; the sign glyph is a separate
 /// cell, so span ranges need no re-basing.
-fn diff_content(
-    text: &str,
-    spans: Option<&[(Range<usize>, TokenKind)]>,
-    cx: &Context<PrDetailPage>,
-) -> AnyElement {
+fn diff_content(text: &str, spans: Option<&[(Range<usize>, TokenKind)]>, cx: &App) -> AnyElement {
     let Some(spans) = spans else {
         return text.to_string().into_any_element();
     };
@@ -961,10 +1141,11 @@ fn row_comment_id(path: &str, anchored: &AnchoredLine) -> SharedString {
 
 fn row_comment_button(
     page: &PrDetailPage,
+    page_h: &Entity<PrDetailPage>,
+    window: &mut Window,
     row_id: &SharedString,
     path: &str,
     anchored: &AnchoredLine,
-    cx: &Context<PrDetailPage>,
 ) -> Option<AnyElement> {
     let (side, line) = row_anchor(anchored)?;
     // docs/0040 §4 D6 amendment: one button under the pointer, not 460.
@@ -981,7 +1162,7 @@ fn row_comment_button(
                     .xsmall()
                     .icon(IconName::Plus)
                     .tooltip("Comment on this line")
-                    .on_click(cx.listener(move |this, _, window, cx| {
+                    .on_click(window.listener_for(page_h, move |this, _, window, cx| {
                         this.open_line_composer(path.clone(), side, line, window, cx)
                     })),
             )
@@ -994,9 +1175,11 @@ fn row_comment_button(
 /// **Start a review** queues a local draft for the Finish-review bar.
 fn line_composer_card(
     page: &PrDetailPage,
+    page_h: &Entity<PrDetailPage>,
+    window: &mut Window,
     path: &str,
     anchored: &AnchoredLine,
-    cx: &Context<PrDetailPage>,
+    cx: &App,
 ) -> Option<AnyElement> {
     let composer = page.line_composer.as_ref()?;
     let (side, line) = row_anchor(anchored)?;
@@ -1037,7 +1220,7 @@ fn line_composer_card(
                             .xsmall()
                             .label("Add single comment")
                             .disabled(busy)
-                            .on_click(cx.listener(|this, _, window, cx| {
+                            .on_click(window.listener_for(page_h, |this, _, window, cx| {
                                 this.add_single_comment(window, cx)
                             })),
                     )
@@ -1047,7 +1230,7 @@ fn line_composer_card(
                             .xsmall()
                             .label("Start a review")
                             .disabled(busy)
-                            .on_click(cx.listener(|this, _, window, cx| {
+                            .on_click(window.listener_for(page_h, |this, _, window, cx| {
                                 this.start_review_draft(window, cx)
                             })),
                     )
@@ -1057,7 +1240,7 @@ fn line_composer_card(
                             .xsmall()
                             .label("Cancel")
                             .disabled(busy)
-                            .on_click(cx.listener(|this, _, window, cx| {
+                            .on_click(window.listener_for(page_h, |this, _, window, cx| {
                                 this.cancel_line_composer(window, cx)
                             })),
                     ),
@@ -1071,9 +1254,11 @@ fn line_composer_card(
 /// bar publishes the whole batch.
 fn draft_rows(
     page: &PrDetailPage,
+    page_h: &Entity<PrDetailPage>,
+    window: &mut Window,
     path: &str,
     anchored: &AnchoredLine,
-    cx: &Context<PrDetailPage>,
+    cx: &App,
 ) -> Vec<AnyElement> {
     let Some((side, line)) = row_anchor(anchored) else {
         return Vec::new();
@@ -1119,8 +1304,9 @@ fn draft_rows(
                                 .xsmall()
                                 .icon(IconName::CircleX)
                                 .tooltip("Discard draft")
-                                .on_click(cx.listener(move |this, _, _, cx| {
+                                .on_click(window.listener_for(page_h, move |this, _, _, cx| {
                                     this.drafts.remove(ix);
+                                    this.splice_diff_drafts();
                                     cx.notify();
                                 })),
                         ),
@@ -1131,18 +1317,30 @@ fn draft_rows(
         .collect()
 }
 
+/// The fetch-row visibility predicate (0030 D1) — shared by
+/// `threads_fetch_row` and the flatten pass so the virtualized item list
+/// and the rendered element can never disagree.
+fn threads_fetch_row_present(page: &PrDetailPage) -> bool {
+    if page.threads.is_idle() && !page.threads.in_flight {
+        return false;
+    }
+    !(page.threads.data().is_some() && page.threads.load_error().is_none())
+}
+
 /// While threads load with nothing landed: a muted hint under the diff;
 /// on failure (nothing landed) a retry row — the diff itself must never
 /// break (0030 D1, docs/0031 D3).
-fn threads_fetch_row(page: &PrDetailPage, cx: &Context<PrDetailPage>) -> Option<AnyElement> {
+fn threads_fetch_row(
+    page: &PrDetailPage,
+    page_h: &Entity<PrDetailPage>,
+    window: &mut Window,
+    cx: &App,
+) -> Option<AnyElement> {
     // Idle-with-data renders no row (the threads are up); a first-load
     // fetch shows the hint; a failure — with nothing landed — the retry
     // row (0030 D1). A failed refresh of landed data also shows the retry
     // row: `load_error` covers `Failed` and the D3 `last_error` slot.
-    if page.threads.is_idle() && !page.threads.in_flight {
-        return None;
-    }
-    if page.threads.data().is_some() && page.threads.load_error().is_none() {
+    if !threads_fetch_row_present(page) {
         return None;
     }
     if let Some(msg) = page.threads.load_error() {
@@ -1161,7 +1359,9 @@ fn threads_fetch_row(page: &PrDetailPage, cx: &Context<PrDetailPage>) -> Option<
                         .xsmall()
                         .icon(IconName::RotateCw)
                         .tooltip("Retry")
-                        .on_click(cx.listener(|this, _, _, cx| this.fetch_threads(cx))),
+                        .on_click(
+                            window.listener_for(page_h, |this, _, _, cx| this.fetch_threads(cx)),
+                        ),
                 )
                 .into_any_element(),
         );
@@ -1185,8 +1385,10 @@ fn threads_fetch_row(page: &PrDetailPage, cx: &Context<PrDetailPage>) -> Option<
 /// keyed by path so refetches don't collapse it behind the user's back.
 fn stray_bucket(
     page: &PrDetailPage,
+    page_h: &Entity<PrDetailPage>,
+    window: &mut Window,
     placed: &ThreadPlacement<'_>,
-    cx: &Context<PrDetailPage>,
+    cx: &App,
 ) -> Option<AnyElement> {
     if placed.stray.is_empty() {
         return None;
@@ -1219,9 +1421,10 @@ fn stray_bucket(
                     } else {
                         IconName::ChevronRight
                     })
-                    .on_click(cx.listener(move |this, _, _, cx| {
+                    .on_click(window.listener_for(page_h, move |this, _, _, cx| {
                         let entry = this.outdated_open.entry(path.clone()).or_insert(false);
                         *entry = !*entry;
+                        this.splice_diff_stray();
                         cx.notify();
                     })),
             )
@@ -1232,7 +1435,7 @@ fn stray_bucket(
             placed
                 .stray
                 .iter()
-                .map(|&(ix, t)| thread_card(page, ix, t, cx)),
+                .map(|&(ix, t)| thread_card(page, page_h, window, ix, t, cx)),
         );
     }
     Some(
@@ -1252,9 +1455,11 @@ fn stray_bucket(
 /// stage 1: reply/resolve affordances land with stage 2 (#208).
 fn thread_card(
     page: &PrDetailPage,
+    page_h: &Entity<PrDetailPage>,
+    window: &mut Window,
     ix: usize,
     t: &PrThread,
-    cx: &Context<PrDetailPage>,
+    cx: &App,
 ) -> AnyElement {
     let author = t
         .comments
@@ -1325,7 +1530,7 @@ fn thread_card(
                             .disabled(page.busy.is_some())
                             .on_click({
                                 let thread_id = t.id.clone();
-                                cx.listener(move |this, _, window, cx| {
+                                window.listener_for(page_h, move |this, _, window, cx| {
                                     this.open_reply(thread_id.clone(), window, cx)
                                 })
                             }),
@@ -1340,7 +1545,7 @@ fn thread_card(
                             .disabled(page.busy.is_some())
                             .on_click({
                                 let thread_id = t.id.clone();
-                                cx.listener(move |this, _, window, cx| {
+                                window.listener_for(page_h, move |this, _, window, cx| {
                                     this.open_resolve_picker(thread_id.clone(), window, cx)
                                 })
                             }),
@@ -1355,7 +1560,7 @@ fn thread_card(
                             .disabled(page.busy.is_some())
                             .on_click({
                                 let thread_id = t.id.clone();
-                                cx.listener(move |this, _, window, cx| {
+                                window.listener_for(page_h, move |this, _, window, cx| {
                                     this.set_thread_resolved(
                                         thread_id.clone(),
                                         false,
@@ -1372,7 +1577,7 @@ fn thread_card(
             t.comments
                 .iter()
                 .enumerate()
-                .map(|(m, c)| thread_comment(page, ix, m, c, cx)),
+                .map(|(m, c)| thread_comment(page, page_h, window, ix, m, c, cx)),
         )
         .when_some(permalink, |row, url| {
             row.child(
@@ -1390,10 +1595,11 @@ fn thread_card(
                 && !t.is_resolved,
             |card| {
                 card.child(resolve_picker_row(
+                    page_h,
+                    window,
                     page.busy.is_some(),
                     ix,
                     t.id.clone(),
-                    cx,
                 ))
             },
         )
@@ -1402,7 +1608,16 @@ fn thread_card(
                 .as_ref()
                 .filter(|(tid, _)| tid == &t.id)
                 .map(|(_, editor)| editor.clone()),
-            |card, editor| card.child(reply_box(page.busy.is_some(), ix, editor, cx)),
+            |card, editor| {
+                card.child(reply_box(
+                    page_h,
+                    window,
+                    page.busy.is_some(),
+                    ix,
+                    editor,
+                    cx,
+                ))
+            },
         )
         .into_any_element()
 }
@@ -1413,10 +1628,11 @@ fn thread_card(
 /// field omitted). Always visible once open (0019 house style — no
 /// hover-only discovery).
 fn resolve_picker_row(
+    page_h: &Entity<PrDetailPage>,
+    window: &mut Window,
     busy: bool,
     ix: usize,
     thread_id: String,
-    cx: &Context<PrDetailPage>,
 ) -> AnyElement {
     let mut row = h_flex()
         .debug_selector(|| "pr-resolve-picker-key".into())
@@ -1434,7 +1650,7 @@ fn resolve_picker_row(
                 .disabled(busy)
                 .on_click({
                     let thread_id = thread_id.clone();
-                    cx.listener(move |this, _, window, cx| {
+                    window.listener_for(page_h, move |this, _, window, cx| {
                         this.set_thread_resolved(thread_id.clone(), true, None, window, cx)
                     })
                 }),
@@ -1451,7 +1667,7 @@ fn resolve_picker_row(
             .disabled(busy)
             .on_click({
                 let thread_id = thread_id.clone();
-                cx.listener(move |this, _, window, cx| {
+                window.listener_for(page_h, move |this, _, window, cx| {
                     this.set_thread_resolved(thread_id.clone(), true, Some(reason), window, cx)
                 })
             }),
@@ -1463,7 +1679,7 @@ fn resolve_picker_row(
             .xsmall()
             .label("Cancel")
             .disabled(busy)
-            .on_click(cx.listener(|this, _, _, cx| this.cancel_resolve_picker(cx))),
+            .on_click(window.listener_for(page_h, |this, _, _, cx| this.cancel_resolve_picker(cx))),
     )
     .into_any_element()
 }
@@ -1472,10 +1688,12 @@ fn resolve_picker_row(
 /// via `addPullRequestReviewComment { body, inReplyTo }` (replies
 /// cannot ride a draft batch).
 fn reply_box(
+    page_h: &Entity<PrDetailPage>,
+    window: &mut Window,
     busy: bool,
     ix: usize,
     editor: Entity<TextareaState>,
-    cx: &Context<PrDetailPage>,
+    cx: &App,
 ) -> AnyElement {
     v_flex()
         .id(SharedString::from(format!("pr-thread-{ix}-reply-box")))
@@ -1497,7 +1715,9 @@ fn reply_box(
                         .xsmall()
                         .label("Send")
                         .disabled(busy)
-                        .on_click(cx.listener(|this, _, window, cx| this.send_reply(window, cx))),
+                        .on_click(window.listener_for(page_h, |this, _, window, cx| {
+                            this.send_reply(window, cx)
+                        })),
                 )
                 .child(
                     Button::new(SharedString::from(format!("pr-thread-{ix}-reply-cancel")))
@@ -1505,7 +1725,9 @@ fn reply_box(
                         .xsmall()
                         .label("Cancel")
                         .disabled(busy)
-                        .on_click(cx.listener(|this, _, window, cx| this.cancel_reply(window, cx))),
+                        .on_click(window.listener_for(page_h, |this, _, window, cx| {
+                            this.cancel_reply(window, cx)
+                        })),
                 ),
         )
         .into_any_element()
@@ -1636,10 +1858,12 @@ fn thread_chip(t: &PrThread, cx: &App) -> AnyElement {
 /// markdown body; ```suggestion blocks render as suggestion cards.
 fn thread_comment(
     page: &PrDetailPage,
+    page_h: &Entity<PrDetailPage>,
+    window: &mut Window,
     ix: usize,
     m: usize,
     c: &crate::gql::PrThreadComment,
-    cx: &Context<PrDetailPage>,
+    cx: &App,
 ) -> AnyElement {
     let author = c
         .author
@@ -1684,7 +1908,7 @@ fn thread_comment(
                             .on_click({
                                 let node_id = c.id.clone();
                                 let body = c.body.clone();
-                                cx.listener(move |this, _, window, cx| {
+                                window.listener_for(page_h, move |this, _, window, cx| {
                                     this.start_thread_edit(
                                         node_id.clone(),
                                         body.clone(),
@@ -1704,7 +1928,7 @@ fn thread_comment(
                             .disabled(page.busy.is_some())
                             .on_click({
                                 let node_id = c.id.clone();
-                                cx.listener(move |this, _, _, cx| {
+                                window.listener_for(page_h, move |this, _, _, cx| {
                                     this.start_thread_delete_confirm(node_id.clone(), cx)
                                 })
                             }),
@@ -1724,8 +1948,12 @@ fn thread_comment(
                     "Editing comment",
                     &editor,
                     page.busy.is_some(),
-                    cx.listener(|this, _, window, cx| this.save_thread_edit(window, cx)),
-                    cx.listener(|this, _, window, cx| this.cancel_thread_edit(window, cx)),
+                    window.listener_for(page_h, |this, _, window, cx| {
+                        this.save_thread_edit(window, cx)
+                    }),
+                    window.listener_for(page_h, |this, _, window, cx| {
+                        this.cancel_thread_edit(window, cx)
+                    }),
                     cx,
                 ))
             },
@@ -1737,8 +1965,12 @@ fn thread_comment(
                     &format!("{key}-delete"),
                     "Delete this comment?",
                     page.busy.is_some(),
-                    cx.listener(|this, _, window, cx| this.confirm_thread_delete(window, cx)),
-                    cx.listener(|this, _, _, cx| this.cancel_thread_delete_confirm(cx)),
+                    window.listener_for(page_h, |this, _, window, cx| {
+                        this.confirm_thread_delete(window, cx)
+                    }),
+                    window.listener_for(page_h, |this, _, _, cx| {
+                        this.cancel_thread_delete_confirm(cx)
+                    }),
                     cx,
                 ))
             },
@@ -1768,13 +2000,7 @@ fn thread_comment(
 /// The suggestion card (0030 D6): label + the replacement lines + Copy —
 /// applying has no public API, so the flow finishes on GitHub (the card
 /// above the thread links out).
-fn suggestion_card(
-    ix: usize,
-    m: usize,
-    b: usize,
-    code: &str,
-    cx: &Context<PrDetailPage>,
-) -> AnyElement {
+fn suggestion_card(ix: usize, m: usize, b: usize, code: &str, cx: &App) -> AnyElement {
     let id = SharedString::from(format!("pr-suggestion-{ix}-{m}-{b}-copy"));
     let payload = code.to_string();
     v_flex()
