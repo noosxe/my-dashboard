@@ -334,7 +334,8 @@ impl IssueDetailPage {
 
     /// docs/0032 D2: the host heartbeat and focus trigger land here.
     pub(crate) fn auto_refresh(&mut self, min_age: Duration, cx: &mut Context<Self>) {
-        if self.detail.needs_refresh(min_age) {
+        // The backoff gate composes with the age policy (docs/0036 D2).
+        if self.detail.needs_refresh(min_age) && self.detail.backoff_elapsed() {
             self.fetch_detail(cx);
         }
         // The #192 label's clock: even a skipped beat re-renders the

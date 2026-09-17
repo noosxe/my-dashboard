@@ -324,7 +324,8 @@ impl NotificationDetailPage {
 
     /// docs/0032 D2/D4: the host heartbeat and focus trigger land here.
     pub(crate) fn auto_refresh(&mut self, min_age: Duration, cx: &mut Context<Self>) {
-        if self.thread.needs_refresh(min_age) {
+        // The backoff gate composes with the age policy (docs/0036 D2).
+        if self.thread.needs_refresh(min_age) && self.thread.backoff_elapsed() {
             self.fetch_thread(cx);
         }
         // The #192 label's clock: even a skipped beat re-renders the
@@ -985,15 +986,31 @@ mod tests {
     }
 
     #[gpui::test]
-    fn auto_refresh_retries_a_failed_thread_at_any_age(cx: &mut gpui::TestAppContext) {
+    fn auto_refresh_backoffs_a_failed_thread_then_self_heals(cx: &mut gpui::TestAppContext) {
         use std::time::Duration;
-        // The GET fails -> Failed record -> the next trigger self-heals
-        // (docs/0032 D2), regardless of the threshold.
+        // The GET fails -> Failed record. The next trigger no longer
+        // re-fires on the spot: the first retry waits out the backoff
+        // (docs/0036 D2 — one beat's worth for streak 1).
         let mock = lane_mock(0, 500, thread_payload("Issue", Some("u"), false));
         let (page, vcx) = probe_page(cx, probe_seed(false, "Issue", Some("u")), mock.clone());
         vcx.run_until_parked();
         assert!(vcx.read(|cx| page.read(cx).thread.load_error().is_some()));
 
+        vcx.update(|_, cx| page.update(cx, |p, cx| p.auto_refresh(Duration::from_secs(3600), cx)));
+        vcx.run_until_parked();
+        assert_eq!(
+            mock.verbs(),
+            vec![Verb::Get],
+            "a fresh attempt backoffs the retry"
+        );
+
+        // Once the clock passes the streak-1 delay the self-heal fires
+        // — still regardless of the age threshold (docs/0032 D2).
+        vcx.update(|_, cx| {
+            page.update(cx, |p, _| {
+                p.thread.attempted_at = Some(std::time::Instant::now() - Duration::from_secs(61));
+            })
+        });
         vcx.update(|_, cx| page.update(cx, |p, cx| p.auto_refresh(Duration::from_secs(3600), cx)));
         vcx.run_until_parked();
         assert_eq!(mock.verbs(), vec![Verb::Get, Verb::Get]);
