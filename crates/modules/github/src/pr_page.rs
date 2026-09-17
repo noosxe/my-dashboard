@@ -250,6 +250,10 @@ pub(crate) struct PrDetailPage {
     /// Files tab is first opened, then one REST walk; `Ready` keeps the
     /// parsed list (a refresh refetches it).
     pub(crate) files: Fetch<Vec<PrFile>>,
+    /// Diff-row highlight memo (docs/0040 D5) — per-file span lists,
+    /// invalidated by patch text or palette change. Pure memo: filled
+    /// from render, never notifies.
+    pub(crate) highlight_cache: crate::syntax::HighlightCache,
     /// Check log panes (docs/0039 D4/D5), keyed by check name — unique
     /// across the head ref's checks. `Ready` content is immutable (a
     /// completed job's log never changes) and cached per job fetch;
@@ -380,6 +384,7 @@ impl PrDetailPage {
             methods: Vec::new(),
             method_select: None,
             files: Fetch::new(),
+            highlight_cache: crate::syntax::HighlightCache::default(),
             check_logs: BTreeMap::new(),
             expanded_check: None,
             check_log_scroll: ScrollHandle::new(),
@@ -796,6 +801,9 @@ impl PrDetailPage {
                         files.len()
                     );
                     self.files.land(files);
+                    // The file list was replaced — drop stale per-file
+                    // memos (docs/0040 D5); entries re-derive on render.
+                    self.highlight_cache.clear();
                     self.apply_files_payload(cx);
                 }
                 Err(e) => {

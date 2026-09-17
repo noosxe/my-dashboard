@@ -15,6 +15,7 @@
 //! entity, the page observes and reads `selected_entry()`).
 
 use std::collections::BTreeMap;
+use std::ops::Range;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
@@ -39,6 +40,7 @@ use crate::pr_page::{
     review_batch_allowed, row_is_edited,
 };
 use crate::service::{AnchoredLine, PatchLine, anchor_patch};
+use crate::syntax::{self, TokenKind};
 use dashboard_core::freshness::relative_age;
 /// Files sidebar view mode (0018 D3). `List` is the default — the flat
 /// rendering is the closest to the accordion it replaces.
@@ -744,11 +746,17 @@ fn diff_body(
             .into_any_element();
     };
     let rows = anchor_patch(patch);
+    // docs/0040 D5: per-row highlight spans, memoized per file and
+    // re-derived on patch or palette change; `None` renders plain.
+    let spans =
+        page.highlight_cache
+            .spans_for(&file.filename, patch, &rows, syntax::theme_key(cx.theme()));
     let elements: Vec<AnyElement> = rows
         .iter()
         .enumerate()
         .flat_map(|(ix, anchored)| {
-            let mut out = vec![diff_row(&file.filename, anchored, cx)];
+            let row_spans = spans.as_ref().and_then(|v| v.get(ix)).map(Vec::as_slice);
+            let mut out = vec![diff_row(&file.filename, anchored, row_spans, cx)];
             if let Some(threads) = placed.anchored.get(&ix) {
                 out.extend(
                     threads
@@ -796,7 +804,12 @@ fn row_anchor(anchored: &AnchoredLine) -> Option<(DiffSide, u32)> {
     }
 }
 
-fn diff_row(path: &str, anchored: &AnchoredLine, cx: &Context<PrDetailPage>) -> AnyElement {
+fn diff_row(
+    path: &str,
+    anchored: &AnchoredLine,
+    spans: Option<&[(Range<usize>, TokenKind)]>,
+    cx: &Context<PrDetailPage>,
+) -> AnyElement {
     let mono = cx.theme().mono_font_family.clone();
     match &anchored.line {
         PatchLine::Hunk(text) => div()
@@ -817,7 +830,7 @@ fn diff_row(path: &str, anchored: &AnchoredLine, cx: &Context<PrDetailPage>) -> 
             .px_2()
             .text_xs()
             .font_family(mono)
-            .child(format!(" {text}"))
+            .child(diff_content(" ", text, spans, cx))
             .children(row_comment_button(path, anchored, cx)),
         PatchLine::Add(text) => h_flex()
             .flex_none()
@@ -829,7 +842,7 @@ fn diff_row(path: &str, anchored: &AnchoredLine, cx: &Context<PrDetailPage>) -> 
             .font_family(mono)
             .bg(cx.theme().success.opacity(0.12))
             .text_color(cx.theme().success)
-            .child(format!("+{text}"))
+            .child(diff_content("+", text, spans, cx))
             .children(row_comment_button(path, anchored, cx)),
         PatchLine::Del(text) => h_flex()
             .flex_none()
@@ -841,10 +854,54 @@ fn diff_row(path: &str, anchored: &AnchoredLine, cx: &Context<PrDetailPage>) -> 
             .font_family(mono)
             .bg(cx.theme().danger.opacity(0.12))
             .text_color(cx.theme().danger)
-            .child(format!("−{text}"))
+            .child(diff_content("\u{2212}", text, spans, cx))
             .children(row_comment_button(path, anchored, cx)),
     }
     .into_any_element()
+}
+
+/// One row's content: the sign glyph plus the (spans-shifted) text.
+/// Without spans — plain file, over the cap, or nothing to color — this
+/// is the plain string exactly as before docs/0040 (D6). Ranges are
+/// byte offsets into `text`; shifting by the glyph's byte length keeps
+/// the glyph out of every highlight.
+fn diff_content(
+    glyph: &str,
+    text: &str,
+    spans: Option<&[(Range<usize>, TokenKind)]>,
+    cx: &Context<PrDetailPage>,
+) -> AnyElement {
+    let content = format!("{glyph}{text}");
+    let Some(spans) = spans else {
+        return content.into_any_element();
+    };
+    if spans.is_empty() {
+        return content.into_any_element();
+    }
+    let mut highlights = Vec::with_capacity(spans.len());
+    for (range, kind) in shifted_ranges(glyph.len(), spans) {
+        if range.end > content.len() {
+            continue;
+        }
+        highlights.push((range, syntax::token_style(kind, cx.theme())));
+    }
+    if highlights.is_empty() {
+        return content.into_any_element();
+    }
+    StyledText::new(content)
+        .with_highlights(highlights)
+        .into_any_element()
+}
+
+/// Span ranges re-based onto the glyph+text content (byte offsets).
+fn shifted_ranges(
+    glyph_len: usize,
+    spans: &[(Range<usize>, TokenKind)],
+) -> Vec<(Range<usize>, TokenKind)> {
+    spans
+        .iter()
+        .map(|(r, k)| (glyph_len + r.start..glyph_len + r.end, *k))
+        .collect()
 }
 
 /// The hover comment affordance for one armable row (docs/0030 D4/D8):
@@ -1709,9 +1766,23 @@ fn suggestion_card(
 #[cfg(test)]
 mod tests {
     use super::{
-        FileEntry, FileListDelegate, FilesSummary, build_file_forest, files_summary, path_matches,
-        row_anchor, split_path,
+        FileEntry, FileListDelegate, FilesSummary, TokenKind, build_file_forest, files_summary,
+        path_matches, row_anchor, shifted_ranges, split_path,
     };
+    /// docs/0040 D6: a highlight span starts at or after the sign
+    /// glyph's bytes — the `+`/`−`/space prefix is never colored as code.
+    #[test]
+    fn shifted_ranges_never_cover_the_sign_glyph() {
+        let spans = vec![
+            (0..1usize, TokenKind::Keyword),
+            (3..9, TokenKind::StringLit),
+        ];
+        for glyph_len in [1usize, 3] {
+            for (range, _) in shifted_ranges(glyph_len, &spans) {
+                assert!(range.start >= glyph_len);
+            }
+        }
+    }
     fn entry(path: &str) -> FileEntry {
         FileEntry {
             path: path.into(),

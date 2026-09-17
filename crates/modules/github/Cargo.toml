@@ -14,6 +14,7 @@ gpui-component.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 pulldown-cmark.workspace = true
+syntect.workspace = true
 linkify.workspace = true
 ureq.workspace = true
 chrono.workspace = true

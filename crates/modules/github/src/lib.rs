@@ -23,6 +23,7 @@ pub mod page;
 pub mod pr_page;
 pub mod service;
 pub mod settings;
+pub mod syntax;
 
 use std::rc::Rc;
 use std::sync::Arc;
