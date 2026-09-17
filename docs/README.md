@@ -73,6 +73,7 @@ cross-platform, multi-modular universal personal dashboard built with Rust and
 | [0038](0038-realtime-detail-pages.md) | GitHub Module: Realtime Detail Pages (engaged conditional polling; push rejected on evidence; 304 = unchanged landing; #226) |
 | [0039](0039-check-run-logs.md) | GitHub Module: Check-run Log Viewing (documented 4-call resolution chain; page-owned one-shot kind; inline accordion pane, tail-truncated; #201) |
 | [0040](0040-syntax-highlighted-diffs.md) | GitHub Module: Syntax-Highlighted Diffs (syntect tokenizer, theme-token color mapping; #202) |
+| [0041](0041-virtualized-diff-scroll.md) | GitHub Module: Virtualized Diff Scroll (gpui `list` over a flattened `DiffItem` stream; page-owned anchor cache; perf contract test; #253) |
 | [0042](0042-repo-view-list-filters.md) | GitHub Module: Repo-View List Filters & Sort (client-side filter/sort engine over snapshot nodes; per-box toolbars + shared quick filter; labels & review-requests wire additions; #190) |
 
 ## Planned docs (roadmap, not yet written)
