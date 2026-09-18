@@ -75,6 +75,7 @@ cross-platform, multi-modular universal personal dashboard built with Rust and
 | [0040](0040-syntax-highlighted-diffs.md) | GitHub Module: Syntax-Highlighted Diffs (syntect tokenizer, theme-token color mapping; #202) |
 | [0041](0041-virtualized-diff-scroll.md) | GitHub Module: Virtualized Diff Scroll (gpui `list` over a flattened `DiffItem` stream; page-owned anchor cache; perf contract test; #253) |
 | [0042](0042-repo-view-list-filters.md) | GitHub Module: Repo-View List Filters & Sort (client-side filter/sort engine over snapshot nodes; per-box toolbars + shared quick filter; labels & review-requests wire additions; #190) |
+| [0043](0043-pr-metadata-editing.md) | GitHub Module: PR Page Metadata Editing (reviewers via `requestReviews`; labels/assignees/milestone via `updatePullRequest`; 0022 picker machinery to `pickers.rs`; #189) |
 
 ## Planned docs (roadmap, not yet written)
 
