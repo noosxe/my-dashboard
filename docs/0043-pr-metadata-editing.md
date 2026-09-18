@@ -333,3 +333,38 @@ other three are straight ports.
 5. All failure paths surface in the rail and keep their picker open.
 6. Workspace gates stay green; new probes cover every D8 key; the
    issue-page suites stay green — no key renames.
+
+---
+## 11. Shipped (2026-09-17, issue #189)
+
+Implemented as designed, in one PR. The §9 scope valve stayed shut: the
+`pickers.rs` extraction was a mechanical move (the issue page's
+table-tested pure helpers relocated verbatim, plus the arming core and
+the shared `triage_gate`), and the reviewer panel shipped with the rest.
+
+Implementation notes beyond the design text:
+
+- **Reuse, not parallel types**: the PR detail's labels/assignees/
+  milestone parse straight into the 0022 node shapes (`IssueLabel`,
+  `IssueAssignee`, `IssueMilestone`) — the row builders take one type
+  per surface and the pages can't drift.
+- **D3, reviewer clause mechanics**: a team/bot/mannequin request parses
+  to `id: None, login: ""` ("team or bot" display row); a *null*
+  `requestedReviewer` ref skips entirely — the node count then sits
+  below `totalCount`, which disarms the picker the same way. Both
+  shapes are live fixtures.
+- **D7, the 0022 refusal model**: a second picker cannot open while one
+  is up (the Edit affordances hide and `start_*` refuses) — the probe
+  test pins the refusal, not a close.
+- **Esc extends the PR page**: `DismissPrPage` now cancels the topmost
+  surface (delete confirms → row editors → composers → description →
+  picker) before closing the page — the 0022 §11 ordering.
+- **Realign on auto-refresh** (docs/0032 interplay): a picker open
+  across a detail refetch rebuilds by id, choices preserved.
+- **`pr_meta_mutation`** is the single pure (mutation, variables)
+  builder for all four saves — the payload tests assert the
+  one-field-group rule and the `union: true` replace/clear semantics
+  against it.
+
+Workspace: 419 tests green (was 407); clippy/fmt clean; probe keys for
+every new interactive element shipped per D8.

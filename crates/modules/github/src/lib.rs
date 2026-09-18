@@ -21,6 +21,7 @@ pub mod markdown;
 pub mod new_issue_page;
 pub mod notification_page;
 pub mod page;
+mod pickers;
 pub mod pr_page;
 pub mod service;
 pub mod settings;

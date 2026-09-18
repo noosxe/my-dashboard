@@ -86,7 +86,7 @@ developers open GitHub:
 | Missing | Impact |
 |---------|--------|
 | **Create PR** | Must use browser or CLI. |
-| **PR metadata editing** (labels, assignees, milestones, reviewers) | Issue page has these pickers; PR page does not. |
+| **PR metadata editing** (labels, assignees, milestones, reviewers) | Issue page has these pickers; PR page does not. *(→ shipped in #189, docs/0043)* |
 | **PR reactions** | Issue comments have reactions; PR comments do not yet. *(→ shipped in #196, docs/0023 §10)* |
 
 ### Navigation & discovery
@@ -150,7 +150,7 @@ Organized by impact on the "replace GitHub" goal.
 |-------------|--------|----------------|
 | **Inline code review (review threads + line comments)** | Large | The #1 reason developers open GitHub. Without it, the app is a notification center, not a review tool. |
 | **Auto-refresh detail pages** | Medium | A simple periodic re-fetch (or re-fetch on window focus) would keep PR/Issue pages current during active work. |
-| **PR metadata editing** (labels, assignees, reviewers) | Medium | Already built for issues (0022); porting to PRs is mostly wiring. |
+| **PR metadata editing** (labels, assignees, reviewers) | Medium | Already built for issues (0022); porting to PRs is mostly wiring. *(→ shipped in #189)* |
 | **Filter and sort for lists** | Medium | Notification/PR/issue lists become unusable above ~20 items without filtering. |
 | **Create PR** | Medium | Common workflow that currently requires leaving the app. |
 

@@ -469,6 +469,14 @@ pub enum Mutation {
     IssueSetLabels,
     IssueSetAssignees,
     IssueSetMilestone,
+    // docs/0043 D1: the PR page's metadata writes — labels/assignees/
+    // milestone share the updatePullRequest document, reviewers their
+    // own (requestReviews, `union: true` replace). Same op-identity
+    // pattern as the 0022 quartet above.
+    PrSetLabels,
+    PrSetAssignees,
+    PrSetMilestone,
+    PrSetReviewers,
     // 0023 D3/D5: reaction toggles (add/remove share the input shape,
     // two documents) + conversation locking. Same transport, op
     // identity rides the variant.
@@ -1261,6 +1269,12 @@ fn run_pr_mutation(http: &dyn Http, spec: &FetchSpec, mutation: Mutation) -> Spe
         Mutation::IssueSetLabels => gql::ISSUE_UPDATE_MUTATION,
         Mutation::IssueSetAssignees => gql::ISSUE_UPDATE_MUTATION,
         Mutation::IssueSetMilestone => gql::ISSUE_UPDATE_MUTATION,
+        // docs/0043 D1: one document for the metadata trio, one for
+        // review requests.
+        Mutation::PrSetLabels => gql::PR_UPDATE_META_MUTATION,
+        Mutation::PrSetAssignees => gql::PR_UPDATE_META_MUTATION,
+        Mutation::PrSetMilestone => gql::PR_UPDATE_META_MUTATION,
+        Mutation::PrSetReviewers => gql::PR_REQUEST_REVIEWS_MUTATION,
         // 0023 D3/D5: four op identities over two documents — add/remove
         // share the `subjectId`+`content` input, lock/unlock their own.
         Mutation::AddReaction => gql::ADD_REACTION_MUTATION,
