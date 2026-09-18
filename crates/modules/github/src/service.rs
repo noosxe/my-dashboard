@@ -423,6 +423,10 @@ pub enum Kind {
     RepoLabels,
     RepoAssignableUsers,
     RepoMilestones,
+    /// docs/0044 D1/D4 — the PR creator's branch source page, fetched
+    /// lazily on creator open (the picker-source pattern). Stateless
+    /// GraphQL lane, same page-owned result convention.
+    RepoBranches,
     /// One notification thread's payload (docs/0026 D2) — the
     /// notification page's GET of `GET /notifications/threads/{id}`.
     /// Page-owned result convention per [`Kind::IssueDetail`]: the page
@@ -487,6 +491,9 @@ pub enum Mutation {
     // 0024 D5: the creator's own document — the minimum input
     // (repositoryId + title, body optional), one op identity.
     CreateIssue,
+    // docs/0044 D5: the PR creator's write — one document, minimum
+    // input (repositoryId, base/head ref names, title, body, draft).
+    CreatePullRequest,
     // 0030 D7: the Files-tab review writes — one variant per document,
     // except ReviewBatch: the batch rides the existing addPullRequestReview
     // document (the same input, plus its `threads` array).
@@ -793,6 +800,9 @@ pub fn run_spec(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
         ),
         Kind::RepoMilestones => {
             run_graphql_fetch(http, spec, gql::REPO_MILESTONES_QUERY, "repo-milestones")
+        }
+        Kind::RepoBranches => {
+            run_graphql_fetch(http, spec, gql::REPO_BRANCHES_QUERY, "repo-branches")
         }
         Kind::PrThreads => run_graphql_fetch(http, spec, gql::PR_THREADS_QUERY, "pr-threads"),
         Kind::Notifications | Kind::RepoNotifications | Kind::PrFiles => run_rest(http, spec),
@@ -1283,6 +1293,7 @@ fn run_pr_mutation(http: &dyn Http, spec: &FetchSpec, mutation: Mutation) -> Spe
         Mutation::UnlockIssue => gql::UNLOCK_LOCKABLE_MUTATION,
         // 0024 D5: the creator's document.
         Mutation::CreateIssue => gql::CREATE_ISSUE_MUTATION,
+        Mutation::CreatePullRequest => gql::CREATE_PR_MUTATION,
         // 0030 D7: the Files-tab review writes. ReviewBatch reuses the
         // addPullRequestReview document — the draft batch is the same
         // input plus its `threads` array (D4).
@@ -1453,6 +1464,7 @@ impl Kind {
             Kind::RepoLabels => "repo-labels",
             Kind::RepoAssignableUsers => "repo-assignable-users",
             Kind::RepoMilestones => "repo-milestones",
+            Kind::RepoBranches => "repo-branches",
             Kind::PrFiles => "pr-files",
             Kind::JobLog => "check-log",
             Kind::PrThreads => "pr-threads",
@@ -2111,6 +2123,7 @@ impl GithubState {
             | Kind::RepoLabels
             | Kind::RepoAssignableUsers
             | Kind::RepoMilestones
+            | Kind::RepoBranches
             | Kind::ThreadDetail
             | Kind::ThreadMutation(_) => {}
         }

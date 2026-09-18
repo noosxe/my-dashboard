@@ -19,6 +19,7 @@ pub mod http;
 pub mod issue_page;
 pub mod markdown;
 pub mod new_issue_page;
+pub mod new_pr_page;
 pub mod notification_page;
 pub mod page;
 mod pickers;
@@ -78,6 +79,11 @@ impl Module for GithubModule {
                 "esc",
                 new_issue_page::DismissNewIssuePage,
                 Some("GithubNewIssuePage"),
+            ),
+            KeyBinding::new(
+                "esc",
+                new_pr_page::DismissNewPrPage,
+                Some("GithubNewPrPage"),
             ),
         ]);
         // Keychain-backed token slot + shared client + cache root (0005 Q3/Q6).

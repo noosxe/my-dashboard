@@ -40,6 +40,7 @@ use crate::filters;
 use crate::gql;
 use crate::issue_page;
 use crate::new_issue_page::{NewIssuePage, NewIssuePageEvent};
+use crate::new_pr_page::{NewPrPage, NewPrPageEvent};
 use crate::notification_page::{self, NotificationPageEvent};
 use crate::pr_page;
 use crate::service::{
@@ -108,6 +109,10 @@ pub(crate) struct GithubPage {
     /// (opening one hides the other).
     creator: Option<Entity<NewIssuePage>>,
     creator_open: bool,
+    /// The PR creator (docs/0044 D3/D7): the 0024 creator's sibling —
+    /// same retention and mutual-exclusion rules, own takeover slot.
+    creator_pr: Option<Entity<NewPrPage>>,
+    creator_pr_open: bool,
     /// Repo-view filter/sort state (docs/0042 D2): session-scoped; the
     /// label choices reset on repo switch (names are repo-local), the
     /// rest survives switches but not app restarts.
@@ -275,6 +280,8 @@ impl GithubPage {
             creator: None,
             notification: None,
             creator_open: false,
+            creator_pr: None,
+            creator_pr_open: false,
             window: window.window_handle(),
             synced_orgs: Vec::new(),
             synced_repos: Vec::new(),
@@ -445,6 +452,9 @@ impl GithubPage {
         } else if self.creator_open && self.creator.is_some() {
             // The creator's suffix (docs/0024 D3) — no number yet.
             derived.push("#new".into());
+        } else if self.creator_pr_open && self.creator_pr.is_some() {
+            // The PR creator's suffix (docs/0044 D3) — no number yet.
+            derived.push("#new-pr".into());
         }
         let current: Vec<SharedString> = self
             .nav
@@ -460,8 +470,10 @@ impl GithubPage {
             // yields to the repo view on click. The `#number` /
             // `· notification` crumb is current-location, non-clickable
             // (docs/0014 deferred the `on_click` to the sub-pages docs).
-            let sub_page_open =
-                pr_number.is_some() || self.creator_open || self.notification.is_some();
+            let sub_page_open = pr_number.is_some()
+                || self.creator_open
+                || self.creator_pr_open
+                || self.notification.is_some();
             let page = cx.entity();
             let crumbs: Vec<Crumb> = labels
                 .into_iter()
@@ -480,6 +492,7 @@ impl GithubPage {
                                     this.close_issue(cx);
                                     this.close_notification(cx);
                                     this.close_creator(cx);
+                                    this.close_creator_pr(cx);
                                 });
                             })),
                         }
@@ -518,6 +531,11 @@ impl GithubPage {
         if self.creator.is_some() && !self.state.read(cx).auth.connected() {
             self.creator = None;
             self.creator_open = false;
+        }
+        // The PR creator too (docs/0044 D7 — same rule, same drop).
+        if self.creator_pr.is_some() && !self.state.read(cx).auth.connected() {
+            self.creator_pr = None;
+            self.creator_pr_open = false;
         }
         let logins: Vec<SharedString> = self
             .state
@@ -589,6 +607,14 @@ impl GithubPage {
             self.creator = None;
             self.creator_open = false;
         }
+        if self
+            .creator_pr
+            .as_ref()
+            .is_some_and(|c| c.read(cx).repo != full_name)
+        {
+            self.creator_pr = None;
+            self.creator_pr_open = false;
+        }
         // Label choices are repo-local (docs/0042 D2): a switch to
         // another repo resets them; author/sort/search survive.
         self.filters.prs.label = None;
@@ -634,8 +660,10 @@ impl GithubPage {
         .detach();
         // Mutual exclusion (docs/0020 D1): only one sub-page owns the
         // module content — opening a PR closes any open issue page (and
-        // hides the creator, docs/0024 D3; its draft survives, D7).
+        // hides the creators, docs/0024 D3/docs/0044 D3; drafts
+        // survive, D7).
         self.creator_open = false;
+        self.creator_pr_open = false;
         self.issue = None;
         self.notification = None;
         self.pr = Some(page.clone());
@@ -682,6 +710,7 @@ impl GithubPage {
         // Mutual exclusion: opening the issue page hides the creator
         // (docs/0024 D3; its draft survives, D7).
         self.creator_open = false;
+        self.creator_pr_open = false;
         self.pr = None;
         self.notification = None;
         self.issue = Some(page.clone());
@@ -711,9 +740,12 @@ impl GithubPage {
         self.close_pr(cx);
         self.close_issue(cx);
         self.close_notification(cx);
-        // No selection = no repo the draft could belong to (docs/0024 D7).
+        // No selection = no repo the draft could belong to (docs/0024
+        // D7, docs/0044 D7).
         self.creator = None;
         self.creator_open = false;
+        self.creator_pr = None;
+        self.creator_pr_open = false;
         cx.notify();
     }
 
@@ -821,6 +853,7 @@ impl GithubPage {
         )
         .detach();
         self.creator_open = false;
+        self.creator_pr_open = false;
         self.pr = None;
         self.issue = None;
         self.notification = Some(page.clone());
@@ -888,6 +921,7 @@ impl GithubPage {
         self.pr = None;
         self.issue = None;
         self.notification = None;
+        self.creator_pr_open = false;
         self.creator_open = true;
         self.sync_repo_crumb(cx);
         let focus = self
@@ -908,6 +942,86 @@ impl GithubPage {
         if self.creator_open {
             log::debug!("issue creator closed (draft retained)");
             self.creator_open = false;
+            self.sync_repo_crumb(cx);
+            cx.notify();
+        }
+    }
+
+    /// Open the PR creator (docs/0044 D3): the 0024 creator's takeover
+    /// pattern — full content, crumb `#new-pr`, mutual exclusion with
+    /// the PR/issue pages and the issue creator. The entity is reused
+    /// when one already exists for this repo, so a cancel/reopen
+    /// round-trip keeps the draft (D7); branches re-fetch per open.
+    fn open_creator_pr(&mut self, repo: &gql::Repo, window: &mut Window, cx: &mut Context<Self>) {
+        log::debug!("pr creator opened: {}", repo.full_name);
+        if self
+            .creator_pr
+            .as_ref()
+            .is_none_or(|c| c.read(cx).repo != repo.full_name)
+        {
+            let node_id = repo.node_id.clone().unwrap_or_default();
+            self.creator_pr = Some(cx.new(|cx| {
+                NewPrPage::new(
+                    self.state.clone(),
+                    repo.full_name.clone(),
+                    node_id,
+                    window,
+                    cx,
+                )
+            }));
+        } else if let Some(creator_pr) = &self.creator_pr {
+            // D7: branches re-fetch per open; the draft survives.
+            creator_pr.update(cx, |page, cx| {
+                page.refetch_branches(window, cx);
+            });
+        }
+        // Esc on the creator asks its host to hide it (D7); `Created`
+        // hands the host the new PR row (D6).
+        cx.subscribe_in(
+            self.creator_pr.as_ref().unwrap(),
+            window,
+            |this, _, event: &NewPrPageEvent, window, cx| match event {
+                NewPrPageEvent::CloseRequested => this.close_creator_pr(cx),
+                NewPrPageEvent::Created(pr) => {
+                    let pr: &gql::PullRequest = pr; // Box deref — one event, one row
+                    let repo = this.creator_pr.take().map(|c| c.read(cx).repo.clone());
+                    this.creator_pr_open = false;
+                    if let Some(repo) = repo {
+                        // Refetch-on-create (D6): the house one-refetch
+                        // path, no optimistic insertion.
+                        let specs = this.state.update(cx, |s, _| s.repo_open_specs(&repo));
+                        this.run_specs(specs, window, cx);
+                        // A synthesized minimal row (gql::created_pr_from_body)
+                        // — initial paint only; the detail page re-fetches.
+                        this.open_pr(&repo, pr, None, window, cx);
+                    }
+                }
+            },
+        )
+        .detach();
+        self.pr = None;
+        self.issue = None;
+        self.notification = None;
+        self.creator_open = false;
+        self.creator_pr_open = true;
+        self.sync_repo_crumb(cx);
+        let focus = self
+            .creator_pr
+            .as_ref()
+            .unwrap()
+            .read(cx)
+            .focus_handle(cx)
+            .clone();
+        window.focus(&focus, cx);
+        cx.notify();
+    }
+
+    /// Hide the PR creator (D7): back to the repo view, the crumb chain
+    /// loses its `#new-pr` suffix. The entity intentionally stays alive.
+    fn close_creator_pr(&mut self, cx: &mut Context<Self>) {
+        if self.creator_pr_open {
+            log::debug!("pr creator closed (draft retained)");
+            self.creator_pr_open = false;
             self.sync_repo_crumb(cx);
             cx.notify();
         }
@@ -1426,6 +1540,16 @@ pub(crate) fn create_allowed(repo: &gql::Repo, connected: bool) -> bool {
     connected && repo.has_issues_enabled && repo.node_id.is_some()
 }
 
+/// The PR-creation visibility gate (docs/0044 D2), hidden-not-disabled:
+/// connected, and the repo's GraphQL node id is known (the
+/// `createPullRequest` target). No upstream creation flag exists (§2)
+/// and `hasIssuesEnabled` has no PR analog — anything that cannot
+/// succeed dies as a scoped form error or an empty head select, never a
+/// silent post. Pure — table-tested.
+pub(crate) fn create_pr_allowed(repo: &gql::Repo, connected: bool) -> bool {
+    connected && repo.node_id.is_some()
+}
+
 /// The module-level crumb label: the short `name` of the selected repo
 /// (docs/0014 Q1/D2), resolved with the same lookup the right column
 /// uses — a selected repo that no longer exists in the snapshot is *not*
@@ -1614,6 +1738,13 @@ impl Render for GithubPage {
                 return creator.clone().into_any_element();
             }
             self.creator_open = false; // stale flag without a page —
+        }
+        // The PR creator (docs/0044 D3): the sibling takeover.
+        if self.creator_pr_open {
+            if let Some(creator_pr) = &self.creator_pr {
+                return creator_pr.clone().into_any_element();
+            }
+            self.creator_pr_open = false; // stale flag without a page
         }
 
         // docs/0042 D1: rows render from the held snapshot nodes — the
@@ -1894,26 +2025,47 @@ impl GithubPage {
                         .child(Input::new(&self.row_search).small()),
                 )
                 .child({
-                    // The actions row (docs/0024 D2): New issue (gated,
-                    // hidden-not-disabled) + Refresh.
+                    // The actions row (docs/0024 D2, docs/0044 D2): New
+                    // issue + New pull request (both gated,
+                    // hidden-not-disabled).
                     let connected = self.state.read(cx).auth.connected();
-                    let gate = selected_repo
+                    let issue_gate = selected_repo
                         .as_ref()
                         .map(|r| create_allowed(r, connected))
                         .unwrap_or(false);
-                    h_flex().justify_end().gap_2().when(gate, |row| {
-                        let repo = selected_repo.clone().unwrap();
-                        row.child(
-                            Button::new("new-issue-open")
-                                .debug_selector(|| "new-issue-open".to_string())
-                                .label("New issue")
-                                .ghost()
-                                .small()
-                                .on_click(cx.listener(move |this, _, window, cx| {
-                                    this.open_creator(&repo, window, cx);
-                                })),
-                        )
-                    })
+                    let pr_gate = selected_repo
+                        .as_ref()
+                        .map(|r| create_pr_allowed(r, connected))
+                        .unwrap_or(false);
+                    h_flex()
+                        .justify_end()
+                        .gap_2()
+                        .when(pr_gate, |row| {
+                            let repo = selected_repo.clone().unwrap();
+                            row.child(
+                                Button::new("new-pr-open")
+                                    .debug_selector(|| "new-pr-open".to_string())
+                                    .label("New pull request")
+                                    .ghost()
+                                    .small()
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        this.open_creator_pr(&repo, window, cx);
+                                    })),
+                            )
+                        })
+                        .when(issue_gate, |row| {
+                            let repo = selected_repo.clone().unwrap();
+                            row.child(
+                                Button::new("new-issue-open")
+                                    .debug_selector(|| "new-issue-open".to_string())
+                                    .label("New issue")
+                                    .ghost()
+                                    .small()
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        this.open_creator(&repo, window, cx);
+                                    })),
+                            )
+                        })
                 })
                 .child(
                     GroupBox::new()
@@ -2589,8 +2741,9 @@ mod tests {
     // `test` re-export would shadow the builtin `#[test]` attribute and
     // blow the proc-macro stack (rustc SIGSEGV). Import selectively.
     use super::{
-        GithubPage, IndexPath, RepoListDelegate, create_allowed, more_hint_count,
-        next_org_selection, notification_url, reconcile_repo_crumb, repo_crumb_label,
+        GithubPage, IndexPath, RepoListDelegate, create_allowed, create_pr_allowed,
+        more_hint_count, next_org_selection, notification_url, reconcile_repo_crumb,
+        repo_crumb_label,
     };
     use crate::api;
     use crate::gql;
@@ -3809,6 +3962,28 @@ mod tests {
         // Node id unknown (pre-0024 cache) → hidden until a fetch lands.
         r.node_id = None;
         assert!(!create_allowed(&r, true));
+    }
+
+    #[test]
+    fn create_pr_gate_hides_until_every_condition_holds() {
+        // docs/0044 D2: connected ∧ node id known — no upstream creation
+        // flag exists, so the gate is the mutation target's presence.
+        let mut r = repo("acme/widget", None);
+        r.node_id = Some("R_1".into());
+        r.has_issues_enabled = true;
+        assert!(create_pr_allowed(&r, true));
+
+        // Disconnected never offers creation.
+        assert!(!create_pr_allowed(&r, false));
+
+        // Issues-disabled is irrelevant to PR creation — the node id
+        // alone arms the button (docs/0044 §2: no PR analog of the flag).
+        r.has_issues_enabled = false;
+        assert!(create_pr_allowed(&r, true));
+
+        // Node id unknown → hidden.
+        r.node_id = None;
+        assert!(!create_pr_allowed(&r, true));
     }
 
     #[test]

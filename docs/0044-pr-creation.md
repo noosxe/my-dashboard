@@ -219,3 +219,40 @@ the repo refetch. No OS-level input injection, per the bridge rules.
 - Metadata at creation time (labels/reviewers at post time) — only if
   GitHub-web parity ever demands it; the docs/0043 rail pickers cover
   post-create.
+---
+## 10. Shipped (2026-09-18, issue #191)
+
+Implemented as designed, in one PR. Nothing diverged from the design
+text; the §9 valves all stayed shut. Notes beyond it:
+
+- **Selections are read, not mirrored** (D4/D5): the creator never
+  keeps duplicate `base`/`head` strings — the submit path and the
+  render-time Create gate both read `selected_value()` straight off the
+  `SelectState` widgets, so there is no mirror to desynchronize. The
+  defaults land via `set_items` + `set_selected_value` when the branch
+  page lands.
+- **Branch fetches re-arm per open through the host** (D7): the host's
+  `open_creator_pr` calls `refetch_branches` on a reused entity; a
+  fresh entity fetches in its constructor. The fetch uses `spawn_in`
+  and hands the window back into `apply_branches`, because select item
+  updates need it (the 0024 submit shape, applied to a read).
+- **The event payload is boxed** (D6): `NewPrPageEvent::Created(
+  Box<gql::PullRequest>)` — the synthesized row is fat (docs/0042 D4
+  shapes) and the event fires exactly once; clippy's
+  `large_enum_variant` flagged the unboxed shape.
+- **The D5 minimum is probe-asserted, not just const-tested**: the
+  probe harness's HTTP fixture records the mutation variables it sees;
+  the test asserts the exact input key list (`repositoryId`,
+  `baseRefName`, `headRefName`, `title`, `body`, `draft`) — no
+  `headRepositoryId`, no `maintainerCanModify` — plus the posted
+  values, including the draft flag flipped through the row toggle.
+- **Auth-connected probe state**: the creator's fetch gates on
+  `auth.connected()`, so the probe harness force-connects the state
+  entity (`AuthStatus::Connected`, the docs/0026 §4.3 pattern) before
+  constructing the page.
+
+Workspace: 428 tests green (was 419); clippy/fmt clean. Bridge smoke:
+launch + snapshot clean; the actions row sits behind a repo selection,
+where the known deep-navigation a11y gap (#97) starts — interactive
+verification rode the `debug_bounds` probe tests instead, per the PR
+body's disclosure.

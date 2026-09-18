@@ -85,7 +85,7 @@ developers open GitHub:
 
 | Missing | Impact |
 |---------|--------|
-| **Create PR** | Must use browser or CLI. |
+| **Create PR** | Must use browser or CLI. *(→ shipped in #191, docs/0044)* |
 | **PR metadata editing** (labels, assignees, milestones, reviewers) | Issue page has these pickers; PR page does not. *(→ shipped in #189, docs/0043)* |
 | **PR reactions** | Issue comments have reactions; PR comments do not yet. *(→ shipped in #196, docs/0023 §10)* |
 
@@ -152,7 +152,7 @@ Organized by impact on the "replace GitHub" goal.
 | **Auto-refresh detail pages** | Medium | A simple periodic re-fetch (or re-fetch on window focus) would keep PR/Issue pages current during active work. |
 | **PR metadata editing** (labels, assignees, reviewers) | Medium | Already built for issues (0022); porting to PRs is mostly wiring. *(→ shipped in #189)* |
 | **Filter and sort for lists** | Medium | Notification/PR/issue lists become unusable above ~20 items without filtering. |
-| **Create PR** | Medium | Common workflow that currently requires leaving the app. |
+| **Create PR** | Medium | Common workflow that currently requires leaving the app. *(→ shipped in #191)* |
 
 ### Tier 2 — Build trust in the data
 
