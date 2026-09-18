@@ -492,6 +492,9 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
     mergeCommitAllowed
     squashMergeAllowed
     rebaseMergeAllowed
+    # docs/0043 D4 — gates the milestone and reviewer pickers (no
+    # PR-level flag exists upstream); read off the raw envelope node.
+    viewerPermission
     pullRequest(number: $number) {
       id
       number
@@ -510,6 +513,31 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
       # docs/0023 D1 on the PR surfaces (#196): the body, review summaries
       # and issue comments are all Reactable — one shared group shape.
       viewerCanReact
+      # docs/0043 D4: the rail pickers' granular gates (verified on
+      # PullRequest; milestone/reviewers substitute viewerPermission, §2.3).
+      viewerCanLabel
+      viewerCanAssign
+      labels(first: 20) {
+        totalCount
+        nodes { id name color }
+      }
+      assignees(first: 20) {
+        totalCount
+        nodes { id login avatarUrl }
+      }
+      milestone { id title state }
+      # docs/0043 D3: detail-level requests carry the user node ids the
+      # replace write needs (the list query's login-only shape is for
+      # docs/0042 filters and stays untouched).
+      reviewRequests(first: 20) {
+        totalCount
+        nodes {
+          requestedReviewer {
+            __typename
+            ... on User { id login }
+          }
+        }
+      }
       reactionGroups { content viewerHasReacted reactors { totalCount } }
       mergeable
       mergeStateStatus
@@ -572,6 +600,17 @@ pub struct PrDetailData {
     pub repository: Option<serde_json::Value>,
 }
 
+/// One requested reviewer on the detail page (docs/0043 D3) — the
+/// `RequestedReviewer` union narrowed to what a user-id replace write
+/// can reproduce. `id: None` covers degraded users and the team/bot/
+/// mannequin members (`login` empty): display-only rows whose presence
+/// forces the reviewer picker's Edit hidden — D3's reviewer clause.
+#[derive(Debug, Clone)]
+pub struct PrReviewRequest {
+    pub id: Option<String>,
+    pub login: String,
+}
+
 /// Everything the PR page renders (docs/0016 D2). Session-only — this
 /// never enters a cache.
 #[derive(Debug, Clone)]
@@ -591,6 +630,22 @@ pub struct PrDetail {
     /// docs/0023 D3 — the body's reaction groups. Absent fields degrade
     /// to false/empty (chips hidden), never a parse failure.
     pub reaction_groups: Vec<ReactionGroup>,
+    /// docs/0043 — rail metadata. Labels/assignees/milestone reuse the
+    /// issue page's node shapes (docs/0022); review requests carry the
+    /// user ids the replace write needs (D3). Absent fields degrade to
+    /// empty/None per the 0007 D3 rules.
+    pub labels: Vec<IssueLabel>,
+    pub labels_total: i64,
+    pub assignees: Vec<IssueAssignee>,
+    pub assignees_total: i64,
+    pub milestone: Option<IssueMilestone>,
+    pub review_requests: Vec<PrReviewRequest>,
+    pub review_requests_total: i64,
+    pub viewer_can_label: bool,
+    pub viewer_can_assign: bool,
+    /// `Repository.viewerPermission` off the raw envelope node (docs/0043
+    /// D4) — `None` (implicit read access) disarms the substituted gates.
+    pub viewer_permission: Option<String>,
     /// `MergeableState` — MERGEABLE / CONFLICTING / UNKNOWN; the Merge
     /// button stays disabled on anything but MERGEABLE (D5).
     pub mergeable: Option<String>,
@@ -1712,6 +1767,105 @@ pub fn pr_detail_from_value(value: &serde_json::Value) -> Option<PrDetail> {
         .pointer("/comments/totalCount")
         .and_then(|v| v.as_i64())
         .unwrap_or(comments.len() as i64);
+    // docs/0043 — rail metadata, the issue page's per-node degradation
+    // rules verbatim (labels/assignees/milestone), review requests
+    // narrowed per the [`PrReviewRequest`] doc comment.
+    let labels = pr
+        .pointer("/labels/nodes")
+        .and_then(|nodes| nodes.as_array())
+        .map(|nodes| {
+            nodes
+                .iter()
+                .filter_map(|l| {
+                    Some(IssueLabel {
+                        id: l.get("id").and_then(|v| v.as_str()).map(str::to_string),
+                        name: l.get("name")?.as_str()?.to_string(),
+                        color: l.get("color").and_then(|v| v.as_str()).map(str::to_string),
+                    })
+                })
+                .collect::<Vec<IssueLabel>>()
+        })
+        .unwrap_or_default();
+    let labels_total = pr
+        .pointer("/labels/totalCount")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(labels.len() as i64);
+    let assignees = pr
+        .pointer("/assignees/nodes")
+        .and_then(|nodes| nodes.as_array())
+        .map(|nodes| {
+            nodes
+                .iter()
+                .filter_map(|a| {
+                    Some(IssueAssignee {
+                        id: a.get("id").and_then(|v| v.as_str()).map(str::to_string),
+                        login: a.get("login")?.as_str()?.to_string(),
+                        avatar_url: a
+                            .get("avatarUrl")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .to_string(),
+                    })
+                })
+                .collect::<Vec<IssueAssignee>>()
+        })
+        .unwrap_or_default();
+    let assignees_total = pr
+        .pointer("/assignees/totalCount")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(assignees.len() as i64);
+    let milestone = pr.get("milestone").filter(|m| m.is_object()).and_then(|m| {
+        Some(IssueMilestone {
+            id: m.get("id")?.as_str()?.to_string(),
+            title: m
+                .get("title")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            state: m.get("state").and_then(|v| v.as_str()).map(str::to_string),
+        })
+    });
+    let review_requests = pr
+        .pointer("/reviewRequests/nodes")
+        .and_then(|nodes| nodes.as_array())
+        .map(|nodes| {
+            nodes
+                .iter()
+                .filter_map(|n| {
+                    let rr = n.get("requestedReviewer")?;
+                    if !rr.is_object() {
+                        return None; // null ref — skips below `totalCount`, arming hides Edit
+                    }
+                    if rr.get("__typename").and_then(|v| v.as_str()) == Some("User") {
+                        Some(PrReviewRequest {
+                            id: rr.get("id").and_then(|v| v.as_str()).map(str::to_string),
+                            login: rr
+                                .get("login")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or_default()
+                                .to_string(),
+                        })
+                    } else {
+                        // team / bot / mannequin — display-only (D3)
+                        Some(PrReviewRequest {
+                            id: None,
+                            login: String::new(),
+                        })
+                    }
+                })
+                .collect::<Vec<PrReviewRequest>>()
+        })
+        .unwrap_or_default();
+    let review_requests_total = pr
+        .pointer("/reviewRequests/totalCount")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(review_requests.len() as i64);
+    // Repository-level (docs/0043 D4) — read off the raw repository
+    // node (`value`), same path as the merge methods.
+    let viewer_permission = value
+        .get("viewerPermission")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
     Some(PrDetail {
         id: str_field("id").unwrap_or_default(),
         number: pr
@@ -1733,6 +1887,22 @@ pub fn pr_detail_from_value(value: &serde_json::Value) -> Option<PrDetail> {
             .and_then(|v| v.as_bool())
             .unwrap_or(false),
         reaction_groups: reaction_groups_from_value(pr.get("reactionGroups")),
+        labels,
+        labels_total,
+        assignees,
+        assignees_total,
+        milestone,
+        review_requests,
+        review_requests_total,
+        viewer_can_label: pr
+            .get("viewerCanLabel")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        viewer_can_assign: pr
+            .get("viewerCanAssign")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        viewer_permission,
         mergeable: str_field("mergeable"),
         merge_state_status: str_field("mergeStateStatus"),
         rollup_state: pr
@@ -1903,6 +2073,26 @@ mutation PrUnresolveReviewThread($input: UnresolveReviewThreadInput!) {
 pub const PR_UPDATE_DESCRIPTION_MUTATION: &str = r#"
 mutation PrUpdateDescription($input: UpdateIssueInput!) {
   updateIssue(input: $input) { issue { id } }
+}
+"#;
+
+/// docs/0043 D1 — labels/assignees/milestone on the PR rail. One
+/// document, three op identities (`Mutation::{PrSetLabels,
+/// PrSetAssignees, PrSetMilestone}`); the input carries exactly one
+/// field-group per post, replace-not-delta (0022 §2.1's reasoning).
+pub const PR_UPDATE_META_MUTATION: &str = r#"
+mutation PrUpdateMetadata($input: UpdatePullRequestInput!) {
+  updatePullRequest(input: $input) { pullRequest { id } }
+}
+"#;
+
+/// docs/0043 D1/D2 — review requests. The picker always posts
+/// `union: true` with the complete target set (upstream default `false`
+/// adds); an empty `userIds` list clears every request — the schema has
+/// no remove-reviewers mutation (§2.2).
+pub const PR_REQUEST_REVIEWS_MUTATION: &str = r#"
+mutation PrRequestReviews($input: RequestReviewsInput!) {
+  requestReviews(input: $input) { pullRequest { id } }
 }
 "#;
 
@@ -2576,6 +2766,8 @@ mod tests {
             ("ISSUE_CLOSE_MUTATION", ISSUE_CLOSE_MUTATION),
             ("ISSUE_REOPEN_MUTATION", ISSUE_REOPEN_MUTATION),
             ("ISSUE_UPDATE_MUTATION", ISSUE_UPDATE_MUTATION),
+            ("PR_UPDATE_META_MUTATION", PR_UPDATE_META_MUTATION),
+            ("PR_REQUEST_REVIEWS_MUTATION", PR_REQUEST_REVIEWS_MUTATION),
             ("REPO_LABELS_QUERY", REPO_LABELS_QUERY),
             ("REPO_ASSIGNABLE_USERS_QUERY", REPO_ASSIGNABLE_USERS_QUERY),
             ("REPO_MILESTONES_QUERY", REPO_MILESTONES_QUERY),
@@ -3361,6 +3553,101 @@ mod tests {
                 .matches("reactionGroups { content viewerHasReacted reactors { totalCount } }")
                 .count(),
             3
+        );
+    }
+
+    // docs/0043 — the detail query carries the rail metadata
+    // selections (§5) with node ids; the list query's login-only
+    // review-request shape (docs/0042 D4) stays untouched.
+    #[test]
+    fn pr_detail_query_selects_metadata_shapes_with_ids() {
+        assert!(PR_DETAIL_QUERY.contains("viewerCanLabel"), "label gate");
+        assert!(PR_DETAIL_QUERY.contains("viewerCanAssign"), "assignee gate");
+        assert!(
+            PR_DETAIL_QUERY.contains("labels(first: 20)")
+                && PR_DETAIL_QUERY.contains("nodes { id name color }"),
+            "detail labels carry ids"
+        );
+        assert!(
+            PR_DETAIL_QUERY.contains("nodes { id login avatarUrl }"),
+            "detail assignees carry ids"
+        );
+        assert!(PR_DETAIL_QUERY.contains("milestone { id title state }"));
+        assert!(
+            PR_DETAIL_QUERY.contains("... on User { id login }"),
+            "detail review requests carry user ids"
+        );
+        assert!(
+            PR_DETAIL_QUERY.contains("viewerPermission"),
+            "envelope gate"
+        );
+        // The docs/0042 filter shape stays login-only.
+        for (name, doc) in [
+            ("GLOBAL_SNAPSHOT_QUERY", GLOBAL_SNAPSHOT_QUERY),
+            ("REPO_SNAPSHOT_QUERY", REPO_SNAPSHOT_QUERY),
+        ] {
+            assert!(
+                doc.contains("... on User { login }"),
+                "{name}: list review requests stay login-only"
+            );
+        }
+    }
+
+    // docs/0043 §7 — the new fields parse with the 0022 degradation
+    // rules: labels/assignees missing ids flag degraded nodes; review
+    // requests narrow to users-with-ids while team/bot members and null
+    // refs degrade (D3's reviewer clause reads the flags + the count).
+    #[test]
+    fn pr_metadata_parses_and_degrades_per_node() {
+        let value = serde_json::json!({
+            "viewerPermission": "TRIAGE",
+            "pullRequest": {
+                "id": "PR_1", "number": 1, "title": "t", "url": "u",
+                "viewerCanLabel": true,
+                "labels": {"totalCount": 3, "nodes": [
+                    {"id": "L1", "name": "bug", "color": "ff0000"},
+                    {"name": "no-id"},
+                    {"id": "L2"}
+                ]},
+                "assignees": {"totalCount": 2, "nodes": [
+                    {"id": "U1", "login": "bob", "avatarUrl": "a"},
+                    {"login": "no-id"}
+                ]},
+                "milestone": {"id": "M1", "title": "v1", "state": "CLOSED"},
+                "reviewRequests": {"totalCount": 4, "nodes": [
+                    {"requestedReviewer": {"__typename": "User", "id": "U2", "login": "carol"}},
+                    {"requestedReviewer": {"__typename": "User", "login": "degraded"}},
+                    {"requestedReviewer": {"__typename": "Team"}},
+                    {"requestedReviewer": null}
+                ]}
+            }
+        });
+        let d = pr_detail_from_value(&value).expect("parses");
+        assert_eq!(d.viewer_permission.as_deref(), Some("TRIAGE"));
+        assert!(d.viewer_can_label);
+        assert!(!d.viewer_can_assign, "absent flag degrades false");
+
+        assert_eq!(d.labels.len(), 2, "a name-less node drops alone (0007 D3)");
+        assert_eq!(d.labels_total, 3);
+        assert!(d.labels[0].id.is_some());
+        assert!(d.labels[1].id.is_none(), "missing id flags degraded");
+        assert!(d.labels[1].color.is_none(), "absent color degrades");
+
+        assert_eq!(d.assignees.len(), 2);
+        assert!(d.assignees[1].id.is_none());
+
+        let m = d.milestone.expect("milestone parses");
+        assert_eq!(m.id, "M1");
+        assert_eq!(m.state.as_deref(), Some("CLOSED"));
+
+        assert_eq!(d.review_requests.len(), 3, "null ref skips");
+        assert_eq!(d.review_requests_total, 4);
+        assert_eq!(d.review_requests[0].login, "carol");
+        assert!(d.review_requests[0].id.is_some());
+        assert!(d.review_requests[1].id.is_none(), "id-less user degrades");
+        assert!(
+            d.review_requests[2].login.is_empty(),
+            "team member narrows to the display-only row"
         );
     }
 

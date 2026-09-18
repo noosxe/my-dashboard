@@ -155,51 +155,12 @@ enum RailEditor {
     },
 }
 
-/// One checklist row: the write-target node id plus display data.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct PickerRow {
-    /// Empty for the milestone picker's "No milestone" row — never a
-    /// write target (it maps to `milestoneId: null`).
-    pub id: String,
-    pub label: String,
-    /// Assignee rows carry the avatar; label/milestone rows none.
-    pub avatar_url: Option<String>,
-}
-
-/// Checked flags aligned 1:1 with [`PickerRow`] lists.
-#[derive(Debug, PartialEq)]
-struct PickerDraft {
-    rows: Vec<PickerRow>,
-    checked: Vec<bool>,
-}
-
-/// The picker source fetch lifecycle (0022 D5) — the page fetch-record
-/// pattern (docs/0031 `Fetch<T>`), generic over the parsed page.
-#[derive(Debug, Default)]
-enum PickerFetch<T> {
-    #[default]
-    Idle,
-    Loading,
-    Ready(T),
-    Failed(String),
-}
-
-impl<T> PickerFetch<T> {
-    fn failed_message(&self) -> Option<&str> {
-        match self {
-            PickerFetch::Failed(m) => Some(m),
-            _ => None,
-        }
-    }
-}
-
-/// Which picker source page to (lazily) fetch (0022 D5).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum PickerSource {
-    Labels,
-    Assignees,
-    Milestones,
-}
+// docs/0043 D6: the picker state types, source lifecycle, row builders
+// and save computations live in the shared `pickers` module — the
+// replace-semantics logic must not fork between the two pages. This
+// page keeps its editors, renderers and gates.
+use crate::pickers::{PickerDraft, PickerFetch, PickerRow, PickerSource};
+use crate::pickers::{assignee_rows, compute_replace_ids, label_rows, milestone_rows};
 
 impl IssueBusyOp {
     /// Where a failure of this op renders inline: the conversation column
@@ -907,11 +868,7 @@ impl IssueDetailPage {
         }
         let state = self.state.clone();
         let (owner, name) = split_repo(&self.repo);
-        let (kind, query_name) = match source {
-            PickerSource::Labels => (Kind::RepoLabels, "repo-labels"),
-            PickerSource::Assignees => (Kind::RepoAssignableUsers, "repo-assignable-users"),
-            PickerSource::Milestones => (Kind::RepoMilestones, "repo-milestones"),
-        };
+        let (kind, query_name) = source.fetch_kind();
         let spec = FetchSpec {
             kind,
             url: gql::GRAPHQL_ENDPOINT.to_string(),
@@ -925,6 +882,8 @@ impl IssueDetailPage {
             PickerSource::Labels => self.labels_source = PickerFetch::Loading,
             PickerSource::Assignees => self.assignees_source = PickerFetch::Loading,
             PickerSource::Milestones => self.milestones_source = PickerFetch::Loading,
+            // docs/0043: this page has no reviewer picker.
+            PickerSource::Reviewers => unreachable!("no reviewer source on the issue page"),
         }
         cx.notify();
         cx.spawn(async move |this, cx| {
@@ -939,6 +898,7 @@ impl IssueDetailPage {
             PickerSource::Labels => self.labels_source = PickerFetch::Failed(message),
             PickerSource::Assignees => self.assignees_source = PickerFetch::Failed(message),
             PickerSource::Milestones => self.milestones_source = PickerFetch::Failed(message),
+            PickerSource::Reviewers => unreachable!("no reviewer source on the issue page"),
         }
     }
 
@@ -979,6 +939,9 @@ impl IssueDetailPage {
                         PickerSource::Milestones => {
                             self.milestones_source =
                                 PickerFetch::Ready(gql::repo_milestones_from_value(&repo));
+                        }
+                        PickerSource::Reviewers => {
+                            unreachable!("no reviewer source on the issue page")
                         }
                     }
                 }
@@ -2035,28 +1998,34 @@ impl IssueDetailPage {
         let save: fn(&mut Self, &mut Window, &mut Context<Self>) = match source {
             PickerSource::Labels => Self::save_labels,
             PickerSource::Assignees => Self::save_assignees,
-            PickerSource::Milestones => unreachable!("milestone uses render_milestone_card"),
+            PickerSource::Milestones | PickerSource::Reviewers => {
+                unreachable!("milestone uses render_milestone_card; reviewers are PR-page only")
+            }
         };
         let save_id = match source {
             PickerSource::Labels => "issue-labels-save",
             PickerSource::Assignees => "issue-assignees-save",
-            PickerSource::Milestones => unreachable!("milestone uses render_milestone_card"),
+            PickerSource::Milestones | PickerSource::Reviewers => {
+                unreachable!("milestone uses render_milestone_card; reviewers are PR-page only")
+            }
         };
         let cancel = match source {
             PickerSource::Labels | PickerSource::Assignees => {
                 cx.listener(|this, _, _, cx| this.cancel_rail_editor(cx))
             }
-            PickerSource::Milestones => unreachable!("milestone uses render_milestone_card"),
+            PickerSource::Milestones | PickerSource::Reviewers => {
+                unreachable!("milestone uses render_milestone_card; reviewers are PR-page only")
+            }
         };
         let loading = match source {
             PickerSource::Labels => matches!(self.labels_source, PickerFetch::Loading),
             PickerSource::Assignees => matches!(self.assignees_source, PickerFetch::Loading),
-            PickerSource::Milestones => false,
+            PickerSource::Milestones | PickerSource::Reviewers => false,
         };
         let failed = match source {
             PickerSource::Labels => self.labels_source.failed_message(),
             PickerSource::Assignees => self.assignees_source.failed_message(),
-            PickerSource::Milestones => None,
+            PickerSource::Milestones | PickerSource::Reviewers => None,
         };
         let id_key = format!("{id}-card");
         v_flex()
@@ -2808,21 +2777,26 @@ pub(crate) fn comment_submit_allowed(body_empty: bool, busy: bool) -> bool {
 
 // --- metadata-editing pure helpers (docs/0022) -----------------------------
 
-/// D3, labels: the picker's Edit affordance arms only when the viewer
-/// gate holds, every applied label parsed an `id`, and the connection is
-/// complete — a save computed from partial state would silently drop
-/// entries the page never saw. Pure — table-tested.
+/// D3, labels: the shared arming core over this page's fields (docs/0043
+/// D6 — the rule lives in `pickers`, the wiring here). Pure —
+/// table-tested.
 pub(crate) fn labels_edit_arming(d: &gql::IssueDetail) -> bool {
-    d.viewer_can_label
-        && d.labels.iter().all(|l| l.id.is_some())
-        && d.labels.len() as i64 == d.labels_total
+    crate::pickers::connection_arming(
+        d.viewer_can_label,
+        d.labels_total,
+        d.labels.len(),
+        d.labels.iter().all(|l| l.id.is_some()),
+    )
 }
 
 /// D3, assignees — same guard shape as [`labels_edit_arming`].
 pub(crate) fn assignees_edit_arming(d: &gql::IssueDetail) -> bool {
-    d.viewer_can_assign
-        && d.assignees.iter().all(|a| a.id.is_some())
-        && d.assignees.len() as i64 == d.assignees_total
+    crate::pickers::connection_arming(
+        d.viewer_can_assign,
+        d.assignees_total,
+        d.assignees.len(),
+        d.assignees.iter().all(|a| a.id.is_some()),
+    )
 }
 
 /// D3, milestone: single-valued upstream, so there is no list to drop —
@@ -2873,13 +2847,10 @@ pub(crate) fn reaction_direction(
 }
 
 /// D5: the lock gate — no `viewerCanLock` flag exists upstream, so
-/// triage-and-above is derived from the repository permission. `None`
-/// (no explicit mapping) means no rights. Pure — table-tested.
+/// triage-and-above is derived from the repository permission. Delegates
+/// to the shared gate (docs/0043 D6). Pure — table-tested.
 pub(crate) fn lock_gate(permission: Option<&str>) -> bool {
-    matches!(
-        permission,
-        Some("ADMIN") | Some("MAINTAIN") | Some("WRITE") | Some("TRIAGE")
-    )
+    crate::pickers::triage_gate(permission)
 }
 
 /// D6: the composer's visibility rule (no `viewerCanComment` flag
@@ -2899,108 +2870,6 @@ pub(crate) fn lock_reason_label(reason: Option<&str>) -> &'static str {
         Some("SPAM") => "spam",
         _ => "",
     }
-}
-
-/// The labels checklist: the source page in picker order, then any
-/// applied label the source missed (repo page truncation, source still
-/// loading) appended — dropping them would silently unlabel on save.
-/// Pure — table-tested.
-pub(crate) fn label_rows(
-    applied: &[gql::IssueLabel],
-    source: &[gql::IssueLabel],
-) -> Vec<PickerRow> {
-    let mut rows: Vec<PickerRow> = source
-        .iter()
-        .map(|l| PickerRow {
-            id: l.id.clone().unwrap_or_default(),
-            label: l.name.clone(),
-            avatar_url: None,
-        })
-        .collect();
-    for l in applied {
-        let Some(id) = &l.id else { continue };
-        if !rows.iter().any(|r| &r.id == id) {
-            rows.push(PickerRow {
-                id: id.clone(),
-                label: l.name.clone(),
-                avatar_url: None,
-            });
-        }
-    }
-    rows
-}
-
-/// The assignees checklist — same merge as [`label_rows`], logins +
-/// avatars for display. Pure — table-tested.
-pub(crate) fn assignee_rows(
-    applied: &[gql::IssueAssignee],
-    source: &[gql::IssueAssignee],
-) -> Vec<PickerRow> {
-    let mut rows: Vec<PickerRow> = source
-        .iter()
-        .map(|a| PickerRow {
-            id: a.id.clone().unwrap_or_default(),
-            label: a.login.clone(),
-            avatar_url: Some(a.avatar_url.clone()),
-        })
-        .collect();
-    for a in applied {
-        let Some(id) = &a.id else { continue };
-        if !rows.iter().any(|r| &r.id == id) {
-            rows.push(PickerRow {
-                id: id.clone(),
-                label: a.login.clone(),
-                avatar_url: Some(a.avatar_url.clone()),
-            });
-        }
-    }
-    rows
-}
-
-/// The milestone checklist: a leading "No milestone" row (id "" —
-/// maps to `milestoneId: null`), then the open-milestone source page,
-/// then an applied milestone the source missed (e.g. a closed one).
-/// Pure — table-tested.
-pub(crate) fn milestone_rows(
-    applied: Option<&gql::IssueMilestone>,
-    source: &[gql::IssueMilestone],
-) -> Vec<PickerRow> {
-    let mut rows = vec![PickerRow {
-        id: String::new(),
-        label: "No milestone".to_string(),
-        avatar_url: None,
-    }];
-    rows.extend(source.iter().map(|m| PickerRow {
-        id: m.id.clone(),
-        label: m.title.clone(),
-        avatar_url: None,
-    }));
-    if let Some(m) = applied {
-        if !rows.iter().any(|r| r.id == m.id) {
-            let label = if m.state.as_deref() == Some("CLOSED") {
-                format!("{} · closed", m.title)
-            } else {
-                m.title.clone()
-            };
-            rows.push(PickerRow {
-                id: m.id.clone(),
-                label,
-                avatar_url: None,
-            });
-        }
-    }
-    rows
-}
-
-/// D3's write: the checked rows' ids are the complete replacement list.
-/// Zip-strict — a length mismatch is a render bug, not a partial write.
-/// Pure — table-tested.
-pub(crate) fn compute_replace_ids(rows: &[PickerRow], checked: &[bool]) -> Vec<String> {
-    rows.iter()
-        .zip(checked.iter())
-        .filter(|(_, c)| **c)
-        .map(|(r, _)| r.id.clone())
-        .collect()
 }
 
 /// A row shows "(edited)" when the payload's `updatedAt` is strictly
