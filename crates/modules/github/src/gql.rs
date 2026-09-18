@@ -2227,6 +2227,124 @@ pub fn created_issue_from_body(body: &str, repo_full: &str) -> Option<Issue> {
         labels: None,
     })
 }
+/// docs/0044 D4 — the creator's branch source: one alphabetical page of
+/// head refs plus the default branch name (the natural base).
+pub const REPO_BRANCHES_QUERY: &str = r#"
+query RepoBranches($owner: String!, $name: String!) {
+  rateLimit { cost remaining resetAt }
+  repository(owner: $owner, name: $name) {
+    defaultBranchRef { name }
+    refs(first: 100, refPrefix: "refs/heads/", orderBy: {field: ALPHABETICAL, direction: ASC}) {
+      totalCount
+      nodes { name }
+    }
+  }
+}
+"#;
+
+/// docs/0044 D5 — the creator's only write, the minimum input:
+/// `repositoryId` (GraphQL node id, 0024 D1), the two ref names
+/// (short names — no `refs/heads/` prefix), title, body, draft.
+/// `headRepositoryId` (forks) and `maintainerCanModify` (upstream
+/// default true) are deliberately absent — §9 follow-ups.
+pub const CREATE_PR_MUTATION: &str = r#"
+mutation CreatePullRequest($input: CreatePullRequestInput!) {
+  createPullRequest(input: $input) {
+    pullRequest { number title url state isDraft updatedAt }
+  }
+}
+"#;
+
+/// docs/0044 D4 — the parsed branch page: names in alphabetical order,
+/// the true `totalCount` (truncation hint past 100), and the default
+/// branch (the base default; `None` = the repo has no default branch
+/// or the node was absent).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct RepoBranches {
+    pub default_branch: Option<String>,
+    pub total_count: i64,
+    pub names: Vec<String>,
+}
+
+/// Parse the repository wrapper node of [`REPO_BRANCHES_QUERY`] (the
+/// 0007 raw-envelope read; an absent node degrades to the default).
+pub fn branches_from_value(repo: &serde_json::Value) -> RepoBranches {
+    let default_branch = repo
+        .get("defaultBranchRef")
+        .and_then(|r| r.get("name"))
+        .and_then(|n| n.as_str())
+        .map(str::to_string);
+    let refs = repo.get("refs").unwrap_or(&serde_json::Value::Null);
+    let total_count = refs
+        .get("totalCount")
+        .and_then(serde_json::Value::as_i64)
+        .unwrap_or(0);
+    let names: Vec<String> = refs
+        .get("nodes")
+        .and_then(serde_json::Value::as_array)
+        .map(|nodes| {
+            nodes
+                .iter()
+                .filter_map(|n| n.get("name")?.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    RepoBranches {
+        default_branch,
+        total_count,
+        names,
+    }
+}
+
+/// docs/0044 D6 — parse a successful `createPullRequest` payload and
+/// synthesize the minimal snapshot row the host needs to open the
+/// in-app PR page (initial paint only; the page re-fetches its own
+/// truth). GraphQL `errors` or a malformed payload → `None` (the
+/// caller turns that into a visible scoped error, never a silent drop).
+pub fn created_pr_from_body(body: &str, repo_full: &str) -> Option<PullRequest> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Payload {
+        create_pull_request: CreatedNode,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct CreatedNode {
+        pull_request: PrCreated,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct PrCreated {
+        number: i64,
+        #[serde(default)]
+        title: String,
+        #[serde(default)]
+        url: String,
+        #[serde(default)]
+        state: Option<String>,
+        #[serde(default)]
+        is_draft: bool,
+        #[serde(default)]
+        updated_at: Option<String>,
+    }
+    let env: Envelope<Payload> = serde_json::from_str(body).ok()?;
+    let pr = env.data?.create_pull_request.pull_request;
+    Some(PullRequest {
+        key: format!("{}#{}", repo_full, pr.number),
+        database_id: None,
+        number: pr.number,
+        title: pr.title,
+        draft: pr.is_draft,
+        state: pr.state,
+        author: None,
+        updated_at: pr.updated_at,
+        url: pr.url,
+        // A just-created PR carries neither (docs/0042 D4 shapes).
+        status: None,
+        labels: None,
+        review_requests: None,
+    })
+}
 /// docs/0022 D1 — every metadata write (title, labels, assignees,
 /// milestone) rides `updateIssue`; the input carries exactly one
 /// field-group per post, the op identity living in the `Mutation`
@@ -2771,6 +2889,8 @@ mod tests {
             ("REPO_LABELS_QUERY", REPO_LABELS_QUERY),
             ("REPO_ASSIGNABLE_USERS_QUERY", REPO_ASSIGNABLE_USERS_QUERY),
             ("REPO_MILESTONES_QUERY", REPO_MILESTONES_QUERY),
+            ("REPO_BRANCHES_QUERY", REPO_BRANCHES_QUERY),
+            ("CREATE_PR_MUTATION", CREATE_PR_MUTATION),
         ] {
             assert!(!doc.contains("//"), "{name} contains a JS-style comment");
         }
