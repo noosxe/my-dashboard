@@ -76,6 +76,7 @@ cross-platform, multi-modular universal personal dashboard built with Rust and
 | [0041](0041-virtualized-diff-scroll.md) | GitHub Module: Virtualized Diff Scroll (gpui `list` over a flattened `DiffItem` stream; page-owned anchor cache; perf contract test; #253) |
 | [0042](0042-repo-view-list-filters.md) | GitHub Module: Repo-View List Filters & Sort (client-side filter/sort engine over snapshot nodes; per-box toolbars + shared quick filter; labels & review-requests wire additions; #190) |
 | [0043](0043-pr-metadata-editing.md) | GitHub Module: PR Page Metadata Editing (reviewers via `requestReviews`; labels/assignees/milestone via `updatePullRequest`; 0022 picker machinery to `pickers.rs`; #189) |
+| [0044](0044-pr-creation.md) | GitHub Module: PR Creation Flow (repo-header entry; branch selects + 0024 form chrome; `createPullRequest` minimal input; same-repo v1; #191) |
 
 ## Planned docs (roadmap, not yet written)
 
