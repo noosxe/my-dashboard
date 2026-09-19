@@ -98,6 +98,16 @@ pub(crate) fn triage_gate(permission: Option<&str>) -> bool {
     )
 }
 
+/// Type-ahead filter for checklist picker rows (#197, amending 0022
+/// D6): case-insensitive substring on the display label, whitespace-
+/// trimmed. An empty query shows everything — the filter is view-only,
+/// it never touches the draft arrays, so `compute_replace_ids` stays
+/// 1:1 with the full list and filtered-out checked rows still save.
+pub(crate) fn picker_row_matches(query: &str, label: &str) -> bool {
+    let needle = query.trim().to_lowercase();
+    needle.is_empty() || label.to_lowercase().contains(&needle)
+}
+
 /// D3's write: the checked rows' ids are the complete replacement list.
 /// Zip-strict — a length mismatch is a render bug, not a partial write.
 pub(crate) fn compute_replace_ids(rows: &[PickerRow], checked: &[bool]) -> Vec<String> {
@@ -332,6 +342,20 @@ mod tests {
             rows[2].label, "done · closed",
             "applied closed milestone appended"
         );
+    }
+
+    #[test]
+    fn picker_row_matches_table() {
+        // #197: case-insensitive substring; trim; empty query shows all.
+        assert!(picker_row_matches("", "bug"));
+        assert!(picker_row_matches("   ", "bug"));
+        assert!(picker_row_matches("bu", "bug"));
+        assert!(picker_row_matches("BUG", "bug"));
+        assert!(picker_row_matches("ug", "bug"));
+        assert!(!picker_row_matches("fea", "bug"));
+        assert!(picker_row_matches(" pat ", "Patrick"));
+        assert!(!picker_row_matches("xyz", "Patrick"));
+        assert!(picker_row_matches("a", "banana"));
     }
 
     #[test]

@@ -305,7 +305,9 @@ the conversation column is untouched. Editors swap in place in the rail
 
 - Team / bot review requests (display-only when requested by others;
   the app never requests them).
-- Type-ahead search in pickers (0022 D6 deferral carries).
+- Type-ahead search in pickers (0022 D6 deferral carries). *(→ shipped
+  in #197: filter inputs on the labels/assignees/reviewers checklists on
+  both pages — see the 0022 D6 amendment.)*
 - Suggested reviewers, review-request waves/notifications.
 - PR title editing (separate follow-up; #189 scopes the four metadata
   surfaces only).
@@ -336,6 +338,10 @@ other three are straight ports.
 
 ---
 ## 11. Shipped (2026-09-17, issue #189)
+
+*(#197 later added the 0022-D6 type-ahead filter to the checklist
+pickers this doc's rail shipped — page-local renderers on both pages,
+shared `picker_row_matches` predicate in `pickers.rs`.)*
 
 Implemented as designed, in one PR. The §9 scope valve stayed shut: the
 `pickers.rs` extraction was a mechanical move (the issue page's
