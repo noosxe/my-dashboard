@@ -96,6 +96,12 @@ creation gate reads them.
   persistence — the cache holds snapshots, not drafts; losing a draft
   to an app restart is acceptable for v1 and filed as a follow-up if
   it bites.
+
+  > **Amended by docs/0045 (#199).** Drafts now persist to
+  > `<data>/modules/github/drafts/` (the data root — the "cache holds
+  > snapshots" rationale stands; only this sentence's conclusion is
+  > reversed), restoring on page open and clearing on submit. Repo
+  > switch now *parks* the draft per repo instead of destroying it.
 - **D8 — probes (docs/0010 D10).** Every interactive element gets
   `.id(...)` + role + `.debug_selector(...)`: `new-issue-open`,
   `new-issue-title`, `new-issue-body`, `new-issue-preview`,
