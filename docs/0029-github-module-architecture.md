@@ -105,7 +105,7 @@ developers open GitHub:
 |---------|--------|
 | **No issue templates** | `.github/ISSUE_TEMPLATE` is ignored. |
 | **No metadata at creation time** | Labels/assignees/milestones only settable after creation. |
-| **No draft persistence** | Closing the app loses unsaved drafts. |
+| **No draft persistence** | Closing the app loses unsaved drafts. *(→ designed in docs/0045, #199)* |
 
 ---
 
@@ -170,7 +170,7 @@ Organized by impact on the "replace GitHub" goal.
 |-------------|--------|----------------|
 | **Type-ahead in pickers** | Small | Label/assignee pickers currently cap at 50 items with no search. *(→ shipped in #197)* |
 | **Issue templates** | Medium | Repos with structured templates expect them in the creation flow. |
-| **Draft persistence** | Medium | Losing a half-written issue on app close is painful. |
+| **Draft persistence** | Medium | Losing a half-written issue on app close is painful. *(→ designed in docs/0045)* |
 | **Home card → notification page routing** | Small | The card shows counts but doesn't navigate. |
 | **Check-run log viewing** | Large | ~~Seeing CI output without leaving the app.~~ **Shipped — docs/0039 (#201).** |
 | **Syntax-highlighted diffs** | Medium | ~~Makes the Files tab usable for reading code.~~ **Designed — docs/0040 (#202).** |
