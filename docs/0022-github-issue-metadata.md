@@ -155,11 +155,26 @@ client-side; milestones open only (`states: [OPEN]` — closed milestones are
 rarely assignment targets; a closed milestone already on the issue still
 renders from the issue payload and stays checkable in its list).
 
-### D6 — search deferred
+### D6 — type-ahead search (amended by #197)
 
 The upstream `query:` filter args (§2.3) make type-ahead trivial later; v1
 ships the plain first page (50). A search box would drag in focus handling
 and debounce — follow-up material, not this doc.
+
+> **#197 amendment (shipped).** The source page widened to `first: 100`
+> (the GraphQL ceiling), and the labels/assignees checklists — plus the PR
+> page's reviewers checklist, which reads the same `assignableUsers`
+> page — gained a filter input at the top of the card (placeholder
+> "Filter…", one per source page, cleared when its picker opens). The
+> filter is **client-side and view-only**: case-insensitive substring on
+> the display label (`pickers::picker_row_matches`), rows hidden but never
+> removed, so the draft arrays stay 1:1 with `compute_replace_ids` and a
+> filtered-out checked row still saves. A "{visible} of {rows}" hint shows
+> while filtering, "No matches" when empty. Keystrokes notify via the
+> shared `InputEvent::Change` subscription — no debounce (the list is at
+> most 100 rows; a rescan is a filter over a Vec). Milestones keep no
+> filter: tiny lists, and the milestone card is a radio list, not a
+> checklist.
 
 ### D7 — one editor at a time, now across five surfaces
 
@@ -198,9 +213,9 @@ viewerCanLabel viewerCanAssign viewerCanSetMilestone
 Picker queries (new consts, fetched lazily):
 
 ```
-repository.labels(first: 50, orderBy: {field: NAME, direction: ASC})
-repository.assignableUsers(first: 50)
-repository.milestones(first: 50, states: [OPEN])
+repository.labels(first: 100, orderBy: {field: NAME, direction: ASC})
+repository.assignableUsers(first: 100)
+repository.milestones(first: 100, states: [OPEN])
 ```
 
 Mutation inputs (all `updateIssue`): `{ id, title }` / `{ id, labelIds }` /
@@ -272,7 +287,7 @@ Implementation notes beyond the design text:
   `realign_open_picker` rebuilds it **by id** when the source lands.
   Cancel/Save work throughout; no half-open state.
 - **D3, merge beyond the guard**: applied entries the source page missed
-  (>50-label repos, closed milestone, source still loading) are appended
+  (>100-label repos, closed milestone, source still loading) are appended
   to the checklist as checked rows instead of being invisible — dropping
   them would be exactly the silent-loss bug D3 exists to prevent.
 - **D8, panel home**: with no milestone applied and no set permission the

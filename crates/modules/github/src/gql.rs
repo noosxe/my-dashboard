@@ -1391,7 +1391,7 @@ pub const REPO_LABELS_QUERY: &str = r#"
 query RepoLabels($owner: String!, $name: String!) {
   rateLimit { cost remaining resetAt }
   repository(owner: $owner, name: $name) {
-    labels(first: 50, orderBy: {field: NAME, direction: ASC}) {
+    labels(first: 100, orderBy: {field: NAME, direction: ASC}) {
       nodes { id name color }
     }
   }
@@ -1404,7 +1404,7 @@ pub const REPO_ASSIGNABLE_USERS_QUERY: &str = r#"
 query RepoAssignableUsers($owner: String!, $name: String!) {
   rateLimit { cost remaining resetAt }
   repository(owner: $owner, name: $name) {
-    assignableUsers(first: 50) {
+    assignableUsers(first: 100) {
       nodes { id login avatarUrl }
     }
   }
@@ -1419,7 +1419,7 @@ pub const REPO_MILESTONES_QUERY: &str = r#"
 query RepoMilestones($owner: String!, $name: String!) {
   rateLimit { cost remaining resetAt }
   repository(owner: $owner, name: $name) {
-    milestones(first: 50, states: [OPEN]) {
+    milestones(first: 100, states: [OPEN]) {
       nodes { id title state }
     }
   }
@@ -2893,6 +2893,21 @@ mod tests {
             ("CREATE_PR_MUTATION", CREATE_PR_MUTATION),
         ] {
             assert!(!doc.contains("//"), "{name} contains a JS-style comment");
+        }
+    }
+
+    #[test]
+    fn picker_source_queries_fetch_100() {
+        // #197: the type-ahead renders a wider page. The arming guard
+        // (0022 D3) still demands the complete connection, so repos past
+        // 100 labels/users disarm exactly as they did past 50 — the cap
+        // is coverage, not a correctness knob.
+        for (name, doc) in [
+            ("REPO_LABELS_QUERY", REPO_LABELS_QUERY),
+            ("REPO_ASSIGNABLE_USERS_QUERY", REPO_ASSIGNABLE_USERS_QUERY),
+            ("REPO_MILESTONES_QUERY", REPO_MILESTONES_QUERY),
+        ] {
+            assert!(doc.contains("first: 100"), "{name} must fetch 100");
         }
     }
 

@@ -96,7 +96,7 @@ developers open GitHub:
 | **No filter / sort on lists** | "Open PRs", "Open Issues", and "Notifications" lists become unusable above ~20 items. *(→ addressed by docs/0042)* |
 | **No cross-reference linking** | `#123` and `@username` in markdown body text are not auto-linked (only bare URLs via `linkify`). *(→ shipped in #195, docs/0017 §8)* |
 | **No global search** | Cannot search across repos for PRs/issues. |
-| **Label / assignee picker caps at 50** | Large repos with many labels require scrolling without type-ahead. |
+| **Label / assignee picker caps at 50** | Large repos with many labels require scrolling without type-ahead. *(→ shipped in #197, docs/0022 D6)* |
 | **Home card doesn't route to notification page** | The card shows counts but clicking doesn't navigate. |
 
 ### Issue creation gaps
@@ -168,7 +168,7 @@ Organized by impact on the "replace GitHub" goal.
 
 | Improvement | Effort | Why it matters |
 |-------------|--------|----------------|
-| **Type-ahead in pickers** | Small | Label/assignee pickers currently cap at 50 items with no search. |
+| **Type-ahead in pickers** | Small | Label/assignee pickers currently cap at 50 items with no search. *(→ shipped in #197)* |
 | **Issue templates** | Medium | Repos with structured templates expect them in the creation flow. |
 | **Draft persistence** | Medium | Losing a half-written issue on app close is painful. |
 | **Home card → notification page routing** | Small | The card shows counts but doesn't navigate. |

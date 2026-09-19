@@ -29,7 +29,7 @@ use gpui_component::{
     checkbox::Checkbox,
     group_box::GroupBox,
     h_flex,
-    input::{InputEvent, InputState, Textarea, TextareaState},
+    input::{Input, InputEvent, InputState, Textarea, TextareaState},
     list::{ListEvent, ListState},
     menu::{DropdownMenu as _, PopupMenuItem},
     scroll::ScrollableElement as _,
@@ -61,7 +61,7 @@ use crate::markdown;
 use crate::page::{LaneClass, lane_min_age};
 use crate::pickers::{
     PickerDraft, PickerFetch, PickerRow, PickerSource, assignee_rows, compute_replace_ids,
-    label_rows, milestone_rows, reviewer_rows,
+    label_rows, milestone_rows, picker_row_matches, reviewer_rows,
 };
 use crate::service::{
     Fetch, FetchSpec, GithubState, Kind, Mutation, run_check_log_chain, run_mutation,
@@ -224,6 +224,13 @@ pub(crate) struct PrDetailPage {
     labels_source: PickerFetch<Vec<gql::IssueLabel>>,
     users_source: PickerFetch<Vec<gql::IssueAssignee>>,
     milestones_source: PickerFetch<Vec<gql::IssueMilestone>>,
+    /// Type-ahead filters for the checklist pickers (#197, amending
+    /// 0022 D6 / 0043 D6): built up front (`new` has the window),
+    /// cleared when their picker opens, read live at render — the draft
+    /// arrays stay full, the filter only hides rows. Assignees and
+    /// reviewers share `users_search`, as they share the source page.
+    labels_search: Entity<InputState>,
+    users_search: Entity<InputState>,
     /// Row-level editor (0019 D4): (node id, editor). At most one editor
     /// is open anywhere on the page — opening one closes the description
     /// editor, other row editors, and any pending delete confirm.
@@ -401,6 +408,9 @@ impl PrDetailPage {
             select
         });
         let file_filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter files…"));
+        // #197: the rail-picker search inputs (see the field docs).
+        let labels_search = cx.new(|cx| InputState::new(window, cx).placeholder("Filter labels…"));
+        let users_search = cx.new(|cx| InputState::new(window, cx).placeholder("Filter users…"));
         let file_list =
             cx.new(|cx| ListState::new(FileListDelegate::default(), window, cx).searchable(false));
         let file_tree = cx.new(|cx| TreeState::new(cx));
@@ -422,6 +432,8 @@ impl PrDetailPage {
             labels_source: PickerFetch::Idle,
             users_source: PickerFetch::Idle,
             milestones_source: PickerFetch::Idle,
+            labels_search: labels_search.clone(),
+            users_search: users_search.clone(),
             timeline_edit: None,
             delete_confirm: None,
             methods: Vec::new(),
@@ -460,6 +472,20 @@ impl PrDetailPage {
             timeline_scroll,
             jump_done: Cell::new(false),
         };
+        // Keystrokes in a picker filter re-render the card's rows; the
+        // query itself is read live at render (no mirrored state).
+        cx.subscribe_in(&labels_search, window, |_, _, event: &InputEvent, _, cx| {
+            if matches!(event, InputEvent::Change) {
+                cx.notify();
+            }
+        })
+        .detach();
+        cx.subscribe_in(&users_search, window, |_, _, event: &InputEvent, _, cx| {
+            if matches!(event, InputEvent::Change) {
+                cx.notify();
+            }
+        })
+        .detach();
         // View-mode switch (docs/0018 D3): swaps the sidebar view. Selection
         // is per view (D7), so the diff pane follows the newly active view.
         cx.subscribe_in(
@@ -1555,7 +1581,7 @@ impl PrDetailPage {
         cx.notify();
     }
 
-    fn start_reviewers_picker(&mut self, cx: &mut Context<Self>) {
+    fn start_reviewers_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(d) = self.detail.data().cloned() else {
             return;
         };
@@ -1566,6 +1592,10 @@ impl PrDetailPage {
         {
             return;
         }
+        // Fresh filter per open (#197): stale text from a previous
+        // session must not hide rows the viewer expects to see.
+        self.users_search
+            .update(cx, |s, cx| s.set_value("", window, cx));
         if matches!(
             self.users_source,
             PickerFetch::Idle | PickerFetch::Failed(_)
@@ -1592,13 +1622,15 @@ impl PrDetailPage {
         cx.notify();
     }
 
-    fn start_labels_picker(&mut self, cx: &mut Context<Self>) {
+    fn start_labels_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(d) = self.detail.data().cloned() else {
             return;
         };
         if self.busy.is_some() || self.meta_edit.is_some() || !pr_labels_arming(&d) {
             return;
         }
+        self.labels_search
+            .update(cx, |s, cx| s.set_value("", window, cx));
         if matches!(
             self.labels_source,
             PickerFetch::Idle | PickerFetch::Failed(_)
@@ -1622,13 +1654,15 @@ impl PrDetailPage {
         cx.notify();
     }
 
-    fn start_assignees_picker(&mut self, cx: &mut Context<Self>) {
+    fn start_assignees_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(d) = self.detail.data().cloned() else {
             return;
         };
         if self.busy.is_some() || self.meta_edit.is_some() || !pr_assignees_arming(&d) {
             return;
         }
+        self.users_search
+            .update(cx, |s, cx| s.set_value("", window, cx));
         if matches!(
             self.users_source,
             PickerFetch::Idle | PickerFetch::Failed(_)
@@ -1652,7 +1686,9 @@ impl PrDetailPage {
         cx.notify();
     }
 
-    fn start_milestone_picker(&mut self, cx: &mut Context<Self>) {
+    // No filter on the milestone picker (#197 scope): tiny lists, and
+    // the window param only exists for on_edit signature uniformity.
+    fn start_milestone_picker(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(d) = self.detail.data().cloned() else {
             return;
         };
@@ -3565,7 +3601,7 @@ impl PrDetailPage {
         edit_id: &'static str,
         tooltip: &'static str,
         show_edit: bool,
-        on_edit: fn(&mut Self, &mut Context<Self>),
+        on_edit: fn(&mut Self, &mut Window, &mut Context<Self>),
         cx: &Context<Self>,
     ) -> impl IntoElement {
         h_flex()
@@ -3583,7 +3619,9 @@ impl PrDetailPage {
                         .small()
                         .label("Edit")
                         .tooltip(tooltip)
-                        .on_click(cx.listener(move |this, _, _, cx| on_edit(this, cx))),
+                        .on_click(
+                            cx.listener(move |this, _, window, cx| on_edit(this, window, cx)),
+                        ),
                 )
             })
     }
@@ -3617,6 +3655,7 @@ impl PrDetailPage {
                     "pr-reviewers",
                     draft,
                     PickerSource::Reviewers,
+                    &self.users_search,
                     cx,
                 ))
                 .into_any_element();
@@ -3667,7 +3706,13 @@ impl PrDetailPage {
             return GroupBox::new()
                 .id("pr-labels-panel")
                 .title("Labels")
-                .child(self.render_meta_picker_card("pr-labels", draft, PickerSource::Labels, cx))
+                .child(self.render_meta_picker_card(
+                    "pr-labels",
+                    draft,
+                    PickerSource::Labels,
+                    &self.labels_search,
+                    cx,
+                ))
                 .into_any_element();
         }
         let show_edit = pr_labels_arming(d) && !self.any_meta_editor_open();
@@ -3715,6 +3760,7 @@ impl PrDetailPage {
                     "pr-assignees",
                     draft,
                     PickerSource::Assignees,
+                    &self.users_search,
                     cx,
                 ))
                 .into_any_element();
@@ -3806,8 +3852,20 @@ impl PrDetailPage {
         id: &'static str,
         draft: &PickerDraft,
         source: PickerSource,
+        search: &Entity<InputState>,
         cx: &Context<Self>,
     ) -> AnyElement {
+        // #197: view-only type-ahead — the query is read live, rows are
+        // hidden, draft arrays (and their indices) stay full so the save
+        // still writes every checked row, filtered out or not.
+        let query = search.read(cx).value().trim().to_string();
+        let filtering = !query.is_empty();
+        let visible = draft
+            .rows
+            .iter()
+            .filter(|row| picker_row_matches(&query, &row.label))
+            .count();
+        let search_key = format!("{id}-search");
         let busy = self.busy.is_some();
         let loading = match source {
             PickerSource::Labels => matches!(self.labels_source, PickerFetch::Loading),
@@ -3850,35 +3908,61 @@ impl PrDetailPage {
                         .child(msg.to_string()),
                 )
             })
-            .children(draft.rows.iter().enumerate().map(|(ix, row)| {
-                let checked = draft.checked.get(ix).copied().unwrap_or(false);
-                let key = format!("{id}-row-{ix}");
-                let probe = key.clone();
-                let check = format!("{key}-check");
+            .child(
                 h_flex()
-                    .id(SharedString::from(key))
-                    .debug_selector(move || probe.clone())
-                    .cursor_pointer()
+                    .id(SharedString::from(format!("{id}-search")))
+                    .debug_selector(move || search_key.clone())
                     .gap_2()
                     .items_center()
-                    .px_2()
-                    .py_1()
-                    .rounded_sm()
-                    .hover(|s| s.bg(cx.theme().accent.opacity(0.08)))
-                    .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _, cx| {
-                        this.toggle_meta_row(ix, cx)
-                    }))
-                    .child(
-                        Checkbox::new(SharedString::from(check))
-                            .checked(checked)
-                            .small()
-                            .tab_stop(false),
-                    )
-                    .when_some(row.avatar_url.clone(), |r, url| {
-                        r.child(Avatar::new().src(url).xsmall())
-                    })
-                    .child(div().text_sm().child(row.label.clone()))
-            }))
+                    .child(Input::new(search).small())
+                    .when(filtering, |row| {
+                        row.child(
+                            div()
+                                .text_sm()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(format!("{visible} of {}", draft.rows.len())),
+                        )
+                    }),
+            )
+            .children(
+                draft
+                    .rows
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, row)| picker_row_matches(&query, &row.label))
+                    .map(|(ix, row)| {
+                        let checked = draft.checked.get(ix).copied().unwrap_or(false);
+                        let key = format!("{id}-row-{ix}");
+                        let probe = key.clone();
+                        let check = format!("{key}-check");
+                        h_flex()
+                            .id(SharedString::from(key))
+                            .debug_selector(move || probe.clone())
+                            .cursor_pointer()
+                            .gap_2()
+                            .items_center()
+                            .px_2()
+                            .py_1()
+                            .rounded_sm()
+                            .hover(|s| s.bg(cx.theme().accent.opacity(0.08)))
+                            .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _, cx| {
+                                this.toggle_meta_row(ix, cx)
+                            }))
+                            .child(
+                                Checkbox::new(SharedString::from(check))
+                                    .checked(checked)
+                                    .small()
+                                    .tab_stop(false),
+                            )
+                            .when_some(row.avatar_url.clone(), |r, url| {
+                                r.child(Avatar::new().src(url).xsmall())
+                            })
+                            .child(div().text_sm().child(row.label.clone()))
+                    }),
+            )
+            .when(filtering && visible == 0, |col| {
+                col.child(empty_cell("No matches", cx))
+            })
             .child(
                 h_flex()
                     .gap_2()
@@ -5455,11 +5539,12 @@ mod tests {
     use crate::gql;
     use crate::gql::MergeMethods;
     use crate::issue_page::reaction_direction;
+    use crate::pickers::PickerFetch;
     use crate::pr_page::{
         BusyOp, ChecksCounts, ChecksTone, ErrorScope, FinishEvent, MergeLineTone, MergeMethod,
-        PrDetailPage, PrStateTone, PrTab, ReviewTone, TimelineKind, allowed_methods, checks_counts,
-        checks_header_line, comment_action_allowed, composer_body_allowed, default_method,
-        merge_enabled, merge_state_line, pr_assignees_arming, pr_labels_arming,
+        PrDetailPage, PrMetaEditor, PrStateTone, PrTab, ReviewTone, TimelineKind, allowed_methods,
+        checks_counts, checks_header_line, comment_action_allowed, composer_body_allowed,
+        default_method, merge_enabled, merge_state_line, pr_assignees_arming, pr_labels_arming,
         pr_milestone_arming, pr_reviewers_arming, pr_state_tone, review_batch_allowed,
         review_event, review_state_label, rollup_summary, short_sha, split_repo, timeline_order,
     };
@@ -6349,7 +6434,7 @@ mod tests {
 
         // Edit swaps the panel to the checklist card (open-immediately
         // draft, 0022 §11 — the source fetch is still loading).
-        vcx.update(|_, cx| page.update(cx, |p, cx| p.start_labels_picker(cx)));
+        vcx.update(|window, cx| page.update(cx, |p, cx| p.start_labels_picker(window, cx)));
         assert!(
             vcx.debug_bounds("pr-labels-card").is_some(),
             "labels card missing after Edit"
@@ -6362,25 +6447,25 @@ mod tests {
         // One editor at a time (D7, the 0022 model): a second picker
         // cannot open while one is up — its Edit is hidden and the
         // start refuses.
-        vcx.update(|_, cx| page.update(cx, |p, cx| p.start_assignees_picker(cx)));
+        vcx.update(|window, cx| page.update(cx, |p, cx| p.start_assignees_picker(window, cx)));
         assert!(
             vcx.debug_bounds("pr-assignees-card").is_none(),
             "a second picker opened over the first"
         );
         assert!(vcx.debug_bounds("pr-labels-card").is_some());
         vcx.update(|_, cx| page.update(cx, |p, cx| p.cancel_meta_editor(cx)));
-        vcx.update(|_, cx| page.update(cx, |p, cx| p.start_assignees_picker(cx)));
+        vcx.update(|window, cx| page.update(cx, |p, cx| p.start_assignees_picker(window, cx)));
         assert!(
             vcx.debug_bounds("pr-assignees-card").is_some(),
             "assignees card missing after cancel + Edit"
         );
 
         // Busy blocks arming (D7).
-        vcx.update(|_, cx| {
+        vcx.update(|window, cx| {
             page.update(cx, |p, cx| {
                 p.cancel_meta_editor(cx);
                 p.busy = Some(BusyOp::Merge);
-                p.start_labels_picker(cx);
+                p.start_labels_picker(window, cx);
             });
         });
         assert!(
@@ -6395,7 +6480,7 @@ mod tests {
 
         // Esc cancels the topmost surface and only then would close the
         // page (D7) — drive the same handler the action binds.
-        vcx.update(|_, cx| page.update(cx, |p, cx| p.start_milestone_picker(cx)));
+        vcx.update(|window, cx| page.update(cx, |p, cx| p.start_milestone_picker(window, cx)));
         assert!(vcx.debug_bounds("pr-milestones-card").is_some());
         vcx.update(|window, cx| {
             page.update(cx, |p, cx| {
@@ -6424,7 +6509,7 @@ mod tests {
             vcx.debug_bounds("pr-reviewers-edit").is_none(),
             "team request must hide the reviewers Edit"
         );
-        vcx.update(|_, cx| page.update(cx, |p, cx| p.start_reviewers_picker(cx)));
+        vcx.update(|window, cx| page.update(cx, |p, cx| p.start_reviewers_picker(window, cx)));
         assert!(
             vcx.debug_bounds("pr-reviewers-card").is_none(),
             "display-only panel must not open"
@@ -8456,5 +8541,115 @@ mod tests {
             vcx.debug_bounds("pr-draft-0-key").is_some(),
             "range draft must render under its end row"
         );
+    }
+
+    // #197 — the PR rail pickers share the issue page's type-ahead
+    // contract (0043 D6 renderers stay page-local; the filter stays
+    // view-only here too).
+    #[gpui::test]
+    fn pr_label_picker_search_filters_view_only(cx: &mut gpui::TestAppContext) {
+        cx.update(dashboard_core::status::init);
+        cx.update(gpui_component::init);
+        cx.update(|cx| cx.background_executor().allow_parking());
+        let state = cx.update(|cx| {
+            let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
+            let store: std::sync::Arc<dyn crate::auth::TokenStore> =
+                std::sync::Arc::new(ProbeStore);
+            cx.new(|_| {
+                GithubState::new(
+                    client,
+                    store,
+                    Default::default(),
+                    Default::default(),
+                    GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                )
+            })
+        });
+        let (page, vcx) = cx.add_window_view(|window, cx| {
+            let summary = gql::PullRequest {
+                key: "o/r#7".into(),
+                database_id: None,
+                number: 7,
+                title: "search probe".into(),
+                draft: false,
+                state: None,
+                author: None,
+                updated_at: None,
+                url: "https://probe".into(),
+                status: None,
+                labels: None,
+                review_requests: None,
+            };
+            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
+            let mut d = probe_detail();
+            // Arm the label picker (both applied labels need ids).
+            d.labels[1].id = Some("L2".into());
+            page.detail = Fetch::ready(d);
+            page.md = build_md_cache(&page.repo, page.detail.data().unwrap());
+            page
+        });
+        // A 3-row source page; the applied "bug" row merges in order and
+        // the source-missed "no-id" label appends — 4 rows total.
+        vcx.update(|_, cx| {
+            page.update(cx, |page, _| {
+                page.labels_source = PickerFetch::Ready(vec![
+                    gql::IssueLabel {
+                        id: Some("L1".into()),
+                        name: "bug".into(),
+                        color: Some("ff0000".into()),
+                    },
+                    gql::IssueLabel {
+                        id: Some("L9".into()),
+                        name: "infra".into(),
+                        color: None,
+                    },
+                    gql::IssueLabel {
+                        id: Some("L8".into()),
+                        name: "ux".into(),
+                        color: None,
+                    },
+                ]);
+            });
+        });
+        vcx.update(|window, cx| page.update(cx, |page, cx| page.start_labels_picker(window, cx)));
+        for sel in [
+            "pr-labels-search",
+            "pr-labels-row-0",
+            "pr-labels-row-1",
+            "pr-labels-row-2",
+            "pr-labels-row-3",
+        ] {
+            assert!(vcx.debug_bounds(sel).is_some(), "{sel} visible unfiltered");
+        }
+        // (Row 3 = the source-missed applied label — appended, visible,
+        // and still checked; checkboxes carry no debug selectors, so the
+        // draft asserts below verify its check state.)
+
+        // Filter to "ux": only original row 2 stays; click flips index 2.
+        vcx.update(|window, cx| {
+            page.update(cx, |page, cx| {
+                page.labels_search
+                    .update(cx, |s, cx| s.set_value("ux", window, cx));
+                cx.notify();
+            });
+        });
+        assert!(vcx.debug_bounds("pr-labels-row-0").is_none(), "bug hidden");
+        assert!(vcx.debug_bounds("pr-labels-row-2").is_some(), "ux visible");
+        let hit = vcx
+            .debug_bounds("pr-labels-row-2")
+            .expect("filtered row clickable");
+        vcx.simulate_click(hit.center(), gpui::Modifiers::default());
+        vcx.update(|_, cx| {
+            page.update(cx, |page, _| {
+                let Some(PrMetaEditor::Labels(draft)) = &page.meta_edit else {
+                    panic!("labels picker open");
+                };
+                assert_eq!(
+                    draft.checked,
+                    [true, false, true, true],
+                    "bug + no-id stay checked through the filter; ux newly checked"
+                );
+            });
+        });
     }
 }
