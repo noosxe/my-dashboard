@@ -258,3 +258,52 @@ its cached snapshot; exercise a filter preset against home rows.
 - A symmetric issues view on home ("all open issues").
 - Review-queue presets (requested-changes/awaiting-review filters)
   — pairs with the #281 composer arc.
+
+## 10. Shipped (implementation PR)
+
+Implemented as designed (#295, implementation in #301), with the
+naming and details below now authoritative:
+
+- **Lane**: `Kind::AccountPullRequests` — one GraphQL POST per page of
+  `ACCOUNT_PULL_REQUESTS_QUERY` (`search` + `... on PullRequest`
+  fragment + `rateLimit`; `sort:updated-desc` and the in-node
+  `repository { nameWithOwner }` verified live before implementation).
+  Ident encodes `"<scope>:<login>"` via `HomeScope` (`user:` /
+  `org:`); no etag.
+- **Snapshot**: `GithubState::home_prs`, a session-only map keyed
+  `(login, HomeScope)` of `HomePullRequests { nodes, total_count,
+  complete, cursor }` — never persisted, never disk-seeded (0034
+  stays a snapshot/notifications affair). One lane clock
+  (`home_landed`) + 0036 backoff pair + `home_error` for the D3
+  Retry state.
+- **Append semantics**: a "Load more" spec carries `$after`; the run
+  arm copies it into `SpecResult::cursor` and `apply` appends instead
+  of replacing. The 0031 dedup (per kind+ident) keeps a page-1 and a
+  load-more of one account from flying together, so an append always
+  lands on its own chain.
+- **Fetch triggers (D3/D9)**: module open (orgs resolving on the
+  first sync), every account switch, the 0035/0038 idle-cadence beat
+  (backoff- and age-gated via `home_refresh_specs`), the cluster's
+  manual refresh, and Load more.
+- **View**: `render_right_column`'s no-selection arm renders
+  `render_home_view` — header + `home-prs` freshness cluster, the
+  shared quick-filter input and PR filter toolbar, and rows through
+  the shared `render_pr_row_inner` (repo-view rows keep the
+  `render_pr_row` wrapper, no chip). The "Select a repository"
+  placeholder is gone.
+- **Hint (D4)**: `home_prs_hint(shown, total)` — the three truthful
+  states, table-tested; rendered only unfiltered (#87 precedent),
+  alongside the `home-prs-more` button.
+- **Union fallback (D6)**: while the account's lane has never landed,
+  home renders the `updated`-desc union of the repo snapshot's PR
+  nodes for the account's repos, with the partial marking (any
+  contributing repo's `total_count` over its node count, or a capped
+  repo list) and the repo snapshot's landed clock as provenance.
+- **Tests**: +11 (page probes for render-on-open, load-more append,
+  union fallback + replacement, failure → Retry → recovery, cached
+  account switches, the hint table; gql parse/degradation; service
+  spec encoding, run-arm cursor copy, clock/backoff gating,
+  apply-land/append/failure ledger). Workspace 477 green.
+
+Deferred follow-ups live in #297 (beyond-cap), #298 (issues view),
+#299 (grouping/sort), #300 (review-queue presets).

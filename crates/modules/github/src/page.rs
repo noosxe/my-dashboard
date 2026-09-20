@@ -44,8 +44,8 @@ use crate::new_pr_page::{NewPrPage, NewPrPageEvent};
 use crate::notification_page::{self, NotificationPageEvent};
 use crate::pr_page;
 use crate::service::{
-    AuthStatus, ConnectPhase, FetchSpec, GithubState, Kind, LandedClock, ThreadOp,
-    run_read_deduped, run_spec_tracked, start_connect,
+    AuthStatus, ConnectPhase, FetchSpec, GithubState, HomePullRequests, HomeScope, Kind,
+    LandedClock, ThreadOp, run_read_deduped, run_spec_tracked, start_connect,
 };
 
 /// docs/0038 D3: the heartbeat wake — 10 s, with every lane deciding
@@ -82,6 +82,33 @@ pub(crate) fn lane_min_age(class: LaneClass, engaged: bool) -> Duration {
         (LaneClass::Rest, true) => ENGAGED_REST_MIN_AGE,
         (LaneClass::Gql, true) => ENGAGED_GQL_MIN_AGE,
     }
+}
+
+/// The home view's truncation hint (docs/0047 D4): `None` when the
+/// snapshot is complete; otherwise "first N of M", or the cap copy once
+/// the shown rows hit GitHub's 1,000-result search ceiling (verified
+/// live — the server ends the chain cleanly there, docs/0047 §2).
+fn home_prs_hint(shown: usize, total: i64) -> Option<String> {
+    if shown >= gql::SEARCH_RESULT_CAP && total > shown as i64 {
+        Some(format!("first {shown} of {total} — search caps at 1,000"))
+    } else if total > shown as i64 {
+        Some(format!("first {shown} of {total} open pull requests"))
+    } else {
+        None
+    }
+}
+
+/// The home view's render inputs (docs/0047 D2/D6): the account's landed
+/// snapshot when the search lane has landed, else the D6 union of the repo
+/// snapshot's PR nodes with its `partial` honesty flag; the freshness
+/// clock (the lane's own, or the union's repo-snapshot provenance); and
+/// the lane's last failure for the Retry state. Owned values — the state
+/// borrow drops before the element tree builds.
+struct HomeSource {
+    snapshot: Option<HomePullRequests>,
+    union: Option<(Vec<gql::PullRequest>, bool)>,
+    clock: LandedClock,
+    error: Option<String>,
 }
 
 pub(crate) struct GithubPage {
@@ -165,6 +192,10 @@ impl GithubPage {
                     return;
                 };
                 this.org = Some(login.clone());
+                // docs/0047 D3/D9: the home lane follows the account — the
+                // switch refetches (the docs/0031 dedup absorbs a
+                // collision with a just-fired fetch).
+                this.fetch_home_prs(window, cx);
                 // Label choices are repo-local (docs/0042 D2) — a new
                 // org drops them with the selection.
                 this.filters.prs.label = None;
@@ -363,6 +394,24 @@ impl GithubPage {
                 })
                 .detach();
             }
+        } else if let Some((login, scope)) = self.home_account(cx) {
+            // No detail page, no repo selected: the home view is the list
+            // surface (docs/0047 D3) — same idle cadence as the repo rows
+            // (docs/0038 N3/D7), the focus floor forcing it eager.
+            let min_age = force_min_age.unwrap_or(crate::service::IDLE_MIN_AGE);
+            if let Some(specs) = self
+                .state
+                .update(cx, |s, _| s.home_refresh_specs(&login, scope, min_age))
+            {
+                let window = self.window;
+                let page = cx.entity();
+                cx.spawn(async move |_this, cx| {
+                    let _ = window.update(cx, |_, window, cx| {
+                        page.update(cx, |this, cx| this.run_specs(specs, window, cx));
+                    });
+                })
+                .detach();
+            }
         }
     }
 
@@ -391,6 +440,352 @@ impl GithubPage {
                 .collect(),
             None => state.repos.clone(),
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Home view (docs/0047): the module's landing surface — every open
+    // PR across the selected account's repositories.
+    // ------------------------------------------------------------------
+
+    /// The account the home lane serves (docs/0047 D2): the effective
+    /// login plus its scope — `user:` when the login is the viewer
+    /// themselves, `org:` otherwise. `None` before orgs arrive (the view
+    /// renders its loading state then, D8).
+    fn home_account(&self, cx: &Context<Self>) -> Option<(SharedString, HomeScope)> {
+        let login = self.effective_org(cx)?;
+        let scope = if self
+            .state
+            .read(cx)
+            .user
+            .as_ref()
+            .is_some_and(|u| u.login == login.as_ref())
+        {
+            HomeScope::User
+        } else {
+            HomeScope::Org
+        };
+        Some((login, scope))
+    }
+
+    /// The home lane's first page for the current account (docs/0047
+    /// D3) — module open / account switch / manual refresh all funnel
+    /// here; the docs/0031 dedup absorbs repeats.
+    fn fetch_home_prs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((login, scope)) = self.home_account(cx) else {
+            return;
+        };
+        let specs = self
+            .state
+            .update(cx, |s, _| vec![s.home_open_spec(&login, scope)]);
+        self.run_specs(specs, window, cx);
+    }
+
+    /// "Load more" (docs/0047 D4): the next page for the current
+    /// account, from its snapshot's cursor. No cursor → no-op (the
+    /// button isn't rendered then either).
+    fn load_more_home_prs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((login, scope)) = self.home_account(cx) else {
+            return;
+        };
+        let specs = self.state.update(cx, |s, _| {
+            let cursor = s
+                .home_prs
+                .get(&(login.to_string(), scope))
+                .and_then(|e| e.cursor.clone());
+            cursor.map(|c| vec![s.home_more_spec(&login, scope, &c)])
+        });
+        if let Some(specs) = specs {
+            self.run_specs(specs, window, cx);
+        }
+    }
+
+    /// Everything the home view renders from (docs/0047 D2/D6), owned so
+    /// the state borrow can drop before the element tree builds:
+    /// - `snapshot`: the account's landed search pages — the source of
+    ///   truth for rows, totals, paging and the hint;
+    /// - `union`: the D6 degraded source — the repo snapshot's PR nodes
+    ///   for the account's repos, re-sorted by update — used only while
+    ///   the lane has never landed; `partial` marks its honesty (a
+    ///   repo's PR nodes truncated, or the repo list itself capped);
+    /// - `clock`: the freshness cluster's clock — the lane's own when a
+    ///   snapshot exists, the union's repo-snapshot age otherwise
+    ///   (provenance stays honest, D6);
+    /// - `error`: the lane's last failure, shown with Retry only when
+    ///   nothing else has rows (D3).
+    fn home_source(&self, cx: &Context<Self>) -> HomeSource {
+        let state = self.state.read(cx);
+        let (login, scope) = match self.home_account(cx) {
+            Some(it) => it,
+            None => {
+                return HomeSource {
+                    snapshot: None,
+                    union: None,
+                    clock: LandedClock(None),
+                    error: state.home_error.clone(),
+                };
+            }
+        };
+        let snapshot = state.home_prs.get(&(login.to_string(), scope)).cloned();
+        let clock = if snapshot.is_some() {
+            LandedClock(state.home_landed)
+        } else {
+            // D6: the union's provenance is the repo snapshot — the
+            // oldest contributing repo's landed stamp (missing entries
+            // render the honest blank, docs/0033 D2).
+            LandedClock(
+                state
+                    .repos
+                    .iter()
+                    .filter(|r| r.owner.login == login.as_ref())
+                    .filter_map(|r| state.rows_landed.get(&r.full_name).copied())
+                    .min(),
+            )
+        };
+        let union = if snapshot.is_none() {
+            let contributing: Vec<&gql::Repo> = state
+                .repos
+                .iter()
+                .filter(|r| r.owner.login == login.as_ref())
+                .collect();
+            if contributing.is_empty() {
+                None
+            } else {
+                let mut nodes: Vec<gql::PullRequest> = contributing
+                    .iter()
+                    .flat_map(|r| r.prs.nodes.iter().cloned())
+                    .collect();
+                nodes.sort_by_key(|p| std::cmp::Reverse(gql::pr_stamp_epoch(p)));
+                // Truncation is visible in the data: any repo whose PR
+                // summary promises more than its nodes carry, or a repo
+                // list the snapshot run capped (docs/0007 §5).
+                let partial = state.repo_cursor.is_some()
+                    || contributing
+                        .iter()
+                        .any(|r| r.prs.total_count > r.prs.nodes.len() as i64);
+                Some((nodes, partial))
+            }
+        } else {
+            None
+        };
+        HomeSource {
+            snapshot,
+            union,
+            clock,
+            error: state.home_error.clone(),
+        }
+    }
+
+    /// The home view itself (docs/0047 D1): header + freshness cluster,
+    /// the shared quick filter and PR filter toolbar (D5), the open-PR
+    /// rows, and the paging affordances (D4). Replaces the old
+    /// "Select a repository" placeholder.
+    fn render_home_view(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let HomeSource {
+            snapshot,
+            union,
+            clock,
+            error,
+        } = self.home_source(cx);
+        let account = self.home_account(cx);
+        let viewer = self.state.read(cx).user.as_ref().map(|u| u.login.clone());
+        let search = self.filters.search.clone();
+        let filtered = self.filters.prs.is_filtered() || !search.is_empty();
+
+        // Rows via the 0042 engine over whichever source is live (D5):
+        // the snapshot when landed, else the D6 union, else nothing.
+        let (source, partial): (Vec<gql::PullRequest>, bool) = match (&snapshot, &union) {
+            (Some(entry), _) => (entry.nodes.clone(), false),
+            (None, Some((nodes, partial))) => (nodes.clone(), *partial),
+            (None, None) => (Vec::new(), false),
+        };
+        let pr_rows = filters::apply_prs(&self.filters.prs, &source, viewer.as_deref(), &search);
+        #[cfg(test)]
+        eprintln!(
+            "PROBE home: snapshot={} union={} partial={} filtered={} rows={}",
+            snapshot.is_some(),
+            union.is_some(),
+            partial,
+            filtered,
+            pr_rows.len()
+        );
+        let source_len = source.len();
+        let total_count = snapshot
+            .as_ref()
+            .map(|e| e.total_count)
+            .unwrap_or(source_len as i64);
+
+        // Label options derive from the present nodes (docs/0042 D3).
+        let pr_labels: Vec<String> = {
+            let mut names = std::collections::BTreeSet::new();
+            for p in &source {
+                for n in filters::label_names(p.labels.as_ref()) {
+                    names.insert(n.to_string());
+                }
+            }
+            names.into_iter().collect()
+        };
+
+        // The freshness cluster refreshes the account it renders for.
+        let refresh = account.clone();
+        v_flex()
+            .p_4()
+            .gap_3()
+            .child(
+                h_flex()
+                    .id("home-header")
+                    .justify_between()
+                    .gap_3()
+                    .items_start()
+                    .child(
+                        v_flex()
+                            .gap_1()
+                            .min_w_0()
+                            .child(
+                                div()
+                                    .text_base()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child("Open pull requests"),
+                            )
+                            .when_some(account.as_ref().map(|(l, _)| l.clone()), |col, login| {
+                                col.child(
+                                    div()
+                                        .text_sm()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child(login),
+                                )
+                            }),
+                    )
+                    .child(freshness_row(
+                        "home-prs",
+                        &clock,
+                        cx,
+                        move |this, window, cx| {
+                            if let Some((login, scope)) = refresh.clone() {
+                                let specs = this
+                                    .state
+                                    .update(cx, |s, _| vec![s.home_open_spec(&login, scope)]);
+                                this.run_specs(specs, window, cx);
+                            }
+                        },
+                    )),
+            )
+            .child(
+                div()
+                    .id("home-row-search")
+                    .w_full()
+                    .child(Input::new(&self.row_search).small()),
+            )
+            .child(
+                GroupBox::new()
+                    .id("home-prs-box")
+                    .title(filters::box_title(
+                        "Open PRs",
+                        total_count.max(source_len as i64) as usize,
+                        pr_rows.len(),
+                        filtered,
+                    ))
+                    .child(
+                        v_flex()
+                            .gap_0p5()
+                            .child(self.pr_filter_toolbar(&pr_labels, cx))
+                            .child(if pr_rows.is_empty() {
+                                if source_len == 0 {
+                                    if let Some(err) = &error {
+                                        // D3: first-ever fetch failed with
+                                        // nothing to fall back on.
+                                        v_flex()
+                                            .gap_2()
+                                            .child(muted_cell_keyed(
+                                                format!("Couldn't load open pull requests: {err}"),
+                                                Some("home-prs-error"),
+                                                cx,
+                                            ))
+                                            .child(
+                                                Button::new("home-prs-retry")
+                                                    .debug_selector(|| "home-prs-retry".to_string())
+                                                    .label("Retry")
+                                                    .ghost()
+                                                    .small()
+                                                    .on_click(cx.listener(
+                                                        |this, _, window, cx| {
+                                                            this.fetch_home_prs(window, cx);
+                                                        },
+                                                    )),
+                                            )
+                                            .into_any_element()
+                                    } else if account.is_none() {
+                                        muted_cell_keyed(
+                                            "Loading open pull requests…".into(),
+                                            Some("home-prs-loading"),
+                                            cx,
+                                        )
+                                    } else {
+                                        muted_cell_keyed(
+                                            "No open pull requests".into(),
+                                            Some("home-prs-empty"),
+                                            cx,
+                                        )
+                                    }
+                                } else {
+                                    muted_cell_keyed(
+                                        "No PRs match the current filters".into(),
+                                        Some("home-prs-no-match"),
+                                        cx,
+                                    )
+                                }
+                            } else {
+                                v_flex()
+                                    .gap_0p5()
+                                    .children(
+                                        pr_rows
+                                            .iter()
+                                            .map(|p| self.render_pr_row_inner(p, true, cx)),
+                                    )
+                                    // docs/0047 D4: paging affordances —
+                                    // unfiltered only (a filter hides rows
+                                    // by choice, not by cap; the repo
+                                    // view's #87 precedent).
+                                    .when(!filtered, |col| {
+                                        let load_more = snapshot
+                                            .as_ref()
+                                            .is_some_and(|e| !e.complete && e.cursor.is_some());
+                                        let hint = match &snapshot {
+                                            // The three truthful states (D4).
+                                            Some(_) => home_prs_hint(source_len, total_count),
+                                            // Union mode: honest provenance
+                                            // instead of paging (D6).
+                                            None => partial.then(|| {
+                                                "partial — from repo snapshots".to_string()
+                                            }),
+                                        };
+                                        col.when(load_more, |col| {
+                                            col.child(
+                                                Button::new("home-prs-more")
+                                                    .debug_selector(|| "home-prs-more".to_string())
+                                                    .label("Load more")
+                                                    .ghost()
+                                                    .small()
+                                                    .on_click(cx.listener(
+                                                        |this, _, window, cx| {
+                                                            this.load_more_home_prs(window, cx);
+                                                        },
+                                                    )),
+                                            )
+                                        })
+                                        .children(
+                                            hint.map(|h| {
+                                                div()
+                                                    .debug_selector(|| "home-prs-hint".to_string())
+                                                    .child(h)
+                                                    .into_any_element()
+                                            }),
+                                        )
+                                    })
+                                    .into_any_element()
+                            }),
+                    ),
+            )
+            .into_any_element()
     }
 
     /// Observer entry (0009 D6): `cx.observe` has no window, so go
@@ -546,14 +941,20 @@ impl GithubPage {
             .collect();
         if logins != self.synced_orgs {
             let choice = next_org_selection(self.org.as_deref(), &logins);
+            let org_changed = choice != self.org;
             self.org_select.update(cx, |s, cx| {
                 s.set_items(SearchableVec::from(logins.clone()), window, cx);
                 if let Some(value) = &choice {
                     s.set_selected_value(value, window, cx);
                 }
             });
-            self.org = choice;
+            self.org = choice.clone();
             self.synced_orgs = logins.clone();
+            // docs/0047 D3: orgs arriving (or the resolved choice
+            // changing) is the module-open trigger for the home lane.
+            if org_changed {
+                self.fetch_home_prs(window, cx);
+            }
             log::debug!(
                 "org select synced: {} orgs, selected: {:?}",
                 self.synced_orgs.len(),
@@ -1118,17 +1519,22 @@ impl GithubPage {
                 let Some(result) = run_read_deduped(state.clone(), spec, cx).await else {
                     continue;
                 };
-                // The repo-rows lane's backoff bookkeeping (docs/0036
-                // D3): the page owns the dispatch, the state owns the
-                // clock. Only the repo-lane kinds count — unrelated
-                // specs must not stamp the rows clock.
-                let rows_lane = matches!(result.kind, Kind::RepoSnapshot | Kind::RepoNotifications);
+                // Lane backoff bookkeeping (docs/0036 D3, docs/0047): the
+                // page owns the dispatch, the state owns the clock. Each
+                // lane kind stamps only its own clock — unrelated specs
+                // stamp nothing.
                 let rows_ok = result.network.is_none() && (200..300).contains(&result.status);
+                match result.kind {
+                    Kind::RepoSnapshot | Kind::RepoNotifications => {
+                        state.update(cx, |s, _| s.bump_rows_backoff(rows_ok));
+                    }
+                    Kind::AccountPullRequests => {
+                        state.update(cx, |s, _| s.bump_home_backoff(rows_ok));
+                    }
+                    _ => {}
+                }
                 cx.update(|cx| {
                     state.update(cx, |s, cx| {
-                        if rows_lane {
-                            s.bump_rows_backoff(rows_ok);
-                        }
                         s.apply(result);
                         cx.notify();
                     })
@@ -1139,7 +1545,22 @@ impl GithubPage {
         .detach();
     }
 
+    /// Repo-view PR row (docs/0012 D4): the shared body without the repo
+    /// chip (docs/0047 D5 — the repo is the page's context there).
     fn render_pr_row(&self, pr: &gql::PullRequest, cx: &Context<Self>) -> AnyElement {
+        self.render_pr_row_inner(pr, false, cx)
+    }
+
+    /// The shared PR row body; `show_repo` adds the `owner/name` chip —
+    /// home rows span repositories, so they carry their context with
+    /// them (docs/0047 D5). Click behavior is identical on both
+    /// surfaces (docs/0047 D7).
+    fn render_pr_row_inner(
+        &self,
+        pr: &gql::PullRequest,
+        show_repo: bool,
+        cx: &Context<Self>,
+    ) -> AnyElement {
         // Row click opens the in-app PR page (docs/0016 D1); the github.com
         // hand-off lives on in the page header's ↗ button.
         let page = cx.entity();
@@ -1191,6 +1612,19 @@ impl GithubPage {
                             })
                             .when(pr.draft, |row| {
                                 row.child(Badge::new().xsmall().child("Draft"))
+                            })
+                            .when(show_repo, |row| {
+                                // docs/0047 D5: home rows span repositories
+                                // — the `owner/name` chip carries their
+                                // context (parsed from the composite key,
+                                // the row's belt fallback source).
+                                let repo_name =
+                                    pr.key.split('#').next().unwrap_or_default().to_string();
+                                row.child(
+                                    div()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child(repo_name),
+                                )
                             })
                             .child(
                                 div()
@@ -1932,14 +2366,9 @@ impl GithubPage {
                 }
             };
         let detail: AnyElement = match selected_repo {
-            None => div()
-                .size_full()
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_color(cx.theme().muted_foreground)
-                .child("Select a repository")
-                .into_any_element(),
+            // docs/0047 D1: the home view replaces the placeholder — the
+            // module's landing surface is the account's open PRs.
+            None => self.render_home_view(cx),
             Some(repo) => v_flex()
                 .p_4()
                 .gap_3()
@@ -2752,7 +3181,7 @@ mod tests {
     // `test` re-export would shadow the builtin `#[test]` attribute and
     // blow the proc-macro stack (rustc SIGSEGV). Import selectively.
     use super::{
-        GithubPage, IndexPath, RepoListDelegate, create_allowed, create_pr_allowed,
+        GithubPage, IndexPath, RepoListDelegate, create_allowed, create_pr_allowed, home_prs_hint,
         more_hint_count, next_org_selection, notification_url, reconcile_repo_crumb,
         repo_crumb_label,
     };
@@ -2810,7 +3239,8 @@ mod tests {
         cx: &mut gpui::TestAppContext,
     ) -> (gpui::Entity<GithubPage>, &mut gpui::VisualTestContext) {
         use crate::auth::MockTokenStore;
-        use crate::http::{Http, SharedToken, mock::MockHttp};
+        use crate::http::mock::MockHttp;
+        use crate::http::{Http, SharedToken};
         use crate::service::{GithubCache, GithubState};
         use dashboard_core::nav::Navigator;
         use dashboard_core::paths::AppPaths;
@@ -3245,7 +3675,8 @@ mod tests {
         use std::sync::Arc;
 
         use crate::auth::MockTokenStore;
-        use crate::http::{Http, SharedToken, mock::MockHttp};
+        use crate::http::mock::MockHttp;
+        use crate::http::{Http, SharedToken};
         use crate::service::{GithubCache, GithubState};
         use dashboard_core::nav::Navigator;
         use dashboard_core::paths::AppPaths;
@@ -3332,7 +3763,8 @@ mod tests {
         use std::sync::Arc;
 
         use crate::auth::MockTokenStore;
-        use crate::http::{Http, SharedToken, mock::MockHttp};
+        use crate::http::mock::MockHttp;
+        use crate::http::{Http, SharedToken};
         use crate::service::{GithubCache, GithubState};
         use dashboard_core::nav::Navigator;
         use dashboard_core::paths::AppPaths;
@@ -3425,7 +3857,8 @@ mod tests {
         use std::time::Duration;
 
         use crate::auth::MockTokenStore;
-        use crate::http::{Http, SharedToken, mock::MockHttp};
+        use crate::http::mock::MockHttp;
+        use crate::http::{Http, SharedToken};
         use crate::pr_page;
         use crate::service::{AuthStatus, GithubCache, GithubState};
         use dashboard_core::nav::{Navigator, Page};
@@ -3458,6 +3891,11 @@ mod tests {
             state.update(cx, |s, _| {
                 s.selected = Some("acme/one".into());
                 s.auth = AuthStatus::Connected;
+                // Hermetic: the disk cache can seed real accounts, and any
+                // resolved account fires the docs/0047 D3 module-open home
+                // fetch — an extra request this ledger must not count.
+                s.orgs.clear();
+                s.user = None;
             });
             let nav = cx.new(|_| Navigator::default());
             let page = cx.new(|cx| GithubPage::new(state.clone(), nav.clone(), window, cx));
@@ -3593,7 +4031,8 @@ mod tests {
         use std::time::{Duration, Instant};
 
         use crate::auth::MockTokenStore;
-        use crate::http::{Http, SharedToken, mock::MockHttp};
+        use crate::http::mock::MockHttp;
+        use crate::http::{Http, SharedToken};
         use crate::service::{AuthStatus, GithubCache, GithubState};
         use dashboard_core::nav::Navigator;
 
@@ -3678,7 +4117,8 @@ mod tests {
 
         use crate::auth::MockTokenStore;
         use crate::card::GithubCard;
-        use crate::http::{Http, SharedToken, mock::MockHttp};
+        use crate::http::mock::MockHttp;
+        use crate::http::{Http, SharedToken};
         use crate::service::{GithubCache, GithubState};
         use dashboard_core::nav::Navigator;
 
@@ -3784,7 +4224,8 @@ mod tests {
         use std::sync::Arc;
 
         use crate::auth::MockTokenStore;
-        use crate::http::{Http, SharedToken, mock::MockHttp};
+        use crate::http::mock::MockHttp;
+        use crate::http::{Http, SharedToken};
         use crate::pr_page;
         use crate::service::{GithubCache, GithubState};
         use dashboard_core::nav::Navigator;
@@ -3868,7 +4309,8 @@ mod tests {
         use std::sync::Arc;
 
         use crate::auth::MockTokenStore;
-        use crate::http::{Http, SharedToken, mock::MockHttp};
+        use crate::http::mock::MockHttp;
+        use crate::http::{Http, SharedToken};
         use crate::service::{GithubCache, GithubState};
         use dashboard_core::nav::Navigator;
         use dashboard_core::paths::AppPaths;
@@ -4237,7 +4679,8 @@ mod tests {
     #[gpui::test]
     fn archived_repo_hides_creation_buttons(cx: &mut TestAppContext) {
         use crate::auth::MockTokenStore;
-        use crate::http::{Http, SharedToken, mock::MockHttp};
+        use crate::http::mock::MockHttp;
+        use crate::http::{Http, SharedToken};
         use crate::service::{AuthStatus, GithubCache, GithubState};
         use dashboard_core::nav::Navigator;
         use dashboard_core::paths::AppPaths;
@@ -4391,5 +4834,349 @@ mod tests {
             vcx.debug_bounds("notif-19").is_none(),
             "the retried done drops the row"
         );
+    }
+
+    // --- home view (docs/0047 §5) -------------------------------------
+
+    /// A search-node JSON fragment for the home lane's fixtures — the
+    /// same field set the ACCOUNT_PULL_REQUESTS_QUERY selects.
+    fn search_pr_node(number: i64, updated: &str) -> String {
+        format!(
+            r##"{{"number":{number},"title":"pr {number}","isDraft":false,"state":"OPEN","author":{{"login":"alice","avatarUrl":""}},"updatedAt":"{updated}","url":"u","statusCheckRollup":{{"state":"SUCCESS"}},"labels":{{"totalCount":1,"nodes":[{{"name":"bug","color":"#f00"}}]}},"reviewRequests":{{"totalCount":0,"nodes":[]}},"repository":{{"nameWithOwner":"acme/one"}}}}"##
+        )
+    }
+
+    /// A full home-lane response body: `issueCount` total, paging state,
+    /// and the given node numbers.
+    fn search_body(total: i64, has_next: bool, cursor: Option<&str>, numbers: &[i64]) -> String {
+        let nodes: Vec<String> = numbers
+            .iter()
+            .enumerate()
+            .map(|(ix, n)| search_pr_node(*n, &format!("2026-01-{:02}T00:00:00Z", ix + 1)))
+            .collect();
+        let cursor_json = match cursor {
+            Some(c) => format!("\"{c}\""),
+            None => "null".to_string(),
+        };
+        format!(
+            r#"{{"data":{{"rateLimit":{{"remaining":4990,"resetAt":"2026-01-01T00:00:00Z"}},"search":{{"issueCount":{total},"pageInfo":{{"hasNextPage":{has_next},"endCursor":{cursor_json}}},"nodes":[{}]}}}}}}"#,
+            nodes.join(",")
+        )
+    }
+
+    /// A landed home SpecResult for one account.
+    fn home_result(
+        login: &str,
+        scope: &str,
+        body: String,
+        continuation: bool,
+    ) -> crate::service::SpecResult {
+        crate::service::SpecResult {
+            kind: crate::service::Kind::AccountPullRequests,
+            ident: Some(format!("{scope}:{login}")),
+            status: 200,
+            etag: None,
+            rate: None,
+            body: Some(body),
+            network: None,
+            cursor: continuation.then(|| "c1".to_string()),
+        }
+    }
+
+    /// docs/0047 §5 fixture: connected page, personal account "me" first
+    /// (Q10), the "acme" org, acme/one on the state, and no repo selected
+    /// — the home view is the module's landing surface. The scripted
+    /// MockHttp answers the construction-time home fetch (orgs resolve on
+    /// the first sync, docs/0047 D3).
+    fn home_probe_page(
+        cx: &mut gpui::TestAppContext,
+        script: Vec<Result<crate::http::HttpResult, crate::http::HttpError>>,
+        with_repos: bool,
+    ) -> (
+        gpui::Entity<GithubPage>,
+        gpui::Entity<crate::service::GithubState>,
+        &mut gpui::VisualTestContext,
+    ) {
+        use crate::auth::MockTokenStore;
+        use crate::http::mock::MockHttp;
+        use crate::http::{Http, SharedToken};
+        use crate::service::{GithubCache, GithubState};
+        use dashboard_core::nav::Navigator;
+        use dashboard_core::paths::AppPaths;
+
+        cx.update(gpui_component::init);
+        cx.update(dashboard_core::status::init);
+        let state = cx.update(|cx| {
+            let client: Arc<dyn Http> = Arc::new(MockHttp::new(script));
+            let shared: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let refresh: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            cx.new(|_| {
+                GithubState::new(
+                    client,
+                    Arc::new(MockTokenStore::with("t0k".into())),
+                    shared,
+                    refresh,
+                    GithubCache::new(AppPaths::init()),
+                    DraftStore::at_tmp("home"),
+                )
+            })
+        });
+        cx.update(|cx| {
+            state.update(cx, |s, cx| {
+                s.auth = crate::service::AuthStatus::Connected;
+                s.user = Some(gql::User {
+                    login: "me".into(),
+                    avatar_url: String::new(),
+                });
+                s.orgs = crate::gql::orgs_from_values(&[serde_json::json!({"login": "acme"})]);
+                if with_repos {
+                    let mut r = repo("acme/one", None);
+                    r.prs.total_count = 5;
+                    r.prs.nodes = vec![pr(1, "union one", Some("alice")), pr(2, "union two", None)];
+                    s.repos = vec![r];
+                }
+                cx.notify();
+            });
+        });
+        let nav = cx.update(|cx| cx.new(|_| Navigator::default()));
+        let (page, vcx) = cx
+            .add_window_view(|window, cx| GithubPage::new(state.clone(), nav.clone(), window, cx));
+        (page, state, vcx)
+    }
+
+    fn flush(vcx: &mut gpui::VisualTestContext) {
+        vcx.run_until_parked();
+        let _ = vcx.debug_bounds("flush");
+    }
+
+    #[gpui::test]
+    fn home_renders_search_rows_hint_and_load_more(cx: &mut TestAppContext) {
+        // Construction fetch (personal account, empty) then the org page-1
+        // and its load-more page land through the real transport.
+        let ok_body = |body: String| {
+            Ok(crate::http::HttpResult {
+                status: 200,
+                etag: None,
+                rate: None,
+                body: Some(body),
+            })
+        };
+        let script = vec![
+            ok_body(search_body(0, false, None, &[])), // open fetch (me)
+            ok_body(search_body(4, true, Some("c1"), &[5, 6])), // acme page 1
+            ok_body(search_body(4, false, None, &[7, 8])), // acme page 2
+        ];
+        let (page, _state, vcx) = home_probe_page(cx, script, true);
+        flush(vcx);
+        vcx.update(|window, cx| {
+            page.update(cx, |page, cx| {
+                page.org = Some("acme".into());
+                page.fetch_home_prs(window, cx);
+            });
+        });
+        flush(vcx);
+        assert!(
+            vcx.debug_bounds("pr-acme/one#5").is_some()
+                && vcx.debug_bounds("pr-acme/one#6").is_some(),
+            "search rows render"
+        );
+        assert!(
+            vcx.debug_bounds("home-prs-hint").is_some(),
+            "truncated: hint shows"
+        );
+        assert!(
+            vcx.debug_bounds("home-prs-more").is_some(),
+            "truncated: load more shows"
+        );
+        // Load more appends page 2 and completes the chain.
+        let more = vcx.debug_bounds("home-prs-more").unwrap();
+        vcx.simulate_click(more.center(), gpui::Modifiers::default());
+        flush(vcx);
+        assert!(
+            vcx.debug_bounds("pr-acme/one#7").is_some()
+                && vcx.debug_bounds("pr-acme/one#8").is_some(),
+            "page-2 rows append (not replace)"
+        );
+        assert!(
+            vcx.debug_bounds("pr-acme/one#5").is_some(),
+            "page-1 rows survive"
+        );
+        assert!(
+            vcx.debug_bounds("home-prs-more").is_none()
+                && vcx.debug_bounds("home-prs-hint").is_none(),
+            "complete: hint and button retire"
+        );
+    }
+
+    #[gpui::test]
+    fn home_union_fallback_replaced_when_lane_lands(cx: &mut TestAppContext) {
+        // Construction fetch fails (personal account): home_error is set,
+        // but the org view has repo snapshots to fall back on (D6).
+        let script = vec![Err(crate::http::HttpError("probe".into()))];
+        let (page, state, vcx) = home_probe_page(cx, script, true);
+        flush(vcx);
+        vcx.update(|_, cx| {
+            page.update(cx, |page, cx| {
+                page.org = Some("acme".into());
+                cx.notify();
+            });
+        });
+        flush(vcx);
+        assert!(
+            vcx.debug_bounds("pr-acme/one#1").is_some()
+                && vcx.debug_bounds("pr-acme/one#2").is_some(),
+            "union rows render from the repo snapshot"
+        );
+        assert!(
+            vcx.debug_bounds("home-prs-hint").is_some(),
+            "partial union is marked"
+        );
+        assert!(
+            vcx.debug_bounds("home-prs-more").is_none(),
+            "union mode has no paging"
+        );
+
+        // The search lane lands: union rows are replaced by real ones.
+        vcx.update(|_, cx| {
+            state.update(cx, |s, cx| {
+                s.apply(home_result(
+                    "acme",
+                    "org",
+                    search_body(6, true, Some("c9"), &[5]),
+                    false,
+                ));
+                cx.notify();
+            });
+        });
+        flush(vcx);
+        assert!(
+            vcx.debug_bounds("pr-acme/one#5").is_some(),
+            "search row landed"
+        );
+        assert!(
+            vcx.debug_bounds("pr-acme/one#1").is_none(),
+            "union rows retire"
+        );
+        assert!(
+            vcx.debug_bounds("home-prs-more").is_some(),
+            "lane landed truncated: paging appears"
+        );
+    }
+
+    #[gpui::test]
+    fn home_first_fetch_failure_shows_retry_then_recovers(cx: &mut TestAppContext) {
+        // No repos for the personal account: a failed first fetch has
+        // nothing to fall back on — error + Retry (docs/0047 D3).
+        let script = vec![
+            Err(crate::http::HttpError("down".into())),
+            Ok(crate::http::HttpResult {
+                status: 200,
+                etag: None,
+                rate: None,
+                body: Some(search_body(0, false, None, &[])),
+            }),
+        ];
+        let (_page, _state, vcx) = home_probe_page(cx, script, false);
+        flush(vcx);
+        assert!(
+            vcx.debug_bounds("home-prs-error").is_some()
+                && vcx.debug_bounds("home-prs-retry").is_some(),
+            "failure with no fallback shows error + Retry"
+        );
+
+        // Retry rides the same kind; success clears the error and shows
+        // the honest empty state (D8).
+        let retry = vcx.debug_bounds("home-prs-retry").unwrap();
+        vcx.simulate_click(retry.center(), gpui::Modifiers::default());
+        flush(vcx);
+        assert!(
+            vcx.debug_bounds("home-prs-retry").is_none(),
+            "recovered: retry retires"
+        );
+        assert!(
+            vcx.debug_bounds("home-prs-empty").is_some(),
+            "an empty account is a real result"
+        );
+    }
+
+    #[gpui::test]
+    fn home_account_switch_renders_cached_snapshots(cx: &mut TestAppContext) {
+        // The orgs fixture resolves to "acme" (orgs[0]); its snapshot lands
+        // through the construction fetch, a "me" snapshot lands manually.
+        // Switching paints each cached list immediately (docs/0047 D9)
+        // with no extra request.
+        let script = vec![Ok(crate::http::HttpResult {
+            status: 200,
+            etag: None,
+            rate: None,
+            body: Some(search_body(1, false, None, &[3])),
+        })];
+        let (page, state, vcx) = home_probe_page(cx, script, true);
+        flush(vcx);
+        assert!(
+            vcx.debug_bounds("pr-acme/one#3").is_some(),
+            "acme rows landed at construction"
+        );
+        vcx.update(|_, cx| {
+            state.update(cx, |s, cx| {
+                s.apply(home_result(
+                    "me",
+                    "user",
+                    search_body(2, false, None, &[5]),
+                    false,
+                ));
+                cx.notify();
+            });
+        });
+        flush(vcx);
+        assert!(
+            vcx.debug_bounds("pr-acme/one#3").is_some()
+                && vcx.debug_bounds("pr-acme/one#5").is_none(),
+            "me snapshot caches without disturbing the view"
+        );
+
+        // Switch to the personal account: its cached snapshot paints.
+        vcx.update(|_, cx| {
+            page.update(cx, |page, cx| {
+                page.org = Some("me".into());
+                cx.notify();
+            });
+        });
+        flush(vcx);
+        assert!(
+            vcx.debug_bounds("pr-acme/one#5").is_some()
+                && vcx.debug_bounds("pr-acme/one#3").is_none(),
+            "me rows replace acme rows from cache"
+        );
+
+        // Switch back: acme's snapshot is still cached.
+        vcx.update(|_, cx| {
+            page.update(cx, |page, cx| {
+                page.org = Some("acme".into());
+                cx.notify();
+            });
+        });
+        flush(vcx);
+        assert!(
+            vcx.debug_bounds("pr-acme/one#3").is_some(),
+            "acme rows from cache"
+        );
+    }
+
+    #[test]
+    fn home_prs_hint_table() {
+        // docs/0047 D4: three truthful states.
+        assert_eq!(
+            home_prs_hint(2, 5).as_deref(),
+            Some("first 2 of 5 open pull requests")
+        );
+        assert_eq!(home_prs_hint(5, 5), None, "complete: no hint");
+        assert_eq!(
+            home_prs_hint(1_000, 1_500).as_deref(),
+            Some("first 1000 of 1500 — search caps at 1,000"),
+            "at the cap the copy names GitHub's ceiling"
+        );
+        assert_eq!(home_prs_hint(1_000, 1_000), None, "exactly full: complete");
+        assert_eq!(home_prs_hint(0, 0), None);
     }
 }

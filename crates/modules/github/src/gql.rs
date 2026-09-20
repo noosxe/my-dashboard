@@ -163,6 +163,141 @@ query RepoSnapshot($owner: String!, $name: String!) {
 }
 "#;
 
+/// docs/0047 D2 — the home lane: one GraphQL search page of the selected
+/// account's open PRs (`org:` for an organization, `user:` for the
+/// personal account; `sort:updated-desc` verified live 2026-09-20).
+/// Every request costs 1 point flat (#294); `repository` rides in each
+/// search node so rows keep the `owner/name#number` key the repo views
+/// already use. GitHub caps search at 1,000 results per query — the
+/// server ends the cursor chain cleanly there (verified live, §2 of the
+/// doc), so the client treats `hasNextPage: false` as simply complete.
+pub const SEARCH_RESULT_CAP: usize = 1000;
+
+pub const ACCOUNT_PULL_REQUESTS_QUERY: &str = r#"
+query AccountPullRequests($query: String!, $after: String) {
+  rateLimit { cost remaining resetAt }
+  search(query: $query, type: ISSUE, first: 100, after: $after) {
+    issueCount
+    pageInfo { hasNextPage endCursor }
+    nodes {
+      ... on PullRequest {
+        databaseId
+        number
+        title
+        isDraft
+        state
+        author { login avatarUrl }
+        updatedAt
+        url
+        statusCheckRollup { state }
+        labels(first: 8) {
+          totalCount
+          nodes { name color }
+        }
+        reviewRequests(first: 20) {
+          totalCount
+          nodes {
+            requestedReviewer {
+              __typename
+              ... on User { login }
+            }
+          }
+        }
+        repository { nameWithOwner }
+      }
+    }
+  }
+}
+"#;
+
+/// `search` root in the home-lane response (docs/0047 D2).
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchData {
+    #[serde(default)]
+    pub rate_limit: Option<RateLimitField>,
+    pub search: Option<SearchResult>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchResult {
+    /// The full match count regardless of paging — the honest "M" in the
+    /// truncation hints (docs/0047 D4).
+    #[serde(default)]
+    pub issue_count: i64,
+    #[serde(default)]
+    pub page_info: PageInfo,
+    #[serde(default)]
+    pub nodes: Vec<serde_json::Value>,
+}
+
+/// One parsed search page — the inputs of the home snapshot (docs/0047
+/// D2). `end_cursor` feeds "Load more"; `has_next_page` false also ends
+/// a capped chain (the server reports the cap as a normal end, §2).
+pub struct HomePrsPage {
+    pub nodes: Vec<PullRequest>,
+    pub total_count: i64,
+    pub has_next_page: bool,
+    pub end_cursor: Option<String>,
+}
+
+/// A search node's repository pointer — the key source (`owner/name`)
+/// that repo rows get from their enclosing snapshot for free.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SearchRepoRef {
+    name_with_owner: String,
+}
+
+/// A search `... on PullRequest` node: the repo PR shape plus the
+/// repository pointer (flattened so `PrNode` stays the single field list).
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SearchPrNode {
+    #[serde(flatten)]
+    pr: PrNode,
+    #[serde(default)]
+    repository: Option<SearchRepoRef>,
+}
+
+/// Map one parsed search page to the home snapshot inputs (docs/0047
+/// D2): per-node degradation ([DG]) — a node without a repository
+/// pointer can't be keyed, so it is skipped with the others' warning.
+pub fn home_prs_page(search: &SearchResult) -> HomePrsPage {
+    let nodes = parse_nodes::<SearchPrNode>(&search.nodes)
+        .into_iter()
+        .filter_map(|n| {
+            let repo = n.repository?;
+            Some(PullRequest {
+                key: format!("{}#{}", repo.name_with_owner, n.pr.number),
+                database_id: n.pr.database_id,
+                number: n.pr.number,
+                title: n.pr.title,
+                draft: n.pr.is_draft,
+                state: n.pr.state,
+                author: n.pr.author,
+                updated_at: n.pr.updated_at,
+                url: n.pr.url,
+                status: n.pr.status_check_rollup.and_then(|r| r.state),
+                labels: n.pr.labels,
+                review_requests: n.pr.review_requests,
+            })
+        })
+        .collect();
+    HomePrsPage {
+        nodes,
+        total_count: search.issue_count,
+        has_next_page: search.page_info.has_next_page,
+        end_cursor: search.page_info.end_cursor.clone(),
+    }
+}
+
+/// RFC-3339 stamp → epoch seconds for one PR (docs/0047 D6 union sort).
+pub(crate) fn pr_stamp_epoch(pr: &PullRequest) -> u64 {
+    stamp_epoch(&pr.updated_at)
+}
+
 // ---------------------------------------------------------------------------
 // Wire shapes (serde) — camelCase GraphQL, nodes kept as raw values and
 // parsed per item so one bad node degrades alone.
@@ -2976,6 +3111,15 @@ mod tests {
     /// GraphQL comments are `#` — a JS-style `//` inside a document makes
     /// GitHub reject the whole request. Caught live on 2026-09-04: the
     /// detail query shipped with a `//` note and every PR tab errored.
+    ///
+    /// docs/0047 §5: one search `... on PullRequest` node with the exact
+    /// field set ACCOUNT_PULL_REQUESTS_QUERY selects.
+    fn search_pr_node(number: i64) -> String {
+        format!(
+            r##"{{"number":{number},"title":"pr {number}","isDraft":false,"state":"OPEN","author":{{"login":"alice","avatarUrl":""}},"updatedAt":"2026-01-01T00:00:00Z","url":"u","statusCheckRollup":{{"state":"SUCCESS"}},"labels":{{"totalCount":1,"nodes":[{{"name":"bug","color":"#f00"}}]}},"reviewRequests":{{"totalCount":0,"nodes":[]}},"repository":{{"nameWithOwner":"acme/one"}}}}"##
+        )
+    }
+
     #[test]
     fn gql_documents_use_hash_comments_only() {
         for (name, doc) in [
@@ -4409,5 +4553,54 @@ mod tests {
         assert!(t.nodes.is_empty());
         // A null pullRequest node is the only None case.
         assert!(pr_threads_from_value(&serde_json::json!({})).is_none());
+    }
+
+    // --- home lane (docs/0047) ------------------------------------------
+
+    #[test]
+    fn home_prs_page_parses_search_nodes() {
+        let body = format!(
+            r#"{{"data":{{"rateLimit":{{"remaining":4990,"resetAt":"2026-01-01T00:00:00Z"}},"search":{{"issueCount":12,"pageInfo":{{"hasNextPage":true,"endCursor":"c1"}},"nodes":[
+                {a},
+                {b}
+            ]}}}}}}"#,
+            a = search_pr_node(5),
+            b = search_pr_node(6),
+        );
+        let env = serde_json::from_str::<Envelope<SearchData>>(&body).unwrap();
+        let page = home_prs_page(env.data.unwrap().search.as_ref().unwrap());
+        assert_eq!(page.total_count, 12, "issueCount is the honest total");
+        assert!(page.has_next_page && page.end_cursor.as_deref() == Some("c1"));
+        assert_eq!(page.nodes.len(), 2);
+        // Keys carry the repository — the search node's `nameWithOwner`.
+        assert_eq!(page.nodes[0].key, "acme/one#5");
+        assert_eq!(page.nodes[0].number, 5);
+        assert_eq!(page.nodes[0].author.as_ref().unwrap().login, "alice");
+        assert_eq!(page.nodes[0].status.as_deref(), Some("SUCCESS"));
+        assert_eq!(page.nodes[0].labels.as_ref().unwrap().nodes[0].name, "bug");
+        // Review requests parse like the repo PR rows' (the 0042 engine
+        // reads them for "requested of me").
+        assert_eq!(page.nodes[1].key, "acme/one#6");
+    }
+
+    #[test]
+    fn home_prs_page_degrades_malformed_nodes() {
+        // A node without a repository pointer can't be keyed — it skips
+        // alone ([DG]), and a node missing optional fields still parses.
+        let body = r#"{"data":{"search":{"issueCount":2,"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[
+            {"number":7,"repository":{"nameWithOwner":"acme/two"}},
+            {"number":8,"title":"no repository pointer"},
+            {"number":"not-a-number","repository":{"nameWithOwner":"acme/one"}}
+        ]}}}"#;
+        let env = serde_json::from_str::<Envelope<SearchData>>(body).unwrap();
+        let page = home_prs_page(env.data.unwrap().search.as_ref().unwrap());
+        assert_eq!(page.nodes.len(), 1, "unkeyable/malformed nodes skip");
+        assert_eq!(page.nodes[0].key, "acme/two#7");
+        assert!(
+            page.nodes[0].title.is_empty(),
+            "missing title degrades empty"
+        );
+        assert!(!page.has_next_page, "cap end reads as complete");
+        assert_eq!(page.total_count, 2);
     }
 }
