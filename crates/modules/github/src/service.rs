@@ -7,7 +7,7 @@
 //! repo-scoped snapshot + one-shot repo notifications when a repo view
 //! opens. ETag revalidation survives only on the REST notifications path;
 //! last-known caches under the 0004 cache root persist the snapshot
-//! (`snapshot-v2`) and notifications. 401/403 handling per the [DG]
+//! (`snapshot-v3`) and notifications. 401/403 handling per the [DG]
 //! states matrix.
 //!
 //! Split of responsibilities:
@@ -2193,11 +2193,12 @@ impl GithubState {
         };
     }
 
-    /// Persist the snapshot to `snapshot-v2` (docs/0007 D7) — atomic
+    /// Persist the snapshot to `snapshot-v3` (docs/0007 D7, #275 bumped
+    /// the schema for `is_archived`) — atomic
     /// writes + quarantine via the 0004 store primitives.
     fn persist_snapshot(&self) {
         let snapshot = gql::SnapshotCache {
-            schema: 2,
+            schema: 3,
             user: self.user.clone(),
             orgs: self.orgs.clone(),
             repos: self.repos.clone(),
@@ -3191,6 +3192,7 @@ mod tests {
             owner: gql::Owner { login: "o".into() },
             description: None,
             private: false,
+            is_archived: false,
             pushed_at: pushed_at.map(str::to_string),
             prs: gql::PrSummary {
                 total_count: 0,
@@ -3582,7 +3584,7 @@ mod tests {
     fn keychain_launch_fires_snapshot_on_first_tick() {
         // Regression (owner report): a launch with an existing keychain
         // token must not wait for tick 5 — old REST-era cache keys are
-        // ignored by snapshot-v2, so nothing else populates the UI.
+        // ignored by snapshot-v3, so nothing else populates the UI.
         let mut state = make_state(Arc::new(MockHttp::new(vec![])));
         assert_eq!(state.auth, AuthStatus::Connected);
         assert!(state.needs_bootstrap);
@@ -3686,14 +3688,49 @@ mod tests {
         assert_eq!(a.prs.total_count, 1);
         assert_eq!(a.prs.nodes[0].key, "o/a#1");
 
-        // Persisted: the cache round-trips through snapshot-v2.
+        // Persisted: the cache round-trips through snapshot-v3.
         let loaded: gql::SnapshotCache = state
             .cache
             .load(gql::SNAPSHOT_CACHE_KEY)
             .expect("snapshot persisted");
-        assert_eq!(loaded.schema, 2);
+        assert_eq!(loaded.schema, 3);
         assert_eq!(loaded.repos.len(), 2);
         assert_eq!(loaded.user.as_ref().unwrap().login, "noosxe");
+    }
+
+    #[test]
+    fn snapshot_v3_bump_ignores_old_caches_and_roundtrips_archived() {
+        // #275: the key bump (snapshot-v2 → v3) means pre-`is_archived`
+        // caches are ignored wholesale, and archived repos survive the
+        // round-trip with the flag set.
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.auth = AuthStatus::Connected;
+
+        let archived = repo_node("o/arch", 0, "").replace(
+            "\"isPrivate\":false",
+            "\"isPrivate\":false,\"isArchived\":true",
+        );
+        let body = gql_page(
+            false,
+            "unused",
+            &format!("{},{}", archived, repo_node("o/live", 0, "")),
+        );
+        state.apply(snapshot_result(&body, None));
+
+        let loaded: gql::SnapshotCache = state
+            .cache
+            .load(gql::SNAPSHOT_CACHE_KEY)
+            .expect("snapshot persisted under the v3 key");
+        assert_eq!(loaded.schema, 3);
+        let by_name = |k: &str| {
+            loaded
+                .repos
+                .iter()
+                .find(|r| r.full_name == k)
+                .expect("repo in snapshot")
+        };
+        assert!(by_name("o/arch").is_archived);
+        assert!(!by_name("o/live").is_archived);
     }
 
     #[test]
@@ -4540,7 +4577,7 @@ mod tests {
         // A blob that fails to parse would be quarantined (renamed away)
         // by new()'s cache.load — the seed must survive it (0004 store).
         let snapshot = gql::SnapshotCache {
-            schema: 2,
+            schema: 3,
             user: None,
             orgs: vec![],
             repos: vec![],

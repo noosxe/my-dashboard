@@ -58,8 +58,11 @@ creation gate reads them.
   right-aligned.)*
   Visibility gate, hidden-not-disabled (docs/0005 D-gate discipline):
   connected ∧ repo selected ∧ `node_id.is_some()` ∧
-  `has_issues_enabled`. Issues disabled or node id missing → button
-  absent; never a dead button.
+  `has_issues_enabled` ∧ `!is_archived` *(the archived term added by
+  #275 — GitHub rejects creation on archived repos upstream, so the
+  button hides; a snapshot missing the field degrades to shown)*.
+  Issues disabled or node id missing → button absent; never a dead
+  button.
 - **D3 — surface: full-content sub-page (the 0016 D1 pattern).** The
   creator is pushed like the issue/PR detail pages, with full mutual
   exclusion: opening it closes any open issue/PR page, and opening an

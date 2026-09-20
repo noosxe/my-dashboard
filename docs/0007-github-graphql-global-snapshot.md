@@ -189,7 +189,10 @@ naturally.
 ### D7 — Persistence: one versioned snapshot key
 
 Today's granular keys (`user`, `orgs`, `repos`, `pr-counts`, `prs-{slug}`,
-`notifs-{slug}`) collapse into **`snapshot-v2`**:
+`notifs-{slug}`) collapse into **`snapshot-v2`** *(bumped to
+**`snapshot-v3`** by #275: `Repo` gained `is_archived`, and the
+schema-version discipline is the key itself — old files are ignored
+wholesale and every repo refetches with the field)*:
 
 ```json
 { "schema": 2,

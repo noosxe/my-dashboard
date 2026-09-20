@@ -62,10 +62,13 @@ repository's **GraphQL node id**, which `Repo.node_id` has carried since
   "New issue" (0024 D2 as amended); it gains a ghost **"New pull
   request"** button beside it, same right-aligned cluster. Visibility
   gate, hidden-not-disabled (docs/0005 gate discipline):
-  connected ∧ repo selected ∧ `node_id.is_some()`. No upstream flag
-  gates PR creation; a repo where it can't succeed (archived, no
-  differing branches) dies as a scoped form error or an empty head
-  select, never a silent post.
+  connected ∧ repo selected ∧ `node_id.is_some()` ∧ `!is_archived`
+  *(the archived term added by #275 — it moved out of the "dies as a
+  scoped form error" set and into the gate: the button now hides
+  instead of failing at submit)*. No upstream creation flag gates PR
+  creation beyond that; a repo where it can't succeed (no differing
+  branches) dies as a scoped form error or an empty head select,
+  never a silent post.
 - **D3 — surface: full-content sub-page (the 0016 D1 pattern).** Pushed
   like the issue creator, with full mutual exclusion: opening it closes
   any open issue/PR page, issue creator, or notification page, and
