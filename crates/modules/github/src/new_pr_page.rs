@@ -23,12 +23,12 @@ use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 
 use gpui_component::{
-    ActiveTheme, Disableable, Sizable as _,
+    ActiveTheme, Disableable, IndexPath, Sizable as _,
     button::{Button, ButtonVariants},
     checkbox::Checkbox,
     h_flex,
     input::{InputEvent, Textarea, TextareaState},
-    searchable_list::SearchableVec,
+    searchable_list::{SearchableListDelegate, SearchableListItem, SearchableVec},
     select::{Select, SelectState},
     spinner::Spinner,
     v_flex,
@@ -36,6 +36,7 @@ use gpui_component::{
 
 use serde_json::json;
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::drafts::{self, DraftHandle};
 use crate::gql;
@@ -59,6 +60,71 @@ pub(crate) enum NewPrPageEvent {
 /// every reopen), `Ok` = ready, `Err` = a retryable in-form failure —
 /// fetch errors are retryable by design, never autofail.
 pub(crate) type BranchPage = Option<Result<gql::RepoBranches, String>>;
+
+/// docs/0044 §9 — which branch select a search targets.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum BranchSelect {
+    Base,
+    Head,
+}
+
+/// docs/0044 §9 — a landed server-filtered branch page
+/// (`refs(query:)`) for one select. `None` = that select shows the
+/// shared default (alphabetical) page.
+#[derive(Clone)]
+struct BranchSearchPage {
+    query: String,
+    total_count: i64,
+    names: Vec<String>,
+}
+
+/// docs/0044 §9 — the branch-select delegate: [`SearchableVec`]'s
+/// local filter, plus a page ping that swaps in a server-filtered page
+/// (`refs(query:)`) once the debounce fires. Local filtering only ever
+/// sees the loaded page; the server filter covers the whole repo, and
+/// its substring semantics are a superset of the client's
+/// case-insensitive `contains`, so the two never disagree.
+struct BranchSearchDelegate {
+    inner: SearchableVec<SharedString>,
+    page: WeakEntity<NewPrPage>,
+    which: BranchSelect,
+}
+
+impl SearchableListDelegate for BranchSearchDelegate {
+    type Item = SharedString;
+
+    fn items_count(&self, _section: usize) -> usize {
+        self.inner.items_count(0)
+    }
+
+    fn item(&self, ix: IndexPath) -> Option<&Self::Item> {
+        self.inner.item(ix)
+    }
+
+    fn position<V>(&self, value: &V) -> Option<IndexPath>
+    where
+        Self::Item: SearchableListItem<Value = V>,
+        V: PartialEq,
+    {
+        self.inner.position(value)
+    }
+
+    fn perform_search(&mut self, query: &str, window: &mut Window, cx: &mut App) -> Task<()> {
+        // Instant local feedback; the server page refines when it lands.
+        let local = self.inner.perform_search(query, window, cx);
+        let query = query.trim().to_string();
+        let which = self.which;
+        let _ = self.page.update_in(cx, |page, window, cx| {
+            page.queue_branch_search(which, query, window, cx);
+        });
+        local
+    }
+}
+
+/// docs/0044 §9 — keystroke debounce for the branch search: a repo
+/// filter fires only when typing pauses; the generation counter drops
+/// superseded timers (the DebouncedSave shape, store.rs).
+const BRANCH_SEARCH_DELAY: Duration = Duration::from_millis(300);
 
 pub(crate) struct NewPrPage {
     state: Entity<GithubState>,
@@ -89,12 +155,24 @@ pub(crate) struct NewPrPage {
     /// The branch page (D4), fetched on construction and on every host
     /// open (D7 — branches are not retained).
     branches: BranchPage,
+    /// Per-select server-filtered pages (docs/0044 §9): `Some` once a
+    /// `refs(query:)` page lands for that select; cleared when the
+    /// search empties or the default page re-lands.
+    base_search: Option<BranchSearchPage>,
+    head_search: Option<BranchSearchPage>,
+    /// Debounce generations (docs/0044 §9): each queued keystroke bumps
+    /// its select's counter; a timer that wakes to a stale counter is
+    /// dropped.
+    base_search_gen: u64,
+    head_search_gen: u64,
+    /// Probes run the debounce at zero (the DraftStore.delay pattern).
+    branch_search_delay: Duration,
     /// The repo's PR template body (docs/0046 §2): landed on
     /// construction / host open; `None` while pending or on failure —
     /// the creator then just stays empty (creation never blocks).
     template_body: Option<String>,
-    base_select: Entity<SelectState<SearchableVec<SharedString>>>,
-    head_select: Entity<SelectState<SearchableVec<SharedString>>>,
+    base_select: Entity<SelectState<BranchSearchDelegate>>,
+    head_select: Entity<SelectState<BranchSearchDelegate>>,
     /// The draft toggle (D4/D5): posts `draft: true`.
     pub(crate) draft: bool,
     /// Single-flight in-flight marker (no optimistic writes, D6).
@@ -124,9 +202,12 @@ impl NewPrPage {
                 .auto_grow(8, 40)
                 .placeholder("Describe the pull request (Markdown supported — Preview renders it)")
         });
+        // The delegates ping this page on search (docs/0044 §9) — the
+        // handle is captured before construction completes.
+        let this_page = cx.entity().downgrade();
         let base_select = cx.new(|cx| {
             SelectState::new(
-                SearchableVec::new(Vec::<SharedString>::new()),
+                Self::branch_delegate(this_page.clone(), BranchSelect::Base),
                 None,
                 window,
                 cx,
@@ -135,7 +216,7 @@ impl NewPrPage {
         });
         let head_select = cx.new(|cx| {
             SelectState::new(
-                SearchableVec::new(Vec::<SharedString>::new()),
+                Self::branch_delegate(this_page, BranchSelect::Head),
                 None,
                 window,
                 cx,
@@ -176,6 +257,11 @@ impl NewPrPage {
             preview: false,
             md: None,
             branches: None,
+            base_search: None,
+            head_search: None,
+            base_search_gen: 0,
+            head_search_gen: 0,
+            branch_search_delay: BRANCH_SEARCH_DELAY,
             template_body: None,
             base_select,
             head_select,
@@ -282,6 +368,187 @@ impl NewPrPage {
 
     // --- branch source (docs/0044 D4) ----------------------------------------
 
+    /// docs/0044 §9 — the delegate for one branch select: an empty
+    /// local page plus the handle it pings on search.
+    fn branch_delegate(page: WeakEntity<Self>, which: BranchSelect) -> BranchSearchDelegate {
+        BranchSearchDelegate {
+            inner: SearchableVec::new(Vec::<SharedString>::new()),
+            page,
+            which,
+        }
+    }
+
+    /// docs/0044 §9 — a keystroke landed in a select's search box:
+    /// bump that select's generation and arm the debounce timer. The
+    /// local (loaded-page) filter already applied; this fetches the
+    /// repo-wide `refs(query:)` page when typing pauses.
+    fn queue_branch_search(
+        &mut self,
+        which: BranchSelect,
+        query: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (generation, delay) = match which {
+            BranchSelect::Base => {
+                self.base_search_gen += 1;
+                (self.base_search_gen, self.branch_search_delay)
+            }
+            BranchSelect::Head => {
+                self.head_search_gen += 1;
+                (self.head_search_gen, self.branch_search_delay)
+            }
+        };
+        cx.spawn_in(window, async move |this, cx| {
+            cx.background_executor().timer(delay).await;
+            let _ = cx.update(|window, cx| {
+                this.update(cx, |page, cx| {
+                    page.fire_branch_search(which, generation, query, window, cx)
+                })
+            });
+        })
+        .detach();
+    }
+
+    /// docs/0044 §9 — the debounce fired: superseded generations are
+    /// dropped; an empty query restores the shared default page (no
+    /// network — it is already in memory); anything else fetches the
+    /// repo-wide filtered page for that one select.
+    fn fire_branch_search(
+        &mut self,
+        which: BranchSelect,
+        generation: u64,
+        query: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let current = match which {
+            BranchSelect::Base => self.base_search_gen,
+            BranchSelect::Head => self.head_search_gen,
+        };
+        if generation != current {
+            return; // a newer keystroke superseded this timer
+        }
+        if query.is_empty() {
+            match which {
+                BranchSelect::Base => self.base_search = None,
+                BranchSelect::Head => self.head_search = None,
+            }
+            self.set_branch_items(which, window, cx);
+            cx.notify();
+            return;
+        }
+        let state = self.state.clone();
+        let (owner, name) = crate::pr_page::split_repo(&self.repo);
+        let spec = FetchSpec {
+            kind: Kind::RepoBranches,
+            url: gql::GRAPHQL_ENDPOINT.to_string(),
+            etag: None,
+            ident: Some(self.repo.clone()),
+            max_pages: 1,
+            variables: Some(json!({ "owner": owner, "name": name, "query": query })),
+        };
+        cx.spawn_in(window, async move |this, cx| {
+            let result = run_spec_tracked(state, spec, cx).await;
+            let _ = cx.update(|window, cx| {
+                this.update(cx, |page, cx| {
+                    page.apply_branch_search(which, generation, query, result, window, cx)
+                })
+            });
+        })
+        .detach();
+    }
+
+    /// docs/0044 §9 — the filtered page came back for one select.
+    /// Stale generations are dropped; failures log-and-swallow — the
+    /// select keeps the local filter's view and the default page stays
+    /// authoritative (D6 conservatism: a search must never cost the
+    /// creator its branch list).
+    fn apply_branch_search(
+        &mut self,
+        which: BranchSelect,
+        generation: u64,
+        query: String,
+        result: crate::service::SpecResult,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let current = match which {
+            BranchSelect::Base => self.base_search_gen,
+            BranchSelect::Head => self.head_search_gen,
+        };
+        if generation != current {
+            return;
+        }
+        if result.network.is_some() || result.status != 200 {
+            log::warn!("repo-branches: filtered fetch failed — local filter stays");
+            return;
+        }
+        let Some(body) = result.body else {
+            log::warn!("repo-branches: filtered fetch empty — local filter stays");
+            return;
+        };
+        let Ok(env) = serde_json::from_str::<gql::Envelope<serde_json::Value>>(body.as_str())
+        else {
+            log::warn!("repo-branches filtered payload: malformed");
+            return;
+        };
+        let empty = serde_json::Value::Null;
+        let repo = env
+            .data
+            .as_ref()
+            .and_then(|d| d.get("repository"))
+            .unwrap_or(&empty);
+        let page_data = gql::branches_from_value(repo);
+        let search = BranchSearchPage {
+            query,
+            total_count: page_data.total_count,
+            names: page_data.names.clone(),
+        };
+        match which {
+            BranchSelect::Base => self.base_search = Some(search),
+            BranchSelect::Head => self.head_search = Some(search),
+        }
+        let names: Vec<SharedString> = page_data.names.iter().map(|n| n.clone().into()).collect();
+        self.swap_branch_items(which, names, window, cx);
+        cx.notify();
+    }
+
+    /// docs/0044 §9 — swap one select's items (the delegate is rebuilt
+    /// with the current page handle, so searches keep working).
+    fn swap_branch_items(
+        &self,
+        which: BranchSelect,
+        names: Vec<SharedString>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let page = cx.entity().downgrade();
+        let delegate = BranchSearchDelegate {
+            inner: SearchableVec::new(names),
+            page,
+            which,
+        };
+        match which {
+            BranchSelect::Base => self.base_select.update(cx, |s, cx| {
+                s.set_items(delegate, window, cx);
+            }),
+            BranchSelect::Head => self.head_select.update(cx, |s, cx| {
+                s.set_items(delegate, window, cx);
+            }),
+        }
+    }
+
+    /// docs/0044 §9 — put the shared default page's names into one
+    /// select (search cleared). A missing/failed default page leaves
+    /// the select as-is — there is nothing better to show.
+    fn set_branch_items(&self, which: BranchSelect, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(Ok(page)) = &self.branches {
+            let names: Vec<SharedString> = page.names.iter().map(|n| n.clone().into()).collect();
+            self.swap_branch_items(which, names, window, cx);
+        }
+    }
+
     /// Fetch the branch page (the picker-source pattern, 0022 §5): a
     /// stateless lane read of [`Kind::RepoBranches`], open-immediately
     /// loading state, failures retryable.
@@ -297,9 +564,16 @@ impl NewPrPage {
             etag: None,
             ident: Some(self.repo.clone()),
             max_pages: 1,
-            variables: Some(json!({ "owner": owner, "name": name })),
+            variables: Some(json!({ "owner": owner, "name": name, "query": null })),
         };
         log::debug!("repo-branches: fetching {}", self.repo);
+        // The default page re-lands: drop any per-select search state
+        // and invalidate pending debounce timers (D7 — every open is a
+        // fresh default).
+        self.base_search = None;
+        self.head_search = None;
+        self.base_search_gen += 1;
+        self.head_search_gen += 1;
         self.branches = None;
         cx.notify();
         // The page lands select items + defaults — it needs the window
@@ -344,20 +618,20 @@ impl NewPrPage {
                     let (base, head) = default_base_head(&page_data);
                     let names: Vec<SharedString> =
                         page_data.names.iter().map(|n| n.clone().into()).collect();
-                    self.base_select.update(cx, |s, cx| {
-                        s.set_items(SearchableVec::from(names.clone()), window, cx);
-                        if let Some(b) = &base {
-                            let b: SharedString = b.clone().into();
-                            s.set_selected_value(&b, window, cx);
-                        }
-                    });
-                    self.head_select.update(cx, |s, cx| {
-                        s.set_items(SearchableVec::from(names), window, cx);
-                        if let Some(h) = &head {
-                            let h: SharedString = h.clone().into();
-                            s.set_selected_value(&h, window, cx);
-                        }
-                    });
+                    self.base_search = None;
+                    self.head_search = None;
+                    self.swap_branch_items(BranchSelect::Base, names.clone(), window, cx);
+                    self.swap_branch_items(BranchSelect::Head, names, window, cx);
+                    if let Some(b) = &base {
+                        let b: SharedString = b.clone().into();
+                        self.base_select
+                            .update(cx, |s, cx| s.set_selected_value(&b, window, cx));
+                    }
+                    if let Some(h) = &head {
+                        let h: SharedString = h.clone().into();
+                        self.head_select
+                            .update(cx, |s, cx| s.set_selected_value(&h, window, cx));
+                    }
                     self.branches = Some(Ok(page_data));
                 }
                 Err(e) => {
@@ -795,6 +1069,38 @@ impl NewPrPage {
     /// failure row, or the truncation hint when the alphabetical page
     /// covers fewer branches than the repo has.
     fn render_branch_slot(&self, cx: &Context<Self>) -> AnyElement {
+        // docs/0044 §9 — a live server-filtered search wins the slot:
+        // per-select hint lines only when that page itself truncates.
+        let search_hints: Vec<AnyElement> = [
+            (BranchSelect::Base, "base", &self.base_search),
+            (BranchSelect::Head, "head", &self.head_search),
+        ]
+        .into_iter()
+        .filter_map(|(_, label, search)| {
+            let search = search.as_ref()?;
+            if !branches_truncated(search.total_count, &search.names) {
+                return None;
+            }
+            let label = format!("new-pr-branches-search-{label}");
+            Some(
+                div()
+                    .id(SharedString::from(label.clone()))
+                    .debug_selector(move || label.clone())
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(format!(
+                        "first {} of {} branches matching \"{}\"",
+                        search.names.len(),
+                        search.total_count,
+                        search.query
+                    ))
+                    .into_any_element(),
+            )
+        })
+        .collect();
+        if !search_hints.is_empty() {
+            return v_flex().gap_1().children(search_hints).into_any_element();
+        }
         match &self.branches {
             None => div()
                 .id("new-pr-branches")
@@ -861,11 +1167,14 @@ mod tests {
     // NOTE: no `use super::*` here — this file's `use gpui::*` would
     // shadow the builtin `#[test]` attribute (page.rs lesson). Import
     // selectively.
-    use super::{NewPrPage, branches_truncated, default_base_head, pr_submit_allowed};
+    use super::{
+        BranchSelect, NewPrPage, branches_truncated, default_base_head, pr_submit_allowed,
+    };
     use crate::gql;
     use crate::http::Http;
     use crate::service::{GithubCache, GithubState};
     use gpui::AppContext as _;
+    use std::time::Duration;
 
     #[test]
     fn pr_submit_gate_table() {
@@ -1034,12 +1343,24 @@ mod tests {
                 self.sent.lock().unwrap().push(variables.clone());
             }
             if doc.contains("RepoBranches") {
+                // A `query` variable (docs/0044 §9) returns the
+                // server-filtered page; null returns the default page.
+                let (total, nodes) = match variables.get("query") {
+                    Some(serde_json::Value::String(_)) => {
+                        (140, vec![serde_json::json!({"name": "feat"})])
+                    }
+                    _ => (
+                        2,
+                        vec![
+                            serde_json::json!({"name": "feat"}),
+                            serde_json::json!({"name": "main"}),
+                        ],
+                    ),
+                };
                 let payload = serde_json::json!({
                     "data": {"repository": {
                         "defaultBranchRef": {"name": "main"},
-                        "refs": {"totalCount": 2, "nodes": [
-                            {"name": "feat"}, {"name": "main"}
-                        ]}
+                        "refs": {"totalCount": total, "nodes": nodes}
                     }}
                 });
                 return Ok(crate::http::HttpResult {
@@ -1463,6 +1784,152 @@ mod tests {
             page.update(cx, |page, cx| {
                 assert_eq!(page.template_body, None);
                 assert_eq!(page.body.read(cx).value(), "");
+            });
+        });
+    }
+    // --- docs/0044 §9: branch search beyond the first 100 -----------------------
+
+    /// Branch-search probe: the drafts fixture plus a zero debounce.
+    fn probe_pr_branch_search(
+        cx: &mut gpui::TestAppContext,
+    ) -> (gpui::Entity<NewPrPage>, &mut gpui::VisualTestContext) {
+        let (page, vcx) = probe_pr_creator_tpl(
+            cx,
+            "acme/branches".into(),
+            None,
+            DraftStore::at_tmp("new-pr-branch-search-probe"),
+        );
+        vcx.update(|_, cx| {
+            page.update(cx, |page, _cx| {
+                page.branch_search_delay = Duration::ZERO;
+            });
+        });
+        (page, vcx)
+    }
+
+    #[gpui::test]
+    fn branch_search_swaps_page_and_restores_default(cx: &mut gpui::TestAppContext) {
+        let (page, vcx) = probe_pr_branch_search(cx);
+        vcx.run_until_parked();
+        // Default page landed: both selects hold feat+main, no search.
+        vcx.update(|_, cx| {
+            page.update(cx, |page, _cx| {
+                assert!(page.base_search.is_none() && page.head_search.is_none());
+            });
+        });
+        // A search on Base queues, debounces, fetches the filtered page.
+        vcx.update(|window, cx| {
+            page.update(cx, |page, cx| {
+                page.queue_branch_search(BranchSelect::Base, "feat".into(), window, cx);
+            });
+        });
+        vcx.run_until_parked();
+        vcx.update(|_, cx| {
+            page.update(cx, |page, _cx| {
+                let search = page.base_search.as_ref().expect("filtered page lands");
+                assert_eq!(search.query, "feat");
+                assert_eq!(search.total_count, 140);
+                assert_eq!(search.names, vec!["feat".to_string()]);
+                assert!(page.head_search.is_none(), "Head keeps the default page");
+            });
+        });
+        assert!(
+            vcx.debug_bounds("new-pr-branches-search-base").is_some(),
+            "the truncated search hint renders"
+        );
+        // Clearing the search restores the in-memory default page.
+        vcx.update(|window, cx| {
+            page.update(cx, |page, cx| {
+                page.queue_branch_search(BranchSelect::Base, String::new(), window, cx);
+            });
+        });
+        vcx.run_until_parked();
+        vcx.update(|_, cx| {
+            page.update(cx, |page, _cx| {
+                assert!(page.base_search.is_none(), "default page restored");
+            });
+        });
+        assert!(vcx.debug_bounds("new-pr-branches-search-base").is_none());
+    }
+
+    #[gpui::test]
+    fn branch_search_superseded_keystrokes_drop(cx: &mut gpui::TestAppContext) {
+        let (page, vcx) = probe_pr_branch_search(cx);
+        vcx.run_until_parked();
+        // Two keystrokes queue before either timer fires — the first
+        // generation's fetch (if it ran) must not win the apply race.
+        vcx.update(|window, cx| {
+            page.update(cx, |page, cx| {
+                page.queue_branch_search(BranchSelect::Head, "fe".into(), window, cx);
+                page.queue_branch_search(BranchSelect::Head, "feat".into(), window, cx);
+            });
+        });
+        vcx.run_until_parked();
+        vcx.update(|_, cx| {
+            page.update(cx, |page, _cx| {
+                let search = page.head_search.as_ref().expect("last query wins");
+                assert_eq!(search.query, "feat", "the stale generation never lands");
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn branch_search_failure_keeps_default_page(cx: &mut gpui::TestAppContext) {
+        // The drafts fixture's client fails only the mutation — a
+        // failing branch lane needs its own fixture.
+        let (page, vcx) = probe_pr_creator_tpl(
+            cx,
+            "acme/branches2".into(),
+            None,
+            DraftStore::at_tmp("new-pr-branch-fail-probe"),
+        );
+        vcx.update(|_, cx| {
+            page.update(cx, |page, _cx| {
+                page.branch_search_delay = Duration::ZERO;
+            });
+        });
+        vcx.run_until_parked();
+        // Simulate a filtered fetch failure by driving the apply path
+        // directly (FixtureHttp cannot fail selective POSTs): a stale
+        // generation and a failed spec both take the same drop path.
+        vcx.update(|window, cx| {
+            page.update(cx, |page, cx| {
+                let spec = crate::service::FetchSpec {
+                    kind: Kind::RepoBranches,
+                    url: crate::gql::GRAPHQL_ENDPOINT.to_string(),
+                    etag: None,
+                    ident: Some("acme/branches2".into()),
+                    max_pages: 1,
+                    variables: Some(serde_json::json!({
+                        "owner": "acme", "name": "branches2", "query": "feat"
+                    })),
+                };
+                let state = page.state.clone();
+                cx.spawn_in(window, async move |this, cx| {
+                    let result = crate::service::run_spec_tracked(state, spec, cx).await;
+                    // Mark the search stale before applying: the apply
+                    // must drop it.
+                    let _ = cx.update(|window, cx| {
+                        let _ = this.update(cx, |page, cx| {
+                            page.head_search_gen += 1;
+                            page.apply_branch_search(
+                                BranchSelect::Head,
+                                0, // stale: gen moved on
+                                "feat".into(),
+                                result,
+                                window,
+                                cx,
+                            );
+                        });
+                    });
+                })
+                .detach();
+            });
+        });
+        vcx.run_until_parked();
+        vcx.update(|_, cx| {
+            page.update(cx, |page, _cx| {
+                assert!(page.head_search.is_none(), "a stale apply never lands");
             });
         });
     }
