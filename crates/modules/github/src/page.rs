@@ -893,6 +893,12 @@ impl GithubPage {
                     cx,
                 )
             }));
+        } else if let Some(creator) = &self.creator {
+            // docs/0046: templates + blank config re-fetch per open; the
+            // draft (and the fields) survive.
+            creator.update(cx, |page, cx| {
+                page.refetch_templates(window, cx);
+            });
         }
         // Esc on the creator asks its host to hide it (D7); `Created`
         // hands the host the new issue row (D6).
@@ -3868,9 +3874,16 @@ mod tests {
         cx.update(dashboard_core::status::init);
         let cx = cx.add_empty_window();
         cx.update(|window, cx| {
-            // The creator itself never fetches; select_repo's two specs
-            // fire later — all scripted failures, results never read.
+            // docs/0046: the creator fetches templates + config per open —
+            // two lanes on the first open (new entity) and two more per
+            // re-open — plus select_repo's two specs. All scripted
+            // failures; results never read.
             let client: Arc<dyn Http> = Arc::new(MockHttp::new(vec![
+                Err(crate::http::HttpError("probe".into())),
+                Err(crate::http::HttpError("probe".into())),
+                Err(crate::http::HttpError("probe".into())),
+                Err(crate::http::HttpError("probe".into())),
+                Err(crate::http::HttpError("probe".into())),
                 Err(crate::http::HttpError("probe".into())),
                 Err(crate::http::HttpError("probe".into())),
                 Err(crate::http::HttpError("probe".into())),

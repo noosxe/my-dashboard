@@ -427,6 +427,16 @@ pub enum Kind {
     /// lazily on creator open (the picker-source pattern). Stateless
     /// GraphQL lane, same page-owned result convention.
     RepoBranches,
+    /// docs/0046 D1 — the issue creator's Markdown-template source,
+    /// fetched on creator open (the [`Kind::RepoBranches`] mirror).
+    /// Stateless GraphQL lane, page-owned result.
+    RepoIssueTemplates,
+    /// docs/0046 D5 — `blank_issues_enabled` for the issue creator:
+    /// one Contents-API GET of `.github/ISSUE_TEMPLATE/config.yml`, the
+    /// [`Kind::JobLog`] transport (plain one-shot GET, body passed
+    /// through; the page parses + decodes). Never etag-stamped —
+    /// re-fetches every creator open.
+    RepoTemplatesConfig,
     /// One notification thread's payload (docs/0026 D2) — the
     /// notification page's GET of `GET /notifications/threads/{id}`.
     /// Page-owned result convention per [`Kind::IssueDetail`]: the page
@@ -805,13 +815,22 @@ pub fn run_spec(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
             run_graphql_fetch(http, spec, gql::REPO_BRANCHES_QUERY, "repo-branches")
         }
         Kind::PrThreads => run_graphql_fetch(http, spec, gql::PR_THREADS_QUERY, "pr-threads"),
+        Kind::RepoIssueTemplates => run_graphql_fetch(
+            http,
+            spec,
+            gql::REPO_ISSUE_TEMPLATES_QUERY,
+            "repo-issue-templates",
+        ),
+        Kind::RepoTemplatesConfig => run_plain_get(http, spec),
         Kind::Notifications | Kind::RepoNotifications | Kind::PrFiles => run_rest(http, spec),
         Kind::JobLog => run_plain_get(http, spec),
     }
 }
 
 /// One plain GET — no paging, no JSON expectations (docs/0039 D2): the
-/// job-log transport. ureq follows the 302 to the 1-minute signed URL
+/// job-log transport, reused by the issue creator's Contents-API config
+/// fetch (docs/0046 D5 — the page parses the JSON body itself). ureq
+/// follows the 302 to the 1-minute signed URL
 /// (its default redirect policy never forwards the authorization header
 /// cross-host), so the response this returns is the final 200 with the
 /// log text. A 200 body is returned as-is; the page truncates.
@@ -1465,6 +1484,8 @@ impl Kind {
             Kind::RepoAssignableUsers => "repo-assignable-users",
             Kind::RepoMilestones => "repo-milestones",
             Kind::RepoBranches => "repo-branches",
+            Kind::RepoIssueTemplates => "repo-issue-templates",
+            Kind::RepoTemplatesConfig => "repo-templates-config",
             Kind::PrFiles => "pr-files",
             Kind::JobLog => "check-log",
             Kind::PrThreads => "pr-threads",
@@ -2130,6 +2151,8 @@ impl GithubState {
             | Kind::RepoAssignableUsers
             | Kind::RepoMilestones
             | Kind::RepoBranches
+            | Kind::RepoIssueTemplates
+            | Kind::RepoTemplatesConfig
             | Kind::ThreadDetail
             | Kind::ThreadMutation(_) => {}
         }

@@ -69,6 +69,13 @@ creation gate reads them.
   issue/PR page closes it. Crumb suffix **`#new`**, reconciled through
   the 0014 D3 compare-first guard. Esc asks the host to close it (the
   `IssuePageEvent` subscription pattern).
+  *(Amended by docs/0046: the form card opens with a **template pill
+  row** above the title field when the repo has Markdown issue
+  templates — mutually-exclusive pills plus "Blank", `about` as muted
+  tooltip, `blank_issues_enabled: false` hiding the Blank pill and
+  preselecting the first template. A pick prefills title/body and
+  discards the parked draft; a restored draft beats the default
+  preselection — full contract in docs/0046 §3 D2–D5.)*
 - **D4 — the form.** Title input (required) and body textarea (the
   comment-box `TextareaState` pattern, 0020 D6 chrome). A **Preview**
   toggle swaps the textarea for 0017-parsed blocks of the current body
