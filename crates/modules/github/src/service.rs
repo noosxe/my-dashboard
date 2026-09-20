@@ -431,6 +431,11 @@ pub enum Kind {
     /// fetched on creator open (the [`Kind::RepoBranches`] mirror).
     /// Stateless GraphQL lane, page-owned result.
     RepoIssueTemplates,
+    /// docs/0046 §2 — the PR creator's template body: one GraphQL read
+    /// of `Repository.pullRequestTemplates` on creator open (the
+    /// [`Kind::RepoIssueTemplates`] mirror; body only, title typed).
+    /// Stateless lane, page-owned result.
+    RepoPrTemplates,
     /// docs/0046 D5 — `blank_issues_enabled` for the issue creator:
     /// one Contents-API GET of `.github/ISSUE_TEMPLATE/config.yml`, the
     /// [`Kind::JobLog`] transport (plain one-shot GET, body passed
@@ -822,6 +827,12 @@ pub fn run_spec(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
             "repo-issue-templates",
         ),
         Kind::RepoTemplatesConfig => run_plain_get(http, spec),
+        Kind::RepoPrTemplates => run_graphql_fetch(
+            http,
+            spec,
+            gql::REPO_PR_TEMPLATES_QUERY,
+            "repo-pr-templates",
+        ),
         Kind::Notifications | Kind::RepoNotifications | Kind::PrFiles => run_rest(http, spec),
         Kind::JobLog => run_plain_get(http, spec),
     }
@@ -1485,6 +1496,7 @@ impl Kind {
             Kind::RepoMilestones => "repo-milestones",
             Kind::RepoBranches => "repo-branches",
             Kind::RepoIssueTemplates => "repo-issue-templates",
+            Kind::RepoPrTemplates => "repo-pr-templates",
             Kind::RepoTemplatesConfig => "repo-templates-config",
             Kind::PrFiles => "pr-files",
             Kind::JobLog => "check-log",
@@ -2152,6 +2164,7 @@ impl GithubState {
             | Kind::RepoMilestones
             | Kind::RepoBranches
             | Kind::RepoIssueTemplates
+            | Kind::RepoPrTemplates
             | Kind::RepoTemplatesConfig
             | Kind::ThreadDetail
             | Kind::ThreadMutation(_) => {}

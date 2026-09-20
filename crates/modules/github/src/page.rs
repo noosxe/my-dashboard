@@ -976,9 +976,12 @@ impl GithubPage {
                 )
             }));
         } else if let Some(creator_pr) = &self.creator_pr {
-            // D7: branches re-fetch per open; the draft survives.
+            // D7: branches re-fetch per open; the draft survives. The
+            // PR template body re-fetches with them (docs/0046 §2) —
+            // a template edit lands as long as no body was typed.
             creator_pr.update(cx, |page, cx| {
                 page.refetch_branches(window, cx);
+                page.refetch_pr_templates(window, cx);
             });
         }
         // Esc on the creator asks its host to hide it (D7); `Created`

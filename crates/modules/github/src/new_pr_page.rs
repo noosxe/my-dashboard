@@ -89,6 +89,10 @@ pub(crate) struct NewPrPage {
     /// The branch page (D4), fetched on construction and on every host
     /// open (D7 — branches are not retained).
     branches: BranchPage,
+    /// The repo's PR template body (docs/0046 §2): landed on
+    /// construction / host open; `None` while pending or on failure —
+    /// the creator then just stays empty (creation never blocks).
+    template_body: Option<String>,
     base_select: Entity<SelectState<SearchableVec<SharedString>>>,
     head_select: Entity<SelectState<SearchableVec<SharedString>>>,
     /// The draft toggle (D4/D5): posts `draft: true`.
@@ -172,6 +176,7 @@ impl NewPrPage {
             preview: false,
             md: None,
             branches: None,
+            template_body: None,
             base_select,
             head_select,
             draft: false,
@@ -180,6 +185,7 @@ impl NewPrPage {
             repo,
         };
         page.fetch_branches(window, cx);
+        page.fetch_pr_templates(window, cx);
         page
     }
 
@@ -187,6 +193,91 @@ impl NewPrPage {
     /// (title/body/draft flag) survives.
     pub(crate) fn refetch_branches(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.fetch_branches(window, cx);
+    }
+
+    /// Re-arm on every host open (docs/0046 §2): the template body
+    /// re-fetches with the branches — a repo that edits its template
+    /// between opens is honored as long as the user hasn't typed a body.
+    pub(crate) fn refetch_pr_templates(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.fetch_pr_templates(window, cx);
+    }
+
+    // --- PR template body (docs/0046 §2) --------------------------------------
+
+    /// Fetch the repo's PR template body: the stateless
+    /// [`Kind::RepoPrTemplates`] lane, the [`Kind::RepoIssueTemplates`]
+    /// mirror (0046 D1). Failures log-and-swallow — the creator stays
+    /// empty and creation is never blocked.
+    fn fetch_pr_templates(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.state.read(cx).auth.connected() {
+            return; // the page is about to be torn down by the auth gate
+        }
+        let state = self.state.clone();
+        let (owner, name) = crate::pr_page::split_repo(&self.repo);
+        let spec = FetchSpec {
+            kind: Kind::RepoPrTemplates,
+            url: gql::GRAPHQL_ENDPOINT.to_string(),
+            etag: None,
+            ident: Some(self.repo.clone()),
+            max_pages: 1,
+            variables: Some(json!({ "owner": owner, "name": name })),
+        };
+        log::debug!("repo-pr-templates: fetching {}", self.repo);
+        self.template_body = None;
+        cx.spawn_in(window, async move |this, cx| {
+            let result = run_spec_tracked(state, spec, cx).await;
+            let _ = cx.update(|window, app| {
+                this.update(app, |page, cx| page.apply_pr_template(result, window, cx))
+            });
+        })
+        .detach();
+    }
+
+    /// The template body came back (docs/0046 §2 draft composition): the
+    /// body prefills only when the user has no stake yet — no restored
+    /// draft (0046 D4: a restored draft beats the template) and an empty
+    /// body field (typed content is never clobbered by a re-open).
+    /// `set_value` suppresses Change events, so a prefill parks nothing —
+    /// the template stays a default, not user content.
+    fn apply_pr_template(
+        &mut self,
+        result: crate::service::SpecResult,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // Log-and-swallow on every failure shape (docs/0046 D6): the
+        // creator stays empty and creation is never blocked.
+        if result.network.is_some() || result.status != 200 {
+            log::warn!("repo-pr-templates: fetch failed — creator stays empty");
+            return;
+        }
+        let Some(body) = result.body else {
+            log::warn!("repo-pr-templates: empty payload — creator stays empty");
+            return;
+        };
+        let Ok(env) = serde_json::from_str::<gql::Envelope<serde_json::Value>>(body.as_str())
+        else {
+            log::warn!("repo-pr-templates payload: malformed");
+            return;
+        };
+        let empty = serde_json::Value::Null;
+        let repo = env
+            .data
+            .as_ref()
+            .and_then(|d| d.get("repository"))
+            .unwrap_or(&empty);
+        self.template_body = gql::pr_template_body_from_value(repo);
+        // The prefill fires only when the user has no stake yet (0046 §2
+        // draft composition: a restored draft beats the template; typed
+        // content is never clobbered by a re-open). `set_value`
+        // suppresses Change events, so the prefill parks nothing — the
+        // template stays a default, not user content.
+        if let (Some(text), false) = (&self.template_body, self.draft_restored) {
+            if self.body.read(cx).value().is_empty() {
+                self.body
+                    .update(cx, |state, cx| state.set_value(text.clone(), window, cx));
+            }
+        }
     }
 
     // --- branch source (docs/0044 D4) ----------------------------------------
@@ -893,7 +984,21 @@ mod tests {
     /// else (the mutation) — the probe drives open → branches land →
     /// create → scoped error (docs/0044 §5). The mutation's variables
     /// are recorded for the minimum-input assertion (D5).
-    struct FixtureHttp(std::sync::Arc<std::sync::Mutex<Vec<serde_json::Value>>>);
+    struct FixtureHttp {
+        sent: std::sync::Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+        /// The PR template body the `RepoPrTemplates` lane serves
+        /// (docs/0046 §2); `None` fails the lane like any other probe
+        /// request.
+        template: Option<String>,
+    }
+    impl FixtureHttp {
+        fn new(sent: std::sync::Arc<std::sync::Mutex<Vec<serde_json::Value>>>) -> Self {
+            Self {
+                sent,
+                template: None,
+            }
+        }
+    }
     impl Http for FixtureHttp {
         fn request(
             &self,
@@ -909,8 +1014,24 @@ mod tests {
             doc: &str,
             variables: &serde_json::Value,
         ) -> Result<crate::http::HttpResult, crate::http::HttpError> {
+            if doc.contains("RepoPrTemplates") {
+                let payload = match &self.template {
+                    Some(t) => serde_json::json!({
+                        "data": {"repository": {"pullRequestTemplates": [
+                            {"body": t}
+                        ]}}
+                    }),
+                    None => return Err(crate::http::HttpError("probe: no network".into())),
+                };
+                return Ok(crate::http::HttpResult {
+                    status: 200,
+                    etag: None,
+                    rate: None,
+                    body: Some(payload.to_string()),
+                });
+            }
             if !doc.contains("RepoBranches") {
-                self.0.lock().unwrap().push(variables.clone());
+                self.sent.lock().unwrap().push(variables.clone());
             }
             if doc.contains("RepoBranches") {
                 let payload = serde_json::json!({
@@ -963,7 +1084,8 @@ mod tests {
         cx.update(dashboard_core::status::init);
         let sent: Recorder = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let state = cx.update(|cx| {
-            let client: std::sync::Arc<dyn Http> = std::sync::Arc::new(FixtureHttp(sent.clone()));
+            let client: std::sync::Arc<dyn Http> =
+                std::sync::Arc::new(FixtureHttp::new(sent.clone()));
             let store: std::sync::Arc<dyn crate::auth::TokenStore> =
                 std::sync::Arc::new(ProbeStore);
             let entity = cx.new(|_| {
@@ -1102,7 +1224,7 @@ mod tests {
         cx.update(dashboard_core::status::init);
         cx.update(|cx| cx.background_executor().allow_parking());
         let state = cx.update(|cx| {
-            let client: std::sync::Arc<dyn Http> = std::sync::Arc::new(FixtureHttp(
+            let client: std::sync::Arc<dyn Http> = std::sync::Arc::new(FixtureHttp::new(
                 std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
             ));
             let store: std::sync::Arc<dyn crate::auth::TokenStore> =
@@ -1221,5 +1343,127 @@ mod tests {
             });
         });
         assert!(!path.exists(), "created PR leaves no draft");
+    }
+    // --- docs/0046 §2: PR template prefill --------------------------------------
+
+    /// PR-template probe fixture: the drafts probe plus a served (or
+    /// failing) template lane.
+    fn probe_pr_creator_tpl(
+        cx: &mut gpui::TestAppContext,
+        repo: String,
+        template: Option<String>,
+        drafts: DraftStore,
+    ) -> (gpui::Entity<NewPrPage>, &mut gpui::VisualTestContext) {
+        cx.update(gpui_component::init);
+        cx.update(dashboard_core::status::init);
+        cx.update(|cx| cx.background_executor().allow_parking());
+        let state = cx.update(|cx| {
+            let sent: Recorder = std::sync::Arc::default();
+            let mut fixture = FixtureHttp::new(sent);
+            fixture.template = template;
+            let client: std::sync::Arc<dyn Http> = std::sync::Arc::new(fixture);
+            let store: std::sync::Arc<dyn crate::auth::TokenStore> =
+                std::sync::Arc::new(ProbeStore);
+            let entity = cx.new(|_| {
+                GithubState::new(
+                    client,
+                    store,
+                    Default::default(),
+                    Default::default(),
+                    GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    drafts,
+                )
+            });
+            entity.update(cx, |s, _| s.auth = AuthStatus::Connected);
+            entity
+        });
+        cx.add_window_view(|window, cx| NewPrPage::new(state, repo, "R_9".into(), window, cx))
+    }
+
+    #[gpui::test]
+    fn pr_template_prefills_body_only_and_typed_content_wins(cx: &mut gpui::TestAppContext) {
+        let (page, vcx) = probe_pr_creator_tpl(
+            cx,
+            "acme/tpl".into(),
+            Some("<!-- pr template -->".into()),
+            DraftStore::at_tmp("new-pr-tpl-probe"),
+        );
+        vcx.run_until_parked();
+        vcx.update(|_, cx| {
+            page.update(cx, |page, cx| {
+                assert_eq!(page.template_body.as_deref(), Some("<!-- pr template -->"));
+                assert_eq!(page.body.read(cx).value(), "<!-- pr template -->");
+                assert_eq!(page.title.read(cx).value(), "", "body-only prefill");
+            });
+        });
+        // The prefill parks nothing: no draft file exists yet.
+        // The user types a body — the next re-open (host hook) must not
+        // clobber it with the template.
+        vcx.update(|window, cx| {
+            page.update(cx, |page, cx| {
+                page.body
+                    .update(cx, |s, cx| s.set_value("My real body", window, cx));
+            });
+        });
+        vcx.run_until_parked();
+        vcx.update(|window, cx| {
+            page.update(cx, |page, cx| page.refetch_pr_templates(window, cx));
+        });
+        vcx.run_until_parked();
+        vcx.update(|_, cx| {
+            page.update(cx, |page, cx| {
+                assert_eq!(page.body.read(cx).value(), "My real body");
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn pr_restored_draft_beats_template_prefill(cx: &mut gpui::TestAppContext) {
+        let drafts = DraftStore::at_tmp("new-pr-tpl-draft-probe");
+        let key = drafts::new_pr_key("acme/tpl2");
+        dashboard_core::store::save_json_atomic(
+            &drafts.path_for(&key),
+            &drafts::DraftPayload {
+                key,
+                title: Some("Draft title".into()),
+                body: "Draft body".into(),
+                updated_ms: 1,
+            },
+        )
+        .unwrap();
+        let (page, vcx) = probe_pr_creator_tpl(
+            cx,
+            "acme/tpl2".into(),
+            Some("<!-- pr template -->".into()),
+            drafts,
+        );
+        vcx.run_until_parked();
+        vcx.update(|_, cx| {
+            page.update(cx, |page, cx| {
+                // 0046 §2 draft composition: a restored draft beats the
+                // template at open (the 0046 D4 rule).
+                assert_eq!(page.title.read(cx).value(), "Draft title");
+                assert_eq!(page.body.read(cx).value(), "Draft body");
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn pr_template_failure_leaves_creator_untouched(cx: &mut gpui::TestAppContext) {
+        let (page, vcx) = probe_pr_creator_tpl(
+            cx,
+            "acme/tpl3".into(),
+            None,
+            DraftStore::at_tmp("new-pr-tpl-fail-probe"),
+        );
+        vcx.run_until_parked();
+        // D6: the lane failed — body empty, creation unblocked.
+        assert!(vcx.debug_bounds("new-pr-create").is_some());
+        vcx.update(|_, cx| {
+            page.update(cx, |page, cx| {
+                assert_eq!(page.template_body, None);
+                assert_eq!(page.body.read(cx).value(), "");
+            });
+        });
     }
 }
