@@ -33,7 +33,9 @@ use std::sync::Arc;
 use crate::drafts::{self, DraftHandle};
 use crate::gql;
 use crate::markdown;
-use crate::service::{GithubState, Mutation, run_mutation};
+use crate::service::{
+    FetchSpec, GithubState, Kind, Mutation, SpecResult, run_mutation, run_spec_tracked,
+};
 
 actions!(github, [DismissNewIssuePage]);
 
@@ -66,6 +68,26 @@ pub(crate) struct NewIssuePage {
     /// A draft was restored at construction — one muted hint row on the
     /// form card until the first real edit (0045 D4).
     draft_restored: bool,
+    /// docs/0046 D1 — the repo's Markdown issue templates, fetched on
+    /// creator open (the [`Kind::RepoBranches`] mirror). `None` until a
+    /// 200 parses (pending *and* failed look identical — D6: the row
+    /// stays hidden either way, creation never blocks); an empty list
+    /// means the repo simply has none.
+    templates: Option<Vec<gql::IssueTemplate>>,
+    /// docs/0046 D5 — `blank_issues_enabled` (config.yml via the
+    /// Contents lane). `true` until a successful fetch + parse says
+    /// otherwise; a failed/absent config keeps blank allowed (D6: the
+    /// wrong constraint is worse than an over-offered pill).
+    blank_allowed: bool,
+    /// docs/0046 D2 — the selected pill (`None` = Blank). Selection is
+    /// a prefill affordance, not persistent state: it survives re-opens
+    /// so the highlight keeps matching parked text.
+    selected_template: Option<usize>,
+    /// docs/0046 D5 — the blank-disabled auto-selection is armed until
+    /// something claims the fields: a restored draft (D4 — the user's
+    /// own words win), any edit, or one auto/pick firing. One-shot per
+    /// entity lifetime.
+    autoselect_armed: bool,
     /// Preview toggle: `true` swaps the body textarea for 0017 blocks of
     /// the current body, parsed once on toggle (D4 — no live reparse per
     /// keystroke).
@@ -125,7 +147,7 @@ impl NewIssuePage {
             }
         })
         .detach();
-        Self {
+        let mut this = Self {
             focus_handle: cx.focus_handle(),
             state,
             node_id,
@@ -137,8 +159,18 @@ impl NewIssuePage {
             md: None,
             busy: None,
             mutation_error: None,
+            templates: None,
+            blank_allowed: true,
+            selected_template: None,
+            // D4: a restored draft owns the fields — the blank-disabled
+            // auto-selection never fires over it.
+            autoselect_armed: !draft_restored,
             repo,
-        }
+        };
+        // docs/0046 D1/D5: templates + blank config fetch on open (the
+        // 0044 branches pattern — stateless lanes, page-owned results).
+        this.fetch_templates(window, cx);
+        this
     }
 
     /// 0045 D3/D4: a creator field changed — debounce-save the full
@@ -149,6 +181,191 @@ impl NewIssuePage {
         let body = self.body.read(cx).value().to_string();
         let title = (!title.is_empty()).then_some(title);
         self.draft.schedule(title, body, cx);
+    }
+
+    // --- templates (docs/0046) -----------------------------------------------
+
+    /// docs/0046 D1/D5 — fetch the repo's Markdown templates and its
+    /// `blank_issues_enabled` config, one stateless lane each (the 0044
+    /// `fetch_branches` mirror). Both are optional affordances: any
+    /// failure log-and-swallows (0005 §4.7) and the creator stays
+    /// exactly as before — creation never blocks (D6).
+    fn fetch_templates(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.state.read(cx).auth.connected() {
+            return; // the page is about to be torn down by the auth gate
+        }
+        let state = self.state.clone();
+        let (owner, name) = crate::pr_page::split_repo(&self.repo);
+        let templates_spec = FetchSpec {
+            kind: Kind::RepoIssueTemplates,
+            url: gql::GRAPHQL_ENDPOINT.to_string(),
+            etag: None,
+            ident: Some(self.repo.clone()),
+            max_pages: 1,
+            variables: Some(json!({ "owner": owner, "name": name })),
+        };
+        let config_spec = FetchSpec {
+            kind: Kind::RepoTemplatesConfig,
+            url: crate::api::issue_template_config_url(owner, name),
+            etag: None,
+            ident: Some(self.repo.clone()),
+            max_pages: 1,
+            variables: None,
+        };
+        self.templates = None;
+        cx.notify();
+        cx.spawn_in(window, async move |this, cx| {
+            let templates = run_spec_tracked(state.clone(), templates_spec, cx).await;
+            let _ = cx.update(|window, app| {
+                this.update(app, |page, cx| page.apply_templates(templates, window, cx))
+            });
+            let config = run_spec_tracked(state, config_spec, cx).await;
+            let _ = cx.update(|window, app| {
+                this.update(app, |page, cx| page.apply_config(config, window, cx))
+            });
+        })
+        .detach();
+    }
+
+    /// 0044 D7 — the host re-arms the lanes on every creator re-open;
+    /// the draft (and whatever text is in the fields) survives.
+    pub(crate) fn refetch_templates(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.fetch_templates(window, cx);
+    }
+
+    /// The templates page came back. A 200 always resolves the lane —
+    /// an empty list means the repo has no Markdown templates (the row
+    /// stays hidden); anything else log-and-swallows (D6).
+    fn apply_templates(&mut self, result: SpecResult, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(m) = &result.network {
+            log::warn!("repo-issue-templates: network: {m}");
+            return;
+        }
+        if result.status != 200 {
+            log::warn!("repo-issue-templates: HTTP {}", result.status);
+            return;
+        }
+        let Some(body) = result.body else {
+            return;
+        };
+        let Ok(env) = serde_json::from_str::<gql::Envelope<serde_json::Value>>(body.as_str())
+        else {
+            log::warn!("repo-issue-templates: unparseable body");
+            return;
+        };
+        let empty = serde_json::Value::Null;
+        let repo = env
+            .data
+            .as_ref()
+            .and_then(|d| d.get("repository"))
+            .unwrap_or(&empty);
+        self.templates = Some(gql::templates_from_value(repo));
+        self.maybe_autoselect(window, cx);
+        cx.notify();
+    }
+
+    /// The config.yml Contents GET came back. 404 is the common shape
+    /// (no config file) — blank stays allowed; only an explicit
+    /// `blank_issues_enabled: false` hides the Blank pill (D5/D6).
+    fn apply_config(&mut self, result: SpecResult, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(m) = &result.network {
+            log::warn!("repo-templates-config: network: {m}");
+            return;
+        }
+        if result.status != 200 {
+            log::debug!(
+                "repo-templates-config: HTTP {} — blank allowed",
+                result.status
+            );
+            return;
+        }
+        let Some(body) = result.body else {
+            return;
+        };
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(body.as_str()) else {
+            log::warn!("repo-templates-config: unparseable body");
+            return;
+        };
+        let blank_allowed = value
+            .get("content")
+            .and_then(serde_json::Value::as_str)
+            .and_then(decode_base64)
+            .and_then(|yaml| blank_issues_enabled_from_config(&yaml));
+        if let Some(enabled) = blank_allowed {
+            self.blank_allowed = enabled;
+            self.maybe_autoselect(window, cx);
+        }
+        cx.notify();
+    }
+
+    /// docs/0046 D5 — blank is disabled and nothing claims the fields:
+    /// the first template preselects so the creator never starts empty.
+    /// One-shot per entity — a restored draft (D4), an edit, or one
+    /// firing disarms it.
+    fn maybe_autoselect(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.autoselect_armed || self.blank_allowed || self.selected_template.is_some() {
+            return;
+        }
+        let Some(templates) = self.templates.as_deref().filter(|t| !t.is_empty()) else {
+            return;
+        };
+        let first = templates[0].clone();
+        self.apply_template(first, 0, window, cx);
+    }
+
+    /// docs/0046 D2 — a pill click: the explicit template pick.
+    fn select_template(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(template) = self
+            .templates
+            .as_deref()
+            .and_then(|t| t.get(index))
+            .cloned()
+        else {
+            return;
+        };
+        self.apply_template(template, index, window, cx);
+    }
+
+    /// docs/0046 D3/D4 — one template lands in the fields: the parked
+    /// draft is discarded first (scaffolding never resurrects as "your
+    /// draft"), body always prefills, title only when the template
+    /// ships a non-empty one (never overwrite with ""), then the new
+    /// content parks as the live draft (`draft_changed`).
+    fn apply_template(
+        &mut self,
+        template: gql::IssueTemplate,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.draft.discard();
+        if let Some(title) = &template.title {
+            self.title.update(cx, |state, cx| {
+                state.set_value(title.clone(), window, cx);
+            });
+        }
+        let body = template.body.unwrap_or_default();
+        self.body
+            .update(cx, |state, cx| state.set_value(body, window, cx));
+        self.autoselect_armed = false;
+        self.selected_template = Some(index);
+        self.draft_changed(cx);
+        cx.notify();
+    }
+
+    /// docs/0046 D2/D4 — the Blank pill: the explicit "start over".
+    /// Same discard-first contract as a template pick, then both fields
+    /// clear (the empty snapshot discards — no residue file, 0045 D5).
+    fn pick_blank(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.draft.discard();
+        self.title
+            .update(cx, |state, cx| state.set_value("", window, cx));
+        self.body
+            .update(cx, |state, cx| state.set_value("", window, cx));
+        self.autoselect_armed = false;
+        self.selected_template = None;
+        self.draft_changed(cx);
+        cx.notify();
     }
 
     // --- write path (docs/0024 D5/D6) ---------------------------------------
@@ -275,6 +492,61 @@ impl Render for NewIssuePage {
         // D4: Create disabled until the title is non-empty — input
         // validity, not a permission gate.
         let submit_ok = create_submit_allowed(title_empty, busy);
+        // docs/0046 D2 — the template pill row (built before the element
+        // chain: an imperative loop over an optional list reads cleaner
+        // than nested when_some/children combinators). Hidden entirely
+        // while the lane is pending/failed/empty; the Blank pill hides
+        // when config.yml disables blank issues (D5).
+        let mut template_row: Option<AnyElement> = None;
+        if let Some(templates) = self.templates.as_ref().filter(|t| !t.is_empty()) {
+            let mut row = h_flex()
+                .id("new-issue-template-row")
+                .debug_selector(|| "new-issue-template-row".to_string())
+                .flex_wrap()
+                .items_center()
+                .gap_1()
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child("Template"),
+                );
+            for (index, template) in templates.iter().enumerate() {
+                let selected = self.selected_template == Some(index);
+                let id: SharedString = format!("new-issue-tpl-{index}").into();
+                let mut button = if selected {
+                    Button::new(id).primary().xsmall()
+                } else {
+                    Button::new(id).ghost().xsmall()
+                };
+                button = button
+                    .debug_selector(move || format!("new-issue-tpl-{index}"))
+                    .label(template.name.clone());
+                if let Some(about) = &template.about {
+                    button = button.tooltip(about.clone());
+                }
+                row = row.child(button.on_click(cx.listener(move |this, _, window, cx| {
+                    this.select_template(index, window, cx);
+                })));
+            }
+            if self.blank_allowed {
+                let blank_selected = self.selected_template.is_none();
+                let blank = if blank_selected {
+                    Button::new("new-issue-tpl-blank").primary().xsmall()
+                } else {
+                    Button::new("new-issue-tpl-blank").ghost().xsmall()
+                };
+                row = row.child(
+                    blank
+                        .debug_selector(|| "new-issue-tpl-blank".to_string())
+                        .label("Blank")
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.pick_blank(window, cx);
+                        })),
+                );
+            }
+            template_row = Some(row.into_any_element());
+        }
         v_flex()
             .id("new-issue")
             .key_context("GithubNewIssuePage")
@@ -319,6 +591,11 @@ impl Render for NewIssuePage {
                         v_flex()
                             .gap_2()
                             .p_3()
+                            // docs/0046 D2 — templates live above the title
+                            // field: scaffolding choice before input. The
+                            // row only exists once the lane landed non-empty
+                            // (pending/failed/empty → nothing, D6).
+                            .when_some(template_row, |col, row| col.child(row))
                             .when(self.draft_restored, |col| {
                                 col.child(
                                     div()
@@ -416,6 +693,83 @@ pub(crate) fn create_submit_allowed(title_empty: bool, busy: bool) -> bool {
     !title_empty && !busy
 }
 
+/// docs/0046 D5 — decode one standard base64 payload (RFC 4648, the
+/// Contents API's `content` field): whitespace (the API wraps at 60
+/// chars) is skipped, the alphabet is strict, `=` padding only ever
+/// terminates. Any other byte → `None` (the config fetch then leaves
+/// blank issues enabled — D6). A ~30-line table decode beats a new
+/// dependency for one one-line file (docs/0046 §3 D5).
+fn decode_base64(input: &str) -> Option<String> {
+    fn value(b: u8) -> Option<u8> {
+        match b {
+            b'A'..=b'Z' => Some(b - b'A'),
+            b'a'..=b'z' => Some(b - b'a' + 26),
+            b'0'..=b'9' => Some(b - b'0' + 52),
+            b'+' => Some(62),
+            b'/' => Some(63),
+            _ => None,
+        }
+    }
+    let bytes: Vec<u8> = input.bytes().filter(|b| !b.is_ascii_whitespace()).collect();
+    let unpadded = bytes.len() - bytes.iter().rev().take_while(|b| **b == b'=').count();
+    // Padding is only ever terminal: one or two `=`, total length a
+    // multiple of 4, and the data part leaves no impossible tail.
+    if bytes.len() % 4 != 0 || bytes.len() - unpadded > 2 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(unpadded / 4 * 3 + 3);
+    for chunk in bytes.chunks(4) {
+        let pad = chunk.iter().filter(|b| **b == b'=').count();
+        let mut group = 0u32;
+        for (i, b) in chunk.iter().enumerate() {
+            let v = if *b == b'=' {
+                if i < 2 {
+                    return None; // `=` inside the data section
+                }
+                0
+            } else {
+                u32::from(value(*b)?)
+            };
+            group = (group << 6) | v;
+        }
+        out.push((group >> 16) as u8);
+        if pad < 2 {
+            out.push((group >> 8) as u8);
+        }
+        if pad < 1 {
+            out.push(group as u8);
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
+/// docs/0046 D5 — the one key we need from `.github/ISSUE_TEMPLATE/`
+/// `config.yml`. First `blank_issues_enabled:` wins; values parse
+/// case-insensitively as `true`/`false`; comments, absent keys and
+/// anything else → `None` (blank stays allowed — GitHub's default).
+/// A line scan, not a YAML dependency: the file has exactly one key
+/// we care about (docs/0046 §3 D5).
+fn blank_issues_enabled_from_config(yaml: &str) -> Option<bool> {
+    for line in yaml.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('#') || trimmed.is_empty() {
+            continue;
+        }
+        let Some((key, value)) = trimmed.split_once(':') else {
+            continue;
+        };
+        if key.trim() != "blank_issues_enabled" {
+            continue;
+        }
+        return match value.trim().to_ascii_lowercase().as_str() {
+            "true" => Some(true),
+            "false" => Some(false),
+            _ => None,
+        };
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use crate::drafts::{self, DraftStore};
@@ -423,7 +777,9 @@ mod tests {
     // NOTE: no `use super::*` here — this file's `use gpui::*` would
     // shadow the builtin `#[test]` attribute (page.rs lesson). Import
     // selectively.
-    use super::{NewIssuePage, create_submit_allowed};
+    use super::{
+        NewIssuePage, blank_issues_enabled_from_config, create_submit_allowed, decode_base64,
+    };
     use crate::gql;
     use crate::http::Http;
     use crate::service::{GithubCache, GithubState};
@@ -764,5 +1120,288 @@ mod tests {
             });
         });
         assert!(!path.exists(), "created issue leaves no draft");
+    }
+    // --- docs/0046: template parsers ------------------------------------------
+
+    #[test]
+    fn base64_decodes_wrapped_payloads_and_rejects_garbage() {
+        assert_eq!(decode_base64("aGVsbG8=").as_deref(), Some("hello"));
+        // The Contents API wraps at 60 chars — newlines vanish.
+        assert_eq!(decode_base64("aGVs\nbG8=").as_deref(), Some("hello"));
+        // No padding, multiple of 4.
+        assert_eq!(decode_base64("dGVzdA==").as_deref(), Some("test"));
+        assert_eq!(decode_base64("YQ==").as_deref(), Some("a"));
+        assert!(decode_base64("!").is_none(), "bad alphabet");
+        assert!(decode_base64("aGVsbG8").is_none(), "bad length");
+        assert!(decode_base64("a=b").is_none(), "mid padding");
+    }
+
+    #[test]
+    fn blank_config_scans_one_key_and_defaults_none() {
+        assert_eq!(
+            blank_issues_enabled_from_config("blank_issues_enabled: false\n"),
+            Some(false)
+        );
+        // Comments, ordering, real-world shape (next.js config).
+        assert_eq!(
+            blank_issues_enabled_from_config(
+                "# config\nblank_issues_enabled: false\ncontact_links: []\n"
+            ),
+            Some(false)
+        );
+        assert_eq!(
+            blank_issues_enabled_from_config("blank_issues_enabled: TRUE"),
+            Some(true)
+        );
+        assert_eq!(
+            blank_issues_enabled_from_config("contact_links: []\n"),
+            None,
+            "absent key → blank allowed"
+        );
+        assert_eq!(
+            blank_issues_enabled_from_config("blank_issues_enabled: maybe"),
+            None,
+            "unparsable value → blank allowed"
+        );
+    }
+    // --- docs/0046: template probes --------------------------------------------
+
+    /// The two lanes' scripted replies, consumed per transport: the
+    /// templates lane POSTs GraphQL, the config lane GETs Contents —
+    /// type-checking the pop makes a crossed script loud.
+    #[derive(Debug, Clone)]
+    enum TplReply {
+        Templates(String),
+        Config(u16, String),
+        Fail(String),
+    }
+
+    struct TplHttp(std::sync::Mutex<std::collections::VecDeque<TplReply>>);
+
+    impl TplHttp {
+        fn new(script: Vec<TplReply>) -> Self {
+            Self(std::sync::Mutex::new(script.into()))
+        }
+        fn pop(&self) -> TplReply {
+            self.0
+                .lock()
+                .unwrap()
+                .pop_front()
+                .expect("TplHttp: exhausted script")
+        }
+    }
+
+    impl Http for TplHttp {
+        fn request(
+            &self,
+            _: crate::http::Verb,
+            _: &str,
+            _: Option<&str>,
+            _: Option<&str>,
+        ) -> Result<crate::http::HttpResult, crate::http::HttpError> {
+            match self.pop() {
+                TplReply::Config(status, body) => Ok(crate::http::HttpResult {
+                    status,
+                    etag: None,
+                    rate: None,
+                    body: Some(body),
+                }),
+                TplReply::Fail(m) => Err(crate::http::HttpError(m)),
+                other => panic!("TplHttp: unexpected GET, script had {other:?}"),
+            }
+        }
+        fn post_graphql(
+            &self,
+            _: &str,
+            _: &serde_json::Value,
+        ) -> Result<crate::http::HttpResult, crate::http::HttpError> {
+            match self.pop() {
+                TplReply::Templates(body) => Ok(crate::http::HttpResult {
+                    status: 200,
+                    etag: None,
+                    rate: None,
+                    body: Some(body),
+                }),
+                TplReply::Fail(m) => Err(crate::http::HttpError(m)),
+                other => panic!("TplHttp: unexpected POST, script had {other:?}"),
+            }
+        }
+    }
+
+    const TEMPLATES_BODY: &str = r#"{"data":{"repository":{"issueTemplates":[
+        {"name":"Bug report","title":"[Bug]: ","about":"Create a report","body":"<!-- bug -->"},
+        {"name":"Feature","title":null,"about":null,"body":"<!-- feature -->"}]}}}"#;
+    /// `blank_issues_enabled: false\n`
+    const CONFIG_BLANK_OFF: &str =
+        r#"{"content":"YmxhbmtfaXNzdWVzX2VuYWJsZWQ6IGZhbHNlCg==","encoding":"base64"}"#;
+
+    /// Template probe fixture: a shared `at_tmp` store the test can seed
+    /// and inspect, connected auth (the lanes gate on it), and a TplHttp
+    /// script consumed by the creator's two open fetches.
+    fn probe_creator_templates(
+        cx: &mut gpui::TestAppContext,
+        script: Vec<TplReply>,
+        drafts: DraftStore,
+    ) -> (gpui::Entity<NewIssuePage>, &mut gpui::VisualTestContext) {
+        cx.update(gpui_component::init);
+        cx.update(dashboard_core::status::init);
+        cx.update(|cx| cx.background_executor().allow_parking());
+        let state = cx.update(|cx| {
+            let client: std::sync::Arc<dyn Http> = std::sync::Arc::new(TplHttp::new(script));
+            let store: std::sync::Arc<dyn crate::auth::TokenStore> =
+                std::sync::Arc::new(ProbeStore);
+            cx.new(|_| {
+                GithubState::new(
+                    client,
+                    store,
+                    Default::default(),
+                    Default::default(),
+                    GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    drafts.clone(),
+                )
+            })
+        });
+        state.update(cx, |s, _| s.auth = crate::service::AuthStatus::Connected);
+        let (page, vcx) = cx.add_window_view(|window, cx| {
+            NewIssuePage::new(state, "o/r".into(), "R_9".into(), window, cx)
+        });
+        (page, vcx)
+    }
+
+    #[gpui::test]
+    fn templates_render_and_pick_prefills_and_parks(cx: &mut gpui::TestAppContext) {
+        let drafts = DraftStore::at_tmp("tpl-probe-1");
+        // Config 404 — no config file: blank stays allowed (D5/D6).
+        let (page, vcx) = probe_creator_templates(
+            cx,
+            vec![
+                TplReply::Templates(TEMPLATES_BODY.into()),
+                TplReply::Config(404, String::new()),
+            ],
+            drafts.clone(),
+        );
+        vcx.run_until_parked();
+        assert!(
+            vcx.debug_bounds("new-issue-template-row").is_some(),
+            "template row renders"
+        );
+        assert!(vcx.debug_bounds("new-issue-tpl-0").is_some());
+        assert!(vcx.debug_bounds("new-issue-tpl-1").is_some());
+        assert!(vcx.debug_bounds("new-issue-tpl-blank").is_some());
+        vcx.update(|_, cx| {
+            page.update(cx, |page, _| {
+                assert_eq!(page.selected_template, None, "starts on Blank");
+            });
+        });
+        // Pick template 0: title+body prefill (D3), the content parks as
+        // the live draft (D4).
+        let tpl0 = vcx.debug_bounds("new-issue-tpl-0").unwrap().center();
+        vcx.simulate_click(tpl0, gpui::Modifiers::default());
+        let _ = vcx.debug_bounds("new-issue-tpl-0"); // flush frames
+        vcx.update(|_, cx| {
+            page.update(cx, |page, cx| {
+                assert_eq!(page.selected_template, Some(0));
+                assert_eq!(page.title.read(cx).value(), "[Bug]: ");
+                assert_eq!(page.body.read(cx).value(), "<!-- bug -->");
+            });
+        });
+        vcx.run_until_parked();
+        let on_disk: Option<drafts::DraftPayload> =
+            dashboard_core::store::load_json(&drafts.path_for(&drafts::new_issue_key("o/r")))
+                .ok()
+                .flatten();
+        let on_disk = on_disk.expect("template content parks as the draft");
+        // draft_changed parks the trimmed title (0045 semantics).
+        assert_eq!(on_disk.title.as_deref(), Some("[Bug]:"));
+        assert_eq!(on_disk.body, "<!-- bug -->");
+    }
+
+    #[gpui::test]
+    fn restored_draft_beats_autoselect_and_blank_off_hides_blank(cx: &mut gpui::TestAppContext) {
+        let drafts = DraftStore::at_tmp("tpl-probe-2");
+        // Seed a parked draft, then open on a blank-disabled repo (D4/D5):
+        // the draft wins — no auto-prefill — and the Blank pill hides.
+        let payload = drafts::DraftPayload {
+            key: drafts::new_issue_key("o/r"),
+            title: Some("My own title".into()),
+            body: "My own words".into(),
+            updated_ms: 1,
+        };
+        dashboard_core::store::save_json_atomic(
+            &drafts.path_for(&drafts::new_issue_key("o/r")),
+            &payload,
+        )
+        .unwrap();
+        let (page, vcx) = probe_creator_templates(
+            cx,
+            vec![
+                TplReply::Templates(TEMPLATES_BODY.into()),
+                TplReply::Config(200, CONFIG_BLANK_OFF.into()),
+            ],
+            drafts,
+        );
+        vcx.run_until_parked();
+        vcx.update(|_, cx| {
+            page.update(cx, |page, cx| {
+                assert_eq!(page.title.read(cx).value(), "My own title", "draft wins");
+                assert_eq!(page.body.read(cx).value(), "My own words");
+                assert_eq!(page.selected_template, None);
+                assert!(!page.blank_allowed);
+            });
+        });
+        assert!(
+            vcx.debug_bounds("new-issue-tpl-blank").is_none(),
+            "blank_issues_enabled: false hides the Blank pill"
+        );
+        assert!(vcx.debug_bounds("new-issue-tpl-0").is_some());
+    }
+
+    #[gpui::test]
+    fn blank_disabled_preselects_first_template(cx: &mut gpui::TestAppContext) {
+        let drafts = DraftStore::at_tmp("tpl-probe-3");
+        let (page, vcx) = probe_creator_templates(
+            cx,
+            vec![
+                TplReply::Templates(TEMPLATES_BODY.into()),
+                TplReply::Config(200, CONFIG_BLANK_OFF.into()),
+            ],
+            drafts,
+        );
+        vcx.run_until_parked();
+        vcx.update(|_, cx| {
+            page.update(cx, |page, cx| {
+                // D5: the creator never starts empty on a blank-disabled
+                // repo — the first template preselects.
+                assert_eq!(page.selected_template, Some(0));
+                assert_eq!(page.title.read(cx).value(), "[Bug]: ");
+                assert_eq!(page.body.read(cx).value(), "<!-- bug -->");
+            });
+        });
+        assert!(vcx.debug_bounds("new-issue-tpl-blank").is_none());
+    }
+
+    #[gpui::test]
+    fn template_fetch_failure_leaves_creator_unchanged(cx: &mut gpui::TestAppContext) {
+        let drafts = DraftStore::at_tmp("tpl-probe-4");
+        let (page, vcx) = probe_creator_templates(
+            cx,
+            vec![
+                TplReply::Fail("probe".into()),
+                TplReply::Fail("probe".into()),
+            ],
+            drafts,
+        );
+        vcx.run_until_parked();
+        // D6: both lanes failed — no row, no Blank pill, fields untouched,
+        // creation unblocked.
+        assert!(vcx.debug_bounds("new-issue-template-row").is_none());
+        assert!(vcx.debug_bounds("new-issue-create").is_some());
+        vcx.update(|_, cx| {
+            page.update(cx, |page, cx| {
+                assert_eq!(page.title.read(cx).value(), "");
+                assert_eq!(page.body.read(cx).value(), "");
+                assert!(page.templates.is_none());
+            });
+        });
     }
 }

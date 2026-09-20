@@ -2234,6 +2234,24 @@ pub fn created_issue_from_body(body: &str, repo_full: &str) -> Option<Issue> {
         labels: None,
     })
 }
+/// docs/0046 D1 — the issue creator's template fetch: the repo's
+/// **Markdown** issue templates (upstream-verified: the GraphQL field
+/// returns the legacy `.md` family only — YAML issue-form repos yield
+/// an empty list; docs/0046 §1). Plain list, no pagination.
+pub const REPO_ISSUE_TEMPLATES_QUERY: &str = r#"
+query RepoIssueTemplates($owner: String!, $name: String!) {
+  rateLimit { cost remaining resetAt }
+  repository(owner: $owner, name: $name) {
+    issueTemplates {
+      name
+      title
+      about
+      body
+    }
+  }
+}
+"#;
+
 /// docs/0044 D4 — the creator's branch source: one alphabetical page of
 /// head refs plus the default branch name (the natural base).
 pub const REPO_BRANCHES_QUERY: &str = r#"
@@ -2301,6 +2319,46 @@ pub fn branches_from_value(repo: &serde_json::Value) -> RepoBranches {
         total_count,
         names,
     }
+}
+
+/// docs/0046 D1 — one parsed Markdown issue template. `title` and
+/// `about` are commonly absent (most `.md` templates ship neither);
+/// `body` is the template's actual content — `None` degrades to an
+/// empty body prefill, never an error.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct IssueTemplate {
+    pub name: String,
+    pub title: Option<String>,
+    pub about: Option<String>,
+    pub body: Option<String>,
+}
+
+/// Parse the repository wrapper node of [`REPO_ISSUE_TEMPLATES_QUERY`]
+/// (the 0007 raw-envelope read; an absent/empty node degrades to an
+/// empty list — the creator then renders no template row).
+pub fn templates_from_value(repo: &serde_json::Value) -> Vec<IssueTemplate> {
+    repo.get("issueTemplates")
+        .and_then(serde_json::Value::as_array)
+        .map(|nodes| {
+            nodes
+                .iter()
+                .filter_map(|n| {
+                    let name = n.get("name")?.as_str()?.to_string();
+                    let text = |k: &str| {
+                        n.get(k)
+                            .and_then(serde_json::Value::as_str)
+                            .and_then(|s| (!s.is_empty()).then(|| s.to_string()))
+                    };
+                    Some(IssueTemplate {
+                        name,
+                        title: text("title"),
+                        about: text("about"),
+                        body: text("body"),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// docs/0044 D6 — parse a successful `createPullRequest` payload and
@@ -2908,6 +2966,7 @@ mod tests {
             ("REPO_ASSIGNABLE_USERS_QUERY", REPO_ASSIGNABLE_USERS_QUERY),
             ("REPO_MILESTONES_QUERY", REPO_MILESTONES_QUERY),
             ("REPO_BRANCHES_QUERY", REPO_BRANCHES_QUERY),
+            ("REPO_ISSUE_TEMPLATES_QUERY", REPO_ISSUE_TEMPLATES_QUERY),
             ("CREATE_PR_MUTATION", CREATE_PR_MUTATION),
         ] {
             assert!(!doc.contains("//"), "{name} contains a JS-style comment");
@@ -2927,6 +2986,35 @@ mod tests {
         ] {
             assert!(doc.contains("first: 100"), "{name} must fetch 100");
         }
+    }
+
+    #[test]
+    fn templates_parse_degrades_to_empty_and_drops_empty_text() {
+        // Full template + one with only a name + an absent node.
+        let repo = serde_json::json!({
+            "issueTemplates": [
+                {
+                    "name": "Bug report",
+                    "title": "[Bug]: ",
+                    "about": "Create a report",
+                    "body": "<!-- bug_report_template -->"
+                },
+                {"name": "Feature", "title": "", "about": null, "body": null},
+            ]
+        });
+        let got = templates_from_value(&repo);
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[0].name, "Bug report");
+        assert_eq!(got[0].title.as_deref(), Some("[Bug]: "));
+        assert_eq!(got[0].about.as_deref(), Some("Create a report"));
+        assert_eq!(got[0].body.as_deref(), Some("<!-- bug_report_template -->"));
+        // Empty strings degrade to None — a template never prefills "".
+        assert_eq!(got[1].name, "Feature");
+        assert_eq!(got[1].title, None);
+        assert_eq!(got[1].body, None);
+        // Missing/absent node → empty list (no template row renders).
+        assert!(templates_from_value(&serde_json::json!({})).is_empty());
+        assert!(templates_from_value(&serde_json::Value::Null).is_empty());
     }
 
     use super::*;

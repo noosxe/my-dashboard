@@ -178,6 +178,12 @@ pub fn pr_files_url(owner: &str, repo: &str, number: i64, page: u32) -> String {
     )
 }
 
+/// docs/0046 D5 — `GET /repos/{o}/{r}/contents/.github/ISSUE_TEMPLATE/config.yml`:
+/// the issue creator's `blank_issues_enabled` source. No query
+/// parameters — a one-shot plain GET (the [`crate::service::Kind::RepoTemplatesConfig`] lane).
+pub fn issue_template_config_url(owner: &str, repo: &str) -> String {
+    format!("{API_BASE}/repos/{owner}/{repo}/contents/.github/ISSUE_TEMPLATE/config.yml")
+}
 /// Percent-encode one query-parameter value: the RFC 3986 unreserved set
 /// passes through, everything else hex-escapes. Check and job names may
 /// carry spaces, parens, `&`, `#`, `%` — each builder below funnels its
