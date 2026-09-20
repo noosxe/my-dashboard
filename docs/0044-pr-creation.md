@@ -91,6 +91,13 @@ repository's **GraphQL node id**, which `Repo.node_id` has carried since
   - Create is disabled until the title is non-empty **and** base ≠
     head — input validity, not a permission gate
     (disabled-with-reason is correct; 0024 D4).
+  *(Amended by docs/0046 §2: the body textarea opens pre-filled with
+  the repo's PR template body — one stateless `RepoPrTemplates` GraphQL
+  lane fetch on open, body only, title never templated. A restored
+  draft beats the template (0046 D4 rule) and typed content is never
+  clobbered by a re-open; the prefill parks nothing — it stays a
+  default, not a draft. Lane failure leaves the creator empty; creation
+  never blocks.)*
   - Truncation: when `totalCount > 100` the select footer reads "first
     100 of N branches (alphabetical)" — a hint, not a blocker; picking
     an unlisted branch is a §9 follow-up.

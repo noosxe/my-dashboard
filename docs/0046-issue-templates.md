@@ -29,6 +29,16 @@ live api.github.com calls:
   API — verified: `contents/.github/ISSUE_TEMPLATE/config.yml` on
   next.js returns base64 `blank_issues_enabled: false`.
 
+**Correction (verified live on the same pinned IDL, post-merge):** the
+draft above treated PR templates as Contents-API territory — but
+`Repository.pullRequestTemplates: [PullRequestTemplate!]` (IDL line
+55640; `{body, filename}`) has been in the schema all along, and the
+served field returns the repo's template with GitHub's own path
+resolution (next.js answers with `pull_request_template.md`, the
+lowercase variant a guessed Contents path would miss). The PR creator
+therefore rides the same stateless GraphQL lane shape as this doc's
+D1, not the Contents API.
+
 ## 2  Scope valve
 
 **In (v1):**
@@ -45,9 +55,10 @@ live api.github.com calls:
   → GitHub's structured submit payload) — a sub-project, not a
   prefill. Repos with only forms see exactly today's behavior; no
   regression. Filed as a follow-up when bitten.
-- **PR templates** (`PULL_REQUEST_TEMPLATE.md` → new-PR creator body).
-  Different upstream mechanism (single markdown file, no picker),
-  small but unrelated plumbing. Separate follow-up.
+- **PR templates** (repo PR template → new-PR creator body). Single
+  body, no picker — small, and implemented in the same lane shape:
+  `Repository.pullRequestTemplates` (a field the §1-era draft missed;
+  see the correction note at the end of §1).
 - Template-suggested labels/assignees auto-application — that is
   #276's territory (metadata at creation).
 
@@ -159,4 +170,5 @@ templates are a separate follow-up), README index row for this doc.
 
 - YAML issue-form templates (form renderer; includes honoring
   blank-disabled on forms-only repos).
-- PR template prefill in the new-PR creator.
+- ~~PR template prefill in the new-PR creator.~~ **Done** — see the
+  correction note at the end of §1.

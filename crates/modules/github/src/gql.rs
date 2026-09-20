@@ -2361,6 +2361,37 @@ pub fn templates_from_value(repo: &serde_json::Value) -> Vec<IssueTemplate> {
         .unwrap_or_default()
 }
 
+/// docs/0046 §2 (as implemented) — the PR creator's template body:
+/// GitHub's `pullRequestTemplates` (verified live against the pinned
+/// IDL, `Repository` line 55640 — the §2 draft claim that no GraphQL
+/// field exists was wrong; Contents-API path guesses would miss case
+/// variants like next.js's `pull_request_template.md`). Body only —
+/// the PR title is typed, never templated.
+pub const REPO_PR_TEMPLATES_QUERY: &str = r#"
+query RepoPrTemplates($owner: String!, $name: String!) {
+  rateLimit { cost remaining resetAt }
+  repository(owner: $owner, name: $name) {
+    pullRequestTemplates {
+      body
+    }
+  }
+}
+"#;
+
+/// Parse the repository wrapper node of [`REPO_PR_TEMPLATES_QUERY`]
+/// into the first template body worth prefilling (an absent/empty node
+/// or no non-empty body → `None` — the creator then just stays empty).
+pub fn pr_template_body_from_value(repo: &serde_json::Value) -> Option<String> {
+    let nodes = repo.get("pullRequestTemplates")?;
+    let nodes = serde_json::Value::as_array(nodes)?;
+    nodes
+        .iter()
+        .filter_map(|n| n.get("body")?.as_str())
+        .map(str::trim)
+        .find(|b| !b.is_empty())
+        .map(str::to_string)
+}
+
 /// docs/0044 D6 — parse a successful `createPullRequest` payload and
 /// synthesize the minimal snapshot row the host needs to open the
 /// in-app PR page (initial paint only; the page re-fetches its own
@@ -2967,6 +2998,7 @@ mod tests {
             ("REPO_MILESTONES_QUERY", REPO_MILESTONES_QUERY),
             ("REPO_BRANCHES_QUERY", REPO_BRANCHES_QUERY),
             ("REPO_ISSUE_TEMPLATES_QUERY", REPO_ISSUE_TEMPLATES_QUERY),
+            ("REPO_PR_TEMPLATES_QUERY", REPO_PR_TEMPLATES_QUERY),
             ("CREATE_PR_MUTATION", CREATE_PR_MUTATION),
         ] {
             assert!(!doc.contains("//"), "{name} contains a JS-style comment");
@@ -3015,6 +3047,27 @@ mod tests {
         // Missing/absent node → empty list (no template row renders).
         assert!(templates_from_value(&serde_json::json!({})).is_empty());
         assert!(templates_from_value(&serde_json::Value::Null).is_empty());
+    }
+
+    #[test]
+    fn pr_template_body_picks_first_non_empty_and_degrades_none() {
+        // First template wins; empty bodies are skipped (a template
+        // never prefills whitespace).
+        let repo = serde_json::json!({"pullRequestTemplates": [
+            {"body": "  "},
+            {"body": "<!-- pr template -->"},
+        ]});
+        assert_eq!(
+            pr_template_body_from_value(&repo).as_deref(),
+            Some("<!-- pr template -->")
+        );
+        // Empty list, absent node, absent field → None.
+        assert_eq!(
+            pr_template_body_from_value(&serde_json::json!({"pullRequestTemplates": []})),
+            None
+        );
+        assert_eq!(pr_template_body_from_value(&serde_json::json!({})), None);
+        assert_eq!(pr_template_body_from_value(&serde_json::Value::Null), None);
     }
 
     use super::*;
