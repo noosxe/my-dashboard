@@ -78,7 +78,14 @@ impl DashboardShell {
             nav,
             in_flight,
             focus_handle,
-            save: state_path.map(|p| DebouncedSave::new(p, Duration::from_millis(500))),
+            save: state_path.map(|p| {
+                // Registered for the quit-time flush (docs/0045 §9,
+                // #283): a quit inside the 500 ms window keeps the last
+                // sidebar toggle.
+                let save = DebouncedSave::new(p, Duration::from_millis(500));
+                save.register_flush_on_quit();
+                save
+            }),
         }
     }
 

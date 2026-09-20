@@ -325,8 +325,10 @@ probes in §4.5. Disclosed in the PR body; no OS-level input injection.
   `updated_ms` (format already carries it).
 - Metadata-at-creation (#276) would supersede creator picker-selection
   drafts entirely; don't build the latter first.
-- Flush-on-quit hook if the ≤500 ms tail loss ever bites (it is the
-  same accepted bound as shell state).
+- ~~Flush-on-quit hook~~ **Shipped (#283):** `DebouncedSave::flush` +
+  a process-wide weak registry (`flush_pending_on_quit`) wired to
+  `on_app_quit`; shell/settings/draft saves all land synchronously at
+  quit. docs/0004 Q6 amended.
 
 ## 10. Shipped (2026-09-19, issue #199)
 

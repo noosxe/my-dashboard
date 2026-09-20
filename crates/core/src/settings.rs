@@ -174,7 +174,12 @@ pub fn init(path: Option<PathBuf>, themes_dir: Option<PathBuf>, cx: &mut App) {
     cx.set_global(values.unwrap_or_default());
     if let Some(path) = path {
         cx.set_global(SettingsStore {
-            save: DebouncedSave::new(path, Duration::from_millis(500)),
+            // Registered for the quit-time flush (docs/0045 §9, #283).
+            save: {
+                let save = DebouncedSave::new(path, Duration::from_millis(500));
+                save.register_flush_on_quit();
+                save
+            },
         });
     }
     snapshot_bundled_defaults(cx);
