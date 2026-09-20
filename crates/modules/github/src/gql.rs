@@ -45,6 +45,7 @@ query Snapshot($cursor: String) {
         nameWithOwner
         description
         isPrivate
+        isArchived
         pushedAt
         owner { login }
         pullRequests(states: OPEN, first: 100,
@@ -111,6 +112,7 @@ query RepoSnapshot($owner: String!, $name: String!) {
     nameWithOwner
     description
     isPrivate
+    isArchived
     pushedAt
     owner { login }
     pullRequests(states: OPEN, first: 100,
@@ -298,6 +300,11 @@ pub struct Repo {
     pub description: Option<String>,
     #[serde(default)]
     pub private: bool,
+    /// #275: the creation gates hide New issue / New pull request on
+    /// archived repos. A cache missing the field degrades to
+    /// not-archived (buttons show; the next fetch corrects).
+    #[serde(default)]
+    pub is_archived: bool,
     /// docs/0024 D1: the repository's GraphQL node id — the `createIssue`
     /// target. `None` gates creation off (docs/0024 D2) until a fetch
     /// lands the field.
@@ -2401,7 +2408,10 @@ fn author_from_value(value: Option<&serde_json::Value>) -> Option<Author> {
 }
 /// The persisted snapshot (doc 0007 D7): one versioned cache key replacing
 /// the granular `user`/`orgs`/`repos`/`pr-counts`/`prs-*` keys.
-pub const SNAPSHOT_CACHE_KEY: &str = "snapshot-v2";
+/// #275: bumped v2 → v3 when `Repo` gained `is_archived` — old
+/// snapshot files are simply ignored (fresh key, docs/0007 D7) and
+/// every repo refetches with the field.
+pub const SNAPSHOT_CACHE_KEY: &str = "snapshot-v3";
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SnapshotCache {
@@ -2436,6 +2446,13 @@ struct RepoNode {
     description: Option<String>,
     #[serde(default)]
     is_private: bool,
+    // #275 (docs/0024 D2 amendment): `None` = field missing (old cache)
+    // → assumed not archived; the button shows and a creation attempt
+    // fails upstream — same degrade-visible philosophy as
+    // `has_issues_enabled`, inverted: a hidden button must never be
+    // wrong about a live repo, a shown one may be.
+    #[serde(default)]
+    is_archived: Option<bool>,
     pushed_at: Option<String>,
     owner: Owner,
     #[serde(default)]
@@ -2529,6 +2546,7 @@ pub fn repo_from_value(value: &serde_json::Value) -> Option<Repo> {
         owner: node.owner,
         description: node.description,
         private: node.is_private,
+        is_archived: node.is_archived.unwrap_or(false),
         node_id: node.id,
         has_issues_enabled: node.has_issues_enabled.unwrap_or(true),
         pushed_at: node.pushed_at,
@@ -2962,6 +2980,10 @@ mod tests {
             assert!(
                 doc.contains("reviewRequests(first: 20)"),
                 "{name}: PR reviewRequests selection missing"
+            );
+            assert!(
+                doc.contains("isArchived"),
+                "{name}: isArchived selection missing (#275 creation gates)"
             );
             assert!(
                 doc.contains("... on User { login }"),

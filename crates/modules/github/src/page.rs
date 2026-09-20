@@ -1533,21 +1533,22 @@ fn next_org_selection(current: Option<&str>, logins: &[SharedString]) -> Option<
 }
 
 /// The issue-creation visibility gate (docs/0024 D2), hidden-not-disabled:
-/// connected, and the repo allows issues with a known node id (the
-/// `createIssue` target). No `viewerPermission` term — any reader can
-/// file issues. Pure — table-tested.
+/// connected, the repo allows issues, the node id is known (the
+/// `createIssue` target), and the repo is not archived (#275 — GitHub
+/// rejects creation on archived repos upstream). No `viewerPermission`
+/// term — any reader can file issues. Pure — table-tested.
 pub(crate) fn create_allowed(repo: &gql::Repo, connected: bool) -> bool {
-    connected && repo.has_issues_enabled && repo.node_id.is_some()
+    connected && repo.has_issues_enabled && repo.node_id.is_some() && !repo.is_archived
 }
 
 /// The PR-creation visibility gate (docs/0044 D2), hidden-not-disabled:
-/// connected, and the repo's GraphQL node id is known (the
-/// `createPullRequest` target). No upstream creation flag exists (§2)
-/// and `hasIssuesEnabled` has no PR analog — anything that cannot
-/// succeed dies as a scoped form error or an empty head select, never a
-/// silent post. Pure — table-tested.
+/// connected, the repo's GraphQL node id is known (the
+/// `createPullRequest` target), and the repo is not archived (#275).
+/// No upstream creation flag exists (§2) and `hasIssuesEnabled` has no
+/// PR analog — anything that cannot succeed dies as a scoped form error
+/// or an empty head select, never a silent post. Pure — table-tested.
 pub(crate) fn create_pr_allowed(repo: &gql::Repo, connected: bool) -> bool {
-    connected && repo.node_id.is_some()
+    connected && repo.node_id.is_some() && !repo.is_archived
 }
 
 /// The module-level crumb label: the short `name` of the selected repo
@@ -3079,6 +3080,7 @@ mod tests {
             },
             description: description.map(str::to_string),
             private: false,
+            is_archived: false,
             pushed_at: None,
             prs: gql::PrSummary {
                 total_count: 0,
@@ -3971,6 +3973,11 @@ mod tests {
         // Node id unknown (pre-0024 cache) → hidden until a fetch lands.
         r.node_id = None;
         assert!(!create_allowed(&r, true));
+        r.node_id = Some("R_1".into());
+
+        // Archived repo (#275) → hidden even with every other term true.
+        r.is_archived = true;
+        assert!(!create_allowed(&r, true));
     }
 
     #[test]
@@ -3992,6 +3999,11 @@ mod tests {
 
         // Node id unknown → hidden.
         r.node_id = None;
+        assert!(!create_pr_allowed(&r, true));
+        r.node_id = Some("R_1".into());
+
+        // Archived repo (#275) → hidden even with the node id known.
+        r.is_archived = true;
         assert!(!create_pr_allowed(&r, true));
     }
 
@@ -4201,6 +4213,64 @@ mod tests {
         let nav = cx.update(|cx| cx.new(|_| Navigator::default()));
         let (_, vcx) = cx.add_window_view(|window, cx| GithubPage::new(state, nav, window, cx));
         vcx
+    }
+
+    // #275 — archived repo: both creation buttons are hidden even with
+    // every other gate term armed (connected is forced by the fixture;
+    // node id + issues-enabled are set on the repo). Hidden-not-disabled.
+    #[gpui::test]
+    fn archived_repo_hides_creation_buttons(cx: &mut TestAppContext) {
+        use crate::auth::MockTokenStore;
+        use crate::http::{Http, SharedToken, mock::MockHttp};
+        use crate::service::{AuthStatus, GithubCache, GithubState};
+        use dashboard_core::nav::Navigator;
+        use dashboard_core::paths::AppPaths;
+        use std::sync::Arc;
+
+        cx.update(gpui_component::init);
+        cx.update(dashboard_core::status::init);
+        let state = cx.update(|cx| {
+            // Two scripted failures: attaching the page + the select sync
+            // may fire specs; results are never read.
+            let client: Arc<dyn Http> = Arc::new(MockHttp::new(vec![
+                Err(crate::http::HttpError("probe".into())),
+                Err(crate::http::HttpError("probe".into())),
+            ]));
+            let shared: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let refresh: crate::http::SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let entity = cx.new(|_| {
+                GithubState::new(
+                    client,
+                    Arc::new(MockTokenStore::with("t0k".into())),
+                    shared,
+                    refresh,
+                    GithubCache::new(AppPaths::init()),
+                    DraftStore::at_tmp("page-archived"),
+                )
+            });
+            entity.update(cx, |s, cx| {
+                s.auth = AuthStatus::Connected;
+                let mut r = repo("acme/one", None);
+                r.node_id = Some("R_1".into());
+                r.has_issues_enabled = true;
+                r.is_archived = true;
+                s.repos = vec![r];
+                s.selected = Some("acme/one".into());
+                cx.notify();
+            });
+            entity
+        });
+        let nav = cx.update(|cx| cx.new(|_| Navigator::default()));
+        let (_, vcx) = cx.add_window_view(|window, cx| GithubPage::new(state, nav, window, cx));
+
+        assert!(
+            vcx.debug_bounds("new-issue-open").is_none(),
+            "New issue hidden on an archived repo"
+        );
+        assert!(
+            vcx.debug_bounds("new-pr-open").is_none(),
+            "New pull request hidden on an archived repo"
+        );
     }
 
     #[gpui::test]
