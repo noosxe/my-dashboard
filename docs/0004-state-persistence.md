@@ -106,9 +106,12 @@ and is filesystem-sanitized by the paths layer.
   target (atomic on POSIX for same-filesystem renames — standard
   behavior Zed also relies on with its `settings.json` backup dance).
 - **Debounce:** 500 ms trailing-edge per store. The debounce task is
-  cancelled/rescheduled on every change (gpui `Task` cancellation),
-  so shutdown drops at most the final 500 ms window of a toggle —
-  acceptable for UI state; recorded as a known limitation (§7).
+  cancelled/rescheduled on every change (generation supersession — gpui
+  tasks cannot be cancelled). **Amended (#283, docs/0045 §9):** the
+  pending payload is serialized at schedule time and can be landed
+  synchronously — `DebouncedSave::flush` + `flush_pending_on_quit()`,
+  wired to `on_app_quit` in `main.rs`. The final 500 ms window is no
+  longer lost at quit; the §7 limitation stands only for a hard kill.
 - **Corrupt file recovery:** if parse fails at load, rename the file to
   `<name>.invalid-<ts>` and continue with defaults (never crash on bad
   state; log to stderr). Zed ships the same idea (`settings_backup_file`).
@@ -160,6 +163,10 @@ real home. Empty/unset = normal OS locations.
 6. **gpui async/shutdown reality (0003 §3.12):** detached tasks die at
    shutdown; there is no reliable quit-hook flush — hence Q6's
    "shutdown may drop the last debounce window" limitation.
+   *(Amended by #283: gpui-pre does expose `on_app_quit`, and the
+   debouncer now parks the serialized payload so the quit hook can
+   write it synchronously; the limitation now applies to hard kills
+   only.)*
 7. **Current shell state to persist:** `Navigator.sidebar_collapsed`
    (`crates/core/src/nav.rs`), `DashboardShell.show_titlebar`
    (`crates/core/src/shell.rs`, OS-dependent default per 0002 D7).

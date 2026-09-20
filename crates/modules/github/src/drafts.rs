@@ -50,6 +50,9 @@ pub struct DraftPayload {
 pub struct DraftStore {
     root: PathBuf,
     delay: std::time::Duration,
+    /// Prod handles join the quit-time flush sweep (docs/0045 §9,
+    /// #283); test stores stay out of the shared registry.
+    flush_on_quit: bool,
 }
 
 impl DraftStore {
@@ -57,6 +60,7 @@ impl DraftStore {
         Self {
             root: paths.module_data_dir("github").join("drafts"),
             delay: DRAFT_DEBOUNCE,
+            flush_on_quit: true,
         }
     }
 
@@ -73,6 +77,7 @@ impl DraftStore {
             // Zero delay under test: the debounced write lands on the
             // first executor drain — no wall-clock waits; prod keeps 500.
             delay: std::time::Duration::ZERO,
+            flush_on_quit: false,
         }
     }
 
@@ -87,7 +92,15 @@ impl DraftStore {
     pub(crate) fn handle(&self, key: String) -> DraftHandle {
         let path = self.root.join(format!("{}.json", sanitize_key(&key)));
         DraftHandle {
-            save: DebouncedSave::new(path.clone(), self.delay),
+            // Prod handles land their pending tail at quit (docs/0045
+            // §9, #283).
+            save: {
+                let save = DebouncedSave::new(path.clone(), self.delay);
+                if self.flush_on_quit {
+                    save.register_flush_on_quit();
+                }
+                save
+            },
             key,
             path,
         }

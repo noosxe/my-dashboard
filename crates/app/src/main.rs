@@ -87,6 +87,16 @@ fn main() {
             // module init, so every module's fetch loops can report into it.
             dashboard_core::status::init(cx);
 
+            // Flush debounced state writes at quit (docs/0045 §9, #283):
+            // a quit landing inside a 500 ms quiet window would otherwise
+            // lose the tail — shell state, settings, and open draft
+            // composers land synchronously here. Log-and-swallow (0004
+            // §4.7): a failed flush must never block quitting.
+            cx.on_app_quit(|_| async move {
+                dashboard_core::store::flush_pending_on_quit();
+            })
+            .detach();
+
             // Persisted app settings (theme restore — docs/0006 §4.4)
             // before any window or module exists.
             dashboard_core::settings::init(
