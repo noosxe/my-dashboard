@@ -442,6 +442,17 @@ pub enum Kind {
     /// through; the page parses + decodes). Never etag-stamped —
     /// re-fetches every creator open.
     RepoTemplatesConfig,
+    /// docs/0047 D2 — the home lane: one GraphQL search page of the
+    /// selected account's open PRs (`org:`/`user:` scope in the query,
+    /// ident `"scope:login"`). State-stamped like the snapshot lanes:
+    /// results land on [`GithubState::home_prs`] keyed by account, so a
+    /// switch shows the cached snapshot immediately and refetches. No
+    /// etag — GraphQL has no conditional path; refreshes are full
+    /// first-page fetches deduped by the docs/0031 guard. "Load more"
+    /// rides the same kind: its spec carries `$after`, and the run arm
+    /// copies it into [`SpecResult::cursor`] so `apply` knows to append
+    /// rather than replace.
+    AccountPullRequests,
     /// One notification thread's payload (docs/0026 D2) — the
     /// notification page's GET of `GET /notifications/threads/{id}`.
     /// Page-owned result convention per [`Kind::IssueDetail`]: the page
@@ -455,6 +466,54 @@ pub enum Kind {
     /// forwards only non-2xx to [`GithubState::apply`] for the shared
     /// auth/rate-limit handling.
     ThreadMutation(ThreadOp),
+}
+
+/// docs/0047 D2 — which account qualifier a home snapshot was fetched
+/// with: `user:` scopes to repos owned by the personal account, `org:`
+/// to an organization's. Rides the FetchSpec ident (`"scope:login"`) and
+/// keys [`GithubState::home_prs`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) enum HomeScope {
+    User,
+    Org,
+}
+
+impl HomeScope {
+    /// The GitHub search qualifier prefix (docs/0047 §2).
+    pub(crate) fn qualifier(self) -> &'static str {
+        match self {
+            HomeScope::User => "user",
+            HomeScope::Org => "org",
+        }
+    }
+
+    /// Parse the ident encoding back (docs/0047 D2) — `None` for a
+    /// malformed ident (logged by the caller).
+    pub(crate) fn from_ident(ident: &str) -> Option<(HomeScope, &str)> {
+        let (scope, login) = ident.split_once(':')?;
+        let scope = match scope {
+            "user" => HomeScope::User,
+            "org" => HomeScope::Org,
+            _ => return None,
+        };
+        Some((scope, login))
+    }
+}
+
+/// docs/0047 D2 — one account's landed home snapshot: the search pages
+/// landed so far (page 1 + any "Load more" appends), the honest match
+/// count, and the paging state.
+#[derive(Clone)]
+pub(crate) struct HomePullRequests {
+    pub nodes: Vec<gql::PullRequest>,
+    /// `issueCount` — the full match count, cap or no cap.
+    pub total_count: i64,
+    /// `!hasNextPage` from the last landing — also true at the search
+    /// cap (the server ends the chain cleanly there, docs/0047 §2).
+    pub complete: bool,
+    /// The cursor the next "Load more" page resumes from; `None` when
+    /// complete or when the last page carried no cursor.
+    pub cursor: Option<String>,
 }
 
 /// The five PR-page mutations (docs/0016 §6.2), each mapping to one
@@ -835,6 +894,7 @@ pub fn run_spec(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
         ),
         Kind::Notifications | Kind::RepoNotifications | Kind::PrFiles => run_rest(http, spec),
         Kind::JobLog => run_plain_get(http, spec),
+        Kind::AccountPullRequests => run_home_prs(http, spec),
     }
 }
 
@@ -1498,6 +1558,7 @@ impl Kind {
             Kind::RepoIssueTemplates => "repo-issue-templates",
             Kind::RepoPrTemplates => "repo-pr-templates",
             Kind::RepoTemplatesConfig => "repo-templates-config",
+            Kind::AccountPullRequests => "home-prs",
             Kind::PrFiles => "pr-files",
             Kind::JobLog => "check-log",
             Kind::PrThreads => "pr-threads",
@@ -1573,6 +1634,22 @@ pub struct GithubState {
     pub(crate) notifications_landed: Option<Instant>,
     pub(crate) notifications_fail_streak: u32,
     pub(crate) notifications_attempted_at: Option<Instant>,
+    /// docs/0047 D2 — the home lane's snapshots, keyed `(login, scope)`:
+    /// one entry per account this session, so switching the selector
+    /// repaints the cached list instantly (D9 stale-while-revalidate)
+    /// while the refetch flies. Session-only — never persisted, never
+    /// seeded; docs/0034 disk-seeding stays a snapshot/notifications
+    /// affair.
+    pub(crate) home_prs: BTreeMap<(String, HomeScope), HomePullRequests>,
+    /// The home lane's landed clock (the notifications-lane pattern,
+    /// docs/0038 D7): the age gate reads it; backoff books sit beside it.
+    pub(crate) home_landed: Option<Instant>,
+    pub(crate) home_fail_streak: u32,
+    pub(crate) home_attempted_at: Option<Instant>,
+    /// The home lane's last failed attempt (docs/0047 D3): rendered as
+    /// error + Retry when neither snapshot nor union has rows to show;
+    /// cleared on the next landing.
+    pub(crate) home_error: Option<String>,
     pub(crate) etags: BTreeMap<String, String>,
     pub(crate) client: Arc<dyn Http>,
     pub(crate) store: Arc<dyn TokenStore>,
@@ -1659,6 +1736,11 @@ impl GithubState {
             notifications_landed: None,
             notifications_fail_streak: 0,
             notifications_attempted_at: None,
+            home_prs: BTreeMap::new(),
+            home_landed: None,
+            home_fail_streak: 0,
+            home_attempted_at: None,
+            home_error: None,
             client,
             store,
             shared_token,
@@ -1850,6 +1932,79 @@ impl GithubState {
             self.rows_fail_streak = self.rows_fail_streak.saturating_add(1);
         }
     }
+    // ------------------------------------------------------------------
+    // Home lane (docs/0047): spec builders + lane clocks. The page owns
+    // the dispatch (the repo-rows pattern, docs/0036 D3); the state owns
+    // the clocks.
+    // ------------------------------------------------------------------
+
+    /// The home lane's first page (docs/0047 D3) — fired on module open
+    /// and on account switch. Ident encodes `scope:login`; no etag
+    /// (GraphQL has none).
+    pub(crate) fn home_open_spec(&self, login: &str, scope: HomeScope) -> FetchSpec {
+        FetchSpec {
+            kind: Kind::AccountPullRequests,
+            url: gql::GRAPHQL_ENDPOINT.to_string(),
+            etag: None,
+            ident: Some(format!("{}:{}", scope.qualifier(), login)),
+            max_pages: 1,
+            variables: Some(serde_json::json!({
+                "query": format!(
+                    "is:pr is:open sort:updated-desc {}:{login}",
+                    scope.qualifier()
+                ),
+                "after": null,
+            })),
+        }
+    }
+
+    /// The next home page (docs/0047 D4): same ident (the docs/0031 dedup
+    /// key is per kind+ident, so a load-more collides with a concurrent
+    /// refresh and skips — the beat retries when stale), `$after` set; the
+    /// run arm lifts it into `SpecResult::cursor` so `apply` appends.
+    pub(crate) fn home_more_spec(&self, login: &str, scope: HomeScope, after: &str) -> FetchSpec {
+        let mut spec = self.home_open_spec(login, scope);
+        if let Some(vars) = spec.variables.as_mut() {
+            vars["after"] = serde_json::Value::String(after.to_string());
+        }
+        spec
+    }
+
+    /// Heartbeat refresh for the home view (docs/0047 D3, the
+    /// [`Self::repo_rows_refresh_specs`] shape): backoff first, then the
+    /// landed-clock age gate. `None` while fresh or backed off — the beat
+    /// stays a no-op.
+    pub(crate) fn home_refresh_specs(
+        &self,
+        login: &str,
+        scope: HomeScope,
+        min_age: Duration,
+    ) -> Option<Vec<FetchSpec>> {
+        if let Some(attempted_at) = self.home_attempted_at {
+            if self.home_fail_streak > 0
+                && attempted_at.elapsed()
+                    < dashboard_core::freshness::backoff_delay(self.home_fail_streak)
+            {
+                return None;
+            }
+        }
+        if self.home_landed.is_some_and(|t| t.elapsed() < min_age) {
+            return None;
+        }
+        Some(vec![self.home_open_spec(login, scope)])
+    }
+
+    /// docs/0047: the home lane's backoff bookkeeping — the
+    /// [`Self::bump_rows_backoff`] pattern, called from the page's
+    /// `run_specs` landing arm for [`Kind::AccountPullRequests`].
+    pub(crate) fn bump_home_backoff(&mut self, ok: bool) {
+        self.home_attempted_at = Some(Instant::now());
+        if ok {
+            self.home_fail_streak = 0;
+        } else {
+            self.home_fail_streak = self.home_fail_streak.saturating_add(1);
+        }
+    }
 
     /// Post-write refetch (docs/0026 D3/D8): the global unread list plus
     /// the selected repo's one-shot slice — the marked/done row leaves
@@ -1970,6 +2125,24 @@ impl GithubState {
                 self.notifications_fail_streak = 0;
             } else {
                 self.notifications_fail_streak += 1;
+            }
+        }
+        // docs/0047: the home lane's books — same shape. A failure also
+        // records `home_error` (D3: rendered as error + Retry when nothing
+        // else has rows); a success clears it and stamps the landed clock
+        // on the landing path below.
+        if result.kind == Kind::AccountPullRequests {
+            let ok = result.network.is_none() && (200..300).contains(&result.status);
+            self.bump_home_backoff(ok);
+            if ok {
+                self.home_error = None;
+            } else {
+                self.home_error = Some(
+                    result
+                        .network
+                        .clone()
+                        .unwrap_or_else(|| format!("HTTP {}", result.status)),
+                );
             }
         }
         if let Some(m) = result.network {
@@ -2149,6 +2322,62 @@ impl GithubState {
                 (None, _) => log::warn!("repo-notifs spec without ident"),
                 (_, Err(e)) => log::warn!("repo-notifs payload: {e}"),
             },
+            Kind::AccountPullRequests => {
+                // docs/0047 D2: parse the envelope, land the page. The
+                // ident carries `scope:login`; a `cursor` on the result
+                // (set by the run arm from the spec's `$after`) marks a
+                // load-more continuation — append, don't replace. The
+                // docs/0031 dedup keeps a page-1 and a load-more of the
+                // same account from ever flying at once, so an append
+                // always lands on the entry its chain built.
+                let Some((scope, login)) = result.ident.as_deref().and_then(HomeScope::from_ident)
+                else {
+                    log::warn!("home-prs: malformed ident {:?}", result.ident);
+                    return;
+                };
+                match serde_json::from_str::<gql::Envelope<gql::SearchData>>(body) {
+                    Ok(env) => {
+                        for e in &env.errors {
+                            log::warn!("home-prs: {}", e.message);
+                        }
+                        let Some(search) = env.data.and_then(|d| d.search) else {
+                            log::warn!("home-prs: search null — keeping last-known");
+                            return;
+                        };
+                        let page = gql::home_prs_page(&search);
+                        let key = (login.to_string(), scope);
+                        let appending = result.cursor.is_some();
+                        let entry = self
+                            .home_prs
+                            .entry(key)
+                            .or_insert_with(|| HomePullRequests {
+                                nodes: Vec::new(),
+                                total_count: 0,
+                                complete: true,
+                                cursor: None,
+                            });
+                        if appending {
+                            entry.nodes.extend(page.nodes);
+                        } else {
+                            entry.nodes = page.nodes;
+                        }
+                        entry.total_count = page.total_count;
+                        entry.complete = !page.has_next_page;
+                        entry.cursor = page.end_cursor;
+                        self.home_landed = Some(Instant::now());
+                        let suffix = if entry.complete { ", complete" } else { "" };
+                        log::info!(
+                            "home-prs applied: {}:{}, {} of {} open PRs{}",
+                            scope.qualifier(),
+                            login,
+                            entry.nodes.len(),
+                            entry.total_count,
+                            suffix
+                        );
+                    }
+                    Err(e) => log::warn!("home-prs payload: {e}"),
+                }
+            }
             // Page-owned kind (docs/0016 D2): the PR page parses its own
             // 200 bodies. Only non-200 results are ever forwarded here,
             // and those return in the status handling above — this arm
@@ -2431,6 +2660,21 @@ pub(crate) async fn run_spec_tracked(
         }
     };
     cx.update(|cx| status::end(cx, id));
+    result
+}
+
+/// The home lane (docs/0047 D2): one GraphQL search page. A "Load more"
+/// spec carries `$after`; the run arm copies it into [`SpecResult::cursor`]
+/// so `apply` appends the page instead of replacing the snapshot — the
+/// same continuation semantics the capped snapshot run reports.
+fn run_home_prs(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
+    let mut result = run_graphql_fetch(http, spec, gql::ACCOUNT_PULL_REQUESTS_QUERY, "home-prs");
+    result.cursor = spec
+        .variables
+        .as_ref()
+        .and_then(|v| v.get("after"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
     result
 }
 
@@ -3638,6 +3882,161 @@ mod tests {
         state.repo_cursor = None;
         let spec = state.snapshot_spec();
         assert!(spec.variables.unwrap()["cursor"].is_null());
+    }
+
+    // --- Home lane (docs/0047) ------------------------------------------
+
+    #[test]
+    fn home_open_spec_encodes_scope_query_and_ident() {
+        let state = make_state(Arc::new(MockHttp::new(vec![])));
+
+        let org = state.home_open_spec("acme", HomeScope::Org);
+        assert_eq!(org.kind, Kind::AccountPullRequests);
+        assert_eq!(org.ident.as_deref(), Some("org:acme"));
+        assert!(org.etag.is_none(), "GraphQL never etags");
+        let vars = org.variables.clone().unwrap();
+        assert_eq!(
+            vars["query"], "is:pr is:open sort:updated-desc org:acme",
+            "the account qualifier + verified sort ride the query"
+        );
+        assert!(vars["after"].is_null(), "page 1 carries no cursor");
+
+        let user = state.home_open_spec("me", HomeScope::User);
+        assert_eq!(user.ident.as_deref(), Some("user:me"));
+        assert_eq!(
+            user.variables.unwrap()["query"],
+            "is:pr is:open sort:updated-desc user:me"
+        );
+    }
+
+    #[test]
+    fn home_more_spec_carries_cursor_for_the_run_arm() {
+        let state = make_state(Arc::new(MockHttp::new(vec![])));
+        let spec = state.home_more_spec("acme", HomeScope::Org, "c9");
+        let vars = spec.variables.clone().unwrap();
+        assert_eq!(vars["after"], "c9");
+        assert_eq!(vars["query"], "is:pr is:open sort:updated-desc org:acme");
+
+        // The run arm lifts `$after` into SpecResult::cursor — apply's
+        // append-vs-replace signal (docs/0047 D2).
+        let body = r#"{"data":{"search":{"issueCount":0,"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]}}}"#;
+        let http = Arc::new(MockHttp::new(vec![gql_ok(body)]));
+        let result = run_home_prs(&*http, &spec);
+        assert_eq!(result.cursor.as_deref(), Some("c9"));
+        assert_eq!(result.status, 200);
+
+        // Page 1 reports no continuation.
+        let spec = state.home_open_spec("acme", HomeScope::Org);
+        let http = Arc::new(MockHttp::new(vec![gql_ok(body)]));
+        let result = run_home_prs(&*http, &spec);
+        assert!(result.cursor.is_none());
+    }
+
+    #[test]
+    fn home_refresh_specs_obey_clock_and_backoff() {
+        let state = make_state(Arc::new(MockHttp::new(vec![])));
+
+        // Never landed → the beat fires the first page.
+        assert!(
+            state
+                .home_refresh_specs("acme", HomeScope::Org, Duration::ZERO)
+                .is_some()
+        );
+
+        // Just landed → fresh, no-op at a real min_age.
+        let mut fresh = make_state(Arc::new(MockHttp::new(vec![])));
+        fresh.home_landed = Some(Instant::now());
+        assert!(
+            fresh
+                .home_refresh_specs("acme", HomeScope::Org, Duration::from_secs(60))
+                .is_none()
+        );
+
+        // Failed → the docs/0036 backoff gates the retry.
+        let mut failed = make_state(Arc::new(MockHttp::new(vec![])));
+        failed.bump_home_backoff(false);
+        assert!(
+            failed
+                .home_refresh_specs("acme", HomeScope::Org, Duration::ZERO)
+                .is_none()
+        );
+        failed.bump_home_backoff(true);
+        assert!(
+            failed
+                .home_refresh_specs("acme", HomeScope::Org, Duration::ZERO)
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn apply_home_prs_lands_and_appends() {
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        let page1 = r#"{"data":{"search":{"issueCount":5,"pageInfo":{"hasNextPage":true,"endCursor":"c1"},"nodes":[{"number":1,"title":"a","repository":{"nameWithOwner":"acme/one"}}]}}}"#;
+        let page2 = r#"{"data":{"search":{"issueCount":5,"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[{"number":2,"title":"b","repository":{"nameWithOwner":"acme/two"}}]}}}"#;
+
+        // Page 1 replaces.
+        state.apply(SpecResult {
+            kind: Kind::AccountPullRequests,
+            ident: Some("org:acme".into()),
+            status: 200,
+            etag: None,
+            rate: None,
+            body: Some(page1.into()),
+            network: None,
+            cursor: None,
+        });
+        let entry = state
+            .home_prs
+            .get(&("acme".into(), HomeScope::Org))
+            .unwrap();
+        assert_eq!(entry.nodes.len(), 1);
+        assert_eq!(entry.total_count, 5);
+        assert!(!entry.complete && entry.cursor.as_deref() == Some("c1"));
+        assert!(state.home_error.is_none() && state.home_landed.is_some());
+
+        // Load more appends — page-1 rows survive.
+        state.apply(SpecResult {
+            kind: Kind::AccountPullRequests,
+            ident: Some("org:acme".into()),
+            status: 200,
+            etag: None,
+            rate: None,
+            body: Some(page2.into()),
+            network: None,
+            cursor: Some("c1".into()),
+        });
+        let entry = state
+            .home_prs
+            .get(&("acme".into(), HomeScope::Org))
+            .unwrap();
+        assert_eq!(entry.nodes.len(), 2, "appended");
+        assert_eq!(entry.nodes[0].key, "acme/one#1");
+        assert_eq!(entry.nodes[1].key, "acme/two#2");
+        assert!(entry.complete);
+
+        // A failure books the lane: stale snapshot stays, error recorded,
+        // backoff armed — the docs/0047 D3 retry state.
+        state.apply(SpecResult {
+            kind: Kind::AccountPullRequests,
+            ident: Some("org:acme".into()),
+            status: 0,
+            etag: None,
+            rate: None,
+            body: None,
+            network: Some("down".into()),
+            cursor: None,
+        });
+        assert_eq!(
+            state
+                .home_prs
+                .get(&("acme".into(), HomeScope::Org))
+                .unwrap()
+                .nodes
+                .len(),
+            2
+        );
+        assert_eq!(state.home_error.as_deref(), Some("down"));
+        assert!(state.home_fail_streak > 0);
     }
 
     // --- Snapshot run + apply ------------------------------------------

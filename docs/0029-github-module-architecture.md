@@ -95,7 +95,7 @@ developers open GitHub:
 |---------|--------|
 | **No filter / sort on lists** | "Open PRs", "Open Issues", and "Notifications" lists become unusable above ~20 items. *(→ addressed by docs/0042)* |
 | **No cross-reference linking** | `#123` and `@username` in markdown body text are not auto-linked (only bare URLs via `linkify`). *(→ shipped in #195, docs/0017 §8)* |
-| **No global search** | Cannot search across repos for PRs/issues. |
+| **No global search** | Cannot search across repos for PRs/issues. *(→ account-scoped open-PR discovery shipped in #301, docs/0047 — the module home lists every open PR for the selected account via GraphQL search; cross-repo body-text search remains open.)* |
 | **Label / assignee picker caps at 50** | Large repos with many labels require scrolling without type-ahead. *(→ shipped in #197, docs/0022 D6)* |
 | **Home card doesn't route to notification page** | The card shows counts but clicking doesn't navigate. |
 
