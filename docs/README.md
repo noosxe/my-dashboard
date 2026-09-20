@@ -78,6 +78,7 @@ cross-platform, multi-modular universal personal dashboard built with Rust and
 | [0043](0043-pr-metadata-editing.md) | GitHub Module: PR Page Metadata Editing (reviewers via `requestReviews`; labels/assignees/milestone via `updatePullRequest`; 0022 picker machinery to `pickers.rs`; #189) |
 | [0044](0044-pr-creation.md) | GitHub Module: PR Creation Flow (repo-header entry; branch selects + 0024 form chrome; `createPullRequest` minimal input; same-repo v1; #191) |
 | [0045](0045-draft-persistence.md) | GitHub Module: Draft Persistence (comment boxes + issue/PR creators to `<data>/modules/github/drafts/`; 500 ms debounced auto-save, restore, clear-on-submit; amends 0024 D7; #199) |
+| [0046](0046-issue-templates.md) | GitHub Module: Issue Templates in the Creation Flow (GraphQL `issueTemplates` markdown templates + `blank_issues_enabled` via Contents API; pill picker on the issue creator; composes with 0045 drafts; #198) |
 
 ## Planned docs (roadmap, not yet written)
 
