@@ -327,3 +327,28 @@ probes in §4.5. Disclosed in the PR body; no OS-level input injection.
   drafts entirely; don't build the latter first.
 - Flush-on-quit hook if the ≤500 ms tail loss ever bites (it is the
   same accepted bound as shell state).
+
+## 10. Shipped (2026-09-19, issue #199)
+
+Implemented as designed, in one PR. The scope valve stayed shut (D7):
+exactly the four surfaces, no reply/line composers, no edit editors, no
+creator picker selections. Implementation notes beyond the design text:
+
+- **`DraftStore.delay`**: prod keeps the 500 ms constant; the test
+  constructor (`at_tmp`) uses a zero delay so probe writes land on the
+  first executor drain — gpui's test executor does not advance wall-clock
+  timers under `run_until_parking` otherwise.
+- **`DebouncedSave::cancel()`** shipped in `dashboard_core` with a
+  positive-control test (uncancelled schedule lands, cancelled one does
+  not) so the assertion cannot pass vacuously.
+- **PR comment box = one surface, two submits**: the box feeds both the
+  quick Comment and the review submits (approve / request changes), so
+  the shared `BusyOp::Comment | BusyOp::Review` success arm discards the
+  draft for both — the typed text is consumed either way.
+- **Naming**: the PR creator's handle field is `draft_handle` — its
+  `draft: bool` name was already taken by the PR draft toggle (0044).
+- Probes per surface: seeded-restore + hint → typing re-parks + hint
+  retires → submit clears the file; the creators additionally cover the
+  D6 park/restore-per-repo flow and success-clears/error-keeps.
+  Test collision-guard probe included (foreign key under a sanitized
+  filename never restores).

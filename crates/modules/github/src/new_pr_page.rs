@@ -27,7 +27,7 @@ use gpui_component::{
     button::{Button, ButtonVariants},
     checkbox::Checkbox,
     h_flex,
-    input::{Textarea, TextareaState},
+    input::{InputEvent, Textarea, TextareaState},
     searchable_list::SearchableVec,
     select::{Select, SelectState},
     spinner::Spinner,
@@ -37,6 +37,7 @@ use gpui_component::{
 use serde_json::json;
 use std::sync::Arc;
 
+use crate::drafts::{self, DraftHandle};
 use crate::gql;
 use crate::markdown;
 use crate::service::{FetchSpec, GithubState, Kind, Mutation, run_mutation, run_spec_tracked};
@@ -72,6 +73,14 @@ pub(crate) struct NewPrPage {
     pub(crate) title: Entity<TextareaState>,
     /// Body draft, markdown (optional).
     pub(crate) body: Entity<TextareaState>,
+    /// Creator draft persistence (docs/0045 D4/D8): keyed
+    /// `new-pr@<repo>`; one handle covers title + body (each change
+    /// schedules a full snapshot of both). Session-only select/draft-flag
+    /// state stays session-only (0045 D7).
+    draft_handle: DraftHandle,
+    /// A draft was restored at construction — one muted hint row on the
+    /// form card until the first real edit (0045 D4).
+    draft_restored: bool,
     /// Preview toggle: `true` swaps the body textarea for 0017 blocks of
     /// the current body, parsed once on toggle (D4 — no live reparse per
     /// keystroke).
@@ -129,12 +138,37 @@ impl NewPrPage {
             )
             .searchable(true)
         });
+        // 0045 D4/D6: restore this repo's parked draft (see the
+        // new-issue creator — same rules, `new-pr@<repo>` key).
+        let draft_handle = state.read(cx).drafts.handle(drafts::new_pr_key(&repo));
+        let restored = draft_handle.load();
+        let draft_restored = restored.is_some();
+        if let Some(payload) = restored {
+            if let Some(title_text) = payload.title {
+                title.update(cx, |state, cx| state.set_value(title_text, window, cx));
+            }
+            body.update(cx, |state, cx| state.set_value(payload.body, window, cx));
+        }
+        cx.subscribe_in(&title, window, |this, _, event: &InputEvent, _, cx| {
+            if matches!(event, InputEvent::Change) {
+                this.draft_changed(cx);
+            }
+        })
+        .detach();
+        cx.subscribe_in(&body, window, |this, _, event: &InputEvent, _, cx| {
+            if matches!(event, InputEvent::Change) {
+                this.draft_changed(cx);
+            }
+        })
+        .detach();
         let mut page = Self {
             focus_handle: cx.focus_handle(),
             state,
             node_id,
             title,
             body,
+            draft_handle,
+            draft_restored,
             preview: false,
             md: None,
             branches: None,
@@ -312,6 +346,16 @@ impl NewPrPage {
     /// on the form's error slot with the draft untouched. There is no
     /// page-side refetch — the host owns the list refetch and the new
     /// page's detail fetch re-anchors everything else.
+    /// 0045 D3/D4: a creator field changed — debounce-save the full
+    /// snapshot (title + body) and retire the restore hint.
+    fn draft_changed(&mut self, cx: &mut Context<Self>) {
+        self.draft_restored = false;
+        let title = self.title.read(cx).value().trim().to_string();
+        let body = self.body.read(cx).value().to_string();
+        let title = (!title.is_empty()).then_some(title);
+        self.draft_handle.schedule(title, body, cx);
+    }
+
     fn apply_mutation_result(
         &mut self,
         result: crate::service::SpecResult,
@@ -355,6 +399,9 @@ impl NewPrPage {
         match created {
             Some(pr) => {
                 log::info!("pr created: {}", pr.key);
+                // 0045 D5: the created PR leaves no draft behind
+                // (cancel first — no pre-submit write lands after this).
+                self.draft_handle.discard();
                 cx.emit(NewPrPageEvent::Created(Box::new(pr)));
             }
             None => {
@@ -548,6 +595,18 @@ impl Render for NewPrPage {
                             // The branch slot (D8): loading / retryable
                             // failure / truncation hint.
                             .child(self.render_branch_slot(cx))
+                            .when(self.draft_restored, |col| {
+                                col.child(
+                                    div()
+                                        .id("new-pr-draft-restored")
+                                        .debug_selector(|| "new-pr-draft-restored".to_string())
+                                        .text_xs()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child(
+                                            "Draft restored — clearing both fields discards it.",
+                                        ),
+                                )
+                            })
                             .child(Textarea::new(&self.title).w_full())
                             // Body + its Preview toggle.
                             .child(
@@ -706,6 +765,8 @@ impl Focusable for NewPrPage {
 
 #[cfg(test)]
 mod tests {
+    use crate::drafts::{self, DraftStore};
+    use crate::service::{AuthStatus, Kind, Mutation, SpecResult};
     // NOTE: no `use super::*` here — this file's `use gpui::*` would
     // shadow the builtin `#[test]` attribute (page.rs lesson). Import
     // selectively.
@@ -912,6 +973,7 @@ mod tests {
                     Default::default(),
                     Default::default(),
                     GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    DraftStore::at_tmp("new-pr-page-1"),
                 )
             });
             // The fetch gates on auth (the page would be torn down
@@ -1028,5 +1090,136 @@ mod tests {
         assert_eq!(input["headRefName"], "feat");
         assert_eq!(input["draft"], true);
         assert_eq!(input["title"], "A title");
+    }
+
+    /// Draft probe fixture (docs/0045): the test owns the `at_tmp` store.
+    fn probe_pr_creator_drafts(
+        cx: &mut gpui::TestAppContext,
+        repo: String,
+        drafts: DraftStore,
+    ) -> (gpui::Entity<NewPrPage>, &mut gpui::VisualTestContext) {
+        cx.update(gpui_component::init);
+        cx.update(dashboard_core::status::init);
+        cx.update(|cx| cx.background_executor().allow_parking());
+        let state = cx.update(|cx| {
+            let client: std::sync::Arc<dyn Http> = std::sync::Arc::new(FixtureHttp(
+                std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+            ));
+            let store: std::sync::Arc<dyn crate::auth::TokenStore> =
+                std::sync::Arc::new(ProbeStore);
+            let entity = cx.new(|_| {
+                GithubState::new(
+                    client,
+                    store,
+                    Default::default(),
+                    Default::default(),
+                    GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    drafts,
+                )
+            });
+            entity.update(cx, |s, _| s.auth = AuthStatus::Connected);
+            entity
+        });
+        cx.add_window_view(|window, cx| NewPrPage::new(state, repo, "R_9".into(), window, cx))
+    }
+
+    // docs/0045 D4/D6 — the PR creator parks its draft per repo and
+    // restores it on reopen (the 0044 sibling of the issue creator).
+    #[gpui::test]
+    fn pr_creator_draft_parks_and_restores_per_repo(cx: &mut gpui::TestAppContext) {
+        let drafts = DraftStore::at_tmp("new-pr-draft-probe");
+        let one_path;
+
+        // Park under `new-pr@acme/one`.
+        {
+            let (page, vcx) = probe_pr_creator_drafts(cx, "acme/one".into(), drafts.clone());
+            vcx.update(|window, cx| {
+                page.update(cx, |page, cx| {
+                    page.title
+                        .update(cx, |s, cx| s.set_value("PR title", window, cx));
+                    page.body
+                        .update(cx, |s, cx| s.set_value("PR body", window, cx));
+                    page.draft_changed(cx);
+                });
+            });
+            vcx.run_until_parked();
+            one_path = drafts.path_for(&drafts::new_pr_key("acme/one"));
+            let on_disk: Option<drafts::DraftPayload> =
+                dashboard_core::store::load_json(&one_path).ok().flatten();
+            let on_disk = on_disk.expect("PR creator draft parked");
+            assert_eq!(on_disk.title.as_deref(), Some("PR title"));
+            assert_eq!(on_disk.body, "PR body");
+        }
+
+        // Another repo opens empty.
+        {
+            let (other, ovcx) = probe_pr_creator_drafts(cx, "acme/two".into(), drafts.clone());
+            ovcx.update(|_, cx| {
+                other.update(cx, |page, cx| {
+                    assert_eq!(page.title.read(cx).value(), "");
+                    assert!(!page.draft_restored);
+                });
+            });
+            assert!(
+                ovcx.debug_bounds("new-pr-draft-restored").is_none(),
+                "no hint without a restore"
+            );
+        }
+
+        // Reopening the repo restores both fields + hint.
+        {
+            let (again, avcx) = probe_pr_creator_drafts(cx, "acme/one".into(), drafts.clone());
+            avcx.update(|_, cx| {
+                again.update(cx, |page, cx| {
+                    assert_eq!(page.title.read(cx).value(), "PR title");
+                    assert_eq!(page.body.read(cx).value(), "PR body");
+                    assert!(page.draft_restored);
+                });
+            });
+            assert!(
+                avcx.debug_bounds("new-pr-draft-restored").is_some(),
+                "restore hint visible"
+            );
+        }
+    }
+
+    // docs/0045 D5 — a successful PR creation clears the draft.
+    #[gpui::test]
+    fn pr_creator_draft_clears_on_success(cx: &mut gpui::TestAppContext) {
+        let drafts = DraftStore::at_tmp("new-pr-clear-probe");
+        let (page, vcx) = probe_pr_creator_drafts(cx, "o/r".into(), drafts.clone());
+        let path = drafts.path_for(&drafts::new_pr_key("o/r"));
+
+        vcx.update(|window, cx| {
+            page.update(cx, |page, cx| {
+                page.title.update(cx, |s, cx| s.set_value("T", window, cx));
+                page.draft_changed(cx);
+            });
+        });
+        vcx.run_until_parked();
+        assert!(path.exists(), "draft parked");
+
+        vcx.update(|window, cx| {
+            page.update(cx, |page, cx| {
+                page.apply_mutation_result(
+                    SpecResult {
+                        kind: Kind::PrMutation(Mutation::CreatePullRequest),
+                        ident: Some("o/r new-pr".into()),
+                        status: 200,
+                        etag: None,
+                        rate: None,
+                        body: Some(
+                            r#"{"data":{"createPullRequest":{"pullRequest":{"number":9,"title":"T","url":"u"}}}}"#
+                                .into(),
+                        ),
+                        network: None,
+                        cursor: None,
+                    },
+                    window,
+                    cx,
+                );
+            });
+        });
+        assert!(!path.exists(), "created PR leaves no draft");
     }
 }

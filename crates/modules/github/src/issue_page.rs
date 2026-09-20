@@ -79,6 +79,12 @@ pub(crate) struct IssueDetailPage {
     focus_handle: FocusHandle,
     /// Comment box draft textarea (0020 D4).
     comment: Entity<TextareaState>,
+    /// Comment-box draft persistence (docs/0045 D4/D8): keyed
+    /// `comment@<repo>#<number>`; the handle owns the debounced save.
+    draft: DraftHandle,
+    /// A draft was restored at construction — one muted hint row under
+    /// the composer until the first real edit (0045 D4).
+    draft_restored: bool,
     /// Close-reason choice (0020 Q3/D5) — built once in `new` (it needs
     /// the window), read at submit time.
     close_reason: Entity<SelectState<SearchableVec<SharedString>>>,
@@ -165,6 +171,7 @@ enum RailEditor {
 // and save computations live in the shared `pickers` module — the
 // replace-semantics logic must not fork between the two pages. This
 // page keeps its editors, renderers and gates.
+use crate::drafts::{self, DraftHandle};
 use crate::pickers::{PickerDraft, PickerFetch, PickerRow, PickerSource};
 use crate::pickers::{
     assignee_rows, compute_replace_ids, label_rows, milestone_rows, picker_row_matches,
@@ -234,6 +241,25 @@ impl IssueDetailPage {
         let assignees_search =
             cx.new(|cx| InputState::new(window, cx).placeholder("Filter assignees…"));
         let number = summary.number;
+        // 0045 D4: restore the comment draft. `set_value` suppresses
+        // events, so the prefill cannot schedule the save it came from.
+        let draft = state
+            .read(cx)
+            .drafts
+            .handle(drafts::comment_key(&repo, number));
+        let restored = draft.load();
+        let draft_restored = restored.is_some();
+        if let Some(payload) = restored {
+            comment.update(cx, |state, cx| state.set_value(payload.body, window, cx));
+        }
+        // 0045 D3/D4: comment keystrokes debounce-save the draft and
+        // retire the restore hint (the first real edit is the user's).
+        cx.subscribe_in(&comment, window, |this, _, event: &InputEvent, _, cx| {
+            if matches!(event, InputEvent::Change) {
+                this.comment_changed(cx);
+            }
+        })
+        .detach();
         let mut page = Self {
             state,
             repo,
@@ -242,6 +268,8 @@ impl IssueDetailPage {
             detail: Fetch::new(),
             focus_handle: cx.focus_handle(),
             comment,
+            draft,
+            draft_restored,
             close_reason,
             busy: None,
             mutation_error: None,
@@ -280,6 +308,14 @@ impl IssueDetailPage {
         .detach();
         page.fetch_detail(cx);
         page
+    }
+
+    /// 0045 D3/D4: the comment box changed — debounce-save the draft and
+    /// retire the restore hint.
+    fn comment_changed(&mut self, cx: &mut Context<Self>) {
+        self.draft_restored = false;
+        let body = self.comment.read(cx).value().to_string();
+        self.draft.schedule(None, body, cx);
     }
 
     /// The detail spec: one query, `owner/repo#number` identity, no ETag
@@ -1356,6 +1392,9 @@ impl IssueDetailPage {
                     // spawn kept alive for exactly this.
                     self.comment
                         .update(cx, |state, cx| state.set_value("", window, cx));
+                    // 0045 D5: the posted comment leaves no on-disk draft
+                    // (cancel first — no pre-submit write may land now).
+                    self.draft.discard();
                 }
                 IssueBusyOp::Description => {
                     self.description_edit = None;
@@ -2702,6 +2741,16 @@ impl IssueDetailPage {
                     )
                 },
             )
+            .when(self.draft_restored, |col| {
+                col.child(
+                    div()
+                        .id("issue-draft-restored")
+                        .debug_selector(|| "issue-draft-restored".to_string())
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child("Draft restored — clearing the box discards it."),
+                )
+            })
             .child(Textarea::new(&self.comment).w_full())
             .child(
                 h_flex()
@@ -3141,6 +3190,7 @@ fn empty_text(text: &str, cx: &Context<IssueDetailPage>) -> AnyElement {
 
 #[cfg(test)]
 mod tests {
+    use crate::drafts::{self, DraftStore};
     // No `use super::*` — page.rs documents the gpui::* shadowing hazard.
     use crate::gql;
     use crate::issue_page::{
@@ -3386,6 +3436,7 @@ mod tests {
                     Default::default(),
                     Default::default(),
                     GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    DraftStore::at_tmp("issue-page-1"),
                 )
             })
         });
@@ -4026,6 +4077,158 @@ mod tests {
                 assert_eq!(draft.checked, [true, true, false]);
             });
         });
+    }
+
+    /// Draft-persistence probe (docs/0045): the state entity carries an
+    /// `at_tmp` draft store the test can seed and inspect via `path_for`;
+    /// `seed` parks a draft before the page is constructed.
+    fn probe_page_drafts(
+        cx: &mut gpui::TestAppContext,
+        seed: Option<String>,
+    ) -> (
+        gpui::Entity<IssueDetailPage>,
+        &mut gpui::VisualTestContext,
+        DraftStore,
+    ) {
+        cx.update(gpui_component::init);
+        cx.update(dashboard_core::status::init);
+        let drafts = DraftStore::at_tmp("issue-draft-probe");
+        if let Some(body) = seed {
+            let payload = drafts::DraftPayload {
+                key: drafts::comment_key("o/r", 487),
+                title: None,
+                body,
+                updated_ms: 1,
+            };
+            dashboard_core::store::save_json_atomic(
+                &drafts.path_for(&drafts::comment_key("o/r", 487)),
+                &payload,
+            )
+            .unwrap();
+        }
+        let state = cx.update(|cx| {
+            let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
+            let store: std::sync::Arc<dyn crate::auth::TokenStore> =
+                std::sync::Arc::new(ProbeStore);
+            cx.new(|_| {
+                GithubState::new(
+                    client,
+                    store,
+                    Default::default(),
+                    Default::default(),
+                    GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    drafts.clone(),
+                )
+            })
+        });
+        let (page, vcx) = cx.add_window_view(|window, cx| {
+            let mut page =
+                IssueDetailPage::new(state, "o/r".into(), probe_summary(), None, window, cx);
+            page.detail = Fetch::ready(probe_issue());
+            page.md = build_issue_md_cache(&page.repo, page.detail.data().unwrap());
+            page
+        });
+        (page, vcx, drafts)
+    }
+
+    fn comment_ok() -> SpecResult {
+        SpecResult {
+            kind: Kind::PrMutation(Mutation::Comment),
+            ident: Some("o/r#7".into()),
+            status: 200,
+            etag: None,
+            rate: None,
+            body: Some(r#"{"data":{"addComment":{"clientMutationId":"x"}}}"#.into()),
+            network: None,
+            cursor: None,
+        }
+    }
+
+    // docs/0045 D4/D5 — the comment box's draft: a seeded file restores
+    // with the hint; typing re-parks the file and retires the hint; a
+    // posted comment clears it.
+    #[gpui::test]
+    fn comment_draft_restores_parks_and_submits_clear(cx: &mut gpui::TestAppContext) {
+        // The debounced write must land inside the test executor.
+        cx.update(|cx| cx.background_executor().allow_parking());
+        let (page, vcx, drafts) = probe_page_drafts(cx, Some("half-written comment".to_string()));
+        let path = drafts.path_for(&drafts::comment_key("o/r", 487));
+
+        // Restore: the textarea prefilled, the hint row visible (D4).
+        vcx.update(|_, cx| {
+            page.update(cx, |page, cx| {
+                assert_eq!(page.comment.read(cx).value(), "half-written comment");
+            });
+        });
+        assert!(
+            vcx.debug_bounds("issue-draft-restored").is_some(),
+            "restore hint visible"
+        );
+
+        // Typing re-parks with the new text (D3) and retires the hint.
+        vcx.update(|window, cx| {
+            page.update(cx, |page, cx| {
+                page.comment
+                    .update(cx, |s, cx| s.set_value("typed text", window, cx));
+                page.comment_changed(cx);
+            });
+        });
+        assert!(
+            vcx.debug_bounds("issue-draft-restored").is_none(),
+            "hint retired by the first edit"
+        );
+        vcx.run_until_parked();
+        let on_disk: Option<drafts::DraftPayload> =
+            dashboard_core::store::load_json(&path).ok().flatten();
+        assert_eq!(
+            on_disk.expect("draft parked after change").body,
+            "typed text"
+        );
+
+        // Posting the comment clears the box AND the file (D5).
+        vcx.update(|window, cx| {
+            page.update(cx, |page, cx| {
+                page.apply_mutation_result(IssueBusyOp::Comment, comment_ok(), window, cx);
+                assert!(page.comment.read(cx).value().trim().is_empty());
+            });
+        });
+        vcx.update(|_, cx| {
+            page.update(cx, |page, _| {
+                assert!(!path.exists(), "a posted comment leaves no on-disk draft");
+                assert!(!page.draft_restored);
+            });
+        });
+    }
+
+    // docs/0045 D2 — the collision guard end to end: a foreign payload
+    // under our sanitized filename must not restore.
+    #[gpui::test]
+    fn comment_draft_key_mismatch_never_restores(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| cx.background_executor().allow_parking());
+        let (page, vcx, drafts) = probe_page_drafts(cx, None);
+        let payload = drafts::DraftPayload {
+            key: drafts::comment_key("o/r", 9), // different context
+            title: None,
+            body: "not mine".into(),
+            updated_ms: 1,
+        };
+        dashboard_core::store::save_json_atomic(
+            &drafts.path_for(&drafts::comment_key("o/r", 487)),
+            &payload,
+        )
+        .unwrap();
+        // The page is already built; rebuild the restore read the same way
+        // new() does — a fresh handle on the same store.
+        let handle = drafts.handle(drafts::comment_key("o/r", 487));
+        assert!(
+            handle.load().is_none(),
+            "wrong-key payload must not restore"
+        );
+        assert!(
+            vcx.debug_bounds("issue-draft-restored").is_none(),
+            "no hint without a restore"
+        );
+        let _ = page;
     }
 
     // docs/0022 D5 — the milestone picker: rows choose single-select, an

@@ -12,6 +12,7 @@
 pub mod api;
 pub mod auth;
 pub mod card;
+pub mod drafts;
 pub mod files;
 mod filters;
 pub mod gql;
@@ -97,8 +98,9 @@ impl Module for GithubModule {
 
         // The single state entity — seeds from last-known caches and
         // resolves auth from the keychain.
-        let state =
-            cx.new(|_| GithubState::new(client, store, shared_token, shared_refresh, cache));
+        let drafts = drafts::DraftStore::new(dashboard_core::paths::AppPaths::init());
+        let state = cx
+            .new(|_| GithubState::new(client, store, shared_token, shared_refresh, cache, drafts));
 
         // 10 s service loop (docs/0038 D7) — self-gates on
         // auth/rate-limit state and refreshes per tick (0003 §3.12

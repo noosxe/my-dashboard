@@ -2737,6 +2737,7 @@ pub(crate) fn stale_chip_label(
 
 #[cfg(test)]
 mod tests {
+    use crate::drafts::DraftStore;
     // NOTE: no `use super::*` here — page.rs glob-imports `gpui::*`, whose
     // `test` re-export would shadow the builtin `#[test]` attribute and
     // blow the proc-macro stack (rustc SIGSEGV). Import selectively.
@@ -2822,6 +2823,7 @@ mod tests {
                     shared,
                     refresh,
                     GithubCache::new(AppPaths::init()),
+                    DraftStore::at_tmp("page-1"),
                 )
             })
         });
@@ -3253,6 +3255,7 @@ mod tests {
                     shared,
                     refresh,
                     GithubCache::new(AppPaths::init()),
+                    DraftStore::at_tmp("page-2"),
                 )
             })
         });
@@ -3341,6 +3344,7 @@ mod tests {
                     shared,
                     refresh,
                     GithubCache::new(AppPaths::init()),
+                    DraftStore::at_tmp("page-3"),
                 )
             })
         });
@@ -3437,6 +3441,7 @@ mod tests {
                     shared,
                     refresh,
                     GithubCache::new(AppPaths::init()),
+                    DraftStore::at_tmp("page-4"),
                 )
             });
             state.update(cx, |s, _| {
@@ -3593,6 +3598,7 @@ mod tests {
                     shared,
                     refresh,
                     GithubCache::at_tmp("rows-synced"),
+                    DraftStore::at_tmp("rows-synced"),
                 )
             });
             state.update(cx, |s, _| {
@@ -3700,6 +3706,7 @@ mod tests {
                     shared,
                     refresh,
                     cache,
+                    DraftStore::at_tmp("page-helper"),
                 )
             });
             let nav = cx.new(|_| Navigator::default());
@@ -3794,6 +3801,7 @@ mod tests {
                     shared,
                     refresh,
                     GithubCache::new(AppPaths::init()),
+                    DraftStore::at_tmp("page-5"),
                 )
             });
             state.update(cx, |s, _| s.selected = Some("acme/one".into()));
@@ -3875,6 +3883,7 @@ mod tests {
                     shared,
                     refresh,
                     GithubCache::new(AppPaths::init()),
+                    DraftStore::at_tmp("page-6"),
                 )
             });
             state.update(cx, |s, _| s.selected = Some("acme/one".into()));
@@ -4169,6 +4178,7 @@ mod tests {
                     shared,
                     refresh,
                     GithubCache::new(AppPaths::init()),
+                    DraftStore::at_tmp("page-7"),
                 )
             });
             entity.update(cx, |s, cx| {
