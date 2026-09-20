@@ -2254,12 +2254,17 @@ query RepoIssueTemplates($owner: String!, $name: String!) {
 
 /// docs/0044 D4 — the creator's branch source: one alphabetical page of
 /// head refs plus the default branch name (the natural base).
+/// docs/0044 D4 + §9 — `$query` filters server-side
+/// (`refs(query:)`, verified live: substring match on the ref name,
+/// `totalCount` reflects the filter). The default page passes null —
+/// the creator's search box swaps it in per select when the repo has
+/// more branches than one alphabetical page holds.
 pub const REPO_BRANCHES_QUERY: &str = r#"
-query RepoBranches($owner: String!, $name: String!) {
+query RepoBranches($owner: String!, $name: String!, $query: String) {
   rateLimit { cost remaining resetAt }
   repository(owner: $owner, name: $name) {
     defaultBranchRef { name }
-    refs(first: 100, refPrefix: "refs/heads/", orderBy: {field: ALPHABETICAL, direction: ASC}) {
+    refs(first: 100, refPrefix: "refs/heads/", query: $query, orderBy: {field: ALPHABETICAL, direction: ASC}) {
       totalCount
       nodes { name }
     }

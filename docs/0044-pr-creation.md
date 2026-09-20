@@ -85,7 +85,9 @@ repository's **GraphQL node id**, which `Repo.node_id` has carried since
     the same document. Open-immediately draft state (0022 §11): the
     selects render a loading row, then the names; failure renders a
     retryable in-form error (fetch errors are retryable by design —
-    never autofail).
+    never autofail). *(Amended by
+    §9: each select's search box also fires a repo-wide `refs(query:)`
+    page — see below.)*
   - Defaults once loaded: base = `defaultBranchRef.name` (fallback:
     first branch), head = first branch that differs from base.
   - Create is disabled until the title is non-empty **and** base ≠
@@ -99,8 +101,9 @@ repository's **GraphQL node id**, which `Repo.node_id` has carried since
   default, not a draft. Lane failure leaves the creator empty; creation
   never blocks.)*
   - Truncation: when `totalCount > 100` the select footer reads "first
-    100 of N branches (alphabetical)" — a hint, not a blocker; picking
-    an unlisted branch is a §9 follow-up.
+    100 of N branches (alphabetical)" — a hint, not a blocker.
+    *(Amended by §9: the search box covers the rest of the repo —
+    see below.)*
   - Failure of the mutation renders a scoped danger error on the form
     (0018 failure-copy pattern); the draft and branch choices are
     untouched.
@@ -219,6 +222,24 @@ the repo refetch. No OS-level input injection, per the bridge rules.
 - [ ] Emoji/UTF-8 in title and body round-trip.
 
 ## 9. Follow-ups (GitHub issues, not this PR)
+
+**Branch search beyond the first 100 (implemented, issue #274).** Each
+picker's search box now covers the whole repo: keystrokes (300 ms
+debounce, superseded timers dropped by generation) fetch
+`refs(first: 100, refPrefix: "refs/heads/", query: $query)` for that
+select alone — verified live as a substring filter on the ref name,
+with `totalCount` reflecting the query. The filtered page swaps into
+that select only; the sibling select keeps the default page. When the
+filtered page truncates, the slot shows "first N of M branches
+matching \"q\""; an empty search restores the in-memory default page
+(no refetch). Failures log-and-swallow — the select keeps the local
+filter's view and the default page stays authoritative (never autofail,
+D6). Mechanism: the select delegate is a SearchableVec wrapper
+(BranchSearchDelegate) whose `perform_search` pings the page; server
+substring semantics are a superset of the client's case-insensitive
+`contains`, so the two filters never disagree. Cursor pagination was
+rejected: a 10k-branch repo would pay 100 sequential round trips
+before the picker is usable.
 
 - Fork / cross-repo PRs (`headRepositoryId` + `username:branch`
   heads) — needs a fork-aware head repo picker.
