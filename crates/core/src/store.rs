@@ -106,6 +106,15 @@ impl DebouncedSave {
         }
     }
 
+    /// Invalidate every pending scheduled save without writing. The next
+    /// [`Self::schedule`] starts a fresh quiet window. docs/0045 D3/D5:
+    /// submit/discard paths call this before unlinking a draft, so a write
+    /// scheduled *before* the clear cannot land *afterwards* and resurrect
+    /// a draft for an already-posted comment.
+    pub fn cancel(&self) {
+        self.generation.fetch_add(1, Ordering::Relaxed);
+    }
+
     /// Schedule (or reschedule) a save of `value` `delay` from now.
     pub fn schedule<T: Serialize + Send + 'static>(&self, value: T, cx: &App) {
         let target_gen = self.generation.fetch_add(1, Ordering::Relaxed) + 1;
@@ -149,7 +158,7 @@ mod tests {
     use super::*;
     use serde::{Deserialize, Serialize};
 
-    #[derive(Serialize, Deserialize, PartialEq, Debug)]
+    #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
     struct Sample {
         name: String,
         count: u32,
@@ -197,6 +206,36 @@ mod tests {
         if let Some(parked) = parked {
             std::fs::remove_file(parent.join(parked)).ok();
         }
+    }
+
+    /// docs/0045 D3: `cancel()` must kill a pending scheduled write — the
+    /// generation contract that keeps a posted comment's draft from being
+    /// resurrected by a task scheduled before the submit. The positive
+    /// control (schedule without cancel lands) guards against the
+    /// assertion passing vacuously.
+    #[gpui::test]
+    fn cancel_invalidates_a_pending_schedule(cx: &mut gpui::TestAppContext) {
+        let base = temp_file("cancel");
+        let landed = temp_file("cancel-landed");
+        std::fs::remove_file(&base).ok();
+        std::fs::remove_file(&landed).ok();
+        // Zero delay: the task fires on the first executor drain — no
+        // wall-clock waits in tests.
+        let save = DebouncedSave::new(base.clone(), Duration::ZERO);
+        let control = DebouncedSave::new(landed.clone(), Duration::ZERO);
+        let value = Sample {
+            name: "x".into(),
+            count: 1,
+        };
+        cx.update(|cx| {
+            save.schedule(value.clone(), cx);
+            save.cancel();
+            control.schedule(value, cx);
+        });
+        cx.run_until_parked();
+        assert!(landed.exists(), "positive control: uncancelled save lands");
+        assert!(!base.exists(), "cancelled schedule must not write");
+        std::fs::remove_file(&landed).ok();
     }
 
     #[test]

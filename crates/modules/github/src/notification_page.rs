@@ -702,6 +702,7 @@ impl Render for NotificationDetailPage {
 
 #[cfg(test)]
 mod tests {
+    use crate::drafts::DraftStore;
     use gpui::AppContext as _;
 
     use crate::api;
@@ -888,6 +889,7 @@ mod tests {
                     Default::default(),
                     Default::default(),
                     crate::service::GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    DraftStore::at_tmp("notification-page-1"),
                 )
             });
             entity.update(cx, |s, _| s.auth = AuthStatus::Connected);

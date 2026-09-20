@@ -54,6 +54,7 @@ use std::time::Duration;
 pub(crate) const ANCHOR_FADE: Duration = Duration::from_secs(3);
 
 use crate::api::{self, PrFile};
+use crate::drafts::{self, DraftHandle};
 use crate::files::{self, FileEntry, FileListDelegate, FilesView, build_file_forest, path_matches};
 use crate::gql;
 use crate::issue_page::{reaction_chips, reaction_direction};
@@ -206,6 +207,13 @@ pub(crate) struct PrDetailPage {
     focus_handle: FocusHandle,
     /// Comment box (D4): draft textarea + action select.
     comment: Entity<TextareaState>,
+    /// Comment-box draft persistence (docs/0045 D4/D8): keyed
+    /// `comment@<repo>#<number>`; the handle owns the debounced save.
+    /// The same box feeds Comment and review submits — both clear it.
+    draft: DraftHandle,
+    /// A draft was restored at construction — one muted hint row under
+    /// the composer until the first real edit (0045 D4).
+    draft_restored: bool,
     action_select: Entity<SelectState<SearchableVec<SharedString>>>,
     /// The write path in flight (D4/D5) — one at a time; every write
     /// surface disables while set.
@@ -415,6 +423,25 @@ impl PrDetailPage {
             cx.new(|cx| ListState::new(FileListDelegate::default(), window, cx).searchable(false));
         let file_tree = cx.new(|cx| TreeState::new(cx));
         let number = summary.number;
+        // 0045 D4: restore the comment draft. `set_value` suppresses
+        // events, so the prefill cannot schedule the save it came from.
+        let draft = state
+            .read(cx)
+            .drafts
+            .handle(drafts::comment_key(&repo, number));
+        let restored = draft.load();
+        let draft_restored = restored.is_some();
+        if let Some(payload) = restored {
+            comment.update(cx, |state, cx| state.set_value(payload.body, window, cx));
+        }
+        // 0045 D3/D4: comment keystrokes debounce-save the draft and
+        // retire the restore hint (the first real edit is the user's).
+        cx.subscribe_in(&comment, window, |this, _, event: &InputEvent, _, cx| {
+            if matches!(event, InputEvent::Change) {
+                this.comment_changed(cx);
+            }
+        })
+        .detach();
         let mut page = Self {
             state,
             repo,
@@ -424,6 +451,8 @@ impl PrDetailPage {
             tab: PrTab::Conversation,
             focus_handle: cx.focus_handle(),
             comment,
+            draft,
+            draft_restored,
             action_select,
             busy: None,
             mutation_error: None,
@@ -1328,6 +1357,14 @@ impl PrDetailPage {
     /// plain comment, `addPullRequestReview` for the two review events
     /// (body optional). Gating is the same pure fn the button renders
     /// with — re-checked here as the honest guard.
+    /// 0045 D3/D4: the comment box changed — debounce-save the draft and
+    /// retire the restore hint.
+    fn comment_changed(&mut self, cx: &mut Context<Self>) {
+        self.draft_restored = false;
+        let body = self.comment.read(cx).value().to_string();
+        self.draft.schedule(None, body, cx);
+    }
+
     fn submit_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(d) = self.detail.data().cloned() else {
             return;
@@ -2539,6 +2576,9 @@ impl PrDetailPage {
                     // spawn kept alive for exactly this.
                     self.comment
                         .update(cx, |state, cx| state.set_value("", window, cx));
+                    // 0045 D5: the posted comment/review leaves no on-disk
+                    // draft (cancel first — no pre-submit write lands now).
+                    self.draft.discard();
                 }
                 BusyOp::Description => {
                     self.description_edit = None;
@@ -4332,6 +4372,16 @@ impl PrDetailPage {
                     )
                 },
             )
+            .when(self.draft_restored, |col| {
+                col.child(
+                    div()
+                        .id("pr-draft-restored")
+                        .debug_selector(|| "pr-draft-restored".to_string())
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child("Draft restored — clearing the box discards it."),
+                )
+            })
             .child(Textarea::new(&self.comment).w_full())
             .child(
                 h_flex()
@@ -5535,6 +5585,7 @@ mod tests {
     // No `use super::*` — page.rs documents the gpui::* shadowing hazard.
     use super::{ANCHOR_FADE, CommentAnchor};
     use crate::api::PrFile;
+    use crate::drafts::{self, DraftStore};
     use crate::files::{FilesSummary, files_summary, split_path};
     use crate::gql;
     use crate::gql::MergeMethods;
@@ -5644,6 +5695,7 @@ mod tests {
                     shared,
                     refresh,
                     GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    DraftStore::at_tmp("pr-page-1"),
                 )
             })
         });
@@ -5760,6 +5812,7 @@ mod tests {
                     Default::default(),
                     Default::default(),
                     GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    DraftStore::at_tmp("pr-page-2"),
                 )
             })
         });
@@ -5819,6 +5872,7 @@ mod tests {
                     Default::default(),
                     Default::default(),
                     GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    DraftStore::at_tmp("pr-page-3"),
                 )
             })
         });
@@ -5890,6 +5944,7 @@ mod tests {
                     Default::default(),
                     Default::default(),
                     GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    DraftStore::at_tmp("pr-page-4"),
                 )
             })
         });
@@ -6004,6 +6059,7 @@ mod tests {
                     Default::default(),
                     Default::default(),
                     GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    DraftStore::at_tmp("pr-page-5"),
                 )
             })
         });
@@ -6083,6 +6139,7 @@ mod tests {
                     Default::default(),
                     Default::default(),
                     GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    DraftStore::at_tmp("pr-page-6"),
                 )
             })
         });
@@ -6168,6 +6225,7 @@ mod tests {
                     Default::default(),
                     Default::default(),
                     GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    DraftStore::at_tmp("pr-page-7"),
                 )
             })
         });
@@ -6244,6 +6302,7 @@ mod tests {
                     Default::default(),
                     Default::default(),
                     GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    DraftStore::at_tmp("pr-page-8"),
                 )
             })
         });
@@ -6332,6 +6391,7 @@ mod tests {
                     Default::default(),
                     Default::default(),
                     GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    DraftStore::at_tmp("pr-page-9"),
                 )
             })
         });
@@ -6393,6 +6453,7 @@ mod tests {
                     Default::default(),
                     Default::default(),
                     GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    DraftStore::at_tmp("pr-page-10"),
                 )
             })
         });
@@ -6548,6 +6609,7 @@ mod tests {
                     Default::default(),
                     Default::default(),
                     GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    DraftStore::at_tmp("pr-page-11"),
                 )
             })
         });
@@ -6892,6 +6954,7 @@ mod tests {
                     Default::default(),
                     Default::default(),
                     GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    DraftStore::at_tmp("pr-page-12"),
                 )
             })
         });
@@ -7008,6 +7071,7 @@ mod tests {
                     Default::default(),
                     Default::default(),
                     GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    DraftStore::at_tmp("pr-page-13"),
                 )
             })
         });
@@ -7116,6 +7180,7 @@ mod tests {
                     Default::default(),
                     Default::default(),
                     GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    DraftStore::at_tmp("pr-page-14"),
                 )
             })
         });
@@ -7182,6 +7247,7 @@ mod tests {
                     Default::default(),
                     Default::default(),
                     GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    DraftStore::at_tmp("pr-page-15"),
                 )
             })
         });
@@ -7411,6 +7477,7 @@ mod tests {
                     shared,
                     refresh,
                     GithubCache::at_tmp("check-log-chain"),
+                    DraftStore::at_tmp("check-log-chain"),
                 )
             });
             state.update(cx, |s, _| s.auth = AuthStatus::Connected);
@@ -7548,6 +7615,7 @@ mod tests {
                     shared,
                     refresh,
                     GithubCache::at_tmp("check-log-fail"),
+                    DraftStore::at_tmp("check-log-fail"),
                 )
             });
             state.update(cx, |s, _| s.auth = AuthStatus::Connected);
@@ -7599,6 +7667,7 @@ mod tests {
                     shared,
                     refresh,
                     GithubCache::at_tmp("check-log-gate"),
+                    DraftStore::at_tmp("check-log-gate"),
                 )
             });
             state.update(cx, |s, _| s.auth = AuthStatus::Connected);
@@ -8128,6 +8197,7 @@ mod tests {
                     Default::default(),
                     Default::default(),
                     GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    DraftStore::at_tmp("pr-page-16"),
                 )
             })
         });
@@ -8215,6 +8285,7 @@ mod tests {
                     Default::default(),
                     Default::default(),
                     GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    DraftStore::at_tmp("pr-page-17"),
                 )
             })
         });
@@ -8295,6 +8366,7 @@ mod tests {
                     Default::default(),
                     Default::default(),
                     GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    DraftStore::at_tmp("pr-page-18"),
                 )
             })
         });
@@ -8363,6 +8435,7 @@ mod tests {
                     Default::default(),
                     Default::default(),
                     GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    DraftStore::at_tmp("pr-page-19"),
                 )
             })
         });
@@ -8475,6 +8548,7 @@ mod tests {
                     Default::default(),
                     Default::default(),
                     GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    DraftStore::at_tmp("pr-page-20"),
                 )
             })
         });
@@ -8543,6 +8617,133 @@ mod tests {
         );
     }
 
+    /// Draft-persistence probe (docs/0045): state with an `at_tmp` draft
+    /// store; `seed` parks a comment draft before the page is built.
+    fn probe_pr_drafts(
+        cx: &mut gpui::TestAppContext,
+        seed: Option<String>,
+    ) -> (
+        gpui::Entity<PrDetailPage>,
+        &mut gpui::VisualTestContext,
+        DraftStore,
+    ) {
+        cx.update(dashboard_core::status::init);
+        cx.update(gpui_component::init);
+        cx.update(|cx| cx.background_executor().allow_parking());
+        let drafts = DraftStore::at_tmp("pr-draft-probe");
+        if let Some(body) = seed {
+            let payload = drafts::DraftPayload {
+                key: drafts::comment_key("o/r", 7),
+                title: None,
+                body,
+                updated_ms: 1,
+            };
+            dashboard_core::store::save_json_atomic(
+                &drafts.path_for(&drafts::comment_key("o/r", 7)),
+                &payload,
+            )
+            .unwrap();
+        }
+        let state = cx.update(|cx| {
+            let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
+            let store: std::sync::Arc<dyn crate::auth::TokenStore> =
+                std::sync::Arc::new(ProbeStore);
+            cx.new(|_| {
+                GithubState::new(
+                    client,
+                    store,
+                    Default::default(),
+                    Default::default(),
+                    GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    drafts.clone(),
+                )
+            })
+        });
+        let (page, vcx) = cx.add_window_view(|window, cx| {
+            let summary = gql::PullRequest {
+                key: "o/r#7".into(),
+                database_id: None,
+                number: 7,
+                title: "draft probe".into(),
+                draft: false,
+                state: None,
+                author: None,
+                updated_at: None,
+                url: "https://probe".into(),
+                status: None,
+                labels: None,
+                review_requests: None,
+            };
+            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
+            let mut d = probe_detail();
+            // Keep the comment area un-muted: an armed editor state.
+            d.labels[1].id = Some("L2".into());
+            page.detail = Fetch::ready(d);
+            page.md = build_md_cache(&page.repo, page.detail.data().unwrap());
+            page
+        });
+        (page, vcx, drafts)
+    }
+
+    fn pr_comment_ok() -> SpecResult {
+        SpecResult {
+            kind: Kind::PrMutation(Mutation::Comment),
+            ident: Some("o/r#7".into()),
+            status: 200,
+            etag: None,
+            rate: None,
+            body: Some(r#"{"data":{"addComment":{"clientMutationId":"x"}}}"#.into()),
+            network: None,
+            cursor: None,
+        }
+    }
+
+    // docs/0045 D4/D5 — the PR comment box's draft: seeded file restores
+    // with the hint; typing re-parks; a posted comment clears the file.
+    #[gpui::test]
+    fn pr_comment_draft_restores_parks_and_submits_clear(cx: &mut gpui::TestAppContext) {
+        let (page, vcx, drafts) = probe_pr_drafts(cx, Some("pr half-written".to_string()));
+        let path = drafts.path_for(&drafts::comment_key("o/r", 7));
+
+        vcx.update(|_, cx| {
+            page.update(cx, |page, cx| {
+                assert_eq!(page.comment.read(cx).value(), "pr half-written");
+            });
+        });
+        assert!(
+            vcx.debug_bounds("pr-draft-restored").is_some(),
+            "hint visible"
+        );
+
+        vcx.update(|window, cx| {
+            page.update(cx, |page, cx| {
+                page.comment
+                    .update(cx, |s, cx| s.set_value("pr typed", window, cx));
+                page.comment_changed(cx);
+            });
+        });
+        assert!(
+            vcx.debug_bounds("pr-draft-restored").is_none(),
+            "hint retired by the first edit"
+        );
+        vcx.run_until_parked();
+        let on_disk: Option<drafts::DraftPayload> =
+            dashboard_core::store::load_json(&path).ok().flatten();
+        assert_eq!(on_disk.expect("draft parked").body, "pr typed");
+
+        vcx.update(|window, cx| {
+            page.update(cx, |page, cx| {
+                page.apply_mutation_result(BusyOp::Comment, pr_comment_ok(), window, cx);
+                assert!(page.comment.read(cx).value().trim().is_empty());
+            });
+        });
+        vcx.update(|_, cx| {
+            page.update(cx, |_page, _cx| {
+                assert!(!path.exists(), "posted comment leaves no on-disk draft");
+            });
+        });
+    }
+
     // #197 — the PR rail pickers share the issue page's type-ahead
     // contract (0043 D6 renderers stay page-local; the filter stays
     // view-only here too).
@@ -8562,6 +8763,7 @@ mod tests {
                     Default::default(),
                     Default::default(),
                     GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    DraftStore::at_tmp("pr-page-21"),
                 )
             })
         });

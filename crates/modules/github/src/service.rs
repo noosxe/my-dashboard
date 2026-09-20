@@ -1548,6 +1548,10 @@ pub struct GithubState {
     /// access token — keychain + slot only, never in state or logs.
     pub(crate) shared_refresh: SharedToken,
     pub(crate) cache: GithubCache,
+    /// Draft persistence root (docs/0045 D8): one small JSON file per
+    /// composer context under the module data root; pages build their
+    /// handles from it.
+    pub(crate) drafts: crate::drafts::DraftStore,
     /// Per-key in-flight guard for read dispatches (docs/0031 D1/D2):
     /// armed at dispatch, cleared when the result lands. A dispatch
     /// finding its key armed is skipped, never queued.
@@ -1563,6 +1567,7 @@ impl GithubState {
         shared_token: SharedToken,
         shared_refresh: SharedToken,
         cache: GithubCache,
+        drafts: crate::drafts::DraftStore,
     ) -> Self {
         let etags = cache.etags();
         let (auth, access_expires_at) = match store.load() {
@@ -1626,6 +1631,7 @@ impl GithubState {
             shared_token,
             shared_refresh,
             cache,
+            drafts,
         }
     }
 
@@ -2901,6 +2907,7 @@ pub fn sign_out_now(state: Entity<GithubState>, window: AnyWindowHandle, cx: &mu
 mod tests {
     use super::*;
     use crate::auth::MockTokenStore;
+    use crate::drafts::DraftStore;
     use crate::http::HttpResult;
     use crate::http::mock::{MockHttp, Recorded};
     use gpui::AppContext as _;
@@ -2916,10 +2923,11 @@ mod tests {
             shared,
             refresh,
             GithubCache::at_tmp("state"),
+            DraftStore::at_tmp("state"),
         )
     }
 
-    fn make_state_at(http: Arc<MockHttp>, cache: GithubCache) -> GithubState {
+    fn make_state_at(http: Arc<MockHttp>, cache: GithubCache, drafts: DraftStore) -> GithubState {
         let shared: SharedToken = Arc::new(std::sync::RwLock::new(Some("t0k".into())));
         let refresh: SharedToken = Arc::new(std::sync::RwLock::new(None));
         let client: Arc<dyn Http> = http;
@@ -2929,6 +2937,7 @@ mod tests {
             shared,
             refresh,
             cache,
+            drafts,
         )
     }
 
@@ -3372,6 +3381,7 @@ mod tests {
             shared,
             Arc::new(std::sync::RwLock::new(None)),
             GithubCache::at_tmp("disconnected"),
+            DraftStore::at_tmp("disconnected"),
         );
         assert!(state.plan_tick(1).is_empty());
 
@@ -4203,14 +4213,18 @@ mod tests {
     fn apply_304_restores_notifications_from_last_known() {
         let cache = GithubCache::at_tmp("s84-notifs");
         let http = Arc::new(MockHttp::new(vec![ok(one_notification(), "\"etag-1\"")]));
-        let mut first = make_state_at(http.clone(), cache.clone());
+        let mut first = make_state_at(http.clone(), cache.clone(), DraftStore::at_tmp("svc"));
         first.auth = AuthStatus::Connected;
         first.selected = Some("o/r".into());
         let spec = first.spec(Kind::Notifications, api::notifications_url(1), Some(2));
         first.apply(run_spec(&*http, &spec));
         assert_eq!(first.notifications.len(), 1);
 
-        let mut second = make_state_at(Arc::new(MockHttp::new(vec![])), cache);
+        let mut second = make_state_at(
+            Arc::new(MockHttp::new(vec![])),
+            cache,
+            DraftStore::at_tmp("svc"),
+        );
         second.selected = Some("o/r".into());
         second.apply(SpecResult {
             kind: Kind::Notifications,
@@ -4232,7 +4246,7 @@ mod tests {
     fn apply_304_restores_repo_notifications_from_last_known() {
         let cache = GithubCache::at_tmp("s84-repo-notifs");
         let http = Arc::new(MockHttp::new(vec![ok(one_notification(), "\"etag-r\"")]));
-        let mut first = make_state_at(http.clone(), cache.clone());
+        let mut first = make_state_at(http.clone(), cache.clone(), DraftStore::at_tmp("svc"));
         first.auth = AuthStatus::Connected;
         let spec = first.spec_ident(
             Kind::RepoNotifications,
@@ -4243,7 +4257,11 @@ mod tests {
         first.apply(run_spec(&*http, &spec));
         assert_eq!(first.repo_notifications.get("o/r").unwrap().len(), 1);
 
-        let mut second = make_state_at(Arc::new(MockHttp::new(vec![])), cache);
+        let mut second = make_state_at(
+            Arc::new(MockHttp::new(vec![])),
+            cache,
+            DraftStore::at_tmp("svc"),
+        );
         second.apply(SpecResult {
             kind: Kind::RepoNotifications,
             ident: Some("o/r".into()),
@@ -4380,7 +4398,11 @@ mod tests {
     #[test]
     fn snapshot_v2_seeds_a_new_state() {
         let cache = GithubCache::at_tmp("seed");
-        let mut state = make_state_at(Arc::new(MockHttp::new(vec![])), cache.clone());
+        let mut state = make_state_at(
+            Arc::new(MockHttp::new(vec![])),
+            cache.clone(),
+            DraftStore::at_tmp("svc"),
+        );
         state.user = Some(User {
             login: "noosxe".into(),
             avatar_url: "a".into(),
@@ -4396,7 +4418,11 @@ mod tests {
         state.persist_snapshot();
 
         // A fresh state over the same cache root seeds instantly (Q6).
-        let seeded = make_state_at(Arc::new(MockHttp::new(vec![])), cache);
+        let seeded = make_state_at(
+            Arc::new(MockHttp::new(vec![])),
+            cache,
+            DraftStore::at_tmp("svc"),
+        );
         assert_eq!(seeded.user.as_ref().unwrap().login, "noosxe");
         assert_eq!(seeded.orgs.len(), 2);
         assert_eq!(seeded.repos.len(), 1);
@@ -4522,7 +4548,11 @@ mod tests {
         cache.put(gql::SNAPSHOT_CACHE_KEY, &snapshot);
         backdate(&cache, "notifications");
         backdate(&cache, gql::SNAPSHOT_CACHE_KEY);
-        let mut state = make_state_at(Arc::new(MockHttp::new(vec![])), cache);
+        let mut state = make_state_at(
+            Arc::new(MockHttp::new(vec![])),
+            cache,
+            DraftStore::at_tmp("svc"),
+        );
         assert!(state.snapshot_age.unwrap().as_secs() >= 2 * 3600 - 5);
         assert!(state.notifications_age.unwrap().as_secs() >= 2 * 3600 - 5);
 
@@ -4564,6 +4594,7 @@ mod tests {
             shared.clone(),
             refresh.clone(),
             GithubCache::at_tmp("signout"),
+            DraftStore::at_tmp("signout"),
         );
         state.auth = AuthStatus::Connected;
         state.repos = vec![repo("o/r")];
@@ -4600,7 +4631,14 @@ mod tests {
         tag: &str,
     ) -> GithubState {
         let client: Arc<dyn Http> = Arc::new(MockHttp::new(vec![]));
-        GithubState::new(client, store, slots.0, slots.1, GithubCache::at_tmp(tag))
+        GithubState::new(
+            client,
+            store,
+            slots.0,
+            slots.1,
+            GithubCache::at_tmp(tag),
+            DraftStore::at_tmp(tag),
+        )
     }
 
     fn result_401() -> SpecResult {
@@ -5018,6 +5056,7 @@ mod tests {
                 token,
                 refresh,
                 GithubCache::at_tmp(tag),
+                DraftStore::at_tmp(tag),
             )
         })
     }
