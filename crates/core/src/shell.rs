@@ -119,6 +119,17 @@ impl DashboardShell {
             }
         }
         self.nav.update(cx, |nav, cx| nav.go(page, cx));
+        self.focus_root(window, cx);
+    }
+
+    /// The shell root takes keyboard focus after a page switch: the
+    /// abandoned deep view may have held focus and just unmounted, and
+    /// gpui dispatches key actions along the focused node's path — a
+    /// dead focus falls back to the window root, which is ABOVE this
+    /// shell's `on_action` handlers, so global bindings (Alt+←/→) would
+    /// silently die (the reported second-press hang).
+    fn focus_root(&self, window: &mut Window, cx: &mut Context<Self>) {
+        window.focus(&self.focus_handle, cx);
     }
 
     /// Back/forward cursor moves (docs/0048 D5): the Navigator switched
@@ -138,14 +149,21 @@ impl DashboardShell {
         }
     }
 
+    // Back/forward refocus the root BEFORE re-activating the landed
+    // route: a deep restore that hands focus to its sub-view (the PR
+    // page's Esc affordance) steals it back from the root; anything
+    // else — module root, repo view, shell pages — keeps the root
+    // focused. Either way focus is alive on a node inside the shell.
     fn go_back(&mut self, _: &nav::Back, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(route) = self.nav.update(cx, |nav, cx| nav.back(cx)) {
+            self.focus_root(window, cx);
             self.activate_route(&route, window, cx);
         }
     }
 
     fn go_forward(&mut self, _: &nav::Forward, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(route) = self.nav.update(cx, |nav, cx| nav.forward(cx)) {
+            self.focus_root(window, cx);
             self.activate_route(&route, window, cx);
         }
     }
@@ -568,8 +586,8 @@ mod tests {
     use std::sync::Arc;
 
     use gpui::{
-        App, AppContext as _, Context, InteractiveElement as _, IntoElement, Render,
-        TestAppContext, Window, div,
+        App, AppContext as _, Context, InteractiveElement as _, IntoElement, ParentElement as _,
+        Render, TestAppContext, Window, div,
     };
 
     use super::DashboardShell;
@@ -587,11 +605,23 @@ mod tests {
         static LOG: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
     }
 
+    // The deep view's focus handle: painted while present, so a Back
+    // that collapses it mirrors the PR page's focus-steal-then-unmount
+    // (the reported Alt+← dead second press).
+    thread_local! {
+        static DEEP: RefCell<Option<gpui::FocusHandle>> = const { RefCell::new(None) };
+    }
+
     struct FakePage;
 
     impl Render for FakePage {
         fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-            div().id("fake-page")
+            match DEEP.with(|deep| deep.borrow().clone()) {
+                Some(handle) => div()
+                    .id("fake-page")
+                    .child(div().id("fake-deep").track_focus(&handle)),
+                None => div().id("fake-page"),
+            }
         }
     }
 
@@ -615,6 +645,7 @@ mod tests {
         }
 
         fn collapse(&self, _window: &mut Window, _cx: &mut App) {
+            DEEP.with(|deep| *deep.borrow_mut() = None);
             Self::push("collapse".into());
         }
     }
@@ -702,10 +733,76 @@ mod tests {
             vec!["collapse", "restore:x"],
             "Back restores the deep leaf"
         );
+
         vcx.update(|_, cx| {
             nav.read_with(cx, |nav, _| {
                 assert!(matches!(nav.page, Page::Module(ref id) if id.as_ref() == "fake"));
             });
         });
+    }
+
+    /// The reported hang (Alt+← dead on the second press): the deep view
+    /// (PR page) steals focus when opened; Back #1 collapses it, so the
+    /// focused node unmounts. Press #2 must still dispatch — through the
+    /// real keystroke pipeline, not the handler method the button uses.
+    #[gpui::test]
+    fn back_keystroke_survives_the_deep_view_unmounting(cx: &mut TestAppContext) {
+        LOG.with(|log| log.borrow_mut().clear());
+        cx.update(|cx| {
+            gpui_component::theme::init(cx);
+            crate::settings::init(None, None, cx);
+            crate::status::init(cx);
+        });
+        let nav = cx.update(|cx| cx.new(|_| Navigator::default()));
+        let (shell, vcx) = {
+            let nav = nav.clone();
+            cx.add_window_view(|window, cx| {
+                let registry =
+                    ModuleRegistry::new().with::<FakeModule>(&nav, window, AppPaths::init(), cx);
+                DashboardShell::new(registry, nav, ShellState::default(), None, window, cx)
+            })
+        };
+
+        // The user's flow: module root, then a deep place whose view
+        // paints a focusable child and steals focus onto it.
+        vcx.update(|window, cx| {
+            let handle = cx.focus_handle();
+            DEEP.with(|deep| *deep.borrow_mut() = Some(handle.clone()));
+            nav.update(cx, |nav, cx| {
+                nav.go(Page::Module("fake".into()), cx);
+                nav.visit(
+                    Route::module_place("fake", "deep:x", Arc::new("x".to_string())),
+                    cx,
+                );
+            });
+            window.focus(&handle, cx);
+        });
+
+        // Back #1 (keyboard): lands on the module root and collapses the
+        // deep view — its focused child unmounts with the collapse.
+        vcx.simulate_keystrokes("alt-left");
+        let log = LOG.with(|log| log.borrow().clone());
+        assert_eq!(log, vec!["collapse"], "keystroke #1 collapsed");
+        vcx.update(|_, cx| {
+            nav.read_with(cx, |nav, _| {
+                assert!(matches!(nav.page, Page::Module(ref id) if id.as_ref() == "fake"));
+            });
+        });
+        // The repaint that drops the unmounted deep view.
+        vcx.update(|window, cx| window.draw(cx).clear(cx));
+
+        // Back #2 (keyboard): the previously focused node is gone from
+        // the frame — dispatch must still reach the shell (→ Home).
+        vcx.simulate_keystrokes("alt-left");
+        vcx.update(|_, cx| {
+            nav.read_with(cx, |nav, _| {
+                assert!(
+                    matches!(nav.page, Page::Home),
+                    "second Alt+← must land on Home, got {:?}",
+                    nav.page
+                );
+            });
+        });
+        let _ = &shell;
     }
 }
