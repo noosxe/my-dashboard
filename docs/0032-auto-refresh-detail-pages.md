@@ -1,5 +1,11 @@
 # 0032 — Auto-refresh detail pages (heartbeat + focus, #188)
 
+> **Amended by docs/0052** (no-autorefresh): the heartbeat half of D1/D3
+> is deleted — nothing fetches on a timer. The **focus trigger** (the
+> window-activation entry point, 15 s floor) survives as the only
+> automatic detail refresh; sub-pages now expose
+> `refresh_if_stale(min_age)` instead of `auto_refresh(engaged, …)`.
+
 | | |
 |---|---|
 | Issue | #188 (consumers of 0031's `Fetch` record: also closes #194, refresh-on-focus) |

@@ -45,11 +45,12 @@ text: no interaction, so no `id`/role (docs/0010 D10) — only a `debug_selector
 (`pr-synced` / `issue-synced` / `notification-synced`) so probes and the bridge can see
 it.
 
-**D4 — No new timers: the beat is the clock.** A ticking label needs re-renders; the
-auto-refresh loop already wakes every 60s while the page is open and nav-active, and
-every trigger funnels through the pages' `auto_refresh(min_age)`. That method therefore
-ends with an unconditional `cx.notify()` — even when the policy skipped every lane — so
-the label re-renders at most ~60s stale while the page is on screen. The in-app
+**D4 — No content timer: the render-only wake is the clock.** A ticking label needs
+re-renders. *(Amended by docs/0052 D6: the auto-refresh heartbeat this decision leaned
+on is deleted; the module root and the home card now carry a 30s **render-only wake**
+— `cx.notify()` on a timer, zero specs — so the label advances without a fetch. The
+surviving `refresh_if_stale` still ends with an unconditional `cx.notify()` for the
+refocus path.)* The in-app The in-app
 timestamps never pretend to be clocks; a fresh `land()` also notifies through its apply
 path, so user-visible refreshes update the label immediately.
 

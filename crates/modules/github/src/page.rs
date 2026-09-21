@@ -50,41 +50,11 @@ use crate::service::{
     LandedClock, ThreadOp, run_read_deduped, run_spec_tracked, start_connect,
 };
 
-/// docs/0038 D3: the heartbeat wake — 10 s, with every lane deciding
-/// via `wants_refresh` (an idle wake dispatches nothing). Cadences are
-/// exact multiples of the tick, so nothing drifts.
-const HEARTBEAT_TICK: Duration = Duration::from_secs(10);
-/// docs/0032 D1, unchanged by the engaged tier (docs/0038 D3): the
-/// focus trigger's eager floor — on activation every lane younger than
-/// this skips, older fires, engaged or not.
-const FOCUS_MIN_AGE: Duration = Duration::from_secs(15);
-/// docs/0038 D3: engaged cadences. REST lanes revalidate for free (304s
-/// don't count against the primary rate limit — docs/0005 §3.3);
-/// GraphQL lanes pay points, so they poll at half the pace (budget
-/// math: docs/0038 D6).
-const ENGAGED_REST_MIN_AGE: Duration = Duration::from_secs(10);
-const ENGAGED_GQL_MIN_AGE: Duration = Duration::from_secs(30);
-
-/// Which upstream transport a lane rides — the engaged tier's price
-/// difference (docs/0038 D3/D6).
-#[derive(Clone, Copy)]
-pub(crate) enum LaneClass {
-    /// REST: conditional revalidation, 304s are free.
-    Rest,
-    /// GraphQL: every poll pays points.
-    Gql,
-}
-
-/// docs/0038 D3: per-lane cadence — the whole engaged tier is this pure
-/// function plus the wake constant. The idle branch is every lane's
-/// today-behavior; engagement only ever shortens the age threshold.
-pub(crate) fn lane_min_age(class: LaneClass, engaged: bool) -> Duration {
-    match (class, engaged) {
-        (_, false) => crate::service::IDLE_MIN_AGE,
-        (LaneClass::Rest, true) => ENGAGED_REST_MIN_AGE,
-        (LaneClass::Gql, true) => ENGAGED_GQL_MIN_AGE,
-    }
-}
+/// docs/0052 D6: the age-label clock — a render-only wake. Repaints
+/// advance the relative ages ("synced 2 m ago", #192 / docs/0033 D4);
+/// it never dispatches a spec (D1 forbids timer-driven fetches, not
+/// repaints).
+pub(crate) const RENDER_WAKE: Duration = Duration::from_secs(30);
 
 /// The home view's truncation hint (docs/0047 D4): `None` when the
 /// snapshot is complete; otherwise "first N of M", or the cap copy once
@@ -312,6 +282,9 @@ impl GithubPage {
             this.last_module_active = active;
             if edge {
                 this.fetch_home_prs_shown(cx);
+                // docs/0052 D5: module view-shown fires the bell's
+                // lane too (age-gated — a fresh one skips).
+                this.fetch_notifications_in(cx);
             }
         })
         .detach();
@@ -326,48 +299,34 @@ impl GithubPage {
             // surface — its lane refreshes (docs/0031 dedup absorbs
             // a collision with the edge fetch).
             this.fetch_home_prs(window, cx);
+            // docs/0052 D5: crumb re-entry is a view-shown edge too.
+            this.fetch_notifications_if_stale(window, cx);
         })
         .detach();
 
-        // Auto-refresh triggers (docs/0032 D1/D3): one host-owned
-        // heartbeat and one window-activation observer. Both funnel into
-        // `refresh_open_page`, which is nav-gated so nothing refetches
-        // while another module owns the screen — pages stay alive behind
-        // other modules, which is exactly why the gate lives here.
+        // docs/0052 D4 — fetch on app refocus: the window-activation
+        // observer is the (only) automatic refresh trigger left after the
+        // heartbeat's deletion (D1). It funnels into `refresh_open_page`,
+        // which is nav-gated so nothing refetches while another module
+        // owns the screen — pages stay alive behind other modules, which
+        // is exactly why the gate lives there.
+        cx.observe_window_activation(window, |this, window, cx| {
+            if window.is_window_active() {
+                this.refresh_open_page(cx);
+            }
+        })
+        .detach();
+        // docs/0052 D6 — the render-only wake: relative ages advance
+        // without a fetch. The loop dies with the module root.
         cx.spawn(async move |this, cx| {
             loop {
-                cx.background_executor().timer(HEARTBEAT_TICK).await;
-                if this
-                    .update(cx, |this, cx| {
-                        // docs/0038 D2: engagement is focus + a detail
-                        // page — the focus half lives state-side
-                        // (docs/0038 D7, shared with the card), the
-                        // open check is page-local.
-                        let engaged = this.state.read(cx).focus_engaged && this.detail_open();
-                        this.refresh_open_page(engaged, None, cx);
-                    })
-                    .is_err()
-                {
-                    break; // the module root is gone — stop beating
+                cx.background_executor().timer(RENDER_WAKE).await;
+                if this.update(cx, |_, cx| cx.notify()).is_err() {
+                    break;
                 }
             }
         })
         .detach();
-        cx.observe_window_activation(window, |this, window, cx| {
-            // docs/0038 D2/D7: focus is the engagement signal — pushed
-            // into state so the service tick reads it too — then the
-            // focus trigger's eager floor, unchanged (docs/0032 D1).
-            let active = window.is_window_active();
-            this.state.update(cx, |s, _| s.focus_engaged = active);
-            if active {
-                this.refresh_open_page(active, Some(FOCUS_MIN_AGE), cx);
-            }
-        })
-        .detach();
-        // docs/0038 D7: seed the engagement flag from the real window
-        // state — the observers only fire on edges, so a window born
-        // focused would otherwise idle forever.
-        state.update(cx, |s, _| s.focus_engaged = window.is_window_active());
         // Shared quick filter (docs/0042 D5): one input narrows all
         // three boxes; every keystroke is a plain in-memory rescan.
         let row_search =
@@ -417,23 +376,11 @@ impl GithubPage {
         page
     }
 
-    /// A detail page is open (docs/0038 D2) — the engaged tier's
-    /// page-local half (the focus half lives state-side, docs/0038 D7).
-    fn detail_open(&self) -> bool {
-        self.pr.is_some() || self.issue.is_some() || self.notification.is_some()
-    }
-
-    /// docs/0032 D1: the heartbeat/focus entry point — refresh whichever
-    /// detail page is open, only while the github module owns the screen.
-    /// docs/0038 D3: `engaged` selects the per-lane cadence (the
-    /// sub-pages know their transport classes); a forced `min_age` —
-    /// the focus trigger's eager floor — overrides it for every lane.
-    fn refresh_open_page(
-        &mut self,
-        engaged: bool,
-        force_min_age: Option<Duration>,
-        cx: &mut Context<Self>,
-    ) {
+    /// docs/0052 D4: the refocus entry point — refresh whichever page is
+    /// open, only while the github module owns the screen, every lane
+    /// at the `FOCUS_MIN_AGE` floor (rapid alt-tabbing must not become a
+    /// cadence). This is the only automatic refresh trigger left (D1).
+    fn refresh_open_page(&mut self, cx: &mut Context<Self>) {
         if !matches!(
             self.nav.read(cx).page,
             Page::Module(ref id) if id.as_ref() == "github"
@@ -441,34 +388,37 @@ impl GithubPage {
             return;
         }
         // The rate-limit pause (and auth loss / a pending proactive
-        // refresh) silences the whole beat — the same gate the tick
-        // loop obeys (docs/0036 D4): a background heartbeat never
-        // feeds an exhausted point budget.
+        // refresh) silences the whole trigger — the same gate the tick
+        // loop obeys (docs/0036 D4): a refocus never feeds an
+        // exhausted point budget.
         if self.state.read(cx).gated() {
             return;
         }
         // Mutual exclusion (docs/0020 D1) — at most one slot is Some.
-        // The sub-pages pick per-lane cadences from the engagement
-        // inputs; the repo rows stay on the idle cadence (docs/0038
-        // N3/D7) unless the focus floor forces them eager.
+        // The sub-pages refresh their lanes behind one floor (docs/0052
+        // D3): `refresh_if_stale(FOCUS_MIN_AGE)`.
         if let Some(page) = self.pr.as_ref() {
-            page.update(cx, |p, cx| p.auto_refresh(engaged, force_min_age, cx));
+            page.update(cx, |p, cx| {
+                p.refresh_if_stale(crate::service::FOCUS_MIN_AGE, cx)
+            });
         } else if let Some(page) = self.issue.as_ref() {
-            page.update(cx, |p, cx| p.auto_refresh(engaged, force_min_age, cx));
+            page.update(cx, |p, cx| {
+                p.refresh_if_stale(crate::service::FOCUS_MIN_AGE, cx)
+            });
         } else if let Some(page) = self.notification.as_ref() {
-            page.update(cx, |p, cx| p.auto_refresh(engaged, force_min_age, cx));
+            page.update(cx, |p, cx| {
+                p.refresh_if_stale(crate::service::FOCUS_MIN_AGE, cx)
+            });
         } else if let Some(full) = self.state.read(cx).selected.clone() {
-            let rows_min_age = force_min_age.unwrap_or(crate::service::IDLE_MIN_AGE);
             // No slot open, a repo selected: the module main page is
-            // the list surface — refresh its rows when stale
-            // (docs/0035 D2). The beat is windowless, so the dispatch
-            // hops through the stored window handle (the connect-flow
-            // hop); the ident-keyed dedup absorbs a collision with a
-            // just-fired open (docs/0031).
-            if let Some(specs) = self
-                .state
-                .update(cx, |s, _| s.repo_rows_refresh_specs(&full, rows_min_age))
-            {
+            // the list surface — refresh its rows when stale (docs/0035
+            // D2, at the refocus floor). The observer runs windowless,
+            // so the dispatch hops through the stored window handle (the
+            // connect-flow hop); the ident-keyed dedup absorbs a
+            // collision with a just-fired open (docs/0031).
+            if let Some(specs) = self.state.update(cx, |s, _| {
+                s.repo_rows_refresh_specs(&full, crate::service::FOCUS_MIN_AGE)
+            }) {
                 let window = self.window;
                 let page = cx.entity();
                 cx.spawn(async move |_this, cx| {
@@ -480,13 +430,11 @@ impl GithubPage {
             }
         } else if let Some((login, scope)) = self.home_account(cx) {
             // No detail page, no repo selected: the home view is the list
-            // surface (docs/0047 D3) — same idle cadence as the repo rows
-            // (docs/0038 N3/D7), the focus floor forcing it eager.
-            let min_age = force_min_age.unwrap_or(crate::service::IDLE_MIN_AGE);
-            if let Some(specs) = self
-                .state
-                .update(cx, |s, _| s.home_refresh_specs(&login, scope, min_age))
-            {
+            // surface (docs/0047 D3) — same refocus floor as the repo
+            // rows.
+            if let Some(specs) = self.state.update(cx, |s, _| {
+                s.home_refresh_specs(&login, scope, crate::service::FOCUS_MIN_AGE)
+            }) {
                 let window = self.window;
                 let page = cx.entity();
                 cx.spawn(async move |_this, cx| {
@@ -562,6 +510,41 @@ impl GithubPage {
             .state
             .update(cx, |s, _| vec![s.home_open_spec(&login, scope)]);
         self.run_specs(specs, window, cx);
+    }
+
+    /// docs/0052 D5: the global notifications lane's view-shown fire —
+    /// module open re-shows the surface the bell summarizes; the
+    /// state-side gate (pause, backoff, `FOCUS_MIN_AGE`) decides whether
+    /// a spec comes back at all.
+    fn fetch_notifications_if_stale(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let specs = self.state.update(cx, |s, _| {
+            s.notifications_spec_if_stale(crate::service::FOCUS_MIN_AGE)
+                .map(|spec| vec![spec])
+                .unwrap_or_default()
+        });
+        self.run_specs(specs, window, cx);
+    }
+
+    /// The windowless view-shown hop (docs/0052 D5): the nav observer
+    /// carries no window, so the dispatch rides the stored handle — the
+    /// same hop the connect flow uses.
+    fn fetch_notifications_in(&mut self, cx: &mut Context<Self>) {
+        let specs = self.state.update(cx, |s, _| {
+            s.notifications_spec_if_stale(crate::service::FOCUS_MIN_AGE)
+                .map(|spec| vec![spec])
+                .unwrap_or_default()
+        });
+        if specs.is_empty() {
+            return;
+        }
+        let window = self.window;
+        let page = cx.entity();
+        cx.spawn(async move |_this, cx| {
+            let _ = window.update(cx, |_, window, cx| {
+                page.update(cx, |this, cx| this.run_specs(specs, window, cx));
+            });
+        })
+        .detach();
     }
 
     /// "Load more" (docs/0047 D4): the next page for the current
@@ -4072,13 +4055,13 @@ mod tests {
     }
     // --- auto-refresh host gating (docs/0032 D1) --------------------------
 
-    /// The heartbeat/focus entry point is nav-gated and slot-gated: no
-    /// dispatch while another module owns the screen, none with no page
-    /// open, one per beat while the github module shows an open page.
+    /// docs/0052 D4: the refocus entry point is nav-gated and
+    /// slot-gated: no dispatch while another module owns the screen,
+    /// none with no page open, one per surface on refocus while the
+    /// github module shows an open page.
     #[gpui::test]
     fn refresh_open_page_gates_on_nav_and_slots(cx: &mut TestAppContext) {
         use std::sync::Arc;
-        use std::time::Duration;
 
         use crate::auth::MockTokenStore;
         use crate::http::mock::MockHttp;
@@ -4156,22 +4139,16 @@ mod tests {
         assert_eq!(mock.recorded().len(), 1, "the eager detail fetch only");
 
         // Another module owns the screen (Navigator defaults to Home):
-        // the beat must not touch the open page.
-        cx.update(|_, cx| {
-            page.update(cx, |p, cx| {
-                p.refresh_open_page(false, Some(Duration::ZERO), cx)
-            })
-        });
+        // the refocus must not touch the open page.
+        cx.update(|_, cx| page.update(cx, |p, cx| p.refresh_open_page(cx)));
         assert_eq!(mock.recorded().len(), 1, "nav-inactive beats are no-ops");
 
         // The github module active + a failed detail lane whose last
-        // attempt is fresh (docs/0036 D2): the beat no longer fires it
-        // — the first retry waits out the backoff.
+        // attempt is fresh (docs/0036 D2): the refocus no longer fires
+        // it — the first retry waits out the backoff.
         cx.update(|_, cx| {
             nav.update(cx, |n, _| n.page = Page::Module("github".into()));
-            page.update(cx, |p, cx| {
-                p.refresh_open_page(false, Some(Duration::ZERO), cx)
-            });
+            page.update(cx, |p, cx| p.refresh_open_page(cx));
         });
         cx.run_until_parked();
         assert_eq!(
@@ -4185,9 +4162,7 @@ mod tests {
         cx.update(|_, cx| {
             page.update(cx, |p, _| p.pr = None);
             state.update(cx, |s, _| s.rate_limited_until = Some(u64::MAX / 2));
-            page.update(cx, |p, cx| {
-                p.refresh_open_page(false, Some(Duration::ZERO), cx)
-            });
+            page.update(cx, |p, cx| p.refresh_open_page(cx));
         });
         cx.run_until_parked();
         assert_eq!(
@@ -4202,9 +4177,7 @@ mod tests {
         // notifications) dispatches (docs/0035 D2).
         cx.update(|_, cx| {
             state.update(cx, |s, _| s.rate_limited_until = None);
-            page.update(cx, |p, cx| {
-                p.refresh_open_page(false, Some(Duration::ZERO), cx)
-            });
+            page.update(cx, |p, cx| p.refresh_open_page(cx));
         });
         cx.run_until_parked();
         assert_eq!(
@@ -4213,36 +4186,96 @@ mod tests {
             "selected repo: the row pair refreshes on the beat"
         );
 
-        // Landed rows make the beat a no-op (docs/0035 D1): with a
-        // real min_age, a just-landed entry is fresh. (ZERO can never
-        // be fresh — stale-at->= — hence the 60s here.)
+        // Landed rows make the refocus a no-op (docs/0035 D1): a
+        // just-landed entry is younger than the 15 s floor.
         cx.update(|_, cx| {
             state.update(cx, |s, _| {
                 s.rows_landed
                     .insert("acme/one".into(), std::time::Instant::now());
             });
-            page.update(cx, |p, cx| {
-                p.refresh_open_page(false, Some(Duration::from_secs(60)), cx)
-            });
+            page.update(cx, |p, cx| p.refresh_open_page(cx));
         });
         cx.run_until_parked();
         assert_eq!(mock.recorded().len(), 3, "fresh rows: beat is a no-op");
     }
 
-    #[test]
-    fn lane_min_age_table() {
-        use std::time::Duration;
+    /// docs/0052 D5: the module view-shown notifications fire — the
+    /// nav-edge call sites run through the state-side gate: fresh or
+    /// backed-off lanes dispatch nothing, aged lanes dispatch the page.
+    #[gpui::test]
+    fn module_view_shown_fires_notifications_when_stale(cx: &mut TestAppContext) {
+        use std::time::{Duration, Instant};
 
-        use crate::page::{LaneClass, lane_min_age};
+        use crate::auth::MockTokenStore;
+        use crate::http::mock::MockHttp;
+        use crate::http::{Http, HttpResult, SharedToken};
+        use crate::service::{AuthStatus, GithubCache, GithubState};
+        use dashboard_core::nav::{Navigator, Page};
+        use dashboard_core::paths::AppPaths;
 
-        // Idle is today's behavior for every lane (docs/0038 D3).
-        for class in [LaneClass::Rest, LaneClass::Gql] {
-            assert_eq!(lane_min_age(class, false), Duration::from_secs(60));
-        }
-        // Engaged: REST revalidates free at full pace, GraphQL pays
-        // points at half pace (docs/0038 D6).
-        assert_eq!(lane_min_age(LaneClass::Rest, true), Duration::from_secs(10));
-        assert_eq!(lane_min_age(LaneClass::Gql, true), Duration::from_secs(30));
+        cx.update(gpui_component::init);
+        cx.update(dashboard_core::status::init);
+        let cx = cx.add_empty_window();
+
+        // Two view-shown fires, both landing an empty first page.
+        let mock = Arc::new(MockHttp::new(vec![
+            Ok(HttpResult {
+                status: 200,
+                etag: Some("\"v1\"".into()),
+                rate: None,
+                body: Some("[]".into()),
+            }),
+            Ok(HttpResult {
+                status: 200,
+                etag: Some("\"v1\"".into()),
+                rate: None,
+                body: Some("[]".into()),
+            }),
+        ]));
+        let (state, _nav, page) = cx.update(|window, cx| {
+            let shared: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let refresh: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let state = cx.new(|_| {
+                GithubState::new(
+                    mock.clone() as Arc<dyn Http>,
+                    Arc::new(MockTokenStore::with("t0k".into())),
+                    shared,
+                    refresh,
+                    GithubCache::new(AppPaths::init()),
+                    DraftStore::at_tmp("page-ns-view"),
+                )
+            });
+            state.update(cx, |s, _| {
+                s.auth = AuthStatus::Connected;
+                // Hermetic: keep the tick's bootstrap arm and the
+                // docs/0047 D3 module-open home fetch out of the ledger.
+                s.needs_bootstrap = false;
+                s.orgs.clear();
+                s.user = None;
+            });
+            let nav = cx.new(|_| Navigator::new(false));
+            nav.update(cx, |n, _| n.page = Page::Module("github".into()));
+            let page = cx.new(|cx| GithubPage::new(state.clone(), nav.clone(), window, cx));
+            (state, nav, page)
+        });
+
+        // Never landed: the view-shown fire dispatches the page.
+        cx.update(|window, cx| page.update(cx, |p, cx| p.fetch_notifications_if_stale(window, cx)));
+        cx.run_until_parked();
+        assert_eq!(mock.recorded().len(), 1, "never landed: the lane fires");
+
+        // Landed just now: inside the 15 s floor — no dispatch.
+        cx.update(|window, cx| page.update(cx, |p, cx| p.fetch_notifications_if_stale(window, cx)));
+        cx.run_until_parked();
+        assert_eq!(mock.recorded().len(), 1, "fresh lane skips");
+
+        // Aged past the floor: the lane fires again.
+        state.update(cx, |s, _| {
+            s.notifications_landed = Some(Instant::now() - Duration::from_secs(20))
+        });
+        cx.update(|window, cx| page.update(cx, |p, cx| p.fetch_notifications_if_stale(window, cx)));
+        cx.run_until_parked();
+        assert_eq!(mock.recorded().len(), 2, "aged lane fires");
     }
 
     // docs/0037 D6: the repo page's freshness cluster — the synced
@@ -5200,7 +5233,20 @@ mod tests {
                     .to_string(),
             ),
         };
-        let http = Arc::new(MockHttp::new(vec![Ok(totals_body()), Ok(totals_body())]));
+        // docs/0052 D5: the re-show edge also fires the bell's
+        // notifications lane (never landed this session) — one REST
+        // page lands the empty list.
+        let notifications_body = || HttpResult {
+            status: 200,
+            etag: None,
+            rate: None,
+            body: Some("[]".to_string()),
+        };
+        let http = Arc::new(MockHttp::new(vec![
+            Ok(totals_body()),
+            Ok(totals_body()),
+            Ok(notifications_body()),
+        ]));
         let (state, nav) = cx.update(|cx| {
             let shared: SharedToken = Arc::new(std::sync::RwLock::new(None));
             let refresh: SharedToken = Arc::new(std::sync::RwLock::new(None));
@@ -5250,7 +5296,11 @@ mod tests {
             nav.update(cx, |nav, cx| nav.go(Page::Home, cx));
         });
         flush(vcx);
-        assert_eq!(http.recorded().len(), 2, "the re-show edge refetched");
+        assert_eq!(
+            http.recorded().len(),
+            3,
+            "the re-show edge refetched totals and fired the bell's lane"
+        );
     }
 
     fn flush(vcx: &mut gpui::VisualTestContext) {

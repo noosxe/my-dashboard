@@ -1,5 +1,10 @@
 # 0035 — List-surface auto-refresh (repo, PR, issue, notification rows) (#224)
 
+> **Amended by docs/0052** (no-autorefresh): the list heartbeat is
+> deleted — list surfaces refresh on **view-shown**, **app refocus**
+> (15 s floor), or **manual refresh** only; the idle cadence lanes are
+> gone. The docs/0031 dedup and docs/0036 backoff gates are unchanged.
+
 | | |
 |---|---|
 | Issue | #224 (deferred from docs/0032 §2 non-goals) |

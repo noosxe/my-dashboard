@@ -63,6 +63,9 @@ impl GithubCard {
             this.last_home_active = active;
             if edge {
                 this.fire_card_totals(cx);
+                // docs/0052 D5: view-shown fires the bell's lane too
+                // (age-gated — the module's fire keeps it fresh).
+                this.fire_notifications_if_stale(cx);
             }
         })
         .detach();
@@ -75,18 +78,35 @@ impl GithubCard {
             this.last_connected = connected;
             if reconnected && this.last_home_active {
                 this.fire_card_totals(cx);
+                // docs/0052 D5: same for the bell's lane.
+                this.fire_notifications_if_stale(cx);
             }
         })
         .detach();
-        // docs/0038 D7: the card is the ever-visible monitoring surface
-        // — it co-maintains the engagement flag (the service tick reads
-        // it) even when the module page is closed. Seeded from the real
-        // window state: the observers only fire on edges.
-        let active = window.is_window_active();
-        state.update(cx, |s, _| s.focus_engaged = active);
+        // docs/0052 D4 — fetch on app refocus: the card is the app
+        // home page's surface, so window activation fires its lanes
+        // (totals + the bell's notifications, both at the 15 s floor —
+        // the state-side gates decide; the home-active check keeps a
+        // module-screen refocus off the card's lanes).
         cx.observe_window_activation(window, |this, window, cx| {
-            let active = window.is_window_active();
-            this.state.update(cx, |s, _| s.focus_engaged = active);
+            if !window.is_window_active() || !this.last_home_active {
+                return;
+            }
+            this.fire_card_totals_if_stale(cx);
+            this.fire_notifications_if_stale(cx);
+        })
+        .detach();
+        // docs/0052 D6 — the render-only wake: relative ages advance
+        // without a fetch. The loop dies with the card.
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(crate::page::RENDER_WAKE)
+                    .await;
+                if this.update(cx, |_, cx| cx.notify()).is_err() {
+                    break;
+                }
+            }
         })
         .detach();
         this
@@ -102,6 +122,49 @@ impl GithubCard {
         if gated {
             return;
         }
+        let state = self.state.clone();
+        let window = self.window;
+        cx.spawn(async move |_this, cx| {
+            if let Some(result) = run_read_deduped(state.clone(), spec, cx).await {
+                cx.update(|cx| {
+                    state.update(cx, |s, cx| {
+                        s.apply(result);
+                        cx.notify();
+                    })
+                });
+                let _ = window.update(cx, |_, window, _| window.refresh());
+            }
+        })
+        .detach();
+    }
+
+    /// docs/0052 D4: the refocus floor on the totals lane — a card
+    /// younger than `FOCUS_MIN_AGE` skips (the view-shown edges above
+    /// fire unconditionally; activation must not become a cadence).
+    fn fire_card_totals_if_stale(&mut self, cx: &mut Context<Self>) {
+        let fresh = self
+            .state
+            .read(cx)
+            .card_totals
+            .as_ref()
+            .is_some_and(|t| t.landed.elapsed() < crate::service::FOCUS_MIN_AGE);
+        if fresh {
+            return;
+        }
+        self.fire_card_totals(cx);
+    }
+
+    /// docs/0052 D5: the bell's lane on the card's triggers — the same
+    /// state-side gate the module's view-shown fire uses (pause, backoff,
+    /// floor), then the same dispatch shape as the totals lane.
+    fn fire_notifications_if_stale(&mut self, cx: &mut Context<Self>) {
+        let Some(spec) = self
+            .state
+            .read(cx)
+            .notifications_spec_if_stale(crate::service::FOCUS_MIN_AGE)
+        else {
+            return;
+        };
         let state = self.state.clone();
         let window = self.window;
         cx.spawn(async move |_this, cx| {
