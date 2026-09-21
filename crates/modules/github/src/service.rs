@@ -47,19 +47,15 @@ use crate::gql::{self, Org, Repo, User};
 use crate::http::{Http, HttpError, RateLimit, SharedToken, Verb};
 use crate::usage::{UsageLedger, parse_rate_limit_body};
 
-/// Tick cadence (docs/0038 D7): a 10 s wake — the lanes decide what
-/// fires, so an idle minute is six no-op policy checks. List cadences
-/// are exact multiples of the tick, so nothing drifts. The first beat
-/// still runs immediately on open (docs/0005 Q7).
+/// Tick cadence (docs/0052 D1): a 10 s wake for the non-content duties
+/// only — pause clearing, token arming, the free usage probe, the
+/// bootstrap arm. No lane fetches because this timer elapsed. The
+/// first beat still runs immediately on open (docs/0005 Q7).
 pub const TICK: Duration = Duration::from_secs(10);
-/// triggers own the GraphQL lanes (docs/0051 D4).
-/// docs/0038 D7: the global notifications lane's engaged cadence —
-/// 304s are free (docs/0005 §3.3), so the card's rows can run near-live
-/// for nothing.
-pub(crate) const ENGAGED_LIST_MIN_AGE: Duration = Duration::from_secs(10);
-/// The idle cadence every lane falls back to when the window is not
-/// focused (docs/0038 D2/D3) — today's behavior, unchanged.
-pub(crate) const IDLE_MIN_AGE: Duration = Duration::from_secs(60);
+/// docs/0052 D4: the refocus floor — on window activation every
+/// visible lane younger than this skips, older fires. Kept from
+/// docs/0032 D1: rapid alt-tabbing must not become a cadence.
+pub(crate) const FOCUS_MIN_AGE: Duration = Duration::from_secs(15);
 /// Page cap for the REST notifications pagination (docs/0005 §7).
 const MAX_PAGES: u32 = 10;
 /// Proactive refresh lead (docs/0011 Q7): the tick loop refreshes the
@@ -674,17 +670,6 @@ impl<T> Fetch<T> {
         let mut f = Self::new();
         f.land(data);
         f
-    }
-
-    /// Tests backdate the landed clock instead of waiting out real
-    /// cadences (the `attempted_at` pattern from docs/0036 — docs/0038
-    /// D3's engagement tests need ages between the engaged and idle
-    /// floors).
-    #[cfg(test)]
-    pub(crate) fn backdate_fetched(&mut self, ago: std::time::Duration) {
-        if let FetchStatus::Ready { fetched_at, .. } = &mut self.status {
-            *fetched_at -= ago;
-        }
     }
 
     pub(crate) fn begin(&mut self) {
@@ -1656,16 +1641,10 @@ pub struct GithubState {
     /// page's `run_specs` landing arm for the repo-lane kinds.
     pub(crate) rows_fail_streak: u32,
     pub(crate) rows_attempted_at: Option<Instant>,
-    /// docs/0038 D7: engagement = the window is focused. Maintained by
-    /// the page and card activation observers (the service owns no
-    /// window handle); the constructors seed it from the real window
-    /// state — the observers only fire on edges, so a window born
-    /// focused would otherwise idle forever.
-    pub(crate) focus_engaged: bool,
-    /// docs/0038 D7: the global notifications lane's clocks — the
-    /// landed stamp age-gates the tick's spec, the 0036 pair backs off
-    /// a failing engaged lane. The lane has no `Fetch` record; its
-    /// books live here beside the repo-rows pair's.
+    /// docs/0052 D5: the global notifications lane's clocks — the
+    /// landed stamp age-gates the view-shown/refocus triggers' specs,
+    /// the 0036 pair backs off a failing lane. The lane has no `Fetch`
+    /// record; its books live here beside the repo-rows pair's.
     pub(crate) notifications_landed: Option<Instant>,
     pub(crate) notifications_fail_streak: u32,
     pub(crate) notifications_attempted_at: Option<Instant>,
@@ -1774,7 +1753,6 @@ impl GithubState {
             rows_landed: BTreeMap::new(),
             rows_fail_streak: 0,
             rows_attempted_at: None,
-            focus_engaged: false,
             notifications_landed: None,
             notifications_fail_streak: 0,
             notifications_attempted_at: None,
@@ -1882,33 +1860,38 @@ impl GithubState {
         if self.gated() {
             return specs;
         }
-        // docs/0038 D7: the global notifications lane — age-gated by
-        // its landed clock at the engaged/idle cadence, backoff-gated
-        // like every lane (docs/0036). The tick wake is just a
-        // heartbeat; the lane decides.
-        let list_min_age = if self.focus_engaged {
-            ENGAGED_LIST_MIN_AGE
-        } else {
-            IDLE_MIN_AGE
-        };
-        let list_backed_off = self.notifications_attempted_at.is_some_and(|at| {
+        // docs/0052 D1: the tick plans no content lanes —
+        // notifications moved to the view-shown/refocus/manual
+        // triggers (docs/0052 D5, `notifications_spec_if_stale`).
+        specs
+    }
+
+    /// docs/0052 D5: the global notifications lane's trigger gate —
+    /// the view-shown and refocus call sites ask for the spec; `None`
+    /// means skip (paused, backed off per docs/0036, or younger than
+    /// the caller's floor). The tick's old cadence arm, extracted.
+    pub(crate) fn notifications_spec_if_stale(&self, min_age: Duration) -> Option<FetchSpec> {
+        if self.gated() {
+            return None;
+        }
+        let backed_off = self.notifications_attempted_at.is_some_and(|at| {
             self.notifications_fail_streak > 0
                 && at.elapsed()
                     < dashboard_core::freshness::backoff_delay(self.notifications_fail_streak)
         });
-        if list_backed_off {
+        if backed_off {
             log::debug!("notifications: backed off — the lane waits");
-        } else if self
-            .notifications_landed
-            .is_none_or(|at| at.elapsed() >= list_min_age)
-        {
-            specs.push(self.spec(
-                Kind::Notifications,
-                api::notifications_url(1),
-                Some(MAX_PAGES),
-            ));
+            return None;
         }
-        specs
+        self.notifications_landed
+            .is_none_or(|at| at.elapsed() >= min_age)
+            .then(|| {
+                self.spec(
+                    Kind::Notifications,
+                    api::notifications_url(1),
+                    Some(MAX_PAGES),
+                )
+            })
     }
 
     /// The session inventory spec (docs/0051 D3): identity + orgs + repo
@@ -3092,9 +3075,11 @@ pub(crate) async fn run_mutation(
     run_spec_tracked(state, spec, cx).await
 }
 
-/// The 60-second service loop (Q7/Q8): plan → (drain) → background-run →
-/// apply. Self-gates on auth state and rate-limit windows; a proactive
-/// refresh armed by planning drains in the same tick (docs/0028 §3.4).
+/// The 10-second service loop (docs/0005 Q7/Q8, docs/0052 D1): plan →
+/// (drain) → background-run → apply. The plan carries only non-content
+/// duties — pause clearing, token arming, the free usage probe, the
+/// bootstrap arm; a proactive refresh armed by planning drains in the
+/// same tick (docs/0028 §3.4).
 pub fn spawn_tick_loop(state: Entity<GithubState>, window: AnyWindowHandle, cx: &mut App) {
     cx.spawn(async move |cx| {
         let mut tick: u64 = 0;
@@ -3831,91 +3816,55 @@ mod tests {
         assert_eq!(notif.max_pages, MAX_PAGES);
         assert!(!state.needs_bootstrap);
 
-        // docs/0051 D6: no periodic GraphQL refetch — the snapshot's
-        // 30-tick cycle is gone; notifications stay the only heartbeat
-        // lane (docs/0038 D7).
-        for tick in 2..=4 {
-            assert_eq!(
-                state
-                    .plan_tick(tick)
-                    .iter()
-                    .map(|s| s.kind)
-                    .collect::<Vec<_>>(),
-                vec![Kind::Notifications]
+        // docs/0052 D1: the tick plans no content lanes — the snapshot's
+        // old 30-tick cycle and the notifications cadence are both gone;
+        // notifications fire on the view-shown/refocus triggers (D5).
+        for tick in 2..=30 {
+            assert!(
+                state.plan_tick(tick).is_empty(),
+                "tick {tick}: no content specs"
             );
         }
-        assert_eq!(
-            state
-                .plan_tick(29)
-                .iter()
-                .map(|s| s.kind)
-                .collect::<Vec<_>>(),
-            vec![Kind::Notifications]
-        );
-        assert_eq!(
-            state
-                .plan_tick(30)
-                .iter()
-                .map(|s| s.kind)
-                .collect::<Vec<_>>(),
-            vec![Kind::Notifications]
-        );
     }
 
-    // docs/0038 D7: the list lane's engagement and backoff gates —
-    // focus shortens the age floor, a failure delays the lane no matter
-    // how engaged (docs/0036's shared delay).
+    // docs/0052 D5: the trigger gate's floor and backoff — the
+    // view-shown/refocus call sites ask the state; a failure delays the
+    // lane no matter how stale (docs/0036's shared delay), the pause
+    // silences it entirely.
     #[test]
-    fn notifications_lane_engagement_and_backoff_table() {
+    fn notifications_trigger_gate_table() {
         use std::time::{Duration, Instant};
 
         let mut state = make_state(Arc::new(MockHttp::new(vec![])));
         state.auth = AuthStatus::Connected;
 
-        let wants_notifications = |s: &mut GithubState| {
-            s.plan_tick(2)
-                .iter()
-                .any(|spec| spec.kind == Kind::Notifications)
+        let wants = |s: &GithubState| {
+            s.notifications_spec_if_stale(FOCUS_MIN_AGE)
+                .is_some_and(|spec| spec.kind == Kind::Notifications)
         };
 
-        // Never landed: stale at any cadence.
-        assert!(wants_notifications(&mut state));
+        // Never landed: the first view-shown fires.
+        assert!(wants(&state));
 
-        // Landed just now: fresh at both cadences.
+        // Landed just now: inside the 15 s floor — skip.
         state.notifications_landed = Some(Instant::now());
-        assert!(!wants_notifications(&mut state), "idle: fresh lane skips");
-        state.focus_engaged = true;
-        assert!(
-            !wants_notifications(&mut state),
-            "engaged: fresh lane skips"
-        );
+        assert!(!wants(&state), "fresh lane skips");
 
-        // Aged 11 s: engaged fires, idle still sees fresh (60 s floor).
-        state.notifications_landed = Some(Instant::now() - Duration::from_secs(11));
-        assert!(
-            wants_notifications(&mut state),
-            "engaged: past the 10 s floor"
-        );
-        state.focus_engaged = false;
-        assert!(
-            !wants_notifications(&mut state),
-            "idle: inside the 60 s floor"
-        );
+        // Aged past the floor: the refocus fires.
+        state.notifications_landed = Some(Instant::now() - Duration::from_secs(20));
+        assert!(wants(&state), "past the 15 s floor");
 
-        // Backoff beats engagement: a failed lane waits out the shared
-        // delay even engaged and stale.
-        state.focus_engaged = true;
+        // Backoff beats staleness: a failed lane waits out the shared
+        // delay even aged and stale.
         state.notifications_fail_streak = 1;
         state.notifications_attempted_at = Some(Instant::now());
-        assert!(
-            !wants_notifications(&mut state),
-            "a failed lane waits out the backoff"
-        );
+        assert!(!wants(&state), "a failed lane waits out the backoff");
         state.notifications_attempted_at = Some(Instant::now() - Duration::from_secs(61));
-        assert!(
-            wants_notifications(&mut state),
-            "past the streak-1 delay the lane re-fires"
-        );
+        assert!(wants(&state), "past the streak-1 delay the lane re-fires");
+
+        // The rate-limit pause silences the trigger (docs/0036 D4).
+        state.rate_limited_until = Some(u64::MAX);
+        assert!(!wants(&state), "the pause gates the trigger");
     }
 
     // docs/0038 D7: a 304 counts as success in the lane's books — the

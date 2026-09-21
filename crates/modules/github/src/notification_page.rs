@@ -45,7 +45,6 @@ use gpui_component::{
 
 use crate::api;
 use crate::page::notification_url;
-use crate::page::{LaneClass, lane_min_age};
 use dashboard_core::freshness::{Freshness, freshness_row, relative_age};
 use std::time::Duration;
 
@@ -332,22 +331,15 @@ impl NotificationDetailPage {
         .detach();
     }
 
-    /// docs/0032 D2/D4: the host heartbeat and focus trigger land here.
-    pub(crate) fn auto_refresh(
-        &mut self,
-        engaged: bool,
-        force_min_age: Option<Duration>,
-        cx: &mut Context<Self>,
-    ) {
-        // One composed gate (docs/0037 D4) — see pr_page::auto_refresh.
-        // docs/0038 D4: REST lane — the engaged tier rides free 304s,
-        // full pace.
-        let rest_min = force_min_age.unwrap_or_else(|| lane_min_age(LaneClass::Rest, engaged));
-        if self.thread.wants_refresh(rest_min) {
+    /// docs/0052 D3: the refocus trigger lands here.
+    pub(crate) fn refresh_if_stale(&mut self, min_age: Duration, cx: &mut Context<Self>) {
+        // One composed gate (docs/0037 D4) — see pr_page::refresh_if_stale.
+        if self.thread.wants_refresh(min_age) {
             self.fetch_thread(cx);
         }
-        // The #192 label's clock: even a skipped beat re-renders the
-        // header so the relative age advances (docs/0033 D4).
+        // A skipped refocus still re-renders so the relative age
+        // advances alongside the render-only wake (docs/0033 D4,
+        // docs/0052 D6).
         cx.notify();
     }
 
@@ -979,51 +971,20 @@ mod tests {
         assert!(vcx.read(|cx| page.read(cx).read));
     }
 
-    // --- auto_refresh (docs/0032 D2/D4) -----------------------------------
+    // --- refresh_if_stale (docs/0052 D3) ---------------------------------
 
     #[gpui::test]
-    #[gpui::test]
-    fn engaged_tier_shortens_the_rest_lane(cx: &mut gpui::TestAppContext) {
+    fn refresh_if_stale_dispatches_stale_and_skips_fresh(cx: &mut gpui::TestAppContext) {
         use std::time::Duration;
-        // docs/0038 D3: the landed record is 35 s old — inside the idle
-        // floor (60 s), outside the engaged one (10 s). Engagement
-        // alone decides; the forced floor (the focus trigger's path)
-        // would fire it regardless.
-        let mock = lane_mock(0, 200, thread_payload("Issue", Some("u"), false));
-        let (page, vcx) = probe_page(cx, probe_seed(false, "Issue", Some("u")), mock.clone());
-        vcx.run_until_parked();
-        vcx.update(|_, cx| {
-            page.update(cx, |p, _| {
-                p.thread.backdate_fetched(Duration::from_secs(35))
-            });
-        });
-
-        vcx.update(|_, cx| {
-            page.update(cx, |p, cx| p.auto_refresh(false, None, cx));
-        });
-        vcx.run_until_parked();
-        assert_eq!(mock.verbs().len(), 1, "idle: 35 s is inside the 60 s floor");
-
-        vcx.update(|_, cx| {
-            page.update(cx, |p, cx| p.auto_refresh(true, None, cx));
-        });
-        vcx.run_until_parked();
-        assert_eq!(mock.verbs().len(), 2, "engaged: past the 10 s floor");
-    }
-
-    #[gpui::test]
-    fn auto_refresh_dispatches_stale_and_skips_fresh(cx: &mut gpui::TestAppContext) {
-        use std::time::Duration;
-        // Zero threshold = "stale enough" — the beat dispatches; a huge
-        // one sees the just-landed record as fresh and must not fetch.
+        // Zero threshold = "stale enough" — the refocus dispatches; a
+        // huge one sees the just-landed record as fresh and must not
+        // fetch.
         let mock = lane_mock(0, 200, thread_payload("Issue", Some("u"), false));
         let (page, vcx) = probe_page(cx, probe_seed(false, "Issue", Some("u")), mock.clone());
         vcx.run_until_parked();
         assert_eq!(mock.verbs(), vec![Verb::Get], "the open-time GET only");
 
-        vcx.update(|_, cx| {
-            page.update(cx, |p, cx| p.auto_refresh(false, Some(Duration::ZERO), cx))
-        });
+        vcx.update(|_, cx| page.update(cx, |p, cx| p.refresh_if_stale(Duration::ZERO, cx)));
         vcx.run_until_parked();
         assert_eq!(
             mock.verbs(),
@@ -1033,7 +994,7 @@ mod tests {
 
         vcx.update(|_, cx| {
             page.update(cx, |p, cx| {
-                p.auto_refresh(false, Some(Duration::from_secs(3600)), cx)
+                p.refresh_if_stale(Duration::from_secs(3600), cx)
             })
         });
         vcx.run_until_parked();
@@ -1045,7 +1006,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn auto_refresh_backoffs_a_failed_thread_then_self_heals(cx: &mut gpui::TestAppContext) {
+    fn refresh_if_stale_backoffs_a_failed_thread_then_self_heals(cx: &mut gpui::TestAppContext) {
         use std::time::Duration;
         // The GET fails -> Failed record. The next trigger no longer
         // re-fires on the spot: the first retry waits out the backoff
@@ -1057,7 +1018,7 @@ mod tests {
 
         vcx.update(|_, cx| {
             page.update(cx, |p, cx| {
-                p.auto_refresh(false, Some(Duration::from_secs(3600)), cx)
+                p.refresh_if_stale(Duration::from_secs(3600), cx)
             })
         });
         vcx.run_until_parked();
@@ -1076,7 +1037,7 @@ mod tests {
         });
         vcx.update(|_, cx| {
             page.update(cx, |p, cx| {
-                p.auto_refresh(false, Some(Duration::from_secs(3600)), cx)
+                p.refresh_if_stale(Duration::from_secs(3600), cx)
             })
         });
         vcx.run_until_parked();

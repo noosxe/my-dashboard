@@ -1,5 +1,13 @@
 # 0038 — Realtime detail pages: engaged conditional polling
 
+> **Superseded by docs/0052** (no-autorefresh). The engaged tier —
+> `LaneClass`, `lane_min_age`, the per-transport cadence tables (D3/D6),
+> the engagement flag and the notifications cadence arm (D7) — is
+> deleted. Detail pages refresh on open, refocus (15 s floor), or
+> manual request; "realtime" is no longer a goal. What survives from
+> this doc unchanged: the REST/GQL price observations (§2) and the
+> `wants_refresh`+backoff composition the surviving triggers still use.
+
 | | |
 |---|---|
 | **Issue** | #226 (deferred from docs/0032 §2 Non-goals) |

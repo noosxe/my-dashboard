@@ -59,7 +59,6 @@ use crate::files::{self, FileEntry, FileListDelegate, FilesView, build_file_fore
 use crate::gql;
 use crate::issue_page::{reaction_chips, reaction_direction};
 use crate::markdown;
-use crate::page::{LaneClass, lane_min_age};
 use crate::pickers::{
     PickerDraft, PickerFetch, PickerRow, PickerSource, assignee_rows, compute_replace_ids,
     label_rows, milestone_rows, picker_row_matches, reviewer_rows,
@@ -1210,34 +1209,27 @@ impl PrDetailPage {
         .detach();
     }
 
-    /// docs/0032 D2: the host heartbeat and focus trigger land here —
-    /// each lane re-dispatches by its own record (stale or failed);
+    /// docs/0052 D3: the refocus trigger lands here — each lane
+    /// re-dispatches by its own record (stale or failed, docs/0032 D2);
     /// unopened (Idle) lanes stay untouched.
-    pub(crate) fn auto_refresh(
-        &mut self,
-        engaged: bool,
-        force_min_age: Option<Duration>,
-        cx: &mut Context<Self>,
-    ) {
+    pub(crate) fn refresh_if_stale(&mut self, min_age: Duration, cx: &mut Context<Self>) {
         // One composed gate (docs/0037 D4): stale-or-failed (0032 D2)
         // AND past backoff (0036 D2) — the policy lives in core, the
-        // call-site is one line per lane. docs/0038 D3: the engaged
-        // tier shortens the threshold per transport class — detail and
-        // threads are GraphQL (paid, half pace), files is REST (free
-        // 304s, full pace).
-        let gql_min = force_min_age.unwrap_or_else(|| lane_min_age(LaneClass::Gql, engaged));
-        let rest_min = force_min_age.unwrap_or_else(|| lane_min_age(LaneClass::Rest, engaged));
-        if self.detail.wants_refresh(gql_min) {
+        // call-site is one line per lane, one floor for every lane
+        // (docs/0052 D3 — the transport classes only priced the deleted
+        // cadences).
+        if self.detail.wants_refresh(min_age) {
             self.fetch_detail(cx);
         }
-        if self.files.wants_refresh(rest_min) {
+        if self.files.wants_refresh(min_age) {
             self.fetch_files(cx);
         }
-        if self.threads.wants_refresh(gql_min) {
+        if self.threads.wants_refresh(min_age) {
             self.fetch_threads(cx);
         }
-        // The #192 label's clock: even a fully-skipped beat re-renders the
-        // header so the relative age advances (docs/0033 D4).
+        // A skipped refocus still re-renders so the relative age
+        // advances alongside the render-only wake (docs/0033 D4,
+        // docs/0052 D6).
         cx.notify();
     }
 
@@ -5677,15 +5669,15 @@ mod tests {
 
     // --- fetch_detail through the guard (docs/0031 §5, #222 regression) -
 
-    // --- auto_refresh policy (docs/0032 D2) -------------------------------
+    // --- refresh_if_stale policy (docs/0052 D3) ----------------------------
 
     /// One page, the whole policy table over real dispatches: stale and
     /// failed lanes re-dispatch, a fresh lane never does, Idle lanes
     /// (threads here) stay untouched, and the in-flight guard swallows a
-    /// beat that races a manual refresh. MockHttp records every request;
+    /// refocus that races a manual refresh. MockHttp records every request;
     /// its script panics on unexpected ones.
     #[gpui::test]
-    fn auto_refresh_policy_over_real_dispatches(cx: &mut gpui::TestAppContext) {
+    fn refresh_if_stale_policy_over_real_dispatches(cx: &mut gpui::TestAppContext) {
         use std::sync::Arc;
         use std::time::Duration;
 
@@ -5700,8 +5692,8 @@ mod tests {
         // on the outstanding task.
         cx.update(|cx| cx.background_executor().allow_parking());
         // 1: the eager detail fetch at `new` (fails -> streak 1); 2: the
-        // beat's files dispatch (also fails -> streak 1); 3+4: the
-        // backdated beat retries both failed lanes (docs/0036 D2).
+        // refocus's files dispatch (also fails -> streak 1); 3+4: the
+        // backdated refocus retries both failed lanes (docs/0036 D2).
         let mock = Arc::new(MockHttp::new(vec![
             Err(crate::http::HttpError("probe".into())),
             Err(crate::http::HttpError("probe".into())),
@@ -5749,11 +5741,11 @@ mod tests {
             })
         });
 
-        // Beat at zero threshold: the detail lane's last attempt is
+        // Refocus at zero threshold: the detail lane's last attempt is
         // fresh — its first retry waits out the backoff (docs/0036 D2);
         // files (stale enough, never failed) dispatch; threads (Idle —
         // never opened) must not.
-        cx.update(|cx| page.update(cx, |p, cx| p.auto_refresh(false, Some(Duration::ZERO), cx)));
+        cx.update(|cx| page.update(cx, |p, cx| p.refresh_if_stale(Duration::ZERO, cx)));
         cx.run_until_parked();
         assert_eq!(
             mock.recorded().len(),
@@ -5761,12 +5753,12 @@ mod tests {
             "failed lane backoffs, stale dispatch, Idle skips"
         );
 
-        // Beat at an hour threshold with both lanes freshly failed
+        // Refocus at an hour threshold with both lanes freshly failed
         // (the files dispatch just failed too): both are in backoff —
-        // the beat is quiet.
+        // the refocus is quiet.
         cx.update(|cx| {
             page.update(cx, |p, cx| {
-                p.auto_refresh(false, Some(Duration::from_secs(3600)), cx)
+                p.refresh_if_stale(Duration::from_secs(3600), cx)
             })
         });
         cx.run_until_parked();
@@ -5782,14 +5774,14 @@ mod tests {
                 p.files.attempted_at = back;
             });
             page.update(cx, |p, cx| {
-                p.auto_refresh(false, Some(Duration::from_secs(3600)), cx)
+                p.refresh_if_stale(Duration::from_secs(3600), cx)
             });
         });
         cx.run_until_parked();
         assert_eq!(mock.recorded().len(), 4, "backoff elapsed: lanes rejoin");
 
-        // A beat racing a manual refresh: with every other lane fresh,
-        // arm the detail key as if a dispatch were in flight — the beat
+        // A refocus racing a manual refresh: with every other lane fresh,
+        // arm the detail key as if a dispatch were in flight — the refocus
         // must swallow it and dispatch nothing.
         cx.update(|cx| {
             page.update(cx, |p, _| {
@@ -5800,11 +5792,11 @@ mod tests {
                 s.in_flight_arm(detail);
             });
             page.update(cx, |p, cx| {
-                p.auto_refresh(false, Some(Duration::from_secs(3600)), cx)
+                p.refresh_if_stale(Duration::from_secs(3600), cx)
             });
         });
         cx.run_until_parked();
-        assert_eq!(mock.recorded().len(), 4, "the guard ate the racing beat");
+        assert_eq!(mock.recorded().len(), 4, "the guard ate the racing refocus");
     }
 
     /// A page-owned fetch arms the guard synchronously, dispatches on the
