@@ -3,12 +3,14 @@
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
-use gpui_component::{ActiveTheme, Sizable as _, button::Button, spinner::Spinner, v_flex};
+use gpui_component::{
+    ActiveTheme, Sizable as _, button::Button, skeleton::Skeleton, spinner::Spinner, v_flex,
+};
 
 use dashboard_core::nav::{Navigator, Page};
 
 use crate::page::stale_chip_label;
-use crate::service::{AuthStatus, ConnectPhase, GithubState, start_connect};
+use crate::service::{AuthStatus, ConnectPhase, GithubState, run_read_deduped, start_connect};
 
 pub(crate) const GITHUB_MARK: &str = "icons/github.svg";
 /// Private-repo lock glyph (octicon lock-16, @primer/octicons 19.33.0).
@@ -25,6 +27,13 @@ pub(crate) fn github_mark(cx: &App) -> impl IntoElement {
 pub(crate) struct GithubCard {
     state: Entity<GithubState>,
     nav: Entity<Navigator>,
+    /// View-shown edge tracking (docs/0051 D4): the card fires its
+    /// totals lane when the home page (re)becomes the active page.
+    last_home_active: bool,
+    /// Auth edge tracking: a reconnect while home is showing refetches
+    /// even when retained totals exist.
+    last_connected: bool,
+    window: AnyWindowHandle,
 }
 
 impl GithubCard {
@@ -34,7 +43,41 @@ impl GithubCard {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        cx.observe(&state, |_, _, cx| cx.notify()).detach();
+        // docs/0051 D4 — view-shown fetch: nav transitions into Home fire
+        // the totals lane; the docs/0031 inflight dedup absorbs repeats.
+        let home_active = matches!(nav.read(cx).page, Page::Home);
+        let connected = matches!(state.read(cx).auth, AuthStatus::Connected);
+        let mut this = Self {
+            state: state.clone(),
+            nav: nav.clone(),
+            last_home_active: home_active,
+            last_connected: connected,
+            window: window.window_handle(),
+        };
+        if home_active && connected {
+            this.fire_card_totals(cx);
+        }
+        cx.observe(&nav, |this, nav, cx| {
+            let active = matches!(nav.read(cx).page, Page::Home);
+            let edge = active && !this.last_home_active;
+            this.last_home_active = active;
+            if edge {
+                this.fire_card_totals(cx);
+            }
+        })
+        .detach();
+        cx.observe(&state, |this, state, cx| {
+            cx.notify();
+            // Post-connect while home is showing (docs/0051 D4): the OAuth
+            // flow finishes on the home page — no nav edge will come.
+            let connected = matches!(state.read(cx).auth, AuthStatus::Connected);
+            let reconnected = connected && !this.last_connected;
+            this.last_connected = connected;
+            if reconnected && this.last_home_active {
+                this.fire_card_totals(cx);
+            }
+        })
+        .detach();
         // docs/0038 D7: the card is the ever-visible monitoring surface
         // — it co-maintains the engagement flag (the service tick reads
         // it) even when the module page is closed. Seeded from the real
@@ -46,7 +89,33 @@ impl GithubCard {
             this.state.update(cx, |s, _| s.focus_engaged = active);
         })
         .detach();
-        Self { state, nav }
+        this
+    }
+
+    /// Fire the card's totals lane (docs/0051 D2/D4): spec through the
+    /// shared docs/0031 dedup, result through the state's apply arm.
+    fn fire_card_totals(&mut self, cx: &mut Context<Self>) {
+        let (spec, gated) = {
+            let s = self.state.read(cx);
+            (s.card_totals_spec(), s.gated())
+        };
+        if gated {
+            return;
+        }
+        let state = self.state.clone();
+        let window = self.window;
+        cx.spawn(async move |_this, cx| {
+            if let Some(result) = run_read_deduped(state.clone(), spec, cx).await {
+                cx.update(|cx| {
+                    state.update(cx, |s, cx| {
+                        s.apply(result);
+                        cx.notify();
+                    })
+                });
+                let _ = window.update(cx, |_, window, _| window.refresh());
+            }
+        })
+        .detach();
     }
 
     fn open_module(&mut self, cx: &mut Context<Self>) {
@@ -66,16 +135,24 @@ impl Render for GithubCard {
 
         match state.auth.clone() {
             AuthStatus::Connected => {
-                let (notifications, prs, issues) = state.card_counts();
+                let (totals, notifications) = state.card_counts();
+                let aria = match totals {
+                    Some((prs, issues)) => format!(
+                        "Open GitHub module — {notifications} notifications, {prs} open pull requests, {issues} open issues"
+                    ),
+                    // docs/0051 D5: no totals lane yet — the card is
+                    // loading, and the label says so instead of lying 0s.
+                    None => format!(
+                        "Open GitHub module — {notifications} notifications, loading counts"
+                    ),
+                };
                 div()
                     .id("github-card")
                     .size_full()
                     .cursor_pointer()
                     .hover(|s| s.bg(cx.theme().accent.opacity(0.06)))
                     .role(accesskit::Role::ListItem)
-                    .aria_label(format!(
-                        "Open GitHub module — {notifications} notifications, {prs} open pull requests, {issues} open issues"
-                    ))
+                    .aria_label(aria)
                     .on_click(cx.listener(|this, _, _, cx| this.open_module(cx)))
                     .child(
                         v_flex()
@@ -87,16 +164,29 @@ impl Render for GithubCard {
                                     .text_color(cx.theme().muted_foreground)
                                     .child(format!("Notifications {notifications}")),
                             )
-                            .child(
-                                div()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(format!("Open PRs {prs}")),
-                            )
-                            .child(
-                                div()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(format!("Open Issues {issues}")),
-                            )
+                            .when_some(totals, |col, (prs, issues)| {
+                                col.child(
+                                    div()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child(format!("Open PRs {prs}")),
+                                )
+                                .child(
+                                    div()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child(format!("Open Issues {issues}")),
+                                )
+                            })
+                            .when(totals.is_none(), |col| {
+                                // docs/0051 D5 — skeleton-first: the totals
+                                // lane has not landed yet (~2 pts, sub-second
+                                // on a warm token).
+                                col.child(
+                                    v_flex()
+                                        .gap_2()
+                                        .child(Skeleton::new().w_20().h_4())
+                                        .child(Skeleton::new().w_24().h_4()),
+                                )
+                            })
                             // Cold-start staleness chip (docs/0034 D3):
                             // the disk-seeded counts may be days old.
                             .when_some(

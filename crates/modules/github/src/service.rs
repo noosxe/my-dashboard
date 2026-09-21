@@ -52,10 +52,7 @@ use crate::usage::{UsageLedger, parse_rate_limit_body};
 /// are exact multiples of the tick, so nothing drifts. The first beat
 /// still runs immediately on open (docs/0005 Q7).
 pub const TICK: Duration = Duration::from_secs(10);
-/// The global snapshot every 30th tick = 5 min at the 10 s cadence
-/// (docs/0038 D7): re-derived when the tick was re-based — the old `5`
-/// would have silently snapshotted every 50 s.
-const SNAPSHOT_EVERY: u64 = 30;
+/// triggers own the GraphQL lanes (docs/0051 D4).
 /// docs/0038 D7: the global notifications lane's engaged cadence —
 /// 304s are free (docs/0005 §3.3), so the card's rows can run near-live
 /// for nothing.
@@ -372,8 +369,12 @@ fn slug(full_name: &str) -> String {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Kind {
-    /// The global GraphQL snapshot (docs/0007 D1/D2/D4).
-    Snapshot,
+    /// Home-card totals (docs/0051 D2) — totals-only repos page, fired
+    /// when the home card is shown.
+    CardTotals,
+    /// Session inventory (docs/0051 D3) — viewer identity, orgs, repo
+    /// metadata; once per app launch (re-armed on (re)connect).
+    SessionInventory,
     /// Global unread notifications (REST + ETag — the only GraphQL-less
     /// data left, docs/0007 §1).
     Notifications,
@@ -868,7 +869,8 @@ pub struct SpecResult {
 /// Run one spec to completion. Sync — runs on the background executor.
 pub fn run_spec(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
     match spec.kind {
-        Kind::Snapshot => run_snapshot(http, spec),
+        Kind::CardTotals => run_paged_view(http, spec, gql::CARD_TOTALS_QUERY),
+        Kind::SessionInventory => run_paged_view(http, spec, gql::SESSION_INVENTORY_QUERY),
         Kind::RepoSnapshot => run_repo_snapshot(http, spec),
         Kind::PrDetail => run_pr_detail(http, spec),
         Kind::PrMutation(m) => run_pr_mutation(http, spec, m),
@@ -1056,11 +1058,11 @@ fn run_rest(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
     }
 }
 
-/// The global snapshot (docs/0007 D4/D5): up to `SNAPSHOT_MAX_PAGES`
-/// repos pages per run, cursor-following; the pages stitch into one body
-/// so `apply` lands the snapshot as a single atomic unit. A run that hits
-/// the page cap hands its cursor back for the next snapshot tick.
-fn run_snapshot(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
+/// The paged view queries (docs/0051 D2/D3): up to `VIEW_MAX_PAGES`
+/// repos pages per run, cursor-following; the pages stitch into one
+/// body so `apply` lands the run as a single atomic unit. Hitting the
+/// page cap logs a warning — the landed data is partial (D9).
+fn run_paged_view(http: &dyn Http, spec: &FetchSpec, query: &str) -> SpecResult {
     let mut status = 0u16;
     let mut rate = None;
     let mut network = None;
@@ -1075,14 +1077,15 @@ fn run_snapshot(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
         .and_then(|c| c.as_str())
         .map(str::to_string);
 
-    for page_no in 1..=gql::SNAPSHOT_MAX_PAGES {
+    for page_no in 1..=gql::VIEW_MAX_PAGES {
         let variables = serde_json::json!({ "cursor": cursor });
+        let kind = spec.kind.kind_name();
         log::debug!(
-            "fetch snapshot: page {page_no} (cursor: {})",
+            "fetch {kind}: page {page_no} (cursor: {})",
             cursor.as_deref().unwrap_or("none")
         );
         let sent_at = Instant::now();
-        match http.post_graphql(gql::GLOBAL_SNAPSHOT_QUERY, &variables) {
+        match http.post_graphql(query, &variables) {
             Err(HttpError(m)) => {
                 network = Some(m);
                 break;
@@ -1091,7 +1094,7 @@ fn run_snapshot(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
                 status = result.status;
                 rate = result.rate;
                 log::debug!(
-                    "fetch snapshot: page {page_no} → {} in {}ms",
+                    "fetch {kind}: page {page_no} → {} in {}ms",
                     status,
                     sent_at.elapsed().as_millis()
                 );
@@ -1129,6 +1132,15 @@ fn run_snapshot(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
         }
     }
 
+    // D9 honesty: a cursor that survived the loop means the page cap
+    // cut the run short — the landed data is partial.
+    if next_cursor.is_some() {
+        log::warn!(
+            "{}: page cap hit at {} — data is partial",
+            spec.kind.kind_name(),
+            gql::VIEW_MAX_PAGES
+        );
+    }
     let body = if network.is_none() && status == 200 {
         Some(stitch_pages(datas, errors, raw_first))
     } else {
@@ -1555,7 +1567,8 @@ pub(crate) fn anchor_patch(patch: &str) -> Vec<AnchoredLine> {
 impl Kind {
     fn kind_name(&self) -> &'static str {
         match self {
-            Kind::Snapshot => "snapshot",
+            Kind::CardTotals => "card-totals",
+            Kind::SessionInventory => "session-inventory",
             Kind::Notifications => "notifications",
             Kind::RepoSnapshot => "repo-snapshot",
             Kind::PrDetail => "pr-detail",
@@ -1584,13 +1597,24 @@ impl Kind {
 // State
 // ---------------------------------------------------------------------------
 
+/// The card's totals lane payload (docs/0051 D2): summed open PRs and
+/// issues from the totals-only query, plus the in-session landing
+/// clock. Never persisted — a fresh launch re-fetches (~2 points).
+#[derive(Clone, Debug)]
+pub struct CardTotals {
+    pub open_prs: i64,
+    pub open_issues: i64,
+    pub landed: Instant,
+}
+
 pub struct GithubState {
     pub auth: AuthStatus,
     pub user: Option<User>,
     /// Org entries for the dropdown; the personal account is first (Q10).
     pub orgs: Vec<Org>,
-    /// Every repo with its open-PR/issue summaries (docs/0007 D2) — the
-    /// single source for card counts, repo lists, and repo views.
+    /// Repo inventory (docs/0051 D3) — metadata only; `prs`/`issues`
+    /// summaries arrive empty and the lazy repo-scope query fills them
+    /// on view open (docs/0007 D6).
     pub repos: Vec<Repo>,
     /// Global unread notifications (card count + repo derivation).
     pub notifications: Vec<Notification>,
@@ -1599,10 +1623,11 @@ pub struct GithubState {
     pub repo_notifications: BTreeMap<String, Vec<Notification>>,
     /// `owner/repo` of the selected repo (session-only, not persisted).
     pub selected: Option<String>,
-    /// Repos continuation cursor after a capped snapshot run (docs/0007
-    /// §5); `None` = the next snapshot starts from the top.
-    pub repo_cursor: Option<String>,
+    /// The card's totals lane (docs/0051 D2): summed open PRs/issues
+    /// from `CardTotals`, `None` until the first landing (skeleton then).
+    pub card_totals: Option<CardTotals>,
     /// Rate-limit pause: UTC epoch seconds until requests resume (Q9).
+    pub rate_limited_until: Option<u64>,
     /// When the access token dies (docs/0011 §4.1); `None` = no expiry.
     /// Non-secret, unlike the tokens themselves.
     pub access_expires_at: Option<u64>,
@@ -1613,8 +1638,7 @@ pub struct GithubState {
     /// Single-flight 401 gate: one refresh at a time, FIFO retry queue,
     /// rotation-generation tracking (docs/0028 §3.2).
     pub(crate) gate: Arc<AuthGate>,
-    pub rate_limited_until: Option<u64>,
-    /// Set when a connect flow should fetch the snapshot on next tick.
+    /// Set when a connect flow should fetch the session inventory and
     pub needs_bootstrap: bool,
     /// docs/0034 D2 — disk-seeded cache ages, read at construction.
     /// A landed sync clears them: from there the session records own
@@ -1735,7 +1759,7 @@ impl GithubState {
             notifications_age: seeded.then(|| cache.age("notifications")).flatten(),
             repo_notifications: BTreeMap::new(),
             selected: None,
-            repo_cursor: None,
+            card_totals: None,
             rate_limited_until: None,
             access_expires_at,
             pending_refresh: false,
@@ -1797,7 +1821,7 @@ impl GithubState {
     }
 
     /// Plan this tick's work (docs/0007 D6). Consumes `needs_bootstrap`.
-    pub fn plan_tick(&mut self, tick: u64) -> Vec<FetchSpec> {
+    pub fn plan_tick(&mut self, _tick: u64) -> Vec<FetchSpec> {
         // Gate first: a rate-limit pause (or auth loss) defers bootstrap
         // too — the flag survives until the window passes.
         if let Some(until) = self.rate_limited_until {
@@ -1847,7 +1871,7 @@ impl GithubState {
         }
         if self.needs_bootstrap {
             self.needs_bootstrap = false;
-            specs.push(self.snapshot_spec());
+            specs.push(self.session_inventory_spec());
             specs.push(self.spec(
                 Kind::Notifications,
                 api::notifications_url(1),
@@ -1884,22 +1908,32 @@ impl GithubState {
                 Some(MAX_PAGES),
             ));
         }
-        if tick % SNAPSHOT_EVERY == 0 {
-            specs.push(self.snapshot_spec());
-        }
         specs
     }
 
-    /// The global snapshot spec, continuing from `repo_cursor` when a
-    /// previous run was capped (docs/0007 §5).
-    pub(crate) fn snapshot_spec(&self) -> FetchSpec {
+    /// The session inventory spec (docs/0051 D3): identity + orgs + repo
+    /// metadata, paged to exhaustion by the runner (10-page cap, D9).
+    pub(crate) fn session_inventory_spec(&self) -> FetchSpec {
         FetchSpec {
-            kind: Kind::Snapshot,
+            kind: Kind::SessionInventory,
             url: gql::GRAPHQL_ENDPOINT.to_string(),
             etag: None,
-            ident: None,
+            ident: Some("session".to_string()),
             max_pages: 1,
-            variables: Some(serde_json::json!({ "cursor": self.repo_cursor })),
+            variables: Some(serde_json::json!({ "cursor": null })),
+        }
+    }
+
+    /// The home-card totals spec (docs/0051 D2): fired whenever the
+    /// home card is shown; totals-only, paged to exhaustion (D9).
+    pub(crate) fn card_totals_spec(&self) -> FetchSpec {
+        FetchSpec {
+            kind: Kind::CardTotals,
+            url: gql::GRAPHQL_ENDPOINT.to_string(),
+            etag: None,
+            ident: Some("card-totals".to_string()),
+            max_pages: 1,
+            variables: Some(serde_json::json!({ "cursor": null })),
         }
     }
 
@@ -2267,57 +2301,84 @@ impl GithubState {
                     self.usage.lock().unwrap().fold_probe(core, now_epoch());
                 }
             }
-            Kind::Snapshot => {
+            Kind::SessionInventory => {
                 match serde_json::from_str::<gql::Envelope<gql::SnapshotData>>(body) {
                     Ok(env) => {
                         for e in &env.errors {
-                            log::warn!("snapshot: {}", e.message);
+                            log::warn!("inventory: {}", e.message);
                         }
                         let Some(data) = env.data else {
-                            log::warn!("snapshot: data null — keeping last-known");
+                            log::warn!("inventory: data null — keeping last-known");
                             return; // stale data stays (docs/0007 §6)
                         };
                         if let Some(rl) = &data.rate_limit {
                             if rl.remaining <= 0 {
                                 self.rate_limited_until = Some(rl.reset_epoch());
                                 log::warn!(
-                                    "snapshot: GraphQL point budget exhausted — paused until {}",
+                                    "inventory: GraphQL point budget exhausted — paused until {}",
                                     rl.reset_at
                                 );
                             }
                         }
-                        // One snapshot, one atomic apply (docs/0007 D4).
+                        // One run, one atomic apply (docs/0007 D4).
                         self.user = Some(User {
                             login: data.viewer.login.clone(),
                             avatar_url: data.viewer.avatar_url.clone(),
                         });
                         self.apply_orgs(gql::orgs_from_values(&data.viewer.organizations.nodes));
                         if let Some(page) = data.viewer.repositories {
-                            let completed = result.cursor.is_none();
+                            // Metadata only (docs/0051 D3): `prs`/`issues`
+                            // summaries stay empty — the lazy repo-scope
+                            // query fills them on view open. No rows land
+                            // here, so `rows_landed` is untouched.
                             let incoming: Vec<Repo> =
                                 page.nodes.iter().filter_map(gql::repo_from_value).collect();
-                            // The rows these repos render just landed
-                            // (docs/0035 D1) — the global tick counts
-                            // as fresh for every repo it carries.
-                            let now = Instant::now();
-                            self.rows_landed
-                                .extend(incoming.iter().map(|r| (r.full_name.clone(), now)));
+                            let completed = result.cursor.is_none();
                             self.merge_repos(incoming, completed);
-                            self.repo_cursor = result.cursor.clone();
                         }
                         self.persist_snapshot();
-                        // A landed sync owns freshness now (docs/0034 D2).
-                        self.snapshot_age = None;
-                        // One concise landing note — the owner's log
-                        // verification point (docs/0007 §8).
-                        let open_prs: i64 = self.repos.iter().map(|r| r.prs.total_count).sum();
-                        log::info!(
-                            "snapshot applied: {} repos, {} open PRs",
-                            self.repos.len(),
-                            open_prs
-                        );
+                        log::info!("inventory applied: {} repos", self.repos.len());
                     }
-                    Err(e) => log::warn!("snapshot payload: {e}"),
+                    Err(e) => log::warn!("inventory payload: {e}"),
+                }
+            }
+            Kind::CardTotals => {
+                match serde_json::from_str::<gql::Envelope<gql::CardTotalsData>>(body) {
+                    Ok(env) => {
+                        for e in &env.errors {
+                            log::warn!("card-totals: {}", e.message);
+                        }
+                        let Some(data) = env.data else {
+                            log::warn!("card-totals: data null — keeping last-known");
+                            return;
+                        };
+                        if let Some(rl) = &data.rate_limit {
+                            if rl.remaining <= 0 {
+                                self.rate_limited_until = Some(rl.reset_epoch());
+                                log::warn!(
+                                    "card-totals: GraphQL point budget exhausted — paused until {}",
+                                    rl.reset_at
+                                );
+                            }
+                        }
+                        if let Some(page) = data.viewer.repositories {
+                            let mut prs = 0i64;
+                            let mut issues = 0i64;
+                            for node in &page.nodes {
+                                prs += node["pullRequests"]["totalCount"].as_i64().unwrap_or(0);
+                                issues += node["issues"]["totalCount"].as_i64().unwrap_or(0);
+                            }
+                            self.card_totals = Some(CardTotals {
+                                open_prs: prs,
+                                open_issues: issues,
+                                landed: Instant::now(),
+                            });
+                            // A landed sync owns freshness now (docs/0034 D2).
+                            self.snapshot_age = None;
+                            log::info!("card-totals applied: {prs} open PRs, {issues} open issues");
+                        }
+                    }
+                    Err(e) => log::warn!("card-totals payload: {e}"),
                 }
             }
             Kind::RepoSnapshot => {
@@ -2516,13 +2577,16 @@ impl GithubState {
         self.cache.put(gql::SNAPSHOT_CACHE_KEY, &snapshot);
     }
 
-    /// Card totals (§6.1): unread notifications + Σ open-PR counts + Σ open-
-    /// issue counts — exact via `totalCount` (docs/0007 §1, doc 0012 D2).
-    pub fn card_counts(&self) -> (usize, usize, usize) {
+    /// Card totals (docs/0051 D2): unread notifications from the REST
+    /// lane + the `CardTotals` lane's sums. `None` totals render the
+    /// card's skeleton; notifications count regardless.
+    pub fn card_counts(&self) -> (Option<(usize, usize)>, usize) {
         let unread = self.notifications.iter().filter(|n| n.unread).count();
-        let prs: i64 = self.repos.iter().map(|r| r.prs.total_count).sum();
-        let issues: i64 = self.repos.iter().map(|r| r.issues.total_count).sum();
-        (unread, prs.max(0) as usize, issues.max(0) as usize)
+        let totals = self
+            .card_totals
+            .as_ref()
+            .map(|t| (t.open_prs.max(0) as usize, t.open_issues.max(0) as usize));
+        (totals, unread)
     }
 
     /// Refresh-token presence (docs/0028 §3.2) — the gate consults this
@@ -2616,7 +2680,6 @@ impl GithubState {
         self.repo_notifications.clear();
         self.etags.clear();
         self.selected = None;
-        self.repo_cursor = None;
         self.rate_limited_until = None;
         // Per-token budget (docs/0050 D3): the usage book goes with
         // the account — a reconnect starts a fresh one.
@@ -3639,9 +3702,9 @@ mod tests {
         )
     }
 
-    fn snapshot_result(body: &str, cursor: Option<&str>) -> SpecResult {
+    fn inventory_result(body: &str, cursor: Option<&str>) -> SpecResult {
         SpecResult {
-            kind: Kind::Snapshot,
+            kind: Kind::SessionInventory,
             ident: None,
             status: 200,
             etag: None,
@@ -3747,18 +3810,19 @@ mod tests {
         assert!(!state.plan_tick(1).is_empty());
     }
     #[test]
-    fn plan_tick_cadence_table() {
+    fn plan_tick_bootstrap_arms_inventory_and_notifications() {
         let mut state = make_state(Arc::new(MockHttp::new(vec![])));
         state.auth = AuthStatus::Connected;
 
-        // Bootstrap: snapshot + notifications, then the flag is consumed.
-        // The notifications spec paginates to the full MAX_PAGES walk —
-        // the first 100 unread must not silently truncate (#170).
+        // Bootstrap (docs/0051 D6): session inventory + notifications,
+        // then the flag is consumed. The notifications spec paginates to
+        // the full MAX_PAGES walk — the first 100 unread must not
+        // silently truncate (#170).
         state.needs_bootstrap = true;
         let specs = state.plan_tick(1);
         assert_eq!(
             specs.iter().map(|s| s.kind).collect::<Vec<_>>(),
-            vec![Kind::Snapshot, Kind::Notifications]
+            vec![Kind::SessionInventory, Kind::Notifications]
         );
         let notif = specs
             .iter()
@@ -3767,8 +3831,9 @@ mod tests {
         assert_eq!(notif.max_pages, MAX_PAGES);
         assert!(!state.needs_bootstrap);
 
-        // A never-landed lane is stale at any cadence: notifications on
-        // every tick (docs/0038 D7 — the tick is just a heartbeat).
+        // docs/0051 D6: no periodic GraphQL refetch — the snapshot's
+        // 30-tick cycle is gone; notifications stay the only heartbeat
+        // lane (docs/0038 D7).
         for tick in 2..=4 {
             assert_eq!(
                 state
@@ -3779,10 +3844,6 @@ mod tests {
                 vec![Kind::Notifications]
             );
         }
-
-        // docs/0038 D7: the snapshot rides the re-based tick — every
-        // 30th beat = 5 min at the 10 s cadence (the old `5` would have
-        // silently snapshotted every 50 s).
         assert_eq!(
             state
                 .plan_tick(29)
@@ -3797,13 +3858,8 @@ mod tests {
                 .iter()
                 .map(|s| s.kind)
                 .collect::<Vec<_>>(),
-            vec![Kind::Notifications, Kind::Snapshot]
+            vec![Kind::Notifications]
         );
-
-        // No per-tick repo-scoped fetches anymore.
-        state.selected = Some("o/r".into());
-        let specs = state.plan_tick(31);
-        assert!(specs.iter().all(|s| s.kind == Kind::Notifications));
     }
 
     // docs/0038 D7: the list lane's engagement and backoff gates —
@@ -3932,27 +3988,32 @@ mod tests {
     }
 
     #[test]
-    fn keychain_launch_fires_snapshot_on_first_tick() {
+    fn keychain_launch_fires_inventory_on_first_tick() {
         // Regression (owner report): a launch with an existing keychain
-        // token must not wait for tick 5 — old REST-era cache keys are
-        // ignored by snapshot-v3, so nothing else populates the UI.
+        // token must not wait — the bootstrap arm fetches the session
+        // inventory + notifications on the first tick (docs/0051 D6).
         let mut state = make_state(Arc::new(MockHttp::new(vec![])));
         assert_eq!(state.auth, AuthStatus::Connected);
         assert!(state.needs_bootstrap);
         let specs = state.plan_tick(1);
-        assert!(specs.iter().any(|s| s.kind == Kind::Snapshot));
+        assert!(specs.iter().any(|s| s.kind == Kind::SessionInventory));
     }
 
     #[test]
-    fn snapshot_spec_carries_continuation_cursor() {
-        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
-        state.repo_cursor = Some("c9".into());
-        let spec = state.snapshot_spec();
-        assert_eq!(spec.variables.unwrap()["cursor"], "c9");
+    fn view_specs_start_from_top_and_identify_their_lane() {
+        // docs/0051 D2/D3/D9: the view queries page to exhaustion per
+        // run — no continuation cursor survives between runs; idents
+        // feed the docs/0031 inflight dedup.
+        let state = make_state(Arc::new(MockHttp::new(vec![])));
+        let inv = state.session_inventory_spec();
+        assert_eq!(inv.kind, Kind::SessionInventory);
+        assert_eq!(inv.ident.as_deref(), Some("session"));
+        assert!(inv.variables.unwrap()["cursor"].is_null());
 
-        state.repo_cursor = None;
-        let spec = state.snapshot_spec();
-        assert!(spec.variables.unwrap()["cursor"].is_null());
+        let card = state.card_totals_spec();
+        assert_eq!(card.kind, Kind::CardTotals);
+        assert_eq!(card.ident.as_deref(), Some("card-totals"));
+        assert!(card.variables.unwrap()["cursor"].is_null());
     }
 
     // --- Home lane (docs/0047) ------------------------------------------
@@ -4119,7 +4180,7 @@ mod tests {
             gql_ok(&gql_page(false, "unused", &repo_node("o/b", 0, ""))),
         ]));
         let state = make_state(http.clone());
-        let spec = state.snapshot_spec();
+        let spec = state.session_inventory_spec();
 
         let result = run_spec(&*http, &spec);
         assert_eq!(result.status, 200);
@@ -4153,13 +4214,16 @@ mod tests {
     }
 
     #[test]
-    fn run_snapshot_caps_pages_and_returns_cursor() {
+    fn run_paged_view_caps_at_ten_pages_and_returns_cursor() {
+        // docs/0051 D9: exhaustion with a hard 10-page cap; the surviving
+        // cursor marks the run partial.
         let page = || gql_ok(&gql_page(true, "cx", &repo_node("o/a", 0, "")));
-        let http = Arc::new(MockHttp::new(vec![page(), page(), page(), page()]));
+        let pages: Vec<_> = (0..11).map(|_| page()).collect();
+        let http = Arc::new(MockHttp::new(pages));
         let state = make_state(http.clone());
 
-        let result = run_spec(&*http, &state.snapshot_spec());
-        assert_eq!(http.recorded().len(), gql::SNAPSHOT_MAX_PAGES as usize);
+        let result = run_spec(&*http, &state.session_inventory_spec());
+        assert_eq!(http.recorded().len(), gql::VIEW_MAX_PAGES as usize);
         assert_eq!(result.cursor.as_deref(), Some("cx"));
     }
 
@@ -4178,7 +4242,7 @@ mod tests {
                 repo_node("o/b", 0, "")
             ),
         );
-        state.apply(snapshot_result(&body, None));
+        state.apply(inventory_result(&body, None));
 
         // User + orgs (personal first, Q10).
         assert_eq!(state.user.as_ref().unwrap().login, "noosxe");
@@ -4221,7 +4285,7 @@ mod tests {
             "unused",
             &format!("{},{}", archived, repo_node("o/live", 0, "")),
         );
-        state.apply(snapshot_result(&body, None));
+        state.apply(inventory_result(&body, None));
 
         let loaded: gql::SnapshotCache = state
             .cache
@@ -4245,13 +4309,12 @@ mod tests {
         state.repos = vec![repo("o/a"), repo("o/b")];
 
         let body = gql_page(true, "c2", &repo_node("o/c", 0, ""));
-        state.apply(snapshot_result(&body, Some("c2")));
+        state.apply(inventory_result(&body, Some("c2")));
 
         // Continuation batch overlays; earlier pages survive.
         let mut names: Vec<&str> = state.repos.iter().map(|r| r.full_name.as_str()).collect();
         names.sort();
         assert_eq!(names, vec!["o/a", "o/b", "o/c"]);
-        assert_eq!(state.repo_cursor.as_deref(), Some("c2"));
     }
 
     #[test]
@@ -4266,7 +4329,7 @@ mod tests {
                 "nodes":[{}]}}}}}},"errors":[{{"message":"Some field failed"}}]}}"#,
             repo_node("o/a", 0, "")
         );
-        state.apply(snapshot_result(&body, None));
+        state.apply(inventory_result(&body, None));
         assert_eq!(state.repos.len(), 1);
         assert_eq!(state.repos[0].full_name, "o/a");
     }
@@ -4275,7 +4338,7 @@ mod tests {
     fn apply_snapshot_data_null_keeps_stale() {
         let mut state = make_state(Arc::new(MockHttp::new(vec![])));
         state.repos = vec![repo("o/a")];
-        state.apply(snapshot_result(
+        state.apply(inventory_result(
             r#"{"data":null,"errors":[{"message":"boom"}]}"#,
             None,
         ));
@@ -4289,7 +4352,7 @@ mod tests {
         let body = r#"{"data":{"rateLimit":{"cost":2,"remaining":0,"resetAt":"2030-01-01T00:00:00Z"},
             "viewer":{"login":"noosxe","avatarUrl":"a","organizations":{"nodes":[]},
             "repositories":{"totalCount":0,"nodes":[]}}}}"#;
-        state.apply(snapshot_result(body, None));
+        state.apply(inventory_result(body, None));
         assert_eq!(state.rate_limited_until, Some(1_893_456_000));
         assert!(state.plan_tick(5).is_empty());
     }
@@ -4476,7 +4539,7 @@ mod tests {
 
         // A global snapshot carrying the repo counts as fresh too
         // (D1) — and only for the repos it carries.
-        state.apply(snapshot_result(
+        state.apply(inventory_result(
             &gql_page(false, "unused", &repo_node("o/r", 0, "")),
             None,
         ));
@@ -4540,7 +4603,7 @@ mod tests {
             .join(",")
             .as_str(),
         );
-        state.apply(snapshot_result(&body, None));
+        state.apply(inventory_result(&body, None));
 
         let names: Vec<&str> = state.repos.iter().map(|r| r.full_name.as_str()).collect();
         assert_eq!(names, ["o/issue-fresh", "o/pr-fresh", "o/pushed", "o/old"]);
@@ -4864,7 +4927,7 @@ mod tests {
         // A late 200 snapshot must not resurrect user/repos — and via
         // persist_snapshot must not recreate the just-deleted cache dir.
         let body = gql_page(false, "unused", &repo_node("o/a", 1, &pr_node(1)));
-        state.apply(snapshot_result(&body, None));
+        state.apply(inventory_result(&body, None));
         assert!(state.user.is_none());
         assert!(state.repos.is_empty());
         assert!(!state.cache.root.exists(), "cache dir must stay deleted");
@@ -4892,7 +4955,7 @@ mod tests {
         // Still signed in (rejected credential, docs/0005 Q9): in-flight
         // 200s keep painting — the guard must not over-drop.
         let body = gql_page(false, "unused", &repo_node("o/a", 1, &pr_node(1)));
-        state.apply(snapshot_result(&body, None));
+        state.apply(inventory_result(&body, None));
         assert_eq!(state.user.as_ref().unwrap().login, "noosxe");
         assert_eq!(state.repos.len(), 1);
     }
@@ -4921,21 +4984,30 @@ mod tests {
     // --- Card + persistence ----------------------------------------------
 
     #[test]
-    fn card_counts_sum_exact_totals() {
+    fn card_counts_read_the_totals_lane_and_clamp() {
+        // docs/0051 D2: PR/issue numbers come from the CardTotals lane,
+        // not from repo summaries; `None` renders the card skeleton.
         let mut state = make_state(Arc::new(MockHttp::new(vec![])));
-        let mut big = repo("o/big");
-        big.prs.total_count = 250; // >100 open PRs — exact now (docs/0007 §1)
-        big.issues.total_count = 300; // >100 open issues — exact too (doc 0012 D2)
-        let mut small = repo("o/small");
-        small.prs.total_count = 4;
-        small.issues.total_count = 7;
-        state.repos = vec![big, small];
         state.notifications =
             serde_json::from_str::<Vec<Notification>>(one_notification()).unwrap();
-        assert_eq!(state.card_counts(), (1, 254, 307));
-        // Clamp parity with the PR sum: a negative SUM can't surface.
-        state.repos[1].issues.total_count = -400;
-        assert_eq!(state.card_counts().2, 0);
+
+        // No lane yet — skeleton, but notifications still count.
+        assert_eq!(state.card_counts(), (None, 1));
+
+        state.card_totals = Some(CardTotals {
+            open_prs: 254,
+            open_issues: 307,
+            landed: Instant::now(),
+        });
+        assert_eq!(state.card_counts(), (Some((254, 307)), 1));
+
+        // Clamp parity: a negative sum can't surface.
+        state.card_totals = Some(CardTotals {
+            open_prs: 0,
+            open_issues: -400,
+            landed: Instant::now(),
+        });
+        assert_eq!(state.card_counts().0, Some((0, 0)));
     }
 
     #[test]
@@ -5099,12 +5171,35 @@ mod tests {
         assert!(state.snapshot_age.unwrap().as_secs() >= 2 * 3600 - 5);
         assert!(state.notifications_age.unwrap().as_secs() >= 2 * 3600 - 5);
 
-        // A landed snapshot apply clears the snapshot age only.
-        state.apply(snapshot_result(
+        // docs/0051 D2: the card's freshness is the CardTotals lane — an
+        // inventory landing alone does not clear the seeded card age.
+        state.apply(inventory_result(
             &gql_page(false, "unused", &repo_node("o/a", 0, "")),
             None,
         ));
-        assert_eq!(state.snapshot_age, None, "a landed sync owns freshness");
+        assert!(
+            state.snapshot_age.is_some(),
+            "inventory alone is not the card's lane"
+        );
+        state.apply(SpecResult {
+            kind: Kind::CardTotals,
+            ident: None,
+            status: 200,
+            etag: None,
+            rate: None,
+            body: Some(
+                r#"{"data":{"viewer":{"repositories":{"nodes":[
+                    {"pullRequests":{"totalCount":1},"issues":{"totalCount":0}}
+                ]}}}}"#
+                    .to_string(),
+            ),
+            network: None,
+            cursor: None,
+        });
+        assert_eq!(
+            state.snapshot_age, None,
+            "a landed card lane owns freshness"
+        );
         assert!(state.notifications_age.is_some());
 
         // A landed notifications apply clears the other.
@@ -5141,14 +5236,12 @@ mod tests {
         );
         state.auth = AuthStatus::Connected;
         state.repos = vec![repo("o/r")];
-        state.repo_cursor = Some("c1".into());
         state.access_expires_at = Some(1_799_999_999);
         state.pending_refresh = true;
 
         state.sign_out();
         assert_eq!(state.auth, AuthStatus::Disconnected);
         assert!(state.repos.is_empty());
-        assert!(state.repo_cursor.is_none());
         assert!(shared.read().unwrap().is_none());
         // docs/0011: the refresh slot and scheduling fields go too.
         assert!(refresh.read().unwrap().is_none());

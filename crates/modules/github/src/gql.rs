@@ -16,15 +16,42 @@ use serde::{Deserialize, Serialize};
 pub const GRAPHQL_ENDPOINT: &str = "https://api.github.com/graphql";
 
 /// Repos pages fetched per snapshot run (doc §5): 3 × 100 = 300 repos;
-/// beyond that the cursor persists in memory and the next snapshot tick
-/// continues where this run stopped.
-pub const SNAPSHOT_MAX_PAGES: u32 = 3;
+/// Repos pages fetched per view query run (docs/0051 D9): to exhaustion
+/// with a hard cap of 10 × 100 = 1,000 repos; hitting the cap logs a
+/// warning (totals would be partial — same honesty as the old 3-page
+/// snapshot cap, at 10× the coverage).
+pub const VIEW_MAX_PAGES: u32 = 10;
 
-/// The global snapshot (doc 0007 D1/D2). `ownerAffiliations` MUST be
+/// Shared query conventions (docs/0051): `ownerAffiliations` MUST be
 /// explicit — the schema default `[OWNER, COLLABORATOR]` silently drops
 /// org-member repos that REST `/user/repos` includes.
-pub const GLOBAL_SNAPSHOT_QUERY: &str = r#"
-query Snapshot($cursor: String) {
+/// Home-card totals (docs/0051 D2): open-PR/issue `totalCount`s only —
+/// no node fields. Connection instances per page: repositories(1) +
+/// pullRequests ×100 + issues ×100 = 201 units → ~2 GraphQL points
+/// per 100 repos (the connection-cap formula, docs/0051 §1).
+pub const CARD_TOTALS_QUERY: &str = r#"
+query CardTotals($cursor: String) {
+  rateLimit { cost remaining resetAt }
+  viewer {
+    repositories(first: 100, after: $cursor,
+                 ownerAffiliations: [OWNER, COLLABORATOR, ORGANIZATION_MEMBER],
+                 orderBy: {field: PUSHED_AT, direction: DESC}) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        pullRequests(states: OPEN) { totalCount }
+        issues(states: OPEN) { totalCount }
+      }
+    }
+  }
+}
+"#;
+
+/// Session inventory (docs/0051 D3): viewer identity, orgs and repo
+/// metadata — one fetch per app launch, no nested connections (~1
+/// point per 100 repos). `Repo.prs`/`Repo.issues` arrive empty; the
+/// lazy repo-scoped snapshot (docs/0007 D6) fills them on view open.
+pub const SESSION_INVENTORY_QUERY: &str = r#"
+query SessionInventory($cursor: String) {
   rateLimit { cost remaining resetAt }
   viewer {
     login
@@ -35,71 +62,27 @@ query Snapshot($cursor: String) {
     repositories(first: 100, after: $cursor,
                  ownerAffiliations: [OWNER, COLLABORATOR, ORGANIZATION_MEMBER],
                  orderBy: {field: PUSHED_AT, direction: DESC}) {
-      totalCount
       pageInfo { hasNextPage endCursor }
       nodes {
         databaseId
         id
-        hasIssuesEnabled
         name
         nameWithOwner
         description
         isPrivate
         isArchived
         pushedAt
+        hasIssuesEnabled
+        url
         owner { login }
-        pullRequests(states: OPEN, first: 100,
-                     orderBy: {field: UPDATED_AT, direction: DESC}) {
-          totalCount
-          nodes {
-            databaseId
-            number
-            title
-            isDraft
-            state
-            author { login avatarUrl }
-            updatedAt
-            url
-            statusCheckRollup { state }
-            labels(first: 8) {
-              totalCount
-              nodes { name color }
-            }
-            reviewRequests(first: 20) {
-              totalCount
-              nodes {
-                requestedReviewer {
-                  __typename
-                  ... on User { login }
-                }
-              }
-            }
-          }
-        }
-        issues(states: OPEN, first: 100,
-               orderBy: {field: UPDATED_AT, direction: DESC}) {
-          totalCount
-          nodes {
-            databaseId
-            number
-            title
-            author { login avatarUrl }
-            updatedAt
-            url
-            labels(first: 8) {
-              totalCount
-              nodes { name color }
-            }
-          }
-        }
       }
     }
   }
 }
 "#;
 
-/// Repo-scoped refresh on view open (doc 0007 D6) — same node shape as the
-/// global snapshot, one repo. `repository` is `null` on 404/permission
+/// Repo-scoped refresh on view open (doc 0007 D6): the lazy filler of
+/// a repo's rows once a view needs them (docs/0051 D3). `repository` is `null` on 404/permission
 /// (handled as per-repo degradation, §6).
 pub const REPO_SNAPSHOT_QUERY: &str = r#"
 query RepoSnapshot($owner: String!, $name: String!) {
@@ -166,7 +149,7 @@ query RepoSnapshot($owner: String!, $name: String!) {
 /// docs/0047 D2 — the home lane: one GraphQL search page of the selected
 /// account's open PRs (`org:` for an organization, `user:` for the
 /// personal account; `sort:updated-desc` verified live 2026-09-20).
-/// Every request costs 1 point flat (#294); `repository` rides in each
+/// Measured 2 points per 100-PR page (docs/0051 §1 receipt); `repository` rides in each
 /// search node so rows keep the `owner/name#number` key the repo views
 /// already use. GitHub caps search at 1,000 results per query — the
 /// server ends the cursor chain cleanly there (verified live, §2 of the
@@ -293,11 +276,6 @@ pub fn home_prs_page(search: &SearchResult) -> HomePrsPage {
     }
 }
 
-/// RFC-3339 stamp → epoch seconds for one PR (docs/0047 D6 union sort).
-pub(crate) fn pr_stamp_epoch(pr: &PullRequest) -> u64 {
-    stamp_epoch(&pr.updated_at)
-}
-
 // ---------------------------------------------------------------------------
 // Wire shapes (serde) — camelCase GraphQL, nodes kept as raw values and
 // parsed per item so one bad node degrades alone.
@@ -334,6 +312,10 @@ pub struct RateLimitField {
     pub used: i64,
 }
 
+/// `SessionInventory` response (docs/0051 D3): identity, orgs, repo
+/// metadata. Legacy name — predates the global snapshot's removal;
+/// `Repo.prs`/`Repo.issues` parse to empty summaries because the
+/// inventory selects no nested connections.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SnapshotData {
@@ -351,6 +333,24 @@ pub struct ViewerData {
     #[serde(default)]
     pub organizations: OrgConnection,
     /// `null` when the subselection errored — keep last-known repos then.
+    pub repositories: Option<RepoPage>,
+}
+
+/// `CardTotals` response (docs/0051 D2): totals-only repos page — no
+/// metadata, no nodes. The card sums `totalCount` over the stitched
+/// `nodes` array (the paged runner concatenates pages, §run_paged_view).
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CardTotalsData {
+    #[serde(default)]
+    pub rate_limit: Option<RateLimitField>,
+    pub viewer: CardTotalsViewer,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CardTotalsViewer {
+    /// `null` when the subselection errored — keep last-known totals.
     pub repositories: Option<RepoPage>,
 }
 
@@ -3263,25 +3263,32 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_queries_carry_label_and_review_request_selections() {
-        // docs/0042 D4: both snapshot queries fetch the repo-view filter
-        // inputs — labels on PRs AND issues, review requests on PRs.
+    fn list_queries_carry_label_and_review_request_selections() {
+        // docs/0042 D4: the row-bearing queries fetch the repo-view
+        // filter inputs — labels on PRs (and on issues where issue rows
+        // ride the same document), review requests on PRs. The global
+        // snapshot is gone (docs/0051); these are the survivors.
+        // REPO_SNAPSHOT: labels on PR and Issue nodes.
+        assert_eq!(
+            REPO_SNAPSHOT_QUERY.matches("labels(first: 8)").count(),
+            2,
+            "REPO_SNAPSHOT_QUERY: labels selection on PR and Issue nodes"
+        );
+        // ACCOUNT_PULL_REQUESTS: labels once — search nodes are PRs only.
+        assert_eq!(
+            ACCOUNT_PULL_REQUESTS_QUERY
+                .matches("labels(first: 8)")
+                .count(),
+            1,
+            "ACCOUNT_PULL_REQUESTS_QUERY: labels selection on PR nodes"
+        );
         for (name, doc) in [
-            ("GLOBAL_SNAPSHOT_QUERY", GLOBAL_SNAPSHOT_QUERY),
+            ("ACCOUNT_PULL_REQUESTS_QUERY", ACCOUNT_PULL_REQUESTS_QUERY),
             ("REPO_SNAPSHOT_QUERY", REPO_SNAPSHOT_QUERY),
         ] {
-            assert_eq!(
-                doc.matches("labels(first: 8)").count(),
-                2,
-                "{name}: labels selection on PR and Issue nodes"
-            );
             assert!(
                 doc.contains("reviewRequests(first: 20)"),
                 "{name}: PR reviewRequests selection missing"
-            );
-            assert!(
-                doc.contains("isArchived"),
-                "{name}: isArchived selection missing (#275 creation gates)"
             );
             assert!(
                 doc.contains("... on User { login }"),
@@ -3293,6 +3300,15 @@ mod tests {
                 "{name}: __typename discriminant missing"
             );
         }
+        // #275 creation gates: isArchived rides the repo metadata.
+        assert!(
+            REPO_SNAPSHOT_QUERY.contains("isArchived"),
+            "REPO_SNAPSHOT_QUERY: isArchived selection missing (#275)"
+        );
+        assert!(
+            SESSION_INVENTORY_QUERY.contains("isArchived"),
+            "SESSION_INVENTORY_QUERY: isArchived selection missing (#275)"
+        );
     }
 
     #[test]
@@ -4038,7 +4054,7 @@ mod tests {
         );
         // The docs/0042 filter shape stays login-only.
         for (name, doc) in [
-            ("GLOBAL_SNAPSHOT_QUERY", GLOBAL_SNAPSHOT_QUERY),
+            ("ACCOUNT_PULL_REQUESTS_QUERY", ACCOUNT_PULL_REQUESTS_QUERY),
             ("REPO_SNAPSHOT_QUERY", REPO_SNAPSHOT_QUERY),
         ] {
             assert!(
