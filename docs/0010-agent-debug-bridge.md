@@ -330,11 +330,24 @@ on stderr), `2` usage. `type` maps control-ish chars to key names
 ### D10 — Element hygiene: the dump is only as rich as our roles
 
 Stock gpui-component widgets are covered upstream. Our own custom
-elements MUST get `.id(...)` + a role where they're interactive
-(Engineering rule; review-enforced like the [DG] obligations — unrole'd
-interactive elements are invisible to the dump and to `click_node`).
+elements MUST get `.id(...)` + a role + an **explicit accessible label**
+where they're interactive (docs/0049 D1; Engineering rule; review-enforced
+like the [DG] obligations — unrole'd interactive elements are invisible to
+the dump and to `click_node`, and text children never become a node's
+name, so labels are deliberate work). Icon-only buttons never rely on
+their tooltip for the accessible name. State flags (`aria_selected`,
+`aria_expanded`, `aria_toggled`) carry state where it means something.
 `write_a11y_info` (public on `Element`) is the extension point for
 module-specific attributes later (state.query follow-up, §7).
+
+**Stale-frame caveat** (observed while verifying #311, formalized in
+0049): the accessibility tree is only *built* while an AT-SPI client is
+connected, and a one-shot `tree` dump returns the **retained last-built
+frame**. Force a fresh build before interpreting a dump — `key tab` is the
+cheap way; hover-only mouse moves do not repaint. Node ids also change
+across unmount/remount of the same element (ids derive from the element
+path), so re-dump before addressing a node that a navigation may have
+re-created.
 
 ## 4. Risks
 

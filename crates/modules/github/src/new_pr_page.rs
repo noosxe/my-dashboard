@@ -1010,6 +1010,16 @@ impl Render for NewPrPage {
                                     .py_1()
                                     .rounded_sm()
                                     .hover(|s| s.bg(cx.theme().accent.opacity(0.08)))
+                                    // docs/0049 D1: the row is the
+                                    // toggle's semantic owner — the
+                                    // checkbox mirrors the state.
+                                    .role(accesskit::Role::CheckBox)
+                                    .aria_label("Draft pull request")
+                                    .aria_toggled(if self.draft {
+                                        accesskit::Toggled::True
+                                    } else {
+                                        accesskit::Toggled::False
+                                    })
                                     .on_click(cx.listener(|this, _: &gpui::ClickEvent, _, cx| {
                                         this.toggle_draft(cx);
                                     }))
