@@ -86,6 +86,9 @@ fn main() {
             // Global in-flight request tracker (docs/0013 D2) — before
             // module init, so every module's fetch loops can report into it.
             dashboard_core::status::init(cx);
+            // Usage records (docs/0053 D3): the module-global flight log,
+            // defaulting to the capped in-memory sink.
+            dashboard_core::usage_records::init(cx);
 
             // Flush debounced state writes at quit (docs/0045 §9, #283):
             // a quit landing inside a 500 ms quiet window would otherwise

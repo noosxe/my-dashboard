@@ -35,6 +35,7 @@ use dashboard_core::AppPaths;
 use dashboard_core::freshness::Freshness;
 use dashboard_core::status;
 use dashboard_core::store;
+use dashboard_core::usage_records::{MemorySink, RECORD_CAP, Recorder};
 use gpui::App;
 use gpui::Entity;
 
@@ -45,7 +46,10 @@ use crate::auth::{
 };
 use crate::gql::{self, Org, Repo, User};
 use crate::http::{Http, HttpError, RateLimit, SharedToken, Verb};
-use crate::usage::{UsageLedger, parse_rate_limit_body};
+use crate::usage::{
+    Origin, RecordingHttp, Surface, Trigger, UsageLedger, parse_rate_limit_body, recording_for_auth,
+};
+use dashboard_core::usage_records::Transport;
 
 /// Tick cadence (docs/0052 D1): a 10 s wake for the non-content duties
 /// only — pause clearing, token arming, the free usage probe, the
@@ -834,6 +838,9 @@ pub struct FetchSpec {
     pub max_pages: u32,
     /// GraphQL variables (JSON) — `None` for REST specs.
     pub variables: Option<Value>,
+    /// docs/0053 D2: where this dispatch comes from. Required — no
+    /// default; the compiler forces every dispatch site to answer.
+    pub(crate) origin: Origin,
 }
 
 /// What a background run hands back to the main thread. `body` is raw
@@ -852,17 +859,27 @@ pub struct SpecResult {
 }
 
 /// Run one spec to completion. Sync — runs on the background executor.
-pub fn run_spec(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
+pub fn run_spec(http: &dyn Http, recorder: &Recorder, spec: &FetchSpec) -> SpecResult {
+    // docs/0053 D4: the per-run recording view — every flight through
+    // any runner emits one record. `Kind::RateLimit` is the free probe.
+    let rec = RecordingHttp::new(
+        http,
+        recorder,
+        spec.origin,
+        spec.kind.kind_name(),
+        spec.ident.as_deref(),
+        spec.kind == Kind::RateLimit,
+    );
     match spec.kind {
-        Kind::CardTotals => run_paged_view(http, spec, gql::CARD_TOTALS_QUERY),
-        Kind::SessionInventory => run_paged_view(http, spec, gql::SESSION_INVENTORY_QUERY),
-        Kind::RepoSnapshot => run_repo_snapshot(http, spec),
-        Kind::PrDetail => run_pr_detail(http, spec),
-        Kind::PrMutation(m) => run_pr_mutation(http, spec, m),
-        Kind::IssueDetail => run_issue_detail(http, spec),
-        Kind::ThreadDetail => run_thread_detail(http, spec),
-        Kind::ThreadMutation(op) => run_thread_mutation(http, spec, op),
-        Kind::RepoLabels => run_graphql_fetch(http, spec, gql::REPO_LABELS_QUERY, "repo-labels"),
+        Kind::CardTotals => run_paged_view(&rec, spec, gql::CARD_TOTALS_QUERY),
+        Kind::SessionInventory => run_paged_view(&rec, spec, gql::SESSION_INVENTORY_QUERY),
+        Kind::RepoSnapshot => run_repo_snapshot(&rec, spec),
+        Kind::PrDetail => run_pr_detail(&rec, spec),
+        Kind::PrMutation(m) => run_pr_mutation(&rec, spec, m),
+        Kind::IssueDetail => run_issue_detail(&rec, spec),
+        Kind::ThreadDetail => run_thread_detail(&rec, spec),
+        Kind::ThreadMutation(op) => run_thread_mutation(&rec, spec, op),
+        Kind::RepoLabels => run_graphql_fetch(&rec, spec, gql::REPO_LABELS_QUERY, "repo-labels"),
         Kind::RepoAssignableUsers => run_graphql_fetch(
             http,
             spec,
@@ -870,28 +887,28 @@ pub fn run_spec(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
             "repo-assignable-users",
         ),
         Kind::RepoMilestones => {
-            run_graphql_fetch(http, spec, gql::REPO_MILESTONES_QUERY, "repo-milestones")
+            run_graphql_fetch(&rec, spec, gql::REPO_MILESTONES_QUERY, "repo-milestones")
         }
         Kind::RepoBranches => {
-            run_graphql_fetch(http, spec, gql::REPO_BRANCHES_QUERY, "repo-branches")
+            run_graphql_fetch(&rec, spec, gql::REPO_BRANCHES_QUERY, "repo-branches")
         }
-        Kind::PrThreads => run_graphql_fetch(http, spec, gql::PR_THREADS_QUERY, "pr-threads"),
+        Kind::PrThreads => run_graphql_fetch(&rec, spec, gql::PR_THREADS_QUERY, "pr-threads"),
         Kind::RepoIssueTemplates => run_graphql_fetch(
             http,
             spec,
             gql::REPO_ISSUE_TEMPLATES_QUERY,
             "repo-issue-templates",
         ),
-        Kind::RepoTemplatesConfig => run_plain_get(http, spec),
+        Kind::RepoTemplatesConfig => run_plain_get(&rec, spec),
         Kind::RepoPrTemplates => run_graphql_fetch(
             http,
             spec,
             gql::REPO_PR_TEMPLATES_QUERY,
             "repo-pr-templates",
         ),
-        Kind::Notifications | Kind::RepoNotifications | Kind::PrFiles => run_rest(http, spec),
-        Kind::JobLog | Kind::RateLimit => run_plain_get(http, spec),
-        Kind::AccountPullRequests => run_home_prs(http, spec),
+        Kind::Notifications | Kind::RepoNotifications | Kind::PrFiles => run_rest(&rec, spec),
+        Kind::JobLog | Kind::RateLimit => run_plain_get(&rec, spec),
+        Kind::AccountPullRequests => run_home_prs(&rec, spec),
     }
 }
 
@@ -1623,6 +1640,10 @@ pub struct GithubState {
     /// Single-flight 401 gate: one refresh at a time, FIFO retry queue,
     /// rotation-generation tracking (docs/0028 §3.2).
     pub(crate) gate: Arc<AuthGate>,
+    /// docs/0053 D3/D4: the per-module usage-records writer. Test
+    /// states get a private `MemorySink`; the app's state (lib.rs)
+    /// shares the app-wide sink from `usage_records::init`.
+    pub(crate) recorder: Recorder,
     /// Set when a connect flow should fetch the session inventory and
     pub needs_bootstrap: bool,
     /// docs/0034 D2 — disk-seeded cache ages, read at construction.
@@ -1700,6 +1721,31 @@ impl GithubState {
         cache: GithubCache,
         drafts: crate::drafts::DraftStore,
     ) -> Self {
+        // Tests ride a private capped sink (docs/0053 §5: the default
+        // sink is the wide-test storage); the app injects the global.
+        Self::with_recorder(
+            client,
+            store,
+            shared_token,
+            shared_refresh,
+            cache,
+            drafts,
+            Recorder::new(MODULE_ID, Arc::new(MemorySink::new(RECORD_CAP))),
+        )
+    }
+
+    /// `new` with an injected records recorder (docs/0053 D3) — the
+    /// app's `lib.rs` passes the global-sink recorder.
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_recorder(
+        client: Arc<dyn Http>,
+        store: Arc<dyn TokenStore>,
+        shared_token: SharedToken,
+        shared_refresh: SharedToken,
+        cache: GithubCache,
+        drafts: crate::drafts::DraftStore,
+        recorder: Recorder,
+    ) -> Self {
         let etags = cache.etags();
         let (auth, access_expires_at) = match store.load() {
             Ok(Some(cred)) => {
@@ -1743,6 +1789,7 @@ impl GithubState {
             access_expires_at,
             pending_refresh: false,
             gate: Arc::new(AuthGate::new()),
+            recorder,
             // A keychain-token launch boots straight into the snapshot
             // refresh — the first tick must fire it, not wait for tick 5
             // (docs/0007 §8: cache paint, then the snapshot lands).
@@ -1844,16 +1891,25 @@ impl GithubState {
             if book.probe_due(now) {
                 book.mark_probe(now);
                 drop(book);
-                specs.push(self.spec(Kind::RateLimit, api::rate_limit_url(), None));
+                specs.push(self.spec(
+                    Kind::RateLimit,
+                    api::rate_limit_url(),
+                    None,
+                    // docs/0053 D2: the free probe is tick-origin.
+                    Origin::new(Surface::ServiceTick, Trigger::Probe),
+                ));
             }
         }
         if self.needs_bootstrap {
             self.needs_bootstrap = false;
-            specs.push(self.session_inventory_spec());
+            specs.push(
+                self.session_inventory_spec(Origin::new(Surface::ServiceTick, Trigger::Bootstrap)),
+            );
             specs.push(self.spec(
                 Kind::Notifications,
                 api::notifications_url(1),
                 Some(MAX_PAGES),
+                Origin::new(Surface::ServiceTick, Trigger::Bootstrap),
             ));
             return specs;
         }
@@ -1870,7 +1926,11 @@ impl GithubState {
     /// the view-shown and refocus call sites ask for the spec; `None`
     /// means skip (paused, backed off per docs/0036, or younger than
     /// the caller's floor). The tick's old cadence arm, extracted.
-    pub(crate) fn notifications_spec_if_stale(&self, min_age: Duration) -> Option<FetchSpec> {
+    pub(crate) fn notifications_spec_if_stale(
+        &self,
+        min_age: Duration,
+        origin: Origin,
+    ) -> Option<FetchSpec> {
         if self.gated() {
             return None;
         }
@@ -1890,14 +1950,16 @@ impl GithubState {
                     Kind::Notifications,
                     api::notifications_url(1),
                     Some(MAX_PAGES),
+                    origin,
                 )
             })
     }
 
     /// The session inventory spec (docs/0051 D3): identity + orgs + repo
     /// metadata, paged to exhaustion by the runner (10-page cap, D9).
-    pub(crate) fn session_inventory_spec(&self) -> FetchSpec {
+    pub(crate) fn session_inventory_spec(&self, origin: Origin) -> FetchSpec {
         FetchSpec {
+            origin,
             kind: Kind::SessionInventory,
             url: gql::GRAPHQL_ENDPOINT.to_string(),
             etag: None,
@@ -1909,8 +1971,9 @@ impl GithubState {
 
     /// The home-card totals spec (docs/0051 D2): fired whenever the
     /// home card is shown; totals-only, paged to exhaustion (D9).
-    pub(crate) fn card_totals_spec(&self) -> FetchSpec {
+    pub(crate) fn card_totals_spec(&self, origin: Origin) -> FetchSpec {
         FetchSpec {
+            origin,
             kind: Kind::CardTotals,
             url: gql::GRAPHQL_ENDPOINT.to_string(),
             etag: None,
@@ -1924,10 +1987,11 @@ impl GithubState {
     /// edge-freshness repo-scoped snapshot plus the one-shot repo-scoped
     /// notifications fetch. Later ticks update the GroupBox from the
     /// global list instead.
-    pub(crate) fn repo_open_specs(&self, full_name: &str) -> Vec<FetchSpec> {
+    pub(crate) fn repo_open_specs(&self, full_name: &str, origin: Origin) -> Vec<FetchSpec> {
         let (owner, name) = split_full_name(full_name);
         vec![
             FetchSpec {
+                origin,
                 kind: Kind::RepoSnapshot,
                 url: gql::GRAPHQL_ENDPOINT.to_string(),
                 etag: None,
@@ -1940,6 +2004,7 @@ impl GithubState {
                 Some(full_name),
                 api::repo_notifications_url(&owner, &name, 1),
                 Some(2),
+                origin,
             ),
         ]
     }
@@ -1954,6 +2019,7 @@ impl GithubState {
         &self,
         full_name: &str,
         min_age: Duration,
+        origin: Origin,
     ) -> Option<Vec<FetchSpec>> {
         if let Some(attempted_at) = self.rows_attempted_at {
             if self.rows_fail_streak > 0
@@ -1970,7 +2036,7 @@ impl GithubState {
         {
             return None;
         }
-        Some(self.repo_open_specs(full_name))
+        Some(self.repo_open_specs(full_name, origin))
     }
 
     /// docs/0036 D3: the repo-rows backoff bookkeeping, called from the
@@ -1993,8 +2059,14 @@ impl GithubState {
     /// The home lane's first page (docs/0047 D3) — fired on module open
     /// and on account switch. Ident encodes `scope:login`; no etag
     /// (GraphQL has none).
-    pub(crate) fn home_open_spec(&self, login: &str, scope: HomeScope) -> FetchSpec {
+    pub(crate) fn home_open_spec(
+        &self,
+        login: &str,
+        scope: HomeScope,
+        origin: Origin,
+    ) -> FetchSpec {
         FetchSpec {
+            origin,
             kind: Kind::AccountPullRequests,
             url: gql::GRAPHQL_ENDPOINT.to_string(),
             etag: None,
@@ -2015,7 +2087,13 @@ impl GithubState {
     /// refresh and skips — the beat retries when stale), `$after` set; the
     /// run arm lifts it into `SpecResult::cursor` so `apply` appends.
     pub(crate) fn home_more_spec(&self, login: &str, scope: HomeScope, after: &str) -> FetchSpec {
-        let mut spec = self.home_open_spec(login, scope);
+        // The Load-More button — always manual (docs/0047 D4).
+        let mut spec = self.home_open_spec(
+            login,
+            scope,
+            Origin::new(Surface::ModuleHome, Trigger::Manual),
+        );
+        let _ = &mut spec;
         if let Some(vars) = spec.variables.as_mut() {
             vars["after"] = serde_json::Value::String(after.to_string());
         }
@@ -2031,6 +2109,7 @@ impl GithubState {
         login: &str,
         scope: HomeScope,
         min_age: Duration,
+        origin: Origin,
     ) -> Option<Vec<FetchSpec>> {
         if let Some(attempted_at) = self.home_attempted_at {
             if self.home_fail_streak > 0
@@ -2043,7 +2122,7 @@ impl GithubState {
         if self.home_landed.is_some_and(|t| t.elapsed() < min_age) {
             return None;
         }
-        Some(vec![self.home_open_spec(login, scope)])
+        Some(vec![self.home_open_spec(login, scope, origin)])
     }
 
     /// docs/0047: the home lane's backoff bookkeeping — the
@@ -2064,11 +2143,13 @@ impl GithubState {
     /// `MarkSettled`/`DoneSettled` events and after a settled row-level
     /// done (the `repo_open_specs` shape minus the repo snapshot, which
     /// the writes do not touch).
-    pub(crate) fn mark_refetch_specs(&self) -> Vec<FetchSpec> {
+    pub(crate) fn mark_refetch_specs(&self, surface: Surface) -> Vec<FetchSpec> {
+        let origin = Origin::new(surface, Trigger::MutationRefetch);
         let mut specs = vec![self.spec(
             Kind::Notifications,
             api::notifications_url(1),
             Some(MAX_PAGES),
+            origin,
         )];
         if let Some(full) = &self.selected {
             let (owner, name) = split_full_name(full);
@@ -2077,6 +2158,7 @@ impl GithubState {
                 Some(full),
                 api::repo_notifications_url(&owner, &name, 1),
                 Some(2),
+                origin,
             ));
         }
         specs
@@ -2091,8 +2173,14 @@ impl GithubState {
         self.etags.get(&etag_key(kind, ident)).cloned()
     }
 
-    pub(crate) fn spec(&self, kind: Kind, url: String, max_pages: Option<u32>) -> FetchSpec {
-        self.spec_ident(kind, None, url, max_pages)
+    pub(crate) fn spec(
+        &self,
+        kind: Kind,
+        url: String,
+        max_pages: Option<u32>,
+        origin: Origin,
+    ) -> FetchSpec {
+        self.spec_ident(kind, None, url, max_pages, origin)
     }
 
     /// `spec` with an identity — per-repo kinds key their ETags per repo.
@@ -2102,8 +2190,10 @@ impl GithubState {
         ident: Option<&str>,
         url: String,
         max_pages: Option<u32>,
+        origin: Origin,
     ) -> FetchSpec {
         FetchSpec {
+            origin,
             kind,
             etag: self.etags.get(&etag_key(kind, ident)).cloned(),
             url,
@@ -2707,8 +2797,11 @@ pub(crate) async fn run_spec_tracked(
     cx: &mut AsyncApp,
 ) -> SpecResult {
     let id = cx.update(|cx| status::begin(cx, MODULE_ID.into()));
-    let (client, gate) =
-        cx.update(|cx| state.update(cx, |s, _| (s.client.clone(), s.gate.clone())));
+    let (client, gate, recorder) = cx.update(|cx| {
+        state.update(cx, |s, _| {
+            (s.client.clone(), s.gate.clone(), s.recorder.clone())
+        })
+    });
     let mut used_gen = gate.generation();
     let mut rounds: u32 = 0;
     let result = loop {
@@ -2716,8 +2809,9 @@ pub(crate) async fn run_spec_tracked(
             .background_executor()
             .spawn({
                 let client = client.clone();
+                let recorder = recorder.clone();
                 let spec = spec.clone();
-                async move { run_spec(&*client, &spec) }
+                async move { run_spec(&*client, &recorder, &spec) }
             })
             .await;
         if result.network.is_some() || result.status != 401 {
@@ -2837,6 +2931,8 @@ pub(crate) async fn run_check_log_chain(
     };
     let ident = format!("{repo}#{number}#{check_name}");
     let spec_for = |url: String| FetchSpec {
+        // docs/0039 D4: check-run logs fetch on expand.
+        origin: Origin::new(Surface::PrPage, Trigger::Expand),
         kind: Kind::JobLog,
         url,
         etag: None,
@@ -2953,11 +3049,12 @@ pub(crate) async fn run_check_log_chain(
 /// result — the slots it would overwrite no longer belong to this
 /// session.
 async fn run_refresh(state: Entity<GithubState>, cx: &mut AsyncApp) {
-    let (gate, client, refresh_token, used_gen) = cx.update(|cx| {
+    let (gate, client, recorder, refresh_token, used_gen) = cx.update(|cx| {
         state.update(cx, |s, _| {
             (
                 s.gate.clone(),
                 s.client.clone(),
+                s.recorder.clone(),
                 s.shared_refresh.read().ok().and_then(|t| t.clone()),
                 s.gate.generation(),
             )
@@ -2972,7 +3069,11 @@ async fn run_refresh(state: Entity<GithubState>, cx: &mut AsyncApp) {
     let mut guard = LeadGuard { gate, armed: true };
     let outcome = cx
         .background_executor()
-        .spawn(async move { refresh(&*client, &refresh_token) })
+        .spawn(async move {
+            // docs/0053 D4: the auth POST records too — free (the login
+            // endpoints never bill the API quota, docs/0050 D1).
+            refresh(&recording_for_auth(&*client, &recorder), &refresh_token)
+        })
         .await;
     if guard.gate.generation() != used_gen {
         log::debug!("token refresh landed after a session change — dropped");
@@ -3062,9 +3163,13 @@ pub(crate) async fn run_mutation(
     mutation: Mutation,
     variables: Value,
     ident: String,
+    origin: Origin,
     cx: &mut AsyncApp,
 ) -> SpecResult {
     let spec = FetchSpec {
+        // docs/0053 D2: the write's refetch origin — callers pass their
+        // surface; a mutation is always a MutationRefetch trigger.
+        origin,
         kind: Kind::PrMutation(mutation),
         url: gql::GRAPHQL_ENDPOINT.to_string(),
         etag: None,
@@ -3147,13 +3252,26 @@ pub fn start_connect(state: Entity<GithubState>, window: AnyWindowHandle, cx: &m
     });
 
     cx.spawn(async move |cx| {
-        let client = cx.update(|cx| state.update(cx, |s, _| s.client.clone()));
+        let (client, recorder) =
+            cx.update(|cx| state.update(cx, |s, _| (s.client.clone(), s.recorder.clone())));
 
         // Step 1 — device + user codes.
         let auth_client = client.clone();
+        let code_recorder = recorder.clone();
         let start = cx
             .background_executor()
-            .spawn(async move { start_device_flow(&*auth_client) })
+            .spawn(async move {
+                // docs/0053 D4: connect flights record through the same
+                // decorator — free (login endpoints, docs/0050 D1).
+                start_device_flow(&RecordingHttp::with_transport(
+                    &*auth_client,
+                    &code_recorder,
+                    Origin::new(Surface::Connect, Trigger::Auth),
+                    "connect-code",
+                    Transport::Auth,
+                    true,
+                ))
+            })
             .await;
         let start = match start {
             Ok(s) => s,
@@ -3194,9 +3312,23 @@ pub fn start_connect(state: Entity<GithubState>, window: AnyWindowHandle, cx: &m
             }
             let outcome = {
                 let client = client.clone();
+                let recorder = recorder.clone();
                 let device_code = start.device_code.clone();
                 cx.background_executor()
-                    .spawn(async move { poll_token(&*client, &device_code, interval) })
+                    .spawn(async move {
+                        poll_token(
+                            &RecordingHttp::with_transport(
+                                &*client,
+                                &recorder,
+                                Origin::new(Surface::Connect, Trigger::Auth),
+                                "connect-poll",
+                                Transport::Auth,
+                                true,
+                            ),
+                            &device_code,
+                            interval,
+                        )
+                    })
                     .await
             };
             match outcome {
@@ -3282,11 +3414,22 @@ pub fn sign_out_now(state: Entity<GithubState>, window: AnyWindowHandle, cx: &mu
 
 #[cfg(test)]
 mod tests {
+
+    /// docs/0053 §5: a fresh recorder over a small private sink —
+    /// transport tests don't assert records (the dispatch table does).
+    fn test_recorder() -> dashboard_core::usage_records::Recorder {
+        dashboard_core::usage_records::Recorder::new(
+            "github",
+            std::sync::Arc::new(dashboard_core::usage_records::MemorySink::new(64)),
+        )
+    }
     use super::*;
     use crate::auth::MockTokenStore;
     use crate::drafts::DraftStore;
     use crate::http::HttpResult;
     use crate::http::mock::{MockHttp, Recorded};
+    use crate::usage::Surface;
+    use dashboard_core::usage_records::{Transport, UsageSink as _};
     use gpui::AppContext as _;
     use std::collections::HashMap;
 
@@ -3373,6 +3516,7 @@ mod tests {
         for (mutation, op, variables) in cases {
             let http = Arc::new(MockHttp::ok(200, r#"{"data":{}}"#));
             let spec = FetchSpec {
+                origin: Origin::BACKGROUND,
                 kind: Kind::PrMutation(mutation),
                 url: gql::GRAPHQL_ENDPOINT.into(),
                 etag: None,
@@ -3482,6 +3626,7 @@ mod tests {
         for (mutation, op, variables) in cases {
             let http = Arc::new(MockHttp::ok(200, r#"{"data":{}}"#));
             let spec = FetchSpec {
+                origin: Origin::BACKGROUND,
                 kind: Kind::PrMutation(mutation),
                 url: gql::GRAPHQL_ENDPOINT.into(),
                 etag: None,
@@ -3547,6 +3692,7 @@ mod tests {
         for (mutation, op, variables) in cases {
             let http = Arc::new(MockHttp::ok(200, r#"{"data":{}}"#));
             let spec = FetchSpec {
+                origin: Origin::BACKGROUND,
                 kind: Kind::PrMutation(mutation),
                 url: gql::GRAPHQL_ENDPOINT.into(),
                 etag: None,
@@ -3839,7 +3985,7 @@ mod tests {
         state.auth = AuthStatus::Connected;
 
         let wants = |s: &GithubState| {
-            s.notifications_spec_if_stale(FOCUS_MIN_AGE)
+            s.notifications_spec_if_stale(FOCUS_MIN_AGE, Origin::BACKGROUND)
                 .is_some_and(|spec| spec.kind == Kind::Notifications)
         };
 
@@ -3954,12 +4100,12 @@ mod tests {
         // run — no continuation cursor survives between runs; idents
         // feed the docs/0031 inflight dedup.
         let state = make_state(Arc::new(MockHttp::new(vec![])));
-        let inv = state.session_inventory_spec();
+        let inv = state.session_inventory_spec(Origin::BACKGROUND);
         assert_eq!(inv.kind, Kind::SessionInventory);
         assert_eq!(inv.ident.as_deref(), Some("session"));
         assert!(inv.variables.unwrap()["cursor"].is_null());
 
-        let card = state.card_totals_spec();
+        let card = state.card_totals_spec(Origin::BACKGROUND);
         assert_eq!(card.kind, Kind::CardTotals);
         assert_eq!(card.ident.as_deref(), Some("card-totals"));
         assert!(card.variables.unwrap()["cursor"].is_null());
@@ -3971,7 +4117,7 @@ mod tests {
     fn home_open_spec_encodes_scope_query_and_ident() {
         let state = make_state(Arc::new(MockHttp::new(vec![])));
 
-        let org = state.home_open_spec("acme", HomeScope::Org);
+        let org = state.home_open_spec("acme", HomeScope::Org, Origin::BACKGROUND);
         assert_eq!(org.kind, Kind::AccountPullRequests);
         assert_eq!(org.ident.as_deref(), Some("org:acme"));
         assert!(org.etag.is_none(), "GraphQL never etags");
@@ -3982,7 +4128,7 @@ mod tests {
         );
         assert!(vars["after"].is_null(), "page 1 carries no cursor");
 
-        let user = state.home_open_spec("me", HomeScope::User);
+        let user = state.home_open_spec("me", HomeScope::User, Origin::BACKGROUND);
         assert_eq!(user.ident.as_deref(), Some("user:me"));
         assert_eq!(
             user.variables.unwrap()["query"],
@@ -4007,7 +4153,7 @@ mod tests {
         assert_eq!(result.status, 200);
 
         // Page 1 reports no continuation.
-        let spec = state.home_open_spec("acme", HomeScope::Org);
+        let spec = state.home_open_spec("acme", HomeScope::Org, Origin::BACKGROUND);
         let http = Arc::new(MockHttp::new(vec![gql_ok(body)]));
         let result = run_home_prs(&*http, &spec);
         assert!(result.cursor.is_none());
@@ -4020,7 +4166,7 @@ mod tests {
         // Never landed → the beat fires the first page.
         assert!(
             state
-                .home_refresh_specs("acme", HomeScope::Org, Duration::ZERO)
+                .home_refresh_specs("acme", HomeScope::Org, Duration::ZERO, Origin::BACKGROUND)
                 .is_some()
         );
 
@@ -4029,7 +4175,12 @@ mod tests {
         fresh.home_landed = Some(Instant::now());
         assert!(
             fresh
-                .home_refresh_specs("acme", HomeScope::Org, Duration::from_secs(60))
+                .home_refresh_specs(
+                    "acme",
+                    HomeScope::Org,
+                    Duration::from_secs(60),
+                    Origin::BACKGROUND
+                )
                 .is_none()
         );
 
@@ -4038,13 +4189,13 @@ mod tests {
         failed.bump_home_backoff(false);
         assert!(
             failed
-                .home_refresh_specs("acme", HomeScope::Org, Duration::ZERO)
+                .home_refresh_specs("acme", HomeScope::Org, Duration::ZERO, Origin::BACKGROUND)
                 .is_none()
         );
         failed.bump_home_backoff(true);
         assert!(
             failed
-                .home_refresh_specs("acme", HomeScope::Org, Duration::ZERO)
+                .home_refresh_specs("acme", HomeScope::Org, Duration::ZERO, Origin::BACKGROUND)
                 .is_some()
         );
     }
@@ -4129,9 +4280,9 @@ mod tests {
             gql_ok(&gql_page(false, "unused", &repo_node("o/b", 0, ""))),
         ]));
         let state = make_state(http.clone());
-        let spec = state.session_inventory_spec();
+        let spec = state.session_inventory_spec(Origin::BACKGROUND);
 
-        let result = run_spec(&*http, &spec);
+        let result = run_spec(&*http, &test_recorder(), &spec);
         assert_eq!(result.status, 200);
         assert!(result.cursor.is_none(), "completed run resets cursor");
 
@@ -4171,7 +4322,11 @@ mod tests {
         let http = Arc::new(MockHttp::new(pages));
         let state = make_state(http.clone());
 
-        let result = run_spec(&*http, &state.session_inventory_spec());
+        let result = run_spec(
+            &*http,
+            &test_recorder(),
+            &state.session_inventory_spec(Origin::BACKGROUND),
+        );
         assert_eq!(http.recorded().len(), gql::VIEW_MAX_PAGES as usize);
         assert_eq!(result.cursor.as_deref(), Some("cx"));
     }
@@ -4311,7 +4466,7 @@ mod tests {
     #[test]
     fn repo_open_specs_shape() {
         let state = make_state(Arc::new(MockHttp::new(vec![])));
-        let specs = state.repo_open_specs("o/r");
+        let specs = state.repo_open_specs("o/r", Origin::BACKGROUND);
         assert_eq!(specs.len(), 2);
         assert_eq!(specs[0].kind, Kind::RepoSnapshot);
         assert_eq!(specs[0].variables.as_ref().unwrap()["owner"], "o");
@@ -4414,7 +4569,7 @@ mod tests {
         assert_eq!(state.rows_fail_streak, 1);
         assert!(
             state
-                .repo_rows_refresh_specs("o/r", Duration::ZERO)
+                .repo_rows_refresh_specs("o/r", Duration::ZERO, Origin::BACKGROUND)
                 .is_none()
         );
 
@@ -4423,7 +4578,7 @@ mod tests {
         assert_eq!(state.rows_fail_streak, 0);
         assert!(
             state
-                .repo_rows_refresh_specs("o/r", Duration::ZERO)
+                .repo_rows_refresh_specs("o/r", Duration::ZERO, Origin::BACKGROUND)
                 .is_some()
         );
 
@@ -4434,13 +4589,13 @@ mod tests {
         state.rows_attempted_at = Some(Instant::now() - Duration::from_secs(119));
         assert!(
             state
-                .repo_rows_refresh_specs("o/r", Duration::ZERO)
+                .repo_rows_refresh_specs("o/r", Duration::ZERO, Origin::BACKGROUND)
                 .is_none()
         );
         state.rows_attempted_at = Some(Instant::now() - Duration::from_secs(120));
         assert!(
             state
-                .repo_rows_refresh_specs("o/r", Duration::ZERO)
+                .repo_rows_refresh_specs("o/r", Duration::ZERO, Origin::BACKGROUND)
                 .is_some()
         );
     }
@@ -4458,7 +4613,7 @@ mod tests {
         // Never landed this session → refreshable, and it is the full
         // open pair (rows + repo-slice notifications).
         let specs = state
-            .repo_rows_refresh_specs("o/r", Duration::from_secs(60))
+            .repo_rows_refresh_specs("o/r", Duration::from_secs(60), Origin::BACKGROUND)
             .expect("never-landed is refreshable");
         assert_eq!(specs.len(), 2);
         assert_eq!(specs[0].kind, Kind::RepoSnapshot);
@@ -4481,7 +4636,7 @@ mod tests {
         });
         assert!(
             state
-                .repo_rows_refresh_specs("o/r", Duration::from_secs(60))
+                .repo_rows_refresh_specs("o/r", Duration::from_secs(60), Origin::BACKGROUND)
                 .is_none(),
             "just-landed repo rows are fresh"
         );
@@ -4494,13 +4649,13 @@ mod tests {
         ));
         assert!(
             state
-                .repo_rows_refresh_specs("o/r", Duration::from_secs(60))
+                .repo_rows_refresh_specs("o/r", Duration::from_secs(60), Origin::BACKGROUND)
                 .is_none(),
             "the global tick freshens every repo it carries"
         );
         assert!(
             state
-                .repo_rows_refresh_specs("o/other", Duration::from_secs(60))
+                .repo_rows_refresh_specs("o/other", Duration::from_secs(60), Origin::BACKGROUND)
                 .is_some(),
             "a repo the page didn't carry stays refreshable"
         );
@@ -4512,7 +4667,7 @@ mod tests {
             .insert("o/r".into(), Instant::now() - Duration::from_secs(60));
         assert!(
             state
-                .repo_rows_refresh_specs("o/r", Duration::from_secs(60))
+                .repo_rows_refresh_specs("o/r", Duration::from_secs(60), Origin::BACKGROUND)
                 .is_some(),
             "stale at >="
         );
@@ -4678,6 +4833,7 @@ mod tests {
         for (mutation, op, variables) in cases {
             let http = Arc::new(MockHttp::ok(200, r#"{"data":{}}"#));
             let spec = FetchSpec {
+                origin: Origin::BACKGROUND,
                 kind: Kind::PrMutation(mutation),
                 url: gql::GRAPHQL_ENDPOINT.into(),
                 etag: None,
@@ -4705,13 +4861,23 @@ mod tests {
         let mut state = make_state(http.clone());
         state.auth = AuthStatus::Connected;
 
-        let spec = state.spec(Kind::Notifications, api::notifications_url(1), Some(2));
-        state.apply(run_spec(&*http, &spec));
+        let spec = state.spec(
+            Kind::Notifications,
+            api::notifications_url(1),
+            Some(2),
+            Origin::BACKGROUND,
+        );
+        state.apply(run_spec(&*http, &test_recorder(), &spec));
 
         assert_eq!(state.notifications.len(), 1);
         assert_eq!(state.etags.get("notifications").unwrap(), "\"etag-1\"");
         // The next conditional fetch carries If-None-Match.
-        let spec2 = state.spec(Kind::Notifications, api::notifications_url(1), Some(2));
+        let spec2 = state.spec(
+            Kind::Notifications,
+            api::notifications_url(1),
+            Some(2),
+            Origin::BACKGROUND,
+        );
         assert_eq!(spec2.etag.as_deref(), Some("\"etag-1\""));
     }
 
@@ -4755,8 +4921,13 @@ mod tests {
         state.notifications =
             serde_json::from_str::<Vec<Notification>>(one_notification()).unwrap();
 
-        let spec = state.spec(Kind::Notifications, api::notifications_url(1), Some(2));
-        state.apply(run_spec(&*http, &spec));
+        let spec = state.spec(
+            Kind::Notifications,
+            api::notifications_url(1),
+            Some(2),
+            Origin::BACKGROUND,
+        );
+        state.apply(run_spec(&*http, &test_recorder(), &spec));
         assert_eq!(state.notifications.len(), 1);
         assert_eq!(state.notifications[0].id, "1");
     }
@@ -4771,8 +4942,13 @@ mod tests {
         let mut first = make_state_at(http.clone(), cache.clone(), DraftStore::at_tmp("svc"));
         first.auth = AuthStatus::Connected;
         first.selected = Some("o/r".into());
-        let spec = first.spec(Kind::Notifications, api::notifications_url(1), Some(2));
-        first.apply(run_spec(&*http, &spec));
+        let spec = first.spec(
+            Kind::Notifications,
+            api::notifications_url(1),
+            Some(2),
+            Origin::BACKGROUND,
+        );
+        first.apply(run_spec(&*http, &test_recorder(), &spec));
         assert_eq!(first.notifications.len(), 1);
 
         let mut second = make_state_at(
@@ -4808,8 +4984,9 @@ mod tests {
             Some("o/r"),
             api::repo_notifications_url("o", "r", 1),
             Some(2),
+            Origin::BACKGROUND,
         );
-        first.apply(run_spec(&*http, &spec));
+        first.apply(run_spec(&*http, &test_recorder(), &spec));
         assert_eq!(first.repo_notifications.get("o/r").unwrap().len(), 1);
 
         let mut second = make_state_at(
@@ -4861,8 +5038,13 @@ mod tests {
         let mut state = make_state(http.clone());
         state.auth = AuthStatus::Connected;
 
-        let spec = state.spec(Kind::Notifications, api::notifications_url(1), Some(2));
-        state.apply(run_spec(&*http, &spec));
+        let spec = state.spec(
+            Kind::Notifications,
+            api::notifications_url(1),
+            Some(2),
+            Origin::BACKGROUND,
+        );
+        state.apply(run_spec(&*http, &test_recorder(), &spec));
         assert_eq!(state.auth, AuthStatus::TokenRejected);
         assert!(state.plan_tick(1).is_empty());
     }
@@ -4924,8 +5106,13 @@ mod tests {
         let mut state = make_state(http.clone());
         state.auth = AuthStatus::Connected;
 
-        let spec = state.spec(Kind::Notifications, api::notifications_url(1), None);
-        state.apply(run_spec(&*http, &spec));
+        let spec = state.spec(
+            Kind::Notifications,
+            api::notifications_url(1),
+            None,
+            Origin::BACKGROUND,
+        );
+        state.apply(run_spec(&*http, &test_recorder(), &spec));
         assert_eq!(state.rate_limited_until, Some(9_999_999_999));
         assert!(state.plan_tick(1).is_empty());
     }
@@ -5399,8 +5586,13 @@ mod tests {
             "reason":"review_requested"}"#;
         let http = Arc::new(MockHttp::ok(200, thread));
         let state = make_state(http.clone());
-        let spec = state.spec(Kind::ThreadDetail, crate::api::thread_url("19"), None);
-        let result = run_spec(&*http, &spec);
+        let spec = state.spec(
+            Kind::ThreadDetail,
+            crate::api::thread_url("19"),
+            None,
+            Origin::BACKGROUND,
+        );
+        let result = run_spec(&*http, &test_recorder(), &spec);
         assert_eq!(result.status, 200);
         assert_eq!(result.body.as_deref(), Some(thread));
         let recorded = http.recorded();
@@ -5420,8 +5612,13 @@ mod tests {
         for (op, verb, status) in cases {
             let http = Arc::new(MockHttp::ok(status, ""));
             let state = make_state(http.clone());
-            let spec = state.spec(Kind::ThreadMutation(op), crate::api::thread_url("19"), None);
-            let result = run_spec(&*http, &spec);
+            let spec = state.spec(
+                Kind::ThreadMutation(op),
+                crate::api::thread_url("19"),
+                None,
+                Origin::BACKGROUND,
+            );
+            let result = run_spec(&*http, &test_recorder(), &spec);
             assert_eq!(result.status, status);
             assert_eq!(result.body, None, "mutations carry no body");
             let recorded = http.recorded();
@@ -5438,7 +5635,7 @@ mod tests {
         let http = Arc::new(MockHttp::new(vec![]));
         let mut state = make_state(http);
         state.selected = Some("o/r".into());
-        let specs = state.mark_refetch_specs();
+        let specs = state.mark_refetch_specs(Surface::Background);
         assert_eq!(specs.len(), 2);
         assert_eq!(specs[0].kind, Kind::Notifications);
         assert_eq!(specs[1].kind, Kind::RepoNotifications);
@@ -5447,7 +5644,7 @@ mod tests {
         let http = Arc::new(MockHttp::new(vec![]));
         let mut state = make_state(http);
         state.selected = None;
-        assert_eq!(state.mark_refetch_specs().len(), 1);
+        assert_eq!(state.mark_refetch_specs(Surface::Background).len(), 1);
     }
 
     // --- Auth gate (docs/0028 §5) -----------------------------------------
@@ -5619,6 +5816,7 @@ mod tests {
 
     fn notifications_spec() -> FetchSpec {
         FetchSpec {
+            origin: Origin::BACKGROUND,
             kind: Kind::Notifications,
             url: api::notifications_url(1),
             etag: None,
@@ -5663,6 +5861,7 @@ mod tests {
 
     fn dedup_spec(kind: Kind, ident: Option<&str>) -> FetchSpec {
         FetchSpec {
+            origin: Origin::BACKGROUND,
             kind,
             url: api::notifications_url(1),
             etag: None,
@@ -5899,6 +6098,7 @@ mod tests {
         let t2 = cx.spawn({
             let state = state.clone();
             let spec = FetchSpec {
+                origin: Origin::BACKGROUND,
                 kind: Kind::RepoNotifications,
                 url: api::repo_notifications_url("o", "r", 1),
                 etag: None,
@@ -5972,5 +6172,213 @@ mod tests {
         });
         assert_eq!(auth, AuthStatus::Connected);
         assert!(!exhausted);
+    }
+
+    // --- usage records (docs/0053 §5) --------------------------------------
+
+    fn records_sink(cap: usize) -> std::sync::Arc<dashboard_core::usage_records::MemorySink> {
+        std::sync::Arc::new(dashboard_core::usage_records::MemorySink::new(cap))
+    }
+
+    fn notifications_body(n: usize) -> String {
+        let items: Vec<String> = (0..n)
+            .map(|i| format!(r#"{{"id":"t{i}","unread":true,"reason":"subscribed","updated_at":"2024-01-01T00:00:00Z","subject":{{"title":"s","url":"https://api.github.com/repos/o/r/issues/1","type":"Issue"}},"repository":{{"full_name":"o/r"}}}}"#))
+            .collect();
+        format!("[{}]", items.join(","))
+    }
+
+    #[test]
+    fn records_one_per_flight_on_a_paged_rest_walk() {
+        // docs/0053 D1: one record per HTTP flight — a 3-page walk is 3
+        // records of cost 1, sharing origin and ident.
+        let http = Arc::new(MockHttp::new(vec![
+            ok(&notifications_body(100), "\"e1\""),
+            ok(&notifications_body(100), "\"e2\""),
+            ok(&notifications_body(3), "\"e3\""),
+        ]));
+        let sink = records_sink(16);
+        let recorder = dashboard_core::usage_records::Recorder::new("github", sink.clone());
+        let state = make_state_at(
+            http.clone(),
+            GithubCache::at_tmp("rec-walk"),
+            DraftStore::at_tmp("rec-walk"),
+        );
+        let spec = state.spec(
+            Kind::Notifications,
+            api::notifications_url(1),
+            Some(3),
+            Origin::new(Surface::NotificationPage, Trigger::ViewShown),
+        );
+        run_spec(&*http, &recorder, &spec);
+        let rows = sink.snapshot();
+        assert_eq!(rows.len(), 3, "one record per flight, not per spec");
+        for r in &rows {
+            assert_eq!(r.module.as_ref(), "github");
+            assert_eq!(r.transport, Transport::Rest);
+            assert_eq!(r.op.as_ref(), "notifications");
+            assert_eq!(r.cost, Some(1));
+            assert_eq!(r.status, 200);
+            assert_eq!(r.remaining_after, Some(4900));
+            assert_eq!(r.cycle_reset_epoch, Some(9_999_999));
+            assert!(!r.network_error);
+        }
+        assert_eq!(rows[0].surface.as_ref(), "notification-page");
+        assert_eq!(rows[0].trigger.as_ref(), "view-shown");
+        assert_eq!(rows[0].seq + 1, rows[1].seq);
+    }
+
+    #[test]
+    fn records_graphql_cost_from_the_body() {
+        // docs/0053 D1: GraphQL cost is the response's own rateLimit.cost
+        // — never a guessed number; remaining/reset ride the same object.
+        let http = Arc::new(MockHttp::new(vec![gql_ok(
+            r#"{"data":{"rateLimit":{"cost":7,"remaining":4310,"resetAt":"2030-01-01T00:00:00Z"},"viewer":{"repositories":{"nodes":[],"pageInfo":{"hasNextPage":false}}}}}"#,
+        )]));
+        let sink = records_sink(16);
+        let recorder = dashboard_core::usage_records::Recorder::new("github", sink.clone());
+        let state = make_state_at(
+            http.clone(),
+            GithubCache::at_tmp("rec-gql"),
+            DraftStore::at_tmp("rec-gql"),
+        );
+        let spec =
+            state.session_inventory_spec(Origin::new(Surface::ServiceTick, Trigger::Bootstrap));
+        run_spec(&*http, &recorder, &spec);
+        let rows = sink.snapshot();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].transport, Transport::Graphql);
+        assert_eq!(rows[0].cost, Some(7));
+        assert_eq!(rows[0].remaining_after, Some(4310));
+        assert_eq!(rows[0].cycle_reset_epoch, Some(1_893_456_000));
+        assert_eq!(rows[0].surface.as_ref(), "service-tick");
+        assert_eq!(rows[0].trigger.as_ref(), "bootstrap");
+    }
+
+    #[test]
+    fn records_304_and_probe_are_free() {
+        // docs/0050 D1 booking rules: ETag revalidations and the
+        // GET /rate_limit probe cost nothing.
+        let http304 = Arc::new(MockHttp::new(vec![Ok(HttpResult {
+            status: 304,
+            etag: Some("e".into()),
+            rate: Some(RateLimit {
+                limit: 5000,
+                remaining: 4900,
+                reset_epoch: 42,
+            }),
+            body: None,
+        })]));
+        let sink = records_sink(16);
+        let recorder = dashboard_core::usage_records::Recorder::new("github", sink.clone());
+        let state = make_state_at(
+            http304.clone(),
+            GithubCache::at_tmp("rec-304"),
+            DraftStore::at_tmp("rec-304"),
+        );
+        let spec = state.spec(
+            Kind::Notifications,
+            api::notifications_url(1),
+            Some(1),
+            Origin::BACKGROUND,
+        );
+        run_spec(&*http304, &recorder, &spec);
+        assert_eq!(sink.snapshot()[0].cost, Some(0));
+        assert!(sink.snapshot()[0].etag_304);
+
+        let http_probe = Arc::new(MockHttp::new(vec![ok(r#"{"resources":{}}"#, "p")]));
+        let sink2 = records_sink(16);
+        let recorder2 = dashboard_core::usage_records::Recorder::new("github", sink2.clone());
+        let state2 = make_state_at(
+            http_probe.clone(),
+            GithubCache::at_tmp("rec-probe"),
+            DraftStore::at_tmp("rec-probe"),
+        );
+        let spec2 = state2.spec(
+            Kind::RateLimit,
+            api::rate_limit_url(),
+            None,
+            Origin::new(Surface::ServiceTick, Trigger::Probe),
+        );
+        run_spec(&*http_probe, &recorder2, &spec2);
+        let row = &sink2.snapshot()[0];
+        assert_eq!(row.cost, Some(0), "the free probe records zero");
+        assert_eq!(row.trigger.as_ref(), "probe");
+    }
+
+    #[test]
+    fn records_network_errors_are_unattributable() {
+        // docs/0053 D1: a network error's server-side cost is unknowable
+        // — cost stays None, never a guessed number.
+        let http = Arc::new(MockHttp::new(vec![Err(HttpError("dns gone".into()))]));
+        let sink = records_sink(16);
+        let recorder = dashboard_core::usage_records::Recorder::new("github", sink.clone());
+        let state = make_state_at(
+            http.clone(),
+            GithubCache::at_tmp("rec-net"),
+            DraftStore::at_tmp("rec-net"),
+        );
+        let spec = state.spec(
+            Kind::Notifications,
+            api::notifications_url(1),
+            Some(1),
+            Origin::BACKGROUND,
+        );
+        run_spec(&*http, &recorder, &spec);
+        let row = &sink.snapshot()[0];
+        assert!(row.network_error);
+        assert_eq!(row.status, 0);
+        assert_eq!(row.cost, None);
+        assert_eq!(row.remaining_after, None);
+    }
+
+    #[test]
+    fn records_token_refresh_is_free_auth_transport() {
+        // docs/0053 D4: the auth POST records through the same decorator
+        // — Auth transport, cost 0 (login endpoints never bill).
+        let http = Arc::new(MockHttp::new(vec![Ok(HttpResult {
+            status: 200,
+            etag: None,
+            rate: None,
+            body: Some(r#"{"access_token":"t1k","refresh_token":"r2","expires_in":28800}"#.into()),
+        })]));
+        let sink = records_sink(16);
+        let recorder = dashboard_core::usage_records::Recorder::new("github", sink.clone());
+        let rec = crate::usage::recording_for_auth(&*http, &recorder);
+        let outcome = crate::auth::refresh(&rec, "ghr_old");
+        match outcome {
+            crate::auth::RefreshOutcome::Refreshed(_) => {}
+            _ => panic!("expected a refreshed credential"),
+        }
+        let rows = sink.snapshot();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].transport, Transport::Auth);
+        assert_eq!(rows[0].cost, Some(0));
+        assert_eq!(rows[0].surface.as_ref(), "auth");
+        assert_eq!(rows[0].trigger.as_ref(), "auth");
+        assert_eq!(rows[0].op.as_ref(), "token-refresh");
+    }
+
+    #[test]
+    fn background_origins_are_loud() {
+        // docs/0053 D2 runtime layer: a Background record warns and
+        // counts — visible in the first session's logs, not just data.
+        let before = crate::usage::background_records();
+        let http = Arc::new(MockHttp::new(vec![ok("[]", "b")]));
+        let sink = records_sink(16);
+        let recorder = dashboard_core::usage_records::Recorder::new("github", sink.clone());
+        let state = make_state_at(
+            http.clone(),
+            GithubCache::at_tmp("rec-bg"),
+            DraftStore::at_tmp("rec-bg"),
+        );
+        let spec = state.spec(
+            Kind::Notifications,
+            api::notifications_url(1),
+            Some(1),
+            Origin::BACKGROUND,
+        );
+        run_spec(&*http, &recorder, &spec);
+        assert!(crate::usage::background_records() > before);
+        assert_eq!(sink.snapshot()[0].surface.as_ref(), "background");
     }
 }

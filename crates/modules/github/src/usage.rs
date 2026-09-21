@@ -23,10 +23,14 @@
 //! (D5, a self-refreshing view contributed through
 //! `ModuleEntry::status_item`).
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use gpui::*;
 use gpui_component::{ActiveTheme as _, h_flex, v_flex};
+
+use dashboard_core::usage_records::{RecordDraft, Recorder, Transport};
 
 use crate::auth::now_epoch;
 use crate::http::{Http, HttpError, HttpResult, RateLimit, Verb};
@@ -426,6 +430,321 @@ fn graphql_budget(body: Option<&str>, headers: Option<RateLimit>) -> Option<Budg
         remaining: rl.remaining.max(0) as u32,
         reset_at,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Origin (docs/0053 D2) — the module's closed vocabulary. Required on
+// every `FetchSpec` (no default: compiler-enforced), converted to the
+// core record's stringly fields at emission. `BACKGROUND` is the
+// loud escape hatch: emitting one warns and counts (§2 runtime layer).
+// ---------------------------------------------------------------------------
+
+/// *Where* a dispatch came from — "which page eats the quota".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Surface {
+    HomeCard,
+    ModuleHome,
+    RepoView,
+    PrPage,
+    IssuePage,
+    NotificationPage,
+    Composer,
+    ServiceTick,
+    Connect,
+    Auth,
+    Background,
+}
+
+impl Surface {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Surface::HomeCard => "home-card",
+            Surface::ModuleHome => "module-home",
+            Surface::RepoView => "repo-view",
+            Surface::PrPage => "pr-page",
+            Surface::IssuePage => "issue-page",
+            Surface::NotificationPage => "notification-page",
+            Surface::Composer => "composer",
+            Surface::ServiceTick => "service-tick",
+            Surface::Connect => "connect",
+            Surface::Auth => "auth",
+            Surface::Background => "background",
+        }
+    }
+}
+
+/// *Why* a dispatch happened — docs/0052's trigger set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Trigger {
+    Bootstrap,
+    ViewShown,
+    Refocus,
+    Manual,
+    Expand,
+    MutationRefetch,
+    Probe,
+    Auth,
+}
+
+impl Trigger {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Trigger::Bootstrap => "bootstrap",
+            Trigger::ViewShown => "view-shown",
+            Trigger::Refocus => "refocus",
+            Trigger::Manual => "manual",
+            Trigger::Expand => "expand",
+            Trigger::MutationRefetch => "mutation-refetch",
+            Trigger::Probe => "probe",
+            Trigger::Auth => "auth",
+        }
+    }
+}
+
+/// Surface × trigger, stamped on the `FetchSpec` at dispatch (D2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Origin {
+    pub(crate) surface: Surface,
+    pub(crate) trigger: Trigger,
+}
+
+impl Origin {
+    /// The escape hatch you write out for genuinely ownerless
+    /// dispatches — never a default (D2 compile-time layer). Used by
+    /// transport-level tests that don't assert origins.
+    #[allow(dead_code)] // lib target: only tests reach for it today
+    pub(crate) const BACKGROUND: Origin = Origin {
+        surface: Surface::Background,
+        trigger: Trigger::Bootstrap,
+    };
+
+    pub(crate) const fn new(surface: Surface, trigger: Trigger) -> Self {
+        Origin { surface, trigger }
+    }
+}
+
+/// Session count of `Background`-originated records (D2 runtime
+/// layer): a stamping bug that slipped compile and tests still shows
+/// up here and in the warn log.
+pub(crate) static BACKGROUND_RECORDS: AtomicU64 = AtomicU64::new(0);
+
+/// The counter behind [`BACKGROUND_RECORDS`] — for tests and probes.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn background_records() -> u64 {
+    BACKGROUND_RECORDS.load(Ordering::Relaxed)
+}
+
+/// The auth-flight recording view (`token-refresh` op) — shared by
+/// `run_refresh` and the records tests.
+pub(crate) fn recording_for_auth<'a>(
+    http: &'a dyn Http,
+    recorder: &'a Recorder,
+) -> RecordingHttp<'a> {
+    RecordingHttp::with_transport(
+        http,
+        recorder,
+        Origin::new(Surface::Auth, Trigger::Auth),
+        "token-refresh",
+        Transport::Auth,
+        true,
+    )
+}
+
+// ---------------------------------------------------------------------------
+// The recording decorator (docs/0053 D4) — `FetchCtx` materialized as
+// a per-run wrapper built inside `run_spec`, which knows `spec.origin`.
+// Every runner's `http.request`/`http.post_graphql` call emits one
+// record per real flight; future runners inherit emission for free.
+// Per-run by construction — no shared mutable origin slot to race.
+// ---------------------------------------------------------------------------
+
+/// One run's recording view over the real client. `free` marks the
+/// `GET /rate_limit` probe (docs/0050: unbilled).
+pub(crate) struct RecordingHttp<'a> {
+    inner: &'a dyn Http,
+    recorder: &'a Recorder,
+    origin: Origin,
+    op: &'static str,
+    ident: Option<SharedString>,
+    free: bool,
+    /// docs/0053 D4: the auth/connect wrappers force `Transport::Auth` —
+    /// the login endpoints are REST-shaped POSTs, but they are not API
+    /// traffic and never bill (docs/0050 D1).
+    transport_override: Option<Transport>,
+}
+
+impl<'a> RecordingHttp<'a> {
+    pub(crate) fn new(
+        inner: &'a dyn Http,
+        recorder: &'a Recorder,
+        origin: Origin,
+        op: &'static str,
+        ident: Option<&str>,
+        free: bool,
+    ) -> Self {
+        if origin.surface == Surface::Background {
+            BACKGROUND_RECORDS.fetch_add(1, Ordering::Relaxed);
+            log::warn!(
+                "usage-records: {op} dispatched with a Background origin — stamp it (docs/0053 D2)"
+            );
+        }
+        Self {
+            inner,
+            recorder,
+            origin,
+            op,
+            ident: ident.map(SharedString::from),
+            free,
+            transport_override: None,
+        }
+    }
+
+    /// `new` with a forced transport — the auth/connect views.
+    pub(crate) fn with_transport(
+        inner: &'a dyn Http,
+        recorder: &'a Recorder,
+        origin: Origin,
+        op: &'static str,
+        transport: Transport,
+        free: bool,
+    ) -> Self {
+        Self {
+            transport_override: Some(transport),
+            ..Self::new(inner, recorder, origin, op, None, free)
+        }
+    }
+
+    fn draft(
+        &self,
+        transport: Transport,
+        res: &Result<HttpResult, HttpError>,
+        sent_at: Instant,
+    ) -> RecordDraft {
+        let transport = self.transport_override.unwrap_or(transport);
+        let duration_ms = sent_at.elapsed().as_millis().min(u32::MAX as u128) as u32;
+        match res {
+            Err(_) => RecordDraft {
+                transport,
+                op: SharedString::from(self.op),
+                surface: SharedString::from(self.origin.surface.as_str()),
+                trigger: SharedString::from(self.origin.trigger.as_str()),
+                ident: self.ident.clone(),
+                status: 0,
+                etag_304: false,
+                // Network errors are not attributable — never a guessed
+                // number (D1); a timed-out flight's server-side cost is
+                // unknowable client-side.
+                cost: None,
+                remaining_after: None,
+                cycle_reset_epoch: None,
+                duration_ms,
+                network_error: true,
+            },
+            Ok(result) => {
+                let etag_304 = result.status == 304;
+                // Booking rules verbatim from docs/0050 (D1): REST = 1
+                // point per completed flight, 304 revalidations and the
+                // free probe = 0. GraphQL below prefers the body's own
+                // `rateLimit.cost`.
+                let (cost, remaining, cycle) = match transport {
+                    Transport::Graphql => match graphql_flight_cost(result.body.as_deref()) {
+                        Some((cost, remaining, reset)) => {
+                            (Some(cost), Some(remaining), Some(reset))
+                        }
+                        None => (
+                            None,
+                            result.rate.map(|r| r.remaining),
+                            result.rate.map(|r| r.reset_epoch),
+                        ),
+                    },
+                    _ => {
+                        let cost = if self.free || etag_304 {
+                            Some(0)
+                        } else {
+                            Some(1)
+                        };
+                        (
+                            cost,
+                            result.rate.map(|r| r.remaining),
+                            result.rate.map(|r| r.reset_epoch),
+                        )
+                    }
+                };
+                RecordDraft {
+                    transport,
+                    op: SharedString::from(self.op),
+                    surface: SharedString::from(self.origin.surface.as_str()),
+                    trigger: SharedString::from(self.origin.trigger.as_str()),
+                    ident: self.ident.clone(),
+                    status: result.status,
+                    etag_304,
+                    cost,
+                    remaining_after: remaining,
+                    cycle_reset_epoch: cycle,
+                    duration_ms,
+                    network_error: false,
+                }
+            }
+        }
+    }
+}
+
+impl Http for RecordingHttp<'_> {
+    fn request(
+        &self,
+        verb: Verb,
+        url: &str,
+        body: Option<&str>,
+        etag: Option<&str>,
+    ) -> Result<HttpResult, HttpError> {
+        let sent_at = Instant::now();
+        let res = self.inner.request(verb, url, body, etag);
+        self.recorder
+            .emit(self.draft(Transport::Rest, &res, sent_at));
+        res
+    }
+
+    fn post_graphql(
+        &self,
+        query: &str,
+        variables: &serde_json::Value,
+    ) -> Result<HttpResult, HttpError> {
+        let sent_at = Instant::now();
+        let res = self.inner.post_graphql(query, variables);
+        self.recorder
+            .emit(self.draft(Transport::Graphql, &res, sent_at));
+        res
+    }
+}
+
+/// The GraphQL body's `rateLimit` object for records (docs/0053 D1):
+/// `(cost, remaining, resetAt→epoch)` when the query asked for the
+/// field — the authoritative per-request cost. Mirrors
+/// [`graphql_budget`]'s parsing contract.
+fn graphql_flight_cost(body: Option<&str>) -> Option<(u32, u32, u64)> {
+    #[derive(serde::Deserialize)]
+    struct RateLimitField {
+        cost: i64,
+        remaining: i64,
+        #[serde(rename = "resetAt")]
+        reset_at: String,
+    }
+    #[derive(serde::Deserialize)]
+    struct Data {
+        #[serde(rename = "rateLimit")]
+        rate_limit: Option<RateLimitField>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Envelope {
+        data: Option<Data>,
+    }
+    let env: Envelope = serde_json::from_str(body?).ok()?;
+    let rl = env.data?.rate_limit?;
+    let reset = chrono::DateTime::parse_from_rfc3339(&rl.reset_at)
+        .ok()?
+        .timestamp()
+        .max(0) as u64;
+    Some((rl.cost.max(0) as u32, rl.remaining.max(0) as u32, reset))
 }
 
 // ---------------------------------------------------------------------------

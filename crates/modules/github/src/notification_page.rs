@@ -45,6 +45,7 @@ use gpui_component::{
 
 use crate::api;
 use crate::page::notification_url;
+use crate::usage::{Origin, Surface, Trigger};
 use dashboard_core::freshness::{Freshness, freshness_row, relative_age};
 use std::time::Duration;
 
@@ -146,7 +147,10 @@ impl NotificationDetailPage {
         if !read {
             page.fire_mark_read(cx);
         }
-        page.fetch_thread(cx);
+        page.fetch_thread(
+            Origin::new(Surface::NotificationPage, Trigger::ViewShown),
+            cx,
+        );
         page
     }
 
@@ -165,7 +169,9 @@ impl NotificationDetailPage {
     // --- network -------------------------------------------------------------
 
     fn mark_spec(&self) -> FetchSpec {
+        // docs/0053 D2: the write's own flight is MutationRefetch.
         FetchSpec {
+            origin: Origin::new(Surface::NotificationPage, Trigger::MutationRefetch),
             kind: Kind::ThreadMutation(ThreadOp::MarkRead),
             url: api::thread_url(self.thread_id()),
             etag: None,
@@ -177,6 +183,7 @@ impl NotificationDetailPage {
 
     fn done_spec(&self) -> FetchSpec {
         FetchSpec {
+            origin: Origin::new(Surface::NotificationPage, Trigger::MutationRefetch),
             kind: Kind::ThreadMutation(ThreadOp::MarkDone),
             url: api::thread_url(self.thread_id()),
             etag: None,
@@ -287,7 +294,7 @@ impl NotificationDetailPage {
         cx.notify();
     }
 
-    fn thread_spec(&self, cx: &Context<Self>) -> FetchSpec {
+    fn thread_spec(&self, origin: Origin, cx: &Context<Self>) -> FetchSpec {
         // docs/0038 D4: conditional revalidation when the lane holds
         // data — a cold session with a disk etag must full-fetch (a 304
         // against an empty record would strand it with nothing to keep).
@@ -297,6 +304,7 @@ impl NotificationDetailPage {
             .etag_for(Kind::ThreadDetail, Some(self.seed.id.as_str()))
             .filter(|_| self.thread.is_ready());
         FetchSpec {
+            origin,
             kind: Kind::ThreadDetail,
             url: api::thread_url(self.thread_id()),
             etag,
@@ -306,12 +314,12 @@ impl NotificationDetailPage {
         }
     }
 
-    fn fetch_thread(&mut self, cx: &mut Context<Self>) {
+    fn fetch_thread(&mut self, origin: Origin, cx: &mut Context<Self>) {
         if !self.state.read(cx).auth.connected() {
             return;
         }
         let state = self.state.clone();
-        let spec = self.thread_spec(cx);
+        let spec = self.thread_spec(origin, cx);
         log::debug!("thread-detail: fetching {}", self.thread_id());
         // Page-owned dispatch (docs/0031 §8): arm the shared guard
         // synchronously, run on the raw lane, clear on land.
@@ -335,7 +343,7 @@ impl NotificationDetailPage {
     pub(crate) fn refresh_if_stale(&mut self, min_age: Duration, cx: &mut Context<Self>) {
         // One composed gate (docs/0037 D4) — see pr_page::refresh_if_stale.
         if self.thread.wants_refresh(min_age) {
-            self.fetch_thread(cx);
+            self.fetch_thread(Origin::new(Surface::NotificationPage, Trigger::Refocus), cx);
         }
         // A skipped refocus still re-renders so the relative age
         // advances alongside the render-only wake (docs/0033 D4,
@@ -552,7 +560,9 @@ impl NotificationDetailPage {
                 "notification",
                 &self.thread,
                 cx,
-                |this, _, cx| this.fetch_thread(cx),
+                |this, _, cx| {
+                    this.fetch_thread(Origin::new(Surface::NotificationPage, Trigger::Manual), cx)
+                },
             ))
             // Mark as read: hidden while Read (hidden-not-
             // disabled) — visible as the auto-mark's retry (D4).

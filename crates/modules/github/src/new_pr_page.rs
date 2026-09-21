@@ -42,6 +42,7 @@ use crate::drafts::{self, DraftHandle};
 use crate::gql;
 use crate::markdown;
 use crate::service::{FetchSpec, GithubState, Kind, Mutation, run_mutation, run_spec_tracked};
+use crate::usage::{Origin, Surface, Trigger};
 
 actions!(github, [DismissNewPrPage]);
 
@@ -301,6 +302,7 @@ impl NewPrPage {
         let state = self.state.clone();
         let (owner, name) = crate::pr_page::split_repo(&self.repo);
         let spec = FetchSpec {
+            origin: Origin::new(Surface::Composer, Trigger::ViewShown),
             kind: Kind::RepoPrTemplates,
             url: gql::GRAPHQL_ENDPOINT.to_string(),
             etag: None,
@@ -441,6 +443,7 @@ impl NewPrPage {
         let state = self.state.clone();
         let (owner, name) = crate::pr_page::split_repo(&self.repo);
         let spec = FetchSpec {
+            origin: Origin::new(Surface::Composer, Trigger::ViewShown),
             kind: Kind::RepoBranches,
             url: gql::GRAPHQL_ENDPOINT.to_string(),
             etag: None,
@@ -559,6 +562,7 @@ impl NewPrPage {
         let state = self.state.clone();
         let (owner, name) = crate::pr_page::split_repo(&self.repo);
         let spec = FetchSpec {
+            origin: Origin::new(Surface::Composer, Trigger::ViewShown),
             kind: Kind::RepoBranches,
             url: gql::GRAPHQL_ENDPOINT.to_string(),
             etag: None,
@@ -695,8 +699,15 @@ impl NewPrPage {
         let state = self.state.clone();
         let ident = format!("{} new-pr", self.repo);
         cx.spawn_in(window, async move |this, cx| {
-            let result =
-                run_mutation(state, Mutation::CreatePullRequest, variables, ident, cx).await;
+            let result = run_mutation(
+                state,
+                Mutation::CreatePullRequest,
+                variables,
+                ident,
+                Origin::new(Surface::Composer, Trigger::MutationRefetch),
+                cx,
+            )
+            .await;
             let _ = cx.update(|window, app| {
                 this.update(app, |page, cx| {
                     page.apply_mutation_result(result, window, cx)
@@ -1183,6 +1194,7 @@ mod tests {
     use crate::gql;
     use crate::http::Http;
     use crate::service::{GithubCache, GithubState};
+    use crate::usage::{Origin, Surface, Trigger};
     use gpui::AppContext as _;
     use std::time::Duration;
 
@@ -1905,6 +1917,7 @@ mod tests {
         vcx.update(|window, cx| {
             page.update(cx, |page, cx| {
                 let spec = crate::service::FetchSpec {
+                    origin: Origin::new(Surface::Composer, Trigger::ViewShown),
                     kind: Kind::RepoBranches,
                     url: crate::gql::GRAPHQL_ENDPOINT.to_string(),
                     etag: None,

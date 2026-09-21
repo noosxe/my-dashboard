@@ -33,6 +33,7 @@ pub mod usage;
 use std::rc::Rc;
 use std::sync::Arc;
 
+use dashboard_core::usage_records::Recorder;
 use gpui::*;
 
 use dashboard_core::Module;
@@ -108,8 +109,21 @@ impl Module for GithubModule {
         // The single state entity — seeds from last-known caches and
         // resolves auth from the keychain.
         let drafts = drafts::DraftStore::new(dashboard_core::paths::AppPaths::init());
-        let state = cx
-            .new(|_| GithubState::new(client, store, shared_token, shared_refresh, cache, drafts));
+        // docs/0053 D3: the app-wide sink from `usage_records::init`.
+        let recorder = Recorder::new("github", dashboard_core::usage_records::sink(cx));
+        let state = cx.new(move |_| {
+            GithubState::with_recorder(
+                client,
+                store,
+                shared_token,
+                shared_refresh,
+                cache,
+                drafts,
+                // docs/0053 D3: the module-global sink from
+                // `usage_records::init` (app `main`).
+                recorder,
+            )
+        });
         // Swap the constructor's fresh book for the wrapper's (docs/
         // 0050 D2) — before any traffic can flow: the tick loop and
         // the views below spawn after this line.

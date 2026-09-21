@@ -169,9 +169,14 @@ own** — `record` returns nothing and must never fail or stall a
 request (an SQLite impl buffers and flushes on its own thread), so
 analytics can never break fetching.
 
-**D4 — Plumbing: a `FetchCtx` through the runners.** The flight
-runners take `FetchCtx<'a> { http: &'a dyn Http, recorder: &'a Recorder }`
-instead of bare `&dyn Http` — one mechanical signature change. The
+**D4 — Plumbing: a recording view at the `run_spec` boundary.** *(As
+implemented: the `FetchCtx` materialized as a per-run `RecordingHttp`
+decorator — `run_spec(http, recorder, spec)` builds it from
+`spec.origin` and hands it to the runners as their `&dyn Http`, so
+every current **and future** runner's `http.request`/`post_graphql`
+emits automatically — a stronger D2 guarantee than threading a ctx
+through signatures. Same contract otherwise: `run_spec_tracked` pulls
+the recorder from the core global, 401-retry re-entries re-emit.)* The
 `Recorder` is the writer side of D3 (seq/ts stamping + the sink
 handle); `run_spec_tracked` pulls it from the core global (§2/D3) so
 is correct accounting. `run_refresh` and the connect flow — direct
