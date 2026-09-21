@@ -11,7 +11,9 @@
 //! Two primary budgets, not one (0050 D1): GitHub enforces REST (`core`)
 //! and GraphQL as **separate** primary limits with separate counters and
 //! separate windows — each response reports its own API's bucket, and
-//! the chip shows both (`GH 3,712/5,000 · GQL 4,950`).
+//! the chip shows both remaining values (`GH 3,712 · GQL 4,950`), with
+//! the `x/y` + per-window detail in a hover tooltip and the spoken
+//! label.
 //!
 //! Sections: the pure book (D3, unit-tested without gpui) → the
 //! counting seam (D2, a decorator around `dyn Http`) → the footer chip
@@ -21,7 +23,7 @@
 use std::sync::{Arc, Mutex};
 
 use gpui::*;
-use gpui_component::{ActiveTheme as _, h_flex};
+use gpui_component::{ActiveTheme as _, h_flex, v_flex};
 
 use crate::auth::now_epoch;
 use crate::http::{Http, HttpError, HttpResult, RateLimit, Verb};
@@ -607,18 +609,61 @@ fn local_hhmm(epoch: u64) -> String {
         .unwrap_or_else(|| "??:??".into())
 }
 
-/// One bucket's chip-body fragment: `3,712/5,000` (full form) or
-/// `4,950` when its limit equals `shared_limit` and the other bucket
-/// already shows it (the D5 terse copy).
-fn bucket_body(d: Option<BucketDisplay>, shared_limit: Option<u32>) -> String {
+/// One bucket's chip-body fragment: remaining only (`3,712`) — the
+/// limits and windows live in the hover tooltip and the spoken label
+/// (D5).
+fn bucket_short(d: Option<BucketDisplay>) -> String {
     match d {
-        None => "…/…".to_string(),
-        Some(d) if Some(d.limit) == shared_limit => group_thousands(d.remaining),
-        Some(d) => format!(
-            "{}/{}",
-            group_thousands(d.remaining),
-            group_thousands(d.limit)
+        None => "…".to_string(),
+        Some(d) => group_thousands(d.remaining),
+    }
+}
+
+/// The chip body from a display derivation: `GH 3,712 · GQL 4,950` —
+/// remaining only (D5); the full `x/y` + window detail moves to the
+/// hover tooltip and the spoken label. Returns `(body, warning)`.
+fn chip_body(display: &UsageDisplay) -> (String, bool) {
+    match display {
+        UsageDisplay::Pending => ("GH … · GQL …".to_string(), false),
+        UsageDisplay::Budget { rest, graphql } => (
+            format!(
+                "GH {} · GQL {}",
+                bucket_short(*rest),
+                bucket_short(*graphql)
+            ),
+            false,
         ),
+        UsageDisplay::Exhausted { resumes_in_secs } => (
+            format!(
+                "GH rate-limited · resumes {}",
+                compact_duration(*resumes_in_secs)
+            ),
+            true,
+        ),
+    }
+}
+
+/// One bucket's hover-tooltip line: `GH 3,712/5,000 resets in 13m` —
+/// the line a stale window trades for its "as of" clock, since its
+/// countdown already ran out (D5).
+fn tooltip_line(name: &str, d: Option<BucketDisplay>) -> String {
+    match d {
+        None => format!("{name} …/…"),
+        Some(d) => {
+            let head = format!(
+                "{name} {}/{}",
+                group_thousands(d.remaining),
+                group_thousands(d.limit)
+            );
+            if d.stale {
+                match d.snapshot_at {
+                    Some(at) => format!("{head} · as of {}", local_hhmm(at)),
+                    None => head,
+                }
+            } else {
+                format!("{head} resets in {}", compact_duration(d.resets_in_secs))
+            }
+        }
     }
 }
 
@@ -651,82 +696,33 @@ impl Render for UsageChip {
         let session =
             format!("session: {total} requests ({graphql} GraphQL, {rest} REST, {auth} auth)");
 
-        // Chip body + spoken form per D5; the session counters ride the
-        // a11y label (a text status is not interactive, so there is no
-        // hover tooltip to host them — 0049 D1 shape). Both sub-budgets
-        // are shown (D1): `GH 3,712/5,000 · GQL 4,950`.
-        let (body, label, warning) = match display {
-            UsageDisplay::Pending => (
-                "GH …/… · GQL …".to_string(),
-                format!("GitHub API usage pending; {session}"),
-                false,
+        // Spoken form per D5 — the sole a11y carrier (a hover tooltip
+        // is mouse-only): both sub-budgets spelled out with their own
+        // windows and units, plus session counters and staleness.
+        let label = match &display {
+            UsageDisplay::Pending => format!("GitHub API usage pending; {session}"),
+            UsageDisplay::Budget { rest, graphql } => format!(
+                "GitHub API: {}; {}; {session}",
+                bucket_label("REST", "requests", *rest),
+                bucket_label("GraphQL", "points", *graphql)
             ),
-            UsageDisplay::Budget { rest, graphql } => {
-                // The terse body omits GQL's limit while it matches the
-                // REST limit; the spoken form always spells both.
-                let shared_limit = match (rest, graphql) {
-                    (Some(r), Some(g)) if r.limit == g.limit => Some(r.limit),
-                    (Some(r), None) => Some(r.limit),
-                    _ => None,
-                };
-                // REST always shows its full `x/y` form per the D5 copy.
-                let rest_body = match rest {
-                    Some(d) => format!(
-                        "{}/{}",
-                        group_thousands(d.remaining),
-                        group_thousands(d.limit)
-                    ),
-                    None => "…/…".to_string(),
-                };
-                let gql_body = bucket_body(graphql, shared_limit);
-
-                // Visible suffix: the nearest live window's countdown —
-                // or the stale marker when any window rolled without a
-                // newer snapshot (the spoken form has per-bucket detail).
-                let suffix = {
-                    let stale_at = [rest, graphql]
-                        .into_iter()
-                        .flatten()
-                        .filter(|d| d.stale)
-                        .filter_map(|d| d.snapshot_at)
-                        .min();
-                    if let Some(at) = stale_at {
-                        format!(" · as of {}", local_hhmm(at))
-                    } else {
-                        let nearest = [rest, graphql]
-                            .into_iter()
-                            .flatten()
-                            .map(|d| d.resets_in_secs)
-                            .min()
-                            .unwrap_or_default();
-                        format!(" · resets {}", compact_duration(nearest))
-                    }
-                };
-                let body = format!("GH {rest_body} · GQL {gql_body}{suffix}");
-
-                let rest_label = bucket_label("REST", "requests", rest);
-                let gql_label = bucket_label("GraphQL", "points", graphql);
-                let label = format!("GitHub API: {rest_label}; {gql_label}; {session}");
-                (body, label, false)
-            }
-            UsageDisplay::Exhausted { resumes_in_secs } => (
-                format!(
-                    "GH rate-limited · resumes {}",
-                    compact_duration(resumes_in_secs)
-                ),
-                format!(
-                    "GitHub API rate limited, fetches resume in {}; {session}",
-                    spoken_duration(resumes_in_secs)
-                ),
-                true,
+            UsageDisplay::Exhausted { resumes_in_secs } => format!(
+                "GitHub API rate limited, fetches resume in {}; {session}",
+                spoken_duration(*resumes_in_secs)
             ),
         };
+        let (body, warning) = chip_body(&display);
 
         let color = if warning {
             cx.theme().warning
         } else {
             cx.theme().muted_foreground
         };
+        // The hover tooltip (D5): built fresh at hover time from the
+        // same ledger — `GH x/y resets in Zm` / `GQL x/y resets in Zm`.
+        // It is deliberately additive detail for sighted mouse users;
+        // the aria label above stays the sole a11y carrier (0049).
+        let tooltip_usage = self.usage.clone();
         h_flex()
             .gap_1()
             .id("github-usage")
@@ -734,6 +730,45 @@ impl Render for UsageChip {
             .aria_label(label)
             .text_color(color)
             .child(SharedString::from(body))
+            .tooltip(move |_window, cx| {
+                // Read the book as it is when the tooltip opens; the
+                // rate-limit pause is passed `None` so the tooltip shows
+                // the budget detail even while the chip reads Exhausted.
+                let book = tooltip_usage.lock().unwrap();
+                let display = book.display(now_epoch(), None);
+                let lines = match display {
+                    UsageDisplay::Budget { rest, graphql } => {
+                        vec![tooltip_line("GH", rest), tooltip_line("GQL", graphql)]
+                    }
+                    _ => vec!["GH …/…".to_string(), "GQL …/…".to_string()],
+                };
+                cx.new(|_| UsageTooltip { lines }).into()
+            })
+    }
+}
+
+/// The chip's hover tooltip (D5): two lines, one per primary budget.
+struct UsageTooltip {
+    lines: Vec<String>,
+}
+
+impl Render for UsageTooltip {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+        let (popover, foreground, border) = (theme.popover, theme.popover_foreground, theme.border);
+        v_flex()
+            .id("github-usage-tooltip")
+            .role(accesskit::Role::Label)
+            .aria_label(self.lines.join("; "))
+            .bg(popover)
+            .text_color(foreground)
+            .border_1()
+            .border_color(border)
+            .rounded_sm()
+            .px_2()
+            .py_1()
+            .gap_1()
+            .children(self.lines.iter().cloned().map(SharedString::from))
     }
 }
 
@@ -750,7 +785,8 @@ mod tests {
     // page.rs tests note). Import selectively.
     use super::{
         Bucket, BudgetSnapshot, CountingHttp, ProbeBodies, UsageBook, UsageDisplay, UsageLedger,
-        bucket_label, compact_duration, group_thousands, parse_rate_limit_body, spoken_duration,
+        bucket_label, chip_body, compact_duration, group_thousands, parse_rate_limit_body,
+        spoken_duration, tooltip_line,
     };
     use crate::http::{HttpError, HttpResult, RateLimit, Verb};
     use std::sync::{Arc, Mutex};
@@ -1213,5 +1249,82 @@ mod tests {
             bucket_label("GraphQL", "points", Some(none)),
             "GraphQL: 1 of 1 points remaining, resets in 0 minutes"
         );
+    }
+
+    #[test]
+    fn chip_body_shows_remaining_only() {
+        let rest = super::BucketDisplay {
+            remaining: 3_712,
+            limit: 5_000,
+            resets_in_secs: 13 * 60,
+            stale: false,
+            snapshot_at: Some(1_000),
+        };
+        let gql = super::BucketDisplay {
+            remaining: 4_950,
+            limit: 5_000,
+            resets_in_secs: 9 * 60,
+            stale: false,
+            snapshot_at: Some(1_000),
+        };
+        // No limits, no windows in the visible body (D5) — those moved
+        // to the tooltip and the spoken label.
+        assert_eq!(
+            chip_body(&UsageDisplay::Budget {
+                rest: Some(rest),
+                graphql: Some(gql),
+            }),
+            ("GH 3,712 · GQL 4,950".to_string(), false)
+        );
+        // A missing bucket renders an ellipsis, the other still shows.
+        assert_eq!(
+            chip_body(&UsageDisplay::Budget {
+                rest: None,
+                graphql: Some(gql)
+            }),
+            ("GH … · GQL 4,950".to_string(), false)
+        );
+        assert_eq!(
+            chip_body(&UsageDisplay::Pending),
+            ("GH … · GQL …".to_string(), false)
+        );
+        assert_eq!(
+            chip_body(&UsageDisplay::Exhausted {
+                resumes_in_secs: 12 * 60
+            }),
+            ("GH rate-limited · resumes 12m".to_string(), true)
+        );
+    }
+
+    #[test]
+    fn tooltip_lines_carry_limit_and_window() {
+        let rest = super::BucketDisplay {
+            remaining: 3_712,
+            limit: 5_000,
+            resets_in_secs: 13 * 60,
+            stale: false,
+            snapshot_at: Some(1_000),
+        };
+        let gql = super::BucketDisplay {
+            remaining: 4_950,
+            limit: 5_000,
+            resets_in_secs: 9 * 60,
+            stale: false,
+            snapshot_at: Some(1_000),
+        };
+        assert_eq!(
+            tooltip_line("GH", Some(rest)),
+            "GH 3,712/5,000 resets in 13m"
+        );
+        assert_eq!(
+            tooltip_line("GQL", Some(gql)),
+            "GQL 4,950/5,000 resets in 9m"
+        );
+        assert_eq!(tooltip_line("GQL", None), "GQL …/…");
+        // A stale window swaps its countdown for the as-of clock —
+        // the exact clock is local-time, so assert the shape.
+        let stale = super::BucketDisplay { stale: true, ..gql };
+        let line = tooltip_line("GQL", Some(stale));
+        assert!(line.starts_with("GQL 4,950/5,000 · as of "), "got: {line}");
     }
 }
