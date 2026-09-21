@@ -1449,6 +1449,7 @@ dependencies = [
  "chrono",
  "dirs 7.0.0",
  "flexi_logger",
+ "gpui-base",
  "gpui-component",
  "gpui-pre",
  "log",

@@ -94,6 +94,7 @@ developers open GitHub:
 | Missing | Impact |
 |---------|--------|
 | **No filter / sort on lists** | "Open PRs", "Open Issues", and "Notifications" lists become unusable above ~20 items. *(→ addressed by docs/0042)* |
+| **No back/forward navigation** | History is click-crumbs only; every module switch forgets where you were. *(→ shipped in #305, docs/0048 — a shell-level visit trail with Alt+←/→ + breadcrumb-bar buttons; module deep places restore through `ModuleNav`)* |
 | **No cross-reference linking** | `#123` and `@username` in markdown body text are not auto-linked (only bare URLs via `linkify`). *(→ shipped in #195, docs/0017 §8)* |
 | **No global search** | Cannot search across repos for PRs/issues. *(→ account-scoped open-PR discovery shipped in #301, docs/0047 — the module home lists every open PR for the selected account via GraphQL search; cross-repo body-text search remains open.)* |
 | **Label / assignee picker caps at 50** | Large repos with many labels require scrolling without type-ahead. *(→ shipped in #197, docs/0022 D6)* |

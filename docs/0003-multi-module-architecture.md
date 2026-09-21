@@ -61,7 +61,8 @@ categorized groups + footer come with real modules.*
 **Q5 — Breadcrumb shape.** `Home` (always, click → home) + current module
 title (click → module main page) + module-reported sub-page crumbs
 (click → module handles back-nav). Home page shows just `Home`. *Recommendation:
-accept.*
+accept.* *(Amended by docs/0048: the chrome gains back/forward trail
+controls left of the breadcrumb; crumbs themselves are unchanged.)*
 
 **Q6 — Background refresh policy.** Core does not enforce pause/resume;
 modules own their timers (Clock ticks even when its page is hidden — its

@@ -8,8 +8,9 @@ use gpui::{prelude::FluentBuilder as _, *};
 use gpui::Decorations;
 
 use gpui_component::{
-    ActiveTheme, Icon, IconName, TitleBar,
+    ActiveTheme, Disableable as _, Icon, IconName, Sizable as _, TitleBar,
     breadcrumb::{Breadcrumb, BreadcrumbItem},
+    button::{Button, ButtonVariants},
     h_flex,
     setting::Settings,
     sidebar::{Sidebar, SidebarCollapsible, SidebarHeader, SidebarMenuItem, SidebarToggleButton},
@@ -18,7 +19,7 @@ use gpui_component::{
 
 use crate::home;
 use crate::module::ModuleIcon;
-use crate::nav::{CrumbAction, Navigator, Page};
+use crate::nav::{self, CrumbAction, Navigator, Page, Route};
 use crate::registry::ModuleRegistry;
 use crate::settings as app_settings;
 use crate::status;
@@ -62,6 +63,11 @@ impl DashboardShell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        // History trail keys (docs/0048 D7): global (no key context).
+        cx.bind_keys([
+            KeyBinding::new("alt-left", nav::Back, None),
+            KeyBinding::new("alt-right", nav::Forward, None),
+        ]);
         cx.observe(&nav, |_, _, cx| cx.notify()).detach();
         // Status bar source (docs/0013 D6): re-render on every in-flight
         // mutation; the bar reads the aggregated snapshot per frame.
@@ -96,6 +102,53 @@ impl DashboardShell {
             save.schedule(ShellState { sidebar_collapsed }, cx);
         }
     }
+
+    /// Sidebar/crumb navigation (docs/0048 D6): a jump to a different
+    /// top-level branch first collapses the abandoned module's open
+    /// path (its deep state tears down per the module's own policy),
+    /// then `go` records the destination visit. Same-branch jumps
+    /// (the module crumb mid-module) skip the collapse — the module's
+    /// own `Reentered` handler returns to root (docs/0014 §5 D7).
+    fn navigate(&mut self, page: Page, window: &mut Window, cx: &mut Context<Self>) {
+        let current = self.nav.read(cx).page.clone();
+        if let Page::Module(id) = &current {
+            if current != page {
+                if let Some(nav) = self.registry.get(id).and_then(|e| e.nav.as_ref()) {
+                    nav.collapse(window, cx);
+                }
+            }
+        }
+        self.nav.update(cx, |nav, cx| nav.go(page, cx));
+    }
+
+    /// Back/forward cursor moves (docs/0048 D5): the Navigator switched
+    /// the page already (`back`/`forward` return the route that is now
+    /// current); what remains is the module re-activation — `restore`
+    /// for a deep place, `collapse` for a module root. Restores are the
+    /// same code path as clicking, so 0031 dedup and caches apply.
+    fn activate_route(&mut self, route: &Route, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some((id, payload)) = &route.module {
+            if let Some(nav) = self.registry.get(id).and_then(|e| e.nav.as_ref()) {
+                nav.restore(payload, window, cx);
+            }
+        } else if let Page::Module(id) = &route.page {
+            if let Some(nav) = self.registry.get(id).and_then(|e| e.nav.as_ref()) {
+                nav.collapse(window, cx);
+            }
+        }
+    }
+
+    fn go_back(&mut self, _: &nav::Back, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(route) = self.nav.update(cx, |nav, cx| nav.back(cx)) {
+            self.activate_route(&route, window, cx);
+        }
+    }
+
+    fn go_forward(&mut self, _: &nav::Forward, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(route) = self.nav.update(cx, |nav, cx| nav.forward(cx)) {
+            self.activate_route(&route, window, cx);
+        }
+    }
 }
 
 impl Render for DashboardShell {
@@ -122,6 +175,7 @@ impl Render for DashboardShell {
             .map(|c| (c.label.clone(), c.on_click.clone()))
             .collect();
 
+        let (can_back, can_forward) = (nav.can_back(), nav.can_forward());
         let current_module = match &page {
             Page::Module(id) => self
                 .registry
@@ -133,6 +187,11 @@ impl Render for DashboardShell {
         v_flex()
             .id("dashboard-shell")
             .track_focus(&self.focus_handle)
+            // History trail keys (docs/0048 D7): global bindings dispatch
+            // from the focused node upward — the shell's focused root
+            // catches them (the boot-focus precedent below).
+            .on_action(cx.listener(Self::go_back))
+            .on_action(cx.listener(Self::go_forward))
             .size_full()
             .when(client_decorated, |this| {
                 this.child(
@@ -267,6 +326,55 @@ impl Render for DashboardShell {
                                                         })),
                                                 )
                                                 .child(
+                                                    h_flex()
+                                                        .gap_0p5()
+                                                        .pr_1()
+                                                        // History trail controls
+                                                        // (docs/0048 D7) — ids are
+                                                        // bridge-visible
+                                                        // (docs/0010 D10).
+                                                        .child(
+                                                            Button::new("nav-back")
+                                                                .debug_selector(|| {
+                                                                    "nav-back".to_string()
+                                                                })
+                                                                .icon(IconName::ArrowLeft)
+                                                                .ghost()
+                                                                .small()
+                                                                .tooltip("Back (Alt+Left)")
+                                                                .disabled(!can_back)
+                                                                .on_click(cx.listener(
+                                                                    |this, _, window, cx| {
+                                                                        this.go_back(
+                                                                            &nav::Back,
+                                                                            window,
+                                                                            cx,
+                                                                        );
+                                                                    },
+                                                                )),
+                                                        )
+                                                        .child(
+                                                            Button::new("nav-forward")
+                                                                .debug_selector(|| {
+                                                                    "nav-forward".to_string()
+                                                                })
+                                                                .icon(IconName::ArrowRight)
+                                                                .ghost()
+                                                                .small()
+                                                                .tooltip("Forward (Alt+Right)")
+                                                                .disabled(!can_forward)
+                                                                .on_click(cx.listener(
+                                                                    |this, _, window, cx| {
+                                                                        this.go_forward(
+                                                                            &nav::Forward,
+                                                                            window,
+                                                                            cx,
+                                                                        );
+                                                                    },
+                                                                )),
+                                                        ),
+                                                )
+                                                .child(
                                                     div()
                                                         .min_w_0()
                                                         .flex_1()
@@ -276,15 +384,11 @@ impl Render for DashboardShell {
                                                                 .child(
                                                                     BreadcrumbItem::new("Home")
                                                                         .on_click(cx.listener(
-                                                                            |this, _, _, cx| {
-                                                                                this.nav.update(
+                                                                            |this, _, window, cx| {
+                                                                                this.navigate(
+                                                                                    Page::Home,
+                                                                                    window,
                                                                                     cx,
-                                                                                    |nav, cx| {
-                                                                                        nav.go(
-                                                                                        Page::Home,
-                                                                                        cx,
-                                                                                    )
-                                                                                    },
                                                                                 );
                                                                             },
                                                                         )),
@@ -295,17 +399,11 @@ impl Render for DashboardShell {
                                                                         this.child(
                                                             BreadcrumbItem::new(m.1).on_click(
                                                                 cx.listener(
-                                                                    move |this, _, _, cx| {
-                                                                        this.nav.update(
+                                                                    move |this, _, window, cx| {
+                                                                        this.navigate(
+                                                                            Page::Module(m.0.clone()),
+                                                                            window,
                                                                             cx,
-                                                                            |nav, cx| {
-                                                                                nav.go(
-                                                                                    Page::Module(
-                                                                                        m.0.clone(),
-                                                                                    ),
-                                                                                    cx,
-                                                                                )
-                                                                            },
                                                                         );
                                                                     },
                                                                 ),
@@ -429,8 +527,8 @@ fn nav_menu_items(
     let home = SidebarMenuItem::new("Home")
         .icon(IconName::LayoutDashboard)
         .active(*page == Page::Home)
-        .on_click(cx.listener(|this, _, _, cx| {
-            this.nav.update(cx, |nav, cx| nav.go(Page::Home, cx));
+        .on_click(cx.listener(|this, _, window, cx| {
+            this.navigate(Page::Home, window, cx);
         }));
 
     let modules = registry.entries().iter().map(|entry| {
@@ -438,9 +536,8 @@ fn nav_menu_items(
         let active = *page == Page::Module(id.clone());
         let mut item = SidebarMenuItem::new(entry.meta.title.clone())
             .active(active)
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.nav
-                    .update(cx, |nav, cx| nav.go(Page::Module(id.clone()), cx));
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.navigate(Page::Module(id.clone()), window, cx);
             }));
         if let Some(icon) = &entry.meta.icon {
             item = item.icon(match icon {
@@ -454,12 +551,161 @@ fn nav_menu_items(
     let settings = SidebarMenuItem::new("Settings")
         .icon(IconName::Settings)
         .active(*page == Page::Settings)
-        .on_click(cx.listener(|this, _, _, cx| {
-            this.nav.update(cx, |nav, cx| nav.go(Page::Settings, cx));
+        .on_click(cx.listener(|this, _, window, cx| {
+            this.navigate(Page::Settings, window, cx);
         }));
 
     std::iter::once(home)
         .chain(modules)
         .chain(std::iter::once(settings))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    use std::sync::Arc;
+
+    use gpui::{
+        App, AppContext as _, Context, InteractiveElement as _, IntoElement, Render,
+        TestAppContext, Window, div,
+    };
+
+    use super::DashboardShell;
+    use crate::ShellState;
+    use crate::module::{Module, ModuleEntry, ModuleMeta, ModuleNav};
+    use crate::nav::{Navigator, Page, Route};
+    use crate::paths::AppPaths;
+    use crate::registry::ModuleRegistry;
+
+    // docs/0048 D3/D6 shell contract, with a minimal fake module:
+    // cross-branch `navigate` collapses the abandoned module, Back
+    // restores its deep place through the recorded payload.
+
+    thread_local! {
+        static LOG: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
+    }
+
+    struct FakePage;
+
+    impl Render for FakePage {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div().id("fake-page")
+        }
+    }
+
+    struct FakeNav;
+
+    impl FakeNav {
+        fn push(line: String) {
+            LOG.with(|log| log.borrow_mut().push(line));
+        }
+    }
+
+    impl ModuleNav for FakeNav {
+        fn restore(
+            &self,
+            payload: &Arc<dyn std::any::Any + Send + Sync>,
+            _window: &mut Window,
+            _cx: &mut App,
+        ) {
+            let place = payload.downcast_ref::<String>().cloned();
+            Self::push(format!("restore:{}", place.as_deref().unwrap_or("?")));
+        }
+
+        fn collapse(&self, _window: &mut Window, _cx: &mut App) {
+            Self::push("collapse".into());
+        }
+    }
+
+    struct FakeModule;
+
+    impl Module for FakeModule {
+        fn meta() -> ModuleMeta {
+            ModuleMeta {
+                id: "fake".into(),
+                title: "Fake".into(),
+                icon: None,
+            }
+        }
+
+        fn init(
+            _nav: &gpui::Entity<Navigator>,
+            _window: &mut Window,
+            _paths: &AppPaths,
+            cx: &mut App,
+        ) -> ModuleEntry {
+            let nav = Arc::new(FakeNav);
+            ModuleEntry {
+                meta: Self::meta(),
+                overview: cx.new(|_| FakePage).into(),
+                main_page: cx.new(|_| FakePage).into(),
+                settings: None,
+                nav: Some(nav),
+            }
+        }
+    }
+
+    #[gpui::test]
+    fn navigate_collapses_abandoned_module_and_back_restores(cx: &mut TestAppContext) {
+        LOG.with(|log| log.borrow_mut().clear());
+        cx.update(|cx| {
+            gpui_component::theme::init(cx);
+            crate::settings::init(None, None, cx);
+            crate::status::init(cx);
+        });
+        let nav = cx.update(|cx| cx.new(|_| Navigator::default()));
+        let (shell, vcx) = {
+            let nav = nav.clone();
+            cx.add_window_view(|window, cx| {
+                let registry =
+                    ModuleRegistry::new().with::<FakeModule>(&nav, window, AppPaths::init(), cx);
+                DashboardShell::new(registry, nav, ShellState::default(), None, window, cx)
+            })
+        };
+
+        // The fake module is deep somewhere (its own visit).
+        vcx.update(|_, cx| {
+            nav.update(cx, |nav, cx| {
+                // The module is on screen: its root, then a deep place.
+                nav.go(Page::Module("fake".into()), cx);
+                nav.visit(
+                    Route::module_place("fake", "deep:x", Arc::new("x".to_string())),
+                    cx,
+                );
+            });
+        });
+        assert!(
+            vcx.debug_bounds("nav-back").is_some(),
+            "trail controls render"
+        );
+
+        // Cross-branch jump through the sidebar path: the abandoned
+        // module collapses, then Settings is recorded (docs/0048 D6).
+        vcx.update(|window, cx| {
+            shell.update(cx, |this, cx| this.navigate(Page::Settings, window, cx));
+        });
+        let log = LOG.with(|log| log.borrow().clone());
+        assert_eq!(log, vec!["collapse"], "cross-branch jump collapses");
+        vcx.update(|_, cx| {
+            nav.read_with(cx, |nav, _| assert!(matches!(nav.page, Page::Settings)));
+        });
+
+        // Back re-activates the deep place with its payload (D5).
+        vcx.update(|window, cx| {
+            shell.update(cx, |this, cx| this.go_back(&crate::nav::Back, window, cx));
+        });
+        let log = LOG.with(|log| log.borrow().clone());
+        assert_eq!(
+            log,
+            vec!["collapse", "restore:x"],
+            "Back restores the deep leaf"
+        );
+        vcx.update(|_, cx| {
+            nav.read_with(cx, |nav, _| {
+                assert!(matches!(nav.page, Page::Module(ref id) if id.as_ref() == "fake"));
+            });
+        });
+    }
 }

@@ -117,11 +117,18 @@ impl Module for GithubModule {
         let settings: SettingsProvider =
             Rc::new(move |_window, cx| Some(settings::page(&settings_state, cx)));
 
+        // History support (docs/0048 D3): restore re-clicks through the
+        // page's own open/select handlers; collapse is the existing
+        // return-to-root. Downgrade before the entry takes the view.
+        let nav_support = Arc::new(page::GithubNav {
+            page: main_page.downgrade(),
+        });
         ModuleEntry {
             meta: Self::meta(),
             overview: overview.into(),
             main_page: main_page.into(),
             settings: Some(settings),
+            nav: Some(nav_support),
         }
     }
 }
