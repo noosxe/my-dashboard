@@ -129,30 +129,14 @@ at once, and a filter set while looking at one surface still applies
 when the other surfaces — consistent with 0042 treating filters as
 page-level, not surface-level.
 
-### D6 — Degraded mode: the snapshot union
+### D6 — Degraded mode: the snapshot union *(removed by docs/0051 D5)*
 
-While the search lane has never landed (loading or first-fetch
-failure) but the repo snapshot holds data, the home view renders the
-**union of the repo snapshot's PR nodes** for the effective account's
-repos, re-sorted by `updated_at` — zero extra requests, the same
-`PullRequest` shape, marked honestly:
-
-- the freshness cluster shows the *repo snapshot's* age (the union's
-  true provenance);
-- when any contributing repo's `total_count` exceeds its node count,
-  or the repo list itself is truncated, the hint reads "partial —
-  from repo snapshots".
-
-Once the search lane lands (or later succeeds), the real snapshot
-replaces the union. This keeps home from ever showing a blank column
-when good data is already on disk (the D6 conservatism shared with
-0004 §4.7 and 0044 §9: degradation must never invent a failure state
-that the data doesn't justify).
-
-The union is a fallback only, not the primary mechanism: it can't
-give account-wide totals, its ordering is inherited from per-repo
-caching, and its freshness would be coupled to repo-list refreshes —
-each of those alone justifies the search lane.
+The union fallback — rendering the repo snapshot's PR nodes while the
+search lane had never landed — was deleted with the global snapshot
+(docs/0051): its premise was the eagerly pre-fetched rows, which no
+longer exist under view-driven fetching. While the lane is in flight
+the home view renders skeletons; a failed first fetch renders the
+error + Retry of D3. Everything else in this document is unchanged.
 
 ### D7 — Row behavior parity
 
@@ -191,12 +175,12 @@ them — a switch drops the button, not the landed nodes.
    ident, inflight dedup), snapshot landing + 0035 list auto-refresh
    wiring, no etag.
 3. `page.rs`: home arm in `render_right_column`; `load_home_prs` /
-   `load_more_home_prs`; union fallback (D6); hint footer (D4);
+   `load_more_home_prs`; skeleton loading state (0051 D5); hint footer (D4);
    `owner/name` chip in the home-row path; freshness cluster.
 4. Tests: fixture search payloads (two pages + a capped account),
    probes — render-on-open, account switch, load-more + cap hint,
    empty, first-fetch failure → Retry, refresh failure keeps
-   snapshot, union fallback renders and is replaced; parse tests.
+   snapshot, skeletons render until the lane lands (0051 D5); parse tests.
 5. Docs: README index row (same PR), 0029 §3 amendment pointer.
 
 ## 5. Testing
@@ -208,9 +192,9 @@ them — a switch drops the button, not the landed nodes.
   swaps snapshots without refetch flicker; load-more appends and
   stops at the cap with the cap hint; empty account shows the empty
   state; first-fetch failure shows Retry and recovers; refresh
-  failure keeps the last snapshot (in-form error); union fallback
-  renders from repo snapshots with the partial hint and is replaced
-  when the lane lands; repo selection hides home, deselection
+  failure keeps the last snapshot (in-form error); while the lane is
+  in flight the home view renders skeletons (docs/0051 D5 — the D6
+  union fallback was removed); repo selection hides home, deselection
   restores it.
 - Filters: `apply_prs` narrows home rows; menu options derive from
   present nodes.

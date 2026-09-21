@@ -5,6 +5,12 @@
   persistence primitives, debounced saves)
 - **Closes the design need of:** #28 (pr-count walk → GraphQL aggregation),
   expanded by owner direction to a full global-snapshot architecture
+- **Superseded in part (docs/0051):** the global snapshot query and its
+  5-minute cycle were removed — GitHub's connection-cap cost formula
+  billed it ~302 points/page (~604 per bootstrap, self rate-limiting
+  within ~40 minutes of open time). The survivor is the repo-scoped
+  refresh on view open (§6/D6); the global query's consumers moved to
+  the totals-only card query and the once-per-launch session inventory.
 
 ## 1. Context & problem
 

@@ -184,7 +184,9 @@ the coverage).
 
 - `GLOBAL_SNAPSHOT_QUERY` gone; no code path fetches it.
 - App open on home bills ≤ ~10 GraphQL points total (chip + logs).
-- Idle app (open, untouched) issues zero GraphQL requests over 10 min.
+- Idle app on the home page (open, untouched) issues zero GraphQL
+  requests; an *open module page* keeps its pre-existing age-gated
+  heartbeats per D7 (their audit is #326).
 - Card numbers, repo dropdown, crumbs, repo header, module home all
   correct; skeletons on first open; retained data on re-open.
 - Notifications REST lane behavior unchanged.

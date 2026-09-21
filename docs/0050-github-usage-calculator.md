@@ -13,10 +13,13 @@ whenever the GitHub module is on screen. The core decision up front:
 
 **GitHub's server-reported numbers are the ledger; local counting is only
 prediction between responses.** There is no client-side cost formula
-anywhere in the design — the issue's measurements (2026-09-20, live API)
-show the documented GraphQL formula is gone (real cost: 1 point/request,
-flat, verified by server `rateLimit.used` deltas up to 10,100-node
-queries), so any estimator would be wrong by up to two orders of magnitude.
+anywhere in the design. (Cost-model correction, docs/0051 §1: the
+issue's 2026-09-20 measurements concluded "1 point/request, flat" —
+that was an artifact of testing connection-less queries only. GitHub's
+documented formula — Σ connection instances at declared `first`/`last`
+caps ÷ 100, minimum 1 — is alive and measured: the old global snapshot
+billed ~302 points/page, ~604 per bootstrap. Local counting stays a
+prediction regardless — the display contract below is unchanged.)
 Every response we already receive carries the authoritative budget state;
 the calculator's job is to *collect* it and *display* it **verbatim** —
 shown values are exactly what GitHub last reported, with no local

@@ -26,6 +26,7 @@ use gpui_component::{
     menu::{DropdownMenu as _, PopupMenuItem},
     searchable_list::SearchableVec,
     select::{Select, SelectEvent, SelectState},
+    skeleton::Skeleton,
     spinner::Spinner,
     tooltip::Tooltip,
     v_flex,
@@ -107,7 +108,6 @@ fn home_prs_hint(shown: usize, total: i64) -> Option<String> {
 /// borrow drops before the element tree builds.
 struct HomeSource {
     snapshot: Option<HomePullRequests>,
-    union: Option<(Vec<gql::PullRequest>, bool)>,
     clock: LandedClock,
     error: Option<String>,
 }
@@ -150,6 +150,9 @@ pub(crate) struct GithubPage {
     row_search: Entity<InputState>,
     /// Window access for observer-time entity updates (0009 D6).
     window: AnyWindowHandle,
+    /// View-shown edge tracking (docs/0051 D4): transitions into the
+    /// github module fire the home lane once per show.
+    last_module_active: bool,
     /// Last-synced item keys — compare-first background sync so untouched
     /// ticks cost two vec comparisons and no entity writes (0009 D6).
     synced_orgs: Vec<SharedString>,
@@ -297,8 +300,21 @@ impl GithubPage {
         // Crumb re-report on page (re)activation (docs/0014 D5): `go`
         // clears crumbs on every page switch (nav.rs), so returning to
         // this page must re-derive them from state — nothing else will.
-        cx.observe(&nav, |this, _, cx| this.sync_repo_crumb(cx))
-            .detach();
+        // The same observer carries the docs/0051 D4 view-shown fetch:
+        // an edge into the github module fires the home lane.
+        cx.observe(&nav, |this, nav, cx| {
+            this.sync_repo_crumb(cx);
+            let active = matches!(
+                nav.read(cx).page,
+                Page::Module(ref id) if id.as_ref() == "github"
+            );
+            let edge = active && !this.last_module_active;
+            this.last_module_active = active;
+            if edge {
+                this.fetch_home_prs_shown(cx);
+            }
+        })
+        .detach();
 
         // Module-crumb re-entry (docs/0014 §5 D7, issue #100): a `go`
         // landing on the already-active github page emits `Reentered`;
@@ -306,6 +322,10 @@ impl GithubPage {
         // selection, no open PR page.
         cx.subscribe_in(&nav, window, |this, _, _: &NavEvent, window, cx| {
             this.return_to_root(window, cx);
+            // docs/0051 D4: re-entry re-shows the module's home
+            // surface — its lane refreshes (docs/0031 dedup absorbs
+            // a collision with the edge fetch).
+            this.fetch_home_prs(window, cx);
         })
         .detach();
 
@@ -358,6 +378,11 @@ impl GithubPage {
             }
         })
         .detach();
+        // docs/0051 D4: computed before the literal — `nav` moves into it.
+        let module_active = matches!(
+            nav.read(cx).page,
+            Page::Module(ref id) if id.as_ref() == "github"
+        );
         let page = Self {
             state,
             nav,
@@ -372,6 +397,7 @@ impl GithubPage {
             creator_pr: None,
             creator_pr_open: false,
             window: window.window_handle(),
+            last_module_active: module_active,
             synced_orgs: Vec::new(),
             synced_repos: Vec::new(),
             row_done_inflight: std::collections::HashSet::new(),
@@ -577,7 +603,6 @@ impl GithubPage {
             None => {
                 return HomeSource {
                     snapshot: None,
-                    union: None,
                     clock: LandedClock(None),
                     error: state.home_error.clone(),
                 };
@@ -587,47 +612,12 @@ impl GithubPage {
         let clock = if snapshot.is_some() {
             LandedClock(state.home_landed)
         } else {
-            // D6: the union's provenance is the repo snapshot — the
-            // oldest contributing repo's landed stamp (missing entries
-            // render the honest blank, docs/0033 D2).
-            LandedClock(
-                state
-                    .repos
-                    .iter()
-                    .filter(|r| r.owner.login == login.as_ref())
-                    .filter_map(|r| state.rows_landed.get(&r.full_name).copied())
-                    .min(),
-            )
-        };
-        let union = if snapshot.is_none() {
-            let contributing: Vec<&gql::Repo> = state
-                .repos
-                .iter()
-                .filter(|r| r.owner.login == login.as_ref())
-                .collect();
-            if contributing.is_empty() {
-                None
-            } else {
-                let mut nodes: Vec<gql::PullRequest> = contributing
-                    .iter()
-                    .flat_map(|r| r.prs.nodes.iter().cloned())
-                    .collect();
-                nodes.sort_by_key(|p| std::cmp::Reverse(gql::pr_stamp_epoch(p)));
-                // Truncation is visible in the data: any repo whose PR
-                // summary promises more than its nodes carry, or a repo
-                // list the snapshot run capped (docs/0007 §5).
-                let partial = state.repo_cursor.is_some()
-                    || contributing
-                        .iter()
-                        .any(|r| r.prs.total_count > r.prs.nodes.len() as i64);
-                Some((nodes, partial))
-            }
-        } else {
-            None
+            // Never landed yet — no provenance to show (docs/0051 D5
+            // replaced the D6 union with skeletons).
+            LandedClock(None)
         };
         HomeSource {
             snapshot,
-            union,
             clock,
             error: state.home_error.clone(),
         }
@@ -640,7 +630,6 @@ impl GithubPage {
     fn render_home_view(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let HomeSource {
             snapshot,
-            union,
             clock,
             error,
         } = self.home_source(cx);
@@ -649,20 +638,17 @@ impl GithubPage {
         let search = self.filters.search.clone();
         let filtered = self.filters.prs.is_filtered() || !search.is_empty();
 
-        // Rows via the 0042 engine over whichever source is live (D5):
-        // the snapshot when landed, else the D6 union, else nothing.
-        let (source, partial): (Vec<gql::PullRequest>, bool) = match (&snapshot, &union) {
-            (Some(entry), _) => (entry.nodes.clone(), false),
-            (None, Some((nodes, partial))) => (nodes.clone(), *partial),
-            (None, None) => (Vec::new(), false),
-        };
+        // Rows via the 0042 engine over the landed lane (D5); no lane yet
+        // → skeleton rows (docs/0051 D5 — the D6 union is gone).
+        let source: Vec<gql::PullRequest> = snapshot
+            .as_ref()
+            .map(|e| e.nodes.clone())
+            .unwrap_or_default();
         let pr_rows = filters::apply_prs(&self.filters.prs, &source, viewer.as_deref(), &search);
         #[cfg(test)]
         eprintln!(
-            "PROBE home: snapshot={} union={} partial={} filtered={} rows={}",
+            "PROBE home: snapshot={} filtered={} rows={}",
             snapshot.is_some(),
-            union.is_some(),
-            partial,
             filtered,
             pr_rows.len()
         );
@@ -771,12 +757,11 @@ impl GithubPage {
                                                     )),
                                             )
                                             .into_any_element()
-                                    } else if account.is_none() {
-                                        muted_cell_keyed(
-                                            "Loading open pull requests…".into(),
-                                            Some("home-prs-loading"),
-                                            cx,
-                                        )
+                                    } else if snapshot.is_none() {
+                                        // docs/0051 D5 — skeleton-first:
+                                        // the lane (or the orgs it scopes
+                                        // to) has not landed yet.
+                                        home_skeleton_rows()
                                     } else {
                                         muted_cell_keyed(
                                             "No open pull requests".into(),
@@ -810,11 +795,9 @@ impl GithubPage {
                                         let hint = match &snapshot {
                                             // The three truthful states (D4).
                                             Some(_) => home_prs_hint(source_len, total_count),
-                                            // Union mode: honest provenance
-                                            // instead of paging (D6).
-                                            None => partial.then(|| {
-                                                "partial — from repo snapshots".to_string()
-                                            }),
+                                            // No lane yet: skeletons own
+                                            // the row area (docs/0051 D5).
+                                            None => None,
                                         };
                                         col.when(load_more, |col| {
                                             col.child(
@@ -1630,11 +1613,21 @@ impl GithubPage {
     /// Page-local counterpart of the tick loop: run specs on the background
     /// executor, apply on the main thread, then the §3.12 refresh.
     fn run_specs(&mut self, specs: Vec<FetchSpec>, window: &mut Window, cx: &mut Context<Self>) {
+        self.run_specs_on(specs, window.window_handle(), cx);
+    }
+
+    /// The handle-taking core (docs/0051 D4): observer-time triggers have
+    /// no `&mut Window` — they pass the page's stored handle instead.
+    fn run_specs_on(
+        &mut self,
+        specs: Vec<FetchSpec>,
+        window_handle: AnyWindowHandle,
+        cx: &mut Context<Self>,
+    ) {
         if specs.is_empty() {
             return;
         }
         let state = self.state.clone();
-        let window_handle = window.window_handle();
         cx.spawn(async move |_this, cx| {
             for spec in specs {
                 // All `run_specs` traffic is reads (repo-open slices, mark
@@ -1667,6 +1660,36 @@ impl GithubPage {
             let _ = window_handle.update(cx, |_, window, _| window.refresh());
         })
         .detach();
+    }
+
+    /// docs/0051 D5 — has the selected repo's rows lane ever landed this
+    /// session? `false` renders skeletons instead of a false "No open
+    /// PRs" while the lazy repo-scope fetch flies.
+    fn repo_rows_landed(&self, cx: &Context<Self>) -> bool {
+        self.state
+            .read(cx)
+            .rows_landed
+            .contains_key(self.state.read(cx).selected.as_deref().unwrap_or(""))
+    }
+
+    /// View-shown fetch (docs/0051 D4): the nav-observer's edge trigger —
+    /// no `&mut Window` here, so the page's stored handle carries the
+    /// final refresh. Auth/pause gates mirror `refresh_open_page`.
+    fn fetch_home_prs_shown(&mut self, cx: &mut Context<Self>) {
+        let (connected, gated) = {
+            let s = self.state.read(cx);
+            (s.auth.connected(), s.gated())
+        };
+        if !connected || gated {
+            return;
+        }
+        let Some((login, scope)) = self.home_account(cx) else {
+            return;
+        };
+        let specs = self
+            .state
+            .update(cx, |s, _| vec![s.home_open_spec(&login, scope)]);
+        self.run_specs_on(specs, self.window, cx);
     }
 
     /// Repo-view PR row (docs/0012 D4): the shared body without the repo
@@ -2698,7 +2721,14 @@ impl GithubPage {
                                 .child(self.pr_filter_toolbar(&pr_label_options, cx))
                                 .child(if pr_rows.is_empty() {
                                     if repo.prs.nodes.is_empty() {
-                                        muted_cell("No open PRs", cx)
+                                        if self.repo_rows_landed(cx) {
+                                            muted_cell("No open PRs", cx)
+                                        } else {
+                                            // docs/0051 D5 — the lazy
+                                            // repo-scope fetch is still
+                                            // in flight.
+                                            home_skeleton_rows()
+                                        }
                                     } else {
                                         muted_cell("No PRs match the current filters", cx)
                                     }
@@ -2740,7 +2770,13 @@ impl GithubPage {
                                 .child(self.issue_filter_toolbar(&issue_label_options, cx))
                                 .child(if issue_rows.is_empty() {
                                     if repo.issues.nodes.is_empty() {
-                                        muted_cell("No open issues", cx)
+                                        if self.repo_rows_landed(cx) {
+                                            muted_cell("No open issues", cx)
+                                        } else {
+                                            // docs/0051 D5 — same lazy
+                                            // gate as the PR box.
+                                            home_skeleton_rows()
+                                        }
                                     } else {
                                         muted_cell("No issues match the current filters", cx)
                                     }
@@ -3199,6 +3235,17 @@ fn more_cell(n: usize, key: &'static str, cx: &Context<GithubPage>) -> AnyElemen
     muted_cell_keyed(format!("+{n} more on GitHub"), Some(key), cx)
 }
 
+/// Skeleton placeholder rows (docs/0051 D5): shown while a lane's first
+/// fetch is in flight. Three bar-shaped placeholders approximate a row
+/// list; the animation comes from the component itself.
+fn home_skeleton_rows() -> AnyElement {
+    v_flex()
+        .gap_1()
+        .child(Skeleton::new().h_6())
+        .child(Skeleton::new().h_6().secondary())
+        .child(Skeleton::new().h_6())
+        .into_any_element()
+}
 fn muted_cell_keyed(
     text: String,
     key: Option<&'static str>,
@@ -4297,8 +4344,7 @@ mod tests {
         use crate::http::mock::MockHttp;
         use crate::http::{Http, SharedToken};
         use crate::service::{GithubCache, GithubState};
-        use dashboard_core::nav::Navigator;
-
+        use dashboard_core::nav::{Navigator, Page};
         cx.update(gpui_component::init);
         cx.update(dashboard_core::status::init);
 
@@ -4341,6 +4387,13 @@ mod tests {
             (state, nav)
         });
 
+        // docs/0051 D4: park the nav off Home so the card's
+        // construction-time totals fetch does not fire — this test's
+        // subject is the seeded-age chip, not the fetch lane (the
+        // trigger itself is covered by its own test).
+        cx.update(|cx| {
+            nav.update(cx, |nav, cx| nav.go(Page::Settings, cx));
+        });
         // The card surface: chip present while the ages are stale.
         {
             let (_card, card_vcx) = cx.add_window_view(|window, cx| {
@@ -5121,6 +5174,85 @@ mod tests {
         (page, state, vcx)
     }
 
+    #[gpui::test]
+    fn card_fires_totals_on_home_shown(cx: &mut TestAppContext) {
+        // docs/0051 D4: the card constructs on the home page (nav's
+        // initial page) while connected → the totals lane fires once,
+        // lands, and re-showing home (a later edge) refetches through
+        // the same dedup key.
+        use crate::auth::MockTokenStore;
+        use crate::card::GithubCard;
+        use crate::http::mock::MockHttp;
+        use crate::http::{Http, HttpResult, SharedToken};
+        use crate::service::{CardTotals, GithubCache, GithubState};
+        use dashboard_core::nav::{Navigator, Page};
+        use std::sync::Arc;
+
+        cx.update(gpui_component::init);
+        cx.update(dashboard_core::status::init);
+        let totals_body = || HttpResult {
+            status: 200,
+            etag: None,
+            rate: None,
+            body: Some(
+                r#"{"data":{"viewer":{"repositories":{"pageInfo":{"hasNextPage":false},
+                        "nodes":[{"pullRequests":{"totalCount":4},"issues":{"totalCount":7}}]}}}}"#
+                    .to_string(),
+            ),
+        };
+        let http = Arc::new(MockHttp::new(vec![Ok(totals_body()), Ok(totals_body())]));
+        let (state, nav) = cx.update(|cx| {
+            let shared: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let refresh: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let state = cx.new(|_| {
+                GithubState::new(
+                    http.clone() as Arc<dyn Http>,
+                    Arc::new(MockTokenStore::with("t0k".into())),
+                    shared,
+                    refresh,
+                    GithubCache::at_tmp("card-lane"),
+                    DraftStore::at_tmp("card-lane-drafts"),
+                )
+            });
+            state.update(cx, |s, _| {
+                s.auth = crate::service::AuthStatus::Connected;
+            });
+            let nav = cx.new(|_| Navigator::default());
+            (state, nav)
+        });
+        assert!(
+            cx.update(|cx| nav.read(cx).page.clone()) == Page::Home,
+            "nav starts on home"
+        );
+
+        let (_card, vcx) = cx
+            .add_window_view(|window, cx| GithubCard::new(state.clone(), nav.clone(), window, cx));
+        flush(vcx);
+        let totals = vcx.update(|_, cx| state.read(cx).card_totals.clone());
+        assert!(
+            matches!(
+                &totals,
+                Some(CardTotals {
+                    open_prs: 4,
+                    open_issues: 7,
+                    ..
+                })
+            ),
+            "construction on home fired and landed the totals lane: {totals:?}"
+        );
+
+        // Leaving and re-showing home fires the refresh edge.
+        vcx.update(|_, cx| {
+            nav.update(cx, |nav, cx| nav.go(Page::Settings, cx));
+        });
+        flush(vcx);
+        vcx.update(|_, cx| {
+            nav.update(cx, |nav, cx| nav.go(Page::Home, cx));
+        });
+        flush(vcx);
+        assert_eq!(http.recorded().len(), 2, "the re-show edge refetched");
+    }
+
     fn flush(vcx: &mut gpui::VisualTestContext) {
         vcx.run_until_parked();
         let _ = vcx.debug_bounds("flush");
@@ -5186,40 +5318,42 @@ mod tests {
     }
 
     #[gpui::test]
-    fn home_union_fallback_replaced_when_lane_lands(cx: &mut TestAppContext) {
-        // Construction fetch fails (personal account): home_error is set,
-        // but the org view has repo snapshots to fall back on (D6).
+    fn home_renders_skeletons_until_the_lane_lands(cx: &mut TestAppContext) {
+        // docs/0051 D5: with no landed lane and no error the row area is
+        // skeletons — never a false "No open pull requests", and the
+        // deleted D6 union means seeded repo nodes never render either.
         let script = vec![Err(crate::http::HttpError("probe".into()))];
         let (page, state, vcx) = home_probe_page(cx, script, true);
         flush(vcx);
+        // The seeded repo-snapshot rows (the old union source) must NOT
+        // back the home view.
+        assert!(
+            vcx.debug_bounds("pr-acme/one#1").is_none(),
+            "D6 union is gone — repo rows never render on home"
+        );
+        // Simulate the in-flight state: the attempt failed but no error
+        // is showing (retry pending), lane still absent → skeletons.
         vcx.update(|_, cx| {
-            page.update(cx, |page, cx| {
-                page.org = Some("acme".into());
+            state.update(cx, |s, cx| {
+                s.home_error = None;
                 cx.notify();
             });
         });
         flush(vcx);
+        assert!(vcx.debug_bounds("pr-acme/one#1").is_none());
+        assert!(vcx.debug_bounds("home-prs-retry").is_none());
         assert!(
-            vcx.debug_bounds("pr-acme/one#1").is_some()
-                && vcx.debug_bounds("pr-acme/one#2").is_some(),
-            "union rows render from the repo snapshot"
-        );
-        assert!(
-            vcx.debug_bounds("home-prs-hint").is_some(),
-            "partial union is marked"
-        );
-        assert!(
-            vcx.debug_bounds("home-prs-more").is_none(),
-            "union mode has no paging"
+            vcx.debug_bounds("home-prs-empty").is_none(),
+            "no lane and no error is the skeleton branch, not a false empty state"
         );
 
-        // The search lane lands: union rows are replaced by real ones.
+        // A landed lane replaces the skeletons with real rows.
         vcx.update(|_, cx| {
             state.update(cx, |s, cx| {
                 s.apply(home_result(
                     "acme",
                     "org",
-                    search_body(6, true, Some("c9"), &[5]),
+                    search_body(6, false, None, &[5]),
                     false,
                 ));
                 cx.notify();
@@ -5228,16 +5362,9 @@ mod tests {
         flush(vcx);
         assert!(
             vcx.debug_bounds("pr-acme/one#5").is_some(),
-            "search row landed"
+            "lane rows land"
         );
-        assert!(
-            vcx.debug_bounds("pr-acme/one#1").is_none(),
-            "union rows retire"
-        );
-        assert!(
-            vcx.debug_bounds("home-prs-more").is_some(),
-            "lane landed truncated: paging appears"
-        );
+        drop(page);
     }
 
     #[gpui::test]
