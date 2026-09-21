@@ -81,6 +81,7 @@ cross-platform, multi-modular universal personal dashboard built with Rust and
 | [0046](0046-issue-templates.md) | GitHub Module: Issue Templates in the Creation Flow (GraphQL `issueTemplates` markdown templates + `blank_issues_enabled` via Contents API; pill picker on the issue creator; composes with 0045 drafts; #198) |
 | [0047](0047-github-home-open-prs.md) | GitHub Module: Home View — Account-wide Open PRs (GraphQL search lane `org:`/`user:` scoped, 1 pt/request flat; reuses PR rows + 0042 filters; 1,000-result search cap with honest hint; snapshot-union degraded mode; #295) |
 | [0048](0048-navigation-history.md) | Shell: Navigation History — Back/Forward over the Page Tree (linear visit trail on `gpui_base::History` routes; `ModuleNav` snapshot/restore/collapse contract; deep-leaf restore; LCA collapse on cross-branch jumps; Alt+←/→ + breadcrumb-bar buttons; #303) |
+| [0049](0049-content-a11y-retrofit.md) | Content A11y Retrofit — ids, roles and labels for every interactive surface (conventions + 125-site inventory; upstream patches for SidebarMenuItem/ListItem labels #57/#95; bridge-verification protocol; #311) |
 
 ## Planned docs (roadmap, not yet written)
 
