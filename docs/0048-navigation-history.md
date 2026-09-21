@@ -270,8 +270,8 @@ per-pane split) are explicitly not built — one global trail.
 
 - Record Settings subpages (apply `ModuleNav` to the settings shell).
 - Persist the last trail position across restarts (docs/0004 store).
-- Mouse back/forward buttons (X11 buttons 8/9) — needs a gpui
-  capability check before designing.
+- ~~Mouse back/forward buttons (X11 buttons 8/9) — needs a gpui
+  capability check before designing.~~ **Shipped (#309) — see §10.**
 - Retain/pruning hook if stale-payload fallback proves too coarse.
 
 ## 10. Shipped (implementation PR)
@@ -320,3 +320,12 @@ final shapes now authoritative:
   cross-branch navigate collapses, Back restores the payload — with a
   fake module; the GitHub restore/collapse/foreign-payload round trip).
   Workspace 483 green.
+
+- **Mouse back/forward buttons** (#309, shipped): the capability check
+  came back trivially positive — the Linux backend maps them natively
+  (X11 buttons 8/9, Wayland `BTN_BACK`/`BTN_SIDE` and `BTN_FORWARD`/
+  `BTN_EXTRA`) to `MouseButton::Navigate(Back|Forward)`. The shell root
+  adds two `on_mouse_down` listeners that call the same `go_back`/
+  `go_forward` the keyboard actions drive — global semantics, matching
+  browsers (they work anywhere in the window, over pickers and inputs
+  too). The §9 follow-up is closed by this.

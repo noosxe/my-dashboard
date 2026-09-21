@@ -208,8 +208,24 @@ impl Render for DashboardShell {
             // History trail keys (docs/0048 D7): global bindings dispatch
             // from the focused node upward — the shell's focused root
             // catches them (the boot-focus precedent below).
+            // Mouse back/forward buttons (docs/0048 §10): the Linux
+            // backend maps them to Navigate(Back|Forward) — X11 calls
+            // them 8/9, Wayland BTN_BACK/BTN_SIDE and BTN_FORWARD/
+            // BTN_EXTRA — the same two handlers the keyboard drives.
             .on_action(cx.listener(Self::go_back))
             .on_action(cx.listener(Self::go_forward))
+            .on_mouse_down(
+                MouseButton::Navigate(NavigationDirection::Back),
+                cx.listener(|this, _: &MouseDownEvent, window, cx| {
+                    this.go_back(&nav::Back, window, cx);
+                }),
+            )
+            .on_mouse_down(
+                MouseButton::Navigate(NavigationDirection::Forward),
+                cx.listener(|this, _: &MouseDownEvent, window, cx| {
+                    this.go_forward(&nav::Forward, window, cx);
+                }),
+            )
             .size_full()
             .when(client_decorated, |this| {
                 this.child(
@@ -590,8 +606,9 @@ mod tests {
     use std::sync::Arc;
 
     use gpui::{
-        App, AppContext as _, Context, InteractiveElement as _, IntoElement, ParentElement as _,
-        Render, TestAppContext, Window, div,
+        App, AppContext as _, Context, InteractiveElement as _, IntoElement, Modifiers,
+        MouseButton, NavigationDirection, ParentElement as _, Render, TestAppContext,
+        VisualTestContext, Window, div, point, px,
     };
 
     use super::DashboardShell;
@@ -804,6 +821,78 @@ mod tests {
                     matches!(nav.page, Page::Home),
                     "second Alt+← must land on Home, got {:?}",
                     nav.page
+                );
+            });
+        });
+        let _ = &shell;
+    }
+
+    // #309 (docs/0048 §10): the mouse back/forward buttons must drive
+    // the same trail handlers Alt+←/→ do — dispatched through the real
+    // input pipeline like the keystroke test above.
+    #[gpui::test]
+    fn mouse_back_forward_buttons_drive_the_trail(cx: &mut TestAppContext) {
+        LOG.with(|log| log.borrow_mut().clear());
+        cx.update(|cx| {
+            gpui_component::theme::init(cx);
+            crate::settings::init(None, None, cx);
+            crate::status::init(cx);
+        });
+        let nav = cx.update(|cx| cx.new(|_| Navigator::default()));
+        let (shell, vcx) = {
+            let nav = nav.clone();
+            cx.add_window_view(|window, cx| {
+                let registry =
+                    ModuleRegistry::new().with::<FakeModule>(&nav, window, AppPaths::init(), cx);
+                DashboardShell::new(registry, nav, ShellState::default(), None, window, cx)
+            })
+        };
+
+        // Home → module root → deep place.
+        vcx.update(|window, cx| {
+            let handle = cx.focus_handle();
+            DEEP.with(|deep| *deep.borrow_mut() = Some(handle.clone()));
+            nav.update(cx, |nav, cx| {
+                nav.go(Page::Module("fake".into()), cx);
+                nav.visit(
+                    Route::module_place("fake", "deep:x", Arc::new("x".to_string())),
+                    cx,
+                );
+            });
+            window.focus(&handle, cx);
+        });
+
+        let press = |vcx: &mut VisualTestContext, dir: NavigationDirection| {
+            vcx.simulate_mouse_down(
+                point(px(0.), px(0.)),
+                MouseButton::Navigate(dir),
+                Modifiers::default(),
+            );
+        };
+
+        // Mouse back #1: collapses the deep view, lands on the module root.
+        press(vcx, NavigationDirection::Back);
+        vcx.update(|window, cx| window.draw(cx).clear(cx));
+        let log = LOG.with(|log| log.borrow().clone());
+        assert_eq!(log, vec!["collapse"], "mouse back #1 collapsed");
+
+        // Mouse back #2: Home — then forward walks back out.
+        press(vcx, NavigationDirection::Back);
+        vcx.update(|_, cx| {
+            nav.read_with(cx, |nav, _| {
+                assert!(
+                    matches!(nav.page, Page::Home),
+                    "second mouse back must land on Home, got {:?}",
+                    nav.page
+                );
+            });
+        });
+        press(vcx, NavigationDirection::Forward);
+        vcx.update(|_, cx| {
+            nav.read_with(cx, |nav, _| {
+                assert!(
+                    matches!(nav.page, Page::Module(ref id) if id.as_ref() == "fake"),
+                    "mouse forward must restore the module root"
                 );
             });
         });
