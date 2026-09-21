@@ -44,9 +44,16 @@ requests, and *display* it.
   both columns, right region carries per-module in-flight spinners driven
   by the `InFlight` tracker (a pure book struct, unit-tested without
   gpui — the precedent this design follows for its ledger).
-- **REST + GraphQL share one budget**: authenticated REST requests and
-  GraphQL points draw on the same 5,000/hour per-token budget. One
-  combined number is correct, not a simplification.
+- **REST and GraphQL are two separate primary budgets** (corrected
+  during implementation review): GitHub's GraphQL doc states "The REST
+  API also has a separate primary rate limit" — each has its own
+  5,000/hour counter, its own window, and each response reports its
+  own API's bucket (`x-ratelimit-resource: graphql` on GraphQL).
+  Within one API the budget is shared per-user across clients
+  (PATs, OAuth apps, `gh`, scripts). The original draft of this doc
+  claimed one combined budget; live behavior showed the chip
+  alternating between the two buckets — the design now tracks and
+  displays both.
 - **`GET /rate_limit` is free**: per GitHub docs it does not count against
   the primary limit, and returns the full bucket breakdown — the ideal
   reconcile probe.
@@ -68,9 +75,12 @@ Rules:
   *prediction* the next response overwrites with fact. If GitHub ever
   changes real costs, the display self-corrects on the next response —
   nothing to update in this codebase.
-- **Buckets are classified by URL**: `api.github.com` → primary
-  (REST and GraphQL alike), `github.com/login/*` → auth. Nothing else is
-  called today; an unknown host books count-only into the session totals.
+- **Buckets are classified by URL and transport**: `api.github.com` →
+  primary — where the transport decides which of the two sub-budgets
+  (REST `core` / GraphQL points) a request draws on and which
+  sub-book its response reconciles; `github.com/login/*` → auth
+  (count-only). Nothing else is called today; an unknown host books
+  count-only into the session totals.
 - **Every request counts the moment it starts** (in-flight prediction),
   and every response immediately replaces the snapshot with fact. A 304
   counts (it consumes budget upstream); the response's headers still
@@ -107,48 +117,57 @@ impl Http for CountingHttp { /* record start → inner.request /
 A plain struct, unit-tested without gpui (the `InFlightBook` pattern):
 
 ```rust
-struct UsageBook {
-    // Last server snapshot (primary bucket).
+struct SubBook {  // one per primary sub-budget (D1)
     limit: Option<u32>, remaining: Option<u32>, reset_at: Option<u64>,
-    snapshot_at: Option<Instant>,          // local clock, for staleness
-    inflight: u32,                          // started, not yet answered
+    snapshot_at: Option<u64>,   // epoch the snapshot landed
+    inflight: u32,              // this bucket's started-not-answered
+}
+struct UsageBook {
+    rest: SubBook,     // REST `core` bucket — reconciled by REST responses
+    graphql: SubBook,  // GraphQL points bucket — by GraphQL responses
     // Session counters (all buckets).
     session_total: u64, session_graphql: u64, session_rest: u64,
     session_auth: u64,
-    last_error: Option<String>,             // network failures, for tooltip
+    last_probe_at: Option<u64>,   // probe cooldown (D3)
 }
 ```
 
 Methods (pure, all logic lives here):
 
-- `on_request_start(bucket)` — bumps `inflight` + session counters.
-- `on_response(snapshot)` — clears one `inflight`, replaces the snapshot
-  wholesale. **This is the entire reconciliation mechanism**: every
-  response is a full sync, so displayed usage is exact within one
+- `on_request_start(bucket, graphql)` — bumps the right sub-book's
+  `inflight` + session counters.
+- `on_response(bucket, graphql, snapshot)` — clears one `inflight` in
+  the right sub-book and replaces **that bucket's** snapshot wholesale.
+  **This is the entire reconciliation mechanism**: every response is a
+  full sync of its own bucket, so displayed usage is exact within one
   response — the issue's "periodic sync" is satisfied by traffic itself.
-- `on_failure()` — clears one `inflight`, notes the error.
-- `reset()` — account switch wipes the book (per-token budget). Token
-  *rotation* for the same account keeps it (same user+app budget).
+- `on_failure(bucket, graphql)` — clears one `inflight`.
+- `reset()` — account switch wipes the book (per-user budget). Token
+  *rotation* for the same account keeps it (same user budget).
+- `fold_probe(bodies)` — overwrite either sub-book's snapshot without
+  touching in-flight (the probe's request slot was already reconciled
+  by the wrapper from the same response's headers).
 - `display(now, rate_limited_until) -> UsageDisplay` — the single
   derivation everything renders from:
 
 | state | shown |
 |---|---|
-| snapshot present, no rollover | `remaining = max(0, snapshot.remaining − inflight)`, plus `limit`, `reset_at` countdown |
-| `now` past `reset_at` without a newer snapshot | keep last-known, flag stale (chip tooltip says "as of HH:MM"), arm the probe |
+| at least one snapshot present | both buckets, each `remaining = max(0, snapshot.remaining − that bucket's inflight)`; a bucket with no snapshot yet renders an ellipsis |
+| a bucket past its `reset_at` without a newer snapshot | that bucket keeps last-known and flags stale (visible suffix "as of HH:MM"; per-bucket detail in the spoken label), arm the probe |
 | `rate_limited_until` in future (the operational backoff) | exhausted presentation, countdown from `rate_limited_until` |
-| no snapshot yet (fresh connect, no traffic) | skeleton "…/…" placeholder until the first response lands |
+| no snapshot from either bucket (fresh connect) | skeleton "GH …/… · GQL …" placeholder until the first response lands |
 
 **Stale-window probe**: `GET /rate_limit` (free, D2 seam, books 0)
-armed by the tick lane on ungated ticks when the snapshot is missing
-or past `reset_at` — never more than once per 30 s. An active
-rate-limit pause holds the book's last snapshot and probes nothing;
-the same tick that clears an expired pause arms the probe (the window
-rolled past `reset_at` with it). The probe costs nothing either way,
-so chip visibility is deliberately not consulted — the tick lane owns
-arming. It flows as a normal spec (`Kind::RateLimit`) through the
-wrapper, so its own response headers reconcile the ledger like any
-other, and `apply` folds the body's `resources.core` on top.
+armed by the tick lane on ungated ticks when **either** sub-budget is
+missing or past its window — never more than once per 30 s. An active
+rate-limit pause holds the book's last snapshots and probes nothing;
+the same tick that clears an expired pause arms the probe. The probe
+costs nothing either way, so chip visibility is deliberately not
+consulted — the tick lane owns arming. It flows as a normal spec
+(`Kind::RateLimit`) through the wrapper, so its own response headers
+reconcile the REST slot like any other, and `apply` folds the body's
+`resources.core` **and** `resources.graphql` on top — one free call
+re-syncs both buckets.
 
 ## D4 — Exhaustion: one operational truth, one display mapping
 
@@ -157,6 +176,13 @@ other, and `apply` folds the body's `resources.core` on top.
 keep setting it). The display *reads* it alongside the ledger snapshot;
 the two agree by construction because both originate from the same
 responses. The chip never writes fetch-affecting state.
+
+With two separate buckets, an exhausted REST budget technically leaves
+GraphQL points available — but the pause stays **global** here: a
+single `rate_limited_until` halts both lanes. That is the conservative
+choice (the fetching side has no per-transport gate today); splitting
+the pause per transport is deliberately out of scope and stays a
+recorded follow-up decision, not shipped behavior.
 
 ## D5 — The footer chip: module-contributed status items
 
@@ -183,19 +209,26 @@ lifecycle.
   is visible. Live updates during fetches fall out (in-flight prediction
   moves the number per request, including background auto-refresh).
 - Copy (terse, one bar line):
-  - normal: `GH 4,821/5,000 · resets 41m` (combined REST+GraphQL budget)
-  - exhausted: `GH rate-limited · resumes 12m` (warning color)
-  - placeholder: `GH …/…` before the first snapshot
-  - session totals and snapshot age ride the accessible label (a text
-    status is not interactive, so there is no hover tooltip to host
-    them — the 0049 D1 shape); the stale display also swaps its visible
-    countdown for `· as of HH:MM`.
+  - normal: `GH 3,712/5,000 · GQL 4,950 · resets 13m` — both buckets,
+    the suffix counting down the **nearest** live window (the spoken
+    label spells out each bucket's own window); GQL omits its limit
+    while it matches REST's (they differ under GHES higher-limit
+    apps, then both show)
+  - exhausted: `GH rate-limited · resumes 12m` (warning color; the
+    global pause, D4)
+  - placeholder: `GH …/… · GQL …` before the first snapshots; either
+    bucket alone still renders, the missing one as an ellipsis
+  - session totals and per-bucket staleness ride the accessible label
+    (a text status is not interactive, so there is no hover tooltip to
+    host them — the 0049 D1 shape); any stale bucket swaps the visible
+    suffix for `· as of HH:MM`.
 - A11y per docs/0049 D1: `.id("github-usage")` + `Role::Label` (the
   static-text role under the pinned accesskit 0.24 — it has no
   `StaticText` variant) + explicit `aria_label` carrying the full spoken
-  form (numbers spelled out, not the compressed chip text); state change
-  (exhausted) is part of the label.
-
+  form — `GitHub API: REST: 3,712 of 5,000 requests remaining, resets
+  in 13 minutes; GraphQL: 4,950 of 5,000 points remaining, resets in
+  9 minutes; session: …` — numbers spelled out, not the compressed
+  chip text; state change (exhausted) is part of the label.
 ## D6 — Testing and split
 
 Single implementation issue (cohesive, one seam):
@@ -230,7 +263,10 @@ Single implementation issue (cohesive, one seam):
   one-shot GETs, mutations, auth flows — passes through `CountingHttp`
   and books its D1 cost; no call site changed.
 - Displayed usage equals GitHub's server-reported numbers within one
-  response of any traffic; a stale window self-heals via the free probe.
+  response of any traffic, **per bucket** — REST responses reconcile
+  the `core` numbers, GraphQL responses the GraphQL numbers, and a
+  bucket never borrows the other's snapshot; a stale window self-heals
+  via the free probe.
 - The chip appears only on GitHub module pages, updates live (including
   background auto-refresh), and is labeled per docs/0049 D1.
 - Exhaustion display derives from `rate_limited_until` — one operational
@@ -240,8 +276,9 @@ Single implementation issue (cohesive, one seam):
 ## Human checks (owner)
 
 - [ ] Walk Home → GitHub module: chip appears; leave: chip gone.
-- [ ] Trigger a refresh and watch the number move per request; the
-      tooltip's session counters grow.
+- [ ] Trigger a refresh and watch the matching bucket's number move per
+      request (REST fetch → GH, GraphQL fetch → GQL); the accessible
+      label's session counters grow.
 - [ ] Spend down to zero (or catch the existing backoff): chip shows the
       exhausted form and a resume countdown that matches when fetches
       resume.
