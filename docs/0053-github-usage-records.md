@@ -100,13 +100,31 @@ taxonomy comes from the goal questions:
 
 Origins are stamped where the dispatch is made (page/card fires,
 composer sends, the tick's probe arm, connect steps) — the same places
-docs/0051 §3 inventoried. `Origin::BACKGROUND` is the const default,
-so the 45-literal sweep stays mechanical and any un-stamped path is
-visible in the data rather than silently misattributed. Emission
-happens in the flight runners (D4), **not** in `CountingHttp`: a
-shared mutable origin slot there would race concurrent background
-runs, and task-locals do not survive the background executor — both
-rejected.
+docs/0051 §3 inventoried. Enforcement is a ladder, so no surface can
+silently slip through:
+
+- **Compile time — the field is required, there is no default.** Every
+  `FetchSpec` literal (all 45 today) and every future one must name an
+  explicit `origin` or it does not compile. `Origin::BACKGROUND`
+  survives only as an escape hatch you *write out* for genuinely
+  ownerless dispatches — never a value code falls into by omission.
+  The enum being closed has the same effect one dimension up: a new
+  page is a new `Surface` variant, and adding it is a visible act that
+  forces the origin question.
+- **Test time — the dispatch table is exhaustive.** One table test per
+  docs/0051 §3 inventory path: drive it over `MockHttp` + a real
+  `RecordLog`, then assert (a) every record's `(surface, trigger)` is
+  the expected pair, (b) the record count equals the flights the mock
+  served (emission completeness — a runner that forgets to emit
+  fails here, not in production data), and (c) zero `Background`
+  records.
+- **Runtime — Background is loud.** Emitting a `Background` record
+  logs `warn!` and bumps a counter, so a path that ships unstamped
+  surfaces in the first session's logs and bridge dumps instead of
+  quietly misattributing analytics. Emission stays in the flight
+  runners (D4), **not** in `CountingHttp`: a shared mutable origin slot
+  there would race concurrent background runs, and task-locals do not
+  survive the background executor — both rejected.
 
 **D3 — A capped in-memory log beside the ledger.** `RecordLog` is an
 `Arc<Mutex<VecDeque<UsageRecord>>>` sibling of `UsageLedger` (same
@@ -151,8 +169,10 @@ trail beside it). Nothing renders records in this phase.
   walk → 3 records of cost 1 sharing origin/ident; GQL with
   `rateLimit { cost }` → that cost; 304 → cost 0; probe → cost 0;
   refresh POST → `Transport::Auth`, cost 0.
-- Origin stamping: the docs/0052 trigger tests extended to assert the
-  recorded `trigger` (view-shown vs refocus vs manual) and `surface`.
+- **The dispatch table (D2, test layer):** one case per docs/0051 §3
+  inventory path — every record's `(surface, trigger)` matches the
+  expected pair, record count == flights the mock served, and zero
+  `Background` records. This subsumes the trigger assertions above.
 - Cycle stamping: flights with snapshots stamp their own reset; the
   carry-forward path stamps the last-known one.
 - Cap eviction at small `RECORD_CAP` in tests; `seq` monotonic across
@@ -161,9 +181,9 @@ trail beside it). Nothing renders records in this phase.
 ## 6. Acceptance
 
 - Every dispatch path in the docs/0051 §3 inventory emits exactly one
-  record per real flight (checked by the unit table above; a stray
-  `Background` origin in a live session's log is a bug in stamping,
-  not in the pipeline).
+  record per real flight, with its stamped `(surface, trigger)` — the
+  dispatch-table test is the gate; in a live session any `Background`
+  record logs a `warn!` and is a stamping bug to fix, not noise.
 - The chip's numbers are unchanged (regression: existing chip tests
   green).
 - Gates: fmt, clippy zero warnings, `cargo test --workspace`.
