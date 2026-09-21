@@ -229,6 +229,13 @@ The chip and `UsageBook` stay GitHub-local (0050's display layer).
   receives the exact rows the `MemorySink` would have (same
   pre-stamped records, both sinks agree) — the swap-contract test for
   the future SQLite backend.
+- **Wider-than-module tests ride the default sink.** Because `init`
+  installs `MemorySink`, integration tests that drive the real shell +
+  module wiring (not just one module's units) get a live records log
+  for free — assert on `snapshot()` after exercising flows across
+  surfaces/modules, no special harness. The same property makes the
+  debug bridge a natural reader later (§6's zero-`Background` check
+  against a real session).
 - Module-global isolation: records carry their `module`; a synthetic
   second reporter writing through the same global log coexists with
   GitHub's records (the D6 contract for Forgejo/Gitea later).
