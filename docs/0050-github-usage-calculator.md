@@ -153,7 +153,7 @@ Methods (pure, all logic lives here):
 | state | shown |
 |---|---|
 | at least one snapshot present | both buckets, each `remaining = max(0, snapshot.remaining − that bucket's inflight)`; a bucket with no snapshot yet renders an ellipsis |
-| a bucket past its `reset_at` without a newer snapshot | that bucket keeps last-known and flags stale (visible suffix "as of HH:MM"; per-bucket detail in the spoken label), arm the probe |
+| a bucket past its `reset_at` without a newer snapshot | that bucket keeps last-known and flags stale — its tooltip line swaps the countdown for `as of HH:MM`, and the spoken label has the per-bucket detail; arm the probe |
 | `rate_limited_until` in future (the operational backoff) | exhausted presentation, countdown from `rate_limited_until` |
 | no snapshot from either bucket (fresh connect) | skeleton "GH …/… · GQL …" placeholder until the first response lands |
 
@@ -209,19 +209,26 @@ lifecycle.
   is visible. Live updates during fetches fall out (in-flight prediction
   moves the number per request, including background auto-refresh).
 - Copy (terse, one bar line):
-  - normal: `GH 3,712/5,000 · GQL 4,950 · resets 13m` — both buckets,
-    the suffix counting down the **nearest** live window (the spoken
-    label spells out each bucket's own window); GQL omits its limit
-    while it matches REST's (they differ under GHES higher-limit
-    apps, then both show)
+  - normal: `GH 3,712 · GQL 4,950` — **remaining values only**; the
+    limits and windows live in the hover tooltip and the spoken label
   - exhausted: `GH rate-limited · resumes 12m` (warning color; the
     global pause, D4)
-  - placeholder: `GH …/… · GQL …` before the first snapshots; either
+  - placeholder: `GH … · GQL …` before the first snapshots; either
     bucket alone still renders, the missing one as an ellipsis
-  - session totals and per-bucket staleness ride the accessible label
-    (a text status is not interactive, so there is no hover tooltip to
-    host them — the 0049 D1 shape); any stale bucket swaps the visible
-    suffix for `· as of HH:MM`.
+- **Hover tooltip** (two lines, one per bucket, built fresh at hover
+  time from the same ledger — gpui's `InteractiveElement::tooltip`
+  works on plain divs, no interactivity needed):
+  - `GH 3,712/5,000 resets in 13m` / `GQL 4,950/5,000 resets in 9m` —
+    each line carries its own window; a stale line swaps its countdown
+    for `· as of HH:MM` (the countdown already ran out). During a
+    rate-limit pause the tooltip still shows the budgets (the pause is
+    display-mapped, D4, and the tooltip reads the book directly).
+  - It is additive garnish for sighted mouse users: keyboard and
+    screen-reader users cannot reach a hover tooltip, so the aria
+    label below stays the sole a11y carrier (0049) — nothing lives
+    *only* in the tooltip.
+- Session totals and per-bucket staleness ride the accessible label;
+  the tooltip carries the per-bucket limits and windows.
 - A11y per docs/0049 D1: `.id("github-usage")` + `Role::Label` (the
   static-text role under the pinned accesskit 0.24 — it has no
   `StaticText` variant) + explicit `aria_label` carrying the full spoken
@@ -229,6 +236,7 @@ lifecycle.
   in 13 minutes; GraphQL: 4,950 of 5,000 points remaining, resets in
   9 minutes; session: …` — numbers spelled out, not the compressed
   chip text; state change (exhausted) is part of the label.
+
 ## D6 — Testing and split
 
 Single implementation issue (cohesive, one seam):
