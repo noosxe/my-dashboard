@@ -304,6 +304,18 @@ final shapes now authoritative:
   `alt-right` (no conflicts), handled on the shell's focused root;
   `nav-back`/`nav-forward` ghost icon buttons sit left of the
   breadcrumb with `.debug_selector` for the bridge.
+- **Keyboard focus after page switches** (post-merge fix, owner
+  report): gpui dispatches key actions along the *focused node's*
+  dispatch path — a module sub-page (PR page) steals focus on open,
+  and Back unmounts it, leaving a dead focus whose dispatch fallback
+  is the *window* root, which sits above the shell's `on_action`
+  handlers — so the second Alt+← silently died (the GUI buttons
+  bypass dispatch, which is why they kept working). Fix: the shell
+  root takes focus after every trail-driven page switch — after
+  `navigate`, and in Back/Forward *before* module re-activation so a
+  deep restore (PR page) steals it back as a fresh click would.
+  Regression-tested through the real keystroke pipeline
+  (`simulate_keystrokes`) in `back_keystroke_survives_the_deep_view_unmounting`.
 - **Tests**: +6 (4 navigator trail units; the shell contract —
   cross-branch navigate collapses, Back restores the payload — with a
   fake module; the GitHub restore/collapse/foreign-payload round trip).

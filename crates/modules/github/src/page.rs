@@ -5318,6 +5318,7 @@ mod tests {
         use dashboard_core::module::ModuleNav;
         use dashboard_core::nav::{Navigator, Page};
         use dashboard_core::paths::AppPaths;
+        use gpui::Focusable;
 
         cx.update(gpui_component::init);
         cx.update(dashboard_core::status::init);
@@ -5389,6 +5390,15 @@ mod tests {
             history.restore(route.payload(), window, cx);
             assert!(page.read(cx).pr.is_some(), "Back restored the PR page");
             assert_eq!(state.read(cx).selected.as_deref(), Some("acme/one"));
+            // The shell refocuses its root before the restore; the PR
+            // page steals focus back (its Esc affordance) — same as a
+            // fresh click-through.
+            let focused = page
+                .read(cx)
+                .pr
+                .as_ref()
+                .map(|pr| pr.read(cx).focus_handle(cx).is_focused(window));
+            assert_eq!(focused, Some(true), "restored PR page owns focus");
 
             // A foreign payload is ignored — never a panic.
             let foreign: Arc<dyn std::any::Any + Send + Sync> = Arc::new(7i32);
