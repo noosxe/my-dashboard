@@ -4,6 +4,12 @@ Addresses [#311](https://github.com/noosxe/my-dashboard/issues/311)
 (and subsumes [#57](https://github.com/noosxe/my-dashboard/issues/57),
 [#95](https://github.com/noosxe/my-dashboard/issues/95)).
 
+> **Status: shipped** in #317 (chrome + list surfaces), #318 (detail
+> pages), and the creators/docs PR — implementation split per D6. The two
+> upstream name gaps (SidebarMenuItem, ListItem, SidebarToggleButton) are
+> filed as [longbridge/gpui-kit#3160](https://github.com/longbridge/gpui-kit/pull/3160);
+> a rev bump lands them separately.
+
 ## 1. Summary
 
 The debug bridge's `tree` — and any real screen reader — sees **shell chrome
@@ -145,11 +151,15 @@ fallback if upstream stalls — not needed for patches this small.
 ### D4 — Markdown inline links (known hard case)
 
 Link runs render through gpui's `InteractiveText` (upstream, exact-pinned —
-we cannot patch it locally without a fork). During implementation, verify
-whether it already emits `Link` nodes with the run text as name. If not:
-acceptable interim is documenting the gap here + adding it to #43's upstream
-follow-up list; do **not** fork gpui for it. Surrounding card/row containers
-still get their own nodes, so links lose only per-run addressability.
+we cannot patch it locally without a fork).
+
+**Verified during implementation**: `InteractiveText` emits exactly one
+`Label` node per text block whose *value* is the whole text — no `Link`
+role, no per-run nodes, no per-run names. Markdown bodies are therefore
+readable as text but links are not individually addressable. Per the plan:
+documented here, no fork; the per-run gap joins #43's upstream follow-up
+list. Surrounding card/row containers still get their own nodes, so links
+lose only per-run addressability.
 
 ### D5 — Verification
 
@@ -157,11 +167,11 @@ still get their own nodes, so links lose only per-run addressability.
   launch the app, force a fresh frame (`key tab` before `tree`), assert the
   expected nodes appear with role+label, and `click` one representative node
   per surface class. This is now practical *because* of the labels.
-- **Regression guard** (spike, drop if the harness can't support it): render
-  the fixture pages in a `VisualTestContext` and walk the a11y dump asserting
-  the expected labeled nodes exist. If test contexts can't build a11y trees
-  (the AT-client activation gate may block it), fall back to the D10 review
-  rule as the guard and note it here.
+- **Regression guard** (spike, **dropped with cause**): `VisualTestContext`
+  cannot build a11y trees — gpui only builds the tree while an AT client
+  is connected (`is_a11y_active`), test contexts have none, and there is no
+  force flag in gpui-pre 0.3.3. The D10 review rule stays the guard; the
+  docs/0010 amendment records the same operational caveat.
 - docs/0010 D10 amendment ships with this work: labels are now part of the
   hygiene rule, plus the stale-frame caveat from §2.
 

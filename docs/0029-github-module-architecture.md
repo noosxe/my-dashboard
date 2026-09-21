@@ -99,6 +99,7 @@ developers open GitHub:
 | **No global search** | Cannot search across repos for PRs/issues. *(→ account-scoped open-PR discovery shipped in #301, docs/0047 — the module home lists every open PR for the selected account via GraphQL search; cross-repo body-text search remains open.)* |
 | **Label / assignee picker caps at 50** | Large repos with many labels require scrolling without type-ahead. *(→ shipped in #197, docs/0022 D6)* |
 | **Home card doesn't route to notification page** | The card shows counts but clicking doesn't navigate. |
+| **Content invisible to screen readers** | Every list row, card and detail-page control was an unnamed/unrole'd div to assistive technology — and to the debug bridge's `tree`/`click`. *(→ closed by docs/0049 #314–#316: ids + roles + explicit labels across all surfaces; remaining upstream-name gaps tracked in longbridge/gpui-kit#3160)* |
 
 ### Issue creation gaps
 
