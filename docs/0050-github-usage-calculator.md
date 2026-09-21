@@ -18,8 +18,10 @@ show the documented GraphQL formula is gone (real cost: 1 point/request,
 flat, verified by server `rateLimit.used` deltas up to 10,100-node
 queries), so any estimator would be wrong by up to two orders of magnitude.
 Every response we already receive carries the authoritative budget state;
-the calculator's job is to *collect* it, *predict* across in-flight
-requests, and *display* it.
+the calculator's job is to *collect* it and *display* it **verbatim** —
+shown values are exactly what GitHub last reported, with no local
+prediction folded in (owner decision, #323 review). In-flight counting
+stays in the book as data for the deferred usage-analytics task.
 
 ## 2. Verified facts (anchors)
 
@@ -57,6 +59,15 @@ requests, and *display* it.
 - **`GET /rate_limit` is free**: per GitHub docs it does not count against
   the primary limit, and returns the full bucket breakdown — the ideal
   reconcile probe.
+- **`GET /rate_limit`'s `resources.graphql` is a phantom** (measured
+  live, #323 review): the endpoint reports `graphql: 5,000 remaining,
+  used 0` while the real bucket sits at 29 — simultaneously confirmed
+  by an actual GraphQL query from the same credential. The real GraphQL
+  state only ever comes from GraphQL traffic (body `rateLimit` /
+  response headers); the probe is REST-`core`-only and the GraphQL
+  book is never folded from it. (The per-user sharing itself held:
+  the GraphQL probe via `gh` read the same drained bucket our app
+  saw — one bucket per user across every credential.)
 - **Auth/device-flow endpoints** (`github.com/login/...`) have their own
   small per-IP buckets, not the primary budget.
 
@@ -81,10 +92,11 @@ Rules:
   sub-book its response reconciles; `github.com/login/*` → auth
   (count-only). Nothing else is called today; an unknown host books
   count-only into the session totals.
-- **Every request counts the moment it starts** (in-flight prediction),
-  and every response immediately replaces the snapshot with fact. A 304
-  counts (it consumes budget upstream); the response's headers still
-  reconcile it.
+- **Every request counts the moment it starts** (in-flight bookkeeping,
+  retained for the deferred usage-analytics task), and every response
+  immediately replaces the snapshot with fact — the display shows that
+  snapshot verbatim. A 304 counts (it consumes budget upstream); the
+  response's headers still reconcile it.
 
 ## D2 — The counting seam: one decorator, zero call-site changes
 
@@ -152,22 +164,25 @@ Methods (pure, all logic lives here):
 
 | state | shown |
 |---|---|
-| at least one snapshot present | both buckets, each `remaining = max(0, snapshot.remaining − that bucket's inflight)`; a bucket with no snapshot yet renders an ellipsis |
+| at least one snapshot present | both buckets, `remaining` exactly as last reported (no local prediction); a REST bucket with no snapshot yet renders an ellipsis, the GraphQL bucket renders `?` (the probe cannot supply it — §2) |
 | a bucket past its `reset_at` without a newer snapshot | that bucket keeps last-known and flags stale — its tooltip line swaps the countdown for `as of HH:MM`, and the spoken label has the per-bucket detail; arm the probe |
 | `rate_limited_until` in future (the operational backoff) | exhausted presentation, countdown from `rate_limited_until` |
-| no snapshot from either bucket (fresh connect) | skeleton "GH …/… · GQL …" placeholder until the first response lands |
+| no snapshot from either bucket (fresh connect) | skeleton "GH … · GQL ?" placeholder until the first response lands |
 
 **Stale-window probe**: `GET /rate_limit` (free, D2 seam, books 0)
-armed by the tick lane on ungated ticks when **either** sub-budget is
-missing or past its window — never more than once per 30 s. An active
+armed by the tick lane on ungated ticks when the **REST** sub-budget is
+missing or past its window — never more than once per 30 s. (The
+GraphQL bucket never arms it: `resources.graphql` is a phantom, §2, so
+a probe cannot refresh it — GraphQL traffic does, and nearly always
+does within the window.) An active
 rate-limit pause holds the book's last snapshots and probes nothing;
 the same tick that clears an expired pause arms the probe. The probe
 costs nothing either way, so chip visibility is deliberately not
 consulted — the tick lane owns arming. It flows as a normal spec
 (`Kind::RateLimit`) through the wrapper, so its own response headers
 reconcile the REST slot like any other, and `apply` folds the body's
-`resources.core` **and** `resources.graphql` on top — one free call
-re-syncs both buckets.
+`resources.core` on top — the one field on this endpoint that tracks
+its real bucket. `resources.graphql` is parsed by nothing (§2).
 
 ## D4 — Exhaustion: one operational truth, one display mapping
 
@@ -206,15 +221,17 @@ lifecycle.
 - Reads the shared `UsageBook` + `rate_limited_until` on a 1 s timer,
   `cx.notify()` only when the rendered string actually changes — zero
   churn when idle, one short mutex read per second while a GitHub page
-  is visible. Live updates during fetches fall out (in-flight prediction
-  moves the number per request, including background auto-refresh).
+  is visible. Live updates fall out: numbers change exactly when a
+  carrying response lands (including background auto-refresh) — shown
+  values are the server's, verbatim, never locally predicted.
 - Copy (terse, one bar line):
   - normal: `GH 3,712 · GQL 4,950` — **remaining values only**; the
     limits and windows live in the hover tooltip and the spoken label
   - exhausted: `GH rate-limited · resumes 12m` (warning color; the
     global pause, D4)
-  - placeholder: `GH … · GQL …` before the first snapshots; either
-    bucket alone still renders, the missing one as an ellipsis
+  - placeholder: `GH … · GQL ?` before the first snapshots; either
+    bucket alone still renders, the missing one as an ellipsis (REST) or
+    `?` (GraphQL — only real GraphQL traffic can fill it, §2)
 - **Hover tooltip** (two lines, one per bucket, built fresh at hover
   time from the same ledger — gpui's `InteractiveElement::tooltip`
   works on plain divs, no interactivity needed):
@@ -241,10 +258,10 @@ lifecycle.
 
 Single implementation issue (cohesive, one seam):
 
-- **Pure units (the bulk)**: `UsageBook` — snapshot replacement, in-flight
-  prediction floor, rollover/stale flagging, display strings for all four
-  states, reset semantics, per-bucket session counters, probe arming
-  window.
+- **Pure units (the bulk)**: `UsageBook` — snapshot replacement, verbatim
+  display (in-flight starts move nothing shown), rollover/stale flagging,
+  display strings for all four states, reset semantics, per-bucket session
+  counters, probe arming window.
 - **Wrapper**: `CountingHttp` over `MockHttp` — N scripted pages → N
   booked requests, snapshot reconciles from the last response, failures
   clear in-flight, auth URLs book the auth bucket.
@@ -271,10 +288,11 @@ Single implementation issue (cohesive, one seam):
   one-shot GETs, mutations, auth flows — passes through `CountingHttp`
   and books its D1 cost; no call site changed.
 - Displayed usage equals GitHub's server-reported numbers within one
-  response of any traffic, **per bucket** — REST responses reconcile
-  the `core` numbers, GraphQL responses the GraphQL numbers, and a
-  bucket never borrows the other's snapshot; a stale window self-heals
-  via the free probe.
+  response of any traffic, **per bucket and verbatim** — REST responses
+  reconcile the `core` numbers, GraphQL responses the GraphQL numbers
+  (shown as `?` until the first one lands), a bucket never borrows the
+  other's snapshot, and no local prediction is folded in; a stale REST
+  window self-heals via the free probe.
 - The chip appears only on GitHub module pages, updates live (including
   background auto-refresh), and is labeled per docs/0049 D1.
 - Exhaustion display derives from `rate_limited_until` — one operational

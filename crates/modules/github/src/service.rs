@@ -2258,13 +2258,13 @@ impl GithubState {
 
         match result.kind {
             Kind::RateLimit => {
-                // docs/0050 D3 — fold the free probe's body: one call
-                // carries the documented-authoritative breakdown of
-                // BOTH primary sub-budgets (`resources.core` and
-                // `resources.graphql`), on top of whatever headers the
-                // wrapper already harvested from the same response.
-                if let Some(probe) = parse_rate_limit_body(body) {
-                    self.usage.lock().unwrap().fold_probe(&probe, now_epoch());
+                // docs/0050 D3 — fold the free probe's body:
+                // `resources.core` only. `resources.graphql` is a
+                // phantom on this endpoint (§2, measured live during
+                // #323 review) — the GraphQL book reconciles from
+                // GraphQL traffic exclusively.
+                if let Some(core) = parse_rate_limit_body(body) {
+                    self.usage.lock().unwrap().fold_probe(core, now_epoch());
                 }
             }
             Kind::Snapshot => {

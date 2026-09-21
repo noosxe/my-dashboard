@@ -3,17 +3,20 @@
 //! chip while the GitHub module is on screen.
 //!
 //! The core decision (0050 §1): **GitHub's server-reported numbers are
-//! the ledger; local counting is only prediction between responses.**
-//! There is no client-side cost formula anywhere — every response
-//! carries the authoritative budget state, and the book below collects
-//! it, predicts across in-flight requests, and derives the display.
+//! the ledger.** There is no client-side cost formula anywhere — every
+//! response carries the authoritative budget state, and the book below
+//! collects it and derives the display **verbatim** — no local
+//! prediction is folded into shown values; in-flight counting is kept
+//! as bookkeeping for the deferred usage-analytics task.
 //!
 //! Two primary budgets, not one (0050 D1): GitHub enforces REST (`core`)
 //! and GraphQL as **separate** primary limits with separate counters and
 //! separate windows — each response reports its own API's bucket, and
 //! the chip shows both remaining values (`GH 3,712 · GQL 4,950`), with
 //! the `x/y` + per-window detail in a hover tooltip and the spoken
-//! label.
+//! label. A GraphQL value shows `?` until the first GraphQL response
+//! lands: `GET /rate_limit`'s `resources.graphql` is a phantom
+//! (always 5,000/0-used, §2) and can never supply it.
 //!
 //! Sections: the pure book (D3, unit-tested without gpui) → the
 //! counting seam (D2, a decorator around `dyn Http`) → the footer chip
@@ -136,7 +139,9 @@ pub(crate) enum UsageDisplay {
 }
 
 /// One sub-budget's books: the last server snapshot plus this bucket's
-/// in-flight prediction.
+/// in-flight bookkeeping. The display shows the server's numbers
+/// verbatim — the in-flight counts are retained for the future
+/// usage-analytics task (deferred; see docs/0050 D3), not shown.
 #[derive(Debug, Default)]
 struct SubBook {
     limit: Option<u32>,
@@ -144,7 +149,10 @@ struct SubBook {
     reset_at: Option<u64>,
     /// Epoch when the snapshot landed — the stale display's "as of".
     snapshot_at: Option<u64>,
-    /// This bucket's requests started but not yet answered.
+    /// This bucket's requests started but not yet answered. Kept as
+    /// data for the deferred usage-analytics task; nothing reads it
+    /// outside tests until then.
+    #[cfg_attr(not(test), allow(dead_code))]
     inflight: u32,
 }
 
@@ -181,9 +189,11 @@ impl SubBook {
         self.inflight = self.inflight.saturating_sub(1);
     }
 
+    /// The server's numbers, verbatim (0050 D3) — no local prediction
+    /// is folded into the shown values.
     fn display(&self, now: u64) -> Option<BucketDisplay> {
         Some(BucketDisplay {
-            remaining: self.remaining?.saturating_sub(self.inflight),
+            remaining: self.remaining?,
             limit: self.limit?,
             resets_in_secs: self.reset_at?.saturating_sub(now),
             stale: self.reset_at.is_some_and(|reset| now >= reset),
@@ -258,12 +268,12 @@ impl UsageBook {
         }
     }
 
-    /// Fold the free probe's body (D3): one call reconciles both
-    /// sub-budgets at once — the body carries `resources.core` *and*
-    /// `resources.graphql`.
-    pub(crate) fn fold_probe(&mut self, probe: &ProbeBodies, now: u64) {
-        self.rest.fold(probe.core, now);
-        self.graphql.fold(probe.graphql, now);
+    /// Fold the free probe's body (D3): `resources.core` only — the
+    /// REST sub-budget. `resources.graphql` is a phantom on this
+    /// endpoint (always 5,000/used-0; measured, 0050 §2), so the
+    /// GraphQL book reconciles from GraphQL traffic exclusively.
+    pub(crate) fn fold_probe(&mut self, core: BudgetSnapshot, now: u64) {
+        self.rest.fold(Some(core), now);
     }
 
     /// A transport-level failure: clears the in-flight slot in the
@@ -315,18 +325,18 @@ impl UsageBook {
     }
 
     /// Whether the free `/rate_limit` probe should fire (D3): cooled
-    /// down AND either sub-budget is missing or past its window. The
-    /// probe is armed only on ungated ticks, so an active pause never
-    /// probes; an expiring pause clears at the top of the same tick and
-    /// probes.
+    /// down AND the REST sub-budget is missing or past its window.
+    /// The GraphQL bucket never arms the probe — its `/rate_limit`
+    /// field is a phantom (§2), so probing cannot refresh it; real
+    /// GraphQL traffic does (and 99.9% of the time there is some).
+    /// The probe is armed only on ungated ticks, so an active pause
+    /// never probes; an expiring pause clears at the top of the same
+    /// tick and probes.
     pub(crate) fn probe_due(&self, now: u64) -> bool {
         let cooled = self
             .last_probe_at
             .is_none_or(|at| now.saturating_sub(at) >= PROBE_COOLDOWN_SECS);
-        if !cooled {
-            return false;
-        }
-        self.rest.needs_refresh(now) || self.graphql.needs_refresh(now)
+        cooled && self.rest.needs_refresh(now)
     }
 
     /// Stamp the probe cooldown at arming time (D3): a failed probe
@@ -349,29 +359,18 @@ impl UsageBook {
     }
 }
 
-/// The `/rate_limit` probe body's bucket breakdown (D3) — one call
-/// reports every primary sub-budget.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct ProbeBodies {
-    pub(crate) core: Option<BudgetSnapshot>,
-    pub(crate) graphql: Option<BudgetSnapshot>,
-}
-
-/// Parse the `/rate_limit` probe body (D3): `resources.core` and
-/// `resources.graphql` are the documented-authoritative primary bucket
-/// breakdowns. Returns `None` on a malformed body — the caller just
-/// skips the fold (the probe response's own headers, if any, were
-/// already folded by the wrapper); a missing sub-object stays `None`
-/// inside a well-formed body.
-pub(crate) fn parse_rate_limit_body(body: &str) -> Option<ProbeBodies> {
+/// Parse the `/rate_limit` probe body (D3): `resources.core` only —
+/// the one field on this endpoint that tracks its real bucket.
+/// `resources.graphql` is deliberately ignored: GitHub reports a
+/// phantom 5,000/0-used there regardless of the bucket's true state
+/// (measured live during #323 review, 0050 §2), so folding it would
+/// poison the GraphQL book with a fake full budget. Returns the
+/// `core` snapshot, or `None` on a malformed/body-without-core —
+/// the caller just skips the fold (the probe response's own
+/// headers, if any, were already folded by the wrapper).
+pub(crate) fn parse_rate_limit_body(body: &str) -> Option<BudgetSnapshot> {
     #[derive(serde::Deserialize)]
     struct Core {
-        limit: u32,
-        remaining: u32,
-        reset: u64,
-    }
-    #[derive(serde::Deserialize)]
-    struct Graphql {
         limit: u32,
         remaining: u32,
         reset: u64,
@@ -380,25 +379,16 @@ pub(crate) fn parse_rate_limit_body(body: &str) -> Option<ProbeBodies> {
     struct Resources {
         #[serde(default)]
         core: Option<Core>,
-        #[serde(default)]
-        graphql: Option<Graphql>,
     }
     #[derive(serde::Deserialize)]
     struct Body {
         resources: Resources,
     }
     let parsed: Body = serde_json::from_str(body).ok()?;
-    Some(ProbeBodies {
-        core: parsed.resources.core.map(|c| BudgetSnapshot {
-            limit: c.limit,
-            remaining: c.remaining,
-            reset_at: c.reset,
-        }),
-        graphql: parsed.resources.graphql.map(|g| BudgetSnapshot {
-            limit: g.limit,
-            remaining: g.remaining,
-            reset_at: g.reset,
-        }),
+    parsed.resources.core.map(|c| BudgetSnapshot {
+        limit: c.limit,
+        remaining: c.remaining,
+        reset_at: c.reset,
     })
 }
 
@@ -620,16 +610,17 @@ fn bucket_short(d: Option<BucketDisplay>) -> String {
 }
 
 /// The chip body from a display derivation: `GH 3,712 · GQL 4,950` —
-/// remaining only (D5); the full `x/y` + window detail moves to the
-/// hover tooltip and the spoken label. Returns `(body, warning)`.
+/// remaining values only (D5). A REST bucket with no snapshot yet
+/// shows `…`; the GraphQL bucket shows `?` until the first real
+/// GraphQL response lands (the probe cannot supply it — §2).
 fn chip_body(display: &UsageDisplay) -> (String, bool) {
     match display {
-        UsageDisplay::Pending => ("GH … · GQL …".to_string(), false),
+        UsageDisplay::Pending => ("GH … · GQL ?".to_string(), false),
         UsageDisplay::Budget { rest, graphql } => (
             format!(
                 "GH {} · GQL {}",
                 bucket_short(*rest),
-                bucket_short(*graphql)
+                graphql.map_or_else(|| "?".to_string(), |d| group_thousands(d.remaining))
             ),
             false,
         ),
@@ -645,10 +636,11 @@ fn chip_body(display: &UsageDisplay) -> (String, bool) {
 
 /// One bucket's hover-tooltip line: `GH 3,712/5,000 resets in 13m` —
 /// the line a stale window trades for its "as of" clock, since its
-/// countdown already ran out (D5).
-fn tooltip_line(name: &str, d: Option<BucketDisplay>) -> String {
+/// countdown already ran out (D5). `missing` is the no-snapshot
+/// placeholder — `…/…` for REST, `?` for the probe-unservable GQL.
+fn tooltip_line(name: &str, missing: &str, d: Option<BucketDisplay>) -> String {
     match d {
-        None => format!("{name} …/…"),
+        None => format!("{name} {missing}"),
         Some(d) => {
             let head = format!(
                 "{name} {}/{}",
@@ -738,7 +730,10 @@ impl Render for UsageChip {
                 let display = book.display(now_epoch(), None);
                 let lines = match display {
                     UsageDisplay::Budget { rest, graphql } => {
-                        vec![tooltip_line("GH", rest), tooltip_line("GQL", graphql)]
+                        vec![
+                            tooltip_line("GH", "…/…", rest),
+                            tooltip_line("GQL", "?", graphql),
+                        ]
                     }
                     _ => vec!["GH …/…".to_string(), "GQL …/…".to_string()],
                 };
@@ -784,9 +779,9 @@ mod tests {
     // attribute and blow the proc-macro stack (rustc SIGSEGV; the
     // page.rs tests note). Import selectively.
     use super::{
-        Bucket, BudgetSnapshot, CountingHttp, ProbeBodies, UsageBook, UsageDisplay, UsageLedger,
-        bucket_label, chip_body, compact_duration, group_thousands, parse_rate_limit_body,
-        spoken_duration, tooltip_line,
+        Bucket, BudgetSnapshot, CountingHttp, UsageBook, UsageDisplay, UsageLedger, bucket_label,
+        chip_body, compact_duration, group_thousands, parse_rate_limit_body, spoken_duration,
+        tooltip_line,
     };
     use crate::http::{HttpError, HttpResult, RateLimit, Verb};
     use std::sync::{Arc, Mutex};
@@ -895,30 +890,34 @@ mod tests {
     }
 
     #[test]
-    fn inflight_prediction_is_per_bucket() {
+    fn display_shows_server_numbers_verbatim() {
         let mut book = UsageBook::default();
         book.on_response(Bucket::Primary, false, Some(snap(5000, 5, 2_000)), 1_000);
         book.on_response(Bucket::Primary, true, Some(snap(5000, 2, 2_000)), 1_000);
-        // Two REST and one GraphQL start; each prediction hits its own
-        // bucket, floored at zero.
+        // In-flight starts are bookkept (session counters, sub-book
+        // slots) but the shown values stay verbatim — no prediction
+        // is folded into the display (owner decision, #323 review).
         book.on_request_start(Bucket::Primary, false);
         book.on_request_start(Bucket::Primary, false);
         book.on_request_start(Bucket::Primary, true);
         assert_eq!(
             stripped(book.display(1_100, None)),
-            budget(Some((3, 5000, 900, false)), Some((1, 5000, 900, false)))
+            budget(Some((5, 5000, 900, false)), Some((2, 5000, 900, false)))
         );
-        // A GraphQL answer without rate info clears only its slot.
+
+        // An answer without rate info changes nothing shown — the
+        // last snapshot stands until a carrying response replaces it.
         book.on_response(Bucket::Primary, true, None, 1_150);
         assert_eq!(
             stripped(book.display(1_200, None)),
-            budget(Some((3, 5000, 800, false)), Some((2, 5000, 800, false)))
+            budget(Some((5, 5000, 800, false)), Some((2, 5000, 800, false)))
         );
-        // A REST transport failure clears one REST slot.
+        // A REST transport failure clears one bookkept slot; the
+        // shown values still mirror the last snapshot verbatim.
         book.on_failure(Bucket::Primary, false);
         assert_eq!(
             stripped(book.display(1_300, None)),
-            budget(Some((4, 5000, 700, false)), Some((2, 5000, 700, false)))
+            budget(Some((5, 5000, 700, false)), Some((2, 5000, 700, false)))
         );
     }
 
@@ -971,33 +970,32 @@ mod tests {
         book.on_request_start(Bucket::Auth, false);
         book.on_request_start(Bucket::Other, false);
         assert_eq!(book.session_counters(), (5, 2, 1, 1));
-        // Seed both sub-books with fresh snapshots (fold-style — the
-        // in-flight predictions stay as the starts left them).
+        // Seed both sub-books with fresh snapshots; the in-flight
+        // starts are bookkept but shown values stay verbatim.
         book.seed_snapshots(snap(5000, 5_000, 2_000), snap(5000, 5_000, 2_000), 1_000);
         assert_eq!(
             stripped(book.display(1_100, None)),
             budget(
-                Some((4_999, 5000, 900, false)), // 1 REST in flight
-                Some((4_998, 5000, 900, false)), // 2 GraphQL in flight
+                Some((5_000, 5000, 900, false)),
+                Some((5_000, 5000, 900, false)),
             )
         );
-        // Auth/other requests never touch either primary prediction.
+        // Auth/other requests never touch either primary book.
         book.on_failure(Bucket::Auth, false);
         assert_eq!(
             stripped(book.display(1_100, None)),
             budget(
-                Some((4_999, 5000, 900, false)),
-                Some((4_998, 5000, 900, false))
+                Some((5_000, 5000, 900, false)),
+                Some((5_000, 5000, 900, false))
             )
         );
-        // The two GraphQL answers land without rate info: that
-        // bucket's prediction clears, the REST one keeps its own.
+        // GraphQL answers without rate info change nothing shown.
         book.on_response(Bucket::Primary, true, None, 1_200);
         book.on_response(Bucket::Primary, true, None, 1_200);
         assert_eq!(
             stripped(book.display(1_300, None)),
             budget(
-                Some((4_999, 5000, 700, false)),
+                Some((5_000, 5000, 700, false)),
                 Some((5_000, 5000, 700, false))
             )
         );
@@ -1019,54 +1017,49 @@ mod tests {
     // --- book: probe arming (D3) ------------------------------------------
 
     #[test]
-    fn probe_due_when_either_bucket_needs_refresh() {
+    fn probe_due_tracks_the_rest_bucket_only() {
         let mut book = UsageBook::default();
         assert!(book.probe_due(1_000)); // nothing seen yet
 
-        // One bucket fresh, the other missing: still due.
-        book.on_response(Bucket::Primary, false, Some(snap(5000, 5, 2_000)), 1_000);
-        assert!(book.probe_due(1_500));
+        // A REST response alone satisfies the probe: a missing GraphQL
+        // book never arms it (the probe cannot refresh GQL — §2).
+        book.on_response(Bucket::Primary, false, Some(snap(5000, 5, 12_000)), 1_000);
+        assert!(!book.probe_due(1_500));
 
-        // Both fresh: quiet.
-        book.on_response(Bucket::Primary, true, Some(snap(5000, 5, 2_000)), 1_500);
-        assert!(!book.probe_due(1_600));
+        // GraphQL went stale; REST still fresh — quiet.
+        book.on_response(Bucket::Primary, true, Some(snap(5000, 5, 2_500)), 1_600);
+        assert!(!book.probe_due(5_000));
 
-        // Either bucket rolling past its window re-arms it.
-        assert!(book.probe_due(2_000));
+        // The REST window rolling re-arms it.
+        assert!(book.probe_due(12_000));
 
         // Cooldown: one probe per 30 s, even while stale.
-        book.mark_probe(2_000);
-        assert!(!book.probe_due(2_029));
-        assert!(book.probe_due(2_030));
+        book.mark_probe(12_000);
+        assert!(!book.probe_due(12_029));
+        assert!(book.probe_due(12_030));
     }
 
     #[test]
-    fn fold_probe_reconciles_both_buckets_at_once() {
+    fn probe_folds_core_and_never_touches_graphql() {
+        // GraphQL state arrives first from traffic.
         let mut book = UsageBook::default();
-        let probe = ProbeBodies {
-            core: Some(snap(5000, 3_712, 2_780)),
-            graphql: Some(snap(5000, 4_950, 2_570)),
-        };
-        book.fold_probe(&probe, 2_000);
+        book.on_response(Bucket::Primary, true, Some(snap(5000, 29, 2_570)), 1_000);
+
+        // The probe folds `resources.core` only.
+        book.fold_probe(snap(5000, 3_712, 2_780), 2_000);
         assert_eq!(
             stripped(book.display(2_000, None)),
             budget(
                 Some((3_712, 5000, 780, false)),
-                Some((4_950, 5000, 570, false)),
+                Some((29, 5000, 570, false)), // untouched — traffic's number
             )
         );
-        // A partial body folds what it has, keeps the rest.
-        let partial = ProbeBodies {
-            core: Some(snap(5000, 3_700, 2_780)),
-            graphql: None,
-        };
-        book.fold_probe(&partial, 2_500);
+
+        // A later probe re-folds core; graphql still never moves.
+        book.fold_probe(snap(5000, 3_700, 2_780), 2_500);
         assert_eq!(
             stripped(book.display(2_500, None)),
-            budget(
-                Some((3_700, 5000, 280, false)),
-                Some((4_950, 5000, 70, false)),
-            )
+            budget(Some((3_700, 5000, 280, false)), Some((29, 5000, 70, false)),)
         );
     }
 
@@ -1196,35 +1189,35 @@ mod tests {
     // --- probe body + formatters -------------------------------------------
 
     #[test]
-    fn rate_limit_body_carries_both_buckets() {
+    fn rate_limit_body_decodes_core_and_ignores_phantom_graphql() {
         let body = serde_json::json!({
             "resources": {
                 "core": { "limit": 5000, "remaining": 3712, "reset": 1_893_456_000 },
-                "graphql": { "limit": 5000, "remaining": 4950, "reset": 1_893_454_800 },
+                "graphql": { "limit": 5000, "remaining": 5000, "reset": 1_893_454_800 },
                 "search": { "limit": 30, "remaining": 30, "reset": 1 }
             }
         })
         .to_string();
+        // The phantom graphql entry (always 5,000/0-used live) is
+        // deliberately ignored — only core comes out.
         assert_eq!(
             parse_rate_limit_body(&body),
-            Some(ProbeBodies {
-                core: Some(snap(5000, 3_712, 1_893_456_000)),
-                graphql: Some(snap(5000, 4_950, 1_893_454_800)),
-            })
+            Some(snap(5000, 3_712, 1_893_456_000))
         );
-        // A body without the graphql sub-object parses; that slot stays
-        // empty rather than failing the whole fold.
         let core_only = serde_json::json!({
             "resources": { "core": { "limit": 5000, "remaining": 3712, "reset": 1_893_456_000 } }
         })
         .to_string();
         assert_eq!(
             parse_rate_limit_body(&core_only),
-            Some(ProbeBodies {
-                core: Some(snap(5000, 3_712, 1_893_456_000)),
-                graphql: None,
-            })
+            Some(snap(5000, 3_712, 1_893_456_000))
         );
+        // No core sub-object → nothing to fold.
+        let gql_only = serde_json::json!({
+            "resources": { "graphql": { "limit": 5000, "remaining": 5000, "reset": 1 } }
+        })
+        .to_string();
+        assert_eq!(parse_rate_limit_body(&gql_only), None);
         assert_eq!(parse_rate_limit_body("[]"), None);
     }
 
@@ -1286,7 +1279,7 @@ mod tests {
         );
         assert_eq!(
             chip_body(&UsageDisplay::Pending),
-            ("GH … · GQL …".to_string(), false)
+            ("GH … · GQL ?".to_string(), false)
         );
         assert_eq!(
             chip_body(&UsageDisplay::Exhausted {
@@ -1313,18 +1306,19 @@ mod tests {
             snapshot_at: Some(1_000),
         };
         assert_eq!(
-            tooltip_line("GH", Some(rest)),
+            tooltip_line("GH", "…/…", Some(rest)),
             "GH 3,712/5,000 resets in 13m"
         );
         assert_eq!(
-            tooltip_line("GQL", Some(gql)),
+            tooltip_line("GQL", "?", Some(gql)),
             "GQL 4,950/5,000 resets in 9m"
         );
-        assert_eq!(tooltip_line("GQL", None), "GQL …/…");
+        assert_eq!(tooltip_line("GQL", "?", None), "GQL ?");
+        assert_eq!(tooltip_line("GH", "…/…", None), "GH …/…");
         // A stale window swaps its countdown for the as-of clock —
         // the exact clock is local-time, so assert the shape.
         let stale = super::BucketDisplay { stale: true, ..gql };
-        let line = tooltip_line("GQL", Some(stale));
+        let line = tooltip_line("GQL", "?", Some(stale));
         assert!(line.starts_with("GQL 4,950/5,000 · as of "), "got: {line}");
     }
 }
