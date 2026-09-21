@@ -45,7 +45,7 @@ use crate::auth::{
 };
 use crate::gql::{self, Org, Repo, User};
 use crate::http::{Http, HttpError, RateLimit, SharedToken, Verb};
-use crate::usage::{Bucket, UsageLedger, parse_rate_limit_body};
+use crate::usage::{UsageLedger, parse_rate_limit_body};
 
 /// Tick cadence (docs/0038 D7): a 10 s wake — the lanes decide what
 /// fires, so an idle minute is six no-op policy checks. List cadences
@@ -2258,16 +2258,13 @@ impl GithubState {
 
         match result.kind {
             Kind::RateLimit => {
-                // docs/0050 D3 — fold the free probe's body:
-                // `resources.core` is the documented-authoritative
-                // bucket breakdown, on top of whatever headers the
+                // docs/0050 D3 — fold the free probe's body: one call
+                // carries the documented-authoritative breakdown of
+                // BOTH primary sub-budgets (`resources.core` and
+                // `resources.graphql`), on top of whatever headers the
                 // wrapper already harvested from the same response.
-                if let Some(snapshot) = parse_rate_limit_body(body) {
-                    self.usage.lock().unwrap().on_response(
-                        Bucket::Primary,
-                        Some(snapshot),
-                        now_epoch(),
-                    );
+                if let Some(probe) = parse_rate_limit_body(body) {
+                    self.usage.lock().unwrap().fold_probe(&probe, now_epoch());
                 }
             }
             Kind::Snapshot => {
@@ -3249,11 +3246,19 @@ mod tests {
     /// probe lane out of the cadence tests below.
     fn seed_fresh_usage(state: &GithubState) {
         let now = now_epoch();
-        state
-            .usage
-            .lock()
-            .unwrap()
-            .seed_snapshot(5000, 5000, now + 3600, now);
+        state.usage.lock().unwrap().seed_snapshots(
+            crate::usage::BudgetSnapshot {
+                limit: 5000,
+                remaining: 5000,
+                reset_at: now + 3600,
+            },
+            crate::usage::BudgetSnapshot {
+                limit: 5000,
+                remaining: 5000,
+                reset_at: now + 3600,
+            },
+            now,
+        );
     }
 
     fn make_state(http: Arc<MockHttp>) -> GithubState {
