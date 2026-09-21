@@ -139,24 +139,41 @@ silently slip through:
   there would race concurrent background runs, and task-locals do not
   survive the background executor — both rejected.
 
-**D3 — A capped in-memory log as a core global.** `RecordLog` is an
-`Arc<Mutex<VecDeque<UsageRecord>>>` behind a `gpui::Global` in
-`dashboard_core::usage_records` — created by `usage_records::init(cx)`
-in `main` and reached through `cx`, the `status::InFlight` pattern
-(§2), one FIFO across all modules. Cap
-`RECORD_CAP = 10_000` (~1–2 MB; a heavy day is thousands of flights —
-the cap is the working set for analytics, totals live in the
-counters). `seq` is log-local and never resets. `cycle_reset_epoch`
-is stamped from the flight's own `rate.reset_epoch` when present,
-else carried from the log's last-known reset — REST windows are
-hourly and GraphQL reports the same primary reset, so every record
-lands in a groupable cycle bucket without join logic later.
+**D3 — Injectable storage behind a core global.** The write path is a
+trait; the v1 FIFO is just its first implementation:
+
+```rust
+pub trait UsageSink: Send + Sync {
+    fn record(&self, rec: UsageRecord);   // best-effort, never blocks/fails a fetch
+    fn snapshot(&self) -> Vec<UsageRecord>; // minimal read for tests/inspection
+}
+```
+
+The `gpui::Global` in `dashboard_core::usage_records` holds an
+`Arc<dyn UsageSink>`, created by `usage_records::init(cx)` in `main`
+(the `status::InFlight` pattern, §2) — which installs the default
+`MemorySink`: a capped `Mutex<VecDeque<UsageRecord>>` FIFO, one queue
+across all modules, `RECORD_CAP = 10_000` (~1–2 MB; a heavy day is
+thousands of flights). `init_with(cx, sink)` is the injection point —
+tests use it today, and a future SQLite (or whatever) backend is a
+new `UsageSink` impl swapped at startup, nothing else changes. Three
+boundaries keep the swap trivial: (a) **rows are pre-stamped and
+immutable** — the `Recorder` (writer side) owns the `seq` counter,
+timestamps and the `cycle_reset_epoch` carry-forward, so identity is
+storage-independent and the sink is a dumb writer (REST windows are
+hourly, GraphQL reports the same primary reset, so every record lands
+in a groupable cycle bucket without join logic later); (b) **the cap
+is the memory impl's concern** — a SQLite sink simply wouldn't have
+one (or would age out instead); (c) **storage failures are the sink's
+own** — `record` returns nothing and must never fail or stall a
+request (an SQLite impl buffers and flushes on its own thread), so
+analytics can never break fetching.
 
 **D4 — Plumbing: a `FetchCtx` through the runners.** The flight
-runners take `FetchCtx<'a> { http: &'a dyn Http, records: &'a RecordSink }`
-instead of bare `&dyn Http` — one mechanical signature change.
-`run_spec_tracked` builds the ctx from the state (it already owns the
-entity) — the sink comes from the core global (§2/D3) — so
+runners take `FetchCtx<'a> { http: &'a dyn Http, recorder: &'a Recorder }`
+instead of bare `&dyn Http` — one mechanical signature change. The
+`Recorder` is the writer side of D3 (seq/ts stamping + the sink
+handle); `run_spec_tracked` pulls it from the core global (§2/D3) so
 is correct accounting. `run_refresh` and the connect flow — direct
 client callers — emit their `Auth` records at the call site with the
 same sink. `MockHttp` tests need no trait change: the sink is a plain
@@ -182,9 +199,9 @@ The chip and `UsageBook` stay GitHub-local (0050's display layer).
 ## 4. State & plumbing changes
 
 - **core** (new `usage_records.rs`, the D6 global): `UsageRecord`
-  (`module` first), `Transport`, `RecordLog` + `RecordSink`,
-  `RECORD_CAP`, `init(cx)` + `gpui::Global` — wired in `main` beside
-  `status::init`.
+  (`module` first), `Transport`, the `UsageSink` trait + `MemorySink`
+  (`RECORD_CAP`), the `Recorder` writer, `init(cx)`/`init_with(cx,
+  sink)` + `gpui::Global` — wired in `main` beside `status::init`.
 - github `usage.rs`: `Origin { Surface, Trigger }` closed enums +
   `as_str()`; booking-rule helpers stay here (module-local).
 - `service.rs`: `FetchSpec.origin`; `FetchCtx`; runner signatures;
@@ -208,6 +225,10 @@ The chip and `UsageBook` stay GitHub-local (0050's display layer).
   carry-forward path stamps the last-known one.
 - Cap eviction at small `RECORD_CAP` in tests; `seq` monotonic across
   eviction.
+- Storage injection: a test `UsageSink` injected via `init_with`
+  receives the exact rows the `MemorySink` would have (same
+  pre-stamped records, both sinks agree) — the swap-contract test for
+  the future SQLite backend.
 - Module-global isolation: records carry their `module`; a synthetic
   second reporter writing through the same global log coexists with
   GitHub's records (the D6 contract for Forgejo/Gitea later).
@@ -227,8 +248,9 @@ The chip and `UsageBook` stay GitHub-local (0050's display layer).
 - **The analytics UI** — per-surface rollups, per-cycle history,
   rare-request ranking, export. Deferred issue (this pipeline is its
   data contract).
-- **SQLite persistence** — deferred issue; the record shape and
-  `cycle_reset_epoch` denormalization exist so the migration is a
+- **SQLite persistence** — deferred issue; the `UsageSink` trait is
+  the seam (a new impl swapped at `init_with`), and the record shape
+  + `cycle_reset_epoch` denormalization exist so the migration is a
   table, not a redesign.
 - **Page/view visit analytics and visit↔cost correlation** — deferred
   issue; would be a separate record type, not an extension of this
