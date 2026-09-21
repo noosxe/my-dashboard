@@ -1362,9 +1362,15 @@ fn threads_fetch_row(
                         .icon(IconName::RotateCw)
                         .tooltip("Retry")
                         .accessibility_label("Retry loading review threads")
-                        .on_click(
-                            window.listener_for(page_h, |this, _, _, cx| this.fetch_threads(cx)),
-                        ),
+                        .on_click(window.listener_for(page_h, |this, _, _, cx| {
+                            this.fetch_threads(
+                                crate::usage::Origin::new(
+                                    crate::usage::Surface::PrPage,
+                                    crate::usage::Trigger::Manual,
+                                ),
+                                cx,
+                            )
+                        })),
                 )
                 .into_any_element(),
         );

@@ -11,6 +11,7 @@ use dashboard_core::nav::{Navigator, Page};
 
 use crate::page::stale_chip_label;
 use crate::service::{AuthStatus, ConnectPhase, GithubState, run_read_deduped, start_connect};
+use crate::usage::{Origin, Surface, Trigger};
 
 pub(crate) const GITHUB_MARK: &str = "icons/github.svg";
 /// Private-repo lock glyph (octicon lock-16, @primer/octicons 19.33.0).
@@ -55,17 +56,21 @@ impl GithubCard {
             window: window.window_handle(),
         };
         if home_active && connected {
-            this.fire_card_totals(cx);
+            // Construction while home shows = the card's view-shown.
+            this.fire_card_totals(Origin::new(Surface::HomeCard, Trigger::ViewShown), cx);
         }
         cx.observe(&nav, |this, nav, cx| {
             let active = matches!(nav.read(cx).page, Page::Home);
             let edge = active && !this.last_home_active;
             this.last_home_active = active;
             if edge {
-                this.fire_card_totals(cx);
+                this.fire_card_totals(Origin::new(Surface::HomeCard, Trigger::ViewShown), cx);
                 // docs/0052 D5: view-shown fires the bell's lane too
                 // (age-gated — the module's fire keeps it fresh).
-                this.fire_notifications_if_stale(cx);
+                this.fire_notifications_if_stale(
+                    Origin::new(Surface::HomeCard, Trigger::ViewShown),
+                    cx,
+                );
             }
         })
         .detach();
@@ -77,9 +82,13 @@ impl GithubCard {
             let reconnected = connected && !this.last_connected;
             this.last_connected = connected;
             if reconnected && this.last_home_active {
-                this.fire_card_totals(cx);
+                // Post-connect lands like a view-shown (docs/0051 D4).
+                this.fire_card_totals(Origin::new(Surface::HomeCard, Trigger::ViewShown), cx);
                 // docs/0052 D5: same for the bell's lane.
-                this.fire_notifications_if_stale(cx);
+                this.fire_notifications_if_stale(
+                    Origin::new(Surface::HomeCard, Trigger::ViewShown),
+                    cx,
+                );
             }
         })
         .detach();
@@ -93,7 +102,7 @@ impl GithubCard {
                 return;
             }
             this.fire_card_totals_if_stale(cx);
-            this.fire_notifications_if_stale(cx);
+            this.fire_notifications_if_stale(Origin::new(Surface::HomeCard, Trigger::Refocus), cx);
         })
         .detach();
         // docs/0052 D6 — the render-only wake: relative ages advance
@@ -114,10 +123,10 @@ impl GithubCard {
 
     /// Fire the card's totals lane (docs/0051 D2/D4): spec through the
     /// shared docs/0031 dedup, result through the state's apply arm.
-    fn fire_card_totals(&mut self, cx: &mut Context<Self>) {
+    fn fire_card_totals(&mut self, origin: Origin, cx: &mut Context<Self>) {
         let (spec, gated) = {
             let s = self.state.read(cx);
-            (s.card_totals_spec(), s.gated())
+            (s.card_totals_spec(origin), s.gated())
         };
         if gated {
             return;
@@ -151,17 +160,17 @@ impl GithubCard {
         if fresh {
             return;
         }
-        self.fire_card_totals(cx);
+        self.fire_card_totals(Origin::new(Surface::HomeCard, Trigger::Refocus), cx);
     }
 
     /// docs/0052 D5: the bell's lane on the card's triggers — the same
     /// state-side gate the module's view-shown fire uses (pause, backoff,
     /// floor), then the same dispatch shape as the totals lane.
-    fn fire_notifications_if_stale(&mut self, cx: &mut Context<Self>) {
+    fn fire_notifications_if_stale(&mut self, origin: Origin, cx: &mut Context<Self>) {
         let Some(spec) = self
             .state
             .read(cx)
-            .notifications_spec_if_stale(crate::service::FOCUS_MIN_AGE)
+            .notifications_spec_if_stale(crate::service::FOCUS_MIN_AGE, origin)
         else {
             return;
         };

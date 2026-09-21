@@ -1,0 +1,332 @@
+//! Usage records (docs/0053): the module-global, per-flight cost log.
+//!
+//! One immutable [`UsageRecord`] per real HTTP flight — cost-first
+//! (nominal points per the module's booking rules, never a guessed
+//! number), origin-attributed (`surface` × `trigger`, stamped from the
+//! dispatching module's own closed enums), held by an injectable
+//! [`UsageSink`] behind a `gpui::Global`. The v1 sink is the capped
+//! in-memory [`MemorySink`]; a future SQLite backend is a new
+//! `UsageSink` swapped at [`init_with`] — the row is pre-stamped and
+//! storage-independent, so nothing else changes (D3).
+//!
+//! The write side is the [`Recorder`] (one per module): it stamps
+//! `seq`/timestamp/`cycle_reset_epoch` *before* the sink sees the row,
+//! keeping identity storage-independent and the sink a dumb writer.
+//! `record` is best-effort by contract — a sink must never fail or
+//! stall a request (D3); analytics can never break fetching.
+
+use std::collections::VecDeque;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+
+use gpui::{App, Global, SharedString};
+
+/// The v1 retention: one FIFO across all modules (D3). A heavy day is
+/// thousands of flights; the cap is the analytics working set — totals
+/// live in each module's own counters.
+pub const RECORD_CAP: usize = 10_000;
+
+/// Which wire a flight went out on. Generic across modules (docs/0053
+/// D6): REST, GraphQL, or the provider's auth endpoints.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Transport {
+    Rest,
+    Graphql,
+    Auth,
+}
+
+impl Transport {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Transport::Rest => "rest",
+            Transport::Graphql => "graphql",
+            Transport::Auth => "auth",
+        }
+    }
+}
+
+/// One HTTP flight, sqlite-ready (docs/0053 D1): flat, owned, no
+/// entity handles — this struct *is* the future table row. `surface`
+/// and `trigger` arrive as strings stamped from the dispatching
+/// module's closed enums (D6): the shared schema stays stable while
+/// each module keeps compiler-enforced origin vocabularies.
+#[derive(Debug, Clone)]
+pub struct UsageRecord {
+    /// "github" today; "forgejo"/"gitea" when those modules exist (D6).
+    pub module: SharedString,
+    /// Monotonic, log-local, never resets — the table key.
+    pub seq: u64,
+    pub ts_epoch_ms: u64,
+    pub transport: Transport,
+    /// The module's op name — GitHub's `kind_name()` ("pr-detail", …).
+    pub op: SharedString,
+    /// Stamped from the module's `Surface` enum (D2).
+    pub surface: SharedString,
+    /// Stamped from the module's `Trigger` enum (D2) — docs/0052's set.
+    pub trigger: SharedString,
+    /// `owner/repo`, `repo#n`, … when the op is scoped.
+    pub ident: Option<SharedString>,
+    /// 0 on network error.
+    pub status: u16,
+    pub etag_304: bool,
+    /// Nominal points per the module's booking rules; `None` = not
+    /// attributable (GQL without the cost field, network errors).
+    pub cost: Option<u32>,
+    /// Real budget snapshot from the flight, when the provider sent one.
+    pub remaining_after: Option<u32>,
+    /// Denormalized quota-cycle key (the window's reset epoch) so
+    /// per-cycle rollups are a plain GROUP BY later (D3).
+    pub cycle_reset_epoch: Option<u64>,
+    pub duration_ms: u32,
+    pub network_error: bool,
+}
+
+/// Injectable storage (docs/0053 D3): the v1 [`MemorySink`] is just
+/// the first implementation. `record` is fire-and-forget by contract —
+/// impls own their errors and must not stall callers; `snapshot` is
+/// the minimal read for tests and (later) the debug bridge.
+pub trait UsageSink: Send + Sync {
+    fn record(&self, rec: UsageRecord);
+    fn snapshot(&self) -> Vec<UsageRecord>;
+}
+
+/// The v1 sink: one capped FIFO across all modules. The cap is this
+/// impl's concern (D3) — a SQLite sink simply wouldn't have one.
+pub struct MemorySink {
+    inner: Mutex<VecDeque<UsageRecord>>,
+    cap: usize,
+}
+
+impl MemorySink {
+    pub fn new(cap: usize) -> Self {
+        Self {
+            inner: Mutex::new(VecDeque::new()),
+            cap: cap.max(1),
+        }
+    }
+}
+
+impl UsageSink for MemorySink {
+    fn record(&self, rec: UsageRecord) {
+        let mut q = self.inner.lock().unwrap();
+        if q.len() >= self.cap {
+            q.pop_front();
+        }
+        q.push_back(rec);
+    }
+
+    fn snapshot(&self) -> Vec<UsageRecord> {
+        self.inner.lock().unwrap().iter().cloned().collect()
+    }
+}
+
+impl Default for MemorySink {
+    fn default() -> Self {
+        Self::new(RECORD_CAP)
+    }
+}
+
+/// The mutable half of a record, before the [`Recorder`] stamps
+/// identity — what a flight actually learned.
+#[derive(Debug, Clone)]
+pub struct RecordDraft {
+    pub transport: Transport,
+    pub op: SharedString,
+    pub surface: SharedString,
+    pub trigger: SharedString,
+    pub ident: Option<SharedString>,
+    pub status: u16,
+    pub etag_304: bool,
+    pub cost: Option<u32>,
+    pub remaining_after: Option<u32>,
+    /// The flight's own reset epoch when its response carried one;
+    /// `None` falls back to the recorder's last-known cycle (D3).
+    pub cycle_reset_epoch: Option<u64>,
+    pub duration_ms: u32,
+    pub network_error: bool,
+}
+
+/// The per-module writer (docs/0053 D3/D4): stamps `seq`, the
+/// timestamp, and the cycle carry-forward, then hands the finished
+/// row to the sink. Cloneable handle — `GithubState` holds one beside
+/// its ledger; a future module holds its own with its module id.
+#[derive(Clone)]
+pub struct Recorder {
+    module: SharedString,
+    seq: Arc<AtomicU64>,
+    last_cycle: Arc<Mutex<Option<u64>>>,
+    sink: Arc<dyn UsageSink>,
+}
+
+impl Recorder {
+    pub fn new(module: &str, sink: Arc<dyn UsageSink>) -> Self {
+        Self {
+            module: SharedString::from(module),
+            seq: Arc::new(AtomicU64::new(1)),
+            last_cycle: Arc::new(Mutex::new(None)),
+            sink,
+        }
+    }
+
+    /// The sink behind this recorder (tests read via `snapshot`).
+    pub fn sink(&self) -> Arc<dyn UsageSink> {
+        self.sink.clone()
+    }
+
+    /// Stamp and store one flight. Best-effort: the sink owns failure.
+    pub fn emit(&self, draft: RecordDraft) {
+        let cycle = match draft.cycle_reset_epoch {
+            Some(c) => {
+                *self.last_cycle.lock().unwrap() = Some(c);
+                Some(c)
+            }
+            None => *self.last_cycle.lock().unwrap(),
+        };
+        self.sink.record(UsageRecord {
+            module: self.module.clone(),
+            seq: self.seq.fetch_add(1, Ordering::Relaxed),
+            ts_epoch_ms: now_epoch_ms(),
+            transport: draft.transport,
+            op: draft.op,
+            surface: draft.surface,
+            trigger: draft.trigger,
+            ident: draft.ident,
+            status: draft.status,
+            etag_304: draft.etag_304,
+            cost: draft.cost,
+            remaining_after: draft.remaining_after,
+            cycle_reset_epoch: cycle,
+            duration_ms: draft.duration_ms,
+            network_error: draft.network_error,
+        });
+    }
+}
+
+fn now_epoch_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+// ---------------------------------------------------------------------------
+// The global (D3/D6) — the `status::InFlight` pattern: one app-wide
+// store, created in `main`, reached through `cx`.
+// ---------------------------------------------------------------------------
+
+struct UsageRecordsGlobal(Arc<dyn UsageSink>);
+
+impl Global for UsageRecordsGlobal {}
+
+/// Create the records store with the default [`MemorySink`]. Once, in
+/// `main`, beside `status::init` and before any module `init` runs.
+pub fn init(cx: &mut App) {
+    init_with(cx, Arc::new(MemorySink::default()));
+}
+
+/// Create the records store with an injected sink — the swap point for
+/// tests today and the SQLite backend later (docs/0053 D3).
+pub fn init_with(cx: &mut App, sink: Arc<dyn UsageSink>) {
+    cx.set_global(UsageRecordsGlobal(sink));
+}
+
+/// The app-wide sink. Panics if [`init`] was never called — the same
+/// programming-error contract as `status::tracker`.
+pub fn sink(cx: &App) -> Arc<dyn UsageSink> {
+    cx.global::<UsageRecordsGlobal>().0.clone()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn draft(status: u16, cost: Option<u32>, cycle: Option<u64>) -> RecordDraft {
+        RecordDraft {
+            transport: Transport::Rest,
+            op: SharedString::from("test-op"),
+            surface: SharedString::from("test-surface"),
+            trigger: SharedString::from("test-trigger"),
+            ident: None,
+            status,
+            etag_304: status == 304,
+            cost,
+            remaining_after: None,
+            cycle_reset_epoch: cycle,
+            duration_ms: 5,
+            network_error: false,
+        }
+    }
+
+    #[test]
+    fn memory_sink_evicts_at_cap_and_seq_stays_monotonic() {
+        let sink = Arc::new(MemorySink::new(3));
+        let rec = Recorder::new("github", sink.clone());
+        for i in 0..5 {
+            rec.emit(draft(200, Some(1), Some(1_000 + i)));
+        }
+        let rows = sink.snapshot();
+        assert_eq!(rows.len(), 3, "cap evicts oldest");
+        assert_eq!(
+            rows.iter().map(|r| r.seq).collect::<Vec<_>>(),
+            vec![3, 4, 5],
+            "seq is monotonic across eviction"
+        );
+        assert_eq!(rows.last().unwrap().cycle_reset_epoch, Some(1_004));
+    }
+
+    #[test]
+    fn cycle_carries_forward_from_last_known() {
+        let sink = Arc::new(MemorySink::new(8));
+        let rec = Recorder::new("github", sink.clone());
+        rec.emit(draft(200, Some(1), Some(7_200)));
+        rec.emit(draft(200, Some(1), None));
+        let rows = sink.snapshot();
+        assert_eq!(rows[0].cycle_reset_epoch, Some(7_200));
+        assert_eq!(
+            rows[1].cycle_reset_epoch,
+            Some(7_200),
+            "no snapshot → last-known cycle"
+        );
+    }
+
+    /// docs/0053 §5 (swap contract): `init_with` injects a custom sink;
+    /// the recorder built from the app-global sink writes identical
+    /// pre-stamped rows there. The future SQLite backend rides the same
+    /// seam, and this is the test that will prove both sinks agree.
+    #[gpui::test]
+    fn init_with_swaps_the_app_wide_sink(cx: &mut gpui::TestAppContext) {
+        struct CountingSink(std::sync::Mutex<Vec<UsageRecord>>);
+        impl UsageSink for CountingSink {
+            fn record(&self, rec: UsageRecord) {
+                self.0.lock().unwrap().push(rec);
+            }
+            fn snapshot(&self) -> Vec<UsageRecord> {
+                self.0.lock().unwrap().clone()
+            }
+        }
+        let injected: Arc<CountingSink> = Arc::new(CountingSink(std::sync::Mutex::new(Vec::new())));
+        cx.update(|cx| init_with(cx, injected.clone()));
+        let rec = cx.update(|cx| Recorder::new("github", sink(cx)));
+        rec.emit(draft(200, Some(1), Some(3_600)));
+        let rows = injected.snapshot();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].module.as_ref(), "github");
+        assert_eq!(rows[0].cost, Some(1));
+        assert_eq!(rows[0].seq, 1, "identity is stamped before the sink");
+    }
+
+    #[test]
+    fn two_recorders_share_one_sink_and_keep_module_identity() {
+        let sink = Arc::new(MemorySink::new(8));
+        let gh = Recorder::new("github", sink.clone());
+        let fj = Recorder::new("forgejo", sink.clone());
+        gh.emit(draft(200, Some(1), None));
+        fj.emit(draft(200, Some(1), None));
+        let rows = sink.snapshot();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].module.as_ref(), "github");
+        assert_eq!(rows[1].module.as_ref(), "forgejo");
+        // Independent seq streams — per-recorder counters.
+        assert_eq!(rows[0].seq, rows[1].seq);
+    }
+}

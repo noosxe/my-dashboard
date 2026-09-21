@@ -68,6 +68,7 @@ use crate::service::{
     run_spec_tracked,
 };
 use crate::syntax;
+use crate::usage::{Origin, Surface, Trigger};
 use dashboard_core::freshness::{Freshness, freshness_row, relative_age};
 
 actions!(github, [DismissPrPage]);
@@ -565,16 +566,18 @@ impl PrDetailPage {
         // change (selection, expand, collapse) and the diff pane reads
         // `selected_entry()` at render time.
         cx.observe(&file_tree, |_, _, cx| cx.notify()).detach();
-        page.fetch_detail(cx);
+        // docs/0053 D2: the construction fetch is the page's view-shown.
+        page.fetch_detail(Origin::new(Surface::PrPage, Trigger::ViewShown), cx);
         page
     }
 
     /// The detail spec: one query, `owner/repo#number` identity, no ETag
     /// (GraphQL has none upstream). Built here so the fetch and the test
     /// table share one shape (docs/0016 D2).
-    fn detail_spec(repo: &str, number: i64) -> FetchSpec {
+    fn detail_spec(repo: &str, number: i64, origin: Origin) -> FetchSpec {
         let (owner, name) = split_repo(repo);
         FetchSpec {
+            origin,
             kind: Kind::PrDetail,
             url: gql::GRAPHQL_ENDPOINT.to_string(),
             etag: None,
@@ -584,12 +587,12 @@ impl PrDetailPage {
         }
     }
 
-    fn fetch_detail(&mut self, cx: &mut Context<Self>) {
+    fn fetch_detail(&mut self, origin: Origin, cx: &mut Context<Self>) {
         if !self.state.read(cx).auth.connected() {
             return; // the page is about to be torn down by the auth gate
         }
         let state = self.state.clone();
-        let spec = Self::detail_spec(&self.repo, self.number);
+        let spec = Self::detail_spec(&self.repo, self.number, origin);
         log::debug!(
             "pr-detail: fetching {}",
             spec.ident.as_deref().unwrap_or("?")
@@ -766,9 +769,10 @@ impl PrDetailPage {
     /// transport (`run_rest`, 100/page). No ETag — page-owned like
     /// [`Self::detail_spec`]. 30 pages = GitHub's 3000-file cap; the
     /// walk stops at the first short page long before it.
-    fn files_spec(repo: &str, number: i64, etag: Option<String>) -> FetchSpec {
+    fn files_spec(repo: &str, number: i64, etag: Option<String>, origin: Origin) -> FetchSpec {
         let (owner, name) = split_repo(repo);
         FetchSpec {
+            origin,
             kind: Kind::PrFiles,
             url: api::pr_files_url(owner, name, number, 1),
             etag,
@@ -857,7 +861,7 @@ impl PrDetailPage {
 
     /// Lazy fetch (D8): fired once, when the Files tab is first opened,
     /// and again on refresh once a list is showing.
-    fn fetch_files(&mut self, cx: &mut Context<Self>) {
+    fn fetch_files(&mut self, origin: Origin, cx: &mut Context<Self>) {
         if !self.state.read(cx).auth.connected() {
             return; // the page is about to be torn down by the auth gate
         }
@@ -871,7 +875,7 @@ impl PrDetailPage {
             .read(cx)
             .etag_for(Kind::PrFiles, Some(&ident))
             .filter(|_| self.files.is_ready());
-        let spec = Self::files_spec(&self.repo, self.number, etag);
+        let spec = Self::files_spec(&self.repo, self.number, etag, origin);
         log::debug!(
             "pr-files: fetching {}",
             spec.ident.as_deref().unwrap_or("?")
@@ -1168,9 +1172,10 @@ impl PrDetailPage {
 
     /// The threads spec: one GraphQL one-shot (docs/0030 D1) — same
     /// variables and endpoint as the detail query, page-owned like it.
-    fn threads_spec(repo: &str, number: i64) -> FetchSpec {
+    fn threads_spec(repo: &str, number: i64, origin: Origin) -> FetchSpec {
         let (owner, name) = split_repo(repo);
         FetchSpec {
+            origin,
             kind: Kind::PrThreads,
             url: gql::GRAPHQL_ENDPOINT.to_string(),
             etag: None,
@@ -1183,12 +1188,12 @@ impl PrDetailPage {
     /// Lazy fetch (docs/0030 D1): fired when the Files tab first opens,
     /// on refresh once a thread list is showing, and after thread
     /// mutations (stage 2).
-    pub(crate) fn fetch_threads(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn fetch_threads(&mut self, origin: Origin, cx: &mut Context<Self>) {
         if !self.state.read(cx).auth.connected() {
             return; // the page is about to be torn down by the auth gate
         }
         let state = self.state.clone();
-        let spec = Self::threads_spec(&self.repo, self.number);
+        let spec = Self::threads_spec(&self.repo, self.number, origin);
         log::debug!(
             "pr-threads: fetching {}",
             spec.ident.as_deref().unwrap_or("?")
@@ -1218,14 +1223,15 @@ impl PrDetailPage {
         // call-site is one line per lane, one floor for every lane
         // (docs/0052 D3 — the transport classes only priced the deleted
         // cadences).
+        let origin = Origin::new(Surface::PrPage, Trigger::Refocus);
         if self.detail.wants_refresh(min_age) {
-            self.fetch_detail(cx);
+            self.fetch_detail(origin, cx);
         }
         if self.files.wants_refresh(min_age) {
-            self.fetch_files(cx);
+            self.fetch_files(origin, cx);
         }
         if self.threads.wants_refresh(min_age) {
-            self.fetch_threads(cx);
+            self.fetch_threads(origin, cx);
         }
         // A skipped refocus still re-renders so the relative age
         // advances alongside the render-only wake (docs/0033 D4,
@@ -1440,7 +1446,7 @@ impl PrDetailPage {
         self.state.read(cx).user.as_ref().map(|u| u.login.clone())
     }
 
-    fn fetch_source(&mut self, source: PickerSource, cx: &mut Context<Self>) {
+    fn fetch_source(&mut self, source: PickerSource, origin: Origin, cx: &mut Context<Self>) {
         if !self.state.read(cx).auth.connected() {
             return; // the page is about to be torn down by the auth gate
         }
@@ -1448,6 +1454,7 @@ impl PrDetailPage {
         let (owner, name) = split_repo(&self.repo);
         let (kind, query_name) = source.fetch_kind();
         let spec = FetchSpec {
+            origin,
             kind,
             url: gql::GRAPHQL_ENDPOINT.to_string(),
             etag: None,
@@ -1629,7 +1636,11 @@ impl PrDetailPage {
             self.users_source,
             PickerFetch::Idle | PickerFetch::Failed(_)
         ) {
-            self.fetch_source(PickerSource::Reviewers, cx);
+            self.fetch_source(
+                PickerSource::Reviewers,
+                Origin::new(Surface::PrPage, Trigger::Expand),
+                cx,
+            );
         }
         // Open immediately (0022 §11); realign rebuilds by id when the
         // source lands.
@@ -1664,7 +1675,11 @@ impl PrDetailPage {
             self.labels_source,
             PickerFetch::Idle | PickerFetch::Failed(_)
         ) {
-            self.fetch_source(PickerSource::Labels, cx);
+            self.fetch_source(
+                PickerSource::Labels,
+                Origin::new(Surface::PrPage, Trigger::Expand),
+                cx,
+            );
         }
         let source = match &self.labels_source {
             PickerFetch::Ready(src) => src.clone(),
@@ -1696,7 +1711,11 @@ impl PrDetailPage {
             self.users_source,
             PickerFetch::Idle | PickerFetch::Failed(_)
         ) {
-            self.fetch_source(PickerSource::Assignees, cx);
+            self.fetch_source(
+                PickerSource::Assignees,
+                Origin::new(Surface::PrPage, Trigger::Expand),
+                cx,
+            );
         }
         let source = match &self.users_source {
             PickerFetch::Ready(src) => src.clone(),
@@ -1728,7 +1747,11 @@ impl PrDetailPage {
             self.milestones_source,
             PickerFetch::Idle | PickerFetch::Failed(_)
         ) {
-            self.fetch_source(PickerSource::Milestones, cx);
+            self.fetch_source(
+                PickerSource::Milestones,
+                Origin::new(Surface::PrPage, Trigger::Expand),
+                cx,
+            );
         }
         let source = match &self.milestones_source {
             PickerFetch::Ready(src) => src.clone(),
@@ -2506,7 +2529,15 @@ impl PrDetailPage {
         // `spawn_in` keeps the window reachable across the await so the
         // result handler can clear the draft (set_value needs a Window).
         cx.spawn_in(window, async move |this, cx| {
-            let result = run_mutation(state, mutation, variables, ident, cx).await;
+            let result = run_mutation(
+                state,
+                mutation,
+                variables,
+                ident,
+                Origin::new(Surface::PrPage, Trigger::MutationRefetch),
+                cx,
+            )
+            .await;
             let _ = cx.update(|window, app| {
                 this.update(app, |page, cx| {
                     page.apply_mutation_result(op, result, window, cx)
@@ -2629,9 +2660,9 @@ impl PrDetailPage {
             // 0030 D7: the threads refetch re-renders the diff pane;
             // patches are not refetched — only merge/close change them,
             // and those end the page's useful life anyway.
-            self.fetch_threads(cx);
+            self.fetch_threads(Origin::new(Surface::PrPage, Trigger::MutationRefetch), cx);
         } else {
-            self.fetch_detail(cx);
+            self.fetch_detail(Origin::new(Surface::PrPage, Trigger::MutationRefetch), cx);
         }
         cx.notify();
     }
@@ -2896,15 +2927,16 @@ impl PrDetailPage {
                     ),
             )
             .child(freshness_row("pr", &self.detail, cx, |this, _, cx| {
-                this.fetch_detail(cx);
+                let origin = Origin::new(Surface::PrPage, Trigger::Manual);
+                this.fetch_detail(origin, cx);
                 // A refresh with files/threads already loaded refetches
                 // those lists too (0030 D8) — collapse states reset with
                 // the new payload.
                 if this.files.is_ready() {
-                    this.fetch_files(cx);
+                    this.fetch_files(origin, cx);
                 }
                 if this.threads.is_ready() {
-                    this.fetch_threads(cx);
+                    this.fetch_threads(origin, cx);
                 }
             }))
             .child(
@@ -2955,11 +2987,12 @@ impl PrDetailPage {
                         // Lazy fetches (0016 D8 / 0030 D1): the files REST
                         // walk and the threads one-shot both start the first
                         // time the Files tab opens, not on page open.
+                        let origin = Origin::new(Surface::PrPage, Trigger::Expand);
                         if this.files.is_idle() {
-                            this.fetch_files(cx);
+                            this.fetch_files(origin, cx);
                         }
                         if this.threads.is_idle() {
-                            this.fetch_threads(cx);
+                            this.fetch_threads(origin, cx);
                         }
                     }
                     cx.notify();
@@ -5581,7 +5614,9 @@ fn render_files(
                     .icon(IconName::RotateCw)
                     .tooltip("Retry")
                     .accessibility_label("Retry loading changed files")
-                    .on_click(cx.listener(|this, _, _, cx| this.fetch_files(cx))),
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.fetch_files(Origin::new(Surface::PrPage, Trigger::Manual), cx)
+                    })),
             )
             .into_any_element();
     }
@@ -5615,6 +5650,7 @@ mod tests {
         review_event, review_state_label, rollup_summary, short_sha, split_repo, timeline_order,
     };
     use crate::service::{GithubCache, GithubState};
+    use crate::usage::Origin;
     use gpui::AppContext as _;
     use gpui::{Size, px};
 
@@ -5929,7 +5965,7 @@ mod tests {
         assert!(clear, "the guard clears when the run lands");
 
         // A second dispatch (the refresh click) runs the same way.
-        cx.update(|cx| page.update(cx, |page, cx| page.fetch_detail(cx)));
+        cx.update(|cx| page.update(cx, |page, cx| page.fetch_detail(Origin::BACKGROUND, cx)));
         cx.run_until_parked();
         let (landed, clear) = cx.update(|cx| {
             (

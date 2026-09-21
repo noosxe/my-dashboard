@@ -1,5 +1,10 @@
 # 0050 — GitHub API Usage Calculator
 
+> **Extended by docs/0053** (usage records): the ledger keeps the live
+> budget and the chip; a per-flight records pipeline now runs beside it
+> — same booking rules (D1), one audit-trail row per HTTP flight with
+> origin attribution. The calculator is unchanged.
+
 Addresses [#294](https://github.com/noosxe/my-dashboard/issues/294).
 
 > Design-first flow: this doc ships as its own PR; implementation follows a

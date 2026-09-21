@@ -47,7 +47,10 @@ pub enum Verb {
 #[derive(Debug)]
 pub struct HttpError(pub String);
 
-pub trait Http: Send + Sync + 'static {
+// docs/0053 D4: no `'static` bound — the per-run `RecordingHttp`
+// borrowing decorator implements this too. `Arc<dyn Http>` still
+// defaults to `+ 'static` at every existing use site.
+pub trait Http: Send + Sync {
     /// `body` is form-encoded text for the device-flow POSTs (`None` for
     /// GETs); `etag` becomes `If-None-Match` (conditional GET, §3.3).
     fn request(

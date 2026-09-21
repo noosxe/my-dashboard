@@ -57,6 +57,7 @@ use crate::pr_page::{
 use crate::service::{
     Fetch, FetchSpec, GithubState, Kind, Mutation, run_mutation, run_spec_tracked,
 };
+use crate::usage::{Origin, Surface, Trigger};
 use dashboard_core::freshness::{Freshness, freshness_row, relative_age};
 
 actions!(github, [DismissIssuePage]);
@@ -305,7 +306,7 @@ impl IssueDetailPage {
             },
         )
         .detach();
-        page.fetch_detail(cx);
+        page.fetch_detail(Origin::new(Surface::IssuePage, Trigger::ViewShown), cx);
         page
     }
 
@@ -319,9 +320,10 @@ impl IssueDetailPage {
 
     /// The detail spec: one query, `owner/repo#number` identity, no ETag
     /// (GraphQL has none upstream). Same shape as the PR page's (0020 D2).
-    fn detail_spec(repo: &str, number: i64) -> FetchSpec {
+    fn detail_spec(repo: &str, number: i64, origin: Origin) -> FetchSpec {
         let (owner, name) = split_repo(repo);
         FetchSpec {
+            origin,
             kind: Kind::IssueDetail,
             url: gql::GRAPHQL_ENDPOINT.to_string(),
             etag: None,
@@ -331,12 +333,12 @@ impl IssueDetailPage {
         }
     }
 
-    fn fetch_detail(&mut self, cx: &mut Context<Self>) {
+    fn fetch_detail(&mut self, origin: Origin, cx: &mut Context<Self>) {
         if !self.state.read(cx).auth.connected() {
             return; // the page is about to be torn down by the auth gate
         }
         let state = self.state.clone();
-        let spec = Self::detail_spec(&self.repo, self.number);
+        let spec = Self::detail_spec(&self.repo, self.number, origin);
         log::debug!(
             "issue-detail: fetching {}",
             spec.ident.as_deref().unwrap_or("?")
@@ -365,7 +367,7 @@ impl IssueDetailPage {
     pub(crate) fn refresh_if_stale(&mut self, min_age: Duration, cx: &mut Context<Self>) {
         // One composed gate (docs/0037 D4) — see pr_page::refresh_if_stale.
         if self.detail.wants_refresh(min_age) {
-            self.fetch_detail(cx);
+            self.fetch_detail(Origin::new(Surface::IssuePage, Trigger::Refocus), cx);
         }
         // A skipped refocus still re-renders so the relative age
         // advances alongside the render-only wake (docs/0033 D4,
@@ -922,7 +924,7 @@ impl IssueDetailPage {
 
     // --- rail pickers (0022 D5) ---------------------------------------------
 
-    fn fetch_source(&mut self, source: PickerSource, cx: &mut Context<Self>) {
+    fn fetch_source(&mut self, source: PickerSource, origin: Origin, cx: &mut Context<Self>) {
         if !self.state.read(cx).auth.connected() {
             return; // the page is about to be torn down by the auth gate
         }
@@ -930,6 +932,7 @@ impl IssueDetailPage {
         let (owner, name) = split_repo(&self.repo);
         let (kind, query_name) = source.fetch_kind();
         let spec = FetchSpec {
+            origin,
             kind,
             url: gql::GRAPHQL_ENDPOINT.to_string(),
             etag: None,
@@ -1089,7 +1092,11 @@ impl IssueDetailPage {
             self.labels_source,
             PickerFetch::Idle | PickerFetch::Failed(_)
         ) {
-            self.fetch_source(PickerSource::Labels, cx);
+            self.fetch_source(
+                PickerSource::Labels,
+                Origin::new(Surface::IssuePage, Trigger::Expand),
+                cx,
+            );
         }
         // Open immediately: while the source page is Loading (or Failed),
         // the draft holds just the applied rows — realign_open_picker
@@ -1125,7 +1132,11 @@ impl IssueDetailPage {
             self.assignees_source,
             PickerFetch::Idle | PickerFetch::Failed(_)
         ) {
-            self.fetch_source(PickerSource::Assignees, cx);
+            self.fetch_source(
+                PickerSource::Assignees,
+                Origin::new(Surface::IssuePage, Trigger::Expand),
+                cx,
+            );
         }
         let source = match &self.assignees_source {
             PickerFetch::Ready(src) => src.clone(),
@@ -1158,7 +1169,11 @@ impl IssueDetailPage {
             self.milestones_source,
             PickerFetch::Idle | PickerFetch::Failed(_)
         ) {
-            self.fetch_source(PickerSource::Milestones, cx);
+            self.fetch_source(
+                PickerSource::Milestones,
+                Origin::new(Surface::IssuePage, Trigger::Expand),
+                cx,
+            );
         }
         let source = match &self.milestones_source {
             PickerFetch::Ready(src) => src.clone(),
@@ -1323,7 +1338,15 @@ impl IssueDetailPage {
         let state = self.state.clone();
         let ident = format!("{}#{} {:?}", self.repo, self.number, op);
         cx.spawn_in(window, async move |this, cx| {
-            let result = run_mutation(state, mutation, variables, ident, cx).await;
+            let result = run_mutation(
+                state,
+                mutation,
+                variables,
+                ident,
+                Origin::new(Surface::IssuePage, Trigger::MutationRefetch),
+                cx,
+            )
+            .await;
             let _ = cx.update(|window, app| {
                 this.update(app, |page, cx| {
                     page.apply_mutation_result(op, result, window, cx)
@@ -1430,7 +1453,10 @@ impl IssueDetailPage {
                 IssueBusyOp::Reopen => {}
             }
         }
-        self.fetch_detail(cx);
+        self.fetch_detail(
+            Origin::new(Surface::IssuePage, Trigger::MutationRefetch),
+            cx,
+        );
         cx.notify();
     }
 
@@ -1578,7 +1604,7 @@ impl IssueDetailPage {
                     ),
             )
             .child(freshness_row("issue", &self.detail, cx, |this, _, cx| {
-                this.fetch_detail(cx)
+                this.fetch_detail(Origin::new(Surface::IssuePage, Trigger::Manual), cx)
             }))
             .child(
                 Button::new("issue-open-github")

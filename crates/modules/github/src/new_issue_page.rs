@@ -36,6 +36,7 @@ use crate::markdown;
 use crate::service::{
     FetchSpec, GithubState, Kind, Mutation, SpecResult, run_mutation, run_spec_tracked,
 };
+use crate::usage::{Origin, Surface, Trigger};
 
 actions!(github, [DismissNewIssuePage]);
 
@@ -197,6 +198,7 @@ impl NewIssuePage {
         let state = self.state.clone();
         let (owner, name) = crate::pr_page::split_repo(&self.repo);
         let templates_spec = FetchSpec {
+            origin: Origin::new(Surface::Composer, Trigger::ViewShown),
             kind: Kind::RepoIssueTemplates,
             url: gql::GRAPHQL_ENDPOINT.to_string(),
             etag: None,
@@ -205,6 +207,7 @@ impl NewIssuePage {
             variables: Some(json!({ "owner": owner, "name": name })),
         };
         let config_spec = FetchSpec {
+            origin: Origin::new(Surface::Composer, Trigger::ViewShown),
             kind: Kind::RepoTemplatesConfig,
             url: crate::api::issue_template_config_url(owner, name),
             etag: None,
@@ -392,7 +395,15 @@ impl NewIssuePage {
         let state = self.state.clone();
         let ident = format!("{} new-issue", self.repo);
         cx.spawn_in(window, async move |this, cx| {
-            let result = run_mutation(state, Mutation::CreateIssue, variables, ident, cx).await;
+            let result = run_mutation(
+                state,
+                Mutation::CreateIssue,
+                variables,
+                ident,
+                Origin::new(Surface::Composer, Trigger::MutationRefetch),
+                cx,
+            )
+            .await;
             let _ = cx.update(|window, app| {
                 this.update(app, |page, cx| {
                     page.apply_mutation_result(result, window, cx)

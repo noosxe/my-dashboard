@@ -49,6 +49,7 @@ use crate::service::{
     AuthStatus, ConnectPhase, FetchSpec, GithubState, HomePullRequests, HomeScope, Kind,
     LandedClock, ThreadOp, run_read_deduped, run_spec_tracked, start_connect,
 };
+use crate::usage::{Origin, Surface, Trigger};
 
 /// docs/0052 D6: the age-label clock — a render-only wake. Repaints
 /// advance the relative ages ("synced 2 m ago", #192 / docs/0033 D4);
@@ -226,7 +227,11 @@ impl GithubPage {
                 // docs/0047 D3/D9: the home lane follows the account — the
                 // switch refetches (the docs/0031 dedup absorbs a
                 // collision with a just-fired fetch).
-                this.fetch_home_prs(window, cx);
+                this.fetch_home_prs(
+                    Origin::new(Surface::ModuleHome, Trigger::ViewShown),
+                    window,
+                    cx,
+                );
                 // Label choices are repo-local (docs/0042 D2) — a new
                 // org drops them with the selection.
                 this.filters.prs.label = None;
@@ -284,7 +289,10 @@ impl GithubPage {
                 this.fetch_home_prs_shown(cx);
                 // docs/0052 D5: module view-shown fires the bell's
                 // lane too (age-gated — a fresh one skips).
-                this.fetch_notifications_in(cx);
+                this.fetch_notifications_in(
+                    Origin::new(Surface::ModuleHome, Trigger::ViewShown),
+                    cx,
+                );
             }
         })
         .detach();
@@ -298,9 +306,17 @@ impl GithubPage {
             // docs/0051 D4: re-entry re-shows the module's home
             // surface — its lane refreshes (docs/0031 dedup absorbs
             // a collision with the edge fetch).
-            this.fetch_home_prs(window, cx);
+            this.fetch_home_prs(
+                Origin::new(Surface::ModuleHome, Trigger::ViewShown),
+                window,
+                cx,
+            );
             // docs/0052 D5: crumb re-entry is a view-shown edge too.
-            this.fetch_notifications_if_stale(window, cx);
+            this.fetch_notifications_if_stale(
+                Origin::new(Surface::ModuleHome, Trigger::ViewShown),
+                window,
+                cx,
+            );
         })
         .detach();
 
@@ -417,7 +433,11 @@ impl GithubPage {
             // connect-flow hop); the ident-keyed dedup absorbs a
             // collision with a just-fired open (docs/0031).
             if let Some(specs) = self.state.update(cx, |s, _| {
-                s.repo_rows_refresh_specs(&full, crate::service::FOCUS_MIN_AGE)
+                s.repo_rows_refresh_specs(
+                    &full,
+                    crate::service::FOCUS_MIN_AGE,
+                    Origin::new(Surface::RepoView, Trigger::Refocus),
+                )
             }) {
                 let window = self.window;
                 let page = cx.entity();
@@ -433,7 +453,12 @@ impl GithubPage {
             // surface (docs/0047 D3) — same refocus floor as the repo
             // rows.
             if let Some(specs) = self.state.update(cx, |s, _| {
-                s.home_refresh_specs(&login, scope, crate::service::FOCUS_MIN_AGE)
+                s.home_refresh_specs(
+                    &login,
+                    scope,
+                    crate::service::FOCUS_MIN_AGE,
+                    Origin::new(Surface::ModuleHome, Trigger::Refocus),
+                )
             }) {
                 let window = self.window;
                 let page = cx.entity();
@@ -502,13 +527,13 @@ impl GithubPage {
     /// The home lane's first page for the current account (docs/0047
     /// D3) — module open / account switch / manual refresh all funnel
     /// here; the docs/0031 dedup absorbs repeats.
-    fn fetch_home_prs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn fetch_home_prs(&mut self, origin: Origin, window: &mut Window, cx: &mut Context<Self>) {
         let Some((login, scope)) = self.home_account(cx) else {
             return;
         };
         let specs = self
             .state
-            .update(cx, |s, _| vec![s.home_open_spec(&login, scope)]);
+            .update(cx, |s, _| vec![s.home_open_spec(&login, scope, origin)]);
         self.run_specs(specs, window, cx);
     }
 
@@ -516,9 +541,14 @@ impl GithubPage {
     /// module open re-shows the surface the bell summarizes; the
     /// state-side gate (pause, backoff, `FOCUS_MIN_AGE`) decides whether
     /// a spec comes back at all.
-    fn fetch_notifications_if_stale(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn fetch_notifications_if_stale(
+        &mut self,
+        origin: Origin,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let specs = self.state.update(cx, |s, _| {
-            s.notifications_spec_if_stale(crate::service::FOCUS_MIN_AGE)
+            s.notifications_spec_if_stale(crate::service::FOCUS_MIN_AGE, origin)
                 .map(|spec| vec![spec])
                 .unwrap_or_default()
         });
@@ -528,9 +558,9 @@ impl GithubPage {
     /// The windowless view-shown hop (docs/0052 D5): the nav observer
     /// carries no window, so the dispatch rides the stored handle — the
     /// same hop the connect flow uses.
-    fn fetch_notifications_in(&mut self, cx: &mut Context<Self>) {
+    fn fetch_notifications_in(&mut self, origin: Origin, cx: &mut Context<Self>) {
         let specs = self.state.update(cx, |s, _| {
-            s.notifications_spec_if_stale(crate::service::FOCUS_MIN_AGE)
+            s.notifications_spec_if_stale(crate::service::FOCUS_MIN_AGE, origin)
                 .map(|spec| vec![spec])
                 .unwrap_or_default()
         });
@@ -688,9 +718,13 @@ impl GithubPage {
                         cx,
                         move |this, window, cx| {
                             if let Some((login, scope)) = refresh.clone() {
-                                let specs = this
-                                    .state
-                                    .update(cx, |s, _| vec![s.home_open_spec(&login, scope)]);
+                                let specs = this.state.update(cx, |s, _| {
+                                    vec![s.home_open_spec(
+                                        &login,
+                                        scope,
+                                        Origin::new(Surface::ModuleHome, Trigger::Manual),
+                                    )]
+                                });
                                 this.run_specs(specs, window, cx);
                             }
                         },
@@ -735,7 +769,14 @@ impl GithubPage {
                                                     .small()
                                                     .on_click(cx.listener(
                                                         |this, _, window, cx| {
-                                                            this.fetch_home_prs(window, cx);
+                                                            this.fetch_home_prs(
+                                                                Origin::new(
+                                                                    Surface::ModuleHome,
+                                                                    Trigger::Manual,
+                                                                ),
+                                                                window,
+                                                                cx,
+                                                            );
                                                         },
                                                     )),
                                             )
@@ -983,7 +1024,11 @@ impl GithubPage {
             // docs/0047 D3: orgs arriving (or the resolved choice
             // changing) is the module-open trigger for the home lane.
             if org_changed {
-                self.fetch_home_prs(window, cx);
+                self.fetch_home_prs(
+                    Origin::new(Surface::ModuleHome, Trigger::ViewShown),
+                    window,
+                    cx,
+                );
             }
             log::debug!(
                 "org select synced: {} orgs, selected: {:?}",
@@ -1108,7 +1153,10 @@ impl GithubPage {
         self.filters.issues.label = None;
         let specs = self.state.update(cx, |s, cx| {
             s.selected = Some(full_name.to_string());
-            let specs = s.repo_open_specs(&full_name);
+            let specs = s.repo_open_specs(
+                &full_name,
+                Origin::new(Surface::RepoView, Trigger::ViewShown),
+            );
             cx.notify();
             specs
         });
@@ -1285,7 +1333,9 @@ impl GithubPage {
             |this, _, event: &NotificationPageEvent, window, cx| match event {
                 NotificationPageEvent::CloseRequested => this.close_notification(cx),
                 NotificationPageEvent::MarkSettled => {
-                    let specs = this.state.update(cx, |s, _| s.mark_refetch_specs());
+                    let specs = this
+                        .state
+                        .update(cx, |s, _| s.mark_refetch_specs(Surface::NotificationPage));
                     this.run_specs(specs, window, cx);
                 }
                 // docs/0026 D8, owner decision §4.4: a settled done
@@ -1293,7 +1343,9 @@ impl GithubPage {
                 // inbox behavior — the thread is gone from the inbox
                 // entirely) and refetches so the row + card drop.
                 NotificationPageEvent::DoneSettled => {
-                    let specs = this.state.update(cx, |s, _| s.mark_refetch_specs());
+                    let specs = this
+                        .state
+                        .update(cx, |s, _| s.mark_refetch_specs(Surface::NotificationPage));
                     this.run_specs(specs, window, cx);
                     this.close_notification(cx);
                 }
@@ -1403,7 +1455,12 @@ impl GithubPage {
                         // Refetch-on-create (D6): the repo-scoped
                         // snapshot re-lands the list GroupBoxes — the
                         // house one-refetch path, no optimistic insertion.
-                        let specs = this.state.update(cx, |s, _| s.repo_open_specs(&repo));
+                        let specs = this.state.update(cx, |s, _| {
+                            s.repo_open_specs(
+                                &repo,
+                                Origin::new(Surface::RepoView, Trigger::ViewShown),
+                            )
+                        });
                         this.run_specs(specs, window, cx);
                         // A synthesized minimal row (gql::created_issue_from_body)
                         // — initial paint only; the detail page re-fetches.
@@ -1488,7 +1545,12 @@ impl GithubPage {
                     if let Some(repo) = repo {
                         // Refetch-on-create (D6): the house one-refetch
                         // path, no optimistic insertion.
-                        let specs = this.state.update(cx, |s, _| s.repo_open_specs(&repo));
+                        let specs = this.state.update(cx, |s, _| {
+                            s.repo_open_specs(
+                                &repo,
+                                Origin::new(Surface::RepoView, Trigger::ViewShown),
+                            )
+                        });
                         this.run_specs(specs, window, cx);
                         // A synthesized minimal row (gql::created_pr_from_body)
                         // — initial paint only; the detail page re-fetches.
@@ -1548,6 +1610,7 @@ impl GithubPage {
                 Kind::ThreadMutation(ThreadOp::MarkDone),
                 api::thread_url(&id),
                 None,
+                Origin::new(Surface::RepoView, Trigger::MutationRefetch),
             )
         });
         log::debug!("thread-mutation: mark-done {id} (repo-view row)");
@@ -1567,7 +1630,9 @@ impl GithubPage {
                 let _ = window_handle.update(cx, |_, window, cx| {
                     page.update(cx, |this, cx| {
                         this.row_done_inflight.remove(&id);
-                        let specs = this.state.update(cx, |s, _| s.mark_refetch_specs());
+                        let specs = this
+                            .state
+                            .update(cx, |s, _| s.mark_refetch_specs(Surface::RepoView));
                         this.run_specs(specs, window, cx);
                     });
                 });
@@ -1669,9 +1734,13 @@ impl GithubPage {
         let Some((login, scope)) = self.home_account(cx) else {
             return;
         };
-        let specs = self
-            .state
-            .update(cx, |s, _| vec![s.home_open_spec(&login, scope)]);
+        let specs = self.state.update(cx, |s, _| {
+            vec![s.home_open_spec(
+                &login,
+                scope,
+                Origin::new(Surface::ModuleHome, Trigger::ViewShown),
+            )]
+        });
         self.run_specs_on(specs, self.window, cx);
     }
 
@@ -2632,7 +2701,10 @@ impl GithubPage {
                             {
                                 let full = repo.full_name.clone();
                                 move |this, window, cx| {
-                                    let specs = this.state.read(cx).repo_open_specs(&full);
+                                    let specs = this.state.read(cx).repo_open_specs(
+                                        &full,
+                                        Origin::new(Surface::RepoView, Trigger::ViewShown),
+                                    );
                                     this.run_specs(specs, window, cx);
                                 }
                             },
@@ -3384,6 +3456,7 @@ pub(crate) fn stale_chip_label(
 #[cfg(test)]
 mod tests {
     use crate::drafts::DraftStore;
+    use crate::usage::{Origin, Surface, Trigger};
     // NOTE: no `use super::*` here — page.rs glob-imports `gpui::*`, whose
     // `test` re-export would shadow the builtin `#[test]` attribute and
     // blow the proc-macro stack (rustc SIGSEGV). Import selectively.
@@ -4232,17 +4305,22 @@ mod tests {
                 body: Some("[]".into()),
             }),
         ]));
-        let (state, _nav, page) = cx.update(|window, cx| {
+        let (state, _nav, page, records) = cx.update(|window, cx| {
             let shared: SharedToken = Arc::new(std::sync::RwLock::new(None));
             let refresh: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            // docs/0053 §5: the dispatch table rides a private records
+            // sink so the test can assert origins and flight counts.
+            let records = Arc::new(dashboard_core::usage_records::MemorySink::new(16));
+            let recorder = dashboard_core::usage_records::Recorder::new("github", records.clone());
             let state = cx.new(|_| {
-                GithubState::new(
+                GithubState::with_recorder(
                     mock.clone() as Arc<dyn Http>,
                     Arc::new(MockTokenStore::with("t0k".into())),
                     shared,
                     refresh,
                     GithubCache::new(AppPaths::init()),
                     DraftStore::at_tmp("page-ns-view"),
+                    recorder,
                 )
             });
             state.update(cx, |s, _| {
@@ -4256,16 +4334,41 @@ mod tests {
             let nav = cx.new(|_| Navigator::new(false));
             nav.update(cx, |n, _| n.page = Page::Module("github".into()));
             let page = cx.new(|cx| GithubPage::new(state.clone(), nav.clone(), window, cx));
-            (state, nav, page)
+            (state, nav, page, records)
         });
 
         // Never landed: the view-shown fire dispatches the page.
-        cx.update(|window, cx| page.update(cx, |p, cx| p.fetch_notifications_if_stale(window, cx)));
+        cx.update(|window, cx| {
+            page.update(cx, |p, cx| {
+                p.fetch_notifications_if_stale(
+                    Origin::new(Surface::ModuleHome, Trigger::ViewShown),
+                    window,
+                    cx,
+                )
+            })
+        });
         cx.run_until_parked();
         assert_eq!(mock.recorded().len(), 1, "never landed: the lane fires");
+        {
+            use dashboard_core::usage_records::UsageSink as _;
+            let rows = records.snapshot();
+            assert_eq!(rows.len(), mock.recorded().len(), "one record per flight");
+            assert_eq!(rows[0].op.as_ref(), "notifications");
+            assert_eq!(rows[0].cost, Some(1));
+            assert_eq!(rows[0].surface.as_ref(), "module-home");
+            assert_eq!(rows[0].trigger.as_ref(), "view-shown");
+        }
 
         // Landed just now: inside the 15 s floor — no dispatch.
-        cx.update(|window, cx| page.update(cx, |p, cx| p.fetch_notifications_if_stale(window, cx)));
+        cx.update(|window, cx| {
+            page.update(cx, |p, cx| {
+                p.fetch_notifications_if_stale(
+                    Origin::new(Surface::ModuleHome, Trigger::ViewShown),
+                    window,
+                    cx,
+                )
+            })
+        });
         cx.run_until_parked();
         assert_eq!(mock.recorded().len(), 1, "fresh lane skips");
 
@@ -4273,9 +4376,26 @@ mod tests {
         state.update(cx, |s, _| {
             s.notifications_landed = Some(Instant::now() - Duration::from_secs(20))
         });
-        cx.update(|window, cx| page.update(cx, |p, cx| p.fetch_notifications_if_stale(window, cx)));
+        cx.update(|window, cx| {
+            page.update(cx, |p, cx| {
+                p.fetch_notifications_if_stale(
+                    Origin::new(Surface::ModuleHome, Trigger::ViewShown),
+                    window,
+                    cx,
+                )
+            })
+        });
         cx.run_until_parked();
         assert_eq!(mock.recorded().len(), 2, "aged lane fires");
+        {
+            use dashboard_core::usage_records::UsageSink as _;
+            let rows = records.snapshot();
+            assert_eq!(rows.len(), mock.recorded().len());
+            assert!(
+                rows.iter().all(|r| r.surface.as_ref() != "background"),
+                "no Background records across the dispatch table"
+            );
+        }
     }
 
     // docs/0037 D6: the repo page's freshness cluster — the synced
@@ -5330,7 +5450,7 @@ mod tests {
         vcx.update(|window, cx| {
             page.update(cx, |page, cx| {
                 page.org = Some("acme".into());
-                page.fetch_home_prs(window, cx);
+                page.fetch_home_prs(Origin::BACKGROUND, window, cx);
             });
         });
         flush(vcx);
