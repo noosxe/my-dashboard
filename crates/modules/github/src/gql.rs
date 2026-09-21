@@ -324,6 +324,14 @@ pub struct GqlError {
 pub struct RateLimitField {
     pub remaining: i64,
     pub reset_at: String,
+    /// docs/0050 D1 — the measured flat cost (always 1 in the issue's
+    /// live measurements) and the server's own used-count. Kept for
+    /// observability; the usage book's snapshots need neither (the
+    /// budget side is `remaining`).
+    #[serde(default)]
+    pub cost: i64,
+    #[serde(default)]
+    pub used: i64,
 }
 
 #[derive(Debug, Deserialize)]

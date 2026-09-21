@@ -77,6 +77,13 @@ pub fn notifications_url(page: u32) -> String {
     format!("{API_BASE}/notifications?{}", page_query(page))
 }
 
+/// The usage-calculator's free reconcile probe (docs/0050 D3): per
+/// GitHub docs, `GET /rate_limit` does not count against the primary
+/// limit — its body carries the full per-bucket breakdown the ledger
+/// folds (`resources.core`).
+pub fn rate_limit_url() -> String {
+    format!("{API_BASE}/rate_limit")
+}
 pub fn repo_notifications_url(owner: &str, repo: &str, page: u32) -> String {
     format!(
         "{API_BASE}/repos/{owner}/{repo}/notifications?{}",

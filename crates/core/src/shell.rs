@@ -544,9 +544,17 @@ impl Render for DashboardShell {
                         .child(
                             // Status bar (docs/0013 D1/D5): app chrome
                             // below both columns — the right region lists
-                            // modules with requests in flight, empty when
-                            // idle.
-                            status::bar(&self.in_flight, &self.registry, cx).flex_shrink_0(),
+                            // modules with requests in flight, plus
+                            // module-contributed items (docs/0050 D5,
+                            // scoped by each module to the active
+                            // page) — empty when idle.
+                            status::bar(
+                                &self.in_flight,
+                                &self.registry,
+                                &self.nav.read(cx).page,
+                                cx,
+                            )
+                            .flex_shrink_0(),
                         ),
                 ),
             )
@@ -695,10 +703,44 @@ mod tests {
                 main_page: cx.new(|_| FakePage).into(),
                 settings: None,
                 nav: Some(nav),
+                status_item: Some(Arc::new(|page: &crate::nav::Page, _cx: &App| {
+                    // docs/0050 D5: the provider owns its visibility —
+                    // only the fake module's own page sees the item.
+                    matches!(page, crate::nav::Page::Module(id) if id.as_ref() == "fake")
+                        .then(|| gpui::div().into_any_element())
+                })),
             }
         }
     }
 
+    #[gpui::test]
+    fn status_items_are_scoped_by_their_providers(cx: &mut TestAppContext) {
+        // docs/0050 D5: the registry collects module-contributed items in
+        // registration order; each provider decides visibility from the
+        // active page (FakeModule's shows only on its own page).
+        let registry_cell = std::cell::RefCell::new(None);
+        let _view = cx.add_window_view(|window, cx| {
+            gpui_component::theme::init(cx);
+            let nav = cx.new(|_| Navigator::default());
+            let registry =
+                ModuleRegistry::new().with::<FakeModule>(&nav, window, AppPaths::init(), cx);
+            *registry_cell.borrow_mut() = Some(registry);
+            FakePage
+        });
+        let Some(registry) = registry_cell.into_inner() else {
+            panic!("registry never built");
+        };
+        cx.update(|cx| {
+            let home = crate::nav::Page::Home;
+            assert_eq!(registry.status_items(&home, cx).len(), 0);
+            assert_eq!(
+                registry.status_items(&crate::nav::Page::Settings, cx).len(),
+                0
+            );
+            let fake = crate::nav::Page::Module("fake".into());
+            assert_eq!(registry.status_items(&fake, cx).len(), 1);
+        });
+    }
     #[gpui::test]
     fn navigate_collapses_abandoned_module_and_back_restores(cx: &mut TestAppContext) {
         LOG.with(|log| log.borrow_mut().clear());

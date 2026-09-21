@@ -154,7 +154,12 @@ pub fn end(cx: &mut App, id: u64) {
 /// carries one item per module with runs in flight. Idle renders nothing —
 /// the bar itself always stays at a stable minimum height, so nothing
 /// shifts when indicators appear or disappear.
-pub fn bar(tracker: &Entity<InFlight>, registry: &ModuleRegistry, cx: &App) -> StatusBar {
+pub fn bar(
+    tracker: &Entity<InFlight>,
+    registry: &ModuleRegistry,
+    active: &crate::nav::Page,
+    cx: &App,
+) -> StatusBar {
     let mut bar = StatusBar::new();
     for (module_id, count) in tracker.read(cx).by_module() {
         // Registry title for display; the raw id is the defensive fallback
@@ -177,6 +182,11 @@ pub fn bar(tracker: &Entity<InFlight>, registry: &ModuleRegistry, cx: &App) -> S
                     row.child(SharedString::from(format!("×{count}")))
                 }),
         );
+    }
+    // Module-contributed items (docs/0050 D5) after the spinners —
+    // e.g. GitHub's usage chip, visible only on its module pages.
+    for item in registry.status_items(active, cx) {
+        bar = bar.right(item);
     }
     // Stable height (docs/0013 D5): with no items the component collapses
     // to its bare padding, and the first fetch would then grow it to the
