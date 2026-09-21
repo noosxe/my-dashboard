@@ -23,6 +23,12 @@ records are shaped as the future SQLite rows (the analytics page is a
 separate, later design). Page/view *visit* analytics — and correlating
 visits with costs — is explicitly future work (§7).
 
+One requirement is settled up front: **the pipeline is module-global.**
+GitHub is its first reporter, but Forgejo/Gitea-class modules later must
+report request usage into the *same* log — so the record carries a
+`module` field and the machinery lives in core, not in the GitHub
+module (D6).
+
 ## 2. Facts (receipts)
 
 - **The flight layers.** `CountingHttp` (usage.rs, wraps the single
@@ -55,6 +61,11 @@ visits with costs — is explicitly future work (§7).
 - **Dispatches outside `FetchSpec`:** the token refresh (`run_refresh`)
   and the connect flow call the client directly; the probe and
   mutations go through specs (`Kind::RateLimit`, `Kind::*Mutation`).
+- **The core-global precedent exists.** `dashboard_core::status`'s
+  `InFlight` tracker is a `gpui::Global` created by `status::init(cx)`
+  in `main`, keyed by `SharedString` module id (`status::begin(cx,
+  MODULE_ID.into())` at the github call site) — the exact shape a
+  module-keyed usage-records global needs.
 
 ## 3. Decisions
 
@@ -63,11 +74,13 @@ is a flat, sqlite-ready row emitted for every real flight:
 
 ```rust
 struct UsageRecord {
+    module: SharedString,         // D6 — "github" today; "forgejo"/"gitea" later
     seq: u64,                      // monotonic, the table key
     ts_epoch_ms: u64,
     transport: Transport,          // Rest | Graphql | Auth
     op: &'static str,              // kind_name() — "pr-detail", "notifications", …
-    origin: Origin,                // D2
+    surface: SharedString,        // D2 — stamped from the module's closed enums
+    trigger: SharedString,        // D2 — ditto; TEXT columns in the sqlite row
     ident: Option<SharedString>,   // owner/repo, repo#n, …
     status: u16,                   // 0 on network error
     etag_304: bool,
@@ -126,9 +139,11 @@ silently slip through:
   there would race concurrent background runs, and task-locals do not
   survive the background executor — both rejected.
 
-**D3 — A capped in-memory log beside the ledger.** `RecordLog` is an
-`Arc<Mutex<VecDeque<UsageRecord>>>` sibling of `UsageLedger` (same
-sharing pattern), owned by `GithubState` like the ledger. FIFO cap
+**D3 — A capped in-memory log as a core global.** `RecordLog` is an
+`Arc<Mutex<VecDeque<UsageRecord>>>` behind a `gpui::Global` in
+`dashboard_core::usage_records` — created by `usage_records::init(cx)`
+in `main` and reached through `cx`, the `status::InFlight` pattern
+(§2), one FIFO across all modules. Cap
 `RECORD_CAP = 10_000` (~1–2 MB; a heavy day is thousands of flights —
 the cap is the working set for analytics, totals live in the
 counters). `seq` is log-local and never resets. `cycle_reset_epoch`
@@ -141,7 +156,7 @@ lands in a groupable cycle bucket without join logic later.
 runners take `FetchCtx<'a> { http: &'a dyn Http, records: &'a RecordSink }`
 instead of bare `&dyn Http` — one mechanical signature change.
 `run_spec_tracked` builds the ctx from the state (it already owns the
-entity) so 401-retry re-entries emit one record per real flight, which
+entity) — the sink comes from the core global (§2/D3) — so
 is correct accounting. `run_refresh` and the connect flow — direct
 client callers — emit their `Auth` records at the call site with the
 same sink. `MockHttp` tests need no trait change: the sink is a plain
@@ -151,17 +166,33 @@ same sink. `MockHttp` tests need no trait change: the sink is a plain
 untouched (D5 of 0050 stays the display; this pipeline is the audit
 trail beside it). Nothing renders records in this phase.
 
+**D6 — Module-global by construction.** The record carries `module:
+SharedString` ("github" today), and nothing in the pipeline assumes
+GitHub: `Transport` (REST/GQL/auth) is a universal cut, `op`/
+`surface`/`trigger` are module vocabulary stamped from **each
+module's own closed enums** — GitHub keeps its `Origin { Surface,
+Trigger }` exactly as D2 designs it, converting via `as_str()` at
+emission, so the per-module compiler enforcement survives intact
+while the shared row stays schema-stable. A future Forgejo/Gitea
+module adopts the sink, the cap, and the sqlite shape without
+sharing GitHub's taxonomy. One cap across modules is deliberate:
+analytics slices by `module` like any other column; per-module
+quotas are the modules' own booking rules, not the log's concern.
+The chip and `UsageBook` stay GitHub-local (0050's display layer).
 ## 4. State & plumbing changes
 
-- `usage.rs`: `UsageRecord`, `Transport`, `Origin { surface, trigger }`,
-  `RecordLog` + `RecordSink` alias, `RECORD_CAP`.
+- **core** (new `usage_records.rs`, the D6 global): `UsageRecord`
+  (`module` first), `Transport`, `RecordLog` + `RecordSink`,
+  `RECORD_CAP`, `init(cx)` + `gpui::Global` — wired in `main` beside
+  `status::init`.
+- github `usage.rs`: `Origin { Surface, Trigger }` closed enums +
+  `as_str()`; booking-rule helpers stay here (module-local).
 - `service.rs`: `FetchSpec.origin`; `FetchCtx`; runner signatures;
   emission in `run_rest` (per page), `run_graphql_fetch`,
-  `run_plain_get`, the paged-view and detail runners;
-  `run_refresh`/connect emission.
-- `page.rs`/`card.rs`/composers/tick: stamp origins at dispatch
+  `run_plain_get`, the paged-view and detail runners — each stamps
+  `module: "github"`; `run_refresh`/connect emission.
+- `page.rs`/`card.rs`/`composers/tick`: stamp origins at dispatch
   (one-line each, over the docs/0051 inventory).
-- `GithubState`: carries the `RecordLog` handle (like the ledger).
 
 ## 5. Testing
 
@@ -177,6 +208,9 @@ trail beside it). Nothing renders records in this phase.
   carry-forward path stamps the last-known one.
 - Cap eviction at small `RECORD_CAP` in tests; `seq` monotonic across
   eviction.
+- Module-global isolation: records carry their `module`; a synthetic
+  second reporter writing through the same global log coexists with
+  GitHub's records (the D6 contract for Forgejo/Gitea later).
 
 ## 6. Acceptance
 
@@ -199,7 +233,9 @@ trail beside it). Nothing renders records in this phase.
 - **Page/view visit analytics and visit↔cost correlation** — deferred
   issue; would be a separate record type, not an extension of this
   one.
-- Non-GitHub modules (none exist).
+- **Adopting the pipeline in other modules** — Forgejo/Gitea reporting
+  is future work; this doc only guarantees the shared sink, schema and
+  cap don't assume GitHub (D6).
 
 ## 8. Docs amendments (ride with the implementation PR)
 
