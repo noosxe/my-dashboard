@@ -273,3 +273,38 @@ per-pane split) are explicitly not built — one global trail.
 - Mouse back/forward buttons (X11 buttons 8/9) — needs a gpui
   capability check before designing.
 - Retain/pruning hook if stale-payload fallback proves too coarse.
+
+## 10. Shipped (implementation PR)
+
+Implemented as designed (#303, implementation in #305), with these
+final shapes now authoritative:
+
+- **D1**: `Route { key, page, module: Option<(id, payload)> }` — the
+  dedup key travels on the route (`Route::key()`), and `Route::payload()`
+  gives restore callers read access. Constructors: `home()`,
+  `settings()`, `module_root(id)`, `module_place(id, key, payload)`.
+  `gpui-base` joined as a direct git dep at the family pin.
+- **D3 (amended)**: `ModuleNav` has two methods — `restore(payload)` and
+  `collapse()`. The design's `route_key`/`snapshot` folded into the
+  route constructors: modules hand the key + payload at `visit` time,
+  so a separate snapshot call was dead weight. `Navigator::visit` dedups
+  by the head's key (same-key visits are ignored entirely — no push, no
+  forward truncation). `Navigator::back`/`forward` return the route they
+  land on and switch the page themselves; the shell then runs the
+  module's restore/collapse (`DashboardShell::activate_route`).
+- **Deep-leaf restore detail**: deep places imply the repo view beneath
+  them — `GithubPage::restore_place` re-selects the repo silently when
+  needed (`select_repo_inner`, no trail write: the ancestor activation
+  is part of the deep restore, never its own visit). A foreign payload
+  is ignored, never a panic.
+- **D4 confirmed**: dismissal paths (Esc/`close_pr`/`close_issue`) and
+  the notification page itself record nothing; the notification page's
+  hand-off to an issue/PR records through the normal `open_*` path.
+- **D7**: actions `nav::Back`/`nav::Forward`, bound to `alt-left` /
+  `alt-right` (no conflicts), handled on the shell's focused root;
+  `nav-back`/`nav-forward` ghost icon buttons sit left of the
+  breadcrumb with `.debug_selector` for the bridge.
+- **Tests**: +6 (4 navigator trail units; the shell contract —
+  cross-branch navigate collapses, Back restores the payload — with a
+  fake module; the GitHub restore/collapse/foreign-payload round trip).
+  Workspace 483 green.

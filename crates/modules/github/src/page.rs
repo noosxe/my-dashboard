@@ -32,7 +32,8 @@ use gpui_component::{
 };
 
 use dashboard_core::freshness::{freshness_row, relative_age, synced_label};
-use dashboard_core::nav::{Crumb, NavEvent, Navigator, Page};
+use dashboard_core::module::ModuleNav;
+use dashboard_core::nav::{Crumb, NavEvent, Navigator, Page, Route};
 
 use crate::api;
 use crate::card::{REPO_LOCK, github_mark};
@@ -161,6 +162,63 @@ pub(crate) struct GithubPage {
     /// post-write refetch replaces the list anyway.
     row_done_inflight: std::collections::HashSet<String>,
     nav: Entity<Navigator>,
+}
+
+/// One place in the module's page tree (docs/0048): the trail payload a
+/// visit hands to the navigator and a restore hands back. Deep places
+/// carry everything `open_*` needs — the click-time snapshot objects —
+/// so restoring is exactly re-clicking, with no refetch to rebuild
+/// context (the detail pages refresh themselves per docs/0032).
+#[derive(Clone)]
+pub(crate) enum GithubPlace {
+    Repo(String),
+    Pr(String, gql::PullRequest),
+    Issue(String, gql::Issue),
+    NewIssue(gql::Repo),
+    NewPr(gql::Repo),
+}
+
+impl GithubPlace {
+    fn key(&self) -> String {
+        match self {
+            Self::Repo(name) => format!("repo:{name}"),
+            Self::Pr(repo, pr) => format!("pr:{repo}#{}", pr.number),
+            Self::Issue(repo, issue) => format!("issue:{repo}#{}", issue.number),
+            Self::NewIssue(repo) => format!("new-issue:{}", repo.full_name),
+            Self::NewPr(repo) => format!("new-pr:{}", repo.full_name),
+        }
+    }
+}
+
+/// History support (docs/0048 D3): restore re-clicks, collapse is the
+/// existing return-to-root. A payload this build can't downcast (a
+/// stale/foreign route) is ignored — never a panic.
+pub(crate) struct GithubNav {
+    pub(crate) page: WeakEntity<GithubPage>,
+}
+
+impl ModuleNav for GithubNav {
+    fn restore(
+        &self,
+        payload: &Arc<dyn std::any::Any + Send + Sync>,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let Some(place) = payload.downcast_ref::<GithubPlace>() else {
+            return;
+        };
+        let Some(page) = self.page.upgrade() else {
+            return;
+        };
+        page.update(cx, |this, cx| this.restore_place(place, window, cx));
+    }
+
+    fn collapse(&self, window: &mut Window, cx: &mut App) {
+        let Some(page) = self.page.upgrade() else {
+            return;
+        };
+        page.update(cx, |this, cx| this.return_to_root(window, cx));
+    }
 }
 
 impl GithubPage {
@@ -888,6 +946,12 @@ impl GithubPage {
                                     this.close_notification(cx);
                                     this.close_creator(cx);
                                     this.close_creator_pr(cx);
+                                    // A user place-change (docs/0048 D4):
+                                    // the crumb click is "show the repo
+                                    // view", so the trail records it.
+                                    if let Some(name) = this.state.read(cx).selected.clone() {
+                                        this.record_place(GithubPlace::Repo(name.to_string()), cx);
+                                    }
                                 });
                             })),
                         }
@@ -988,7 +1052,63 @@ impl GithubPage {
         cx.notify();
     }
 
+    /// Record a user-driven move to `place` (docs/0048 D3/D4): the
+    /// trail entry carries the payload a restore will hand back to
+    /// `restore_place`. Same-key visits dedup in the navigator, which
+    /// also makes restore-via-`select_repo`/`open_*` self-neutral.
+    fn record_place(&self, place: GithubPlace, cx: &mut Context<Self>) {
+        self.nav.update(cx, |nav, cx| {
+            nav.visit(
+                Route::module_place("github", place.key(), Arc::new(place)),
+                cx,
+            );
+        });
+    }
+
+    /// Re-activate a recorded place (docs/0048 D5) — literally the
+    /// click handlers, so fetches ride 0031 dedup and the detail
+    /// pages' own refresh cadence.
+    fn restore_place(&mut self, place: &GithubPlace, window: &mut Window, cx: &mut Context<Self>) {
+        // Deep places sit on the repo view: re-select the repo first
+        // when the current position differs (the ancestor activation).
+        let repo: Option<String> = match place {
+            GithubPlace::Repo(_) => None,
+            GithubPlace::Pr(r, _) | GithubPlace::Issue(r, _) => Some(r.clone()),
+            GithubPlace::NewIssue(r) | GithubPlace::NewPr(r) => Some(r.full_name.clone()),
+        };
+        if let Some(repo) = repo {
+            let selected = self.state.read(cx).selected.as_deref();
+            if selected != Some(repo.as_str()) {
+                self.select_repo_inner(SharedString::from(repo), window, cx);
+            }
+        }
+        match place {
+            GithubPlace::Repo(name) => {
+                let name = SharedString::from(name.clone());
+                self.select_repo(name, window, cx);
+            }
+            GithubPlace::Pr(repo, pr) => self.open_pr(repo, pr, None, window, cx),
+            GithubPlace::Issue(repo, issue) => self.open_issue(repo, issue, None, window, cx),
+            GithubPlace::NewIssue(repo) => self.open_creator(repo, window, cx),
+            GithubPlace::NewPr(repo) => self.open_creator_pr(repo, window, cx),
+        }
+    }
+
     fn select_repo(
+        &mut self,
+        full_name: SharedString,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.select_repo_inner(full_name.clone(), window, cx);
+        self.record_place(GithubPlace::Repo(full_name.to_string()), cx);
+    }
+
+    /// The repo selection without the trail write — the ancestor
+    /// activation a deep restore performs silently (docs/0048 D5: the
+    /// deep route is the trail head; an ancestor visit would push and
+    /// truncate the forward tail).
+    fn select_repo_inner(
         &mut self,
         full_name: SharedString,
         window: &mut Window,
@@ -1069,6 +1189,7 @@ impl GithubPage {
         self.notification = None;
         self.pr = Some(page.clone());
         self.sync_repo_crumb(cx);
+        self.record_place(GithubPlace::Pr(repo.to_string(), pr.clone()), cx);
         let focus = page.read(cx).focus_handle(cx).clone();
         window.focus(&focus, cx);
         cx.notify();
@@ -1116,6 +1237,7 @@ impl GithubPage {
         self.notification = None;
         self.issue = Some(page.clone());
         self.sync_repo_crumb(cx);
+        self.record_place(GithubPlace::Issue(repo.to_string(), issue.clone()), cx);
         let focus = page.read(cx).focus_handle(cx).clone();
         window.focus(&focus, cx);
         cx.notify();
@@ -1331,6 +1453,7 @@ impl GithubPage {
         self.creator_pr_open = false;
         self.creator_open = true;
         self.sync_repo_crumb(cx);
+        self.record_place(GithubPlace::NewIssue(repo.clone()), cx);
         let focus = self
             .creator
             .as_ref()
@@ -1415,6 +1538,7 @@ impl GithubPage {
         self.creator_open = false;
         self.creator_pr_open = true;
         self.sync_repo_crumb(cx);
+        self.record_place(GithubPlace::NewPr(repo.clone()), cx);
         let focus = self
             .creator_pr
             .as_ref()
@@ -5178,5 +5302,98 @@ mod tests {
         );
         assert_eq!(home_prs_hint(1_000, 1_000), None, "exactly full: complete");
         assert_eq!(home_prs_hint(0, 0), None);
+    }
+
+    /// History round-trip (docs/0048): `record_place` trails the visits,
+    /// `GithubNav::restore` re-clicks them, `collapse` is the existing
+    /// return-to-root, and a foreign payload is ignored — never a panic.
+    #[gpui::test]
+    fn history_restore_and_collapse_round_trip(cx: &mut TestAppContext) {
+        use std::sync::Arc;
+
+        use crate::auth::MockTokenStore;
+        use crate::http::mock::MockHttp;
+        use crate::http::{Http, SharedToken};
+        use crate::service::{GithubCache, GithubState};
+        use dashboard_core::module::ModuleNav;
+        use dashboard_core::nav::{Navigator, Page};
+        use dashboard_core::paths::AppPaths;
+
+        cx.update(gpui_component::init);
+        cx.update(dashboard_core::status::init);
+        let cx = cx.add_empty_window();
+        cx.update(|window, cx| {
+            // Scripted failures: select_repo's two specs + the PR page's
+            // eager detail fetch. The probe never depends on results.
+            let client: Arc<dyn Http> = Arc::new(MockHttp::new(vec![
+                Err(crate::http::HttpError("probe".into())),
+                Err(crate::http::HttpError("probe".into())),
+                Err(crate::http::HttpError("probe".into())),
+                Err(crate::http::HttpError("probe".into())),
+                Err(crate::http::HttpError("probe".into())),
+                Err(crate::http::HttpError("probe".into())),
+            ]));
+            let shared: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let refresh: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let state = cx.new(|_| {
+                GithubState::new(
+                    client,
+                    Arc::new(MockTokenStore::with("t0k".into())),
+                    shared,
+                    refresh,
+                    GithubCache::new(AppPaths::init()),
+                    DraftStore::at_tmp("page-6"),
+                )
+            });
+            let nav = cx.new(|_| Navigator::default());
+            let page = cx.new(|cx| GithubPage::new(state.clone(), nav.clone(), window, cx));
+            let history = crate::page::GithubNav {
+                page: page.downgrade(),
+            };
+            let summary = pr(7, "probe", None);
+
+            // Repo visit recorded.
+            page.update(cx, |p, cx| {
+                p.select_repo("acme/one".into(), window, cx);
+            });
+            nav.read_with(cx, |nav, _| {
+                assert_eq!(nav.history_entries_last_key(), "github:repo:acme/one");
+            });
+
+            // PR visit recorded; the sub-page is up.
+            page.update(cx, |p, cx| {
+                p.open_pr("acme/one", &summary, None, window, cx)
+            });
+            assert!(page.read(cx).pr.is_some());
+            nav.read_with(cx, |nav, _| {
+                assert_eq!(nav.history_entries_last_key(), "github:pr:acme/one#7");
+            });
+
+            // Dismissal (Esc path) records nothing (docs/0048 D4): the
+            // trail head stays the PR place.
+            page.update(cx, |p, cx| p.close_pr(cx));
+            assert!(page.read(cx).pr.is_none());
+
+            // The shell's cross-branch jump (docs/0048 D6): collapse the
+            // abandoned module, record Settings. Back then lands on the
+            // deep leaf — and restore re-opens it, exactly re-clicking.
+            history.collapse(window, cx);
+            assert_eq!(state.read(cx).selected, None, "collapse: root");
+            nav.update(cx, |nav, cx| nav.go(Page::Settings, cx));
+            let route = nav.update(cx, |nav, cx| nav.back(cx)).unwrap();
+            assert_eq!(
+                route.key(),
+                "github:pr:acme/one#7",
+                "Back across the branch jump lands on the deep leaf"
+            );
+            history.restore(route.payload(), window, cx);
+            assert!(page.read(cx).pr.is_some(), "Back restored the PR page");
+            assert_eq!(state.read(cx).selected.as_deref(), Some("acme/one"));
+
+            // A foreign payload is ignored — never a panic.
+            let foreign: Arc<dyn std::any::Any + Send + Sync> = Arc::new(7i32);
+            history.restore(&foreign, window, cx);
+            assert!(page.read(cx).pr.is_some(), "state untouched");
+        });
     }
 }

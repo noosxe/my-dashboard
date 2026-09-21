@@ -11,6 +11,7 @@ log.workspace = true
 flexi_logger.workspace = true
 gpui.workspace = true
 gpui-component.workspace = true
+gpui_base.workspace = true
 anyhow.workspace = true
 dirs.workspace = true
 serde.workspace = true
