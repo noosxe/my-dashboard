@@ -28,6 +28,7 @@ pub mod pr_page;
 pub mod service;
 pub mod settings;
 pub mod syntax;
+pub mod usage;
 
 use std::rc::Rc;
 use std::sync::Arc;
@@ -35,8 +36,8 @@ use std::sync::Arc;
 use gpui::*;
 
 use dashboard_core::Module;
-use dashboard_core::module::{ModuleEntry, ModuleIcon, ModuleMeta, SettingsProvider};
-use dashboard_core::nav::Navigator;
+use dashboard_core::module::{ModuleEntry, ModuleIcon, ModuleMeta, SettingsProvider, StatusItemFn};
+use dashboard_core::nav::{Navigator, Page};
 
 use crate::auth::{KeyringTokenStore, TokenStore};
 use crate::card::GITHUB_MARK;
@@ -93,7 +94,15 @@ impl Module for GithubModule {
         // Refresh-token slot (docs/0011 §4.3) — same handling rules as
         // the access-token slot.
         let shared_refresh: SharedToken = Arc::new(std::sync::RwLock::new(None));
-        let client: Arc<dyn Http> = Arc::new(UreqClient::new(shared_token.clone()));
+        // The counting seam (docs/0050 D2): one decorator around the
+        // single client sees 100% of GitHub-bound traffic — all three
+        // transports and the auth flows borrow `state.client`, so no
+        // call site changes.
+        let usage = usage::new_ledger();
+        let client: Arc<dyn Http> = usage::CountingHttp::wrap(
+            Arc::new(UreqClient::new(shared_token.clone())),
+            usage.clone(),
+        );
         let cache = GithubCache::new(paths);
 
         // The single state entity — seeds from last-known caches and
@@ -101,6 +110,10 @@ impl Module for GithubModule {
         let drafts = drafts::DraftStore::new(dashboard_core::paths::AppPaths::init());
         let state = cx
             .new(|_| GithubState::new(client, store, shared_token, shared_refresh, cache, drafts));
+        // Swap the constructor's fresh book for the wrapper's (docs/
+        // 0050 D2) — before any traffic can flow: the tick loop and
+        // the views below spawn after this line.
+        state.update(cx, |s, _| s.usage = usage.clone());
 
         // 10 s service loop (docs/0038 D7) — self-gates on
         // auth/rate-limit state and refreshes per tick (0003 §3.12
@@ -123,12 +136,23 @@ impl Module for GithubModule {
         let nav_support = Arc::new(page::GithubNav {
             page: main_page.downgrade(),
         });
+        // Footer chip (docs/0050 D5): one view for the app's lifetime;
+        // the status-item closure scopes it to the GitHub module pages
+        // (the provider-decides-visibility contract).
+        let usage_chip = cx.new(|cx| usage::UsageChip::new(state.clone(), usage.clone(), cx));
+        let status_item: StatusItemFn = Arc::new(move |page, _cx| match page {
+            Page::Module(id) if id.as_ref() == "github" => {
+                Some(usage_chip.clone().into_any_element())
+            }
+            _ => None,
+        });
         ModuleEntry {
             meta: Self::meta(),
             overview: overview.into(),
             main_page: main_page.into(),
             settings: Some(settings),
             nav: Some(nav_support),
+            status_item: Some(status_item),
         }
     }
 }

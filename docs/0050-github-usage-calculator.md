@@ -139,11 +139,16 @@ Methods (pure, all logic lives here):
 | `rate_limited_until` in future (the operational backoff) | exhausted presentation, countdown from `rate_limited_until` |
 | no snapshot yet (fresh connect, no traffic) | skeleton "…/…" placeholder until the first response lands |
 
-**Stale-window probe**: `GET /rate_limit` (free, D2 seam, books 0) fired
-(a) when the chip is visible with a stale snapshot past `reset_at`, or
-(b) when `rate_limited_until` expires — never more than once per 30 s.
-It flows as a normal spec through the wrapper, so its own response
-reconciles the ledger like any other.
+**Stale-window probe**: `GET /rate_limit` (free, D2 seam, books 0)
+armed by the tick lane on ungated ticks when the snapshot is missing
+or past `reset_at` — never more than once per 30 s. An active
+rate-limit pause holds the book's last snapshot and probes nothing;
+the same tick that clears an expired pause arms the probe (the window
+rolled past `reset_at` with it). The probe costs nothing either way,
+so chip visibility is deliberately not consulted — the tick lane owns
+arming. It flows as a normal spec (`Kind::RateLimit`) through the
+wrapper, so its own response headers reconcile the ledger like any
+other, and `apply` folds the body's `resources.core` on top.
 
 ## D4 — Exhaustion: one operational truth, one display mapping
 
@@ -181,12 +186,15 @@ lifecycle.
   - normal: `GH 4,821/5,000 · resets 41m` (combined REST+GraphQL budget)
   - exhausted: `GH rate-limited · resumes 12m` (warning color)
   - placeholder: `GH …/…` before the first snapshot
-  - tooltip: session totals (`session: 127 req · 124 GraphQL · 3 REST`)
-    and snapshot age; the auth-flow count rides here too.
-- A11y per docs/0049 D1: `.id("github-usage")` + `Role::StaticText` +
-  explicit `aria_label` carrying the full spoken form (numbers spelled
-  out, not the compressed chip text); state change (exhausted) is part of
-  the label.
+  - session totals and snapshot age ride the accessible label (a text
+    status is not interactive, so there is no hover tooltip to host
+    them — the 0049 D1 shape); the stale display also swaps its visible
+    countdown for `· as of HH:MM`.
+- A11y per docs/0049 D1: `.id("github-usage")` + `Role::Label` (the
+  static-text role under the pinned accesskit 0.24 — it has no
+  `StaticText` variant) + explicit `aria_label` carrying the full spoken
+  form (numbers spelled out, not the compressed chip text); state change
+  (exhausted) is part of the label.
 
 ## D6 — Testing and split
 

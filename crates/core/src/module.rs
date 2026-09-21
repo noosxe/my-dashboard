@@ -40,6 +40,13 @@ pub struct ModuleMeta {
 /// `init`, capturing its state entity.
 pub type SettingsProvider = Rc<dyn Fn(&mut Window, &mut App) -> Option<SettingPage>>;
 
+/// Status-bar contribution (docs/0050 D5): one item for the bar's
+/// right region, built per bar render. The provider decides its own
+/// visibility from the active [`crate::nav::Page`] — GitHub's usage chip
+/// shows only on its module pages — so the bar owns ordering and
+/// lifecycle, modules own scope. Must be cheap: one entity read.
+pub type StatusItemFn = Arc<dyn Fn(&crate::nav::Page, &App) -> Option<gpui::AnyElement>>;
+
 /// History support for a module (docs/0048 D3): how the shell
 /// re-activates a trail entry the module recorded. The impl captures the
 /// module's entities; the payload is whatever the module handed to
@@ -68,6 +75,9 @@ pub struct ModuleEntry {
     /// History support (docs/0048 D3); `None` = module has no trail
     /// places yet — it is never asked to restore or collapse.
     pub nav: Option<Arc<dyn ModuleNav>>,
+    /// Status-bar contribution (docs/0050 D5); `None` = the module
+    /// ships no status item.
+    pub status_item: Option<StatusItemFn>,
 }
 
 /// Implemented by module crates; registered statically in `main.rs`.

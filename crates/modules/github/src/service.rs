@@ -45,6 +45,7 @@ use crate::auth::{
 };
 use crate::gql::{self, Org, Repo, User};
 use crate::http::{Http, HttpError, RateLimit, SharedToken, Verb};
+use crate::usage::{Bucket, UsageLedger, parse_rate_limit_body};
 
 /// Tick cadence (docs/0038 D7): a 10 s wake — the lanes decide what
 /// fires, so an idle minute is six no-op policy checks. List cadences
@@ -466,6 +467,15 @@ pub enum Kind {
     /// forwards only non-2xx to [`GithubState::apply`] for the shared
     /// auth/rate-limit handling.
     ThreadMutation(ThreadOp),
+    /// The usage-calculator's free reconcile probe (docs/0050 D3):
+    /// `GET /rate_limit` — costs nothing and does not count against
+    /// the primary budget. Armed by the tick lane when the ledger's
+    /// snapshot is missing or past its window (never during an active
+    /// pause — the probe heals *after* the pause clears); the body's
+    /// `resources.core` is folded into the usage book by
+    /// [`GithubState::apply`], on top of whatever headers the wrapper
+    /// already harvested.
+    RateLimit,
 }
 
 /// docs/0047 D2 — which account qualifier a home snapshot was fetched
@@ -893,7 +903,7 @@ pub fn run_spec(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
             "repo-pr-templates",
         ),
         Kind::Notifications | Kind::RepoNotifications | Kind::PrFiles => run_rest(http, spec),
-        Kind::JobLog => run_plain_get(http, spec),
+        Kind::JobLog | Kind::RateLimit => run_plain_get(http, spec),
         Kind::AccountPullRequests => run_home_prs(http, spec),
     }
 }
@@ -1565,6 +1575,7 @@ impl Kind {
             Kind::RepoNotifications => "repo-notifs",
             Kind::ThreadDetail => "thread-detail",
             Kind::ThreadMutation(_) => "thread-mutation",
+            Kind::RateLimit => "rate-limit",
         }
     }
 }
@@ -1652,6 +1663,13 @@ pub struct GithubState {
     pub(crate) home_error: Option<String>,
     pub(crate) etags: BTreeMap<String, String>,
     pub(crate) client: Arc<dyn Http>,
+    /// API-usage ledger (docs/0050 D3): shared with the `CountingHttp`
+    /// wrapper installed at `lib.rs` init — the wrapper writes on the
+    /// background request path, the chip and the probe lane read. The
+    /// constructor's fresh book is swapped for the wrapper's in `init`
+    /// before any traffic can flow (the tick loop and views spawn
+    /// after the swap).
+    pub(crate) usage: UsageLedger,
     pub(crate) store: Arc<dyn TokenStore>,
     pub(crate) shared_token: SharedToken,
     /// Refresh-token slot (docs/0011 §4.3): same handling rules as the
@@ -1742,6 +1760,7 @@ impl GithubState {
             home_attempted_at: None,
             home_error: None,
             client,
+            usage: crate::usage::new_ledger(),
             store,
             shared_token,
             shared_refresh,
@@ -1808,21 +1827,37 @@ impl GithubState {
         if self.gated() {
             return Vec::new();
         }
+        let mut specs = Vec::new();
+        // docs/0050 D3 — the free reconcile probe: GET /rate_limit
+        // costs nothing and does not count against the primary
+        // budget, so a stale window (or one never sampled this
+        // session) heals without waiting for real traffic. Armed
+        // only on ungated ticks — an active pause holds the book's
+        // last snapshot until the pause clears, then this fires on
+        // the same tick that cleared it (the snapshot rolled past
+        // `reset_at` with it).
+        {
+            let mut book = self.usage.lock().unwrap();
+            let now = now_epoch();
+            if book.probe_due(now) {
+                book.mark_probe(now);
+                drop(book);
+                specs.push(self.spec(Kind::RateLimit, api::rate_limit_url(), None));
+            }
+        }
         if self.needs_bootstrap {
             self.needs_bootstrap = false;
-            return vec![
-                self.snapshot_spec(),
-                self.spec(
-                    Kind::Notifications,
-                    api::notifications_url(1),
-                    Some(MAX_PAGES),
-                ),
-            ];
+            specs.push(self.snapshot_spec());
+            specs.push(self.spec(
+                Kind::Notifications,
+                api::notifications_url(1),
+                Some(MAX_PAGES),
+            ));
+            return specs;
         }
         if self.gated() {
-            return Vec::new();
+            return specs;
         }
-        let mut specs = Vec::new();
         // docs/0038 D7: the global notifications lane — age-gated by
         // its landed clock at the engaged/idle cadence, backoff-gated
         // like every lane (docs/0036). The tick wake is just a
@@ -2222,6 +2257,19 @@ impl GithubState {
         };
 
         match result.kind {
+            Kind::RateLimit => {
+                // docs/0050 D3 — fold the free probe's body:
+                // `resources.core` is the documented-authoritative
+                // bucket breakdown, on top of whatever headers the
+                // wrapper already harvested from the same response.
+                if let Some(snapshot) = parse_rate_limit_body(body) {
+                    self.usage.lock().unwrap().on_response(
+                        Bucket::Primary,
+                        Some(snapshot),
+                        now_epoch(),
+                    );
+                }
+            }
             Kind::Snapshot => {
                 match serde_json::from_str::<gql::Envelope<gql::SnapshotData>>(body) {
                     Ok(env) => {
@@ -2573,6 +2621,9 @@ impl GithubState {
         self.selected = None;
         self.repo_cursor = None;
         self.rate_limited_until = None;
+        // Per-token budget (docs/0050 D3): the usage book goes with
+        // the account — a reconnect starts a fresh one.
+        self.usage.lock().unwrap().reset();
         self.needs_bootstrap = false;
         self.auth = AuthStatus::Disconnected;
     }
@@ -3194,32 +3245,47 @@ mod tests {
     use gpui::AppContext as _;
     use std::collections::HashMap;
 
+    /// docs/0050 D3: a fresh-looking snapshot keeps plan_tick's free
+    /// probe lane out of the cadence tests below.
+    fn seed_fresh_usage(state: &GithubState) {
+        let now = now_epoch();
+        state
+            .usage
+            .lock()
+            .unwrap()
+            .seed_snapshot(5000, 5000, now + 3600, now);
+    }
+
     fn make_state(http: Arc<MockHttp>) -> GithubState {
         let shared: SharedToken = Arc::new(std::sync::RwLock::new(Some("t0k".into())));
         let refresh: SharedToken = Arc::new(std::sync::RwLock::new(None));
         let client: Arc<dyn Http> = http;
-        GithubState::new(
+        let state = GithubState::new(
             client,
             Arc::new(MockTokenStore::with("t0k".into())),
             shared,
             refresh,
             GithubCache::at_tmp("state"),
             DraftStore::at_tmp("state"),
-        )
+        );
+        seed_fresh_usage(&state);
+        state
     }
 
     fn make_state_at(http: Arc<MockHttp>, cache: GithubCache, drafts: DraftStore) -> GithubState {
         let shared: SharedToken = Arc::new(std::sync::RwLock::new(Some("t0k".into())));
         let refresh: SharedToken = Arc::new(std::sync::RwLock::new(None));
         let client: Arc<dyn Http> = http;
-        GithubState::new(
+        let state = GithubState::new(
             client,
             Arc::new(MockTokenStore::with("t0k".into())),
             shared,
             refresh,
             cache,
             drafts,
-        )
+        );
+        seed_fresh_usage(&state);
+        state
     }
 
     #[test]

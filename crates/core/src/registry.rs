@@ -66,4 +66,19 @@ impl ModuleRegistry {
             })
             .collect()
     }
+    /// Status-bar contributions (docs/0050 D5), in registration order
+    /// (= sidebar order). Providers run per bar render and must be
+    /// cheap — one entity read each; each decides its own visibility
+    /// from the active page.
+    pub fn status_items(&self, active: &crate::nav::Page, cx: &App) -> Vec<gpui::AnyElement> {
+        self.entries
+            .iter()
+            .filter_map(|entry| {
+                entry
+                    .status_item
+                    .as_ref()
+                    .and_then(|provider| provider(active, cx))
+            })
+            .collect()
+    }
 }
