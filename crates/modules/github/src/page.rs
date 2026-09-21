@@ -1693,6 +1693,27 @@ impl GithubPage {
             // ever drifts, trim the `#number` off the row's composite key.
             pr.key.split('#').next().unwrap_or_default().to_string()
         });
+        // docs/0049 D1: accessible names are explicit — text children do
+        // not become the row's name. Reading order mirrors the row:
+        // number+title, repo, author, state, CI signal.
+        let mut label = format!("PR #{}: {}", pr.number, pr.title);
+        if let Some(repo_name) = pr.key.split('#').next() {
+            if !repo_name.is_empty() {
+                label.push_str(&format!(" — {repo_name}"));
+            }
+        }
+        if let Some(author) = pr.author.as_ref() {
+            label.push_str(&format!(" · {}", author.login));
+        }
+        if pr.draft {
+            label.push_str(" · draft");
+        } else if let Some(state) = pr.state.as_deref() {
+            label.push_str(&format!(" · {state}"));
+        }
+        if let Some(rollup) = gql::rollup_state(pr.status.as_deref()) {
+            label.push_str(&format!(" · {}", Self::ci_row_glyph(rollup, cx).2));
+        }
+        let label: SharedString = label.into();
         let row = pr.clone();
         div()
             .id(SharedString::from(format!("pr-{}", pr.key)))
@@ -1703,6 +1724,7 @@ impl GithubPage {
                 move || probe.clone()
             })
             .role(accesskit::Role::ListItem)
+            .aria_label(label)
             .px_2()
             .py_1p5()
             .rounded_sm()
@@ -1832,6 +1854,17 @@ impl GithubPage {
             .selected
             .clone()
             .unwrap_or_else(|| issue.key.split('#').next().unwrap_or_default().to_string());
+        // docs/0049 D1: explicit accessible name (PR-row pattern).
+        let mut label = format!("Issue #{}: {}", issue.number, issue.title);
+        if let Some(repo_name) = issue.key.split('#').next() {
+            if !repo_name.is_empty() {
+                label.push_str(&format!(" — {repo_name}"));
+            }
+        }
+        if let Some(author) = issue.author.as_ref() {
+            label.push_str(&format!(" · {}", author.login));
+        }
+        let label: SharedString = label.into();
         let row = issue.clone();
         let page = cx.entity();
         div()
@@ -1842,6 +1875,7 @@ impl GithubPage {
                 move || probe.clone()
             })
             .role(accesskit::Role::ListItem)
+            .aria_label(label)
             .px_2()
             .py_1p5()
             .rounded_sm()
@@ -1917,9 +1951,19 @@ impl GithubPage {
     fn render_notification_row(&self, n: &api::Notification, cx: &Context<Self>) -> AnyElement {
         let page = cx.entity();
         let row = n.clone();
+        // docs/0049 D1: explicit accessible name — kind + subject title,
+        // repo, read state, reason.
+        let mut label = format!("{}: {}", n.subject.kind, n.subject.title);
+        label.push_str(&format!(" — {}", n.repository.full_name));
+        label.push_str(if n.unread { " · unread" } else { " · read" });
+        if let Some(reason) = n.reason.as_deref() {
+            label.push_str(&format!(" · {reason}"));
+        }
+        let label: SharedString = label.into();
         div()
             .id(SharedString::from(format!("notif-{}", n.id)))
             .role(accesskit::Role::ListItem)
+            .aria_label(label)
             .debug_selector({
                 let id = n.id.clone();
                 move || format!("notif-{id}")
@@ -1985,6 +2029,10 @@ impl GithubPage {
                                         .xsmall()
                                         .icon(IconName::CircleCheck)
                                         .tooltip("Mark as done")
+                                        // docs/0049 D1: icon-only buttons
+                                        // never rely on the tooltip for
+                                        // their accessible name.
+                                        .accessibility_label("Mark as done")
                                         .disabled(disabled)
                                         .on_click(
                                             move |_, _, cx| {
@@ -2518,6 +2566,11 @@ impl GithubPage {
                                         .items_center()
                                         .cursor_pointer()
                                         .hover(|s| s.underline())
+                                        .role(accesskit::Role::Link)
+                                        .aria_label(format!(
+                                            "Open repository {} on GitHub",
+                                            repo.full_name
+                                        ))
                                         // Same affordance as PR rows: the repo title
                                         // links to the repo on github.com. URL is
                                         // derived from full_name — cache-proof (no

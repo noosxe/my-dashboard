@@ -82,6 +82,10 @@ fn card(entry: &ModuleEntry, nav: Entity<Navigator>, colors: CardColors) -> impl
         .gap_2()
         .overflow_hidden()
         .hover(|this| this.bg(colors.hover_bg))
+        // docs/0049 D1: module cards are list items that open the
+        // module — id + role + explicit name.
+        .role(accesskit::Role::ListItem)
+        .aria_label(format!("Open {title} module"))
         .cursor_pointer()
         .child(
             h_flex()
