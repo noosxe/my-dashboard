@@ -72,6 +72,10 @@ impl Render for GithubCard {
                     .size_full()
                     .cursor_pointer()
                     .hover(|s| s.bg(cx.theme().accent.opacity(0.06)))
+                    .role(accesskit::Role::ListItem)
+                    .aria_label(format!(
+                        "Open GitHub module — {notifications} notifications, {prs} open pull requests, {issues} open issues"
+                    ))
                     .on_click(cx.listener(|this, _, _, cx| this.open_module(cx)))
                     .child(
                         v_flex()

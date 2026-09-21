@@ -134,6 +134,10 @@ them):
 2. **`ListItem`** (#95): public `accessibility_label()` builder so callers can
    name list rows (ours and `SearchableList`'s internal rows).
 
+**Filed:** [longbridge/gpui-kit#3160](https://github.com/longbridge/gpui-kit/pull/3160)
+covers both, plus the same gap found in `SidebarToggleButton` during
+implementation (icon-only, wraps an unnamed internal Button).
+
 Until a rev bump lands, those two widgets stay partially invisible; our own
 surfaces do not depend on them. The fork contingency (#60) remains the
 fallback if upstream stalls — not needed for patches this small.

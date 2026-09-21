@@ -505,6 +505,11 @@ impl NotificationDetailPage {
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(cx.theme().accent)
                             .cursor_pointer()
+                            // docs/0049 D1: the subject link is a Link
+                            // role carrying its own name (text children
+                            // don't become the node's name).
+                            .role(accesskit::Role::Link)
+                            .aria_label(format!("Open {} #{}", n.subject.title, number))
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.open_subject(None, window, cx)
                             }))
@@ -528,6 +533,8 @@ impl NotificationDetailPage {
                                 .text_sm()
                                 .text_color(cx.theme().accent)
                                 .cursor_pointer()
+                                .role(accesskit::Role::Link)
+                                .aria_label("Jump to latest comment")
                                 .on_click(cx.listener(move |this, _, window, cx| {
                                     this.open_subject(Some(anchor), window, cx)
                                 }))
@@ -590,6 +597,9 @@ impl NotificationDetailPage {
                     .small()
                     .icon(IconName::ExternalLink)
                     .tooltip("Open on GitHub")
+                    // docs/0049 D1: icon-only buttons get an explicit
+                    // accessible name — the tooltip is not it.
+                    .accessibility_label("Open on GitHub")
                     .on_click({
                         let url = self.web_url();
                         move |_, _, cx| cx.open_url(&url)

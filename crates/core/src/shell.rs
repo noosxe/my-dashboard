@@ -360,6 +360,9 @@ impl Render for DashboardShell {
                                                                 .ghost()
                                                                 .small()
                                                                 .tooltip("Back (Alt+Left)")
+                                                                // docs/0049 D1: icon-only buttons get an
+                                                                // explicit accessible name.
+                                                                .accessibility_label("Back")
                                                                 .disabled(!can_back)
                                                                 .on_click(cx.listener(
                                                                     |this, _, window, cx| {
@@ -380,6 +383,7 @@ impl Render for DashboardShell {
                                                                 .ghost()
                                                                 .small()
                                                                 .tooltip("Forward (Alt+Right)")
+                                                                .accessibility_label("Forward")
                                                                 .disabled(!can_forward)
                                                                 .on_click(cx.listener(
                                                                     |this, _, window, cx| {

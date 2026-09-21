@@ -152,6 +152,9 @@ where
                 .small()
                 .icon(IconName::RotateCw)
                 .tooltip("Refresh")
+                // docs/0049 D1: icon-only refresh affordance —
+                // named explicitly.
+                .accessibility_label("Refresh")
                 .on_click(cx.listener(move |this, _, window, cx| on_refresh(this, window, cx))),
         )
         .into_any_element()
