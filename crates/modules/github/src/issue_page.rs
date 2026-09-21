@@ -1594,6 +1594,7 @@ impl IssueDetailPage {
                     .small()
                     .icon(IconName::ExternalLink)
                     .tooltip("Open on GitHub")
+                    .accessibility_label("Open issue on GitHub")
                     .on_click(move |_, _, cx| cx.open_url(&url)),
             )
             .into_any_element()
@@ -2229,6 +2230,11 @@ impl IssueDetailPage {
             .py_1()
             .rounded_sm()
             .hover(|s| s.bg(cx.theme().accent.opacity(0.08)))
+            // docs/0049 D1: picker rows are listbox options —
+            // the checkbox mirrors the selected state.
+            .role(accesskit::Role::ListItem)
+            .aria_label(row.label.clone())
+            .aria_selected(checked)
             .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _, cx| toggle(this, ix, cx)))
             .child(
                 Checkbox::new(SharedString::from(check))
@@ -2292,6 +2298,9 @@ impl IssueDetailPage {
                     .py_1()
                     .rounded_sm()
                     .hover(|s| s.bg(cx.theme().accent.opacity(0.08)))
+                    .role(accesskit::Role::ListItem)
+                    .aria_label(row.label.clone())
+                    .aria_selected(selected)
                     .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _, cx| {
                         this.pick_milestone_ix(ix, cx)
                     }))
@@ -2519,6 +2528,7 @@ impl IssueDetailPage {
                     .small()
                     .label(format!("{} {}", g.content.glyph(), g.total))
                     .tooltip(g.content.label())
+                    .accessibility_label(format!("{} reaction: {}", g.content.label(), g.total))
                     .disabled(busy)
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.toggle_reaction(subject_id.clone(), armed, content, window, cx)
@@ -2538,6 +2548,7 @@ impl IssueDetailPage {
                     .small()
                     .label("+")
                     .tooltip("Add reaction")
+                    .accessibility_label("Add reaction")
                     .disabled(busy)
                     .dropdown_menu(move |menu, _, _| {
                         // docs/0023 D4 (§10 amendment): the static

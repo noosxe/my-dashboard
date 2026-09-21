@@ -2707,7 +2707,9 @@ impl PrDetailPage {
                     .small()
                     .label(format!("{} {}", g.content.glyph(), g.total))
                     .tooltip(g.content.label())
-                    .disabled(busy)
+                    // docs/0049 D1: glyph-only labels read poorly;
+                    // name the reaction explicitly.
+                    .accessibility_label(format!("{} reaction: {}", g.content.label(), g.total))
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.toggle_reaction(subject_id.clone(), armed, content, window, cx)
                     })),
@@ -2726,6 +2728,7 @@ impl PrDetailPage {
                     .small()
                     .label("+")
                     .tooltip("Add reaction")
+                    .accessibility_label("Add reaction")
                     .disabled(busy)
                     .dropdown_menu(move |menu, _, _| {
                         // docs/0023 D4 (§10 amendment): the static
@@ -2918,6 +2921,7 @@ impl PrDetailPage {
                     .small()
                     .icon(IconName::ExternalLink)
                     .tooltip("Open on GitHub")
+                    .accessibility_label("Open pull request on GitHub")
                     .on_click(move |_, _, cx| cx.open_url(&url)),
             )
             .into_any_element()
@@ -3152,6 +3156,14 @@ impl PrDetailPage {
                                         IconName::ChevronRight
                                     })
                                     .tooltip(if expanded { "Hide log" } else { "View log" })
+                                    // docs/0049 D1: expand/collapse
+                                    // semantics on the log toggle.
+                                    .accessibility_label(if expanded {
+                                        "Hide log"
+                                    } else {
+                                        "View log"
+                                    })
+                                    .toggled(expanded)
                                     .on_click(move |_, _, cx| {
                                         page.update(cx, |this, cx| this.toggle_check_log(&name, cx))
                                     }),
@@ -3165,6 +3177,7 @@ impl PrDetailPage {
                             .xsmall()
                             .icon(IconName::ExternalLink)
                             .tooltip("View details")
+                            .accessibility_label("Open check on GitHub")
                             .on_click(move |_, _, cx| cx.open_url(&url)),
                     )
                 });
@@ -3985,6 +3998,12 @@ impl PrDetailPage {
                             .py_1()
                             .rounded_sm()
                             .hover(|s| s.bg(cx.theme().accent.opacity(0.08)))
+                            // docs/0049 D1: picker rows are listbox
+                            // options — the checkbox mirrors the
+                            // selected state.
+                            .role(accesskit::Role::ListItem)
+                            .aria_label(row.label.clone())
+                            .aria_selected(checked)
                             .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _, cx| {
                                 this.toggle_meta_row(ix, cx)
                             }))
@@ -4079,6 +4098,9 @@ impl PrDetailPage {
                     .py_1()
                     .rounded_sm()
                     .hover(|s| s.bg(cx.theme().accent.opacity(0.08)))
+                    .role(accesskit::Role::ListItem)
+                    .aria_label(row.label.clone())
+                    .aria_selected(selected)
                     .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _, cx| {
                         this.pick_milestone_ix(ix, cx)
                     }))
@@ -5566,6 +5588,7 @@ fn render_files(
                     .small()
                     .icon(IconName::RotateCw)
                     .tooltip("Retry")
+                    .accessibility_label("Retry loading changed files")
                     .on_click(cx.listener(|this, _, _, cx| this.fetch_files(cx))),
             )
             .into_any_element();

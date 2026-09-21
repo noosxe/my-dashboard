@@ -1162,6 +1162,7 @@ fn row_comment_button(
                     .xsmall()
                     .icon(IconName::Plus)
                     .tooltip("Comment on this line")
+                    .accessibility_label("Comment on this line")
                     .on_click(window.listener_for(page_h, move |this, _, window, cx| {
                         this.open_line_composer(path.clone(), side, line, window, cx)
                     })),
@@ -1304,6 +1305,7 @@ fn draft_rows(
                                 .xsmall()
                                 .icon(IconName::CircleX)
                                 .tooltip("Discard draft")
+                                .accessibility_label("Discard draft comment")
                                 .on_click(window.listener_for(page_h, move |this, _, _, cx| {
                                     this.drafts.remove(ix);
                                     this.splice_diff_drafts();
@@ -1359,6 +1361,7 @@ fn threads_fetch_row(
                         .xsmall()
                         .icon(IconName::RotateCw)
                         .tooltip("Retry")
+                        .accessibility_label("Retry loading review threads")
                         .on_click(
                             window.listener_for(page_h, |this, _, _, cx| this.fetch_threads(cx)),
                         ),
@@ -1492,9 +1495,17 @@ fn thread_card(
     } else {
         author.clone()
     };
+    // docs/0049 D1: the card is a labeled region — author/span header
+    // plus resolved state.
+    let thread_label = format!(
+        "Review thread — {header}{}",
+        if t.is_resolved { " · resolved" } else { "" }
+    );
     div()
         .debug_selector(move || format!("pr-thread-{ix}-card"))
         .id(SharedString::from(format!("pr-thread-{ix}")))
+        .role(accesskit::Role::ListItem)
+        .aria_label(thread_label)
         .w_full()
         .min_w_0()
         .mt_1()
@@ -1586,6 +1597,7 @@ fn thread_card(
                     .xsmall()
                     .icon(IconName::ExternalLink)
                     .tooltip("Open on GitHub")
+                    .accessibility_label("Open thread on GitHub")
                     .on_click(move |_, _, cx| cx.open_url(&url)),
             )
         })
@@ -2005,6 +2017,8 @@ fn suggestion_card(ix: usize, m: usize, b: usize, code: &str, cx: &App) -> AnyEl
     let payload = code.to_string();
     v_flex()
         .id(SharedString::from(format!("pr-suggestion-{ix}-{m}-{b}")))
+        .role(accesskit::Role::ListItem)
+        .aria_label("Suggested change")
         .debug_selector(move || format!("pr-suggestion-{ix}-{m}-{b}-card"))
         .w_full()
         .min_w_0()
