@@ -277,6 +277,19 @@ The chip and `UsageBook` stay GitHub-local (0050's display layer).
   records pipeline (0053) is the per-flight audit trail beside it.
 - README row for this doc.
 
+- **Amendment by the drift fix (2026-09-22, same doc, no number):**
+  `graphql_flight_cost` required the body's `rateLimit.limit`, but no
+  query requested `limit` in its selection set — serde failed the
+  whole parse, so **every real GraphQL flight was unattributable**
+  (Points spent showed GQL 0 forever; the budget card was unaffected
+  because `graphql_budget` reads only `remaining`/`resetAt` from the
+  body). Fixed on both sides: the parser treats `limit` as optional
+  (a missing field must not void the cost), and the queries' selection
+  sets now ask `rateLimit { cost remaining resetAt limit }` so the
+  docs/0054 D14 ceiling rides the same body snapshot. Live receipt
+  after the fix: `REST 0 · GQL 8`, `9 flights · 0 unattributable`
+  (REST 0 is correct — warm-cache boots are all 304s, which book 0).
+
 ## 9. Amendments by docs/0054 (the analytics page — ride with its PR)
 
 - **D3 (sink/source split)**: `snapshot()` migrates from `UsageSink`

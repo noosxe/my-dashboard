@@ -31,7 +31,7 @@ pub const VIEW_MAX_PAGES: u32 = 10;
 /// per 100 repos (the connection-cap formula, docs/0051 §1).
 pub const CARD_TOTALS_QUERY: &str = r#"
 query CardTotals($cursor: String) {
-  rateLimit { cost remaining resetAt }
+  rateLimit { cost remaining resetAt limit }
   viewer {
     repositories(first: 100, after: $cursor,
                  ownerAffiliations: [OWNER, COLLABORATOR, ORGANIZATION_MEMBER],
@@ -52,7 +52,7 @@ query CardTotals($cursor: String) {
 /// lazy repo-scoped snapshot (docs/0007 D6) fills them on view open.
 pub const SESSION_INVENTORY_QUERY: &str = r#"
 query SessionInventory($cursor: String) {
-  rateLimit { cost remaining resetAt }
+  rateLimit { cost remaining resetAt limit }
   viewer {
     login
     avatarUrl
@@ -86,7 +86,7 @@ query SessionInventory($cursor: String) {
 /// (handled as per-repo degradation, §6).
 pub const REPO_SNAPSHOT_QUERY: &str = r#"
 query RepoSnapshot($owner: String!, $name: String!) {
-  rateLimit { cost remaining resetAt }
+  rateLimit { cost remaining resetAt limit }
   repository(owner: $owner, name: $name) {
     databaseId
     id
@@ -158,7 +158,7 @@ pub const SEARCH_RESULT_CAP: usize = 1000;
 
 pub const ACCOUNT_PULL_REQUESTS_QUERY: &str = r#"
 query AccountPullRequests($query: String!, $after: String) {
-  rateLimit { cost remaining resetAt }
+  rateLimit { cost remaining resetAt limit }
   search(query: $query, type: ISSUE, first: 100, after: $after) {
     issueCount
     pageInfo { hasNextPage endCursor }
@@ -637,7 +637,7 @@ impl RequestedReviewer {
 /// (#93) after the union shape is re-verified.
 pub const PR_DETAIL_QUERY: &str = r#"
 query PrDetail($owner: String!, $name: String!, $number: Int!) {
-  rateLimit { cost remaining resetAt }
+  rateLimit { cost remaining resetAt limit }
   repository(owner: $owner, name: $name) {
     mergeCommitAllowed
     squashMergeAllowed
@@ -952,7 +952,7 @@ pub struct MergeMethods {
 /// header, the conversation, and the rail's state panel render.
 pub const ISSUE_DETAIL_QUERY: &str = r#"
 query IssueDetail($owner: String!, $name: String!, $number: Int!) {
-  rateLimit { cost remaining resetAt }
+  rateLimit { cost remaining resetAt limit }
   repository(owner: $owner, name: $name) {
     # docs/0023 D5: the lock gate — no viewerCanLock flag exists
     # upstream; triage-and-above locks, read off the repo permission.
@@ -1539,7 +1539,7 @@ pub struct RepoPickerData {
 /// docs/0022 §5 — the labels picker's source page, name-ordered.
 pub const REPO_LABELS_QUERY: &str = r#"
 query RepoLabels($owner: String!, $name: String!) {
-  rateLimit { cost remaining resetAt }
+  rateLimit { cost remaining resetAt limit }
   repository(owner: $owner, name: $name) {
     labels(first: 100, orderBy: {field: NAME, direction: ASC}) {
       nodes { id name color }
@@ -1552,7 +1552,7 @@ query RepoLabels($owner: String!, $name: String!) {
 /// the page sorts client-side).
 pub const REPO_ASSIGNABLE_USERS_QUERY: &str = r#"
 query RepoAssignableUsers($owner: String!, $name: String!) {
-  rateLimit { cost remaining resetAt }
+  rateLimit { cost remaining resetAt limit }
   repository(owner: $owner, name: $name) {
     assignableUsers(first: 100) {
       nodes { id login avatarUrl }
@@ -1567,7 +1567,7 @@ query RepoAssignableUsers($owner: String!, $name: String!) {
 /// picker's merge row.
 pub const REPO_MILESTONES_QUERY: &str = r#"
 query RepoMilestones($owner: String!, $name: String!) {
-  rateLimit { cost remaining resetAt }
+  rateLimit { cost remaining resetAt limit }
   repository(owner: $owner, name: $name) {
     milestones(first: 100, states: [OPEN]) {
       nodes { id title state }
@@ -2383,7 +2383,7 @@ pub fn created_issue_from_body(body: &str, repo_full: &str) -> Option<Issue> {
 /// an empty list; docs/0046 §1). Plain list, no pagination.
 pub const REPO_ISSUE_TEMPLATES_QUERY: &str = r#"
 query RepoIssueTemplates($owner: String!, $name: String!) {
-  rateLimit { cost remaining resetAt }
+  rateLimit { cost remaining resetAt limit }
   repository(owner: $owner, name: $name) {
     issueTemplates {
       name
@@ -2404,7 +2404,7 @@ query RepoIssueTemplates($owner: String!, $name: String!) {
 /// more branches than one alphabetical page holds.
 pub const REPO_BRANCHES_QUERY: &str = r#"
 query RepoBranches($owner: String!, $name: String!, $query: String) {
-  rateLimit { cost remaining resetAt }
+  rateLimit { cost remaining resetAt limit }
   repository(owner: $owner, name: $name) {
     defaultBranchRef { name }
     refs(first: 100, refPrefix: "refs/heads/", query: $query, orderBy: {field: ALPHABETICAL, direction: ASC}) {
@@ -2517,7 +2517,7 @@ pub fn templates_from_value(repo: &serde_json::Value) -> Vec<IssueTemplate> {
 /// the PR title is typed, never templated.
 pub const REPO_PR_TEMPLATES_QUERY: &str = r#"
 query RepoPrTemplates($owner: String!, $name: String!) {
-  rateLimit { cost remaining resetAt }
+  rateLimit { cost remaining resetAt limit }
   repository(owner: $owner, name: $name) {
     pullRequestTemplates {
       body
@@ -2870,7 +2870,7 @@ impl RateLimitField {
 
 pub const PR_THREADS_QUERY: &str = r#"
 query PrThreads($owner: String!, $name: String!, $number: Int!) {
-  rateLimit { cost remaining resetAt }
+  rateLimit { cost remaining resetAt limit }
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
       id
