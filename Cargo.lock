@@ -1466,6 +1466,7 @@ dependencies = [
  "flexi_logger",
  "futures",
  "gpui-pre",
+ "libc",
  "log",
  "serde",
  "serde_json",

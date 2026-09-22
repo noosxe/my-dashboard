@@ -3,7 +3,18 @@
 //! [`Command`] out) so it is table-testable without spawning the binary;
 //! the I/O half lives in `src/bin/dashboard-debug.rs`.
 
-/// One parsed invocation. Field order mirrors the usage text.
+use crate::session;
+
+/// One parsed invocation: the global `--session <name>` binding
+/// (docs/0055 D4) plus the verb. `--session` may appear anywhere and is
+/// stripped before verb parsing; bridge verbs resolve it against the
+/// session record, `session` verbs name their target themselves.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Invocation {
+    pub session: Option<String>,
+    pub command: Command,
+}
+/// One parsed command. Field order mirrors the usage text.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
     /// `tree [--json] [--window N]`
@@ -30,6 +41,28 @@ pub enum Command {
     Logs { follow: bool },
     /// `shell`
     Shell,
+    /// `session start|status|stop|env` — the lifecycle verbs (docs/0055
+    /// D5). I/O lives in the CLI's session module.
+    Session(SessionCmd),
+}
+
+/// The `session` subverbs (docs/0055 D5).
+#[derive(Debug, Clone, PartialEq)]
+pub enum SessionCmd {
+    /// `session start [--name n] [--binary path] [--size WxH]
+    /// [--timeout secs]`
+    Start {
+        name: Option<String>,
+        binary: Option<String>,
+        size: (u32, u32),
+        timeout_secs: u64,
+    },
+    /// `session status [name]` — the record plus liveness, or a list.
+    Status { name: Option<String> },
+    /// `session stop <name> [--keep]`
+    Stop { name: String, keep: bool },
+    /// `session env <name>` — the `env` prefix for ad-hoc use.
+    Env { name: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,7 +73,9 @@ pub enum MouseAction {
     Scroll,
 }
 
-pub const USAGE: &str = "usage: dashboard-debug <verb> [args]
+pub const USAGE: &str = "usage: dashboard-debug [--session <name>] <verb> [args]
+
+  --session <name>                bind bridge verbs to a live session (docs/0055 D4)
 
   tree [--json] [--window N]      dump the component tree
   click <accesskit_id> [--window N]  AT-SPI click (single left)
@@ -50,7 +85,49 @@ pub const USAGE: &str = "usage: dashboard-debug <verb> [args]
   mouse move|down|up <x> <y>       raw pointer dispatch
   mouse scroll <x> <y> <dy>        scroll wheel dispatch
   logs [-f]                        ring log tail (follow with -f)
-  shell                            REPL over these verbs";
+  shell                            REPL over these verbs
+
+  session start [--name n] [--binary path] [--size WxH] [--timeout s]
+                                   isolated headless session, ready to drive
+  session status [name]            session records + liveness (list when no name)
+  session stop <name> [--keep]     stop + purge (keep artifacts with --keep)
+  session env <name>               env prefix for ad-hoc app runs";
+
+/// Parse a full invocation: extract the global `--session` binding
+/// (docs/0055 D4), then parse what remains as a verb.
+pub fn parse_invocation(args: &[String]) -> Result<Invocation, String> {
+    let mut session: Option<String> = None;
+    let mut rest = Vec::with_capacity(args.len());
+    let mut skip_next = false;
+    for arg in args {
+        if std::mem::take(&mut skip_next) {
+            if let Some(current) = session {
+                if current != arg.as_str() {
+                    return Err("duplicate --session".into());
+                }
+            }
+            session = Some(arg.clone());
+        } else if arg == "--session" {
+            skip_next = true;
+        } else if let Some(value) = arg.strip_prefix("--session=") {
+            if let Some(current) = &session {
+                if current != value {
+                    return Err("duplicate --session".into());
+                }
+            }
+            session = Some(value.to_string());
+        } else {
+            rest.push(arg.clone());
+        }
+    }
+    if skip_next {
+        return Err("--session needs a value".into());
+    }
+    Ok(Invocation {
+        session,
+        command: parse_args(&rest)?,
+    })
+}
 
 /// Parse `argv[1..]`.
 pub fn parse_args(args: &[String]) -> Result<Command, String> {
@@ -95,8 +172,112 @@ pub fn parse_args(args: &[String]) -> Result<Command, String> {
             let follow = rest.iter().any(|arg| arg == "-f");
             Ok(Command::Logs { follow })
         }
+        "session" => parse_session(rest),
         "shell" if rest.is_empty() => Ok(Command::Shell),
         _ => Err(USAGE.to_string()),
+    }
+}
+
+fn parse_session(rest: &[String]) -> Result<Command, String> {
+    let Some((sub, rest)) = rest.split_first() else {
+        return Err("usage: dashboard-debug session start|status|stop|env …".into());
+    };
+    match sub.as_str() {
+        "start" => {
+            let mut name = None;
+            let mut binary = None;
+            let mut size = (1920, 1080);
+            let mut timeout_secs = 30u64;
+            let mut pending: Option<&str> = None;
+            for arg in rest {
+                if let Some(flag) = pending.take() {
+                    match flag {
+                        "--name" => name = Some(arg.clone()),
+                        "--binary" => binary = Some(arg.clone()),
+                        "--size" => {
+                            size = session::parse_size(arg).ok_or_else(|| {
+                                format!("bad --size {arg:?} — want WxH, e.g. 1920x1080")
+                            })?;
+                        }
+                        "--timeout" => {
+                            timeout_secs = arg
+                                .parse::<u64>()
+                                .map_err(|_| format!("bad --timeout {arg:?} — want seconds"))?;
+                        }
+                        _ => unreachable!(),
+                    }
+                } else if arg == "--name"
+                    || arg == "--binary"
+                    || arg == "--size"
+                    || arg == "--timeout"
+                {
+                    pending = Some(arg.as_str());
+                } else if let Some(value) = arg.strip_prefix("--name=") {
+                    name = Some(value.to_string());
+                } else if let Some(value) = arg.strip_prefix("--binary=") {
+                    binary = Some(value.to_string());
+                } else if let Some(value) = arg.strip_prefix("--size=") {
+                    size = session::parse_size(value).ok_or_else(|| {
+                        format!("bad --size {value:?} — want WxH, e.g. 1920x1080")
+                    })?;
+                } else if let Some(value) = arg.strip_prefix("--timeout=") {
+                    timeout_secs = value
+                        .parse::<u64>()
+                        .map_err(|_| format!("bad --timeout {value:?} — want seconds"))?;
+                } else {
+                    return Err(
+                        "usage: dashboard-debug session start [--name n] [--binary path] [--size WxH] [--timeout s]"
+                            .into(),
+                    );
+                }
+            }
+            if pending.is_some() {
+                return Err("flag needs a value".into());
+            }
+            Ok(Command::Session(SessionCmd::Start {
+                name,
+                binary,
+                size,
+                timeout_secs,
+            }))
+        }
+        "status" => {
+            let mut name = None;
+            for arg in rest {
+                if arg.starts_with("--") {
+                    return Err("usage: dashboard-debug session status [name]".into());
+                }
+                if name.replace(arg.clone()).is_some() {
+                    return Err("usage: dashboard-debug session status [name]".into());
+                }
+            }
+            Ok(Command::Session(SessionCmd::Status { name }))
+        }
+        "stop" => {
+            let mut name = None;
+            let mut keep = false;
+            for arg in rest {
+                if arg == "--keep" {
+                    keep = true;
+                } else if arg.starts_with("--") || name.replace(arg.clone()).is_some() {
+                    return Err("usage: dashboard-debug session stop <name> [--keep]".into());
+                }
+            }
+            let name = name.ok_or_else(|| "session stop needs a <name>".to_string())?;
+            Ok(Command::Session(SessionCmd::Stop { name, keep }))
+        }
+        "env" => {
+            let [name] = rest else {
+                return Err("usage: dashboard-debug session env <name>".into());
+            };
+            if name.starts_with("--") {
+                return Err("usage: dashboard-debug session env <name>".into());
+            }
+            Ok(Command::Session(SessionCmd::Env { name: name.clone() }))
+        }
+        other => Err(format!(
+            "unknown session subverb {other:?} (start|status|stop|env)"
+        )),
     }
 }
 
@@ -341,6 +522,153 @@ mod tests {
         );
     }
 
+    #[test]
+    fn invocation_carries_global_session_flag() {
+        let inv = parse_invocation(&args(&["--session", "qa", "tree"])).unwrap();
+        assert_eq!(inv.session.as_deref(), Some("qa"));
+        assert_eq!(
+            inv.command,
+            Command::Tree {
+                json: false,
+                window: None
+            }
+        );
+
+        let inv = parse_invocation(&args(&["tree", "--session=qa", "--json"])).unwrap();
+        assert_eq!(inv.session.as_deref(), Some("qa"));
+        assert_eq!(
+            inv.command,
+            Command::Tree {
+                json: true,
+                window: None
+            }
+        );
+
+        // Repeating the same binding is harmless; a different one is not.
+        assert!(parse_invocation(&args(&["--session", "a", "--session", "a", "tree"])).is_ok());
+        assert!(parse_invocation(&args(&["--session", "a", "--session", "b", "tree"])).is_err());
+        assert!(
+            parse_invocation(&args(&["tree", "--session"])).is_err(),
+            "missing value"
+        );
+        assert!(parse_invocation(&args(&[])).is_err(), "no verb");
+    }
+
+    #[test]
+    fn session_verb_table() {
+        assert_eq!(
+            parse_args(&args(&["session", "start"])).unwrap(),
+            Command::Session(SessionCmd::Start {
+                name: None,
+                binary: None,
+                size: (1920, 1080),
+                timeout_secs: 30,
+            })
+        );
+        assert_eq!(
+            parse_args(&args(&[
+                "session",
+                "start",
+                "--name",
+                "qa",
+                "--binary",
+                "/abs/app",
+                "--size=800x600",
+                "--timeout=5"
+            ]))
+            .unwrap(),
+            Command::Session(SessionCmd::Start {
+                name: Some("qa".into()),
+                binary: Some("/abs/app".into()),
+                size: (800, 600),
+                timeout_secs: 5,
+            })
+        );
+        assert_eq!(
+            parse_args(&args(&["session", "status"])).unwrap(),
+            Command::Session(SessionCmd::Status { name: None })
+        );
+        assert_eq!(
+            parse_args(&args(&["session", "status", "qa"])).unwrap(),
+            Command::Session(SessionCmd::Status {
+                name: Some("qa".into())
+            })
+        );
+        assert_eq!(
+            parse_args(&args(&["session", "stop", "qa", "--keep"])).unwrap(),
+            Command::Session(SessionCmd::Stop {
+                name: "qa".into(),
+                keep: true
+            })
+        );
+        assert_eq!(
+            parse_args(&args(&["session", "env", "qa"])).unwrap(),
+            Command::Session(SessionCmd::Env { name: "qa".into() })
+        );
+    }
+
+    #[test]
+    fn session_verb_errors() {
+        assert!(parse_args(&args(&["session"])).is_err(), "no subverb");
+        assert!(
+            parse_args(&args(&["session", "teleport"])).is_err(),
+            "bad subverb"
+        );
+        assert!(
+            parse_args(&args(&["session", "start", "--size=1080"])).is_err(),
+            "bad size"
+        );
+        assert!(
+            parse_args(&args(&["session", "start", "--size"])).is_err(),
+            "dangling size"
+        );
+        assert!(
+            parse_args(&args(&["session", "start", "--name"])).is_err(),
+            "dangling name"
+        );
+        assert!(
+            parse_args(&args(&["session", "stop"])).is_err(),
+            "missing name"
+        );
+        assert!(
+            parse_args(&args(&["session", "env"])).is_err(),
+            "missing name"
+        );
+        assert!(
+            parse_args(&args(&["session", "status", "a", "b"])).is_err(),
+            "two names"
+        );
+    }
+
+    #[test]
+    fn session_start_flags_accept_space_and_equals_forms() {
+        let space = parse_args(&args(&[
+            "session",
+            "start",
+            "--size",
+            "800x600",
+            "--timeout",
+            "5",
+        ]))
+        .unwrap();
+        let equals = parse_args(&args(&[
+            "session",
+            "start",
+            "--size=800x600",
+            "--timeout=5",
+        ]))
+        .unwrap();
+        assert_eq!(space, equals);
+        match space {
+            Command::Session(SessionCmd::Start {
+                size, timeout_secs, ..
+            }) => {
+                assert_eq!(size, (800, 600));
+                assert_eq!(timeout_secs, 5);
+            }
+            other => panic!("wrong command: {other:?}"),
+        }
+    }
     #[test]
     fn shell_splitter_keeps_quoted_runs_together() {
         assert_eq!(

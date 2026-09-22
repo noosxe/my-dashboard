@@ -103,9 +103,12 @@ $XDG_RUNTIME_DIR/dashboard-debug/sessions/<name>/     (fallback: /tmp)
 ├── session.json      ← the record (below)
 ├── state/            ← DASHBOARD_STATE_DIR for the app (all AppPaths
 │                       roots, incl. the bridge runtime dir)
+├── app.log           ← the app's stdout+stderr (impl. note D1)
+├── sway.log          ← the compositor's (impl. note D1)
+├── a11y.log          ← only when we spawned the a11y bus (D3)
 ├── screenshots/      ← D10 output
 ├── snapshots/        ← D7 output
-└── transcripts/      ← D12 run logs
+├── transcripts/      ← D12 run logs
 ```
 
 `session.json` records everything the archaeology of problem 3
@@ -125,6 +128,14 @@ wanted, and everything later verbs must reconstruct:
   "frame_at_ready": 41                 // first successful dump
 }
 ```
+
+Implementation notes (sessions core, #355): the record is written
+*incrementally* during `start` (each milestone rewrites the file), so a
+crashed start is still stoppable — `app_pid`/`sway_pid`/
+`wayland_display`/`frame_at_ready` are nullable until their milestone
+lands, and `binary` is recorded as an absolute path. The three named
+logs above are what makes a failed `start` diagnosable (the failing step
+names its log).
 
 Names MUST match `^[a-z0-9][a-z0-9-]{0,31}$` (path-safety, greppable
 receipts). `session start` fails if the directory exists — stale
@@ -146,6 +157,9 @@ Each session runs its own sway with the headless backend:
 3. Resolves the display socket by diffing `wayland-*` entries in
    `$XDG_RUNTIME_DIR` before/after (wlroots picks the first free
    `wayland-N`; the name is recorded, never assumed), bounded by a
+   (implementation note, #355: wlroots drops a `<socket>.lock` sidecar
+   next to the socket — the diff counts sockets only, or every start
+   would read as two new entries)
    10 s timeout.
 4. The app is spawned with `DASHBOARD_STATE_DIR=<session>/state`,
    `WAYLAND_DISPLAY=<recorded socket>` — everything else inherited.
@@ -225,6 +239,16 @@ AGENTS.md scratch rule; receipts belong in the PR body (inline
 snapshots/screenshots or `--keep` + commit what matters before
 reboot). `stop` never returns while it owns a `logs -f` child (it
 spawns none; `doctor` flags strays, D13).
+
+Implementation notes (sessions core, #355): `app.quit` arrives with
+step 2 — until then stop is SIGTERM → SIGKILL directly. Before
+signalling, every recorded PID is verified against its `/proc/<pid>/cmdline`
+(argv[0] equals the recorded absolute binary path; basename match for
+sway / at-spi-bus-launcher): a reused PID that no longer looks like ours
+is reported and skipped, never signalled. A corrupt or missing
+`session.json` refuses to stop (manual removal named) — an interrupted
+`start` unwinds itself, so a recordless directory is stale by
+construction.
 
 `status` output is the JSON record plus liveness booleans (PIDs
 alive, socket present) — the one-glance answer to "which instance was

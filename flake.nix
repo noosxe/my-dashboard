@@ -71,6 +71,9 @@
         # org.a11y.Bus can be activated from inside a dev shell without a
         # system-wide services.gnome.at-spi2.enable.
         atSpi = with pkgs; at-spi2-core;
+        # Live debug sessions (docs/0055 D2/D10 §5): headless compositor +
+        # screenshots. No GPU, no real input stack needed.
+        liveDebug = with pkgs; [ sway grim ];
 
         # Workspace version stays the single source of truth.
         version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).workspace.package.version;
@@ -163,7 +166,7 @@
         devShells.default =
           with pkgs;
           mkShell {
-            packages = buildTools ++ dynamicLibraries ++ [ atSpi ];
+            packages = buildTools ++ dynamicLibraries ++ [ atSpi ] ++ liveDebug;
             env = {
               RUST_BACKTRACE = "1";
               FONTCONFIG_FILE = fontsConf;

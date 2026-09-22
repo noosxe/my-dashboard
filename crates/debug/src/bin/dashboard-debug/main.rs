@@ -1,9 +1,13 @@
-//! `dashboard-debug` CLI (docs/0010 D9): the human/agent front end for
-//! the debug bridge. Reads the run token from the app's runtime dir,
-//! speaks the NDJSON protocol over the Unix socket, prints results.
+//! `dashboard-debug` CLI (docs/0010 D9 + docs/0055): the human/agent
+//! front end for the debug bridge. Reads the run token from the app's
+//! runtime dir, speaks the NDJSON protocol over the Unix socket, prints
+//! results.
 //!
 //! Verbs and grammar live in [`dashboard_debug::cli`] (pure, tested);
-//! this file is only I/O: connect, auth, request/response, render.
+//! session lifecycle I/O in [`session`]; this file is only wiring:
+//! connect, auth, request/response, render.
+
+mod session;
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
@@ -17,13 +21,32 @@ fn main() {
 
 fn run() -> i32 {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let command = match cli::parse_args(&args) {
-        Ok(command) => command,
+    let invocation = match cli::parse_invocation(&args) {
+        Ok(invocation) => invocation,
         Err(usage) => {
             eprintln!("{usage}");
             return 2;
         }
     };
+
+    if let Command::Session(cmd) = invocation.command {
+        return session::run(cmd, invocation.session);
+    }
+
+    // Session binding (docs/0055 D4): --session > DASHBOARD_DEBUG_SESSION
+    // > default discovery. `bind` redirects this process's roots before
+    // any token/socket lookup, then verifies the socket exists — "app is
+    // down", never a silent wrong-instance attach.
+    let session_name = invocation.session.or_else(|| {
+        std::env::var("DASHBOARD_DEBUG_SESSION")
+            .ok()
+            .filter(|value| !value.is_empty())
+    });
+    if let Some(name) = session_name {
+        if let Err(code) = session::bind(&name) {
+            return code;
+        }
+    }
 
     let runtime_dir = dashboard_core::AppPaths::init().runtime_dir().to_path_buf();
     let token_path = runtime_dir.join("debug.token");
@@ -52,7 +75,7 @@ fn run() -> i32 {
         return code;
     }
 
-    match command {
+    match invocation.command {
         Command::Shell => shell(&mut conn),
         other => run_command(&mut conn, &other),
     }
@@ -241,6 +264,7 @@ fn run_command(conn: &mut Conn, command: &Command) -> i32 {
         }
         Command::Logs { follow } => logs(conn, *follow),
         Command::Shell => unreachable!("shell handled in run()"),
+        Command::Session(_) => unreachable!("session verbs handled before connecting"),
     }
 }
 

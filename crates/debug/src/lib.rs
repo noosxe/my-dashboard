@@ -18,6 +18,7 @@ pub mod logs;
 mod merge;
 mod protocol;
 mod server;
+pub mod session;
 
 /// Start the debug bridge: create the runtime dir, socket and token file,
 /// spawn the accept thread and the main-thread job executor.

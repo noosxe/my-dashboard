@@ -21,6 +21,10 @@ futures = "0.3"
 # off the primary file writer via log_to_file_and_writer.
 flexi_logger.workspace = true
 
+# SIGTERM/SIGKILL + signal-0 liveness probes for `session stop`
+# (docs/0055 D5) — the CLI half only; the app never links this.
+libc = "0.2"
+
 # AT-SPI client for tree.dump enrichment + node click/focus (D4/D7).
 # Proxies only — the bus connection is plain zbus, mirroring how
 # accesskit_unix connects. Versions unify with the lockfile via the
