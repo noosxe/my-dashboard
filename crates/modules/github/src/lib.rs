@@ -153,7 +153,8 @@ impl Module for GithubModule {
         // Footer chip (docs/0050 D5): one view for the app's lifetime;
         // the status-item closure scopes it to the GitHub module pages
         // (the provider-decides-visibility contract).
-        let usage_chip = cx.new(|cx| usage::UsageChip::new(state.clone(), usage.clone(), cx));
+        let usage_chip =
+            cx.new(|cx| usage::UsageChip::new(state.clone(), usage.clone(), nav.clone(), cx));
         let status_item: StatusItemFn = Arc::new(move |page, _cx| match page {
             Page::Module(id) if id.as_ref() == "github" => {
                 Some(usage_chip.clone().into_any_element())
