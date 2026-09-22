@@ -89,7 +89,7 @@ pub fn bind(name: &str) -> Result<(), i32> {
     Ok(())
 }
 
-fn set_state_dir_env(state_dir: &str) {
+pub(crate) fn set_state_dir_env(state_dir: &str) {
     // SAFETY: called on the main thread before any threads exist (no zbus
     // connection, no spawned children) — no concurrent env readers.
     unsafe { std::env::set_var("DASHBOARD_STATE_DIR", state_dir) };
@@ -639,7 +639,7 @@ enum Match {
     Basename,
 }
 
-fn pid_alive(pid: u32) -> bool {
+pub(crate) fn pid_alive(pid: u32) -> bool {
     // Signal 0 probes existence: 0 or EPERM means alive, ESRCH means gone.
     let rc = unsafe { libc::kill(pid as libc::pid_t, 0) };
     rc == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
@@ -787,7 +787,7 @@ fn status_proxy() -> Result<atspi::proxy::bus::StatusProxy<'static>, String> {
     })
 }
 
-fn read_screen_reader_enabled() -> Result<bool, String> {
+pub(crate) fn read_screen_reader_enabled() -> Result<bool, String> {
     let step = "reading ScreenReaderEnabled".to_string();
     let proxy = status_proxy().map_err(|err| format!("{step}: {err}"))?;
     zbus::block_on(async {

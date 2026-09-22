@@ -7,6 +7,7 @@
 //! session lifecycle I/O in [`session`]; this file is only wiring:
 //! connect, auth, request/response, render.
 
+mod receipts;
 mod session;
 
 use std::io::{BufRead, BufReader, Write};
@@ -42,43 +43,77 @@ fn run() -> i32 {
     // > default discovery. `bind` redirects this process's roots before
     // any token/socket lookup, then verifies the socket exists — "app is
     // down", never a silent wrong-instance attach.
-    let session_name = invocation.session.or_else(|| {
+    let session_name = invocation.session.clone().or_else(|| {
         std::env::var("DASHBOARD_DEBUG_SESSION")
             .ok()
             .filter(|value| !value.is_empty())
     });
+
+    // D10/D12/D13: the receipt verbs own their session resolution.
+    // `screenshot` and `doctor` read the record directly (they must
+    // diagnose *broken* sessions — bind would refuse); `run` parses the
+    // script before binding so its `--session` line can bind the run.
+    match invocation.command {
+        Command::Screenshot { name } => {
+            return receipts::screenshot(session_name.as_deref(), &name);
+        }
+        Command::Doctor => return receipts::doctor(session_name.as_deref()),
+        Command::Run { script } => {
+            let source = match std::fs::read_to_string(&script) {
+                Ok(source) => source,
+                Err(err) => {
+                    eprintln!("cannot read script {}: {err}", script.display());
+                    return 1;
+                }
+            };
+            let parsed = match dashboard_debug::script::parse_script(&source) {
+                Ok(parsed) => parsed,
+                Err(err) => {
+                    eprintln!("{}: {err}", script.display());
+                    return 2;
+                }
+            };
+            let bound = invocation
+                .session
+                .clone()
+                .or_else(|| parsed.session.clone())
+                .or_else(|| {
+                    std::env::var("DASHBOARD_DEBUG_SESSION")
+                        .ok()
+                        .filter(|value| !value.is_empty())
+                });
+            if let Some(name) = &bound {
+                if let Err(code) = session::bind(name) {
+                    return code;
+                }
+            }
+            let mut conn = match connect_quiet() {
+                Ok(conn) => conn,
+                Err(code) => return code,
+            };
+            return receipts::run(&mut conn, &script, &parsed, bound.as_deref());
+        }
+        _ => {}
+    }
     if let Some(name) = session_name {
         if let Err(code) = session::bind(&name) {
             return code;
         }
     }
 
-    let runtime_dir = dashboard_core::AppPaths::init().runtime_dir().to_path_buf();
-    let token_path = runtime_dir.join("debug.token");
-    let Ok(token) = std::fs::read_to_string(&token_path).map(|t| t.trim().to_string()) else {
-        eprintln!(
-            "no debug token at {} — is the dashboard running (debug-tools)?",
-            token_path.display()
-        );
-        return 1;
-    };
-    let socket_path = runtime_dir.join("debug.sock");
-    let Ok(stream) = UnixStream::connect(&socket_path) else {
-        eprintln!(
-            "cannot connect to {} — is the dashboard running?",
-            socket_path.display()
-        );
-        return 1;
-    };
-
-    let conn = Conn::new(stream);
-    let mut conn = match conn {
+    let mut conn = match connect_quiet() {
         Ok(conn) => conn,
-        Err(code) => return code,
+        Err(code) => {
+            let socket = dashboard_core::AppPaths::init()
+                .runtime_dir()
+                .join("debug.sock");
+            eprintln!(
+                "cannot attach at {} — the app is down or refusing (exit {code})",
+                socket.display()
+            );
+            return code;
+        }
     };
-    if let Err(code) = conn.auth(&token) {
-        return code;
-    }
 
     match invocation.command {
         Command::Shell => shell(&mut conn),
@@ -86,8 +121,27 @@ fn run() -> i32 {
     }
 }
 
+/// Token lookup + socket connect + auth against the resolved runtime
+/// dir (default discovery, or the session `bind` redirected to).
+/// Silent: callers report through their own channel (the verb's
+/// stderr, doctor's check table).
+pub(crate) fn connect_quiet() -> Result<Conn, i32> {
+    let runtime_dir = dashboard_core::AppPaths::init().runtime_dir().to_path_buf();
+    let token_path = runtime_dir.join("debug.token");
+    let Ok(token) = std::fs::read_to_string(&token_path).map(|t| t.trim().to_string()) else {
+        return Err(1);
+    };
+    let socket_path = runtime_dir.join("debug.sock");
+    let Ok(stream) = UnixStream::connect(&socket_path) else {
+        return Err(1);
+    };
+    let mut conn = Conn::new(stream)?;
+    conn.auth(&token)?;
+    Ok(conn)
+}
+
 /// One authenticated NDJSON connection: request in, one response out.
-struct Conn {
+pub(crate) struct Conn {
     writer: UnixStream,
     reader: BufReader<UnixStream>,
     next_id: u64,
@@ -120,7 +174,7 @@ impl Conn {
     /// One protocol round-trip. Errors are returned as values (the wire
     /// carries them); only I/O failures and malformed responses bubble
     /// up as `Err`.
-    fn call(&mut self, method: &str, params: Value) -> Result<Value, i32> {
+    pub(crate) fn call(&mut self, method: &str, params: Value) -> Result<Value, i32> {
         let id = self.next_id;
         self.next_id += 1;
         self.raw(json!({"id": id, "method": method, "params": params}))
@@ -147,7 +201,7 @@ impl Conn {
 }
 
 /// `error {code}: {message}` on stderr; returns the exit code.
-fn report(response: &Value) -> i32 {
+pub(crate) fn report(response: &Value) -> i32 {
     if let Some(error) = response.get("error") {
         eprintln!(
             "error {}: {}",
@@ -160,7 +214,7 @@ fn report(response: &Value) -> i32 {
 }
 
 /// Run one parsed command; returns the process exit code.
-fn run_command(conn: &mut Conn, command: &Command) -> i32 {
+pub(crate) fn run_command(conn: &mut Conn, command: &Command) -> i32 {
     match command {
         Command::Tree { json, window, view } => match view {
             TreeView::Plain => {
@@ -323,6 +377,11 @@ fn run_command(conn: &mut Conn, command: &Command) -> i32 {
         Command::Logs { follow } => logs(conn, *follow),
         Command::Shell => unreachable!("shell handled in run()"),
         Command::Session(_) => unreachable!("session verbs handled before connecting"),
+        // The receipt verbs own their session resolution and never
+        // reach the connected dispatch (see run()).
+        Command::Screenshot { .. } | Command::Run { .. } | Command::Doctor => {
+            unreachable!("receipt verbs handled before connecting")
+        }
     }
 }
 
@@ -344,7 +403,7 @@ fn node_action(conn: &mut Conn, method: &str, node: &str, window: &Option<u64>, 
 
 /// `tree.dump` round-trip: params in, `result` out. `Err` carries the
 /// exit code (I/O failure or wire error, already reported).
-fn tree_dump(conn: &mut Conn, window: &Option<u64>) -> Result<Value, i32> {
+pub(crate) fn tree_dump(conn: &mut Conn, window: &Option<u64>) -> Result<Value, i32> {
     let mut params = json!({});
     if let Some(window) = window {
         params["window"] = json!(window);
@@ -357,14 +416,14 @@ fn tree_dump(conn: &mut Conn, window: &Option<u64>) -> Result<Value, i32> {
 }
 
 /// The dump's frame counter (0 when absent — activation pending).
-fn frame_number(result: &Value) -> u64 {
+pub(crate) fn frame_number(result: &Value) -> u64 {
     result["frame"]["frame_number"].as_u64().unwrap_or(0)
 }
 
 /// Poll `tree.dump` until `frame_number` exceeds `above` (D6). The dump
 /// never forces a draw — on-demand rendering is the contract, so a
 /// timeout is the named hidden-workspace failure, not a flake.
-fn wait_for_frame(
+pub(crate) fn wait_for_frame(
     conn: &mut Conn,
     window: &Option<u64>,
     above: u64,
@@ -436,11 +495,11 @@ fn wait_frame_receipt(
 
 /// Where snapshots live for this invocation: next to the resolved state
 /// dir (the bound session's `snapshots/`, 0055 D1).
-fn snapshots_root() -> PathBuf {
+pub(crate) fn snapshots_root() -> PathBuf {
     snapshot::snapshots_root(dashboard_core::AppPaths::init().state_dir())
 }
 
-fn tree_snapshot(conn: &mut Conn, window: &Option<u64>, name: &str) -> i32 {
+pub(crate) fn tree_snapshot(conn: &mut Conn, window: &Option<u64>, name: &str) -> i32 {
     if !snapshot::valid_name(name) {
         eprintln!("bad snapshot name {name:?} — want [A-Za-z0-9._-]{{1,64}}, no leading dot");
         return 2;
@@ -476,7 +535,7 @@ fn tree_snapshot(conn: &mut Conn, window: &Option<u64>, name: &str) -> i32 {
     0
 }
 
-fn tree_diff(a: &str, b: &str, json_out: bool) -> i32 {
+pub(crate) fn tree_diff(a: &str, b: &str, json_out: bool) -> i32 {
     for name in [a, b] {
         if !snapshot::valid_name(name) {
             eprintln!("bad snapshot name {name:?} — want [A-Za-z0-9._-]{{1,64}}, no leading dot");
@@ -515,7 +574,7 @@ fn tree_diff(a: &str, b: &str, json_out: bool) -> i32 {
 }
 
 /// The focused node of a dump: `(accesskit_id, role, label)`.
-fn focused_node(dump: &Value) -> Option<(String, String, Option<String>)> {
+pub(crate) fn focused_node(dump: &Value) -> Option<(String, String, Option<String>)> {
     dump["nodes"].as_object()?.values().find_map(|node| {
         if !node["focused"].as_bool().unwrap_or(false) {
             return None;

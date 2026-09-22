@@ -321,7 +321,13 @@ dashboard-debug logs [-f]                  # drain ring; -f polls 500ms
 dashboard-debug shell                      # REPL over the same verbs
 ```
 
-No clap (≈8 verbs, hand parsing keeps the crate dep-free beyond
+docs/0055 extends this surface with the session + receipt verbs
+(`session start|status|stop|env`, `wait-frame`, `tree
+--snapshot/--diff/--tab-stops`, `--wait-frame` on drive verbs,
+`screenshot`, `run <script>`, `doctor`) — same hand-rolled parser, same
+exit-code contract.
+
+No clap (hand parsing keeps the crate dep-free beyond
 serde/serde_json + the atspi/zbus pair already in the lockfile).
 Exit codes: `0` ok, `1` protocol/IO error (`error {code}: {message}`
 on stderr), `2` usage. `type` maps control-ish chars to key names

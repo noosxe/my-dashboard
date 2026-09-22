@@ -1,0 +1,38 @@
+# usage-freeze.txt — #347's freeze receipt as a committed script
+# (docs/0055 D12). One command re-runs the quarter's most fragile
+# receipt: the usage analytics page keeps its honesty through a range
+# flip.
+#
+# Prerequisites: dashboard-debug session start --name freeze --size 1280x800
+# Coordinates assume that size (fixed-size headless output is what makes
+# them deterministic — ids are per-run seeds and never appear here).
+# Run: dashboard-debug run crates/debug/verify/usage-freeze.txt
+
+--session freeze
+
+# home → the GitHub module card
+mouse down 448 169
+mouse up 448 169
+wait-frame
+
+# module page → usage analytics
+mouse down 1239 740
+mouse up 1239 740
+wait-frame
+
+snapshot opened
+
+# flip the range: 1h → 1w
+mouse down 400 85
+mouse up 400 85
+wait-frame
+
+snapshot after-range
+diff opened after-range
+
+# freeze honesty: the "as of" label survives the range flip untouched,
+# and the placeholder the freeze once showed stays gone
+assert-label "as of"
+assert-no-label "Quota placeholder"
+
+screenshot receipt

@@ -12,11 +12,13 @@
 
 pub mod a11y;
 pub mod cli;
+pub mod doctor;
 mod handlers;
 mod jobs;
 pub mod logs;
 mod merge;
 pub mod protocol;
+pub mod script;
 mod server;
 pub mod session;
 pub mod snapshot;
