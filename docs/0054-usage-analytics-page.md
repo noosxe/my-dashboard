@@ -325,6 +325,31 @@ only buckets with flights; the per-transport splits ride the panel's
 a11y summary ("REST up to … · GQL up to …") since the stock tooltip
 cannot carry custom per-bucket fields at this rev)*
 
+**D17 — Tab content scrolls under a fixed control surface.** The page
+keeps its strips (range, facets, tab bar) fixed; each tab's content
+area scrolls vertically within the page slice the strips leave
+(`overflow_y_scroll` on the tab root — overview and latency had it
+from the start; the quota tab joined late and squeezed its content
+until then). Two layout rules make the scroll honest, both learned
+the hard way:
+
+1. **Auto-height rows inside a scroll root take `flex_none`.** A
+   scroll container does not relax flex-shrink: a squeezable row
+   compresses, paints its overflow over the siblings below, and the
+   scroll extent lies. Natural-height children + the root's scroll
+   is the whole trick.
+2. **`Select` slots are bounded by the parent** (`div().w(..)
+   .flex_none().child(Select::new(..))` — the page.rs org-picker
+   pattern). The upstream Select's outer wrapper is hardcoded
+   `size_full()` (select.rs) and style refinements only reach the
+   inner trigger: unbounded, the wrapper eats the whole row cell
+   (the a11y dump even reports junk `955×134` bounds), flex-wrap
+   stacks the controls vertically, and the overflow lands on top of
+   whatever follows. Tables inside a scroll root take a fixed height
+   slice (`h(px(300.))`), never `flex_1` — a flex slice collapses to
+   nothing whenever the content above exceeds the viewport.
+*(implemented in the analytics-scroll PR)*
+
 ## 6. Use case #2 — Request latency
 
 Goal: *see how slow our requests are, where, and why* — the developer's
