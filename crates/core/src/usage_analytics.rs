@@ -934,11 +934,11 @@ pub fn overview(rows: &[UsageRecord], q: &OverviewQuery) -> OverviewView {
 
 use gpui::Hsla;
 use gpui::prelude::*;
-use gpui::{App, Context, Entity, Render, Window, div, px};
+use gpui::{AnyElement, App, Context, Entity, Render, Window, div, px};
 use gpui_component::{
     ActiveTheme, IconName, Sizable as _, StyledExt as _,
     button::{Button, ButtonVariants},
-    chart::{BarChart, PieChart},
+    chart::{BarChart, LineChart, PieChart},
     h_flex,
     plot::shape::BarAlignment,
     searchable_list::SearchableVec,
@@ -1023,6 +1023,11 @@ pub struct UsagePage {
     /// that never render; `new` always creates it — it needs a
     /// `Window` exactly once, for the Selects and the table entity.
     quota: Option<Entity<QuotaTab>>,
+    /// The Overview tab's cached view (D11/D15/D16): one `overview`
+    /// call per first-open/refresh/control change. Render is a pure
+    /// function of this snapshot; nothing on the tab is interactive,
+    /// so — unlike the quota tab — it needs no entity of its own.
+    overview_view: OverviewView,
 }
 
 impl UsagePage {
@@ -1036,13 +1041,14 @@ impl UsagePage {
             errors_only: false,
             tab: UsageTab::Overview,
             quota: Some(cx.new(|cx| QuotaTab::new(window, cx))),
+            overview_view: empty_overview(),
         };
         // One load on first open (D10): the page never opens empty
         // demanding a click.
         page.reload(cx);
-        // The quota tab derives its ranking from the fetched rows
-        // (D7) — same anchor, same facets.
-        page.recompute_quota(cx);
+        // Both tabs derive from the fetched rows (D7) — same anchor,
+        // same facets.
+        page.recompute_tabs(cx);
         page
     }
 
@@ -1068,14 +1074,15 @@ impl UsagePage {
     fn refresh(&mut self, cx: &mut Context<Self>) {
         self.as_of_ms = usage_records::now_epoch_ms();
         self.reload(cx);
-        self.recompute_quota(cx);
+        self.recompute_tabs(cx);
     }
 
     /// Push the page-global query inputs (frozen window, facets,
-    /// fetched rows) into the quota tab (D7): a pure re-derivation —
-    /// no store read. Windowless by design: the table's delegate is
+    /// fetched rows) into every tab (D7): a pure re-derivation — no
+    /// store read. Windowless by design: the quota tab's delegate is
     /// swapped in place, so nothing here needs a `Window`.
-    fn recompute_quota(&mut self, cx: &mut Context<Self>) {
+    fn recompute_tabs(&mut self, cx: &mut Context<Self>) {
+        self.overview_view = self.compute_overview();
         let Some(tab) = self.quota.clone() else {
             return;
         };
@@ -1084,6 +1091,25 @@ impl UsagePage {
         let rows = std::mem::take(&mut self.rows);
         tab.update(cx, |tab, cx| tab.sync(window, filters, &rows, cx));
         self.rows = rows;
+    }
+
+    /// The Overview tab's view (D11/D15/D16): `overview` over the
+    /// facet-filtered rows — the calculator scopes by the window
+    /// itself, so facets are a pre-filter here (D4: page-global
+    /// predicates apply to every tab).
+    fn compute_overview(&self) -> OverviewView {
+        let filtered: Vec<UsageRecord> = self
+            .rows
+            .iter()
+            .filter(|r| self.filters().matches(r))
+            .cloned()
+            .collect();
+        overview(
+            &filtered,
+            &OverviewQuery {
+                window: self.window(),
+            },
+        )
     }
 
     /// The frozen window every tab derives from (D2/D10): bounds from
@@ -1165,7 +1191,7 @@ impl Render for UsagePage {
                                 // frozen `as_of` — no store read.
                                 if let Some(range) = Range::from_index(*ix) {
                                     this.range = range;
-                                    this.recompute_quota(cx);
+                                    this.recompute_tabs(cx);
                                     cx.notify();
                                 }
                             }))
@@ -1198,7 +1224,7 @@ impl Render for UsagePage {
                             .on_click(cx.listener(|this, ix: &usize, _, cx| {
                                 if let Some((_, t)) = TRANSPORT_SEGMENTS.get(*ix) {
                                     this.transport = *t;
-                                    this.recompute_quota(cx);
+                                    this.recompute_tabs(cx);
                                     cx.notify();
                                 }
                             }))
@@ -1224,7 +1250,7 @@ impl Render for UsagePage {
                                     0 => None,
                                     i => mods.get(i - 1).cloned(),
                                 };
-                                this.recompute_quota(cx);
+                                this.recompute_tabs(cx);
                                 cx.notify();
                             }))
                             .children(std::iter::once(Tab::new().label("All")).chain(
@@ -1239,7 +1265,7 @@ impl Render for UsagePage {
                             .label("errors only")
                             .on_click(cx.listener(|this, checked: &bool, _, cx| {
                                 this.errors_only = *checked;
-                                this.recompute_quota(cx);
+                                this.recompute_tabs(cx);
                                 cx.notify();
                             })),
                     ),
@@ -1284,11 +1310,9 @@ impl Render for UsagePage {
                     .child(Tab::new().label(UsageTab::Quota.label())),
             )
             .child(match self.tab {
-                UsageTab::Overview => tab_placeholder(
-                    "Overview cards and charts arrive with their implementation (docs/0054 §5).",
-                    cx,
-                )
-                .into_any_element(),
+                UsageTab::Overview => {
+                    render_overview_tab(&self.overview_view, cx).into_any_element()
+                }
                 UsageTab::Quota => match &self.quota {
                     Some(tab) => tab.clone().into_any_element(),
                     None => tab_placeholder(
@@ -1312,6 +1336,535 @@ fn tab_placeholder(text: &str, cx: &Context<UsagePage>) -> impl IntoElement {
                 .text_color(cx.theme().muted_foreground)
                 .child(text.to_string()),
         )
+}
+
+// ---------------------------------------------------------------------------
+// Overview tab (docs/0054 §5 — D11/D15/D16)
+// ---------------------------------------------------------------------------
+
+/// `OverviewView` with nothing in it — the page literal's placeholder
+/// before the first `recompute_tabs` (and the skeleton tests' fill).
+fn empty_overview() -> OverviewView {
+    OverviewView {
+        cards: OverviewCards {
+            points_spent: PointsSpentCard {
+                rest_points: 0,
+                gql_points: 0,
+                flights: 0,
+                unattributable: 0,
+            },
+            budget: Vec::new(),
+            top_consumer: Vec::new(),
+        },
+        burn_down: BurnDown { series: Vec::new() },
+        spend_trend: SpendTrend {
+            buckets: Vec::new(),
+        },
+        p90_trend: P90Trend {
+            buckets: Vec::new(),
+        },
+        slowest_op: None,
+    }
+}
+
+/// Second-resolution clock label for point-scale x axes. Upstream's
+/// `LineChart` x scale is ordinal (a d3 point scale): equal labels
+/// collapse onto the first position, so chart labels need second
+/// resolution — minute labels collide on the 1h range's 90 s buckets.
+fn format_hms(epoch_ms: u64) -> String {
+    use chrono::TimeZone;
+    chrono::Local
+        .timestamp_millis_opt(epoch_ms as i64)
+        .single()
+        .map(|t| t.format("%H:%M:%S").to_string())
+        .unwrap_or_else(|| "—".into())
+}
+
+/// Ordinal-x labels, de-duplicated: two snapshots in the same second
+/// get a `′` mark rather than folding onto one tick.
+fn unique_labels(ts: &[u64]) -> Vec<SharedString> {
+    let mut labels: Vec<String> = ts.iter().map(|t| format_hms(*t)).collect();
+    for i in 0..labels.len() {
+        let dupes = labels[..i].iter().filter(|l| **l == labels[i]).count();
+        if dupes > 0 {
+            labels[i].push_str(&"′".repeat(dupes));
+        }
+    }
+    labels.into_iter().map(SharedString::from).collect()
+}
+
+/// Snapshot age copy: `3m ago`, `2h ago` — staleness stays visible
+/// (D11 card 2).
+fn age_of(ms: u64) -> String {
+    let m = ms / 60_000;
+    if m < 60 {
+        format!("{m}m ago")
+    } else {
+        format!("{}h ago", m / 60)
+    }
+}
+
+/// Runway copy: thousands-grouped hours (`≈ 59,964 h`) — big
+/// numbers on a nearly-untouched window are honest, but not ugly.
+fn fmt_hours(h: f64) -> String {
+    let n = h.round() as u64;
+    let s = n.to_string();
+    let mut out = String::with_capacity(s.len() + s.len() / 3);
+    for (i, ch) in s.chars().enumerate() {
+        if i > 0 && (s.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(ch);
+    }
+    out
+}
+
+/// Latency copy: `812 ms`, `2.3 s`.
+fn fmt_ms(ms: u32) -> String {
+    if ms < 1_000 {
+        format!("{ms} ms")
+    } else {
+        format!("{:.1} s", ms as f64 / 1_000.0)
+    }
+}
+
+/// One D11 card: number-first, one-line details, an id + `Label` role
+/// carrying the same numbers for AT (pixels are invisible).
+fn stat_card(
+    id: &str,
+    title: &str,
+    headline: SharedString,
+    lines: Vec<SharedString>,
+    a11y: String,
+    cx: &Context<UsagePage>,
+) -> impl IntoElement {
+    let theme = cx.theme();
+    let (border, fg, muted) = (theme.border, theme.foreground, theme.muted_foreground);
+    v_flex()
+        .id(id.to_string())
+        .role(gpui::accesskit::Role::Label)
+        .aria_label(a11y)
+        .flex_1()
+        .min_w(px(220.))
+        .gap_1()
+        .p_3()
+        .border_1()
+        .border_color(border)
+        .rounded_md()
+        .child(
+            div()
+                .text_sm()
+                .text_color(muted)
+                .child(SharedString::from(title)),
+        )
+        .child(div().text_lg().text_color(fg).child(headline))
+        .children(
+            lines
+                .into_iter()
+                .map(|l| div().text_sm().text_color(muted).child(l)),
+        )
+}
+
+/// One chart panel: the a11y `Label` summary (the D8/D16 contract —
+/// chart pixels are invisible to AT), the chart itself, and an
+/// optional caption line beneath.
+fn line_panel(
+    id: &str,
+    summary: String,
+    data: Vec<(SharedString, f64)>,
+    stroke: Hsla,
+    step: bool,
+    caption: Option<SharedString>,
+    cx: &Context<UsagePage>,
+) -> impl IntoElement {
+    let muted = cx.theme().muted_foreground;
+    let mut chart = LineChart::new(data)
+        .id(id.to_string())
+        .name(id)
+        .x(|p: &(SharedString, f64)| p.0.clone())
+        .y(|p: &(SharedString, f64)| p.1)
+        .stroke(stroke);
+    if step {
+        chart = chart.step_after();
+    }
+    v_flex()
+        .flex_1()
+        .min_w(px(280.))
+        .gap_1()
+        .child(
+            div()
+                .id(format!("{id}-summary"))
+                .role(gpui::accesskit::Role::Label)
+                .aria_label(summary.clone())
+                .text_sm()
+                .text_color(muted)
+                .child(summary),
+        )
+        .child(div().h(px(180.)).child(chart))
+        .when_some(caption, |this, caption| {
+            this.child(div().text_sm().text_color(muted).child(caption))
+        })
+}
+
+/// The budget card's per-transport line: `REST 84% · 90 of 100 ·
+/// snapshot 3m ago`, absolute-only when no ceiling was recorded, plus
+/// the page's only projection (`≈`) on its own line.
+fn budget_lines(b: &BudgetTransportCard) -> Vec<SharedString> {
+    let mut lines = Vec::new();
+    let main = match (b.remaining_pct, b.limit) {
+        (Some(pct), Some(limit)) => {
+            format!("{} {:.0}% · {} of {}", b.transport, pct, b.remaining, limit)
+        }
+        _ => format!("{} {} left", b.transport, b.remaining),
+    };
+    let age = format!("snapshot {}", age_of(b.snapshot_age_ms));
+    lines.push(SharedString::from(format!("{main} · {age}")));
+    if let Some(h) = b.runway_hours {
+        lines.push(SharedString::from(format!(
+            "≈ {} h at current pace",
+            fmt_hours(h)
+        )));
+    }
+    lines
+}
+
+/// The Overview tab (§5): four cards (D11/D16 card 4), then the chart
+/// rows (D15 burn-down + spend, D16 p90). Everything is a pure
+/// function of the cached `OverviewView` — no listeners, no state.
+fn render_overview_tab(view: &OverviewView, cx: &Context<UsagePage>) -> impl IntoElement {
+    let flights = view.cards.points_spent.flights;
+    if flights == 0 {
+        return v_flex()
+            .flex_1()
+            .min_h_0()
+            .items_center()
+            .justify_center()
+            .child(
+                div()
+                    .text_color(cx.theme().muted_foreground)
+                    .child("No flights in the window — widen the range or refresh."),
+            )
+            .into_any_element();
+    }
+    let theme = cx.theme();
+    let (chart_1, chart_2) = (theme.chart_1, theme.chart_2);
+    let muted_fg = theme.muted_foreground;
+
+    // --- D11 card 1: points spent, split by pool, never summed ---
+    let ps = &view.cards.points_spent;
+    let points_card = stat_card(
+        "usage-card-points",
+        "Points spent",
+        SharedString::from(format!("REST {} · GQL {}", ps.rest_points, ps.gql_points)),
+        vec![SharedString::from(format!(
+            "{} flights · {} unattributable",
+            ps.flights, ps.unattributable
+        ))],
+        format!(
+            "Points spent: REST {}, GraphQL {}; {} flights, {} unattributable",
+            ps.rest_points, ps.gql_points, ps.flights, ps.unattributable
+        ),
+        cx,
+    );
+
+    // --- D11 card 2: budget & runway (absolute-only without a
+    // ceiling; `≈` marks the page's only projection) ---
+    let budget_headline = match view.cards.budget.first() {
+        Some(b) => match b.remaining_pct {
+            Some(pct) => SharedString::from(format!("{} {:.0}%", b.transport, pct)),
+            None => SharedString::from(format!("{} {} left", b.transport, b.remaining)),
+        },
+        None => SharedString::from("no snapshot"),
+    };
+    let budget_lines: Vec<SharedString> = view.cards.budget.iter().flat_map(budget_lines).collect();
+    let budget_lines = if budget_lines.is_empty() {
+        vec![SharedString::from("no budget snapshot in the window")]
+    } else {
+        budget_lines
+    };
+    let budget_a11y = if view.cards.budget.is_empty() {
+        "Budget: no snapshot in the window".to_string()
+    } else {
+        format!(
+            "Budget and runway: {}. Runway is a projection from the window's pace.",
+            budget_lines
+                .iter()
+                .map(|l| l.to_string())
+                .collect::<Vec<_>>()
+                .join("; ")
+        )
+    };
+    let budget_card = stat_card(
+        "usage-card-budget",
+        "Budget & runway",
+        budget_headline,
+        budget_lines,
+        budget_a11y,
+        cx,
+    );
+
+    // --- D11 card 3: top consumer + mini top-3 (shares of known) ---
+    let (consumer_headline, consumer_lines, consumer_a11y) = match view.cards.top_consumer.first() {
+        Some(top) => {
+            let share = top
+                .share_pct
+                .map_or_else(String::new, |p| format!(" · {:.0}%", p));
+            (
+                SharedString::from(format!("{} · {} pts{}", top.name, top.cost, share)),
+                view.cards.top_consumer[1..]
+                    .iter()
+                    .map(|e| {
+                        SharedString::from(format!(
+                            "{} {} pts{}",
+                            e.name,
+                            e.cost,
+                            e.share_pct
+                                .map_or_else(String::new, |p| format!(" · {:.0}%", p))
+                        ))
+                    })
+                    .collect(),
+                format!(
+                    "Top consumer: {} at {} pts{}",
+                    top.name,
+                    top.cost,
+                    top.share_pct
+                        .map_or_else(String::new, |p| format!(" ({:.0}% of known cost)", p))
+                ),
+            )
+        }
+        None => (
+            SharedString::from("—"),
+            vec![SharedString::from("no known cost in the window")],
+            "Top consumer: no known cost in the window".to_string(),
+        ),
+    };
+    let consumer_card = stat_card(
+        "usage-card-consumer",
+        "Top consumer",
+        consumer_headline,
+        consumer_lines,
+        consumer_a11y,
+        cx,
+    );
+
+    // --- D16 card 4: slowest op — the highest-value latency fact ---
+    let (slow_headline, slow_lines, slow_a11y) = match &view.slowest_op {
+        Some(s) => (
+            SharedString::from(s.op.clone()),
+            vec![SharedString::from(format!(
+                "p90 {} · worst {}",
+                fmt_ms(s.p90_ms),
+                fmt_ms(s.worst_ms)
+            ))],
+            format!(
+                "Slowest op: {} p90 {}, worst single flight {}",
+                s.op,
+                fmt_ms(s.p90_ms),
+                fmt_ms(s.worst_ms)
+            ),
+        ),
+        None => (
+            SharedString::from("—"),
+            vec![SharedString::from("no flights with latency in the window")],
+            "Slowest op: none in the window".to_string(),
+        ),
+    };
+    let slowest_card = stat_card(
+        "usage-card-slowest",
+        "Slowest op",
+        slow_headline,
+        slow_lines,
+        slow_a11y,
+        cx,
+    );
+
+    // --- D15 chart row 1: burn-down, one panel per transport ---
+    let burn_panels: Vec<AnyElement> = view
+        .burn_down
+        .series
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| !s.points.is_empty())
+        .map(|(i, s)| {
+            let ts: Vec<u64> = s.points.iter().map(|p| p.ts_epoch_ms).collect();
+            let labels = unique_labels(&ts);
+            let data: Vec<(SharedString, f64)> = s
+                .points
+                .iter()
+                .enumerate()
+                .map(|(j, p)| (labels[j].clone(), p.remaining as f64))
+                .collect();
+            let last = s.points.last().map(|p| p.remaining).unwrap_or(0);
+            let closest = s.points.iter().map(|p| p.remaining).min().unwrap_or(0);
+            let (summary, caption) = match s.ceiling {
+                Some(limit) => (
+                    format!(
+                        "{} budget burn-down: remaining {} of {} ({:.0}%), closest approach {}",
+                        s.transport,
+                        last,
+                        limit,
+                        last as f64 / limit as f64 * 100.0,
+                        closest
+                    ),
+                    Some(SharedString::from(format!(
+                        "ceiling {limit} · closest approach {closest}"
+                    ))),
+                ),
+                None => (
+                    format!(
+                        "{} budget burn-down: remaining {}, no ceiling recorded",
+                        s.transport, last
+                    ),
+                    None,
+                ),
+            };
+            let stroke = if i % 2 == 0 { chart_1 } else { chart_2 };
+            line_panel(
+                &format!("usage-burn-{}", s.transport),
+                summary,
+                data,
+                stroke,
+                true,
+                caption,
+                cx,
+            )
+            .into_any_element()
+        })
+        .collect();
+    let burn_row = if burn_panels.is_empty() {
+        h_flex()
+            .child(div().text_sm().text_color(muted_fg).child(
+                "No budget snapshots in the window — burn-down appears with the first response.",
+            ))
+            .into_any_element()
+    } else {
+        h_flex()
+            .flex_wrap()
+            .gap_4()
+            .items_start()
+            .children(burn_panels)
+            .into_any_element()
+    };
+
+    // --- D15 chart row 2 + D16: spend per transport (never pooled)
+    // and the condensed pooled p90 line ---
+    let spend_rest: Vec<(SharedString, f64)> = view
+        .spend_trend
+        .buckets
+        .iter()
+        .filter(|b| b.rest > 0)
+        .map(|b| (SharedString::from(format_hms(b.start_ms)), b.rest as f64))
+        .collect();
+    let spend_gql: Vec<(SharedString, f64)> = view
+        .spend_trend
+        .buckets
+        .iter()
+        .filter(|b| b.gql > 0)
+        .map(|b| (SharedString::from(format_hms(b.start_ms)), b.gql as f64))
+        .collect();
+    let plural = |n: usize| if n == 1 { "" } else { "s" };
+    let rest_sum: u64 = view.spend_trend.buckets.iter().map(|b| b.rest).sum();
+    let gql_sum: u64 = view.spend_trend.buckets.iter().map(|b| b.gql).sum();
+
+    let p90_data: Vec<(SharedString, f64)> = view
+        .p90_trend
+        .buckets
+        .iter()
+        .filter_map(|b| {
+            b.pooled_p90_ms
+                .map(|ms| (SharedString::from(format_hms(b.start_ms)), ms as f64))
+        })
+        .collect();
+    let pooled_max = view
+        .p90_trend
+        .buckets
+        .iter()
+        .filter_map(|b| b.pooled_p90_ms)
+        .max();
+    let rest_max = view
+        .p90_trend
+        .buckets
+        .iter()
+        .filter_map(|b| b.rest_p90_ms)
+        .max();
+    let gql_max = view
+        .p90_trend
+        .buckets
+        .iter()
+        .filter_map(|b| b.gql_p90_ms)
+        .max();
+
+    let mut chart_row = h_flex().flex_wrap().gap_4().items_start();
+    if !spend_rest.is_empty() {
+        chart_row = chart_row.child(line_panel(
+            "usage-spend-rest",
+            format!(
+                "REST spend over time: {rest_sum} points across {} active bucket{}",
+                spend_rest.len(),
+                plural(spend_rest.len())
+            ),
+            spend_rest,
+            chart_1,
+            false,
+            Some(SharedString::from(format!("Σ {rest_sum} pts"))),
+            cx,
+        ));
+    }
+    if !spend_gql.is_empty() {
+        chart_row = chart_row.child(line_panel(
+            "usage-spend-gql",
+            format!(
+                "GraphQL spend over time: {gql_sum} points across {} active bucket{}",
+                spend_gql.len(),
+                plural(spend_gql.len())
+            ),
+            spend_gql,
+            chart_2,
+            false,
+            Some(SharedString::from(format!("Σ {gql_sum} pts"))),
+            cx,
+        ));
+    }
+    if !p90_data.is_empty() {
+        let splits = match (rest_max, gql_max) {
+            (Some(r), Some(g)) => format!(" · REST up to {} · GQL up to {}", fmt_ms(r), fmt_ms(g)),
+            (Some(r), None) => format!(" · REST up to {}", fmt_ms(r)),
+            (None, Some(g)) => format!(" · GQL up to {}", fmt_ms(g)),
+            (None, None) => String::new(),
+        };
+        chart_row = chart_row.child(line_panel(
+            "usage-p90",
+            format!(
+                "Latency p90 trend: pooled up to {}{splits}",
+                pooled_max.map_or_else(|| "—".into(), fmt_ms)
+            ),
+            p90_data,
+            theme.chart_3,
+            false,
+            None,
+            cx,
+        ));
+    }
+
+    v_flex()
+        .id("usage-overview")
+        .flex_1()
+        .min_h_0()
+        .gap_3()
+        .overflow_y_scroll()
+        .child(
+            h_flex()
+                .flex_wrap()
+                .gap_3()
+                .items_start()
+                .child(points_card)
+                .child(budget_card)
+                .child(consumer_card)
+                .child(slowest_card),
+        )
+        .child(burn_row)
+        .child(chart_row)
+        .into_any_element()
 }
 
 // ---------------------------------------------------------------------------
@@ -2414,6 +2967,7 @@ mod tests {
             // Pure-derivation tests never render; the tab needs a
             // window once and is not under test here.
             quota: None,
+            overview_view: empty_overview(),
         }
     }
 
@@ -2571,6 +3125,149 @@ mod tests {
         });
         page.update(cx, |p, cx| p.reload(cx));
         cx.update(|cx| assert_eq!(page.read(cx).module, None));
+    }
+
+    #[gpui::test]
+    fn overview_tab_derives_from_facets_and_range_purely(cx: &mut TestAppContext) {
+        // Selects/TableState read the theme global at construction.
+        cx.update(gpui_component::init);
+        let store = Arc::new(MemorySink::default());
+        cx.update(|cx| init_with(cx, store.clone() as Arc<dyn UsageStore>));
+
+        let now = usage_records::now_epoch_ms();
+        // In the 1h heart of the default 1d window.
+        let mut gql = rec(now - 60_000, "home", Some(5));
+        gql.transport = Transport::Graphql;
+        let mut err = rec(now - 60_000, "issue-page", None);
+        err.network_error = true;
+        let mut snap = rec(now - 60_000, "home", Some(0));
+        snap.remaining_after = Some(90);
+        snap.limit_after = Some(100);
+        // Three hours back: inside 1d, outside 1h.
+        let mid = rec(now - 3 * 3_600_000, "pr-page", Some(7));
+        cx.update(|cx| {
+            let s = sink(cx);
+            s.record(rec(now - 60_000, "pr-page", Some(2)));
+            s.record(gql);
+            s.record(err);
+            s.record(snap);
+            s.record(mid);
+        });
+
+        let (page, _window_ctx) = cx.add_window_view(UsagePage::new);
+        cx.update(|cx| {
+            let p = page.read(cx);
+            let v = &p.overview_view;
+            // Pools never sum (D11): REST and GraphQL stay split.
+            assert_eq!(
+                (
+                    v.cards.points_spent.rest_points,
+                    v.cards.points_spent.gql_points
+                ),
+                (9, 5)
+            );
+            assert_eq!(
+                (
+                    v.cards.points_spent.flights,
+                    v.cards.points_spent.unattributable
+                ),
+                (5, 1)
+            );
+            // The REST snapshot drives the budget card (D11/D14).
+            assert_eq!(v.cards.budget.len(), 1);
+            assert_eq!(v.cards.budget[0].remaining_pct, Some(90.0));
+            assert!(v.slowest_op.is_some(), "flights carry durations");
+        });
+        let rows_len = cx.update(|cx| page.read(cx).rows.len());
+
+        // Transport facet: a pure recompute over the same frozen rows
+        // (D4/D10) — the REST snapshot follows the facet out.
+        page.update(cx, |p, cx| {
+            p.transport = Some(Transport::Graphql);
+            p.recompute_tabs(cx);
+        });
+        cx.update(|cx| {
+            let p = page.read(cx);
+            let v = &p.overview_view;
+            assert_eq!(
+                (
+                    v.cards.points_spent.rest_points,
+                    v.cards.points_spent.gql_points
+                ),
+                (0, 5)
+            );
+            assert_eq!(v.cards.budget.len(), 0);
+            assert_eq!(p.rows.len(), rows_len, "no store read on a facet change");
+        });
+
+        // Errors-only: the error filter is a page-global predicate.
+        page.update(cx, |p, cx| {
+            p.transport = None;
+            p.errors_only = true;
+            p.recompute_tabs(cx);
+        });
+        cx.update(|cx| {
+            let v = &page.read(cx).overview_view;
+            assert_eq!(v.cards.points_spent.flights, 1);
+            assert_eq!(v.cards.points_spent.rest_points, 0);
+        });
+
+        // Range: 1h re-slices the same frozen rows — the 3h flight
+        // drops out of the window without a re-read.
+        page.update(cx, |p, cx| {
+            p.errors_only = false;
+            p.range = Range::H1;
+            p.recompute_tabs(cx);
+        });
+        cx.update(|cx| {
+            let p = page.read(cx);
+            let v = &p.overview_view;
+            assert_eq!(v.cards.points_spent.rest_points, 2);
+            assert_eq!(p.rows.len(), rows_len, "no store read on a range change");
+        });
+    }
+
+    #[gpui::test]
+    fn overview_tab_picks_up_refresh_only(cx: &mut TestAppContext) {
+        cx.update(gpui_component::init);
+        let store = Arc::new(MemorySink::default());
+        cx.update(|cx| init_with(cx, store.clone() as Arc<dyn UsageStore>));
+        cx.update(|cx| {
+            sink(cx).record(rec(
+                usage_records::now_epoch_ms() - 60_000,
+                "pr-page",
+                Some(1),
+            ))
+        });
+
+        let (page, _window_ctx) = cx.add_window_view(UsagePage::new);
+        let as_of0 = cx.update(|cx| page.read(cx).as_of_ms);
+        cx.update(|cx| {
+            assert_eq!(
+                page.read(cx).overview_view.cards.points_spent.rest_points,
+                1
+            )
+        });
+
+        // A post-freeze arrival: invisible to the overview (ts >=
+        // as_of is out of the half-open window) until refresh.
+        cx.update(|cx| sink(cx).record(rec(as_of0, "late", Some(50))));
+        cx.update(|cx| {
+            assert_eq!(
+                page.read(cx).overview_view.cards.points_spent.rest_points,
+                1,
+                "post-freeze rows stay invisible to the overview"
+            )
+        });
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        page.update(cx, |p, cx| p.refresh(cx));
+        cx.update(|cx| {
+            assert_eq!(
+                page.read(cx).overview_view.cards.points_spent.rest_points,
+                51,
+                "refresh is the only path that moves the overview"
+            )
+        });
     }
 
     #[gpui::test]

@@ -257,6 +257,10 @@ Cards are composed stat cards (number-first, one-line subtitle,
 tooltip detail), each with an id + accessible summary (docs/0010
 D10 / docs/0049): the summary repeats the card's numbers, since
 pixels are invisible to AT.
+*(implemented in the step-5 PR — #343: four cards in a wrapping
+strip; runway rides as its own `≈` line per transport so the
+projection is never glued to a measured number; each card is a
+`Label`-role node carrying title + all numbers in its aria label)*
 
 **Schema enabler (owner decision, round 4): records gain
 `limit_after`.** The percentage treatment above rides on one additive
@@ -287,6 +291,14 @@ picture), both from use case #1's data:
 
 Both are calculator outputs (`BurnDown`, `SpendTrend`) riding the
 `overview` procedure (D13) — no new read or render machinery.
+*(implemented in the step-5 PR — #343: the pinned rev's `LineChart`
+is one series per chart, so burn-down and spend render as one panel
+per transport rather than two lines in one frame; its x scale is
+ordinal, so labels carry second resolution (`HH:MM:SS`, `′` marks on
+same-second collisions) and spacing is uniform, not wall-clock
+proportional; the dashed ceiling has no stroke API at this rev, so
+the ceiling and closest approach ride each panel's caption and a11y
+summary instead of a drawn line — all revisited at the rev bump)*
 
 **D16 — Overview health axis (round 7): one line + one card from use
 case #2.** Overview gains a latency axis — a sampler of the latency
@@ -308,6 +320,10 @@ tab, deliberately condensed (owner pick A + B):
 
 Both ride the `overview` procedure (`OverviewView` grows `p90_trend`
 and `slowest_op`) — still one call, one tab view.
+*(implemented in the step-5 PR — #343: the pooled p90 line charts
+only buckets with flights; the per-transport splits ride the panel's
+a11y summary ("REST up to … · GQL up to …") since the stock tooltip
+cannot carry custom per-bucket fields at this rev)*
 
 ## 6. Use case #2 — Request latency
 
@@ -556,6 +572,9 @@ any `None` degrades gracefully across every consumer.
 - **Overview tab**: designed too, in this doc's next round — partial by
   design, no completeness claims anywhere on the page.
 - **Chip → page hook**: lands with the Overview tab.
+  *(implemented in the step-5 PR — #343: a small icon button beside
+  the chip body, `Usage analytics`, navigating to `Page::Usage`; the
+  chip's popover and aria label are unchanged)*
 - **Bar chart cutoff**: fixed top-12 + `other` for v1.
 - **General-case rule**: the page outlives the storage layer; ranges
   without data are honest empty windows, never redesign triggers.

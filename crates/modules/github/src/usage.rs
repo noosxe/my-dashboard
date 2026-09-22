@@ -28,8 +28,13 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use gpui::*;
-use gpui_component::{ActiveTheme as _, h_flex, v_flex};
+use gpui_component::{
+    ActiveTheme as _, IconName, Sizable as _,
+    button::{Button, ButtonVariants},
+    h_flex, v_flex,
+};
 
+use dashboard_core::nav::{Navigator, Page};
 use dashboard_core::usage_records::{RecordDraft, Recorder, Transport};
 
 use crate::auth::now_epoch;
@@ -884,10 +889,19 @@ impl Http for CountingHttp {
 pub(crate) struct UsageChip {
     state: Entity<GithubState>,
     usage: UsageLedger,
+    /// The chip → page hook (docs/0054 §1): the details affordance
+    /// navigates to the analytics page. The chip's own popover is
+    /// unchanged — this only adds the way in.
+    nav: Entity<Navigator>,
 }
 
 impl UsageChip {
-    pub fn new(state: Entity<GithubState>, usage: UsageLedger, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        state: Entity<GithubState>,
+        usage: UsageLedger,
+        nav: Entity<Navigator>,
+        cx: &mut Context<Self>,
+    ) -> Self {
         // 1 Hz self-refresh (D5): one short mutex read per second; the
         // notify fires only on an actual content change, so a stable
         // budget draws nothing. The chip is captured for the app's
@@ -913,7 +927,7 @@ impl UsageChip {
             }
         })
         .detach();
-        Self { state, usage }
+        Self { state, usage, nav }
     }
 
     fn current_display(&self, cx: &App) -> (UsageDisplay, (u64, u64, u64, u64)) {
@@ -1085,7 +1099,11 @@ impl Render for UsageChip {
         // It is deliberately additive detail for sighted mouse users;
         // the aria label above stays the sole a11y carrier (0049).
         let tooltip_usage = self.usage.clone();
-        h_flex()
+        // The details affordance (docs/0054 §1): a small icon button
+        // beside the chip body — the chip's numbers stay one glance;
+        // "what does this mean over time" is a navigation away.
+        let nav = self.nav.clone();
+        let chip = h_flex()
             .gap_1()
             .id("github-usage")
             .role(accesskit::Role::Label)
@@ -1108,7 +1126,18 @@ impl Render for UsageChip {
                     _ => vec!["GH …/…".to_string(), "GQL …/…".to_string()],
                 };
                 cx.new(|_| UsageTooltip { lines }).into()
-            })
+            });
+        h_flex().gap_1().items_center().child(chip).child(
+            Button::new("github-usage-details")
+                .ghost()
+                .small()
+                .icon(IconName::ChartPie)
+                .accessibility_label("Usage analytics")
+                .tooltip("Usage analytics — cards, burn-down and latency trends")
+                .on_click(move |_, _, cx| {
+                    nav.update(cx, |nav, cx| nav.go(Page::Usage, cx));
+                }),
+        )
     }
 }
 
