@@ -22,7 +22,19 @@ use dashboard_debug::snapshot;
 use serde_json::{Value, json};
 
 fn main() {
+    restore_sigpipe_default();
     std::process::exit(run());
+}
+
+/// Rust's runtime ignores SIGPIPE so write errors surface as `EPIPE`
+/// — but `println!` panics on them. This is a receipt tool: it gets
+/// piped (`tree | head`, `logs -f | grep`), and the conventional Unix
+/// behavior there is a silent death by SIGPIPE (exit 141), not a
+/// panic trace mid-output (#359).
+fn restore_sigpipe_default() {
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
 }
 
 fn run() -> i32 {
@@ -846,5 +858,24 @@ fn shell(conn: &mut Conn) -> i32 {
             }
             Err(usage) => eprintln!("{usage}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod sigpipe_tests {
+    /// #359: after `restore_sigpipe_default` runs, the process
+    /// disposition must be SIG_DFL — a closed stdout pipe kills the
+    /// CLI silently instead of panicking in `println!`.
+    #[test]
+    fn restore_sigpipe_sets_default_disposition() {
+        unsafe {
+            // Start from a known state: Rust's runtime default.
+            libc::signal(libc::SIGPIPE, libc::SIG_IGN);
+        }
+        super::restore_sigpipe_default();
+        // `signal` returns the *previous* handler: ours must read
+        // back as SIG_DFL (it would read SIG_IGN without the fix).
+        let previous = unsafe { libc::signal(libc::SIGPIPE, libc::SIG_DFL) };
+        assert_eq!(previous, libc::SIG_DFL);
     }
 }

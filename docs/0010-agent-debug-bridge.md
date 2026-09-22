@@ -327,8 +327,12 @@ docs/0055 extends this surface with the session + receipt verbs
 `screenshot`, `run <script>`, `doctor`) — same hand-rolled parser, same
 exit-code contract.
 
-No clap (hand parsing keeps the crate dep-free beyond
-serde/serde_json + the atspi/zbus pair already in the lockfile).
+No clap (hand parsing keeps the new-dep surface at zero: serde/serde_json,
+atspi/zbus, futures, flexi_logger and libc were all already in the
+lockfile). The CLI restores `SIGPIPE` to its default disposition at
+startup (#359): `dashboard-debug tree | head` dies silently by signal
+(shell status 141) instead of panicking mid-print, which is what every
+piped Unix tool does.
 Exit codes: `0` ok, `1` protocol/IO error (`error {code}: {message}`
 on stderr), `2` usage. `type` maps control-ish chars to key names
 (`space`/`tab`/`enter`); the tree outline prints `#accesskit_id role
