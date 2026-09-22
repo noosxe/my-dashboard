@@ -73,14 +73,15 @@ impl DashboardShell {
             KeyBinding::new("alt-left", nav::Back, None),
             KeyBinding::new("alt-right", nav::Forward, None),
         ]);
-        cx.observe(&nav, |this, nav, cx| {
+        cx.observe_in(&nav, window, |this, nav, window, cx| {
             // Usage page (docs/0054 D1/D10): the entity is created at
             // FIRST navigation, not app start — its `as_of` freeze and
             // one bounded read belong to first open. Later re-entries
             // keep the frozen state; only the page's refresh button
-            // moves it.
+            // moves it. `observe_in` carries the window the page's
+            // Selects and table entity need exactly once, at creation.
             if nav.read(cx).page == Page::Usage && this.usage_page.is_none() {
-                this.usage_page = Some(cx.new(usage_analytics::UsagePage::new));
+                this.usage_page = Some(cx.new(|cx| usage_analytics::UsagePage::new(window, cx)));
             }
             cx.notify();
         })

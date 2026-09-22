@@ -23,7 +23,6 @@
 use serde::{Deserialize, Serialize};
 
 use crate::usage_records::{self, Transport, UsageRecord};
-#[cfg(test)]
 use gpui::SharedString;
 
 // ---------------------------------------------------------------------------
@@ -156,6 +155,35 @@ impl Dimension {
                 .map(|i| i.to_string())
                 .unwrap_or_else(|| "—".to_string()),
         }
+    }
+
+    /// Picker and table-header label (D4).
+    pub fn label(self) -> &'static str {
+        match self {
+            Dimension::Module => "Module",
+            Dimension::Transport => "Transport",
+            Dimension::Surface => "Surface",
+            Dimension::Trigger => "Trigger",
+            Dimension::Operation => "Operation",
+            Dimension::Target => "Target",
+        }
+    }
+
+    /// The six categoricals in picker order (D4). Selector count is
+    /// part of the contract; this list must not grow silently.
+    pub fn all() -> [Dimension; 6] {
+        [
+            Dimension::Surface,
+            Dimension::Trigger,
+            Dimension::Operation,
+            Dimension::Target,
+            Dimension::Transport,
+            Dimension::Module,
+        ]
+    }
+
+    pub fn from_label(label: &str) -> Option<Dimension> {
+        Dimension::all().into_iter().find(|d| d.label() == label)
     }
 }
 
@@ -904,14 +932,20 @@ pub fn overview(rows: &[UsageRecord], q: &OverviewQuery) -> OverviewView {
 // Page component (docs/0054 §3 — D1/D2/D3/D10, the skeleton)
 // ---------------------------------------------------------------------------
 
+use gpui::Hsla;
 use gpui::prelude::*;
-use gpui::{Context, Render, Window, div};
+use gpui::{App, Context, Entity, Render, Window, div, px};
 use gpui_component::{
-    ActiveTheme, IconName, Sizable as _,
+    ActiveTheme, IconName, Sizable as _, StyledExt as _,
     button::{Button, ButtonVariants},
+    chart::{BarChart, PieChart},
     h_flex,
+    plot::shape::BarAlignment,
+    searchable_list::SearchableVec,
+    select::{Select, SelectEvent, SelectState},
     switch::Switch,
     tab::{Tab, TabBar},
+    table::{Column, DataTable, TableDelegate, TableState},
     v_flex,
 };
 
@@ -984,10 +1018,15 @@ pub struct UsagePage {
     pub(crate) errors_only: bool,
     /// Active tab (D3).
     pub(crate) tab: UsageTab,
+    /// Quota tab state (D4–D7): the selectors, the cached ranking,
+    /// and the table entity. `None` only in pure-derivation tests
+    /// that never render; `new` always creates it — it needs a
+    /// `Window` exactly once, for the Selects and the table entity.
+    quota: Option<Entity<QuotaTab>>,
 }
 
 impl UsagePage {
-    pub fn new(cx: &mut Context<Self>) -> Self {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let mut page = Self {
             as_of_ms: usage_records::now_epoch_ms(),
             rows: Vec::new(),
@@ -996,10 +1035,14 @@ impl UsagePage {
             module: None,
             errors_only: false,
             tab: UsageTab::Overview,
+            quota: Some(cx.new(|cx| QuotaTab::new(window, cx))),
         };
         // One load on first open (D10): the page never opens empty
         // demanding a click.
         page.reload(cx);
+        // The quota tab derives its ranking from the fetched rows
+        // (D7) — same anchor, same facets.
+        page.recompute_quota(cx);
         page
     }
 
@@ -1025,6 +1068,22 @@ impl UsagePage {
     fn refresh(&mut self, cx: &mut Context<Self>) {
         self.as_of_ms = usage_records::now_epoch_ms();
         self.reload(cx);
+        self.recompute_quota(cx);
+    }
+
+    /// Push the page-global query inputs (frozen window, facets,
+    /// fetched rows) into the quota tab (D7): a pure re-derivation —
+    /// no store read. Windowless by design: the table's delegate is
+    /// swapped in place, so nothing here needs a `Window`.
+    fn recompute_quota(&mut self, cx: &mut Context<Self>) {
+        let Some(tab) = self.quota.clone() else {
+            return;
+        };
+        let window = self.window();
+        let filters = self.filters();
+        let rows = std::mem::take(&mut self.rows);
+        tab.update(cx, |tab, cx| tab.sync(window, filters, &rows, cx));
+        self.rows = rows;
     }
 
     /// The frozen window every tab derives from (D2/D10): bounds from
@@ -1106,6 +1165,7 @@ impl Render for UsagePage {
                                 // frozen `as_of` — no store read.
                                 if let Some(range) = Range::from_index(*ix) {
                                     this.range = range;
+                                    this.recompute_quota(cx);
                                     cx.notify();
                                 }
                             }))
@@ -1138,6 +1198,7 @@ impl Render for UsagePage {
                             .on_click(cx.listener(|this, ix: &usize, _, cx| {
                                 if let Some((_, t)) = TRANSPORT_SEGMENTS.get(*ix) {
                                     this.transport = *t;
+                                    this.recompute_quota(cx);
                                     cx.notify();
                                 }
                             }))
@@ -1163,6 +1224,7 @@ impl Render for UsagePage {
                                     0 => None,
                                     i => mods.get(i - 1).cloned(),
                                 };
+                                this.recompute_quota(cx);
                                 cx.notify();
                             }))
                             .children(std::iter::once(Tab::new().label("All")).chain(
@@ -1177,6 +1239,7 @@ impl Render for UsagePage {
                             .label("errors only")
                             .on_click(cx.listener(|this, checked: &bool, _, cx| {
                                 this.errors_only = *checked;
+                                this.recompute_quota(cx);
                                 cx.notify();
                             })),
                     ),
@@ -1224,11 +1287,16 @@ impl Render for UsagePage {
                 UsageTab::Overview => tab_placeholder(
                     "Overview cards and charts arrive with their implementation (docs/0054 §5).",
                     cx,
-                ),
-                UsageTab::Quota => tab_placeholder(
-                    "Quota ranking, charts and table arrive with their implementation (docs/0054 §4).",
-                    cx,
-                ),
+                )
+                .into_any_element(),
+                UsageTab::Quota => match &self.quota {
+                    Some(tab) => tab.clone().into_any_element(),
+                    None => tab_placeholder(
+                        "Quota ranking, charts and table arrive with their implementation (docs/0054 §4).",
+                        cx,
+                    )
+                    .into_any_element(),
+                },
             })
     }
 }
@@ -1244,6 +1312,601 @@ fn tab_placeholder(text: &str, cx: &Context<UsagePage>) -> impl IntoElement {
                 .text_color(cx.theme().muted_foreground)
                 .child(text.to_string()),
         )
+}
+
+// ---------------------------------------------------------------------------
+// Quota tab (docs/0054 §4 — D4–D8)
+// ---------------------------------------------------------------------------
+
+/// The `Then by` picker's empty choice (D4): no secondary dimension.
+const THEN_BY_NONE: &str = "(none)";
+
+/// `Then by` options: the empty choice plus every dimension except
+/// the active primary — a self-nest is not a question (D4's crosses
+/// are pairs of *different* dimensions).
+fn then_by_labels(primary: Dimension) -> Vec<SharedString> {
+    std::iter::once(SharedString::from(THEN_BY_NONE))
+        .chain(
+            Dimension::all()
+                .into_iter()
+                .filter(|d| *d != primary)
+                .map(|d| SharedString::from(d.label())),
+        )
+        .collect()
+}
+
+/// One chart slice: a ranking leaf rolled up for display (D6).
+#[derive(Debug, Clone)]
+struct ChartSlice {
+    label: SharedString,
+    cost: u64,
+}
+
+/// Flatten the ranking into chart leaves (D6): with a `Then by`
+/// dimension the leaves are the children, labeled `parent ▸ child`;
+/// without one, the groups are the leaves. Deterministic order:
+/// Σ cost desc, then label asc (the D13 convention).
+fn chart_leaves(ranking: &QuotaRanking) -> Vec<ChartSlice> {
+    let mut leaves: Vec<ChartSlice> = ranking
+        .groups
+        .iter()
+        .flat_map(|g| {
+            if g.children.is_empty() {
+                vec![ChartSlice {
+                    label: SharedString::from(g.key.as_str()),
+                    cost: g.cost,
+                }]
+            } else {
+                g.children
+                    .iter()
+                    .map(|c| ChartSlice {
+                        label: SharedString::from(format!("{} ▸ {}", g.key, c.key)),
+                        cost: c.cost,
+                    })
+                    .collect()
+            }
+        })
+        .collect();
+    leaves.sort_by(|a, b| b.cost.cmp(&a.cost).then_with(|| a.label.cmp(&b.label)));
+    leaves
+}
+
+/// Top-N plus `other` roll-up (D6): the residual sums the tail so the
+/// chart never lies about the whole. The `other` slice lands last.
+fn roll_up(mut leaves: Vec<ChartSlice>, top: usize) -> Vec<ChartSlice> {
+    if leaves.len() <= top {
+        return leaves;
+    }
+    let tail = leaves.split_off(top);
+    let other_cost: u64 = tail.iter().map(|s| s.cost).sum();
+    leaves.push(ChartSlice {
+        label: SharedString::from("other"),
+        cost: other_cost,
+    });
+    leaves
+}
+
+/// One flattened ranking-table row (D5): a primary group, or an
+/// indented `Then by` member beneath it. One flat table, never a
+/// pivot cube.
+struct QuotaRow {
+    key: String,
+    indent: bool,
+    cost: u64,
+    share_pct: Option<f64>,
+    flights: u64,
+    avg_cost: Option<f64>,
+    unknown: u64,
+}
+
+/// The ranking table's delegate (D5): renders the calculator's
+/// `QuotaRanking` verbatim — sorting, shares and nesting are the
+/// calculator's; the table adds no numbers of its own.
+struct QuotaTable {
+    rows: Vec<QuotaRow>,
+    columns: Vec<Column>,
+}
+
+impl QuotaTable {
+    fn new(ranking: QuotaRanking, group_by: Dimension) -> Self {
+        let mut rows = Vec::new();
+        for g in &ranking.groups {
+            rows.push(QuotaRow {
+                key: g.key.clone(),
+                indent: false,
+                cost: g.cost,
+                share_pct: g.share_pct,
+                flights: g.flights,
+                avg_cost: g.avg_cost,
+                unknown: g.unknown,
+            });
+            for child in &g.children {
+                rows.push(QuotaRow {
+                    key: child.key.clone(),
+                    indent: true,
+                    cost: child.cost,
+                    share_pct: child.share_pct,
+                    flights: child.flights,
+                    avg_cost: child.avg_cost,
+                    unknown: child.unknown,
+                });
+            }
+        }
+        Self {
+            rows,
+            columns: Self::columns(group_by),
+        }
+    }
+
+    fn empty(group_by: Dimension) -> Self {
+        Self {
+            rows: Vec::new(),
+            columns: Self::columns(group_by),
+        }
+    }
+
+    fn columns(group_by: Dimension) -> Vec<Column> {
+        vec![
+            Column::new("dimension", group_by.label()),
+            Column::new("cost", "Σ cost").text_right(),
+            Column::new("share", "share").text_right(),
+            Column::new("flights", "flights").text_right(),
+            Column::new("avg", "avg").text_right(),
+            Column::new("unknown", "unknown").text_right(),
+        ]
+    }
+
+    fn cell_text(&self, row_ix: usize, col_ix: usize) -> String {
+        let Some(row) = self.rows.get(row_ix) else {
+            return String::new();
+        };
+        match col_ix {
+            1 => row.cost.to_string(),
+            2 => row
+                .share_pct
+                .map_or_else(|| "—".into(), |p| format!("{p:.1}%")),
+            3 => row.flights.to_string(),
+            4 => row
+                .avg_cost
+                .map_or_else(|| "—".into(), |a| format!("{a:.1}")),
+            5 => row.unknown.to_string(),
+            _ => row.key.clone(),
+        }
+    }
+}
+
+impl TableDelegate for QuotaTable {
+    fn columns_count(&self, _: &App) -> usize {
+        self.columns.len()
+    }
+
+    fn rows_count(&self, _: &App) -> usize {
+        self.rows.len()
+    }
+
+    fn column(&self, col_ix: usize, _: &App) -> Column {
+        self.columns
+            .get(col_ix)
+            .cloned()
+            .unwrap_or_else(|| Column::new("dimension", ""))
+    }
+
+    fn render_td(
+        &mut self,
+        row_ix: usize,
+        col_ix: usize,
+        _: &mut Window,
+        cx: &mut Context<TableState<Self>>,
+    ) -> impl IntoElement {
+        let Some(row) = self.rows.get(row_ix) else {
+            return div().into_any_element();
+        };
+        let text = self.cell_text(row_ix, col_ix);
+        let muted = cx.theme().muted_foreground;
+        div()
+            .flex()
+            .h_full()
+            .w_full()
+            .items_center()
+            .when(col_ix > 0, |c| c.justify_end())
+            // Primary groups carry the nesting: members indent beneath
+            // them (D5's one flat table).
+            .when(row.indent, |c| c.pl_4())
+            .when(!row.indent, |c| c.font_medium())
+            // The unknown column keeps the no-guessing rule visible
+            // (D5): counts of unattributable flights, dimmed at zero.
+            .when(col_ix == 5 && row.unknown == 0, |c| c.text_color(muted))
+            .child(text)
+            .into_any_element()
+    }
+}
+
+/// The page-global inputs the quota tab derives from (D7/D10): pushed
+/// by the page on first open, refresh, and every page-global control
+/// change. The tab's own selector changes re-apply over the same
+/// inputs — a pure re-derivation, never a store read.
+struct QuotaInputs {
+    window: WindowSpec,
+    filters: Filters,
+    rows: Vec<UsageRecord>,
+}
+
+/// The quota usage tab (D4–D7): two group-by selectors, two charts,
+/// and the ranking table — all a thin renderer over
+/// [`quota_ranking`], which is the one aggregation implementation.
+struct QuotaTab {
+    group_by: Dimension,
+    then_by: Option<Dimension>,
+    inputs: QuotaInputs,
+    ranking: QuotaRanking,
+    group_by_select: Entity<SelectState<SearchableVec<SharedString>>>,
+    then_by_select: Entity<SelectState<SearchableVec<SharedString>>>,
+    table: Entity<TableState<QuotaTable>>,
+}
+
+impl QuotaTab {
+    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let dimension_labels: Vec<SharedString> = Dimension::all()
+            .iter()
+            .map(|d| SharedString::from(d.label()))
+            .collect();
+        let default_group_by: SharedString = Dimension::Surface.label().into();
+        let group_by_select = cx.new(|cx| {
+            let mut select =
+                SelectState::new(SearchableVec::from(dimension_labels), None, window, cx);
+            select.set_selected_value(&default_group_by, window, cx);
+            select
+        });
+        let default_then_by: SharedString = THEN_BY_NONE.into();
+        let then_by_select = cx.new(|cx| {
+            let mut select = SelectState::new(
+                SearchableVec::from(then_by_labels(Dimension::Surface)),
+                None,
+                window,
+                cx,
+            );
+            select.set_selected_value(&default_then_by, window, cx);
+            select
+        });
+        let table = cx.new(|cx| TableState::new(QuotaTable::empty(Dimension::Surface), window, cx));
+
+        // The selectors re-apply the ranking over the same frozen
+        // inputs (D4/D7): pick dimensions, see a ranking — no read.
+        cx.subscribe_in(
+            &group_by_select,
+            window,
+            |this, _, event: &SelectEvent<SearchableVec<SharedString>>, window, cx| {
+                let SelectEvent::Confirm(Some(label)) = event else {
+                    return;
+                };
+                let Some(dim) = Dimension::from_label(label) else {
+                    return;
+                };
+                this.group_by = dim;
+                if this.then_by == Some(dim) {
+                    // A self-nest is not a question (D4): reset rather
+                    // than render parent/child mirror rows.
+                    this.then_by = None;
+                    let none: SharedString = THEN_BY_NONE.into();
+                    this.then_by_select.update(cx, |select, cx| {
+                        select.set_selected_value(&none, window, cx)
+                    });
+                }
+                this.then_by_select.update(cx, |select, cx| {
+                    select.set_items(SearchableVec::from(then_by_labels(dim)), window, cx)
+                });
+                this.apply(cx);
+                cx.notify();
+            },
+        )
+        .detach();
+        cx.subscribe_in(
+            &then_by_select,
+            window,
+            |this, _, event: &SelectEvent<SearchableVec<SharedString>>, _, cx| {
+                let SelectEvent::Confirm(Some(label)) = event else {
+                    return;
+                };
+                this.then_by = if label == THEN_BY_NONE {
+                    None
+                } else {
+                    Dimension::from_label(label)
+                };
+                this.apply(cx);
+                cx.notify();
+            },
+        )
+        .detach();
+
+        Self {
+            group_by: Dimension::Surface,
+            then_by: None,
+            inputs: QuotaInputs {
+                window: WindowSpec {
+                    as_of_ms: 0,
+                    range: Range::D1,
+                },
+                filters: Filters::default(),
+                rows: Vec::new(),
+            },
+            ranking: QuotaRanking {
+                groups: Vec::new(),
+                totals: QuotaTotals {
+                    flights: 0,
+                    known_cost: 0,
+                    unknown_flights: 0,
+                },
+            },
+            group_by_select,
+            then_by_select,
+            table,
+        }
+    }
+
+    /// The page pushes its global inputs (D7/D10): frozen window,
+    /// facets, fetched rows. Pure re-derivation; windowless.
+    fn sync(
+        &mut self,
+        window: WindowSpec,
+        filters: Filters,
+        rows: &[UsageRecord],
+        cx: &mut Context<Self>,
+    ) {
+        self.inputs = QuotaInputs {
+            window,
+            filters,
+            rows: rows.to_vec(),
+        };
+        self.apply(cx);
+    }
+
+    /// Re-derive the ranking and the table over the current inputs
+    /// (D7): `quota_ranking` is the one aggregation implementation —
+    /// this adds no numbers, only layout.
+    fn apply(&mut self, cx: &mut Context<Self>) {
+        self.ranking = quota_ranking(
+            &self.inputs.rows,
+            &QuotaQuery {
+                window: self.inputs.window,
+                group_by: self.group_by,
+                then_by: self.then_by,
+                filters: self.inputs.filters.clone(),
+            },
+        );
+        let delegate = QuotaTable::new(self.ranking.clone(), self.group_by);
+        self.table.update(cx, |state, cx| {
+            *state.delegate_mut() = delegate;
+            state.refresh(cx);
+            state.refresh_header_layout(cx);
+        });
+        cx.notify();
+    }
+
+    /// The D8 text summary for a chart: pixels are invisible to AT —
+    /// the summary carries the top group and the total.
+    fn chart_summary(&self, known: u64) -> String {
+        match chart_leaves(&self.ranking).first() {
+            Some(top) => format!(
+                "Quota by {}: {} {} of {} points",
+                self.group_by.label().to_lowercase(),
+                top.label,
+                top.cost,
+                known
+            ),
+            None => format!(
+                "Quota by {}: no known cost",
+                self.group_by.label().to_lowercase()
+            ),
+        }
+    }
+}
+
+impl Render for QuotaTab {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let dim = self.group_by;
+        let known = self.ranking.totals.known_cost;
+        let flights = self.ranking.totals.flights;
+
+        v_flex()
+            .flex_1()
+            .min_h_0()
+            .gap_3()
+            // Group-by controls (D4): pick dimensions, see a ranking.
+            // Two selectors, never three — selector count is part of
+            // the contract.
+            .child(
+                h_flex()
+                    .items_center()
+                    .gap_2()
+                    .flex_wrap()
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child("Group by"),
+                    )
+                    .child(
+                        Select::new(&self.group_by_select)
+                            .accessibility_label("Group by dimension"),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child("Then by"),
+                    )
+                    .child(
+                        Select::new(&self.then_by_select).accessibility_label("Then by dimension"),
+                    ),
+            )
+            .child(if flights == 0 {
+                // Empty window: honest, not blank.
+                div()
+                    .flex_1()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .text_color(cx.theme().muted_foreground)
+                    .child("No flights in the window — widen the range or refresh.")
+                    .into_any_element()
+            } else {
+                v_flex()
+                    .flex_1()
+                    .min_h_0()
+                    .gap_3()
+                    .when(known > 0, |this| {
+                        // Charts (D6): both straight from the table's
+                        // aggregate vector — the same ranking, never a
+                        // second computation.
+                        let leaves = chart_leaves(&self.ranking);
+                        let bars = roll_up(leaves.clone(), 12);
+                        let donut = roll_up(leaves, 7);
+                        let top_slice = bars.first().cloned();
+                        let summary = self.chart_summary(known);
+
+                        // Donut palette: the theme's chart tokens,
+                        // cycling; `other` always muted (D6's residual
+                        // must not look like a real group).
+                        let palette = [
+                            cx.theme().chart_1,
+                            cx.theme().chart_2,
+                            cx.theme().chart_3,
+                            cx.theme().chart_4,
+                            cx.theme().chart_5,
+                        ];
+                        let muted = cx.theme().muted;
+                        let donut_labels: Vec<SharedString> =
+                            donut.iter().map(|s| s.label.clone()).collect();
+                        let donut_colors: Vec<Hsla> = donut
+                            .iter()
+                            .enumerate()
+                            .map(|(i, s)| {
+                                if s.label.as_ref() == "other" {
+                                    muted
+                                } else {
+                                    palette[i % palette.len()]
+                                }
+                            })
+                            .collect();
+
+                        this.child(
+                            h_flex()
+                                .gap_4()
+                                .items_start()
+                                // The comparison view (D6): horizontal
+                                // — rankings read top-down and the
+                                // values are words.
+                                .child(
+                                    v_flex()
+                                        .flex_1()
+                                        .min_w(px(280.))
+                                        .gap_2()
+                                        .child(
+                                            div()
+                                                .id("usage-quota-bar-summary")
+                                                .role(gpui::accesskit::Role::Label)
+                                                .aria_label(summary.clone())
+                                                .text_sm()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .child(summary),
+                                        )
+                                        .child(
+                                            div().h(px(220.)).child(
+                                                BarChart::new(bars)
+                                                    .id("usage-quota-bar")
+                                                    .name("Σ cost")
+                                                    .band(|s| s.label.clone())
+                                                    .value(|s| s.cost as f64)
+                                                    .alignment(BarAlignment::Left),
+                                            ),
+                                        ),
+                                )
+                                // The composition view (D6): donut,
+                                // top 7 + other, total under it.
+                                .child(
+                                    v_flex()
+                                        .w(px(280.))
+                                        .gap_1()
+                                        .items_center()
+                                        .child(
+                                            div()
+                                                .id("usage-quota-donut-summary")
+                                                .role(gpui::accesskit::Role::Label)
+                                                .aria_label(format!(
+                                                    "Quota composition by {}",
+                                                    dim.label().to_lowercase()
+                                                ))
+                                                .text_sm()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .child(format!(
+                                                    "Composition by {}",
+                                                    dim.label().to_lowercase()
+                                                )),
+                                        )
+                                        .child(
+                                            div().h(px(220.)).w_full().child(
+                                                PieChart::new(donut)
+                                                    .value(|s| s.cost as f32)
+                                                    .label(move |s| {
+                                                        let share = if known > 0 {
+                                                            s.cost as f32 / known as f32 * 100.0
+                                                        } else {
+                                                            0.0
+                                                        };
+                                                        SharedString::from(format!(
+                                                            "{} {:.0}%",
+                                                            s.label, share
+                                                        ))
+                                                    })
+                                                    .inner_radius(64.)
+                                                    .outer_radius(100.)
+                                                    .color(move |s| {
+                                                        donut_labels
+                                                            .iter()
+                                                            .position(|l| *l == s.label)
+                                                            .and_then(|i| {
+                                                                donut_colors.get(i).copied()
+                                                            })
+                                                            .unwrap_or(muted)
+                                                    }),
+                                            ),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_sm()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .child(format!(
+                                                    "total {} points{}",
+                                                    known,
+                                                    top_slice.map_or_else(String::new, |t| {
+                                                        format!(" · top {}", t.label)
+                                                    })
+                                                )),
+                                        ),
+                                ),
+                        )
+                    })
+                    .when(known == 0, |this| {
+                        // All-unknown window: charts would be a lie of
+                        // empty pixels; the table's `—` columns carry
+                        // the honesty instead.
+                        this.child(
+                            div().text_color(cx.theme().muted_foreground).child(
+                                "No known cost in the window — unattributable flights only.",
+                            ),
+                        )
+                    })
+                    // The ranking table (D5): sorted Σ cost desc,
+                    // `Then by` members nested beneath their group.
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_h_0()
+                            .child(DataTable::new(&self.table).small()),
+                    )
+                    .into_any_element()
+            })
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1748,6 +2411,9 @@ mod tests {
             module: None,
             errors_only: false,
             tab: UsageTab::Overview,
+            // Pure-derivation tests never render; the tab needs a
+            // window once and is not under test here.
+            quota: None,
         }
     }
 
@@ -1796,6 +2462,8 @@ mod tests {
 
     #[gpui::test]
     fn page_loads_on_first_open_and_freezes_until_refresh(cx: &mut TestAppContext) {
+        // Selects/TableState read the theme global at construction.
+        cx.update(gpui_component::init);
         let store = Arc::new(MemorySink::default());
         cx.update(|cx| init_with(cx, store.clone() as Arc<dyn UsageStore>));
 
@@ -1804,7 +2472,7 @@ mod tests {
         let before = usage_records::now_epoch_ms() - 60_000;
         cx.update(|cx| sink(cx).record(rec(before, "pr-page", Some(1))));
 
-        let page = cx.update(|cx| cx.new(UsagePage::new));
+        let (page, _window_ctx) = cx.add_window_view(UsagePage::new);
         let as_of0 = cx.update(|cx| page.read(cx).as_of_ms);
         assert!(before < as_of0);
         assert_eq!(
@@ -1846,6 +2514,8 @@ mod tests {
 
     #[gpui::test]
     fn only_first_open_and_refresh_touch_the_store(cx: &mut TestAppContext) {
+        // Selects/TableState read the theme global at construction.
+        cx.update(gpui_component::init);
         struct CountingStore {
             reads: AtomicUsize,
         }
@@ -1873,7 +2543,7 @@ mod tests {
         });
         cx.update(|cx| init_with(cx, store.clone() as Arc<dyn UsageStore>));
 
-        let page = cx.update(|cx| cx.new(UsagePage::new));
+        let (page, _window_ctx) = cx.add_window_view(UsagePage::new);
         assert_eq!(
             store.reads.load(Ordering::Relaxed),
             1,
@@ -1901,6 +2571,184 @@ mod tests {
         });
         page.update(cx, |p, cx| p.reload(cx));
         cx.update(|cx| assert_eq!(page.read(cx).module, None));
+    }
+
+    #[gpui::test]
+    fn quota_tab_re_ranks_when_the_dimension_changes(cx: &mut TestAppContext) {
+        // Selects/TableState read the theme global at construction.
+        cx.update(gpui_component::init);
+        let store = Arc::new(MemorySink::default());
+        cx.update(|cx| init_with(cx, store.clone() as Arc<dyn UsageStore>));
+
+        let t0 = usage_records::now_epoch_ms();
+        cx.update(|cx| {
+            sink(cx).record(rec(t0 - 10, "pr-page", Some(9)));
+            let mut issue = rec(t0 - 20, "home", Some(4));
+            issue.op = SharedString::from("issue-detail");
+            sink(cx).record(issue);
+        });
+
+        let (page, _window_ctx) = cx.add_window_view(UsagePage::new);
+        let tab = cx.update(|cx| page.read(cx).quota.clone().unwrap());
+        let keys = |cx: &mut TestAppContext| {
+            cx.update(|cx| {
+                tab.read(cx)
+                    .ranking
+                    .groups
+                    .iter()
+                    .map(|g| g.key.clone())
+                    .collect::<Vec<String>>()
+            })
+        };
+
+        // Default: group by surface (D4), sorted Σ cost desc.
+        assert_eq!(keys(cx), ["pr-page", "home"]);
+
+        // Dimension change re-applies over the same frozen inputs
+        // (D7): pure re-rank — the freeze tests above own read-count.
+        tab.update(cx, |t, cx| {
+            t.group_by = Dimension::Operation;
+            t.apply(cx);
+        });
+        assert_eq!(
+            keys(cx),
+            ["pr-detail", "issue-detail"],
+            "group by operation re-ranks the same rows"
+        );
+    }
+
+    #[gpui::test]
+    fn quota_tab_nests_when_then_by_is_set(cx: &mut TestAppContext) {
+        // Selects/TableState read the theme global at construction.
+        cx.update(gpui_component::init);
+        let store = Arc::new(MemorySink::default());
+        cx.update(|cx| init_with(cx, store.clone() as Arc<dyn UsageStore>));
+
+        let t0 = usage_records::now_epoch_ms();
+        cx.update(|cx| {
+            let mut manual = rec(t0 - 10, "pr-page", Some(9));
+            manual.trigger = SharedString::from("manual");
+            sink(cx).record(manual);
+            let mut shown = rec(t0 - 20, "pr-page", Some(4));
+            shown.trigger = SharedString::from("view-shown");
+            sink(cx).record(shown);
+        });
+
+        let (page, _window_ctx) = cx.add_window_view(UsagePage::new);
+        let tab = cx.update(|cx| page.read(cx).quota.clone().unwrap());
+        tab.update(cx, |t, cx| {
+            t.then_by = Some(Dimension::Trigger);
+            t.apply(cx);
+        });
+
+        // `Then by` nests (D4/D5): children subdivide the group,
+        // and the table delegates flatten to one indented list.
+        let (group_count, child_count, table_rows) = cx.update(|cx| {
+            let t = tab.read(cx);
+            (
+                t.ranking.groups.len(),
+                t.ranking.groups[0].children.len(),
+                t.table.read(cx).delegate().rows.len(),
+            )
+        });
+        assert_eq!(group_count, 1);
+        assert_eq!(child_count, 2, "manual and view-shown subdivide pr-page");
+        assert_eq!(table_rows, 3, "group row + two indented members");
+    }
+
+    #[test]
+    fn quota_nesting_flattens_into_one_table() {
+        let mut manual = rec(AS_OF - 10, "pr-page", Some(9));
+        manual.trigger = SharedString::from("manual");
+        let mut shown = rec(AS_OF - 20, "pr-page", Some(4));
+        shown.trigger = SharedString::from("view-shown");
+        let ranking = quota_ranking(
+            &[manual.clone(), shown.clone()],
+            &QuotaQuery {
+                window: W,
+                group_by: Dimension::Surface,
+                then_by: Some(Dimension::Trigger),
+                filters: Filters::default(),
+            },
+        );
+        assert_eq!(ranking.groups.len(), 1);
+        assert_eq!(ranking.groups[0].children.len(), 2);
+        // The group row's totals include its members.
+        assert_eq!(ranking.groups[0].cost, 13);
+        assert_eq!(ranking.groups[0].children[0].key, "manual");
+
+        // One flat table (D5): the group row, then indented members.
+        let table = QuotaTable::new(ranking, Dimension::Surface);
+        assert_eq!(table.rows.len(), 3);
+        assert!(!table.rows[0].indent);
+        assert!(table.rows[1].indent && table.rows[2].indent);
+        assert_eq!(table.cell_text(0, 0), "pr-page");
+        assert_eq!(table.cell_text(1, 0), "manual");
+        assert_eq!(table.cell_text(2, 1), "4");
+
+        // The calculator's sort is the table's: cost desc within the
+        // nest, and nothing re-sorts on the UI side.
+        let keys: Vec<&str> = table.rows.iter().map(|r| r.key.as_str()).collect();
+        assert_eq!(keys, vec!["pr-page", "manual", "view-shown"]);
+    }
+
+    #[test]
+    fn chart_leaves_prefix_compound_groups_and_roll_up() {
+        let rows = vec![
+            rec(AS_OF - 10, "pr-page", Some(9)),
+            rec(AS_OF - 20, "home", Some(4)),
+            rec(AS_OF - 30, "home", Some(2)),
+        ];
+        // Flat grouping: leaves are the groups themselves.
+        let flat = quota(Dimension::Surface, &rows);
+        let leaves = chart_leaves(&flat);
+        assert_eq!(
+            leaves.iter().map(|s| s.label.as_ref()).collect::<Vec<_>>(),
+            vec!["pr-page", "home"]
+        );
+
+        // Top-1 + other: the residual sums the tail (D6).
+        let rolled = roll_up(leaves.clone(), 1);
+        assert_eq!(rolled.len(), 2);
+        assert_eq!(rolled[0].label, "pr-page");
+        assert_eq!(rolled[1].label, "other");
+        assert_eq!(rolled[1].cost, 6);
+        // No roll-up when the top covers everything.
+        assert_eq!(roll_up(leaves, 12).len(), 2);
+
+        // Compound grouping (D6): leaf labels carry the primary
+        // prefix — flat bars per leaf, never a nested chart.
+        let mut a = rec(AS_OF - 10, "pr-page", Some(9));
+        a.trigger = SharedString::from("manual");
+        let mut b = rec(AS_OF - 20, "pr-page", Some(4));
+        b.trigger = SharedString::from("view-shown");
+        let compound = quota_ranking(
+            &[a, b],
+            &QuotaQuery {
+                window: W,
+                group_by: Dimension::Surface,
+                then_by: Some(Dimension::Trigger),
+                filters: Filters::default(),
+            },
+        );
+        let leaves = chart_leaves(&compound);
+        assert_eq!(
+            leaves.iter().map(|s| s.label.as_ref()).collect::<Vec<_>>(),
+            vec!["pr-page ▸ manual", "pr-page ▸ view-shown"]
+        );
+    }
+
+    #[test]
+    fn then_by_labels_exclude_the_primary() {
+        // (none) + the other five dimensions, in picker order (D4).
+        let labels: Vec<SharedString> = then_by_labels(Dimension::Surface);
+        let labels: Vec<&str> = labels.iter().map(gpui::SharedString::as_ref).collect();
+        assert_eq!(labels[0], "(none)");
+        assert_eq!(labels.len(), 6);
+        assert!(
+            !labels.contains(&"Surface"),
+            "a self-nest is not a question"
+        );
     }
 
     #[test]
