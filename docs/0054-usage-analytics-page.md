@@ -371,7 +371,11 @@ didn't ask for. **This section amends 0053 D3** — `snapshot()`
 migrates from `UsageSink` to the new source trait; the amendment
 line lands in 0053 with this doc's PR.
 
-**D9 — `UsageSource` beside `UsageSink`.**
+**D9 — `UsageSource` beside `UsageSink`.** *(Implemented in the
+step-1 PR — #339: the split shipped with `UsageStore` as the injected
+object; `MemorySink` gained `high_water` as an atomic bumped per
+mutation, eviction included; the §5 records tests read through the
+source view.)*
 
 ```rust
 /// Read side of the usage store. The window filter is storage-side;
@@ -435,6 +439,11 @@ unchanged in spirit.
 
 **D14 — Schema amendments riding with this doc's PR (0053 D1
 additions, all additive, all `Option`, none retro-filled).**
+*(Implemented in the step-1 PR — #339: all three fields stamp in the
+`RecordingHttp` draft; `queue_ms` anchors at `run_spec_tracked`'s
+dispatch — re-stamped per 401-retry round — with auth/connect flows
+stamping from spawn; GQL `limit_after` extends the body parse by one
+member, REST rides the header snapshot.)*
 
 1. **`limit_after: Option<u32>`** (owner round 4) — the quota
    ceiling the response itself reported, snapshotted beside
