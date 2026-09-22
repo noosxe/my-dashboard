@@ -154,6 +154,10 @@ No third group-by selector, ever: the fact table has no third
 dimension worth a pivot — more selectors fragment existing questions
 into unreadable cells. Selector count is part of the contract; storage
 changes (#333) must not grow it.
+*(implemented in the step-4 PR — #342/#347: `Then by` offers `(none)`
+plus the five other dimensions; picking a `Group by` equal to the
+current `Then by` resets the secondary — a self-nest is not a
+question)*
 
 **D5 — The ranking table.** `DataTable` over grouped aggregates, sorted
 by Σ cost desc (ties: flights desc). With a `Then by` dimension, rows
@@ -188,6 +192,10 @@ verified `gpui_component::chart` inventory (pinned rev `94a313a`):
 
 Both charts share the table's data (same aggregate vector); hovering
 shows the group's numbers via the chart tooltip (`plot` module).
+*(implemented in the step-4 PR — #342/#347: the donut's total rides as
+a caption line beneath it rather than inside the hole — the pinned
+rev's `PieChart` has no center-text API and a hitbox-safe overlay is
+not available in this gpui)*
 Time-bucketed series (spend per hour) belong to the Overview tab, not
 here. Charts render the same grouping the table shows (compound
 groups chart as flat bars per leaf group, labels prefixed by the
@@ -208,7 +216,14 @@ status spinner — the page is a reader, like docs/0053 §5 tests.
 **D8 — Accessibility.** Table and Select ride upstream roles; charts
 get `.id(...)` plus a text summary in the accessible tree (chart pixels
 are invisible to AT — the summary carries the top group and the total,
-e.g. "Quota by surface: pr-page 41 of 92 points"). The range picker and
+e.g. "Quota by surface: pr-page 41 of 92 points").
+*(implemented in the step-4 PR — #342/#347: Selects do ride upstream
+roles (`ComboBox` with our accessibility labels); the upstream
+`DataTable` at the pinned rev exposes **no** a11y nodes at all —
+rows/cells are invisible to AT and to the debug bridge. The chart
+summaries plus the honesty Status carry the AT story meanwhile; the
+table exposure is an upstream gap tracked for the rev bump, same class
+as the sidebar item gap)* The range picker and
 tabs are keyboard-operable like all shell controls (docs/0049 rules).
 
 ## 5. Overview tab — quota at a glance (v1)
