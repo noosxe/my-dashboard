@@ -356,6 +356,16 @@ charts (D4–D8), and adds one control.
    time · op · ident · surface/trigger · status · duration (and
    `queue_ms`, once recorded, so self-wait is separable from network
    wait). "What was that 8-second call" answered without log grepping.
+   *(implemented in the step-6 PR — #344: all three views ride the
+   calculator's `latency_ranking` / `latency_trend` /
+   `slowest_flights`; the tab reuses the quota tab's two dimension
+   selectors and one-flat-table shape, plus the metric selector
+   (`p50 / p90 / max / error rate / count`, default p90) as the one
+   added control. The duration definition rides the tab face as a
+   muted line. The trend's p50 and p90 render as two panels — the
+   one-series-per-chart rev constraint again — with a bucket-width
+   caption; the slowest table caps at 20 and shows `queue` in its own
+   right-aligned column, `—` when not recorded)*
 
 **Deferred views** — distribution histogram, at-a-glance strip,
 304-vs-200 time comparison: issue #337 (`deferred`).
