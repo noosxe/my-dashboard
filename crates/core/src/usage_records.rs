@@ -28,6 +28,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use gpui::{App, Global, SharedString};
+use serde::{Deserialize, Serialize};
 
 /// The v1 retention: one FIFO across all modules (D3). A heavy day is
 /// thousands of flights; the cap is the analytics working set — totals
@@ -36,7 +37,7 @@ pub const RECORD_CAP: usize = 10_000;
 
 /// Which wire a flight went out on. Generic across modules (docs/0053
 /// D6): REST, GraphQL, or the provider's auth endpoints.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Transport {
     Rest,
     Graphql,

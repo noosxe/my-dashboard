@@ -327,6 +327,10 @@ charts (D4–D8), and adds one control.
 
 **D13 — One pure calculator, every tab, thin renderers.** All
 computation lives in one core module (`dashboard_core::usage_analytics`),
+*(implemented in the step-2 PR — #340: five procedures with serde
+round-tripping outputs; the tie-break convention beyond the doc's
+"cost desc, flights desc" is key-asc everywhere, and query structs
+are serde too, so the future CLI/MCP can carry them verbatim)*
 structured so the eventual programmatic exposure (CLI/MCP) consumes
 the *same* results the UI renders (owner rule: "we would be golden"):
 

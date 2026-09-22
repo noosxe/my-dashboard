@@ -12,6 +12,7 @@ pub mod settings;
 pub mod shell;
 pub mod status;
 pub mod store;
+pub mod usage_analytics;
 pub mod usage_records;
 
 pub use module::{Module, ModuleEntry, ModuleMeta};
