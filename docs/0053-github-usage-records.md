@@ -276,3 +276,17 @@ The chip and `UsageBook` stay GitHub-local (0050's display layer).
 - **0050** D3: pointer note — the ledger keeps the live budget; the
   records pipeline (0053) is the per-flight audit trail beside it.
 - README row for this doc.
+
+## 9. Amendments by docs/0054 (the analytics page — ride with its PR)
+
+- **D3 (sink/source split)**: `snapshot()` migrates from `UsageSink`
+  to the new `UsageSource` read trait (`records_between` /
+  `records_since` / `high_water`); the sink slims to `record` only;
+  `init_with` injects `Arc<dyn UsageStore>` (both capabilities). The
+  writer/reader contracts are now separate; §5's tests switch their
+  `snapshot` import accordingly.
+- **D1 (schema additions)**: records gain three additive `Option`
+  fields — `limit_after` (quota ceiling from the response, beside
+  `remaining_after`), `queue_ms` (dispatch→flight-start wait), and
+  `resp_bytes` (response body length). All `None`-able, none
+  retro-filled; landing before #333 keeps SQLite migration-free.
