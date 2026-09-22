@@ -956,6 +956,7 @@ use gpui_component::{
 pub enum UsageTab {
     Overview,
     Quota,
+    Latency,
 }
 
 impl UsageTab {
@@ -963,6 +964,7 @@ impl UsageTab {
         match self {
             UsageTab::Overview => "Overview",
             UsageTab::Quota => "Quota usage",
+            UsageTab::Latency => "Request latency",
         }
     }
 
@@ -970,6 +972,7 @@ impl UsageTab {
         match self {
             UsageTab::Overview => 0,
             UsageTab::Quota => 1,
+            UsageTab::Latency => 2,
         }
     }
 
@@ -977,6 +980,7 @@ impl UsageTab {
         match ix {
             0 => Some(Self::Overview),
             1 => Some(Self::Quota),
+            2 => Some(Self::Latency),
             _ => None,
         }
     }
@@ -1028,6 +1032,8 @@ pub struct UsagePage {
     /// function of this snapshot; nothing on the tab is interactive,
     /// so — unlike the quota tab — it needs no entity of its own.
     overview_view: OverviewView,
+    /// The request latency tab (D12), created with the page.
+    latency: Option<Entity<LatencyTab>>,
 }
 
 impl UsagePage {
@@ -1042,6 +1048,7 @@ impl UsagePage {
             tab: UsageTab::Overview,
             quota: Some(cx.new(|cx| QuotaTab::new(window, cx))),
             overview_view: empty_overview(),
+            latency: Some(cx.new(|cx| LatencyTab::new(window, cx))),
         };
         // One load on first open (D10): the page never opens empty
         // demanding a click.
@@ -1083,13 +1090,15 @@ impl UsagePage {
     /// swapped in place, so nothing here needs a `Window`.
     fn recompute_tabs(&mut self, cx: &mut Context<Self>) {
         self.overview_view = self.compute_overview();
-        let Some(tab) = self.quota.clone() else {
-            return;
-        };
         let window = self.window();
         let filters = self.filters();
         let rows = std::mem::take(&mut self.rows);
-        tab.update(cx, |tab, cx| tab.sync(window, filters, &rows, cx));
+        if let Some(tab) = self.quota.clone() {
+            tab.update(cx, |tab, cx| tab.sync(window, filters.clone(), &rows, cx));
+        }
+        if let Some(tab) = self.latency.clone() {
+            tab.update(cx, |tab, cx| tab.sync(window, filters, &rows, cx));
+        }
         self.rows = rows;
     }
 
@@ -1307,7 +1316,8 @@ impl Render for UsagePage {
                         }
                     }))
                     .child(Tab::new().label(UsageTab::Overview.label()))
-                    .child(Tab::new().label(UsageTab::Quota.label())),
+                    .child(Tab::new().label(UsageTab::Quota.label()))
+                    .child(Tab::new().label(UsageTab::Latency.label())),
             )
             .child(match self.tab {
                 UsageTab::Overview => {
@@ -1317,6 +1327,14 @@ impl Render for UsagePage {
                     Some(tab) => tab.clone().into_any_element(),
                     None => tab_placeholder(
                         "Quota ranking, charts and table arrive with their implementation (docs/0054 §4).",
+                        cx,
+                    )
+                    .into_any_element(),
+                },
+                UsageTab::Latency => match &self.latency {
+                    Some(tab) => tab.clone().into_any_element(),
+                    None => tab_placeholder(
+                        "Latency ranking, trend and slowest flights arrive with their implementation (docs/0054 §6).",
                         cx,
                     )
                     .into_any_element(),
@@ -1468,14 +1486,14 @@ fn stat_card(
 /// One chart panel: the a11y `Label` summary (the D8/D16 contract —
 /// chart pixels are invisible to AT), the chart itself, and an
 /// optional caption line beneath.
-fn line_panel(
+fn line_panel<T: 'static>(
     id: &str,
     summary: String,
     data: Vec<(SharedString, f64)>,
     stroke: Hsla,
     step: bool,
     caption: Option<SharedString>,
-    cx: &Context<UsagePage>,
+    cx: &Context<T>,
 ) -> impl IntoElement {
     let muted = cx.theme().muted_foreground;
     let mut chart = LineChart::new(data)
@@ -2463,6 +2481,730 @@ impl Render for QuotaTab {
 }
 
 // ---------------------------------------------------------------------------
+// Request latency tab (docs/0054 §6 — D12)
+// ---------------------------------------------------------------------------
+
+/// Metric picker labels (D12): what the ranking sorts by. Default
+/// p90 — latency is heavy-tailed; averages and medians hide exactly
+/// the slowness being hunted.
+impl LatencyMetric {
+    fn label(self) -> &'static str {
+        match self {
+            LatencyMetric::P50 => "p50",
+            LatencyMetric::P90 => "p90",
+            LatencyMetric::Max => "max",
+            LatencyMetric::ErrorRate => "error rate",
+            LatencyMetric::Count => "count",
+        }
+    }
+
+    fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "p50" => Some(Self::P50),
+            "p90" => Some(Self::P90),
+            "max" => Some(Self::Max),
+            "error rate" => Some(Self::ErrorRate),
+            "count" => Some(Self::Count),
+            _ => None,
+        }
+    }
+}
+
+/// One flattened ranking-table row (D12): a primary group or an
+/// indented `Then by` member — the same one-flat-table shape as
+/// quota (D5), with the latency metric set as columns.
+struct LatencyRow {
+    key: String,
+    indent: bool,
+    count: u64,
+    p50_ms: Option<u32>,
+    p90_ms: Option<u32>,
+    max_ms: u32,
+    error_rate_pct: Option<f64>,
+}
+
+/// The metric ranking table's delegate (D12): renders the
+/// calculator's `LatencyRanking` verbatim — percentile math,
+/// error rates and nesting are the calculator's; the table adds
+/// no numbers of its own.
+struct LatencyTable {
+    rows: Vec<LatencyRow>,
+    columns: Vec<Column>,
+}
+
+impl LatencyTable {
+    fn new(ranking: &LatencyRanking, group_by: Dimension) -> Self {
+        let mut rows = Vec::new();
+        for g in &ranking.groups {
+            rows.push(LatencyRow {
+                key: g.key.clone(),
+                indent: false,
+                count: g.count,
+                p50_ms: g.p50_ms,
+                p90_ms: g.p90_ms,
+                max_ms: g.max_ms,
+                error_rate_pct: g.error_rate_pct,
+            });
+            for child in &g.children {
+                rows.push(LatencyRow {
+                    key: child.key.clone(),
+                    indent: true,
+                    count: child.count,
+                    p50_ms: child.p50_ms,
+                    p90_ms: child.p90_ms,
+                    max_ms: child.max_ms,
+                    error_rate_pct: child.error_rate_pct,
+                });
+            }
+        }
+        Self {
+            rows,
+            columns: Self::columns(group_by),
+        }
+    }
+
+    fn columns(group_by: Dimension) -> Vec<Column> {
+        vec![
+            Column::new("dimension", group_by.label()),
+            Column::new("flights", "flights").text_right(),
+            Column::new("p50", "p50").text_right(),
+            Column::new("p90", "p90").text_right(),
+            Column::new("max", "max").text_right(),
+            Column::new("err", "err%").text_right(),
+        ]
+    }
+
+    fn cell_text(&self, row_ix: usize, col_ix: usize) -> String {
+        let Some(row) = self.rows.get(row_ix) else {
+            return String::new();
+        };
+        match col_ix {
+            1 => row.count.to_string(),
+            2 => row.p50_ms.map_or_else(|| "—".into(), fmt_ms),
+            3 => row.p90_ms.map_or_else(|| "—".into(), fmt_ms),
+            4 => fmt_ms(row.max_ms),
+            5 => row
+                .error_rate_pct
+                .map_or_else(|| "—".into(), |e| format!("{e:.0}%")),
+            _ => row.key.clone(),
+        }
+    }
+}
+
+impl TableDelegate for LatencyTable {
+    fn columns_count(&self, _: &App) -> usize {
+        self.columns.len()
+    }
+
+    fn rows_count(&self, _: &App) -> usize {
+        self.rows.len()
+    }
+
+    fn column(&self, col_ix: usize, _: &App) -> Column {
+        self.columns
+            .get(col_ix)
+            .cloned()
+            .unwrap_or_else(|| Column::new("dimension", ""))
+    }
+
+    fn render_td(
+        &mut self,
+        row_ix: usize,
+        col_ix: usize,
+        _: &mut Window,
+        cx: &mut Context<TableState<Self>>,
+    ) -> impl IntoElement {
+        let Some(row) = self.rows.get(row_ix) else {
+            return div().into_any_element();
+        };
+        let muted = cx.theme().muted_foreground;
+        div()
+            .flex()
+            .h_full()
+            .w_full()
+            .items_center()
+            .when(col_ix > 0, |c| c.justify_end())
+            // `Then by` members indent beneath their group (one flat
+            // table, D5's shape reused).
+            .when(row.indent, |c| c.pl_4())
+            .when(!row.indent, |c| c.font_medium())
+            // A zero error rate is good news, not signal — dim it so
+            // the interesting rows stand out.
+            .when(col_ix == 5 && row.error_rate_pct == Some(0.0), |c| {
+                c.text_color(muted)
+            })
+            .child(self.cell_text(row_ix, col_ix))
+            .into_any_element()
+    }
+}
+
+/// One slowest-flights row (D12 view 3): full context per flight —
+/// "what was that 8-second call" without log grepping.
+struct SlowRow {
+    time: String,
+    op: String,
+    ident: String,
+    surface_trigger: String,
+    status: u16,
+    duration: String,
+    queue: String,
+}
+
+/// The slowest-flights table's delegate: `slowest_flights` output
+/// rendered verbatim.
+struct SlowTable {
+    rows: Vec<SlowRow>,
+    columns: Vec<Column>,
+}
+
+impl SlowTable {
+    fn new(slowest: &SlowestFlights) -> Self {
+        Self {
+            rows: slowest
+                .flights
+                .iter()
+                .map(|f| SlowRow {
+                    time: format_hms(f.ts_epoch_ms),
+                    op: f.op.clone(),
+                    ident: f.ident.clone().unwrap_or_else(|| "—".into()),
+                    surface_trigger: format!("{} · {}", f.surface, f.trigger),
+                    status: f.status,
+                    duration: fmt_ms(f.duration_ms),
+                    queue: f.queue_ms.map_or_else(|| "—".into(), fmt_ms),
+                })
+                .collect(),
+            columns: vec![
+                Column::new("time", "time"),
+                Column::new("op", "op"),
+                Column::new("ident", "ident"),
+                Column::new("surface", "surface · trigger"),
+                Column::new("status", "status").text_right(),
+                Column::new("duration", "duration").text_right(),
+                Column::new("queue", "queue").text_right(),
+            ],
+        }
+    }
+}
+
+impl TableDelegate for SlowTable {
+    fn columns_count(&self, _: &App) -> usize {
+        self.columns.len()
+    }
+
+    fn rows_count(&self, _: &App) -> usize {
+        self.rows.len()
+    }
+
+    fn column(&self, col_ix: usize, _: &App) -> Column {
+        self.columns
+            .get(col_ix)
+            .cloned()
+            .unwrap_or_else(|| Column::new("time", ""))
+    }
+
+    fn render_td(
+        &mut self,
+        row_ix: usize,
+        col_ix: usize,
+        _: &mut Window,
+        cx: &mut Context<TableState<Self>>,
+    ) -> impl IntoElement {
+        let Some(row) = self.rows.get(row_ix) else {
+            return div().into_any_element();
+        };
+        let muted = cx.theme().muted_foreground;
+        let text = match col_ix {
+            1 => row.op.clone(),
+            2 => row.ident.clone(),
+            3 => row.surface_trigger.clone(),
+            4 => row.status.to_string(),
+            5 => row.duration.clone(),
+            6 => row.queue.clone(),
+            _ => row.time.clone(),
+        };
+        div()
+            .flex()
+            .h_full()
+            .w_full()
+            .items_center()
+            .when(col_ix >= 4, |c| c.justify_end())
+            // `—` means "not recorded", not zero — keep it muted.
+            .when(text == "—", |c| c.text_color(muted))
+            .child(text)
+            .into_any_element()
+    }
+}
+
+/// The page-global inputs the latency tab derives from (D7/D10):
+/// the same frozen window, facets and fetched rows the quota tab
+/// sees — pushed by the page, never re-read.
+struct LatencyInputs {
+    window: WindowSpec,
+    filters: Filters,
+    rows: Vec<UsageRecord>,
+}
+
+/// The request latency tab (D12): the D4–D8 dimension/filter
+/// machinery reused with a metric selector on top — same selects,
+/// same ranking-table shape, one added control. Plus the trend and
+/// the slowest-flights receipt, all thin renderers over the
+/// calculator's three procedures.
+struct LatencyTab {
+    group_by: Dimension,
+    then_by: Option<Dimension>,
+    metric: LatencyMetric,
+    inputs: LatencyInputs,
+    ranking: LatencyRanking,
+    trend: LatencyTrend,
+    slowest: SlowestFlights,
+    group_by_select: Entity<SelectState<SearchableVec<SharedString>>>,
+    then_by_select: Entity<SelectState<SearchableVec<SharedString>>>,
+    metric_select: Entity<SelectState<SearchableVec<SharedString>>>,
+    table: Entity<TableState<LatencyTable>>,
+    slow_table: Entity<TableState<SlowTable>>,
+}
+
+impl LatencyTab {
+    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let dimension_labels: Vec<SharedString> = Dimension::all()
+            .iter()
+            .map(|d| SharedString::from(d.label()))
+            .collect();
+        let default_group_by: SharedString = Dimension::Surface.label().into();
+        let group_by_select = cx.new(|cx| {
+            let mut select =
+                SelectState::new(SearchableVec::from(dimension_labels), None, window, cx);
+            select.set_selected_value(&default_group_by, window, cx);
+            select
+        });
+        let default_then_by: SharedString = THEN_BY_NONE.into();
+        let then_by_select = cx.new(|cx| {
+            let mut select = SelectState::new(
+                SearchableVec::from(then_by_labels(Dimension::Surface)),
+                None,
+                window,
+                cx,
+            );
+            select.set_selected_value(&default_then_by, window, cx);
+            select
+        });
+        let metric_labels: Vec<SharedString> = [
+            LatencyMetric::P50,
+            LatencyMetric::P90,
+            LatencyMetric::Max,
+            LatencyMetric::ErrorRate,
+            LatencyMetric::Count,
+        ]
+        .iter()
+        .map(|m| SharedString::from(m.label()))
+        .collect();
+        let default_metric: SharedString = LatencyMetric::P90.label().into();
+        let metric_select = cx.new(|cx| {
+            let mut select = SelectState::new(SearchableVec::from(metric_labels), None, window, cx);
+            select.set_selected_value(&default_metric, window, cx);
+            select
+        });
+        let table =
+            cx.new(|cx| TableState::new(LatencyTable::empty(Dimension::Surface), window, cx));
+        let slow_table = cx.new(|cx| TableState::new(SlowTable::empty(), window, cx));
+
+        // The selectors re-apply over the same frozen inputs (D7):
+        // pick dimensions or a metric, see a ranking — no read.
+        cx.subscribe_in(
+            &group_by_select,
+            window,
+            |this, _, event: &SelectEvent<SearchableVec<SharedString>>, window, cx| {
+                let SelectEvent::Confirm(Some(label)) = event else {
+                    return;
+                };
+                let Some(dim) = Dimension::from_label(label) else {
+                    return;
+                };
+                this.group_by = dim;
+                if this.then_by == Some(dim) {
+                    // A self-nest is not a question (D4).
+                    this.then_by = None;
+                    let none: SharedString = THEN_BY_NONE.into();
+                    this.then_by_select.update(cx, |select, cx| {
+                        select.set_selected_value(&none, window, cx)
+                    });
+                }
+                this.then_by_select.update(cx, |select, cx| {
+                    select.set_items(SearchableVec::from(then_by_labels(dim)), window, cx)
+                });
+                this.apply(cx);
+                cx.notify();
+            },
+        )
+        .detach();
+        cx.subscribe_in(
+            &then_by_select,
+            window,
+            |this, _, event: &SelectEvent<SearchableVec<SharedString>>, _, cx| {
+                let SelectEvent::Confirm(Some(label)) = event else {
+                    return;
+                };
+                this.then_by = if label == THEN_BY_NONE {
+                    None
+                } else {
+                    Dimension::from_label(label)
+                };
+                this.apply(cx);
+                cx.notify();
+            },
+        )
+        .detach();
+        cx.subscribe_in(
+            &metric_select,
+            window,
+            |this, _, event: &SelectEvent<SearchableVec<SharedString>>, _, cx| {
+                let SelectEvent::Confirm(Some(label)) = event else {
+                    return;
+                };
+                let Some(metric) = LatencyMetric::from_label(label) else {
+                    return;
+                };
+                this.metric = metric;
+                this.apply(cx);
+                cx.notify();
+            },
+        )
+        .detach();
+
+        Self {
+            group_by: Dimension::Surface,
+            then_by: None,
+            metric: LatencyMetric::P90,
+            inputs: LatencyInputs {
+                window: WindowSpec {
+                    as_of_ms: 0,
+                    range: Range::D1,
+                },
+                filters: Filters::default(),
+                rows: Vec::new(),
+            },
+            ranking: LatencyRanking {
+                groups: Vec::new(),
+                totals: LatencyTotals {
+                    flights: 0,
+                    errors: 0,
+                },
+            },
+            trend: LatencyTrend {
+                buckets: Vec::new(),
+            },
+            slowest: SlowestFlights {
+                flights: Vec::new(),
+            },
+            group_by_select,
+            then_by_select,
+            metric_select,
+            table,
+            slow_table,
+        }
+    }
+
+    /// The page pushes its global inputs (D7/D10): frozen window,
+    /// facets, fetched rows. Pure re-derivation; windowless.
+    fn sync(
+        &mut self,
+        window: WindowSpec,
+        filters: Filters,
+        rows: &[UsageRecord],
+        cx: &mut Context<Self>,
+    ) {
+        self.inputs = LatencyInputs {
+            window,
+            filters,
+            rows: rows.to_vec(),
+        };
+        self.apply(cx);
+    }
+
+    /// Re-derive the three views over the current inputs (D7):
+    /// `latency_ranking`, `latency_trend` and `slowest_flights` are
+    /// the one implementation each — this adds no numbers, only
+    /// layout.
+    fn apply(&mut self, cx: &mut Context<Self>) {
+        self.ranking = latency_ranking(
+            &self.inputs.rows,
+            &LatencyQuery {
+                window: self.inputs.window,
+                group_by: self.group_by,
+                then_by: self.then_by,
+                filters: self.inputs.filters.clone(),
+                metric: self.metric,
+            },
+        );
+        self.trend = latency_trend(
+            &self.inputs.rows,
+            &TrendQuery {
+                window: self.inputs.window,
+                filters: self.inputs.filters.clone(),
+            },
+        );
+        self.slowest = slowest_flights(
+            &self.inputs.rows,
+            &SlowestQuery {
+                window: self.inputs.window,
+                filters: self.inputs.filters.clone(),
+                limit: SLOWEST_LIMIT,
+            },
+        );
+        let delegate = LatencyTable::new(&self.ranking, self.group_by);
+        self.table.update(cx, |state, cx| {
+            *state.delegate_mut() = delegate;
+            state.refresh(cx);
+            state.refresh_header_layout(cx);
+        });
+        let slow_delegate = SlowTable::new(&self.slowest);
+        self.slow_table.update(cx, |state, cx| {
+            *state.delegate_mut() = slow_delegate;
+            state.refresh(cx);
+            state.refresh_header_layout(cx);
+        });
+        cx.notify();
+    }
+}
+
+impl LatencyTable {
+    fn empty(group_by: Dimension) -> Self {
+        Self {
+            rows: Vec::new(),
+            columns: Self::columns(group_by),
+        }
+    }
+}
+
+impl SlowTable {
+    fn empty() -> Self {
+        Self {
+            rows: Vec::new(),
+            columns: vec![
+                Column::new("time", "time"),
+                Column::new("op", "op"),
+                Column::new("ident", "ident"),
+                Column::new("surface", "surface · trigger"),
+                Column::new("status", "status").text_right(),
+                Column::new("duration", "duration").text_right(),
+                Column::new("queue", "queue").text_right(),
+            ],
+        }
+    }
+}
+
+/// The slowest-flights cap (D12): top-20 — the debugging receipt,
+/// not an exhaustive log.
+const SLOWEST_LIMIT: usize = 20;
+
+/// Bucket-width copy for the trend caption: `≈ 90 s buckets`,
+/// `≈ 36 min buckets` — the ~40-bucket rule made legible.
+fn fmt_bucket_len(ms: u64) -> String {
+    if ms < 60_000 {
+        format!("≈ {ms} ms")
+    } else if ms < 3_600_000 {
+        format!("≈ {} min", ms / 60_000)
+    } else {
+        format!("≈ {:.1} h", ms as f64 / 3_600_000.0)
+    }
+}
+
+impl Render for LatencyTab {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let dim = self.group_by;
+        let flights = self.ranking.totals.flights;
+        let muted_fg = cx.theme().muted_foreground;
+        let definition = "duration = transport wall time (connect · request · server · response read) · queue wait separate";
+
+        // Controls (D4 machinery reused + the one added control):
+        // two dimension selectors and the metric selector.
+        let controls = h_flex()
+            .items_center()
+            .gap_2()
+            .flex_wrap()
+            .child(div().text_sm().text_color(muted_fg).child("Group by"))
+            .child(Select::new(&self.group_by_select).accessibility_label("Group by dimension"))
+            .child(div().text_sm().text_color(muted_fg).child("Then by"))
+            .child(Select::new(&self.then_by_select).accessibility_label("Then by dimension"))
+            .child(div().text_sm().text_color(muted_fg).child("Rank by"))
+            .child(Select::new(&self.metric_select).accessibility_label("Rank by metric"));
+
+        if flights == 0 {
+            return v_flex()
+                .flex_1()
+                .min_h_0()
+                .gap_3()
+                .child(controls)
+                .child(
+                    div()
+                        .flex_1()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .text_color(muted_fg)
+                        .child("No flights in the window — widen the range or refresh."),
+                )
+                .into_any_element();
+        }
+
+        // Trend (D12 view 2): p50 and p90 per bucket — one series
+        // per chart at this rev, so two panels side by side.
+        let p50_data: Vec<(SharedString, f64)> = self
+            .trend
+            .buckets
+            .iter()
+            .filter_map(|b| b.p50_ms.map(|ms| (b.start_ms, ms)))
+            .map(|(ts, ms)| (SharedString::from(format_hms(ts)), ms as f64))
+            .collect();
+        let p90_data: Vec<(SharedString, f64)> = self
+            .trend
+            .buckets
+            .iter()
+            .filter_map(|b| b.p90_ms.map(|ms| (b.start_ms, ms)))
+            .map(|(ts, ms)| (SharedString::from(format_hms(ts)), ms as f64))
+            .collect();
+        let p50_max = self.trend.buckets.iter().filter_map(|b| b.p50_ms).max();
+        let p90_max = self.trend.buckets.iter().filter_map(|b| b.p90_ms).max();
+        let bucket_len = self
+            .trend
+            .buckets
+            .first()
+            .map(|b| b.end_ms - b.start_ms)
+            .unwrap_or(0);
+        let caption = SharedString::from(format!(
+            "{} buckets · p50 and p90 are nearest-rank per bucket",
+            fmt_bucket_len(bucket_len)
+        ));
+        let mut trend_row = h_flex().flex_wrap().gap_4().items_start();
+        if !p50_data.is_empty() {
+            trend_row = trend_row.child(line_panel(
+                "usage-latency-p50",
+                format!(
+                    "Latency p50 per bucket: up to {} across {} active bucket{}",
+                    p50_max.map_or_else(|| "—".into(), fmt_ms),
+                    p50_data.len(),
+                    if p50_data.len() == 1 { "" } else { "s" }
+                ),
+                p50_data,
+                cx.theme().chart_2,
+                false,
+                Some(caption.clone()),
+                cx,
+            ));
+        }
+        if !p90_data.is_empty() {
+            trend_row = trend_row.child(line_panel(
+                "usage-latency-p90",
+                format!(
+                    "Latency p90 per bucket: up to {} across {} active bucket{}",
+                    p90_max.map_or_else(|| "—".into(), fmt_ms),
+                    p90_data.len(),
+                    if p90_data.len() == 1 { "" } else { "s" }
+                ),
+                p90_data,
+                cx.theme().chart_1,
+                false,
+                Some(caption),
+                cx,
+            ));
+        }
+
+        // The ranking summary (D8's text-equivalent contract): the
+        // slowest group under the current metric.
+        let rank_summary = match self.ranking.groups.first() {
+            Some(top) => format!(
+                "Ranked by {}: slowest {} — {} ({} flights, p90 {})",
+                self.metric.label(),
+                dim.label().to_lowercase(),
+                top.key,
+                top.count,
+                top.p90_ms.map_or_else(|| "—".into(), fmt_ms)
+            ),
+            None => format!("Ranked by {}: no groups", self.metric.label()),
+        };
+
+        v_flex()
+            .id("usage-latency")
+            .flex_1()
+            .min_h_0()
+            .gap_3()
+            .overflow_y_scroll()
+            .child(controls)
+            // The tab states its duration definition on its face
+            // (D12): what `duration_ms` means, before any number.
+            .child(
+                div()
+                    .id("usage-latency-defn")
+                    .role(gpui::accesskit::Role::Label)
+                    .aria_label("Duration definition: transport wall time — connect, request, server and response read. Queue wait is recorded separately and shown in its own column.")
+                    .text_sm()
+                    .text_color(muted_fg)
+                    .child(definition),
+            )
+            .child(trend_row)
+            // The metric ranking table (D12 view 1).
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_h_0()
+                    .gap_1()
+                    .child(
+                        div()
+                            .id("usage-latency-rank-summary")
+                            .role(gpui::accesskit::Role::Label)
+                            .aria_label(rank_summary.clone())
+                            .text_sm()
+                            .text_color(muted_fg)
+                            .child(rank_summary),
+                    )
+                    .child(
+                        div()
+                            .h(px(300.))
+                            .child(DataTable::new(&self.table).small()),
+                    ),
+            )
+            // The slowest flights (D12 view 3): the debugging
+            // receipt — full context per flight.
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_h_0()
+                    .gap_1()
+                    .child(
+                        div()
+                            .id("usage-latency-slowest-summary")
+                            .role(gpui::accesskit::Role::Label)
+                            .aria_label(slowest_summary(&self.slowest, flights))
+                            .text_sm()
+                            .text_color(muted_fg)
+                            .child(slowest_summary(&self.slowest, flights)),
+                    )
+                    .child(
+                        div()
+                            .h(px(320.))
+                            .child(DataTable::new(&self.slow_table).small()),
+                    ),
+            )
+            .into_any_element()
+    }
+}
+
+/// The slowest-flights text summary (D8's contract): worst flight
+/// and its op — the "what was that 8-second call" answer in text.
+fn slowest_summary(slowest: &SlowestFlights, flights: u64) -> String {
+    match slowest.flights.first() {
+        Some(worst) => format!(
+            "Slowest flights: {} of {} listed · worst {} ({})",
+            slowest.flights.len(),
+            flights,
+            fmt_ms(worst.duration_ms),
+            worst.op
+        ),
+        None => format!("Slowest flights: none in the window ({flights} flights)"),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests (docs/0054 §9)
 // ---------------------------------------------------------------------------
 
@@ -2968,6 +3710,7 @@ mod tests {
             // window once and is not under test here.
             quota: None,
             overview_view: empty_overview(),
+            latency: None,
         }
     }
 
@@ -3267,6 +4010,112 @@ mod tests {
                 51,
                 "refresh is the only path that moves the overview"
             )
+        });
+    }
+
+    #[gpui::test]
+    fn latency_tab_re_ranks_when_the_metric_changes(cx: &mut TestAppContext) {
+        // Selects/TableState read the theme global at construction.
+        cx.update(gpui_component::init);
+        let store = Arc::new(MemorySink::default());
+        cx.update(|cx| init_with(cx, store.clone() as Arc<dyn UsageStore>));
+
+        let t0 = usage_records::now_epoch_ms();
+        cx.update(|cx| {
+            let s = sink(cx);
+            // Slow surface: two flights at 900 ms — the p90 head.
+            for i in 0..2 {
+                let mut slow = rec(t0 - 10 - i, "pr-page", Some(9));
+                slow.duration_ms = 900;
+                s.record(slow);
+            }
+            // Fast surface: five flights at 100 ms — the count head.
+            for i in 0..5 {
+                s.record(rec(t0 - 20 - i, "home", Some(4)));
+            }
+        });
+
+        let (page, _window_ctx) = cx.add_window_view(UsagePage::new);
+        let tab = cx.update(|cx| page.read(cx).latency.clone().unwrap());
+        let keys = |cx: &mut TestAppContext| {
+            cx.update(|cx| {
+                tab.read(cx)
+                    .ranking
+                    .groups
+                    .iter()
+                    .map(|g| g.key.clone())
+                    .collect::<Vec<String>>()
+            })
+        };
+
+        // Default (D12): group by surface, ranked by p90 — the tail
+        // leads, which is the point of the default.
+        assert_eq!(keys(cx), ["pr-page", "home"]);
+        cx.update(|cx| {
+            let t = tab.read(cx);
+            assert_eq!(t.ranking.groups[0].p90_ms, Some(900));
+            assert_eq!(t.ranking.totals.flights, 7);
+        });
+
+        // Metric change re-applies over the same frozen inputs
+        // (D7/D12): count re-ranks — pure, no store read.
+        tab.update(cx, |t, cx| {
+            t.metric = LatencyMetric::Count;
+            t.apply(cx);
+        });
+        assert_eq!(keys(cx), ["home", "pr-page"], "count flips the order");
+    }
+
+    #[gpui::test]
+    fn latency_tab_slowest_caps_at_twenty_with_full_context(cx: &mut TestAppContext) {
+        cx.update(gpui_component::init);
+        let store = Arc::new(MemorySink::default());
+        cx.update(|cx| init_with(cx, store.clone() as Arc<dyn UsageStore>));
+
+        let t0 = usage_records::now_epoch_ms();
+        cx.update(|cx| {
+            let s = sink(cx);
+            for i in 0..25u32 {
+                let mut r = rec(t0 - i as u64, "pr-page", None);
+                r.duration_ms = 50 * (i + 1);
+                if i == 24 {
+                    // The worst flight carries the full receipt:
+                    // ident and queue wait, separable from network.
+                    r.ident = Some(SharedString::from("noosxe/my-dashboard#350"));
+                    r.queue_ms = Some(12);
+                }
+                s.record(r);
+            }
+        });
+
+        let (page, _window_ctx) = cx.add_window_view(UsagePage::new);
+        cx.update(|cx| {
+            let t = page.read(cx).latency.clone().unwrap();
+            let t = t.read(cx);
+            // The cap (D12): top-20 of 25.
+            assert_eq!(t.slowest.flights.len(), 20);
+            let flights = &t.slowest.flights;
+            assert_eq!(flights[0].duration_ms, 50 * 25, "duration desc");
+            assert!(
+                flights
+                    .windows(2)
+                    .all(|w| w[0].duration_ms >= w[1].duration_ms)
+            );
+            let worst = &flights[0];
+            assert_eq!(worst.op, "pr-detail");
+            assert_eq!(
+                worst.ident.as_deref(),
+                Some("noosxe/my-dashboard#350"),
+                "the receipt names the flight"
+            );
+            assert_eq!(worst.queue_ms, Some(12), "self-wait separable");
+            assert_eq!(worst.surface, "pr-page");
+            assert_eq!(worst.trigger, "view-shown");
+            assert_eq!(worst.status, 200);
+            // The trend rides the same inputs (D12 view 2): buckets
+            // with flights carry p50/p90.
+            assert!(t.trend.buckets.iter().any(|b| b.p90_ms.is_some()));
+            assert!(t.trend.buckets.iter().any(|b| b.p50_ms.is_some()));
         });
     }
 
