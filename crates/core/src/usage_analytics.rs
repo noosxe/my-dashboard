@@ -1751,12 +1751,14 @@ fn render_overview_tab(view: &OverviewView, cx: &Context<UsagePage>) -> impl Int
         .collect();
     let burn_row = if burn_panels.is_empty() {
         h_flex()
+            .flex_none()
             .child(div().text_sm().text_color(muted_fg).child(
                 "No budget snapshots in the window — burn-down appears with the first response.",
             ))
             .into_any_element()
     } else {
         h_flex()
+            .flex_none()
             .flex_wrap()
             .gap_4()
             .items_start()
@@ -1812,7 +1814,7 @@ fn render_overview_tab(view: &OverviewView, cx: &Context<UsagePage>) -> impl Int
         .filter_map(|b| b.gql_p90_ms)
         .max();
 
-    let mut chart_row = h_flex().flex_wrap().gap_4().items_start();
+    let mut chart_row = h_flex().flex_none().flex_wrap().gap_4().items_start();
     if !spend_rest.is_empty() {
         chart_row = chart_row.child(line_panel(
             "usage-spend-rest",
@@ -1872,6 +1874,7 @@ fn render_overview_tab(view: &OverviewView, cx: &Context<UsagePage>) -> impl Int
         .overflow_y_scroll()
         .child(
             h_flex()
+                .flex_none()
                 .flex_wrap()
                 .gap_3()
                 .items_start()
@@ -2282,11 +2285,24 @@ impl Render for QuotaTab {
             .flex_1()
             .min_h_0()
             .gap_3()
+            // Tab-content scroll (parity with the overview and
+            // latency roots): the tab keeps its page slice
+            // (flex_1/min_h_0 under the strips) and scrolls its own
+            // content vertically when controls + charts exceed it,
+            // instead of squeezing the ranking table away.
+            .id("usage-quota")
+            .overflow_y_scroll()
             // Group-by controls (D4): pick dimensions, see a ranking.
             // Two selectors, never three — selector count is part of
             // the contract.
             .child(
                 h_flex()
+                    // Auto-height rows must not shrink inside the
+                    // scroll root — a squeezed row paints its overflow
+                    // over the siblings below (the stacked-Select
+                    // overlap). Natural height + the root's scroll
+                    // is the whole trick.
+                    .flex_none()
                     .items_center()
                     .gap_2()
                     .flex_wrap()
@@ -2297,8 +2313,17 @@ impl Render for QuotaTab {
                             .child("Group by"),
                     )
                     .child(
-                        Select::new(&self.group_by_select)
-                            .accessibility_label("Group by dimension"),
+                        // The Select's outer wrapper is hardcoded
+                        // size_full() upstream (select.rs) and style
+                        // refinements only reach the inner trigger —
+                        // unbounded, the wrapper eats the whole row
+                        // cell and flex-wraps the controls apart. The
+                        // page.rs org-picker slot pattern: bound it
+                        // from the parent.
+                        div().w(px(220.)).flex_none().child(
+                            Select::new(&self.group_by_select)
+                                .accessibility_label("Group by dimension"),
+                        ),
                     )
                     .child(
                         div()
@@ -2306,9 +2331,9 @@ impl Render for QuotaTab {
                             .text_color(cx.theme().muted_foreground)
                             .child("Then by"),
                     )
-                    .child(
+                    .child(div().w(px(220.)).flex_none().child(
                         Select::new(&self.then_by_select).accessibility_label("Then by dimension"),
-                    ),
+                    )),
             )
             .child(if flights == 0 {
                 // Empty window: honest, not blank.
@@ -2321,9 +2346,12 @@ impl Render for QuotaTab {
                     .child("No flights in the window — widen the range or refresh.")
                     .into_any_element()
             } else {
+                // Natural height (flex_none) inside the scroll
+                // root: charts + fixed-height table stack and the
+                // root scrolls them; flex_1 here would squeeze the
+                // block and paint its overflow over the controls.
                 v_flex()
-                    .flex_1()
-                    .min_h_0()
+                    .flex_none()
                     .gap_3()
                     .when(known > 0, |this| {
                         // Charts (D6): both straight from the table's
@@ -2471,8 +2499,12 @@ impl Render for QuotaTab {
                     // `Then by` members nested beneath their group.
                     .child(
                         div()
-                            .flex_1()
-                            .min_h_0()
+                            // Fixed slice inside the scroll root
+                            // (the latency tab's slowest-flights table
+                            // does the same): a flex_1 slice would
+                            // collapse to nothing whenever controls +
+                            // charts exceed the tab's height.
+                            .h(px(300.))
                             .child(DataTable::new(&self.table).small()),
                     )
                     .into_any_element()
@@ -3018,16 +3050,29 @@ impl Render for LatencyTab {
 
         // Controls (D4 machinery reused + the one added control):
         // two dimension selectors and the metric selector.
-        let controls = h_flex()
-            .items_center()
-            .gap_2()
-            .flex_wrap()
-            .child(div().text_sm().text_color(muted_fg).child("Group by"))
-            .child(Select::new(&self.group_by_select).accessibility_label("Group by dimension"))
-            .child(div().text_sm().text_color(muted_fg).child("Then by"))
-            .child(Select::new(&self.then_by_select).accessibility_label("Then by dimension"))
-            .child(div().text_sm().text_color(muted_fg).child("Rank by"))
-            .child(Select::new(&self.metric_select).accessibility_label("Rank by metric"));
+        let controls =
+            h_flex()
+                // Same scroll-root hygiene as the quota tab: natural
+                // row height, bounded Select slots (the upstream
+                // size_full() wrapper otherwise stacks them).
+                .flex_none()
+                .items_center()
+                .gap_2()
+                .flex_wrap()
+                .child(div().text_sm().text_color(muted_fg).child("Group by"))
+                .child(div().w(px(220.)).flex_none().child(
+                    Select::new(&self.group_by_select).accessibility_label("Group by dimension"),
+                ))
+                .child(div().text_sm().text_color(muted_fg).child("Then by"))
+                .child(div().w(px(220.)).flex_none().child(
+                    Select::new(&self.then_by_select).accessibility_label("Then by dimension"),
+                ))
+                .child(div().text_sm().text_color(muted_fg).child("Rank by"))
+                .child(
+                    div().w(px(220.)).flex_none().child(
+                        Select::new(&self.metric_select).accessibility_label("Rank by metric"),
+                    ),
+                );
 
         if flights == 0 {
             return v_flex()
@@ -3134,6 +3179,10 @@ impl Render for LatencyTab {
             // (D12): what `duration_ms` means, before any number.
             .child(
                 div()
+                    // Natural height inside the scroll root (see
+                    // the quota tab note): shrinkable autos overlap
+                    // their siblings.
+                    .flex_none()
                     .id("usage-latency-defn")
                     .role(gpui::accesskit::Role::Label)
                     .aria_label("Duration definition: transport wall time — connect, request, server and response read. Queue wait is recorded separately and shown in its own column.")
@@ -3141,12 +3190,11 @@ impl Render for LatencyTab {
                     .text_color(muted_fg)
                     .child(definition),
             )
-            .child(trend_row)
+            .child(trend_row.flex_none())
             // The metric ranking table (D12 view 1).
             .child(
                 v_flex()
-                    .flex_1()
-                    .min_h_0()
+                    .flex_none()
                     .gap_1()
                     .child(
                         div()
@@ -3167,8 +3215,7 @@ impl Render for LatencyTab {
             // receipt — full context per flight.
             .child(
                 v_flex()
-                    .flex_1()
-                    .min_h_0()
+                    .flex_none()
                     .gap_1()
                     .child(
                         div()
