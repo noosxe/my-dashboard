@@ -112,7 +112,11 @@ impl StartGuard {
 
     fn fail(mut self, step: &str) -> i32 {
         eprintln!("start failed at: {step}");
-        teardown(&mut self.record, false);
+        run_stop(
+            &mut LiveActor { report: false },
+            &mut self.record,
+            &stop_steps(true),
+        );
         let _ = std::fs::remove_dir_all(&self.dirs.dir);
         1
     }
@@ -428,39 +432,168 @@ fn stop(name: &str, keep: bool) -> i32 {
             return 1;
         }
     };
-    teardown(&mut record, true);
+    run_stop(
+        &mut LiveActor { report: true },
+        &mut record,
+        &stop_steps(keep),
+    );
     if keep {
         println!("session {name} stopped (kept: {})", dirs.dir.display());
     } else {
-        if let Err(err) = std::fs::remove_dir_all(&dirs.dir) {
-            eprintln!("warning: could not remove {}: {err}", dirs.dir.display());
-        }
         println!("session {name} stopped (purged)");
     }
     0
 }
 
-/// The D5/D3 teardown: app first (SIGTERM → SIGKILL), then the a11y flag
-/// restore, then sway, then the launchers we spawned. Only PIDs whose
-/// `/proc` cmdline still matches what we spawned are signalled.
-fn teardown(record: &mut SessionRecord, report: bool) {
-    if let Some(pid) = record.app_pid.take() {
-        terminate(pid, &record.binary.clone(), Match::Exact, report);
+/// One rung of the D5/D11 stop ladder, as data — the order is the spec,
+/// table-tested below; the actor is the effect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StopStep {
+    /// `app.quit` over the bridge, ACK waited out (D11, graceful-first).
+    QuitBridge,
+    /// SIGTERM → SIGKILL ladder for the app.
+    TerminateApp,
+    /// Restore `ScreenReaderEnabled` to the recorded value (D3).
+    RestoreFlag,
+    TerminateSway,
+    TerminateLaunchers,
+    Purge,
+}
+
+/// The stop ladder (D5/D11): graceful `app.quit` first, then the signal
+/// ladder for what is still alive, the flag restore after the app is
+/// gone, compositor and launchers last, purge unless `--keep`.
+fn stop_steps(keep: bool) -> Vec<StopStep> {
+    let mut steps = vec![
+        StopStep::QuitBridge,
+        StopStep::TerminateApp,
+        StopStep::RestoreFlag,
+        StopStep::TerminateSway,
+        StopStep::TerminateLaunchers,
+    ];
+    if !keep {
+        steps.push(StopStep::Purge);
     }
-    if let Some(flag) = record.screen_reader_at_start {
-        if let Err(err) = set_screen_reader_enabled(flag) {
-            eprintln!("warning: restoring ScreenReaderEnabled failed: {err}");
-        } else if report {
-            println!("ScreenReaderEnabled restored to {flag}");
+    steps
+}
+
+/// The effects behind [`StopStep`]. The real actor talks to the bridge,
+/// signals processes and touches the bus; the test actor records.
+trait StopActor {
+    /// Ask the app to quit gracefully; `true` when it exited on the ACK.
+    fn quit_bridge(&mut self, record: &mut SessionRecord) -> bool;
+    fn terminate_app(&mut self, record: &mut SessionRecord);
+    fn restore_flag(&mut self, record: &SessionRecord);
+    fn terminate_sway(&mut self, record: &mut SessionRecord);
+    fn terminate_launchers(&mut self, record: &mut SessionRecord);
+    fn purge(&mut self, record: &SessionRecord);
+}
+
+fn run_stop<A: StopActor>(actor: &mut A, record: &mut SessionRecord, steps: &[StopStep]) {
+    for step in steps {
+        match step {
+            StopStep::QuitBridge => {
+                if actor.quit_bridge(record) {
+                    record.app_pid = None;
+                }
+            }
+            StopStep::TerminateApp => actor.terminate_app(record),
+            StopStep::RestoreFlag => actor.restore_flag(record),
+            StopStep::TerminateSway => actor.terminate_sway(record),
+            StopStep::TerminateLaunchers => actor.terminate_launchers(record),
+            StopStep::Purge => actor.purge(record),
         }
     }
-    if let Some(pid) = record.sway_pid.take() {
-        terminate(pid, "sway", Match::Basename, report);
+}
+
+/// The D5/D3/D11 teardown as an actor: only PIDs whose `/proc` cmdline
+/// still matches what we spawned are signalled.
+struct LiveActor {
+    report: bool,
+}
+
+impl StopActor for LiveActor {
+    fn quit_bridge(&mut self, record: &mut SessionRecord) -> bool {
+        quit_app_via_bridge(record, self.report)
     }
-    let launchers = std::mem::take(&mut record.a11y_launcher_pids);
-    for pid in launchers {
-        terminate(pid, "at-spi-bus-launcher", Match::Basename, report);
+
+    fn terminate_app(&mut self, record: &mut SessionRecord) {
+        if let Some(pid) = record.app_pid.take() {
+            terminate(pid, &record.binary.clone(), Match::Exact, self.report);
+        }
     }
+
+    fn restore_flag(&mut self, record: &SessionRecord) {
+        if let Some(flag) = record.screen_reader_at_start {
+            if let Err(err) = set_screen_reader_enabled(flag) {
+                eprintln!("warning: restoring ScreenReaderEnabled failed: {err}");
+            } else if self.report {
+                println!("ScreenReaderEnabled restored to {flag}");
+            }
+        }
+    }
+
+    fn terminate_sway(&mut self, record: &mut SessionRecord) {
+        if let Some(pid) = record.sway_pid.take() {
+            terminate(pid, "sway", Match::Basename, self.report);
+        }
+    }
+
+    fn terminate_launchers(&mut self, record: &mut SessionRecord) {
+        let launchers = std::mem::take(&mut record.a11y_launcher_pids);
+        for pid in launchers {
+            terminate(pid, "at-spi-bus-launcher", Match::Basename, self.report);
+        }
+    }
+
+    fn purge(&mut self, record: &SessionRecord) {
+        let dir = Path::new(&record.state_dir)
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from(&record.state_dir));
+        if let Err(err) = std::fs::remove_dir_all(&dir) {
+            eprintln!("warning: could not remove {}: {err}", dir.display());
+        }
+    }
+}
+
+/// D11 graceful-first: `app.quit` on the session's own bridge, ACK waited
+/// out. Any failure (socket gone, auth refused, no reply) is a plain
+/// `false` — the SIGTERM ladder still follows, so best-effort is enough.
+fn quit_app_via_bridge(record: &SessionRecord, report: bool) -> bool {
+    let Some(pid) = record.app_pid else {
+        return true;
+    };
+    if !pid_matches(pid, &record.binary, Match::Exact) {
+        // Not ours anymore (pid reuse): never signal, never claim a quit.
+        return false;
+    }
+    let runtime = Path::new(&record.state_dir).join("runtime");
+    let Ok(token) = std::fs::read_to_string(runtime.join("debug.token")) else {
+        return false;
+    };
+    let Ok(stream) = std::os::unix::net::UnixStream::connect(runtime.join("debug.sock")) else {
+        return false;
+    };
+    // Bound every read: a hung app must not stretch the stop budget.
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
+    let Ok(mut conn) = Conn::new(stream) else {
+        return false;
+    };
+    if conn.auth(token.trim()).is_err() {
+        return false;
+    }
+    let Ok(response) = conn.call("app.quit", json!({})) else {
+        return false;
+    };
+    if response.get("result").is_none() {
+        return false;
+    }
+    let exited = wait_until_gone(pid, Duration::from_secs(5));
+    if exited && report {
+        println!("pid {pid} exited (app.quit acknowledged)");
+    }
+    exited
 }
 
 fn env(name: &str) -> i32 {
@@ -733,5 +866,110 @@ fn ensure_a11y_bus(dirs: &SessionDirs) -> Result<Vec<u32>, String> {
             return Err("org.a11y.Bus did not appear within 5s of launching".into());
         }
         std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+#[cfg(test)]
+mod stop_tests {
+    use super::*;
+
+    /// Records the ladder as it runs — the ordering spec, table-tested.
+    struct FakeActor {
+        calls: Vec<&'static str>,
+        quit_succeeds: bool,
+    }
+
+    impl StopActor for FakeActor {
+        fn quit_bridge(&mut self, _record: &mut SessionRecord) -> bool {
+            self.calls.push("quit");
+            self.quit_succeeds
+        }
+
+        fn terminate_app(&mut self, record: &mut SessionRecord) {
+            // Mirror the real actor: a rung whose PID is already gone
+            // (quit acknowledged) is a no-op, not a call.
+            if record.app_pid.take().is_some() {
+                self.calls.push("term-app");
+            }
+        }
+
+        fn restore_flag(&mut self, _record: &SessionRecord) {
+            self.calls.push("flag");
+        }
+
+        fn terminate_sway(&mut self, record: &mut SessionRecord) {
+            self.calls.push("term-sway");
+            record.sway_pid = None;
+        }
+
+        fn terminate_launchers(&mut self, record: &mut SessionRecord) {
+            self.calls.push("term-launchers");
+            record.a11y_launcher_pids.clear();
+        }
+
+        fn purge(&mut self, _record: &SessionRecord) {
+            self.calls.push("purge");
+        }
+    }
+
+    fn record() -> SessionRecord {
+        SessionRecord {
+            name: "t".into(),
+            created_at: 0,
+            binary: "/bin/app".into(),
+            size: (800, 600),
+            app_pid: Some(11),
+            sway_pid: Some(22),
+            a11y_launcher_pids: vec![33],
+            wayland_display: Some("wayland-9".into()),
+            state_dir: "/sessions/t/state".into(),
+            screen_reader_at_start: Some(false),
+            frame_at_ready: None,
+        }
+    }
+
+    #[test]
+    fn stop_ladder_orders_graceful_first_and_purges_by_default() {
+        assert_eq!(
+            stop_steps(false),
+            vec![
+                StopStep::QuitBridge,
+                StopStep::TerminateApp,
+                StopStep::RestoreFlag,
+                StopStep::TerminateSway,
+                StopStep::TerminateLaunchers,
+                StopStep::Purge,
+            ]
+        );
+        assert_eq!(stop_steps(true).last(), Some(&StopStep::TerminateLaunchers));
+    }
+
+    #[test]
+    fn acknowledged_quit_skips_the_app_signal_ladder() {
+        let mut actor = FakeActor {
+            calls: Vec::new(),
+            quit_succeeds: true,
+        };
+        let mut rec = record();
+        run_stop(&mut actor, &mut rec, &stop_steps(false));
+        assert_eq!(
+            actor.calls,
+            vec!["quit", "flag", "term-sway", "term-launchers", "purge"]
+        );
+        assert_eq!(rec.app_pid, None);
+    }
+
+    #[test]
+    fn failed_quit_falls_through_to_sigterm() {
+        let mut actor = FakeActor {
+            calls: Vec::new(),
+            quit_succeeds: false,
+        };
+        let mut rec = record();
+        run_stop(&mut actor, &mut rec, &stop_steps(true));
+        assert_eq!(
+            actor.calls,
+            vec!["quit", "term-app", "flag", "term-sway", "term-launchers"]
+        );
     }
 }

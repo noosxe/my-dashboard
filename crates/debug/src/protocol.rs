@@ -20,6 +20,10 @@ pub const METHOD_INPUT_FOCUS_NODE: &str = "input.focus_node";
 pub const METHOD_WINDOW_LIST: &str = "window.list";
 pub const METHOD_WINDOW_GEOMETRY: &str = "window.geometry";
 pub const METHOD_APP_LOGS: &str = "app.logs";
+/// Graceful shutdown request (0055 D11): the only protocol addition
+/// beyond 0010's seven commands. `{window?}` is accepted for shape
+/// symmetry but shutdown is app-wide (`App::quit`).
+pub const METHOD_APP_QUIT: &str = "app.quit";
 
 /// Error codes: JSON-RPC conventions where they fit, app-specific 4xxx/5xxx
 /// beyond that.
@@ -164,6 +168,14 @@ pub struct WindowGeometryParams {
 pub struct LogsParams {
     pub since: Option<u64>,
     pub limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+/// `app.quit` (0055 D11): `window` is accepted but ignored — shutdown
+/// is app-wide.
+pub struct AppQuitParams {
+    #[allow(dead_code)]
+    pub window: Option<u64>,
 }
 
 fn default_click_count() -> u32 {

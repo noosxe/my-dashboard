@@ -274,6 +274,10 @@ On-demand rendering (§3) is the semantic contract: a frame advances
 when the app drew something; a no-op interaction timing out is
 *correct* feedback, and the flag's failure mode is the diagnostic.
 
+Implementation notes (#356): defaults — verb timeout 5000 ms, drive-flag
+budget 2000 ms, poll interval 100 ms; both timeout paths exit 1 with the
+last-seen frame number. The drive flag's pre-dispatch dump failing skips
+the receipt (the dispatch still runs) rather than fabricating one.
 ### D7 — Named snapshots and structural diff on `tree`
 
 ```
@@ -299,6 +303,13 @@ must have drawn" in one command. Bounds compare exactly (fixed-size
 headless output makes geometry deterministic); label-only diffs are
 the common receipt.
 
+Implementation notes (#356): snapshot files live next to the resolved
+state dir — `<parent-of-DASHBOARD_STATE_DIR>/snapshots/<name>.json`, so
+`--snapshot` and `--diff` agree without extra state and an unbound run
+lands next to the default state dir. Names are `[A-Za-z0-9._-]{1,64}`,
+no leading dot, no `..` (traversal stays out of the grammar). Beyond the
+spec'd label/bounds kinds, the diff also reports focus-only changes
+(`focused=false → focused=true`) — the tab-stop receipt class.
 ### D8 — `tree --tab-stops`: the focus cycle in one shot
 
 Keyboard is the most robust drive path (mouse needs coordinates;
@@ -311,6 +322,21 @@ to the starting node or a 100-stop cap (a focus trap prints as
 composition of existing verbs; no protocol change. The map is also
 the natural `run`-script assertion substrate (`assert-focus`).
 
+Implementation notes (#356): a tab that leaves focus on the same node
+is a trap (exit 1, named); with no starting focus the walk anchors on
+the first focused node. The per-step settle wait follows D6 (a focus
+move with no redraw must not abort the walk). Unclosed after 100 stops
+exits 1 with the last stop — a finding, not a hang.
+
+Substrate finding (#356): AT-SPI `State::Focused` never fires on this
+stack — gpui sets `TreeUpdate::focus` but not `Node::focused`, so the
+walk has no focus to enrich. The dump's own `gpui_focus` /
+`active_descendant_focus` pointers (node-map keys, upstream debug dump)
+are the only focus signal; `merge::mark_pointer_focus` surfaces them as
+`focused: true` on the nodes. Some tab stops land on focus handles
+whose elements expose no a11y node at all (the docs/0049 #97 class) —
+the walk prints them as named gaps (`(focus on an element without an
+a11y node)`) and continues; they are follow-up material, not dead ends.
 ### D9 — `click <id>` falls back to coordinates, announced
 
 When `input.click_node` returns `4005 UNKNOWN_NODE` / `4006
@@ -322,6 +348,9 @@ Receipts stay honest (the fallback line is part of the output), and
 the stale-bus failure stops being a dead end. Missing bounds (node
 without enrichment) keeps today's error — there is nothing to aim at.
 
+Implementation notes (#356): the fallback covers `click` only; `focus`
+keeps the plain error. When the fresh dump has no bounds for the node,
+the original 4005/4006 error is kept — there is nothing to aim at.
 ### D10 — `screenshot`: PNG receipts from the headless compositor
 
 `dashboard-debug --session <n> screenshot [--name stem]` runs `grim`
@@ -347,6 +376,12 @@ restore belt-and-braces rather than load-bearing. Not exposed as a
 bare CLI verb (avoidable foot-gun); it is `session stop`'s internal
 mechanism.
 
+Implementation note (#356): the stop ladder is data (`StopStep`:
+quit → term → flag → sway → launchers → purge-when-not-kept), executed
+by a `StopActor` — the live one talks to the bridge/signals, the test
+one records the order. `app.quit`'s ACK budget is 5 s with a 500 ms
+per-read timeout; a failed or absent ACK falls through to SIGTERM
+unchanged.
 ### D12 — `run <script>`: committed, replayable receipts
 
 A tiny line grammar over existing verbs — a receipt script is a

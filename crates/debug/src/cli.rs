@@ -17,26 +17,49 @@ pub struct Invocation {
 /// One parsed command. Field order mirrors the usage text.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
-    /// `tree [--json] [--window N]`
-    Tree { json: bool, window: Option<u64> },
-    /// `click <accesskit_id> [--window N]`
-    Click { node: String, window: Option<u64> },
-    /// `focus <accesskit_id> [--window N]`
-    Focus { node: String, window: Option<u64> },
+    /// `tree [--json] [--window N] [view]` — plain dump by default; the
+    /// views are the D7/D8 receipts (snapshot/diff/tab-stops).
+    Tree {
+        json: bool,
+        window: Option<u64>,
+        view: TreeView,
+    },
+    /// `click <accesskit_id> [--window N] [--wait-frame[=ms]]`
+    Click {
+        node: String,
+        window: Option<u64>,
+        wait_frame: Option<u64>,
+    },
+    /// `focus <accesskit_id> [--window N] [--wait-frame[=ms]]`
+    Focus {
+        node: String,
+        window: Option<u64>,
+        wait_frame: Option<u64>,
+    },
     /// `key <keystroke>` — one full press (down + up).
     Key {
         keystroke: String,
         window: Option<u64>,
+        wait_frame: Option<u64>,
     },
     /// `type <text>` — per-char key loop.
-    Type { text: String, window: Option<u64> },
+    Type {
+        text: String,
+        window: Option<u64>,
+        wait_frame: Option<u64>,
+    },
     /// `mouse move|down|up <x> <y>` / `mouse scroll <x> <y> <dy>`
     Mouse {
         action: MouseAction,
         x: f32,
         y: f32,
         dy: f32,
+        wait_frame: Option<u64>,
     },
+    /// `wait-frame [--above N] [--timeout ms]` — block until the app
+    /// drew again (docs/0055 D6). The synchronization primitive receipts
+    /// are built on; a timeout is the named hidden-workspace failure.
+    WaitFrame { above: Option<u64>, timeout_ms: u64 },
     /// `logs [-f]`
     Logs { follow: bool },
     /// `shell`
@@ -73,17 +96,40 @@ pub enum MouseAction {
     Scroll,
 }
 
+/// The `tree` views (docs/0055 D7/D8).
+#[derive(Debug, Clone, PartialEq)]
+pub enum TreeView {
+    /// Plain merged dump.
+    Plain,
+    /// `--snapshot <name>` — write `snapshots/<name>.json`.
+    Snapshot(String),
+    /// `--diff <a> <b>` — compare two stored snapshots.
+    Diff(String, String),
+    /// `--tab-stops` — walk the focus cycle, numbered.
+    TabStops,
+}
+
+/// Default `--wait-frame[=ms]` budget on drive verbs (D6).
+pub const DEFAULT_WAIT_FRAME_MS: u64 = 2000;
+/// Default `wait-frame` verb timeout (D6).
+pub const DEFAULT_WAIT_FRAME_TIMEOUT_MS: u64 = 5000;
+
 pub const USAGE: &str = "usage: dashboard-debug [--session <name>] <verb> [args]
 
   --session <name>                bind bridge verbs to a live session (docs/0055 D4)
 
   tree [--json] [--window N]      dump the component tree
-  click <accesskit_id> [--window N]  AT-SPI click (single left)
-  focus <accesskit_id> [--window N] AT-SPI focus
-  key <keystroke> [--window N]     one key press, e.g. key ctrl-s
-  type <text> [--window N]         per-char key loop
-  mouse move|down|up <x> <y>       raw pointer dispatch
-  mouse scroll <x> <y> <dy>        scroll wheel dispatch
+  tree --snapshot <name>           write snapshots/<name>.json (D7)
+  tree --diff <a> <b> [--json]     structural diff of two snapshots
+  tree --tab-stops                 walk the focus cycle, numbered (D8)
+  wait-frame [--above N] [--timeout ms]  block until the app drew again (D6)
+  click <accesskit_id> [--window N] [--wait-frame[=ms]]  AT-SPI click;
+                                   coordinate fallback on 4005/4006 (D9)
+  focus <accesskit_id> [--window N] [--wait-frame[=ms]]  AT-SPI focus
+  key <keystroke> [--window N] [--wait-frame[=ms]]  one key press, e.g. key ctrl-s
+  type <text> [--window N] [--wait-frame[=ms]]       per-char key loop
+  mouse move|down|up <x> <y> [--wait-frame[=ms]]     raw pointer dispatch
+  mouse scroll <x> <y> <dy> [--wait-frame[=ms]]      scroll wheel dispatch
   logs [-f]                        ring log tail (follow with -f)
   shell                            REPL over these verbs
 
@@ -136,35 +182,43 @@ pub fn parse_args(args: &[String]) -> Result<Command, String> {
     };
     match verb.as_str() {
         "tree" => parse_tree(rest),
+        "wait-frame" => parse_wait_frame(rest),
         "click" | "focus" => {
             let node = positional(rest, verb, "<accesskit_id>")?;
             let window = parse_window_flag(rest)?;
+            let wait_frame = parse_wait_frame_flag(rest)?;
             Ok(if verb == "click" {
                 Command::Click {
                     node: node.to_string(),
                     window,
+                    wait_frame,
                 }
             } else {
                 Command::Focus {
                     node: node.to_string(),
                     window,
+                    wait_frame,
                 }
             })
         }
         "key" => {
             let keystroke = positional(rest, verb, "<keystroke>")?;
             let window = parse_window_flag(rest)?;
+            let wait_frame = parse_wait_frame_flag(rest)?;
             Ok(Command::Key {
                 keystroke: keystroke.to_string(),
                 window,
+                wait_frame,
             })
         }
         "type" => {
             let text = positional(rest, verb, "<text>")?;
             let window = parse_window_flag(rest)?;
+            let wait_frame = parse_wait_frame_flag(rest)?;
             Ok(Command::Type {
                 text: text.to_string(),
                 window,
+                wait_frame,
             })
         }
         "mouse" => parse_mouse(rest),
@@ -281,25 +335,131 @@ fn parse_session(rest: &[String]) -> Result<Command, String> {
     }
 }
 
+/// `tree` views (D7/D8): one of `--snapshot <name>`, `--diff <a> <b>`,
+/// `--tab-stops`, or none of them (plain dump). `--json` and
+/// `--window N` combine with any view.
 fn parse_tree(rest: &[String]) -> Result<Command, String> {
+    const TREE_USAGE: &str = "usage: dashboard-debug tree [--json] [--window N] [--snapshot <name> | --diff <a> <b> | --tab-stops]";
     let mut json = false;
     let mut window = None;
-    let mut skip_next = false;
-    for arg in rest {
-        if std::mem::take(&mut skip_next) {
-            // The value of a bare `--window`.
-            window = Some(parse_window(arg)?);
-        } else if arg == "--window" {
-            skip_next = true;
+    let mut snapshot = None;
+    let mut diff: Option<(String, String)> = None;
+    let mut tab_stops = false;
+    let mut i = 0;
+    while i < rest.len() {
+        let arg = rest[i].as_str();
+        if arg == "--window" {
+            i += 1;
+            let value = rest.get(i).ok_or("--window needs a value")?;
+            window = Some(parse_window(value)?);
         } else if let Some(value) = arg.strip_prefix("--window=") {
             window = Some(parse_window(value)?);
+        } else if arg == "--snapshot" {
+            i += 1;
+            let value = rest.get(i).ok_or("--snapshot needs a name")?;
+            snapshot = Some(value.clone());
+        } else if let Some(value) = arg.strip_prefix("--snapshot=") {
+            snapshot = Some(value.to_string());
+        } else if arg == "--diff" {
+            if diff.is_some() {
+                return Err("--diff takes exactly two names".into());
+            }
+            let first = rest.get(i + 1).ok_or("--diff takes two names")?;
+            let second = rest.get(i + 2).ok_or("--diff takes two names")?;
+            diff = Some((first.clone(), second.clone()));
+            i += 2;
         } else if arg == "--json" {
             json = true;
+        } else if arg == "--tab-stops" {
+            tab_stops = true;
         } else {
-            return Err("usage: dashboard-debug tree [--json] [--window N]".into());
+            return Err(TREE_USAGE.into());
+        }
+        i += 1;
+    }
+    let selected = [snapshot.is_some(), diff.is_some(), tab_stops]
+        .iter()
+        .filter(|flag| **flag)
+        .count();
+    if selected > 1 {
+        return Err("--snapshot, --diff and --tab-stops are mutually exclusive".into());
+    }
+    let view = if let Some(name) = snapshot {
+        TreeView::Snapshot(name)
+    } else if let Some((a, b)) = diff {
+        TreeView::Diff(a, b)
+    } else if tab_stops {
+        TreeView::TabStops
+    } else {
+        TreeView::Plain
+    };
+    Ok(Command::Tree { json, window, view })
+}
+
+/// `wait-frame [--above N] [--timeout ms]` (D6). Both flags accept the
+/// space and `=` forms.
+fn parse_wait_frame(rest: &[String]) -> Result<Command, String> {
+    const WAIT_USAGE: &str = "usage: dashboard-debug wait-frame [--above N] [--timeout ms]";
+    let mut above = None;
+    let mut timeout_ms = DEFAULT_WAIT_FRAME_TIMEOUT_MS;
+    let mut pending: Option<&str> = None;
+    for arg in rest {
+        if let Some(flag) = pending.take() {
+            let value: u64 = arg
+                .parse()
+                .map_err(|_| format!("bad {flag} value {arg:?} — want a number"))?;
+            match flag {
+                "--above" => above = Some(value),
+                "--timeout" => timeout_ms = value,
+                _ => unreachable!(),
+            }
+            continue;
+        }
+        if arg == "--above" || arg == "--timeout" {
+            pending = Some(arg.as_str());
+        } else if let Some(value) = arg.strip_prefix("--above=") {
+            above = Some(
+                value
+                    .parse()
+                    .map_err(|_| format!("bad --above {value:?}"))?,
+            );
+        } else if let Some(value) = arg.strip_prefix("--timeout=") {
+            timeout_ms = value
+                .parse()
+                .map_err(|_| format!("bad --timeout {value:?} — want milliseconds"))?;
+        } else {
+            return Err(WAIT_USAGE.into());
         }
     }
-    Ok(Command::Tree { json, window })
+    if pending.is_some() {
+        return Err("flag needs a value".into());
+    }
+    Ok(Command::WaitFrame { above, timeout_ms })
+}
+
+/// `--wait-frame` (default budget) or `--wait-frame=ms` on drive verbs
+/// (D6). Duplicates are an error — a repeated flag is a typo, not a
+/// preference.
+fn parse_wait_frame_flag(rest: &[String]) -> Result<Option<u64>, String> {
+    let mut wait_frame: Option<u64> = None;
+    for arg in rest {
+        if arg == "--wait-frame" {
+            if wait_frame.is_some() {
+                return Err("duplicate --wait-frame".into());
+            }
+            wait_frame = Some(DEFAULT_WAIT_FRAME_MS);
+        } else if let Some(value) = arg.strip_prefix("--wait-frame=") {
+            if wait_frame.is_some() {
+                return Err("duplicate --wait-frame".into());
+            }
+            wait_frame = Some(
+                value
+                    .parse()
+                    .map_err(|_| format!("bad --wait-frame {value:?} — want milliseconds"))?,
+            );
+        }
+    }
+    Ok(wait_frame)
 }
 
 fn parse_mouse(rest: &[String]) -> Result<Command, String> {
@@ -317,6 +477,9 @@ fn parse_mouse(rest: &[String]) -> Result<Command, String> {
             ));
         }
     };
+    let wait_frame = parse_wait_frame_flag(rest)?;
+    // Flags (e.g. `--wait-frame`) ride anywhere after the action.
+    let coords: Vec<&String> = coords.iter().filter(|arg| !arg.starts_with("--")).collect();
     let want = if action == MouseAction::Scroll { 3 } else { 2 };
     if coords.len() != want {
         return Err(format!(
@@ -332,7 +495,13 @@ fn parse_mouse(rest: &[String]) -> Result<Command, String> {
             .map_err(|_| format!("{arg:?} is not a number"))?;
     }
     let [x, y, dy] = numbers;
-    Ok(Command::Mouse { action, x, y, dy })
+    Ok(Command::Mouse {
+        action,
+        x,
+        y,
+        dy,
+        wait_frame,
+    })
 }
 
 /// The single non-flag argument of a verb that takes one. `--window N`,
@@ -429,42 +598,48 @@ mod tests {
             parse_args(&args(&["tree"])).unwrap(),
             Command::Tree {
                 json: false,
-                window: None
+                window: None,
+                view: TreeView::Plain
             }
         );
         assert_eq!(
             parse_args(&args(&["tree", "--json", "--window", "2"])).unwrap(),
             Command::Tree {
                 json: true,
-                window: Some(2)
+                window: Some(2),
+                view: TreeView::Plain
             }
         );
         assert_eq!(
             parse_args(&args(&["click", "42", "--window", "1"])).unwrap(),
             Command::Click {
                 node: "42".into(),
-                window: Some(1)
+                window: Some(1),
+                wait_frame: None
             }
         );
         assert_eq!(
             parse_args(&args(&["focus", "18446744073709551617"])).unwrap(),
             Command::Focus {
                 node: "18446744073709551617".into(),
-                window: None
+                window: None,
+                wait_frame: None
             }
         );
         assert_eq!(
             parse_args(&args(&["key", "ctrl-s"])).unwrap(),
             Command::Key {
                 keystroke: "ctrl-s".into(),
-                window: None
+                window: None,
+                wait_frame: None
             }
         );
         assert_eq!(
             parse_args(&args(&["type", "hello world"])).unwrap(),
             Command::Type {
                 text: "hello world".into(),
-                window: None
+                window: None,
+                wait_frame: None
             }
         );
         assert_eq!(
@@ -473,7 +648,8 @@ mod tests {
                 action: MouseAction::Move,
                 x: 10.5,
                 y: 20.0,
-                dy: 0.0
+                dy: 0.0,
+                wait_frame: None
             }
         );
         assert_eq!(
@@ -482,7 +658,8 @@ mod tests {
                 action: MouseAction::Scroll,
                 x: 5.0,
                 y: 6.0,
-                dy: -120.0
+                dy: -120.0,
+                wait_frame: None
             }
         );
         assert_eq!(
@@ -490,6 +667,123 @@ mod tests {
             Command::Logs { follow: true }
         );
         assert_eq!(parse_args(&args(&["shell"])).unwrap(), Command::Shell);
+    }
+
+    #[test]
+    fn tree_views_parse_with_flags() {
+        assert_eq!(
+            parse_args(&args(&["tree", "--snapshot", "before"])).unwrap(),
+            Command::Tree {
+                json: false,
+                window: None,
+                view: TreeView::Snapshot("before".into())
+            }
+        );
+        assert_eq!(
+            parse_args(&args(&["tree", "--diff", "a", "b", "--json"])).unwrap(),
+            Command::Tree {
+                json: true,
+                window: None,
+                view: TreeView::Diff("a".into(), "b".into())
+            }
+        );
+        assert_eq!(
+            parse_args(&args(&["tree", "--window=2", "--tab-stops"])).unwrap(),
+            Command::Tree {
+                json: false,
+                window: Some(2),
+                view: TreeView::TabStops
+            }
+        );
+        assert_eq!(
+            parse_args(&args(&["tree", "--snapshot=top"])).unwrap(),
+            Command::Tree {
+                json: false,
+                window: None,
+                view: TreeView::Snapshot("top".into())
+            }
+        );
+    }
+
+    #[test]
+    fn tree_view_errors() {
+        assert!(
+            parse_args(&args(&["tree", "--diff", "a"])).is_err(),
+            "one name"
+        );
+        assert!(
+            parse_args(&args(&["tree", "--snapshot", "a", "--diff", "a", "b"])).is_err(),
+            "conflicting views"
+        );
+        assert!(
+            parse_args(&args(&["tree", "--tab-stops", "--snapshot", "a"])).is_err(),
+            "conflicting views 2"
+        );
+        assert!(
+            parse_args(&args(&["tree", "--snapshot"])).is_err(),
+            "missing name"
+        );
+    }
+
+    #[test]
+    fn wait_frame_verb_parses_defaults_and_both_forms() {
+        assert_eq!(
+            parse_args(&args(&["wait-frame"])).unwrap(),
+            Command::WaitFrame {
+                above: None,
+                timeout_ms: DEFAULT_WAIT_FRAME_TIMEOUT_MS
+            }
+        );
+        assert_eq!(
+            parse_args(&args(&["wait-frame", "--above", "41", "--timeout=250"])).unwrap(),
+            Command::WaitFrame {
+                above: Some(41),
+                timeout_ms: 250
+            }
+        );
+        assert!(parse_args(&args(&["wait-frame", "--above=x"])).is_err());
+        assert!(parse_args(&args(&["wait-frame", "--above"])).is_err());
+        assert!(parse_args(&args(&["wait-frame", "--tokens"])).is_err());
+    }
+
+    #[test]
+    fn wait_frame_flag_parses_on_drive_verbs() {
+        assert_eq!(
+            parse_args(&args(&["click", "5", "--wait-frame"])).unwrap(),
+            Command::Click {
+                node: "5".into(),
+                window: None,
+                wait_frame: Some(DEFAULT_WAIT_FRAME_MS)
+            }
+        );
+        assert_eq!(
+            parse_args(&args(&["key", "tab", "--wait-frame=300"])).unwrap(),
+            Command::Key {
+                keystroke: "tab".into(),
+                window: None,
+                wait_frame: Some(300)
+            }
+        );
+        assert_eq!(
+            parse_args(&args(&["mouse", "move", "1", "2", "--wait-frame"])).unwrap(),
+            Command::Mouse {
+                action: MouseAction::Move,
+                x: 1.0,
+                y: 2.0,
+                dy: 0.0,
+                wait_frame: Some(DEFAULT_WAIT_FRAME_MS)
+            }
+        );
+        assert_eq!(
+            parse_args(&args(&["type", "hi", "--wait-frame=50"])).unwrap(),
+            Command::Type {
+                text: "hi".into(),
+                window: None,
+                wait_frame: Some(50)
+            }
+        );
+        assert!(parse_args(&args(&["click", "5", "--wait-frame", "--wait-frame=1"])).is_err());
+        assert!(parse_args(&args(&["key", "a", "--wait-frame=x"])).is_err());
     }
 
     #[test]
@@ -530,7 +824,8 @@ mod tests {
             inv.command,
             Command::Tree {
                 json: false,
-                window: None
+                window: None,
+                view: TreeView::Plain
             }
         );
 
@@ -540,7 +835,8 @@ mod tests {
             inv.command,
             Command::Tree {
                 json: true,
-                window: None
+                window: None,
+                view: TreeView::Plain
             }
         );
 

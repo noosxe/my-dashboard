@@ -15,7 +15,7 @@ Owner decisions (2026-09-02), recorded:
 
 - **v1 = seven commands** (§3 D6 table): `tree.dump`, `input.dispatch`,
   `input.click_node`, `input.focus_node`, `window.list`, `window.geometry`,
-  `app.logs`.
+  `app.logs` — plus `app.quit` (0055 D11, the one later addition).
 - **MCP bridge deferred** — v1 ships a CLI; MCP is revisited only if the
   CLI cannot provide what agents need.
 - **No upstream filings** — upstream gpui gaps are worked around in-repo;
@@ -237,6 +237,7 @@ re-login. No activation at startup — zero cost until first use.
 | `window.list` | `{}` | `[{id, title, bounds, viewport, scale_factor}]` — `title` from the a11y root label once activated, `null` before (gpui has no public title getter; `window.list` itself never triggers activation) |
 | `window.geometry` | `{window?}` | one entry of the above |
 | `app.logs` | `{since?, limit? = 200}` | `{lines, next_cursor}` (D8) |
+| `app.quit` | `{window?}` (accepted, ignored — shutdown is app-wide) | `{ok: true}`, written before the exit: the ACK is queued, then a ~100 ms timer fires `cx.quit()` so the socket thread flushes first. Not a CLI verb; `session stop`'s internal mechanism (0055 D11) |
 
 The seven, in full: `tree.dump`, `input.dispatch`, `input.click_node`,
 `input.focus_node`, `window.list`, `window.geometry`, `app.logs`.

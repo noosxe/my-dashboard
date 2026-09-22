@@ -62,6 +62,38 @@ pub fn merge_dump(dump: &mut Value, walk: &HashMap<String, NodeInfo>) -> MergeSt
     stats
 }
 
+/// Propagate the dump's own focus pointers onto the node map (0055 D8
+/// substrate): the upstream debug dump exposes `gpui_focus` — and for
+/// container focus, `active_descendant_focus` — as *node-map keys*, but
+/// never marks the node itself. AT-SPI's `State::Focused` never fires on
+/// this stack (gpui sets `TreeUpdate::focus`, not `Node::focused`), so
+/// without this the walk has no focus to enrich and `--tab-stops` has
+/// nothing to read. The pointer is authoritative: it is set to `true`
+/// even on nodes the walk could not enrich.
+pub fn mark_pointer_focus(dump: &mut Value) {
+    // `gpui_focus` names the focused node; `active_descendant_focus`
+    // names the effective item when a container holds focus — mark both
+    // so focus moves are visible either way. Read the keys before the
+    // mutable borrow of the node map.
+    let keys: Vec<String> = ["gpui_focus", "active_descendant_focus"]
+        .iter()
+        .filter_map(|pointer| {
+            dump.get(pointer)
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .collect();
+    let Some(nodes) = dump.get_mut("nodes").and_then(Value::as_object_mut) else {
+        return;
+    };
+    for key in keys {
+        if let Some(node) = nodes.get_mut(&key) {
+            if let Some(object) = node.as_object_mut() {
+                object.insert("focused".into(), Value::Bool(true));
+            }
+        }
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -169,5 +201,27 @@ mod tests {
         let mut dump = serde_json::json!({"root": "a"}); // no "nodes"
         let stats = merge_dump(&mut dump, &HashMap::new());
         assert_eq!(stats, MergeStats::default());
+    }
+
+    #[test]
+    fn pointer_focus_marks_the_named_nodes() {
+        let mut dump = serde_json::json!({
+            "gpui_focus": "b",
+            "active_descendant_focus": null,
+            "nodes": {
+                "a": {"accesskit_id": "10"},
+                "b": {"accesskit_id": "20", "focused": false},
+            },
+        });
+        mark_pointer_focus(&mut dump);
+        assert_eq!(dump["nodes"]["b"]["focused"], Value::Bool(true));
+        assert!(dump["nodes"]["a"].get("focused").is_none());
+    }
+
+    #[test]
+    fn pointer_focus_tolerates_missing_map() {
+        let mut dump = serde_json::json!({"gpui_focus": "b"});
+        mark_pointer_focus(&mut dump);
+        assert!(dump.get("nodes").is_none());
     }
 }

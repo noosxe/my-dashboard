@@ -6,14 +6,16 @@
 
 use std::collections::HashMap;
 use std::sync::mpsc::Sender;
+use std::time::Duration;
 
 use gpui::{AnyWindowHandle, App, Global, Window};
 use serde::Serialize;
 use serde_json::Value;
 
 use crate::protocol::{
-    DispatchOutcome, InputDispatchParams, METHOD_INPUT_DISPATCH, METHOD_WINDOW_GEOMETRY,
-    METHOD_WINDOW_LIST, Request, RpcError, SyntheticInput, WindowGeometryParams, error_code,
+    AppQuitParams, DispatchOutcome, InputDispatchParams, METHOD_APP_QUIT, METHOD_INPUT_DISPATCH,
+    METHOD_WINDOW_GEOMETRY, METHOD_WINDOW_LIST, Request, RpcError, SyntheticInput,
+    WindowGeometryParams, error_code,
 };
 
 /// A unit of main-thread work. The closure sends its own reply (unbounded,
@@ -74,6 +76,26 @@ pub fn build(request: &Request, reply: Sender<Result<Value, RpcError>>) -> Resul
             let params: InputDispatchParams = parse_params(&request.params)?;
             Ok(Box::new(move |app: &mut App| {
                 respond(input_dispatch(app, params));
+            }))
+        }
+        METHOD_APP_QUIT => {
+            // Validate shape for the error, then ignore: shutdown is
+            // app-wide (0055 D11).
+            let _ = parse_params::<AppQuitParams>(&request.params)?;
+            Ok(Box::new(move |app: &mut App| {
+                // ACK before exit: the reply is already queued when the
+                // quit lands, so `session stop` gets its confirmation and
+                // the app's own a11y teardown runs on the normal path.
+                // The short timer gives the socket thread a beat to write
+                // the line before the event loop tears down.
+                respond(Ok(serde_json::json!({"ok": true})));
+                app.spawn(async move |cx| {
+                    cx.background_executor()
+                        .timer(Duration::from_millis(100))
+                        .await;
+                    cx.update(|app| app.quit());
+                })
+                .detach();
             }))
         }
         // Stubs are answered on the socket thread (server::is_stub); a

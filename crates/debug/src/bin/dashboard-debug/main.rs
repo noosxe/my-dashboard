@@ -12,7 +12,12 @@ mod session;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 
-use dashboard_debug::cli::{self, Command, MouseAction, USAGE};
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
+
+use dashboard_debug::cli::{self, Command, MouseAction, TreeView, USAGE};
+use dashboard_debug::protocol::error_code;
+use dashboard_debug::snapshot;
 use serde_json::{Value, json};
 
 fn main() {
@@ -157,35 +162,76 @@ fn report(response: &Value) -> i32 {
 /// Run one parsed command; returns the process exit code.
 fn run_command(conn: &mut Conn, command: &Command) -> i32 {
     match command {
-        Command::Tree { json, window } => {
-            let mut params = json!({});
-            if let Some(window) = window {
-                params["window"] = json!(window);
+        Command::Tree { json, window, view } => match view {
+            TreeView::Plain => {
+                let result = match tree_dump(conn, window) {
+                    Ok(result) => result,
+                    Err(code) => return code,
+                };
+                if *json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&result).expect("serialize result")
+                    );
+                } else {
+                    render_tree(&result);
+                }
+                0
             }
-            let response = match conn.call("tree.dump", params) {
-                Ok(response) => response,
+            TreeView::Snapshot(name) => tree_snapshot(conn, window, name),
+            TreeView::Diff(a, b) => tree_diff(a, b, *json),
+            TreeView::TabStops => tab_stops(conn, window),
+        },
+        Command::WaitFrame { above, timeout_ms } => {
+            let first = match tree_dump(conn, &None) {
+                Ok(result) => result,
                 Err(code) => return code,
             };
-            if response.get("result").is_none() {
-                return report(&response);
+            let target = above.unwrap_or_else(|| frame_number(&first));
+            match wait_for_frame(conn, &None, target, *timeout_ms) {
+                Ok(frame) => {
+                    println!("{frame}");
+                    0
+                }
+                Err(last) => {
+                    eprintln!(
+                        "frame still {last} after {timeout_ms} ms — input landed but \
+                         nothing drew (hidden workspace?)"
+                    );
+                    1
+                }
             }
-            if *json {
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&response["result"]).expect("serialize result")
-                );
-            } else {
-                render_tree(&response["result"]);
+        }
+        Command::Click {
+            node,
+            window,
+            wait_frame,
+        } => {
+            let before = pre_dispatch_frame(conn, window, *wait_frame);
+            let code = click_with_fallback(conn, node, window);
+            if code != 0 {
+                return code;
             }
-            0
+            wait_frame_receipt(conn, window, *wait_frame, before)
         }
-        Command::Click { node, window } => {
-            node_action(conn, "input.click_node", node, window, "clicked")
+        Command::Focus {
+            node,
+            window,
+            wait_frame,
+        } => {
+            let before = pre_dispatch_frame(conn, window, *wait_frame);
+            let code = node_action(conn, "input.focus_node", node, window, "focused");
+            if code != 0 {
+                return code;
+            }
+            wait_frame_receipt(conn, window, *wait_frame, before)
         }
-        Command::Focus { node, window } => {
-            node_action(conn, "input.focus_node", node, window, "focused")
-        }
-        Command::Key { keystroke, window } => {
+        Command::Key {
+            keystroke,
+            window,
+            wait_frame,
+        } => {
+            let before = pre_dispatch_frame(conn, window, *wait_frame);
             let mut params = json!({});
             if let Some(window) = window {
                 params["window"] = json!(window);
@@ -212,9 +258,14 @@ fn run_command(conn: &mut Conn, command: &Command) -> i32 {
                 compact(&down["result"]),
                 compact(&up["result"])
             );
-            0
+            wait_frame_receipt(conn, window, *wait_frame, before)
         }
-        Command::Type { text, window } => {
+        Command::Type {
+            text,
+            window,
+            wait_frame,
+        } => {
+            let before = pre_dispatch_frame(conn, window, *wait_frame);
             let mut params = json!({});
             if let Some(window) = window {
                 params["window"] = json!(window);
@@ -239,9 +290,16 @@ fn run_command(conn: &mut Conn, command: &Command) -> i32 {
                 }
             }
             println!("typed {} chars", text.chars().count());
-            0
+            wait_frame_receipt(conn, window, *wait_frame, before)
         }
-        Command::Mouse { action, x, y, dy } => {
+        Command::Mouse {
+            action,
+            x,
+            y,
+            dy,
+            wait_frame,
+        } => {
+            let before = pre_dispatch_frame(conn, &None, *wait_frame);
             let event = match action {
                 MouseAction::Move => json!({"type": "mouse_move", "x": x, "y": y}),
                 MouseAction::Down | MouseAction::Up => json!({
@@ -260,7 +318,7 @@ fn run_command(conn: &mut Conn, command: &Command) -> i32 {
                 return report(&response);
             }
             println!("{}", compact(&response["result"]));
-            0
+            wait_frame_receipt(conn, &None, *wait_frame, before)
         }
         Command::Logs { follow } => logs(conn, *follow),
         Command::Shell => unreachable!("shell handled in run()"),
@@ -282,6 +340,337 @@ fn node_action(conn: &mut Conn, method: &str, node: &str, window: &Option<u64>, 
     }
     println!("{verb} {node}");
     0
+}
+
+/// `tree.dump` round-trip: params in, `result` out. `Err` carries the
+/// exit code (I/O failure or wire error, already reported).
+fn tree_dump(conn: &mut Conn, window: &Option<u64>) -> Result<Value, i32> {
+    let mut params = json!({});
+    if let Some(window) = window {
+        params["window"] = json!(window);
+    }
+    let response = conn.call("tree.dump", params)?;
+    if response.get("result").is_none() {
+        return Err(report(&response));
+    }
+    Ok(response["result"].clone())
+}
+
+/// The dump's frame counter (0 when absent — activation pending).
+fn frame_number(result: &Value) -> u64 {
+    result["frame"]["frame_number"].as_u64().unwrap_or(0)
+}
+
+/// Poll `tree.dump` until `frame_number` exceeds `above` (D6). The dump
+/// never forces a draw — on-demand rendering is the contract, so a
+/// timeout is the named hidden-workspace failure, not a flake.
+fn wait_for_frame(
+    conn: &mut Conn,
+    window: &Option<u64>,
+    above: u64,
+    budget_ms: u64,
+) -> Result<u64, u64> {
+    let deadline = Instant::now() + Duration::from_millis(budget_ms);
+    let mut last = above;
+    loop {
+        match tree_dump(conn, window) {
+            Ok(result) => {
+                let frame = frame_number(&result);
+                if frame > above {
+                    return Ok(frame);
+                }
+                last = frame;
+            }
+            // A failing dump mid-wait (app gone) is a timeout with the
+            // last-seen number — the diagnostic stays honest.
+            Err(_) => return Err(last),
+        }
+        if Instant::now() + Duration::from_millis(100) >= deadline {
+            return Err(last);
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// Frame number before a `--wait-frame` dispatch. `None` when the flag
+/// isn't set (or the pre-dump failed — the dispatch still runs, the
+/// receipt is simply skipped rather than fabricated).
+fn pre_dispatch_frame(
+    conn: &mut Conn,
+    window: &Option<u64>,
+    wait_frame: Option<u64>,
+) -> Option<u64> {
+    let _budget = wait_frame?;
+    tree_dump(conn, window)
+        .ok()
+        .map(|result| frame_number(&result))
+}
+
+/// The `--wait-frame` receipt: `frame 41 → 57`, or the timeout as the
+/// named failure (exit 1) with the last-seen number.
+fn wait_frame_receipt(
+    conn: &mut Conn,
+    window: &Option<u64>,
+    wait_frame: Option<u64>,
+    before: Option<u64>,
+) -> i32 {
+    let (Some(budget), Some(before)) = (wait_frame, before) else {
+        return 0;
+    };
+    match wait_for_frame(conn, window, before, budget) {
+        Ok(after) => {
+            println!("frame {before} → {after}");
+            0
+        }
+        Err(last) => {
+            eprintln!(
+                "frame {before} → {last} — no frame advanced within {budget} ms \
+                 (input landed but nothing drew)"
+            );
+            1
+        }
+    }
+}
+
+// ---- tree views (D7/D8) -----------------------------------------------------
+
+/// Where snapshots live for this invocation: next to the resolved state
+/// dir (the bound session's `snapshots/`, 0055 D1).
+fn snapshots_root() -> PathBuf {
+    snapshot::snapshots_root(dashboard_core::AppPaths::init().state_dir())
+}
+
+fn tree_snapshot(conn: &mut Conn, window: &Option<u64>, name: &str) -> i32 {
+    if !snapshot::valid_name(name) {
+        eprintln!("bad snapshot name {name:?} — want [A-Za-z0-9._-]{{1,64}}, no leading dot");
+        return 2;
+    }
+    let result = match tree_dump(conn, window) {
+        Ok(result) => result,
+        Err(code) => return code,
+    };
+    let snap = match snapshot::Snapshot::from_dump(name, &result) {
+        Ok(snap) => snap,
+        Err(err) => {
+            eprintln!("cannot snapshot: {err}");
+            return 1;
+        }
+    };
+    let root = snapshots_root();
+    if let Err(err) = std::fs::create_dir_all(&root) {
+        eprintln!("cannot create {}: {err}", root.display());
+        return 1;
+    }
+    let path = root.join(format!("{name}.json"));
+    let body = serde_json::to_string_pretty(&snap).expect("serialize snapshot");
+    if let Err(err) = std::fs::write(&path, body) {
+        eprintln!("cannot write {}: {err}", path.display());
+        return 1;
+    }
+    println!(
+        "snapshot {name}: {} nodes · frame {} · {}",
+        snap.nodes.len(),
+        snap.frame_number,
+        path.display()
+    );
+    0
+}
+
+fn tree_diff(a: &str, b: &str, json_out: bool) -> i32 {
+    for name in [a, b] {
+        if !snapshot::valid_name(name) {
+            eprintln!("bad snapshot name {name:?} — want [A-Za-z0-9._-]{{1,64}}, no leading dot");
+            return 2;
+        }
+    }
+    let root = snapshots_root();
+    let load = |name: &str| -> Result<snapshot::Snapshot, i32> {
+        let path = root.join(format!("{name}.json"));
+        let body = std::fs::read_to_string(&path).map_err(|err| {
+            eprintln!("cannot read {}: {err}", path.display());
+            1
+        })?;
+        serde_json::from_str(&body).map_err(|err| {
+            eprintln!("{path:?} is not a snapshot: {err}");
+            1
+        })
+    };
+    let (sa, sb) = (
+        match load(a) {
+            Ok(s) => s,
+            Err(code) => return code,
+        },
+        match load(b) {
+            Ok(s) => s,
+            Err(code) => return code,
+        },
+    );
+    let diff = snapshot::diff(&sa, &sb);
+    if json_out {
+        println!("{}", snapshot::render_json(&diff));
+    } else {
+        println!("{}", snapshot::render_human(&diff));
+    }
+    0
+}
+
+/// The focused node of a dump: `(accesskit_id, role, label)`.
+fn focused_node(dump: &Value) -> Option<(String, String, Option<String>)> {
+    dump["nodes"].as_object()?.values().find_map(|node| {
+        if !node["focused"].as_bool().unwrap_or(false) {
+            return None;
+        }
+        let id = node["accesskit_id"].as_str()?;
+        let role = node["aria"]["role"].as_str().unwrap_or("(no role)");
+        Some((
+            id.to_string(),
+            role.to_string(),
+            node["aria"]["label"].as_str().map(str::to_string),
+        ))
+    })
+}
+
+/// `tree --tab-stops` (D8): walk the focus cycle with tab + wait-frame,
+/// numbering stops until focus returns to the start. A focus that never
+/// moves is a trap; a cycle that never closes hits the 100-stop cap.
+fn tab_stops(conn: &mut Conn, window: &Option<u64>) -> i32 {
+    let first = match tree_dump(conn, window) {
+        Ok(result) => result,
+        Err(code) => return code,
+    };
+    let mut start = focused_node(&first).map(|(id, _, _)| id);
+    let mut previous = start.clone();
+    let mut moved = false;
+    let mut last_stop = None;
+    let mut dump = first;
+    for stop in 1..=100u32 {
+        if let Err(code) = dispatch_tab(conn, window) {
+            return code;
+        }
+        // D8's per-step settle: wait for a frame above the one we last
+        // saw, then read focus from the fresh capture — without this the
+        // dump can be the pre-focus frame. Advisory: a focus move with no
+        // redraw still proceeds (the timeout is not a failure here).
+        let _ = wait_for_frame(conn, window, frame_number(&dump), 1000);
+        let next = match tree_dump(conn, window) {
+            Ok(result) => result,
+            Err(code) => return code,
+        };
+        dump = next;
+        let dump = &dump;
+        let Some((id, role, label)) = focused_node(dump) else {
+            // Focus exists app-side but its element exposes no a11y node
+            // (the docs/0049 #97 class): name the gap and keep walking —
+            // the next tab moves on. A walk that never sees focus again
+            // runs into the 100-stop cap, which names the last stop.
+            println!("{stop}. (focus on an element without an a11y node)");
+            previous = None;
+            moved = true;
+            continue;
+        };
+        let label_text = label
+            .as_ref()
+            .map(|label| format!(" {label:?}"))
+            .unwrap_or_default();
+        println!("{stop}. #{id} {role}{label_text}");
+        last_stop = Some((id.clone(), role));
+        if let Some(start) = &start {
+            if id == *start && moved {
+                println!("cycle closed after {stop} stops");
+                return 0;
+            }
+        }
+        if previous.as_deref() == Some(id.as_str()) {
+            eprintln!("focus did not advance past #{id} after tab — focus trap");
+            return 1;
+        }
+        // No starting focus: the first focused node becomes the anchor.
+        if start.is_none() {
+            start = Some(id.clone());
+        }
+        previous = Some(id);
+        moved = true;
+    }
+    let (id, role) = last_stop.expect("at least one stop");
+    eprintln!("cycle did not close after 100 stops — last: #{id} {role}");
+    1
+}
+
+/// One full tab press via `input.dispatch`.
+fn dispatch_tab(conn: &mut Conn, window: &Option<u64>) -> Result<(), i32> {
+    let mut params = json!({});
+    if let Some(window) = window {
+        params["window"] = json!(window);
+    }
+    for event in ["key_down", "key_up"] {
+        params["event"] = json!({"type": event, "keystroke": "tab"});
+        let response = conn.call("input.dispatch", params.clone())?;
+        if response.get("result").is_none() {
+            return Err(report(&response));
+        }
+    }
+    Ok(())
+}
+
+// ---- click fallback (D9) ----------------------------------------------------
+
+/// `click` with the stale-bus fallback: on 4005 UNKNOWN_NODE / 4006
+/// ACTION_UNAVAILABLE, aim at the node's merged bounds center and
+/// dispatch mouse down/up there — announced, so receipts stay honest.
+fn click_with_fallback(conn: &mut Conn, node: &str, window: &Option<u64>) -> i32 {
+    let mut params = json!({"node": node});
+    if let Some(window) = window {
+        params["window"] = json!(window);
+    }
+    let response = match conn.call("input.click_node", params) {
+        Ok(response) => response,
+        Err(code) => return code,
+    };
+    if response.get("result").is_some() {
+        println!("clicked {node}");
+        return 0;
+    }
+    let code = response["error"]["code"].as_i64().unwrap_or(0);
+    if code != error_code::UNKNOWN_NODE && code != error_code::ACTION_UNAVAILABLE {
+        return report(&response);
+    }
+    let message = response["error"]["message"].as_str().unwrap_or("?");
+    let dump = match tree_dump(conn, window) {
+        Ok(result) => result,
+        Err(exit) => return exit,
+    };
+    let Some((x, y)) = node_center(&dump, node) else {
+        eprintln!("error {code}: {message} — and node {node} has no bounds to fall back to");
+        return 1;
+    };
+    for event in ["mouse_down", "mouse_up"] {
+        let click = json!({"event": {"type": event, "x": x, "y": y}});
+        let response = match conn.call("input.dispatch", click) {
+            Ok(response) => response,
+            Err(code) => return code,
+        };
+        if response.get("result").is_none() {
+            return report(&response);
+        }
+    }
+    println!("coordinate fallback: click {node} at ({x}, {y})");
+    0
+}
+
+/// Center of a node's merged bounds, by `accesskit_id`.
+fn node_center(dump: &Value, node: &str) -> Option<(f32, f32)> {
+    let found = dump["nodes"]
+        .as_object()?
+        .values()
+        .find(|candidate| candidate["accesskit_id"].as_str() == Some(node))?;
+    let bounds = found.get("bounds").filter(|b| !b.is_null())?;
+    let (x, y, w, h) = (
+        bounds["x"].as_f64()? as f32,
+        bounds["y"].as_f64()? as f32,
+        bounds["w"].as_f64()? as f32,
+        bounds["h"].as_f64()? as f32,
+    );
+    Some((x + w / 2.0, y + h / 2.0))
 }
 
 /// `logs [-f]`: drain the ring from cursor 0; with `-f` keep polling.
