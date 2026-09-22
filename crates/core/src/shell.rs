@@ -24,6 +24,7 @@ use crate::registry::ModuleRegistry;
 use crate::settings as app_settings;
 use crate::status;
 use crate::store::DebouncedSave;
+use crate::usage_analytics;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -50,6 +51,10 @@ pub struct DashboardShell {
     /// below it.
     focus_handle: FocusHandle,
     save: Option<DebouncedSave>,
+    /// Usage analytics page (docs/0054 D1): created on first
+    /// navigation — see the nav observer in [`Self::new`] — and kept
+    /// for the session so its frozen `as_of` survives re-entry (D10).
+    usage_page: Option<Entity<usage_analytics::UsagePage>>,
 }
 
 impl DashboardShell {
@@ -68,7 +73,18 @@ impl DashboardShell {
             KeyBinding::new("alt-left", nav::Back, None),
             KeyBinding::new("alt-right", nav::Forward, None),
         ]);
-        cx.observe(&nav, |_, _, cx| cx.notify()).detach();
+        cx.observe(&nav, |this, nav, cx| {
+            // Usage page (docs/0054 D1/D10): the entity is created at
+            // FIRST navigation, not app start — its `as_of` freeze and
+            // one bounded read belong to first open. Later re-entries
+            // keep the frozen state; only the page's refresh button
+            // moves it.
+            if nav.read(cx).page == Page::Usage && this.usage_page.is_none() {
+                this.usage_page = Some(cx.new(usage_analytics::UsagePage::new));
+            }
+            cx.notify();
+        })
+        .detach();
         // Status bar source (docs/0013 D6): re-render on every in-flight
         // mutation; the bar reads the aggregated snapshot per frame.
         let in_flight = status::tracker(cx);
@@ -84,6 +100,7 @@ impl DashboardShell {
             nav,
             in_flight,
             focus_handle,
+            usage_page: None,
             save: state_path.map(|p| {
                 // Registered for the quit-time flush (docs/0045 §9,
                 // #283): a quit inside the 500 ms window keeps the last
@@ -199,7 +216,7 @@ impl Render for DashboardShell {
                 .registry
                 .get(id)
                 .map(|e| (e.meta.id.clone(), e.meta.title.clone())),
-            Page::Home | Page::Settings => None,
+            Page::Home | Page::Settings | Page::Usage => None,
         };
 
         v_flex()
@@ -459,6 +476,16 @@ impl Render for DashboardShell {
                                                                         )
                                                                     },
                                                                 )
+                                                                .when(
+                                                                    page == Page::Usage,
+                                                                    |this| {
+                                                                        this.child(
+                                                                            BreadcrumbItem::new(
+                                                                                "Usage",
+                                                                            ),
+                                                                        )
+                                                                    },
+                                                                )
                                                                 .children(crumbs.iter().map(
                                                                     |(label, on_click)| {
                                                                         let mut item =
@@ -509,6 +536,21 @@ impl Render for DashboardShell {
                                                     // library's `Settings` shell. Pages rebuilt
                                                     // per render from live state (the upstream
                                                     // story's intended pattern).
+                                                    Page::Usage => match self
+                                                        .usage_page
+                                                        .clone()
+                                                    {
+                                                        // Created by the nav
+                                                        // observer on first
+                                                        // open (docs/0054
+                                                        // D1/D10); the None
+                                                        // arm is transient
+                                                        // at most one frame.
+                                                        Some(page) => page
+                                                            .into_any_element(),
+                                                        None => div()
+                                                            .into_any_element(),
+                                                    },
                                                     Page::Settings => {
                                                         let modules = self
                                                             .registry
@@ -561,10 +603,11 @@ impl Render for DashboardShell {
     }
 }
 
-/// Home + module main-page entries as one flat sidebar menu, with the
-/// Settings entry (docs/0006 §4.1) as the last item after the modules
-/// (see the shell render note: `Sidebar` children are `Vec<E>`, so mixing
-/// a standalone menu with a labeled group is not possible).
+/// Home + module main-page entries as one flat sidebar menu, then the
+/// Usage entry (docs/0054 D2), with the Settings entry (docs/0006 §4.1)
+/// as the last item (see the shell render note: `Sidebar` children are
+/// `Vec<E>`, so mixing a standalone menu with a labeled group is not
+/// possible).
 fn nav_menu_items(
     registry: &ModuleRegistry,
     page: &Page,
@@ -594,6 +637,13 @@ fn nav_menu_items(
         item
     });
 
+    let usage = SidebarMenuItem::new("Usage")
+        .icon(IconName::ChartPie)
+        .active(*page == Page::Usage)
+        .on_click(cx.listener(|this, _, window, cx| {
+            this.navigate(Page::Usage, window, cx);
+        }));
+
     let settings = SidebarMenuItem::new("Settings")
         .icon(IconName::Settings)
         .active(*page == Page::Settings)
@@ -603,6 +653,7 @@ fn nav_menu_items(
 
     std::iter::once(home)
         .chain(modules)
+        .chain(std::iter::once(usage))
         .chain(std::iter::once(settings))
         .collect()
 }

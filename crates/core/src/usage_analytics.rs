@@ -22,7 +22,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::usage_records::{Transport, UsageRecord};
+use crate::usage_records::{self, Transport, UsageRecord};
 #[cfg(test)]
 use gpui::SharedString;
 
@@ -47,6 +47,33 @@ impl Range {
             Range::W1 => 604_800_000,
             Range::M1 => 2_592_000_000,
         }
+    }
+
+    /// Picker order (D2): 1h · 1d · 1w · 1m.
+    pub fn all() -> [Range; 4] {
+        [Range::H1, Range::D1, Range::W1, Range::M1]
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Range::H1 => "1h",
+            Range::D1 => "1d",
+            Range::W1 => "1w",
+            Range::M1 => "1m",
+        }
+    }
+
+    pub fn index(self) -> usize {
+        match self {
+            Range::H1 => 0,
+            Range::D1 => 1,
+            Range::W1 => 2,
+            Range::M1 => 3,
+        }
+    }
+
+    pub fn from_index(ix: usize) -> Option<Range> {
+        Range::all().into_iter().nth(ix)
     }
 }
 
@@ -874,6 +901,352 @@ pub fn overview(rows: &[UsageRecord], q: &OverviewQuery) -> OverviewView {
 }
 
 // ---------------------------------------------------------------------------
+// Page component (docs/0054 §3 — D1/D2/D3/D10, the skeleton)
+// ---------------------------------------------------------------------------
+
+use gpui::prelude::*;
+use gpui::{Context, Render, Window, div};
+use gpui_component::{
+    ActiveTheme, IconName, Sizable as _,
+    button::{Button, ButtonVariants},
+    h_flex,
+    switch::Switch,
+    tab::{Tab, TabBar},
+    v_flex,
+};
+
+/// The tab strip (D3): one tab per designed use case. Tab selection is
+/// component-local — never nav state — and switching tabs keeps the
+/// range **and** the frozen `as_of` (both page-global).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UsageTab {
+    Overview,
+    Quota,
+}
+
+impl UsageTab {
+    pub fn label(self) -> &'static str {
+        match self {
+            UsageTab::Overview => "Overview",
+            UsageTab::Quota => "Quota usage",
+        }
+    }
+
+    pub fn index(self) -> usize {
+        match self {
+            UsageTab::Overview => 0,
+            UsageTab::Quota => 1,
+        }
+    }
+
+    pub fn from_index(ix: usize) -> Option<Self> {
+        match ix {
+            0 => Some(Self::Overview),
+            1 => Some(Self::Quota),
+            _ => None,
+        }
+    }
+}
+
+/// Transport facet segments (D4): `All` plus the three wires.
+const TRANSPORT_SEGMENTS: [(&str, Option<Transport>); 4] = [
+    ("All", None),
+    ("REST", Some(Transport::Rest)),
+    ("GraphQL", Some(Transport::Graphql)),
+    ("Auth", Some(Transport::Auth)),
+];
+
+/// The usage analytics page (docs/0054 §3): global range picker +
+/// page-global filter facets + tab strip, all over a frozen view
+/// anchor.
+///
+/// State discipline (D10): `as_of_ms` moves — and the store is read —
+/// on first open and on refresh only. Every control change is a pure
+/// recomputation over `rows`.
+pub struct UsagePage {
+    /// The freeze: "now, for the data on screen". Every window on
+    /// every tab derives from it; only [`UsagePage::refresh`] (and
+    /// first open) move it. Post-freeze arrivals have
+    /// `ts >= as_of_ms` and stay invisible until refresh.
+    pub(crate) as_of_ms: u64,
+    /// The one bounded read per refresh (D10): rows in
+    /// `[as_of − 1 month, as_of)` — the widest picker option, so any
+    /// range is a re-slice of the same fetched data. The memory
+    /// backend is synchronous; a blocking backend runs the read
+    /// off-main (D9).
+    pub(crate) rows: Vec<UsageRecord>,
+    /// The global range picker (D2), default 1d.
+    pub(crate) range: Range,
+    /// Page-global facets (D4): predicates, not rankings — they apply
+    /// to every tab.
+    pub(crate) transport: Option<Transport>,
+    pub(crate) module: Option<String>,
+    pub(crate) errors_only: bool,
+    /// Active tab (D3).
+    pub(crate) tab: UsageTab,
+}
+
+impl UsagePage {
+    pub fn new(cx: &mut Context<Self>) -> Self {
+        let mut page = Self {
+            as_of_ms: usage_records::now_epoch_ms(),
+            rows: Vec::new(),
+            range: Range::D1,
+            transport: None,
+            module: None,
+            errors_only: false,
+            tab: UsageTab::Overview,
+        };
+        // One load on first open (D10): the page never opens empty
+        // demanding a click.
+        page.reload(cx);
+        page
+    }
+
+    /// The bounded read, half-open on both ends — the upper bound is
+    /// what makes the freeze real (D9/D10).
+    fn reload(&mut self, cx: &Context<Self>) {
+        let from = self.as_of_ms.saturating_sub(Range::M1.ms());
+        self.rows = usage_records::source(cx).records_between(from, self.as_of_ms);
+        // A module facet that outlived its rows (refresh dropped them)
+        // resets to All — never a silent always-empty filter.
+        if let Some(m) = &self.module {
+            if !self.rows.iter().any(|r| r.module.as_ref() == m) {
+                self.module = None;
+            }
+        }
+    }
+
+    /// The refresh button's action (D10): the ONLY path that moves
+    /// `as_of` or touches the store after first open. Stamps a new
+    /// freeze and re-reads the window; every view on the page then
+    /// recomputes from the new anchor. This is not a fetch: memory
+    /// only — no `Http`, no specs, no status spinner.
+    fn refresh(&mut self, cx: &mut Context<Self>) {
+        self.as_of_ms = usage_records::now_epoch_ms();
+        self.reload(cx);
+    }
+
+    /// The frozen window every tab derives from (D2/D10): bounds from
+    /// `as_of`, never wall-clock.
+    fn window(&self) -> WindowSpec {
+        WindowSpec {
+            as_of_ms: self.as_of_ms,
+            range: self.range,
+        }
+    }
+
+    fn filters(&self) -> Filters {
+        Filters {
+            transport: self.transport,
+            module: self.module.clone(),
+            errors_only: self.errors_only,
+        }
+    }
+
+    /// Rows in the visible window with facets applied — the input
+    /// every tab recomputes from on control changes (pure; no
+    /// re-read).
+    fn visible_rows(&self) -> Vec<&UsageRecord> {
+        scoped(&self.rows, &self.window(), &self.filters())
+    }
+
+    /// Modules present in the fetched window — the module facet's
+    /// options (the page is cross-module by design, D1).
+    fn modules_in_rows(&self) -> Vec<String> {
+        let mut mods: Vec<String> = self.rows.iter().map(|r| r.module.to_string()).collect();
+        mods.sort();
+        mods.dedup();
+        mods
+    }
+
+    /// The honesty header's facts (D2): what's on screen and how far
+    /// retention actually reaches.
+    fn header_facts(&self) -> (usize, Option<u64>) {
+        (
+            self.visible_rows().len(),
+            self.rows.iter().map(|r| r.ts_epoch_ms).min(),
+        )
+    }
+}
+
+fn format_clock(epoch_ms: u64) -> String {
+    use chrono::TimeZone;
+    chrono::Local
+        .timestamp_millis_opt(epoch_ms as i64)
+        .single()
+        .map(|t| t.format("%H:%M").to_string())
+        .unwrap_or_else(|| "—".into())
+}
+
+impl Render for UsagePage {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let (flights, oldest_retained) = self.header_facts();
+
+        v_flex()
+            .id("usage-page")
+            .size_full()
+            .p_4()
+            .gap_3()
+            // Control strip (D2/D4): range picker + refresh button,
+            // then the page-global facets. Every id is bridge-visible
+            // (docs/0010 D10).
+            .child(
+                h_flex()
+                    .items_center()
+                    .gap_3()
+                    .flex_wrap()
+                    .child(
+                        TabBar::new("usage-range")
+                            .segmented()
+                            .selected_index(self.range.index())
+                            .on_click(cx.listener(|this, ix: &usize, _, cx| {
+                                // Pure recomputation (D10): the new
+                                // window re-derives from the same
+                                // frozen `as_of` — no store read.
+                                if let Some(range) = Range::from_index(*ix) {
+                                    this.range = range;
+                                    cx.notify();
+                                }
+                            }))
+                            .children(Range::all().iter().map(|r| Tab::new().label(r.label()))),
+                    )
+                    .child(
+                        Button::new("usage-refresh")
+                            .debug_selector(|| "usage-refresh".to_string())
+                            .icon(IconName::RotateCw)
+                            .ghost()
+                            .small()
+                            .tooltip("Refresh — re-stamp 'as of' and re-read the window")
+                            // docs/0049 D1: icon-only buttons get an
+                            // explicit accessible name.
+                            .accessibility_label("Refresh")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.refresh(cx);
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        TabBar::new("usage-filter-transport")
+                            .segmented()
+                            .selected_index(
+                                TRANSPORT_SEGMENTS
+                                    .iter()
+                                    .position(|(_, t)| *t == self.transport)
+                                    .unwrap_or(0),
+                            )
+                            .on_click(cx.listener(|this, ix: &usize, _, cx| {
+                                if let Some((_, t)) = TRANSPORT_SEGMENTS.get(*ix) {
+                                    this.transport = *t;
+                                    cx.notify();
+                                }
+                            }))
+                            .children(
+                                TRANSPORT_SEGMENTS
+                                    .iter()
+                                    .map(|(label, _)| Tab::new().label(*label)),
+                            ),
+                    )
+                    .child(
+                        TabBar::new("usage-filter-module")
+                            .segmented()
+                            .selected_index(
+                                self.module
+                                    .as_ref()
+                                    .and_then(|m| self.modules_in_rows().iter().position(|x| x == m))
+                                    .map(|p| p + 1)
+                                    .unwrap_or(0),
+                            )
+                            .on_click(cx.listener(|this, ix: &usize, _, cx| {
+                                let mods = this.modules_in_rows();
+                                this.module = match ix {
+                                    0 => None,
+                                    i => mods.get(i - 1).cloned(),
+                                };
+                                cx.notify();
+                            }))
+                            .children(std::iter::once(Tab::new().label("All")).chain(
+                                self.modules_in_rows()
+                                    .iter()
+                                    .map(|m| Tab::new().label(m.clone())),
+                            )),
+                    )
+                    .child(
+                        Switch::new("usage-errors-only")
+                            .checked(self.errors_only)
+                            .label("errors only")
+                            .on_click(cx.listener(|this, checked: &bool, _, cx| {
+                                this.errors_only = *checked;
+                                cx.notify();
+                            })),
+                    ),
+            )
+            // Honesty header (D2): never pretends to more history than
+            // the retained records support. Exposed as StaticText
+            // (docs/0049 content-a11y pattern, home.rs): a status line
+            // that changes under the viewer must be announcable — and
+            // it doubles as the bridge-visible freeze signal.
+            .child(
+                div()
+                    .id("usage-honesty")
+                    .role(gpui::accesskit::Role::Status)
+                    .aria_label(format!(
+                        "{flights} flights · as of {} · oldest retained {}",
+                        format_clock(self.as_of_ms),
+                        oldest_retained.map_or_else(|| "—".into(), format_clock),
+                    ))
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(format!(
+                        "{flights} flights · as of {} · oldest retained {}",
+                        format_clock(self.as_of_ms),
+                        oldest_retained.map_or_else(|| "—".into(), format_clock),
+                    )),
+            )
+            // Tab strip (D3): one tab per designed use case; content
+            // arrives with each tab's implementation (#342–#344).
+            .child(
+                TabBar::new("usage-tabs")
+                    .underline()
+                    .selected_index(self.tab.index())
+                    .on_click(cx.listener(|this, ix: &usize, _, cx| {
+                        // Tab switches keep the range and the frozen
+                        // `as_of` (D3) — both page-global.
+                        if let Some(tab) = UsageTab::from_index(*ix) {
+                            this.tab = tab;
+                            cx.notify();
+                        }
+                    }))
+                    .child(Tab::new().label(UsageTab::Overview.label()))
+                    .child(Tab::new().label(UsageTab::Quota.label())),
+            )
+            .child(match self.tab {
+                UsageTab::Overview => tab_placeholder(
+                    "Overview cards and charts arrive with their implementation (docs/0054 §5).",
+                    cx,
+                ),
+                UsageTab::Quota => tab_placeholder(
+                    "Quota ranking, charts and table arrive with their implementation (docs/0054 §4).",
+                    cx,
+                ),
+            })
+    }
+}
+
+fn tab_placeholder(text: &str, cx: &Context<UsagePage>) -> impl IntoElement {
+    v_flex()
+        .flex_1()
+        .min_h_0()
+        .items_center()
+        .justify_center()
+        .child(
+            div()
+                .text_color(cx.theme().muted_foreground)
+                .child(text.to_string()),
+        )
+}
+
+// ---------------------------------------------------------------------------
 // Tests (docs/0054 §9)
 // ---------------------------------------------------------------------------
 
@@ -1350,6 +1723,184 @@ mod tests {
         }
         let q = quota(Dimension::Surface, &rows);
         assert_eq!(q.groups.len(), 2);
+    }
+
+    // -- Skeleton (D1–D3, D10) ------------------------------------------
+    // Freeze units per docs/0054 §9.
+
+    use crate::usage_records::{MemorySink, UsageStore, init_with, sink};
+    use gpui::TestAppContext;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// A freeze far past every range span (AS_OF itself is only 100 s
+    /// past the epoch — month arithmetic would underflow).
+    const BIG_AS_OF: u64 = 10_000_000_000;
+
+    /// Directly-built page over hand-stamped rows (no store, no
+    /// wall-clock): for window-derivation units.
+    fn skeleton(rows: Vec<UsageRecord>) -> UsagePage {
+        UsagePage {
+            as_of_ms: BIG_AS_OF,
+            rows,
+            range: Range::D1,
+            transport: None,
+            module: None,
+            errors_only: false,
+            tab: UsageTab::Overview,
+        }
+    }
+
+    #[test]
+    fn range_windows_derive_from_the_frozen_as_of_not_wall_clock() {
+        let mut p = skeleton(vec![
+            rec(BIG_AS_OF - 1, "edge-in", Some(1)),
+            rec(BIG_AS_OF - Range::D1.ms(), "day-boundary", Some(1)),
+            rec(BIG_AS_OF - Range::M1.ms() - 1, "ancient", Some(1)),
+        ]);
+        // 1d (default): [as_of-1d, as_of) — edge-in + day-boundary.
+        assert_eq!(p.visible_rows().len(), 2);
+        p.range = Range::H1;
+        assert_eq!(p.visible_rows().len(), 1, "1h drops the day-boundary row");
+        p.range = Range::M1;
+        // Even the month view re-slices from `as_of`: the pre-month
+        // row (which the bounded fetch never returns) stays out.
+        assert_eq!(p.visible_rows().len(), 2);
+        // D3: tab switch keeps the range and the freeze.
+        p.tab = UsageTab::Quota;
+        assert_eq!((p.range, p.as_of_ms), (Range::M1, BIG_AS_OF));
+    }
+
+    #[test]
+    fn honesty_header_counts_the_window_and_states_retention() {
+        let p = skeleton(vec![
+            rec(BIG_AS_OF - 100, "a", Some(1)),
+            rec(BIG_AS_OF - 5_000, "b", None),
+        ]);
+        let (flights, oldest) = p.header_facts();
+        assert_eq!(flights, 2);
+        assert_eq!(oldest, Some(BIG_AS_OF - 5_000));
+    }
+
+    #[test]
+    fn module_facet_options_come_from_the_fetched_rows() {
+        let mut rows = vec![rec(BIG_AS_OF - 10, "s", Some(1))];
+        rows[0].module = SharedString::from("forgejo");
+        rows.push(rec(BIG_AS_OF - 20, "s", Some(1)));
+        let p = skeleton(rows);
+        assert_eq!(
+            p.modules_in_rows(),
+            vec!["forgejo".to_string(), "github".to_string()]
+        );
+    }
+
+    #[gpui::test]
+    fn page_loads_on_first_open_and_freezes_until_refresh(cx: &mut TestAppContext) {
+        let store = Arc::new(MemorySink::default());
+        cx.update(|cx| init_with(cx, store.clone() as Arc<dyn UsageStore>));
+
+        // A flight before first open (a minute back — safely inside
+        // any window the page will derive).
+        let before = usage_records::now_epoch_ms() - 60_000;
+        cx.update(|cx| sink(cx).record(rec(before, "pr-page", Some(1))));
+
+        let page = cx.update(|cx| cx.new(UsagePage::new));
+        let as_of0 = cx.update(|cx| page.read(cx).as_of_ms);
+        assert!(before < as_of0);
+        assert_eq!(
+            cx.update(|cx| page.read(cx).rows.len()),
+            1,
+            "one load on first open"
+        );
+
+        // Post-freeze arrival: ts == as_of is already invisible (the
+        // half-open upper bound is what makes the freeze real, D10).
+        cx.update(|cx| sink(cx).record(rec(as_of0, "post-freeze", Some(1))));
+        cx.update(|cx| {
+            let p = page.read(cx);
+            assert_eq!(p.rows.len(), 1);
+            assert_eq!(p.visible_rows().len(), 1);
+        });
+
+        // Control changes are pure recomputations — the arrival stays
+        // invisible through range/facet/tab flips.
+        page.update(cx, |p, _| {
+            p.range = Range::M1;
+            p.errors_only = true;
+            p.errors_only = false;
+            p.tab = UsageTab::Quota;
+        });
+        cx.update(|cx| assert_eq!(page.read(cx).rows.len(), 1));
+
+        // Refresh: the only path that moves `as_of` and re-reads. Sleep
+        // a real tick so the new stamp strictly exceeds the row's.
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        page.update(cx, |p, cx| p.refresh(cx));
+        cx.update(|cx| {
+            let p = page.read(cx);
+            assert!(p.as_of_ms > as_of0, "refresh re-stamps the freeze");
+            assert_eq!(p.rows.len(), 2, "refresh picks up post-freeze rows");
+            assert_eq!(p.visible_rows().len(), 2);
+        });
+    }
+
+    #[gpui::test]
+    fn only_first_open_and_refresh_touch_the_store(cx: &mut TestAppContext) {
+        struct CountingStore {
+            reads: AtomicUsize,
+        }
+        impl crate::usage_records::UsageSink for CountingStore {
+            fn record(&self, _rec: UsageRecord) {}
+        }
+        impl crate::usage_records::UsageSource for CountingStore {
+            fn records_between(&self, _from: u64, _to: u64) -> Vec<UsageRecord> {
+                self.reads.fetch_add(1, Ordering::Relaxed);
+                Vec::new()
+            }
+            fn high_water(&self) -> u64 {
+                0
+            }
+            // Overridden so the default (records_since(0)) cannot
+            // masquerade as a page read.
+            fn snapshot(&self) -> Vec<UsageRecord> {
+                Vec::new()
+            }
+        }
+        impl UsageStore for CountingStore {}
+
+        let store = Arc::new(CountingStore {
+            reads: AtomicUsize::new(0),
+        });
+        cx.update(|cx| init_with(cx, store.clone() as Arc<dyn UsageStore>));
+
+        let page = cx.update(|cx| cx.new(UsagePage::new));
+        assert_eq!(
+            store.reads.load(Ordering::Relaxed),
+            1,
+            "one bounded read on first open"
+        );
+
+        // Control changes (D10): pure calculator calls, zero reads.
+        page.update(cx, |p, _| {
+            p.range = Range::W1;
+            p.transport = Some(Transport::Graphql);
+            p.errors_only = true;
+            p.tab = UsageTab::Quota;
+        });
+        assert_eq!(store.reads.load(Ordering::Relaxed), 1);
+
+        // Refresh: exactly one more bounded read — memory only, never
+        // a fetch (no Http, no specs, no spinner).
+        page.update(cx, |p, cx| p.refresh(cx));
+        assert_eq!(store.reads.load(Ordering::Relaxed), 2);
+
+        // A module facet that outlived its rows resets to All on the
+        // next read — never a silent always-empty filter.
+        page.update(cx, |p, _| {
+            p.module = Some("gone".into());
+        });
+        page.update(cx, |p, cx| p.reload(cx));
+        cx.update(|cx| assert_eq!(page.read(cx).module, None));
     }
 
     #[test]

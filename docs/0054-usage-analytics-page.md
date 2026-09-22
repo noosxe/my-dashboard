@@ -57,6 +57,9 @@ Shell-level page, not a github sub-page:
 (`usage_analytics.rs`, sibling of `usage_records.rs`); `Page::Usage`
 variant + sidebar row + breadcrumb. Charts render with
 `gpui_component::chart` — this is the workspace's first chart consumer.
+*(implemented in the step-3 PR — #341: the entity is created on first
+navigation, not app start, so the freeze and its one bounded read belong
+to first open; re-entry keeps the frozen state)*
 
 **D2 — Global range picker.** A single `Range` control above the tab
 strip; it filters **every** tab (it lives in the page header, above the
@@ -96,7 +99,10 @@ landed designs — an Overview slot is reserved but the tab appears only
 with its implementation.
 
 **D10 — Frozen `as_of` view: nothing on this page is live (owner
-rule, round 3).** The page keeps a memoized timestamp `as_of` that
+rule, round 3).** *(implemented in the step-3 PR — #341: the honesty
+header is additionally exposed as an a11y `Status` node per the
+docs/0049 pattern, so the freeze is observable in the debug bridge and
+announced by screen readers)* The page keeps a memoized timestamp `as_of` that
 means *now, for the data on screen*. Every window, every tab, every
 number is a pure function of records inside `[as_of − range, as_of)` —
 data cannot drift under the viewer: records landing after the freeze
