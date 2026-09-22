@@ -16,9 +16,10 @@ mod handlers;
 mod jobs;
 pub mod logs;
 mod merge;
-mod protocol;
+pub mod protocol;
 mod server;
 pub mod session;
+pub mod snapshot;
 
 /// Start the debug bridge: create the runtime dir, socket and token file,
 /// spawn the accept thread and the main-thread job executor.

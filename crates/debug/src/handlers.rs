@@ -156,6 +156,10 @@ fn tree_dump(job_tx: &JobSender, params: TreeDumpParams) -> Result<Value, RpcErr
         .map_err(|err| internal(format!("dump re-parse: {err}")))?;
     let walk = session.walk(window_id as usize)?;
     let stats = merge::merge_dump(&mut dump, &walk);
+    // The dump's own focus pointers are the only focus signal on this
+    // stack (AT-SPI State::Focused never fires); surface them on the
+    // nodes so --tab-stops and snapshot diffs can see focus moves.
+    merge::mark_pointer_focus(&mut dump);
     if let Some(object) = dump.as_object_mut() {
         object.insert(
             "a11y_merge".into(),
