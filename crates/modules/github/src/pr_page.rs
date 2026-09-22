@@ -4505,6 +4505,11 @@ impl Render for PrDetailPage {
             .id("pr-detail")
             .key_context("GithubPrPage")
             .track_focus(&self.focus_handle)
+            // #360: a focused element needs a role to paint an
+            // a11y node — id + track_focus alone is the
+            // "focus without node" gap class (the walk and
+            // assistive tech both land here blind otherwise).
+            .role(accesskit::Role::Group)
             .on_action(cx.listener(|this, _: &DismissPrPage, window, cx| {
                 // docs/0043 D7 (0022 §11): Esc cancels the topmost
                 // surface and only closes the page when nothing is open.

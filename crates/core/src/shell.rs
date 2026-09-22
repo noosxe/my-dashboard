@@ -223,6 +223,11 @@ impl Render for DashboardShell {
         v_flex()
             .id("dashboard-shell")
             .track_focus(&self.focus_handle)
+                // #360: a focused element needs a role to paint an
+                // a11y node — id + track_focus alone is the
+                // "focus without node" gap class (the walk and
+                // assistive tech both land here blind otherwise).
+                .role(accesskit::Role::Group)
             // History trail keys (docs/0048 D7): global bindings dispatch
             // from the focused node upward — the shell's focused root
             // catches them (the boot-focus precedent below).

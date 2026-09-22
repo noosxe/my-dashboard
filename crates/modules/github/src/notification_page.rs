@@ -691,6 +691,11 @@ impl Render for NotificationDetailPage {
             .id("notification-detail")
             .key_context("GithubNotificationPage")
             .track_focus(&self.focus_handle)
+            // #360: a focused element needs a role to paint an
+            // a11y node — id + track_focus alone is the
+            // "focus without node" gap class (the walk and
+            // assistive tech both land here blind otherwise).
+            .role(accesskit::Role::Group)
             .on_action(cx.listener(|this, _: &DismissNotificationPage, _, cx| {
                 this.request_close(cx);
             }))

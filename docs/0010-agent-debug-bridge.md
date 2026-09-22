@@ -346,7 +346,19 @@ where they're interactive (docs/0049 D1; Engineering rule; review-enforced
 like the [DG] obligations — unrole'd interactive elements are invisible to
 the dump and to `click_node`, and text children never become a node's
 name, so labels are deliberate work). Icon-only buttons never rely on
-their tooltip for the accessible name. State flags (`aria_selected`,
+their tooltip for the accessible name.
+
+#360 added the sharper statement of the rule: **a focused element needs a
+role to be focus-visible at all.** An element with `.id(...)` +
+`.track_focus(...)` but no role registers as a tab stop yet paints no
+a11y node — keyboard focus lands and both AT and the dump go blind
+(gpui logs `focused element .. has no accessibility node (it has an id
+but no role)` — visible with `RUST_LOG=info`; it names the class, the
+walk prints it as `(focus on an element without an a11y node)`).
+`Role::GenericContainer` does NOT count: gpui filters it out of the
+tree entirely, so view roots take `Role::Group`. The two remaining
+module-page gaps are upstream (longbridge/gpui-kit#3182 List container,
+#3183 Input frame) and close at a rev bump. State flags (`aria_selected`,
 `aria_expanded`, `aria_toggled`) carry state where it means something.
 `write_a11y_info` (public on `Element`) is the extension point for
 module-specific attributes later (state.query follow-up, §7).
