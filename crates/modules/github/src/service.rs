@@ -859,7 +859,16 @@ pub struct SpecResult {
 }
 
 /// Run one spec to completion. Sync — runs on the background executor.
-pub fn run_spec(http: &dyn Http, recorder: &Recorder, spec: &FetchSpec) -> SpecResult {
+/// `dispatched_at` (docs/0054 D14) is the spec's dispatch instant —
+/// stamped where [`run_spec_tracked`] hands the spec to the executor,
+/// so the record's queue wait covers real backlog, not our own
+/// pre-flight work alone.
+pub fn run_spec(
+    http: &dyn Http,
+    recorder: &Recorder,
+    spec: &FetchSpec,
+    dispatched_at: Instant,
+) -> SpecResult {
     // docs/0053 D4: the per-run recording view — every flight through
     // any runner emits one record. `Kind::RateLimit` is the free probe.
     let rec = RecordingHttp::new(
@@ -869,6 +878,7 @@ pub fn run_spec(http: &dyn Http, recorder: &Recorder, spec: &FetchSpec) -> SpecR
         spec.kind.kind_name(),
         spec.ident.as_deref(),
         spec.kind == Kind::RateLimit,
+        Some(dispatched_at),
     );
     match spec.kind {
         Kind::CardTotals => run_paged_view(&rec, spec, gql::CARD_TOTALS_QUERY),
@@ -2805,13 +2815,16 @@ pub(crate) async fn run_spec_tracked(
     let mut used_gen = gate.generation();
     let mut rounds: u32 = 0;
     let result = loop {
+        // docs/0054 D14: dispatch instant, re-stamped per round — a
+        // 401 retry is a fresh dispatch with its own queue wait.
+        let dispatched_at = Instant::now();
         let result = cx
             .background_executor()
             .spawn({
                 let client = client.clone();
                 let recorder = recorder.clone();
                 let spec = spec.clone();
-                async move { run_spec(&*client, &recorder, &spec) }
+                async move { run_spec(&*client, &recorder, &spec, dispatched_at) }
             })
             .await;
         if result.network.is_some() || result.status != 401 {
@@ -3072,7 +3085,12 @@ async fn run_refresh(state: Entity<GithubState>, cx: &mut AsyncApp) {
         .spawn(async move {
             // docs/0053 D4: the auth POST records too — free (the login
             // endpoints never bill the API quota, docs/0050 D1).
-            refresh(&recording_for_auth(&*client, &recorder), &refresh_token)
+            // docs/0054 D14: auth flights stamp queue wait from spawn.
+            let dispatched_at = Instant::now();
+            refresh(
+                &recording_for_auth(&*client, &recorder, dispatched_at),
+                &refresh_token,
+            )
         })
         .await;
     if guard.gate.generation() != used_gen {
@@ -3263,6 +3281,8 @@ pub fn start_connect(state: Entity<GithubState>, window: AnyWindowHandle, cx: &m
             .spawn(async move {
                 // docs/0053 D4: connect flights record through the same
                 // decorator — free (login endpoints, docs/0050 D1).
+                // docs/0054 D14: queue wait stamps from spawn.
+                let dispatched_at = Instant::now();
                 start_device_flow(&RecordingHttp::with_transport(
                     &*auth_client,
                     &code_recorder,
@@ -3270,6 +3290,7 @@ pub fn start_connect(state: Entity<GithubState>, window: AnyWindowHandle, cx: &m
                     "connect-code",
                     Transport::Auth,
                     true,
+                    Some(dispatched_at),
                 ))
             })
             .await;
@@ -3316,6 +3337,8 @@ pub fn start_connect(state: Entity<GithubState>, window: AnyWindowHandle, cx: &m
                 let device_code = start.device_code.clone();
                 cx.background_executor()
                     .spawn(async move {
+                        // docs/0054 D14: queue wait stamps from spawn.
+                        let dispatched_at = Instant::now();
                         poll_token(
                             &RecordingHttp::with_transport(
                                 &*client,
@@ -3324,6 +3347,7 @@ pub fn start_connect(state: Entity<GithubState>, window: AnyWindowHandle, cx: &m
                                 "connect-poll",
                                 Transport::Auth,
                                 true,
+                                Some(dispatched_at),
                             ),
                             &device_code,
                             interval,
@@ -3429,7 +3453,7 @@ mod tests {
     use crate::http::HttpResult;
     use crate::http::mock::{MockHttp, Recorded};
     use crate::usage::Surface;
-    use dashboard_core::usage_records::{Transport, UsageSink as _};
+    use dashboard_core::usage_records::{Transport, UsageSource as _};
     use gpui::AppContext as _;
     use std::collections::HashMap;
 
@@ -4282,7 +4306,7 @@ mod tests {
         let state = make_state(http.clone());
         let spec = state.session_inventory_spec(Origin::BACKGROUND);
 
-        let result = run_spec(&*http, &test_recorder(), &spec);
+        let result = run_spec(&*http, &test_recorder(), &spec, std::time::Instant::now());
         assert_eq!(result.status, 200);
         assert!(result.cursor.is_none(), "completed run resets cursor");
 
@@ -4326,6 +4350,7 @@ mod tests {
             &*http,
             &test_recorder(),
             &state.session_inventory_spec(Origin::BACKGROUND),
+            std::time::Instant::now(),
         );
         assert_eq!(http.recorded().len(), gql::VIEW_MAX_PAGES as usize);
         assert_eq!(result.cursor.as_deref(), Some("cx"));
@@ -4867,7 +4892,12 @@ mod tests {
             Some(2),
             Origin::BACKGROUND,
         );
-        state.apply(run_spec(&*http, &test_recorder(), &spec));
+        state.apply(run_spec(
+            &*http,
+            &test_recorder(),
+            &spec,
+            std::time::Instant::now(),
+        ));
 
         assert_eq!(state.notifications.len(), 1);
         assert_eq!(state.etags.get("notifications").unwrap(), "\"etag-1\"");
@@ -4927,7 +4957,12 @@ mod tests {
             Some(2),
             Origin::BACKGROUND,
         );
-        state.apply(run_spec(&*http, &test_recorder(), &spec));
+        state.apply(run_spec(
+            &*http,
+            &test_recorder(),
+            &spec,
+            std::time::Instant::now(),
+        ));
         assert_eq!(state.notifications.len(), 1);
         assert_eq!(state.notifications[0].id, "1");
     }
@@ -4948,7 +4983,12 @@ mod tests {
             Some(2),
             Origin::BACKGROUND,
         );
-        first.apply(run_spec(&*http, &test_recorder(), &spec));
+        first.apply(run_spec(
+            &*http,
+            &test_recorder(),
+            &spec,
+            std::time::Instant::now(),
+        ));
         assert_eq!(first.notifications.len(), 1);
 
         let mut second = make_state_at(
@@ -4986,7 +5026,12 @@ mod tests {
             Some(2),
             Origin::BACKGROUND,
         );
-        first.apply(run_spec(&*http, &test_recorder(), &spec));
+        first.apply(run_spec(
+            &*http,
+            &test_recorder(),
+            &spec,
+            std::time::Instant::now(),
+        ));
         assert_eq!(first.repo_notifications.get("o/r").unwrap().len(), 1);
 
         let mut second = make_state_at(
@@ -5044,7 +5089,12 @@ mod tests {
             Some(2),
             Origin::BACKGROUND,
         );
-        state.apply(run_spec(&*http, &test_recorder(), &spec));
+        state.apply(run_spec(
+            &*http,
+            &test_recorder(),
+            &spec,
+            std::time::Instant::now(),
+        ));
         assert_eq!(state.auth, AuthStatus::TokenRejected);
         assert!(state.plan_tick(1).is_empty());
     }
@@ -5112,7 +5162,12 @@ mod tests {
             None,
             Origin::BACKGROUND,
         );
-        state.apply(run_spec(&*http, &test_recorder(), &spec));
+        state.apply(run_spec(
+            &*http,
+            &test_recorder(),
+            &spec,
+            std::time::Instant::now(),
+        ));
         assert_eq!(state.rate_limited_until, Some(9_999_999_999));
         assert!(state.plan_tick(1).is_empty());
     }
@@ -5592,7 +5647,7 @@ mod tests {
             None,
             Origin::BACKGROUND,
         );
-        let result = run_spec(&*http, &test_recorder(), &spec);
+        let result = run_spec(&*http, &test_recorder(), &spec, std::time::Instant::now());
         assert_eq!(result.status, 200);
         assert_eq!(result.body.as_deref(), Some(thread));
         let recorded = http.recorded();
@@ -5618,7 +5673,7 @@ mod tests {
                 None,
                 Origin::BACKGROUND,
             );
-            let result = run_spec(&*http, &test_recorder(), &spec);
+            let result = run_spec(&*http, &test_recorder(), &spec, std::time::Instant::now());
             assert_eq!(result.status, status);
             assert_eq!(result.body, None, "mutations carry no body");
             let recorded = http.recorded();
@@ -6209,7 +6264,7 @@ mod tests {
             Some(3),
             Origin::new(Surface::NotificationPage, Trigger::ViewShown),
         );
-        run_spec(&*http, &recorder, &spec);
+        run_spec(&*http, &recorder, &spec, std::time::Instant::now());
         let rows = sink.snapshot();
         assert_eq!(rows.len(), 3, "one record per flight, not per spec");
         for r in &rows {
@@ -6221,7 +6276,17 @@ mod tests {
             assert_eq!(r.remaining_after, Some(4900));
             assert_eq!(r.cycle_reset_epoch, Some(9_999_999));
             assert!(!r.network_error);
+            // docs/0054 D14: the ceiling rides the header snapshot,
+            // the queue wait is stamped at dispatch, bytes = body len.
+            assert_eq!(r.limit_after, Some(5000));
+            assert!(r.queue_ms.is_some(), "queue wait is stamped");
         }
+        // Bytes match each page's own body (pages shrink on the tail).
+        assert_eq!(
+            rows[0].resp_bytes,
+            Some(notifications_body(100).len() as u32)
+        );
+        assert_eq!(rows[2].resp_bytes, Some(notifications_body(3).len() as u32));
         assert_eq!(rows[0].surface.as_ref(), "notification-page");
         assert_eq!(rows[0].trigger.as_ref(), "view-shown");
         assert_eq!(rows[0].seq + 1, rows[1].seq);
@@ -6232,7 +6297,7 @@ mod tests {
         // docs/0053 D1: GraphQL cost is the response's own rateLimit.cost
         // — never a guessed number; remaining/reset ride the same object.
         let http = Arc::new(MockHttp::new(vec![gql_ok(
-            r#"{"data":{"rateLimit":{"cost":7,"remaining":4310,"resetAt":"2030-01-01T00:00:00Z"},"viewer":{"repositories":{"nodes":[],"pageInfo":{"hasNextPage":false}}}}}"#,
+            r#"{"data":{"rateLimit":{"cost":7,"remaining":4310,"resetAt":"2030-01-01T00:00:00Z","limit":5000},"viewer":{"repositories":{"nodes":[],"pageInfo":{"hasNextPage":false}}}}}"#,
         )]));
         let sink = records_sink(16);
         let recorder = dashboard_core::usage_records::Recorder::new("github", sink.clone());
@@ -6243,13 +6308,17 @@ mod tests {
         );
         let spec =
             state.session_inventory_spec(Origin::new(Surface::ServiceTick, Trigger::Bootstrap));
-        run_spec(&*http, &recorder, &spec);
+        run_spec(&*http, &recorder, &spec, std::time::Instant::now());
         let rows = sink.snapshot();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].transport, Transport::Graphql);
         assert_eq!(rows[0].cost, Some(7));
         assert_eq!(rows[0].remaining_after, Some(4310));
+        // docs/0054 D14: the body's own ceiling, same object as cost.
+        assert_eq!(rows[0].limit_after, Some(5000));
         assert_eq!(rows[0].cycle_reset_epoch, Some(1_893_456_000));
+        assert!(rows[0].queue_ms.is_some());
+        assert!(rows[0].resp_bytes.is_some());
         assert_eq!(rows[0].surface.as_ref(), "service-tick");
         assert_eq!(rows[0].trigger.as_ref(), "bootstrap");
     }
@@ -6281,9 +6350,11 @@ mod tests {
             Some(1),
             Origin::BACKGROUND,
         );
-        run_spec(&*http304, &recorder, &spec);
+        run_spec(&*http304, &recorder, &spec, std::time::Instant::now());
         assert_eq!(sink.snapshot()[0].cost, Some(0));
         assert!(sink.snapshot()[0].etag_304);
+        assert_eq!(sink.snapshot()[0].limit_after, Some(5000));
+        assert_eq!(sink.snapshot()[0].resp_bytes, None, "304 sends no body");
 
         let http_probe = Arc::new(MockHttp::new(vec![ok(r#"{"resources":{}}"#, "p")]));
         let sink2 = records_sink(16);
@@ -6299,7 +6370,7 @@ mod tests {
             None,
             Origin::new(Surface::ServiceTick, Trigger::Probe),
         );
-        run_spec(&*http_probe, &recorder2, &spec2);
+        run_spec(&*http_probe, &recorder2, &spec2, std::time::Instant::now());
         let row = &sink2.snapshot()[0];
         assert_eq!(row.cost, Some(0), "the free probe records zero");
         assert_eq!(row.trigger.as_ref(), "probe");
@@ -6323,12 +6394,18 @@ mod tests {
             Some(1),
             Origin::BACKGROUND,
         );
-        run_spec(&*http, &recorder, &spec);
+        run_spec(&*http, &recorder, &spec, std::time::Instant::now());
         let row = &sink.snapshot()[0];
         assert!(row.network_error);
         assert_eq!(row.status, 0);
         assert_eq!(row.cost, None);
         assert_eq!(row.remaining_after, None);
+        assert_eq!(row.limit_after, None, "no response → no ceiling");
+        assert_eq!(row.resp_bytes, None);
+        assert!(
+            row.queue_ms.is_some(),
+            "the queue wait still happened (docs/0054 D14)"
+        );
     }
 
     #[test]
@@ -6343,7 +6420,7 @@ mod tests {
         })]));
         let sink = records_sink(16);
         let recorder = dashboard_core::usage_records::Recorder::new("github", sink.clone());
-        let rec = crate::usage::recording_for_auth(&*http, &recorder);
+        let rec = crate::usage::recording_for_auth(&*http, &recorder, std::time::Instant::now());
         let outcome = crate::auth::refresh(&rec, "ghr_old");
         match outcome {
             crate::auth::RefreshOutcome::Refreshed(_) => {}
@@ -6356,6 +6433,36 @@ mod tests {
         assert_eq!(rows[0].surface.as_ref(), "auth");
         assert_eq!(rows[0].trigger.as_ref(), "auth");
         assert_eq!(rows[0].op.as_ref(), "token-refresh");
+        assert_eq!(rows[0].limit_after, None, "auth endpoints send no ceiling");
+        assert!(rows[0].queue_ms.is_some());
+        assert!(rows[0].resp_bytes.is_some());
+    }
+
+    #[test]
+    fn records_queue_wait_spans_dispatch_to_flight_start() {
+        // docs/0054 D14: `queue_ms` is the dispatch→flight-start wait —
+        // a dispatch stamped 60 ms in the past must show a gap >= 60,
+        // and it must not include the flight itself (measured before
+        // the request goes out).
+        let http = Arc::new(MockHttp::new(vec![Ok(HttpResult {
+            status: 200,
+            etag: None,
+            rate: None,
+            body: Some(r#"{"access_token":"t1k","refresh_token":"r2","expires_in":28800}"#.into()),
+        })]));
+        let sink = records_sink(16);
+        let recorder = dashboard_core::usage_records::Recorder::new("github", sink.clone());
+        let dispatched = std::time::Instant::now()
+            .checked_sub(std::time::Duration::from_millis(60))
+            .expect("60 ms ago is representable");
+        let rec = crate::usage::recording_for_auth(&*http, &recorder, dispatched);
+        let outcome = crate::auth::refresh(&rec, "ghr_old");
+        assert!(matches!(outcome, crate::auth::RefreshOutcome::Refreshed(_)));
+        let row = &sink.snapshot()[0];
+        assert!(
+            row.queue_ms.unwrap() >= 60,
+            "queue wait covers dispatch→flight start"
+        );
     }
 
     #[test]
@@ -6377,7 +6484,7 @@ mod tests {
             Some(1),
             Origin::BACKGROUND,
         );
-        run_spec(&*http, &recorder, &spec);
+        run_spec(&*http, &recorder, &spec, std::time::Instant::now());
         assert!(crate::usage::background_records() > before);
         assert_eq!(sink.snapshot()[0].surface.as_ref(), "background");
     }

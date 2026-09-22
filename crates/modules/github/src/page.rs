@@ -4350,7 +4350,7 @@ mod tests {
         cx.run_until_parked();
         assert_eq!(mock.recorded().len(), 1, "never landed: the lane fires");
         {
-            use dashboard_core::usage_records::UsageSink as _;
+            use dashboard_core::usage_records::UsageSource as _;
             let rows = records.snapshot();
             assert_eq!(rows.len(), mock.recorded().len(), "one record per flight");
             assert_eq!(rows[0].op.as_ref(), "notifications");
@@ -4388,7 +4388,7 @@ mod tests {
         cx.run_until_parked();
         assert_eq!(mock.recorded().len(), 2, "aged lane fires");
         {
-            use dashboard_core::usage_records::UsageSink as _;
+            use dashboard_core::usage_records::UsageSource as _;
             let rows = records.snapshot();
             assert_eq!(rows.len(), mock.recorded().len());
             assert!(

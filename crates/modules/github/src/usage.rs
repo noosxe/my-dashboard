@@ -535,10 +535,12 @@ pub(crate) fn background_records() -> u64 {
 }
 
 /// The auth-flight recording view (`token-refresh` op) — shared by
-/// `run_refresh` and the records tests.
+/// `run_refresh` and the records tests. `dispatched_at` is the spawn
+/// instant (docs/0054 D14: auth flights stamp queue wait from spawn).
 pub(crate) fn recording_for_auth<'a>(
     http: &'a dyn Http,
     recorder: &'a Recorder,
+    dispatched_at: Instant,
 ) -> RecordingHttp<'a> {
     RecordingHttp::with_transport(
         http,
@@ -547,6 +549,7 @@ pub(crate) fn recording_for_auth<'a>(
         "token-refresh",
         Transport::Auth,
         true,
+        Some(dispatched_at),
     )
 }
 
@@ -559,7 +562,10 @@ pub(crate) fn recording_for_auth<'a>(
 // ---------------------------------------------------------------------------
 
 /// One run's recording view over the real client. `free` marks the
-/// `GET /rate_limit` probe (docs/0050: unbilled).
+/// `GET /rate_limit` probe (docs/0050: unbilled). `dispatched_at`
+/// (docs/0054 D14) anchors the queue-wait stamp: wait from spec
+/// dispatch to flight start — `None` when the caller couldn't
+/// capture it.
 pub(crate) struct RecordingHttp<'a> {
     inner: &'a dyn Http,
     recorder: &'a Recorder,
@@ -571,9 +577,11 @@ pub(crate) struct RecordingHttp<'a> {
     /// the login endpoints are REST-shaped POSTs, but they are not API
     /// traffic and never bill (docs/0050 D1).
     transport_override: Option<Transport>,
+    dispatched_at: Option<Instant>,
 }
 
 impl<'a> RecordingHttp<'a> {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         inner: &'a dyn Http,
         recorder: &'a Recorder,
@@ -581,6 +589,7 @@ impl<'a> RecordingHttp<'a> {
         op: &'static str,
         ident: Option<&str>,
         free: bool,
+        dispatched_at: Option<Instant>,
     ) -> Self {
         if origin.surface == Surface::Background {
             BACKGROUND_RECORDS.fetch_add(1, Ordering::Relaxed);
@@ -596,10 +605,12 @@ impl<'a> RecordingHttp<'a> {
             ident: ident.map(SharedString::from),
             free,
             transport_override: None,
+            dispatched_at,
         }
     }
 
     /// `new` with a forced transport — the auth/connect views.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn with_transport(
         inner: &'a dyn Http,
         recorder: &'a Recorder,
@@ -607,11 +618,20 @@ impl<'a> RecordingHttp<'a> {
         op: &'static str,
         transport: Transport,
         free: bool,
+        dispatched_at: Option<Instant>,
     ) -> Self {
         Self {
             transport_override: Some(transport),
-            ..Self::new(inner, recorder, origin, op, None, free)
+            ..Self::new(inner, recorder, origin, op, None, free, dispatched_at)
         }
+    }
+
+    /// The queue wait at flight start (docs/0054 D14) — captured
+    /// *before* the flight so it excludes transport time.
+    fn queue_ms_at(&self, sent_at: Instant) -> Option<u32> {
+        self.dispatched_at
+            .and_then(|d| sent_at.checked_duration_since(d))
+            .map(|wait| wait.as_millis().min(u32::MAX as u128) as u32)
     }
 
     fn draft(
@@ -619,6 +639,7 @@ impl<'a> RecordingHttp<'a> {
         transport: Transport,
         res: &Result<HttpResult, HttpError>,
         sent_at: Instant,
+        queue_ms: Option<u32>,
     ) -> RecordDraft {
         let transport = self.transport_override.unwrap_or(transport);
         let duration_ms = sent_at.elapsed().as_millis().min(u32::MAX as u128) as u32;
@@ -636,8 +657,13 @@ impl<'a> RecordingHttp<'a> {
                 // unknowable client-side.
                 cost: None,
                 remaining_after: None,
+                // No response → no ceiling, no body (docs/0054 D14).
+                // The queue wait still happened and stays measurable.
+                limit_after: None,
                 cycle_reset_epoch: None,
                 duration_ms,
+                queue_ms,
+                resp_bytes: None,
                 network_error: true,
             },
             Ok(result) => {
@@ -646,14 +672,15 @@ impl<'a> RecordingHttp<'a> {
                 // point per completed flight, 304 revalidations and the
                 // free probe = 0. GraphQL below prefers the body's own
                 // `rateLimit.cost`.
-                let (cost, remaining, cycle) = match transport {
+                let (cost, remaining, limit, cycle) = match transport {
                     Transport::Graphql => match graphql_flight_cost(result.body.as_deref()) {
-                        Some((cost, remaining, reset)) => {
-                            (Some(cost), Some(remaining), Some(reset))
+                        Some((cost, remaining, reset, limit)) => {
+                            (Some(cost), Some(remaining), Some(limit), Some(reset))
                         }
                         None => (
                             None,
                             result.rate.map(|r| r.remaining),
+                            result.rate.map(|r| r.limit),
                             result.rate.map(|r| r.reset_epoch),
                         ),
                     },
@@ -666,10 +693,22 @@ impl<'a> RecordingHttp<'a> {
                         (
                             cost,
                             result.rate.map(|r| r.remaining),
+                            // docs/0054 D14: the ceiling rides the same
+                            // header snapshot as `remaining` — auth
+                            // endpoints send no rate headers, so auth
+                            // flights are `None` for free.
+                            result.rate.map(|r| r.limit),
                             result.rate.map(|r| r.reset_epoch),
                         )
                     }
                 };
+                // docs/0054 D14: payload size is the other half of "why
+                // was this slow" — `None` exactly when there is no
+                // body (304 revalidations).
+                let resp_bytes = result
+                    .body
+                    .as_ref()
+                    .map(|b| b.len().min(u32::MAX as usize) as u32);
                 RecordDraft {
                     transport,
                     op: SharedString::from(self.op),
@@ -680,8 +719,11 @@ impl<'a> RecordingHttp<'a> {
                     etag_304,
                     cost,
                     remaining_after: remaining,
+                    limit_after: limit,
                     cycle_reset_epoch: cycle,
                     duration_ms,
+                    queue_ms,
+                    resp_bytes,
                     network_error: false,
                 }
             }
@@ -698,9 +740,10 @@ impl Http for RecordingHttp<'_> {
         etag: Option<&str>,
     ) -> Result<HttpResult, HttpError> {
         let sent_at = Instant::now();
+        let queue_ms = self.queue_ms_at(sent_at);
         let res = self.inner.request(verb, url, body, etag);
         self.recorder
-            .emit(self.draft(Transport::Rest, &res, sent_at));
+            .emit(self.draft(Transport::Rest, &res, sent_at, queue_ms));
         res
     }
 
@@ -710,24 +753,27 @@ impl Http for RecordingHttp<'_> {
         variables: &serde_json::Value,
     ) -> Result<HttpResult, HttpError> {
         let sent_at = Instant::now();
+        let queue_ms = self.queue_ms_at(sent_at);
         let res = self.inner.post_graphql(query, variables);
         self.recorder
-            .emit(self.draft(Transport::Graphql, &res, sent_at));
+            .emit(self.draft(Transport::Graphql, &res, sent_at, queue_ms));
         res
     }
 }
 
-/// The GraphQL body's `rateLimit` object for records (docs/0053 D1):
-/// `(cost, remaining, resetAt→epoch)` when the query asked for the
-/// field — the authoritative per-request cost. Mirrors
+/// The GraphQL body's `rateLimit` object for records (docs/0053 D1,
+/// docs/0054 D14): `(cost, remaining, resetAt→epoch, limit)` when the
+/// query asked for the field — the authoritative per-request cost,
+/// plus the response's own ceiling. Mirrors
 /// [`graphql_budget`]'s parsing contract.
-fn graphql_flight_cost(body: Option<&str>) -> Option<(u32, u32, u64)> {
+fn graphql_flight_cost(body: Option<&str>) -> Option<(u32, u32, u64, u32)> {
     #[derive(serde::Deserialize)]
     struct RateLimitField {
         cost: i64,
         remaining: i64,
         #[serde(rename = "resetAt")]
         reset_at: String,
+        limit: i64,
     }
     #[derive(serde::Deserialize)]
     struct Data {
@@ -744,7 +790,12 @@ fn graphql_flight_cost(body: Option<&str>) -> Option<(u32, u32, u64)> {
         .ok()?
         .timestamp()
         .max(0) as u64;
-    Some((rl.cost.max(0) as u32, rl.remaining.max(0) as u32, reset))
+    Some((
+        rl.cost.max(0) as u32,
+        rl.remaining.max(0) as u32,
+        reset,
+        rl.limit.max(0) as u32,
+    ))
 }
 
 // ---------------------------------------------------------------------------
