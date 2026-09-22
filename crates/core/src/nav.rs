@@ -36,6 +36,10 @@ pub enum Page {
     /// App settings (docs/0006) — hosted by the shell, subpage selection
     /// lives inside the `Settings` component, not in nav state.
     Settings,
+    /// Usage analytics (docs/0054 D1): shell-hosted like `Settings` —
+    /// tab/range/filter state lives inside the component, not in nav
+    /// state. The Navigator gives Back/trail/dedup for free.
+    Usage,
 }
 
 /// One position on the visit trail (docs/0048 D1): the top-level page,
@@ -65,6 +69,15 @@ impl Route {
         Self {
             key: "page:settings".into(),
             page: Page::Settings,
+            module: None,
+        }
+    }
+
+    /// The usage analytics page (docs/0054 D2): `Home › Usage`.
+    pub fn usage() -> Self {
+        Self {
+            key: "page:usage".into(),
+            page: Page::Usage,
             module: None,
         }
     }
@@ -99,6 +112,7 @@ impl Route {
         match page {
             Page::Home => Self::home(),
             Page::Settings => Self::settings(),
+            Page::Usage => Self::usage(),
             Page::Module(id) => Self::module_root(id.clone()),
         }
     }
@@ -322,6 +336,21 @@ mod tests {
 
     fn place(key: &str) -> Route {
         Route::module_place("fake", key, Arc::new(key.to_string()))
+    }
+
+    #[gpui::test]
+    fn usage_page_participates_in_the_trail(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            let nav = cx.new(|_| Navigator::default());
+            nav.update(cx, |nav, cx| nav.go(Page::Usage, cx));
+            // Repeated jumps to the same shell page never duplicate.
+            nav.update(cx, |nav, cx| nav.go(Page::Usage, cx));
+            nav.update(cx, |nav, _| {
+                assert!(matches!(nav.page, Page::Usage));
+                let keys: Vec<_> = nav.history.entries().map(|r| r.key.clone()).collect();
+                assert_eq!(keys, ["page:home", "page:usage"]);
+            });
+        });
     }
 
     #[gpui::test]
