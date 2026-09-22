@@ -27,43 +27,20 @@ use crate::module::ModuleIcon;
 use crate::paths::AppPaths;
 use crate::store::{DebouncedSave, load_json};
 
-/// Registry names of the two bundled palettes (docs/0025 D3) — the
-/// library's own defaults, registered by `gpui_component::init`. The
+/// Registry names of the two bundled palettes (docs/0056 D2). The
 /// registry is name-keyed and first registration wins, so user files
 /// re-using these names are skipped: bundled palettes can't be shadowed.
-pub const DEFAULT_LIGHT_NAME: &str = "Default Light";
-pub const DEFAULT_DARK_NAME: &str = "Default Dark";
+pub const DEFAULT_LIGHT_NAME: &str = "Aurora Light";
+pub const DEFAULT_DARK_NAME: &str = "Aurora Dark";
 
-/// Serialized snapshot of the bundled defaults, taken once from the
-/// pristine registry by [`snapshot_bundled_defaults`] and replayed into
-/// every [`rebuild_themes`]. Upstream's `init_default_themes` is
-/// private, so the snapshot round-trip through
-/// `load_themes_from_str` (ThemeConfig is Serialize + Clone) is the
-/// only way to restore them after a fresh-global rebuild (docs/0025 D5).
-static BUNDLED_DEFAULTS: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-
-/// Snapshot the pristine registry's defaults — exactly the two themes
-/// `gpui_component::init` registered (docs/0025 §2). Must run before
-/// the first rebuild; a no-op afterwards.
-fn snapshot_bundled_defaults(cx: &App) {
-    let themes = ThemeRegistry::global(cx)
-        .default_themes()
-        .values()
-        .map(|config| (**config).clone())
-        .collect::<Vec<_>>();
-    let set = ThemeSet {
-        name: "bundled defaults".into(),
-        author: None,
-        url: None,
-        themes,
-    };
-    match serde_json::to_string(&set) {
-        Ok(json) => {
-            let _ = BUNDLED_DEFAULTS.set(json);
-        }
-        Err(err) => log::warn!("bundled theme snapshot failed: {err}"),
-    }
-}
+/// The factory palettes, embedded at compile time (docs/0056 D1) and
+/// replayed into every [`rebuild_themes`]. Replaces docs/0025 D5's
+/// boot-time snapshot of the upstream pair: the shipped defaults are
+/// ours, not the library's, and a checked-in file is reviewable and
+/// diffable in a way a runtime snapshot never was. Upstream's
+/// `init_default_themes` stays private — irrelevant now, since nothing
+/// replays its pair.
+static BUNDLED_DEFAULTS: &str = include_str!("../assets/themes/aurora.json");
 
 /// Load every flat `*.json` under `dir` into the registry (docs/0025
 /// D1/D7): per-file tolerance — an unreadable or invalid file logs a
@@ -112,11 +89,8 @@ fn load_themes_dir(dir: &std::path::Path, cx: &mut App) {
 /// on the fly. The library's registry observer re-resolves the active
 /// slot configs by name and refreshes windows as the mutations land.
 fn rebuild_themes(dir: Option<&std::path::Path>, cx: &mut App) {
-    let Some(bundled) = BUNDLED_DEFAULTS.get() else {
-        return;
-    };
     cx.set_global(ThemeRegistry::default());
-    if let Err(err) = ThemeRegistry::global_mut(cx).load_themes_from_str(bundled) {
+    if let Err(err) = ThemeRegistry::global_mut(cx).load_themes_from_str(BUNDLED_DEFAULTS) {
         log::warn!("bundled defaults replay failed: {err}");
     }
     if let Some(dir) = dir {
@@ -135,10 +109,10 @@ pub struct AppSettings {
     /// The live appearance (`System` is implicit: `None`); see `MODE_SYSTEM`.
     pub theme_mode: Option<String>,
     /// Palette of the **light** slot — a light-mode `ThemeRegistry` name
-    /// (e.g. `"Default Light"`); `None` = library default.
+    /// (e.g. `"Aurora Light"`); `None` = factory default (docs/0056).
     pub theme_name_light: Option<String>,
     /// Palette of the **dark** slot — a dark-mode `ThemeRegistry` name;
-    /// `None` = factory dark (the library `Default Dark`, docs/0025 D3).
+    /// `None` = factory dark (`Aurora Dark`, docs/0056 D2).
     pub theme_name_dark: Option<String>,
 }
 
@@ -161,9 +135,9 @@ static APP_INFO: std::sync::OnceLock<(&'static str, &'static str)> = std::sync::
 /// Called once from `main` right after `gpui_component::init` (which
 /// registers the default themes): load persisted values, install the save
 /// handle, apply the saved theme before any window exists. With a themes
-/// dir (docs/0025), the bundled defaults are snapshotted, the dir loads
-/// synchronously (D4), and a watcher rebuilds the registry on every
-/// change under it (D5).
+/// dir (docs/0025), the embedded factory pair (docs/0056 D1) replays, the
+/// dir loads synchronously (D4), and a watcher rebuilds the registry on
+/// every change under it (D5).
 pub fn init(path: Option<PathBuf>, themes_dir: Option<PathBuf>, cx: &mut App) {
     let values = path.as_deref().and_then(|p| {
         load_json::<AppSettings>(p)
@@ -182,7 +156,6 @@ pub fn init(path: Option<PathBuf>, themes_dir: Option<PathBuf>, cx: &mut App) {
             },
         });
     }
-    snapshot_bundled_defaults(cx);
     rebuild_themes(themes_dir.as_deref(), cx);
     apply_saved_theme(cx);
     if let Some(dir) = themes_dir {
@@ -245,20 +218,43 @@ fn install_slot_theme(mode: ThemeMode, name: &str, cx: &mut App) -> bool {
     true
 }
 
+/// Install `name` into its slot; a missing name (fresh install) or one
+/// that failed (stale/deleted, docs/0025 D8 — warned, persisted value
+/// untouched) falls through to the embedded factory palette for that
+/// mode (docs/0056 D3). Without the fallthrough the slot would keep the
+/// `Theme` global's bootstrap value, which comes from the library's
+/// private fallback map — still the upstream pair.
+fn install_slot_or_factory(mode: ThemeMode, name: Option<String>, cx: &mut App) {
+    if let Some(name) = &name {
+        if install_slot_theme(mode, name, cx) {
+            return;
+        }
+    }
+    let factory = if mode.is_dark() {
+        DEFAULT_DARK_NAME
+    } else {
+        DEFAULT_LIGHT_NAME
+    };
+    install_slot_theme(mode, factory, cx);
+}
+
 /// Boot-time restore: saved palettes install into their slots (light and
 /// dark independently), then the saved mode applies — or, with no saved
 /// mode (first boot / `System`), the OS appearance. All idempotent at
 /// defaults.
 fn apply_saved_theme(cx: &mut App) {
-    let light = cx.global::<AppSettings>().theme_name_light.clone();
-    let dark = cx.global::<AppSettings>().theme_name_dark.clone();
-    let mode = cx.global::<AppSettings>().theme_mode.clone();
-    if let Some(name) = light {
-        install_slot_theme(ThemeMode::Light, &name, cx);
-    }
-    if let Some(name) = dark {
-        install_slot_theme(ThemeMode::Dark, &name, cx);
-    }
+    // The factory fallback lives HERE, not in the library bootstrap: the
+    // registry's private fallback map still holds the upstream pair
+    // (init_default_themes, docs/0025 §2), and a fresh `Theme` global
+    // bootstraps from it. Installing the embedded pair by name —
+    // registered moments earlier by rebuild_themes — is what makes a
+    // factory boot, and a stale-name boot, land on Aurora (docs/0056 D3).
+    let values = cx.global::<AppSettings>();
+    let light = values.theme_name_light.clone();
+    let dark = values.theme_name_dark.clone();
+    let mode = values.theme_mode.clone();
+    install_slot_or_factory(ThemeMode::Light, light, cx);
+    install_slot_or_factory(ThemeMode::Dark, dark, cx);
     match mode.as_deref().and_then(parse_mode_opt) {
         Some(mode) => Theme::change(mode, None, cx),
         // No window yet — the platform fallback decides
@@ -600,12 +596,11 @@ mod tests {
         dir
     }
 
-    /// Boot-shaped harness: library init (registers the two defaults),
-    /// snapshot, rebuild. Returns the sorted registry names.
+    /// Boot-shaped harness: library init, factory-asset replay + dir
+    /// load. Returns the sorted registry names.
     fn boot_and_names(cx: &mut gpui::TestAppContext, dir: Option<&std::path::Path>) -> Vec<String> {
         cx.update(gpui_component::init);
         cx.update(|cx| {
-            snapshot_bundled_defaults(cx);
             rebuild_themes(dir, cx);
             let mut names = ThemeRegistry::global(cx)
                 .themes()
@@ -620,9 +615,9 @@ mod tests {
     #[gpui::test]
     fn rebuild_replays_the_bundled_defaults(cx: &mut gpui::TestAppContext) {
         // Fresh-global rebuild (as after any watcher event) must bring
-        // the two library defaults back — nothing else ships (D3).
+        // the factory pair back — nothing else ships (docs/0056 D1).
         let names = boot_and_names(cx, None);
-        assert_eq!(names, ["Default Dark", "Default Light"]);
+        assert_eq!(names, ["Aurora Dark", "Aurora Light"]);
     }
 
     #[gpui::test]
@@ -636,13 +631,13 @@ mod tests {
         std::fs::write(dir.join("broken.json"), "{ not json").unwrap();
         std::fs::write(
             dir.join("collide.json"),
-            r#"{"themes":[{"name":"Default Light","mode":"light"}]}"#,
+            r#"{"themes":[{"name":"Aurora Light","mode":"light"}]}"#,
         )
         .unwrap();
         let names = boot_and_names(cx, Some(&dir));
         // Valid file in; invalid file out; the default-name collision
         // skipped (D6) — one "Default Light", no duplicates (D7).
-        assert_eq!(names, ["Default Dark", "Default Light", "Test Light"]);
+        assert_eq!(names, ["Aurora Dark", "Aurora Light", "Test Light"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -657,7 +652,6 @@ mod tests {
         .unwrap();
         cx.update(gpui_component::init);
         cx.update(|cx| {
-            snapshot_bundled_defaults(cx);
             rebuild_themes(Some(&dir), cx);
             let config = ThemeRegistry::global(cx).themes()["Mine"].clone();
             assert_eq!(config.colors.background.as_deref(), Some("#111111"));
@@ -699,7 +693,6 @@ mod tests {
     fn stale_persisted_dark_name_falls_back_to_default(cx: &mut gpui::TestAppContext) {
         cx.update(gpui_component::init);
         cx.update(|cx| {
-            snapshot_bundled_defaults(cx);
             rebuild_themes(None, cx);
             // Pre-0025 install: settings.json still names the removed
             // Mocha (D8). Boot restore must warn + land on the default,
@@ -710,7 +703,9 @@ mod tests {
                 theme_name_dark: Some("Catppuccin Mocha".into()),
             });
             apply_saved_theme(cx);
-            assert_eq!(cx.theme().dark_theme.name, "Default Dark");
+            // D8 degrade + docs/0056 D3: the unknown name warns and the
+            // dark slot lands on the embedded factory pair.
+            assert_eq!(cx.theme().dark_theme.name, "Aurora Dark");
             assert_eq!(
                 cx.global::<AppSettings>().theme_name_dark.as_deref(),
                 Some("Catppuccin Mocha")
