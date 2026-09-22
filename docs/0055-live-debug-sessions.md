@@ -111,6 +111,12 @@ $XDG_RUNTIME_DIR/dashboard-debug/sessions/<name>/     (fallback: /tmp)
 ├── transcripts/      ← D12 run logs
 ```
 
+Implementation note (#357/#356): `screenshots/` sits at the session
+root as drawn above; `snapshots/` and `transcripts/` live one level
+down under `state/` (they are keyed off the resolved state dir so a
+default — session-less — attach gets the same layout under its own
+runtime parent).
+
 `session.json` records everything the archaeology of problem 3
 wanted, and everything later verbs must reconstruct:
 
@@ -365,6 +371,13 @@ availability as info. (wlr-screencopy-under-headless is the one §3
 fact not yet exercised on this machine; the implementation step
 verifies it before wiring the rest of D10.)
 
+Implementation note (#357): the §3 risk is retired — wlr-screencopy
+works under headless sway on this machine (grim 1.5.0 against sway
+1.12: 1280x800 RGB PNGs with real pixel variance), verified before any
+of D10 was wired. `grim` resolves through the dev shell's PATH; the
+capture inherits `XDG_RUNTIME_DIR` and overrides only
+`WAYLAND_DISPLAY`, so the host session is never a capture target.
+
 ### D11 — One protocol addition: `app.quit`
 
 The only app-side change: `app.quit {window?}` on the existing
@@ -421,6 +434,18 @@ analytics-freeze receipt (#347's sequence, now a one-liner to
 re-run). This is the seed a future CI smoke job would grow from —
 deliberately not built here (§2).
 
+Implementation notes (#357): committed scripts target by **mouse
+coordinates at a fixed `--size`**, never `accesskit_id`s — ids are
+per-run seeds (the same button differed across restarts in live
+smokes), while fixed-size headless output makes coordinates
+deterministic; the committed script's header names its required size.
+Arguments may be double-quoted (assert substrings and `type` texts with
+spaces). Transcripts land beside the snapshots (`state/transcripts/`),
+auto-incrementing per script stem; the runner reuses the verb
+implementations verbatim, so a script line's receipt matches the
+interactive verb's output exactly. Drive steps do not auto-settle —
+scripts carry explicit `wait-frame` lines, per the grammar.
+
 ### D13 — `doctor`: the archaeology killer
 
 `dashboard-debug doctor [--session <name>]` (no session: the default
@@ -445,6 +470,18 @@ discovery target) prints one line per check, `[ok]` / `[FAIL]` /
 
 Output ends with a one-line verdict. This is the command that turns
 "silently verified nothing" into a named failure.
+
+Implementation notes (#357): the frames nudge is a **`key tab`, not a
+mouse move** — gpui redraws only on state change, and a mouse move
+that crosses no hover boundary draws nothing (verified live on both a
+1 px and a full-screen move; a focus move always draws). The flag
+check compares against the recorded start value **only when the
+session is gone** — a live bridge legitimately holds
+`ScreenReaderEnabled` true (its own activation set it; `stop`
+restores). The merge warn threshold is 25% unmatched dump nodes;
+doctor exits 1 when any check FAILs, 0 otherwise. Record-dependent
+checks report `[n/a]` on a default (session-less) attach instead of
+guessing.
 
 ### D14 — CLI grammar: keep the hand-rolled parser honest
 

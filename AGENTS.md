@@ -48,13 +48,25 @@ input injection. It is the primary way to verify UI-facing changes.
 
 ### Connect
 
-1. The a11y bus (needed only by `tree` / `click` / `focus`): start it once
-   per session with `at-spi-bus-launcher --launch-immediately &` (shipped
-   in the dev shell). `logs`, `key`, `type`, `mouse` work without it.
-2. `cargo run` the app.
-3. `cargo run -p dashboard-debug -- <verb>`. Token and socket are
-   auto-discovered from the runtime dir; if the CLI reports no token or
-   socket, the app isn't running.
+The default flow is a **live debug session** (docs/0055): isolated,
+headless, disposable.
+
+1. `cargo run -p dashboard-debug -- session start --name <n>` — spawns a
+   headless sway compositor plus the app, owns the a11y bus step, and
+   flips/records `ScreenReaderEnabled` itself. `--size WxH` fixes the
+   window (receipt coordinates assume it).
+2. Drive it with `dashboard-debug --session <n> <verb>` (or
+   `DASHBOARD_DEBUG_SESSION=<n>`). `doctor [--session <n>]` when anything
+   feels off — it names the failure class, not just the symptom.
+3. `session stop <n>` when done — graceful `app.quit` first, restores the
+   flag, purges the session dir. `--keep` preserves artifacts for
+   inspection.
+
+Attaching to an app you started yourself (`cargo run` + default
+discovery) still works for quick reads; the a11y bus step then is
+`at-spi-bus-launcher --launch-immediately &` (dev shell). Committed
+receipt scripts (`run crates/debug/verify/*.txt`) replay a whole
+verification in one command.
 
 ### Verify and drive
 
@@ -76,10 +88,10 @@ input injection. It is the primary way to verify UI-facing changes.
 - Node ids are the `accesskit_id` strings from `tree` output (stable for
   the run); the top-level `nodes` map keys are ephemeral and change per
   dump.
-- The first `tree`/node command flips the session `ScreenReaderEnabled`
-  flag; a graceful app exit restores it, a `kill` leaves it true — reset
-  with `busctl --user set-property org.a11y.Bus /org/a11y/bus org.a11y.Status
-  ScreenReaderEnabled b false` after crashed runs.
+- `ScreenReaderEnabled` flips when the bridge activates a11y. Sessions
+  record the starting value and `session stop` restores it (verified even
+  after a SIGKILLed app); a crashed attach outside a session leaves it
+  true — `doctor` names the drift and prints the restore command.
 - New interactive elements need `.id(...)` plus a role (docs/0010 D10), or
   they are invisible to the dump and to `click` — treat a missing node in
   `tree` as a bug in the element, not in the bridge.

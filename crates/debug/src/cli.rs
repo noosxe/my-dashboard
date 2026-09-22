@@ -60,6 +60,16 @@ pub enum Command {
     /// drew again (docs/0055 D6). The synchronization primitive receipts
     /// are built on; a timeout is the named hidden-workspace failure.
     WaitFrame { above: Option<u64>, timeout_ms: u64 },
+    /// `screenshot [--name stem]` — grim capture of the session's
+    /// headless compositor into `screenshots/<stem>-<n>.png` (D10).
+    /// Session-bound: needs `--session` (or the env default).
+    Screenshot { name: String },
+    /// `run <script>` — execute a committed receipt script (D12),
+    /// echoing line + outcome into `transcripts/<stem>-<n>.log`.
+    Run { script: std::path::PathBuf },
+    /// `doctor [--session <name>]` — nine health checks (D13); no
+    /// session checks the default discovery target.
+    Doctor,
     /// `logs [-f]`
     Logs { follow: bool },
     /// `shell`
@@ -123,6 +133,9 @@ pub const USAGE: &str = "usage: dashboard-debug [--session <name>] <verb> [args]
   tree --diff <a> <b> [--json]     structural diff of two snapshots
   tree --tab-stops                 walk the focus cycle, numbered (D8)
   wait-frame [--above N] [--timeout ms]  block until the app drew again (D6)
+  screenshot [--name stem]         grim capture of the session compositor (D10)
+  run <script>                     replay a committed receipt script (D12)
+  doctor                           nine session health checks (D13)
   click <accesskit_id> [--window N] [--wait-frame[=ms]]  AT-SPI click;
                                    coordinate fallback on 4005/4006 (D9)
   focus <accesskit_id> [--window N] [--wait-frame[=ms]]  AT-SPI focus
@@ -183,6 +196,36 @@ pub fn parse_args(args: &[String]) -> Result<Command, String> {
     match verb.as_str() {
         "tree" => parse_tree(rest),
         "wait-frame" => parse_wait_frame(rest),
+        "screenshot" => {
+            let mut name = "shot".to_string();
+            let mut rest = rest.iter().peekable();
+            while let Some(arg) = rest.next() {
+                match arg.as_str() {
+                    "--name" => {
+                        let Some(value) = rest.next() else {
+                            return Err("--name needs a stem".into());
+                        };
+                        name = value.clone();
+                    }
+                    other => return Err(format!("unknown screenshot argument {other:?}")),
+                }
+            }
+            Ok(Command::Screenshot { name })
+        }
+        "run" => {
+            let [script] = rest else {
+                return Err("run needs exactly one <script> path".into());
+            };
+            Ok(Command::Run {
+                script: std::path::PathBuf::from(script),
+            })
+        }
+        "doctor" => {
+            if !rest.is_empty() {
+                return Err("doctor takes no arguments (bind with --session)".into());
+            }
+            Ok(Command::Doctor)
+        }
         "click" | "focus" => {
             let node = positional(rest, verb, "<accesskit_id>")?;
             let window = parse_window_flag(rest)?;
@@ -980,5 +1023,56 @@ mod tests {
         assert_eq!(keystroke_for_char('a'), "a");
         assert_eq!(keystroke_for_char(' '), "space");
         assert_eq!(keystroke_for_char('\n'), "enter");
+    }
+
+    #[test]
+    fn receipt_verbs_parse() {
+        assert_eq!(
+            parse_args(&args(&["screenshot"])).unwrap(),
+            Command::Screenshot {
+                name: "shot".into()
+            }
+        );
+        assert_eq!(
+            parse_args(&args(&["screenshot", "--name", "opened"])).unwrap(),
+            Command::Screenshot {
+                name: "opened".into()
+            }
+        );
+        assert!(
+            parse_args(&args(&["screenshot", "--name"]))
+                .unwrap_err()
+                .contains("needs a stem")
+        );
+        assert!(
+            parse_args(&args(&["screenshot", "extra"]))
+                .unwrap_err()
+                .contains("unknown screenshot argument")
+        );
+        assert_eq!(
+            parse_args(&args(&["run", "verify/usage-freeze.txt"])).unwrap(),
+            Command::Run {
+                script: std::path::PathBuf::from("verify/usage-freeze.txt")
+            }
+        );
+        assert!(
+            parse_args(&args(&["run"]))
+                .unwrap_err()
+                .contains("exactly one")
+        );
+        assert_eq!(parse_args(&args(&["doctor"])).unwrap(), Command::Doctor);
+        assert!(
+            parse_args(&args(&["doctor", "--session", "x"]))
+                .unwrap_err()
+                .contains("takes no arguments")
+        );
+    }
+
+    #[test]
+    fn receipt_verbs_reach_the_intercept_not_the_socket() {
+        // The invocation layer must still parse them with a session.
+        let invocation = parse_invocation(&args(&["--session", "qa", "doctor"])).unwrap();
+        assert_eq!(invocation.session.as_deref(), Some("qa"));
+        assert_eq!(invocation.command, Command::Doctor);
     }
 }
