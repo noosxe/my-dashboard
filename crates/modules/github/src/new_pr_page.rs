@@ -876,6 +876,11 @@ impl Render for NewPrPage {
             .id("new-pr")
             .key_context("GithubNewPrPage")
             .track_focus(&self.focus_handle)
+            // #360: a focused element needs a role to paint an
+            // a11y node — id + track_focus alone is the
+            // "focus without node" gap class (the walk and
+            // assistive tech both land here blind otherwise).
+            .role(accesskit::Role::Group)
             // D7: Esc always asks the host to close — the creator has no
             // nested editors for it to consume first.
             .on_action(cx.listener(|this, _: &DismissNewPrPage, _, cx| {

@@ -2826,6 +2826,11 @@ impl Render for IssueDetailPage {
             .id("issue-detail")
             .key_context("GithubIssuePage")
             .track_focus(&self.focus_handle)
+            // #360: a focused element needs a role to paint an
+            // a11y node — id + track_focus alone is the
+            // "focus without node" gap class (the walk and
+            // assistive tech both land here blind otherwise).
+            .role(accesskit::Role::Group)
             // 0022 D4/D5: an open editor or picker consumes Esc (its
             // Cancel); the page only closes when nothing is open.
             .on_action(cx.listener(|this, _: &DismissIssuePage, window, cx| {
