@@ -680,7 +680,7 @@ impl<'a> RecordingHttp<'a> {
                 let (cost, remaining, limit, cycle) = match transport {
                     Transport::Graphql => match graphql_flight_cost(result.body.as_deref()) {
                         Some((cost, remaining, reset, limit)) => {
-                            (Some(cost), Some(remaining), Some(limit), Some(reset))
+                            (Some(cost), Some(remaining), limit, Some(reset))
                         }
                         None => (
                             None,
@@ -769,16 +769,20 @@ impl Http for RecordingHttp<'_> {
 /// The GraphQL body's `rateLimit` object for records (docs/0053 D1,
 /// docs/0054 D14): `(cost, remaining, resetAt→epoch, limit)` when the
 /// query asked for the field — the authoritative per-request cost,
-/// plus the response's own ceiling. Mirrors
-/// [`graphql_budget`]'s parsing contract.
-fn graphql_flight_cost(body: Option<&str>) -> Option<(u32, u32, u64, u32)> {
+/// plus the response's own ceiling. Tolerates selection sets that omit
+/// `limit` (older queries, minimal probes): a missing field must not
+/// void the cost — that drift once made every real flight
+/// unattributable (docs/0053 §7, drift fix). Mirrors
+/// [`graphql_budget`]'s parsing contract: only the fields every query
+/// carries are required.
+fn graphql_flight_cost(body: Option<&str>) -> Option<(u32, u32, u64, Option<u32>)> {
     #[derive(serde::Deserialize)]
     struct RateLimitField {
         cost: i64,
         remaining: i64,
         #[serde(rename = "resetAt")]
         reset_at: String,
-        limit: i64,
+        limit: Option<i64>,
     }
     #[derive(serde::Deserialize)]
     struct Data {
@@ -799,7 +803,7 @@ fn graphql_flight_cost(body: Option<&str>) -> Option<(u32, u32, u64, u32)> {
         rl.cost.max(0) as u32,
         rl.remaining.max(0) as u32,
         reset,
-        rl.limit.max(0) as u32,
+        rl.limit.map(|l| l.max(0) as u32),
     ))
 }
 
@@ -1543,6 +1547,36 @@ mod tests {
         assert_eq!(graphql.remaining, 4310);
         assert_eq!(graphql.limit, 5000);
         assert_eq!(book.session_counters(), (1, 1, 0, 0));
+    }
+
+    #[test]
+    fn graphql_flight_cost_parses_real_selection_sets() {
+        // What every query actually asks for (docs/0053 §5): cost,
+        // remaining, resetAt — no limit. The cost must still book.
+        let body = serde_json::json!({
+            "data": {
+                "rateLimit": { "cost": 1, "remaining": 4310, "resetAt": "2030-01-01T00:00:00Z" }
+            }
+        })
+        .to_string();
+        assert_eq!(
+            super::graphql_flight_cost(Some(&body)),
+            Some((1, 4310, 1_893_456_000, None))
+        );
+        // With the full selection set (docs/0054 D14): the ceiling rides.
+        let body = serde_json::json!({
+            "data": {
+                "rateLimit": { "cost": 27, "remaining": 4310, "resetAt": "2030-01-01T00:00:00Z", "limit": 5000 }
+            }
+        })
+        .to_string();
+        assert_eq!(
+            super::graphql_flight_cost(Some(&body)),
+            Some((27, 4310, 1_893_456_000, Some(5000)))
+        );
+        // No rateLimit in the body → unattributable, never a guess.
+        assert_eq!(super::graphql_flight_cost(Some(r#"{"data": {}}"#)), None);
+        assert_eq!(super::graphql_flight_cost(None), None);
     }
 
     #[test]
