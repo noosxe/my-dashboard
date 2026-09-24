@@ -64,11 +64,22 @@ impl DraftStore {
         }
     }
 
+    /// Monotonic per-process counter: two stores created in the same
+    /// clock tick must not share a root — parallel tests racing on one
+    /// shared root is exactly the failure this prevents (the
+    /// comment-draft probes collided that way, flaking ~2 runs in 3).
+    #[cfg(test)]
+    fn test_store_seq() -> u64 {
+        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    }
+
     #[cfg(test)]
     pub(crate) fn at_tmp(tag: &str) -> Self {
         Self {
             root: std::env::temp_dir().join(format!(
-                "dash-gh-drafts-{tag}-{}",
+                "dash-gh-drafts-{tag}-{}-{}",
+                Self::test_store_seq(),
                 SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .unwrap_or_default()
