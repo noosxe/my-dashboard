@@ -12,12 +12,14 @@ The CI is **nix-free** (owner decision, §4): the
 workflow installs its own toolchain (rustup, pinned) and everything
 GitHub's ubuntu images do **not** ship (the GUI dev stack + fonts),
 assuming a hosted-image-parity baseline on the runner image (§2, §4, §5) —
-so it runs unchanged on the owner's docker-runner product (once at parity)
-and on GitHub-hosted ubuntu runners. Two jobs (`lint`, `test`),
+GitHub-hosted ubuntu runners (`ubuntu-24.04`) ship it by construction.
+Two jobs (`lint`, `test`),
 one pinned third-party action (`actions/checkout`), no secrets.
 
-The runner platform is the owner's **ephemeral docker product** (one fresh
-container per run, teardown after): every run is a full cold build; build
+The runner platform is **GitHub-hosted** (`ubuntu-24.04` standard hosted
+runners, both jobs — switched from the owner's self-hosted docker runners
+after they went down, §4): hosted VMs are just as ephemeral (fresh VM per
+run, torn down after), so every run is still a full cold build; build
 caching is deliberately deferred (#158).
 
 Release/packaging CI (binary builds, caches, tag automation) is explicitly out
@@ -43,9 +45,9 @@ written).
   `xvfb`, `curl`, `git`, base fonts are preinstalled — and zero matches for
   `libgtk-3-dev`/`libwayland-dev`/`libxkbcommon-dev`/IBM Plex. GUI projects
   install those per job on GitHub's own runners; ours does the same. The
-  owner's runner images target hosted-image parity (§4), so the workflow
-  assumes that baseline and installs only the remainder (D1).
-- **The runner platform is ephemeral**: one docker container per run, torn
+  GitHub's `ubuntu-24.04` hosted image ships that baseline by construction
+  (§4), so the workflow assumes it and installs only the remainder (D1).
+- **The runner platform is ephemeral**: one fresh VM per run, torn
   down after. Nothing persists between runs — no warm `target/`, no `~/.cargo`,
   no installed packages. CI runs on the platform confirmed the gaps
   progressively: missing `cc`/`xvfb` (first run), a non-root job user
@@ -54,7 +56,8 @@ written).
   `-lxkbcommon-x11` (third run): clippy/check don't link, so only the
   test job's final binary link exposed the missing apt package.
   §5 provisioning list was wrong and is superseded by the in-workflow
-  install plus the parity contract below.
+  install plus the parity contract below (all three gaps were on the
+  retired self-hosted platform — §4).
 - **Dev-shell parity**: locally the gates run inside `nix develop` (toolchain
   frozen by `flake.lock` at 1.98.0, gpui dynamic libs on `LD_LIBRARY_PATH`,
   hermetic IBM Plex via `FONTCONFIG_FILE`). CI cannot replicate the nix parts —
@@ -91,15 +94,15 @@ metric-sensitive tests would surface any residue). Mitigation if that ever
 bites: ship a tiny in-repo `fontconfig.conf` and export `FONTCONFIG_FILE`.
 
 Per-job cost on the ephemeral platform: ~30 s apt + ~40 s rustup — accepted;
-see D2 for the bigger cold-build cost and #158. **Interim state** (owner-
-accepted, §4): until the runner images reach parity, runs fail at the first
-build script (`cc` not found) and at `xvfb-run` — the parity gap surfaced
-loudly, not a workflow bug.
+see D2 for the bigger cold-build cost and #158. (The **interim parity-gap
+state** — runs failing on missing `cc`/`xvfb-run` until the self-hosted
+images reached parity — is history: the hosted `ubuntu-24.04` image ships
+the baseline by construction, §4.)
 
 ### D2 — Ephemeral runners: cold by design, caching deferred
 
 `CARGO_TARGET_DIR=$HOME/.cache/my-dashboard/target` is still exported, but on
-the ephemeral platform this is a **no-op perf-wise** (fresh container per run);
+the ephemeral platform this is a **no-op perf-wise** (fresh VM per run);
 it is kept because it is harmless and a future persistent host gets warm
 builds for free — and because an out-of-workspace target dir never interacts
 badly with `actions/checkout`'s `git clean -ffdx`. Every run pays the full
@@ -200,6 +203,13 @@ that cannot affect a build.
   parity (gcc/make/cmake/pkg-config/xvfb/git/curl, …). Until that lands,
   CI on the platform is expected to fail on missing `cc`/`xvfb-run`;
   accepted in exchange for the lean, portable workflow.
+- *(2026-09-24)* **Runner platform switched to GitHub-hosted ubuntu
+  runners** — both jobs run on `ubuntu-24.04` standard hosted runners:
+  the owner's self-hosted runners are down, and the hosted image meets
+  the workflow's parity contract by construction (§2), so the interim
+  parity-gap caveats are void. Workflow logic is unchanged — only the
+  `runs-on` labels, surrounding comments and this doc move; the §5
+  listing stays the original-PR snapshot (as D7 left it).
 
 ## 5. Implementation plan (this PR)
 
@@ -215,9 +225,9 @@ binutils/CMake/pkg-config/xvfb/curl + base fonts), **and apt privilege**
 (root containers or passwordless sudo for the job user — what hosted
 images give their `runner` user). The workflow installs the GUI dev stack +
 `fonts-ibm-plex` itself, guarded by an explicit contract error when neither
-privilege path exists. Until the docker runner images reach that parity,
-runs fail on missing `cc`/`xvfb-run` or on the apt privilege guard — by
-owner decision (§4), not a workflow bug.
+privilege path exists. (Written when CI ran on the owner's self-hosted
+docker runners; since the 2026-09-24 hosted-runner switch (§4), GitHub's
+`ubuntu-24.04` image satisfies this contract by construction.)
 
 `ci.yml`:
 
