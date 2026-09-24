@@ -2,9 +2,11 @@
 # to main that touches build-affecting paths (docs-only changes skip —
 # D7). Design: docs/0027-ci-workflows.md (D1–D7).
 #
-# Environment: owner-provisioned self-hosted runners (labels below) —
-# see docs/0027 §5 for the one-time apt provisioning list. Nix-free by
-# owner decision (docs/0027 §4): toolchain from rustup, libs from apt.
+# Environment: GitHub-hosted ubuntu runners (`ubuntu-24.04`, both jobs;
+# docs/0027 §4): the hosted image ships the build baseline (gcc/make/
+# cmake/pkg-config/xvfb/git/curl), the workflow installs the GUI dev
+# stack + fonts itself. Nix-free by owner decision (docs/0027 §4):
+# toolchain from rustup, libs from apt.
 # No secrets are used anywhere, so fork PRs are safe too.
 name: CI
 
@@ -27,7 +29,7 @@ on:
       - "*.md"
 
 # One in-flight run per ref: superseded pushes cancel their queued run
-# and free the shared runners sooner.
+# and free the runners sooner.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -42,7 +44,7 @@ jobs:
   lint:
     # Formatting + the zero-warnings clippy gate (incl. the clippy.toml
     # token-discipline lints) + the bridge-less build variant.
-    runs-on: [self-hosted, linux, amd64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -51,10 +53,9 @@ jobs:
       - name: Install system dependencies (GUI dev stack + fonts)
         # Installs ONLY what GitHub's ubuntu images do not ship
         # (docs/0027 D1): the gpui link libs + IBM Plex for font parity
-        # with the dev shell. The hosted baseline — gcc/make/cmake/
-        # pkg-config/xvfb/git/curl — is the runner image's job (parity
-        # decision, docs/0027 §4; until the images reach it, runs fail
-        # on missing cc/xvfb by design).
+        # with the dev shell. The build baseline — gcc/make/cmake/
+        # pkg-config/xvfb/git/curl — ships on the hosted ubuntu-24.04
+        # image by construction (docs/0027 §2, §4).
         run: |
           if [ "$(id -u)" -ne 0 ] && ! command -v sudo >/dev/null 2>&1; then
             echo "::error::cannot install packages: non-root job user and no sudo on this runner image."
@@ -79,7 +80,7 @@ jobs:
             --component rustfmt --component clippy
           rustup default "$RUST_TOOLCHAIN"
           # Out-of-workspace target dir (docs/0027 D2): a no-op perf-wise on
-          # the ephemeral docker runners (fresh container per run); kept so
+          # the ephemeral hosted runners (fresh VM per run); kept so
           # a future persistent host gets warm builds for free.
           echo "CARGO_TARGET_DIR=$HOME/.cache/my-dashboard/target" >> "$GITHUB_ENV"
       - name: cargo fmt --all --check
@@ -93,7 +94,7 @@ jobs:
     # Full test suite. Verified headless-green (docs/0027 §2), but Xvfb +
     # a fresh XDG_RUNTIME_DIR stay as cheap insurance so a future gpui rev
     # that wants a display fails loudly instead of mysteriously.
-    runs-on: [self-hosted, linux, amd64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -102,10 +103,9 @@ jobs:
       - name: Install system dependencies (GUI dev stack + fonts)
         # Installs ONLY what GitHub's ubuntu images do not ship
         # (docs/0027 D1): the gpui link libs + IBM Plex for font parity
-        # with the dev shell. The hosted baseline — gcc/make/cmake/
-        # pkg-config/xvfb/git/curl — is the runner image's job (parity
-        # decision, docs/0027 §4; until the images reach it, runs fail
-        # on missing cc/xvfb by design).
+        # with the dev shell. The build baseline — gcc/make/cmake/
+        # pkg-config/xvfb/git/curl — ships on the hosted ubuntu-24.04
+        # image by construction (docs/0027 §2, §4).
         run: |
           if [ "$(id -u)" -ne 0 ] && ! command -v sudo >/dev/null 2>&1; then
             echo "::error::cannot install packages: non-root job user and no sudo on this runner image."
