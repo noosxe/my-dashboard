@@ -212,6 +212,12 @@ host and new files/crates grow from there.
   `start_window_move` + `WindowControlArea::Drag`, double-click →
   `titlebar_double_click()`, an 80px left inset so the lights land inside
   the strip, and **empty** `WindowControls` on macOS — no duplicate buttons.
+  **Fullscreen:** in macOS fullscreen the OS overlays its own bar (menu +
+  traffic lights) when you hover the top screen edge, so the app **hides its
+  strip** there (`!window.is_fullscreen()`); the transition's window resize
+  forces the re-render — the mechanism upstream's own `TitleBar` relies on
+  for its fullscreen padding tweak. Linux keeps the strip in fullscreen:
+  its min/max/close buttons live in it and no OS overlay replaces them.
   Linux stays strictly decoration-driven; Windows is out of scope (untested).
 
 ## 5. Proposed implementation
