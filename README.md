@@ -154,6 +154,9 @@ The dev shell pins an IBM Plex fontconfig for hermetic rendering; the dev
 shell's AT-SPI setup powers the in-process debug bridge
 ([docs/0010](docs/0010-agent-debug-bridge.md)) — `cargo run -p dashboard-debug` to
 drive the running app.
+On macOS the same dev shell evaluates (`nix develop` gives the pinned
+toolchain); the GUI runtime above — gpui's dylibs, AT-SPI, hermetic fonts —
+is Linux-only (the macOS backend is Cocoa/Metal and needs none of it).
 
 Gates before pushing (see [AGENTS.md](AGENTS.md)):
 `cargo fmt --all --check`, `cargo clippy --workspace --all-targets` (zero

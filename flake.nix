@@ -31,6 +31,8 @@
         pkgs = import nixpkgs { inherit system overlays; };
         inherit (pkgs) lib;
 
+        isLinux = pkgs.stdenv.hostPlatform.isLinux;
+
         # Hermetic font config for the GUI in the *dev shell* (mirrors
         # upstream). The installed package deliberately does NOT pin
         # fonts: it uses the system fontconfig so user font settings and
@@ -51,7 +53,9 @@
         ];
 
         # Dynamic libraries gpui links/loads on Linux — mirrors upstream's flake.
-        dynamicLibraries = with pkgs; [
+        # The macOS backend (Cocoa/Metal) needs none of these, and wayland et al.
+        # refuse to evaluate on aarch64-darwin, so only pull them on Linux.
+        dynamicLibraries = with pkgs; lib.optionals isLinux [
           wayland
           vulkan-headers
           vulkan-loader
@@ -166,9 +170,17 @@
         devShells.default =
           with pkgs;
           mkShell {
-            packages = buildTools ++ dynamicLibraries ++ [ atSpi ] ++ liveDebug;
+            packages =
+              buildTools
+              ++ dynamicLibraries
+              ++ lib.optionals isLinux ([ atSpi ] ++ liveDebug);
             env = {
               RUST_BACKTRACE = "1";
+            }
+            # The Linux GUI runtime: hermetic fonts, gpui dylibs and the
+            # a11y bridge. macOS has no equivalent (Cocoa/Metal), so
+            # keep it out of the darwin shell entirely.
+            // lib.optionalAttrs isLinux {
               FONTCONFIG_FILE = fontsConf;
               LD_LIBRARY_PATH = lib.makeLibraryPath dynamicLibraries;
               # Lets a session bus started *inside* the shell DBus-activate
@@ -187,7 +199,7 @@
               );
             };
             # at-spi2-core ships its daemons in libexec/, not bin/.
-            shellHook = ''
+            shellHook = lib.optionalString isLinux ''
               export PATH="${atSpi}/libexec:$PATH"
             '';
           };
