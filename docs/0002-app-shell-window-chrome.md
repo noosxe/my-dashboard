@@ -53,6 +53,8 @@ native macOS bar provides traffic lights; on decoration-less servers like Hyprla
 window management stays keybind territory). No compositor detection, no guessing
 which WM actually draws. Empirically zero boot flash on Hyprland: the decoration
 answer arrives with the initial surface configure, before the first frame.
+**Amended 2026-09-24 (D11, §4.2):** macOS `Server` decorations turned out to be
+traffic lights only — the app draws the title bar strip there after all.
 The historical D7 text below is kept for the record.
 
 **D7 — titlebar-less mode (added at review):** the shell carries a runtime
@@ -197,6 +199,20 @@ host and new files/crates grow from there.
   as named constants. D9's `text_size`/`line_height` and D5's color literals
   are enforced by `clippy.toml` `disallowed-methods`; escape hatch is
   `#[allow(clippy::disallowed_methods)]` + a justifying comment.
+- **D11 — macOS draws the title bar strip** (2026-09-24, owner request): D7's
+  decoration-driven rule mis-modeled macOS — with `appears_transparent: true`
+  (`TitleBar::title_bar_options()`, set in `main.rs`) macOS draws **only the
+  floating traffic lights**, never a bar, and `window_decorations()` still
+  reports `Server`. Under D7-as-written the shell rendered no strip there:
+  the controls sat on top of the content area and the window could not be
+  moved with the mouse. Fix: the strip renders on macOS too
+  (`draw_titlebar = client_decorated || cfg!(target_os = "macos")`).
+  Verified in pinned upstream (gpui-component 94a313a `title_bar.rs`,
+  gpui-pre 0.3.3): the `TitleBar` renders its 34px bar with drag via
+  `start_window_move` + `WindowControlArea::Drag`, double-click →
+  `titlebar_double_click()`, an 80px left inset so the lights land inside
+  the strip, and **empty** `WindowControls` on macOS — no duplicate buttons.
+  Linux stays strictly decoration-driven; Windows is out of scope (untested).
 
 ## 5. Proposed implementation
 
