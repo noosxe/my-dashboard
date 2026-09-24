@@ -193,13 +193,24 @@ impl Render for DashboardShell {
         // supersedes 0002 D7's runtime toggle): if the window is
         // client-decorated the app owns the whole chrome (full title
         // bar; gpui-component renders min/max/close there); if the
-        // server owns decorations we draw nothing — KWin/X11/native
-        // macOS bars provide controls, and on decoration-less servers
-        // (Hyprland) window management stays keybind territory.
+        // server owns decorations we draw nothing on Linux — KWin/X11
+        // WM bars provide the controls (D11 adds the macOS exception:
+        // its "server" decoration is traffic lights only, no bar, so
+        // the app draws the strip there), and on decoration-less
+        // servers (Hyprland) window management stays keybind territory.
         // Resolved per render: the Wayland decoration answer arrives
         // asynchronously with the first configure, which triggers a
         // redraw, so this tracks the live state with no observer wiring.
         let client_decorated = matches!(window.window_decorations(), Decorations::Client { .. });
+        // macOS always draws the strip (D11): its Server decoration is
+        // just the floating traffic lights — TitlebarOptions
+        // appears_transparent (main.rs) hides the native bar entirely,
+        // so without our TitleBar the controls sit on the content and
+        // nothing can drag the window. Upstream TitleBar renders no
+        // buttons on macOS (80px left inset for the lights), so
+        // rendering it there is safe; Linux stays strictly
+        // decoration-driven.
+        let draw_titlebar = client_decorated || cfg!(target_os = "macos");
 
         // Snapshot nav state (crumbs hold Arc'd closures — cloneable).
         let nav = self.nav.read(cx);
@@ -250,10 +261,11 @@ impl Render for DashboardShell {
                 }),
             )
             .size_full()
-            .when(client_decorated, |this| {
+            .when(draw_titlebar, |this| {
                 this.child(
                     // Custom title bar; gpui-component draws min/max/
-                    // close at the right edge on client-decorated Linux.
+                    // close at the right edge on client-decorated Linux
+                    // and no buttons on macOS (traffic lights are native).
                     TitleBar::new().child(
                         h_flex()
                             .w_full()
@@ -269,7 +281,8 @@ impl Render for DashboardShell {
                 // both main columns (sidebar + content) from the window
                 // edges — upstream gpui adds no automatic padding; apps pad
                 // themselves (the gpui-component examples do this). The
-                // client-decorated TitleBar above stays full-width.
+                // themselves (the gpui-component examples do this). The
+                // title bar above stays full-width.
                 v_flex().flex_1().min_h_0().p_4().child(
                     // Framed panel: border + radius around the two main
                     // columns AND the status bar below them (docs/0013
