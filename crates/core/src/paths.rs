@@ -238,7 +238,10 @@ mod tests {
 
     #[test]
     fn module_state_dir_mirrors_data_dir_layout() {
-        let root = std::env::temp_dir().join(format!("dash-paths-test-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!(
+            "dash-paths-test-module-state-{}",
+            std::process::id()
+        ));
         let paths = AppPaths::resolve(Some(root.clone()));
         let dir = paths.module_state_dir("../notes evil/..");
         assert!(dir.starts_with(root.join("state/modules")));
@@ -252,7 +255,10 @@ mod tests {
 
     #[test]
     fn module_data_dir_is_sanitized_and_created() {
-        let root = std::env::temp_dir().join(format!("dash-paths-test-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!(
+            "dash-paths-test-module-data-{}",
+            std::process::id()
+        ));
         let paths = AppPaths::resolve(Some(root.clone()));
         let dir = paths.module_data_dir("../notes evil/..");
         assert!(dir.starts_with(root.join("data/modules")));
