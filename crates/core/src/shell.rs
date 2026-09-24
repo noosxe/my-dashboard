@@ -202,15 +202,17 @@ impl Render for DashboardShell {
         // asynchronously with the first configure, which triggers a
         // redraw, so this tracks the live state with no observer wiring.
         let client_decorated = matches!(window.window_decorations(), Decorations::Client { .. });
-        // macOS always draws the strip (D11): its Server decoration is
-        // just the floating traffic lights — TitlebarOptions
-        // appears_transparent (main.rs) hides the native bar entirely,
-        // so without our TitleBar the controls sit on the content and
-        // nothing can drag the window. Upstream TitleBar renders no
-        // buttons on macOS (80px left inset for the lights), so
-        // rendering it there is safe; Linux stays strictly
-        // decoration-driven.
-        let draw_titlebar = client_decorated || cfg!(target_os = "macos");
+        // macOS draws the strip (D11) — except in fullscreen: there the
+        // OS overlays its own bar (menu + traffic lights) when you
+        // hover the top screen edge, so ours is redundant vertical
+        // space. is_fullscreen() re-evaluates per render; the
+        // fullscreen transition resizes the window, forcing the
+        // re-render — the same mechanism upstream's TitleBar relies on
+        // for its fullscreen padding tweak. Linux keeps the strip in
+        // fullscreen: its min/max/close live there and no OS overlay
+        // replaces them.
+        let draw_titlebar =
+            client_decorated || (cfg!(target_os = "macos") && !window.is_fullscreen());
 
         // Snapshot nav state (crumbs hold Arc'd closures — cloneable).
         let nav = self.nav.read(cx);
