@@ -57,14 +57,17 @@ opens a **panel** listing unread notifications, where they can be cleared.
   every raise — direct (`&mut App` free fns) and spill-drained (the shell
   already funnels both through the hub entity on the UI thread). Cap 100,
   drop-oldest. Module adoption (#382) feeds the hub for free.
-- **D2 — read/unread semantics.** Unread = `read == false`; the badge counts
-  unread entries. Explicitly dismissing the toast (X / middle-click) marks the
-  entry read; an autohide timeout leaves it unread — the user never saw it
-  act. This rides upstream `on_close` (F3); §6 spike T1 decides the wiring:
-  if autohide provably skips `on_close`, the mapping is exact; if it fires on
-  both paths, v1 falls back to panel-managed-only read state (toast dismissal
-  does not touch the log) and an upstream issue asks for a dismissal-reason
-  enum. Panel interactions always mark read (D4).
+- **D2 — read/unread semantics: only human actions mark read.** Unread =
+  `read == false`; the badge counts unread entries. A read transition is
+  caused exclusively by a human action: the toast's ✕, opening the panel,
+  a per-row ✕, or "Clear all". Nothing else flips state — an autohide
+  timeout leaves the entry unread (the user never saw it act), and
+  programmatic closes are equally inert. Explicit dismissal rides upstream
+  `on_close` (F3); §6 spike T1 decides the wiring: if autohide provably
+  skips `on_close`, human-✕→read maps exactly; if it fires on both paths,
+  v1 falls back to panel-managed-only read state (toast dismissal does not
+  touch the log) and an upstream issue asks for a dismissal-reason enum —
+  the human-actions-only principle holds either way.
 - **D3 — indicator: `Popover` + `Badge` in the rightmost bar slot.** The last
   `.right(...)` item in `status::bar` (F6) is a `Popover` whose trigger is a
   bell `Button` carrying `Badge::count(unread).max(99)` (F1); no badge at
@@ -76,9 +79,11 @@ opens a **panel** listing unread notifications, where they can be cleared.
   row ("Notifications", "Clear all" button), then one row per unread entry —
   level icon + title + message (single line truncated) + relative time + a
   per-row dismiss button. Empty state: "No unread notifications". Opening
-  shows the snapshot; **closing the panel marks the shown entries read**
-  (marking on open would empty the list mid-read; marking per-click is
-  stricter than needed for v1).
+  the panel marks every unread entry read — the badge clears at open, not
+  at close (owner ruling) — while the displayed list is the snapshot
+  captured at open, so it doesn't vanish mid-read; rows stay individually
+  dismissible until the panel closes, and the next open re-snapshots
+  (previously read entries don't reappear).
 - **D5 — still ephemeral across restarts (docs/0058 D9 unchanged).** The log
   lives in the hub entity; process exit discards it. Cross-session
   persistence needs a storage decision (the usage DB is analytics-scoped) —
@@ -96,8 +101,9 @@ opens a **panel** listing unread notifications, where they can be cleared.
 ## 4. File layout
 
 - `crates/core/src/toasts.rs` — `HubEntry`, log + cap on `ToastHub`
-  (`entries`, `unread_count`, `mark_entry_read`, `mark_visible_read`,
-  `clear_entries`), `panel_open` flag; unit tests (append/cap/mark/count).
+  (`entries`, `unread_count`, `mark_all_read` on open, `clear_entries`,
+  panel snapshot state), `panel_open` flag; unit tests
+  (append/cap/mark/count/snapshot).
 - `crates/core/src/status.rs` — rightmost indicator: `Popover` + bell +
   `Badge`, reading `toasts::hub(cx)`; render tests for badge count states.
 - `crates/core/src/shell.rs` — unchanged except whatever D2's T1 outcome
@@ -109,11 +115,12 @@ opens a **panel** listing unread notifications, where they can be cleared.
 ## 5. Tests
 
 - Hub: append on raise (direct + spill path), cap-100 drop-oldest, unread
-  count, mark-read on entry/panel-close/clear-all.
+  count, mark-read on explicit ✕ / panel open / per-row ✕ / clear-all only.
 - Status bar: zero unread renders bare bell; N unread renders `Badge` count
   (`max` capping at 99+).
-- Panel: closing marks shown entries read; clear-all empties log; empty
-  state renders.
+- Panel: opening marks all unread read (badge clears at open) while the
+  open-time snapshot stays listed; clear-all empties the view; empty state
+  renders; non-human paths (autohide, programmatic close) never flip read.
 - Spike tests (§6 T1) live behind `#[ignore]`-free unit tests on the upstream
   entity so CI flags any upstream behavior drift on rev bumps.
 
@@ -130,10 +137,11 @@ opens a **panel** listing unread notifications, where they can be cleared.
   2. Degrade path (unwritable `DASHBOARD_STATE_DIR`) → toast appears; badge
      count 1 at `status-notifications`; toast autohides → badge stays 1.
   3. `click status-notifications` → `notification-panel` in tree with the
-     degrade row (`Role::ListItem`), plus the a11y-role observation that
+     degrade row (`Role::ListItem`) — badge clears to 0 at open (rows stay
+     listed, the open-time snapshot) — plus the a11y-role observation that
      feeds the upstream issue from docs/0058 F8.
-  4. Close panel → badge cleared; reopen → empty state; `Clear all` on a
-     second entry → log empties, badge 0.
+  4. Close and reopen → empty state; `Clear all` on a second entry → view
+     empties, badge 0; a fresh raise after reopen → badge 1 again.
 - **Human checks (owner)**: badge sits rightmost next to module items on both
   platforms; panel opens upward, dismisses on outside click/Esc; sticky
   error toast X marks its entry read; appearance flip doesn't restyle the
@@ -144,8 +152,8 @@ opens a **panel** listing unread notifications, where they can be cleared.
 1. Every raised toast (all current + future raise sites) appears in the log
    without per-site work.
 2. Unread badge reflects reality in all paths: raise → +1; explicit toast X →
-   entry read (or documented fallback per D2); panel close → shown entries
-   read; clear-all → 0.
+   read (or documented fallback per D2); panel open → all unread read and
+   the badge clears at open; clear-all → 0; autohide/programmatic close → +0.
 3. Panel lists unread entries with level, title, message, time; scrollable at
    cap; empty state reachable.
 4. No regressions: docs/0058 toast behavior unchanged (severity, sticky,
@@ -160,9 +168,12 @@ opens a **panel** listing unread notifications, where they can be cleared.
 - OS-notification delivery bridging (upstream `NotificationDelivery` exists;
   separate evaluation).
 
-## 9. Open questions for review
+## 9. Review resolutions (owner, 2026-09-27)
 
-1. Read-on-panel-close (proposed) vs read-on-open vs strictly per-item?
-2. Explicit X on a *sticky error* toast: mark read (proposed) or leave for
-   panel-only clearing?
-3. Badge: numeric count capped at 99 (proposed) vs dot-only?
+1. Read on **panel open** — the badge clears the moment the panel opens;
+   the displayed list is the open-time snapshot so it doesn't empty
+   mid-read (D4).
+2. Explicit ✕ on a sticky error toast **marks the entry read** — and the
+   general rule: only human actions mark read; timers and programmatic
+   closes never do (D2).
+3. Badge: **numeric count**, capped at 99+ (D3).
