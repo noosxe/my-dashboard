@@ -14,8 +14,21 @@ use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
 use gpui::prelude::FluentBuilder as _;
-use gpui::{App, AppContext as _, Entity, ParentElement as _, SharedString, Styled as _};
-use gpui_component::{Sizable as _, h_flex, progress::ProgressCircle, status_bar::StatusBar};
+use gpui::{
+    Anchor, AnyElement, App, AppContext as _, Entity, InteractiveElement as _, IntoElement as _,
+    ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _, accesskit, div,
+    px,
+};
+use gpui_component::{
+    ActiveTheme as _, Icon, IconName, Sizable as _, StyledExt as _,
+    badge::Badge,
+    button::{Button, ButtonVariants as _},
+    h_flex,
+    popover::Popover,
+    progress::ProgressCircle,
+    status_bar::StatusBar,
+    v_flex,
+};
 
 use crate::registry::ModuleRegistry;
 
@@ -188,11 +201,179 @@ pub fn bar(
     for item in registry.status_items(active, cx) {
         bar = bar.right(item);
     }
+    // The notification indicator is the rightmost slot (docs/0059 D3),
+    // after module-contributed items.
+    bar = bar.right(notifications_indicator(cx));
     // Stable height (docs/0013 D5): with no items the component collapses
     // to its bare padding, and the first fetch would then grow it to the
     // content height — resizing the columns above. The minimum pins the
     // idle geometry to the active one (`h_6` step ≈ py_1 + text_xs line).
     bar.min_h_6()
+}
+
+// ---------------------------------------------------------------------------
+// Notification indicator (docs/0059 D3/D4) — the bar's rightmost slot.
+// ---------------------------------------------------------------------------
+
+/// The bell trigger's a11y label (docs/0010 D10): announces the count to
+/// the bridge and screen readers.
+pub fn indicator_label(unread: usize) -> SharedString {
+    format!("Notifications, {unread} unread").into()
+}
+
+/// The rightmost bar slot (docs/0059 D3): a bell button under an unread
+/// `Badge` (upstream hides the number at 0); clicking opens the panel.
+fn notifications_indicator(cx: &App) -> AnyElement {
+    let hub = crate::toasts::hub(cx);
+    let unread = hub.read(cx).unread_count();
+
+    let trigger = Button::new("status-notifications")
+        // debug_bounds/bridge findability (docs/0010 D10) — ids alone are
+        // not matched by `dashboard-debug tree` selectors in tests.
+        .debug_selector(|| "status-notifications".to_string())
+        .ghost()
+        .small()
+        .icon(IconName::Bell)
+        .accessibility_label(indicator_label(unread));
+
+    let popover = Popover::new("status-notifications-popover")
+        // Tip at the trigger's bottom-right corner: the panel hangs
+        // upward-left from the bar (§6 T2).
+        .anchor(Anchor::BottomRight)
+        .trigger(trigger)
+        .on_open_change({
+            let hub = hub.clone();
+            move |open, _, cx| {
+                hub.update(cx, |hub, cx| {
+                    if *open {
+                        hub.open_panel();
+                    } else {
+                        hub.close_panel();
+                    }
+                    cx.notify();
+                });
+            }
+        })
+        .content(|_, _, cx| {
+            let hub = crate::toasts::hub(cx);
+            let rows = hub.read(cx).panel_snapshot().to_vec();
+            notification_panel(rows, cx)
+        });
+
+    Badge::new()
+        .count(unread)
+        .max(99)
+        .color(cx.theme().danger)
+        .child(popover)
+        .into_any_element()
+}
+
+/// The panel body (docs/0059 D4): header + rows from the open-time
+/// snapshot. Opening already marked everything read — this is a review
+/// surface, not a live filter.
+fn notification_panel(rows: Vec<crate::toasts::HubEntry>, cx: &App) -> AnyElement {
+    let theme = cx.theme();
+    let mut list = v_flex().w(px(384.)); // ~24 rem (docs/0059 D4)
+    if rows.is_empty() {
+        list = list.child(
+            div()
+                .px_3()
+                .py_4()
+                .text_sm()
+                .text_color(theme.muted_foreground)
+                .child("No unread notifications"),
+        );
+    }
+    for (index, entry) in rows.iter().enumerate() {
+        let toast = &entry.toast;
+        list = list.child(
+            h_flex()
+                .id(SharedString::from(format!("notification-row-{index}")))
+                .role(accesskit::Role::ListItem)
+                .items_center()
+                .gap_2()
+                .px_3()
+                .py_2()
+                .child(level_icon(toast.level, cx).small())
+                .child(
+                    v_flex()
+                        .flex_1()
+                        .min_w_0()
+                        .children(
+                            toast
+                                .title
+                                .clone()
+                                .map(|title| div().text_sm().font_medium().child(title)),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .overflow_hidden()
+                                .whitespace_nowrap()
+                                .text_ellipsis()
+                                .child(toast.message.clone()),
+                        ),
+                )
+                .child(div().text_xs().text_color(theme.muted_foreground).child(
+                    crate::toasts::relative_time(entry.raised_at, Instant::now()),
+                ))
+                .child(
+                    Button::new(SharedString::from(format!("notification-dismiss-{index}")))
+                        .ghost()
+                        .xsmall()
+                        .icon(IconName::Close)
+                        .on_click(move |_, _, cx| {
+                            crate::toasts::hub(cx).update(cx, |hub, cx| {
+                                hub.dismiss_panel_row(index);
+                                cx.notify();
+                            });
+                        }),
+                ),
+        );
+    }
+    div()
+        .id("notification-panel")
+        .debug_selector(|| "notification-panel".to_string())
+        .max_h(px(420.))
+        .overflow_y_scroll()
+        .child(
+            h_flex()
+                .items_center()
+                .justify_between()
+                .px_3()
+                .py_2()
+                .child(div().text_sm().font_medium().child("Notifications"))
+                .child(
+                    Button::new("notification-clear-all")
+                        .ghost()
+                        .xsmall()
+                        .label("Clear all")
+                        .on_click(|_, _, cx| {
+                            crate::toasts::hub(cx).update(cx, |hub, cx| {
+                                hub.clear_panel();
+                                cx.notify();
+                            });
+                        }),
+                ),
+        )
+        .child(list)
+        .into_any_element()
+}
+
+/// Severity icon per level — mirrors upstream's own mapping
+/// (notification.rs `NotificationType::icon`) so both surfaces agree.
+fn level_icon(level: crate::toasts::Level, cx: &App) -> Icon {
+    match level {
+        crate::toasts::Level::Info => Icon::new(IconName::Info).text_color(cx.theme().info),
+        crate::toasts::Level::Success => {
+            Icon::new(IconName::CircleCheck).text_color(cx.theme().success)
+        }
+        crate::toasts::Level::Warning => {
+            Icon::new(IconName::TriangleAlert).text_color(cx.theme().warning)
+        }
+        crate::toasts::Level::Error => Icon::new(IconName::CircleX).text_color(cx.theme().danger),
+    }
 }
 
 #[cfg(test)]
@@ -273,5 +454,11 @@ mod tests {
         book.end(boundary); // already swept — the end itself is the no-op
         assert_eq!(book.by_module().get("clock"), Some(&1));
         let _ = stale; // its id was consumed by the first sweep
+    }
+    #[test]
+    fn indicator_label_announces_the_count() {
+        assert_eq!(indicator_label(0), "Notifications, 0 unread");
+        assert_eq!(indicator_label(12), "Notifications, 12 unread");
+        assert_eq!(indicator_label(105), "Notifications, 105 unread");
     }
 }

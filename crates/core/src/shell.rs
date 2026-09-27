@@ -103,6 +103,9 @@ impl DashboardShell {
         let toasts_hub = toasts::hub(cx);
         cx.observe_in(&toasts_hub, window, |this, hub, window, cx| {
             this.forward_toasts(&hub, window, cx);
+            // Hub mutations also change the badge/panel (docs/0059 D3), so
+            // the shell must re-render its bar.
+            cx.notify();
         })
         .detach();
         cx.spawn(async move |this, cx| {
@@ -846,6 +849,7 @@ mod tests {
     use crate::nav::{Navigator, Page, Route};
     use crate::paths::AppPaths;
     use crate::registry::ModuleRegistry;
+    use gpui_component::{Root, notification::Notification};
 
     // docs/0048 D3/D6 shell contract, with a minimal fake module:
     // cross-branch `navigate` collapses the abandoned module, Back
@@ -1163,5 +1167,119 @@ mod tests {
             });
         });
         let _ = &shell;
+    }
+    /// T1 spike (docs/0059 §6/D2): upstream fires `on_close` on the
+    /// autohide path too — its doc says "closed by any means" and every
+    /// close path funnels through `complete_close`. That is exactly why
+    /// the hub uses panel-managed read state (docs/0059 D2): a dismissal
+    /// callback cannot tell a human ✕ from a timeout, and only human
+    /// actions may mark read. This test is the rev-bump canary: if a
+    /// future rev ever stops firing `on_close` on autohide, this fails
+    /// and the exact human-✕→read mapping becomes available.
+    #[gpui::test]
+    fn autohide_fires_on_close_upstream_canary(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            crate::settings::init(None, None, cx);
+            crate::status::init(cx);
+            crate::toasts::init(cx);
+        });
+        let nav = cx.update(|cx| cx.new(|_| Navigator::default()));
+        let (_root, vcx) = {
+            let nav = nav.clone();
+            cx.add_window_view(|window, cx| {
+                let registry =
+                    ModuleRegistry::new().with::<FakeModule>(&nav, window, AppPaths::init(), cx);
+                // Mirror main.rs: the shell view is wrapped in Root — the
+                // forward path's `Root::update` panics without it.
+                let shell = cx.new(|cx| {
+                    DashboardShell::new(registry, nav, ShellState::default(), None, window, cx)
+                });
+                Root::new(shell, window, cx)
+            })
+        };
+
+        let fired = Rc::new(std::cell::Cell::new(false));
+        let flag = fired.clone();
+        vcx.update(|window, cx| {
+            Root::update(window, cx, |root, window, cx| {
+                root.push_notification(
+                    Notification::info("t1 autohide").on_close(move |_, _| flag.set(true)),
+                    window,
+                    cx,
+                );
+            });
+        });
+        cx.run_until_parked();
+
+        // The 5 s autohide plus the exit transition, with slack.
+        cx.background_executor
+            .advance_clock(std::time::Duration::from_secs(7));
+        cx.run_until_parked();
+        assert!(
+            fired.get(),
+            "upstream on_close must fire on autohide — if this ever fails, docs/0059 D2 can upgrade to the exact human-✕→read mapping"
+        );
+    }
+
+    /// docs/0059 D3/D4: the rightmost bar slot is the notification
+    /// indicator; opening the panel marks everything read (badge clears
+    /// at open) and freezes the open-time snapshot so the list doesn't
+    /// vanish mid-read.
+    #[gpui::test]
+    fn notification_indicator_opens_panel_and_marks_all_read(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            crate::settings::init(None, None, cx);
+            crate::status::init(cx);
+            crate::toasts::init(cx);
+        });
+        let nav = cx.update(|cx| cx.new(|_| Navigator::default()));
+        let (_root, vcx) = {
+            let nav = nav.clone();
+            cx.add_window_view(|window, cx| {
+                let registry =
+                    ModuleRegistry::new().with::<FakeModule>(&nav, window, AppPaths::init(), cx);
+                let shell = cx.new(|cx| {
+                    DashboardShell::new(registry, nav, ShellState::default(), None, window, cx)
+                });
+                Root::new(shell, window, cx)
+            })
+        };
+
+        // Bare bell at zero unread (the badge number hides itself).
+        assert!(
+            vcx.debug_bounds("status-notifications").is_some(),
+            "the bell trigger renders in the bar"
+        );
+
+        // Two raises land in the unread log.
+        vcx.update(|_, cx| {
+            crate::toasts::info(cx, "first");
+            crate::toasts::error(cx, "second");
+        });
+        vcx.update(|_, cx| {
+            let hub = crate::toasts::hub(cx);
+            assert_eq!(hub.read(cx).unread_count(), 2);
+        });
+        vcx.update(|window, cx| window.draw(cx).clear(cx));
+
+        // Clicking the bell opens the panel: badge clears at open, the
+        // open-time snapshot stays listed.
+        let bell = vcx
+            .debug_bounds("status-notifications")
+            .expect("bell bounds");
+        vcx.simulate_click(bell.center(), Modifiers::default());
+        vcx.update(|window, cx| window.draw(cx).clear(cx));
+        vcx.update(|_, cx| {
+            let hub = crate::toasts::hub(cx);
+            assert_eq!(hub.read(cx).unread_count(), 0, "opening marks all read");
+            assert!(hub.read(cx).panel_open());
+            assert_eq!(hub.read(cx).panel_snapshot().len(), 2);
+        });
+        assert!(
+            vcx.debug_bounds("notification-panel").is_some(),
+            "the panel renders with the snapshot rows"
+        );
     }
 }

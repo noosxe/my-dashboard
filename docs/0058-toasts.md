@@ -273,3 +273,13 @@ actions wiring beyond the `ToastAction` type (no first consumer yet).
   may resolve as a rev bump).
 - First real `ToastAction` consumer (e.g. "Open settings" on persistence
   failures) once one exists.
+
+## 12. Errata (docs/0059)
+
+The notification hub (docs/0059) adds a bounded unread log on the `ToastHub`
+entity: every raise lands there, the status-bar bell + badge surfaces the
+unread count, and a popover panel lists the unread entries. That supersedes
+"gone when hidden" for *unread tracking* only — D9's restart-ephemerality is
+unchanged (the log still dies with the process). Upstream `on_close` fires on
+the autohide path too (docs/0059 D2, canary test in `shell.rs`), so toast
+dismissal is never treated as a read signal.

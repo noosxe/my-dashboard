@@ -22,6 +22,7 @@
 use gpui::{App, AppContext as _, Context, Entity, Global, SharedString, Window};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 /// Pending-queue cap (docs/0058 D4): drop-oldest so a raiser storm stays
 /// bounded even if no window ever opens.
@@ -30,6 +31,8 @@ const QUEUE_CAP: usize = 32;
 /// Spill cap (D6): drop-oldest, guarded loudly.
 const SPILL_CAP: usize = 16;
 
+/// Log cap (docs/0059 D1): drop-oldest, same policy as the pending queue.
+const LOG_CAP: usize = 100;
 /// Severity, 1:1 with upstream `NotificationType` (docs/0058 D3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Level {
@@ -71,6 +74,7 @@ pub struct ToastAction {
 }
 
 /// One alert (docs/0058 D3).
+#[derive(Clone)]
 pub struct Toast {
     pub level: Level,
     pub title: Option<SharedString>,
@@ -150,17 +154,34 @@ impl ToastSpill {
     }
 }
 
+/// One entry in the hub's unread log (docs/0059 D1): every raise lands
+/// here exactly once — direct or spilled — survives until the cap evicts
+/// it, and carries its own read flag (docs/0059 D2: only human actions
+/// flip it).
+#[derive(Clone)]
+pub struct HubEntry {
+    pub toast: Toast,
+    pub raised_at: Instant,
+    pub read: bool,
+}
+
 /// The app-wide toast queue (docs/0058 D2). Pure staging: raises land
 /// here, the shell drains into the notification layer.
 pub struct ToastHub {
     pending: VecDeque<Toast>,
     spill: ToastSpill,
+    /// docs/0059 D1: the bounded unread log every raise appends to.
+    entries: Vec<HubEntry>,
+    /// docs/0059 D3/D4: panel open flag + the open-time snapshot of rows.
+    panel_open: bool,
+    panel_view: Vec<HubEntry>,
 }
 
 impl ToastHub {
     /// Main-thread ingest (D2).
     fn push_local(&mut self, toast: Toast, cx: &mut Context<Self>) {
         toast.mirror_to_log();
+        self.append_log(&toast);
         if self.pending.len() >= QUEUE_CAP {
             self.pending.pop_front();
             log::warn!("toast queue overflow; dropped the oldest pending toast");
@@ -175,6 +196,7 @@ impl ToastHub {
     pub fn drain_spill(&mut self, cx: &mut Context<Self>) -> usize {
         let spilled = self.spill.take();
         let arrived = spilled.len();
+        spilled.iter().for_each(|toast| self.append_log(toast));
         for toast in spilled {
             if self.pending.len() >= QUEUE_CAP {
                 self.pending.pop_front();
@@ -193,6 +215,72 @@ impl ToastHub {
         self.pending.drain(..).collect()
     }
 
+    /// Append to the unread log (docs/0059 D1): bounded, drop-oldest.
+    fn append_log(&mut self, toast: &Toast) {
+        if self.entries.len() >= LOG_CAP {
+            self.entries.remove(0);
+        }
+        self.entries.push(HubEntry {
+            toast: toast.clone(),
+            raised_at: Instant::now(),
+            read: false,
+        });
+    }
+
+    /// Unread entries in the log — the badge count (docs/0059 D3).
+    pub fn unread_count(&self) -> usize {
+        self.entries.iter().filter(|entry| !entry.read).count()
+    }
+
+    /// Whether the notification panel is open (docs/0059 D3).
+    pub fn panel_open(&self) -> bool {
+        self.panel_open
+    }
+
+    /// The panel's displayed rows: the snapshot captured at open. Rows
+    /// leave only via per-row dismissal or "Clear all" (docs/0059 D4).
+    pub fn panel_snapshot(&self) -> &[HubEntry] {
+        &self.panel_view
+    }
+
+    /// Human action (docs/0059 D2/D4): opening the panel marks every
+    /// unread entry read — the badge clears at open — while the displayed
+    /// list freezes as the open-time snapshot so it doesn't vanish
+    /// mid-read. Returns how many rows the panel shows.
+    pub fn open_panel(&mut self) -> usize {
+        self.panel_view = self
+            .entries
+            .iter()
+            .filter(|entry| !entry.read)
+            .cloned()
+            .collect();
+        for entry in &mut self.entries {
+            entry.read = true;
+        }
+        self.panel_open = true;
+        self.panel_view.len()
+    }
+
+    /// Human action: the panel closed (outside click / Esc / re-click).
+    /// The snapshot dies with it; the next open re-snapshots.
+    pub fn close_panel(&mut self) {
+        self.panel_open = false;
+        self.panel_view.clear();
+    }
+
+    /// Human action: dismiss one panel row by visible index; an
+    /// out-of-range index is a no-op, never a panic.
+    pub fn dismiss_panel_row(&mut self, index: usize) {
+        if index < self.panel_view.len() {
+            self.panel_view.remove(index);
+        }
+    }
+
+    /// Human action: empty the panel view (docs/0059 D4). The underlying
+    /// entries are already read — this clears what the panel shows.
+    pub fn clear_panel(&mut self) {
+        self.panel_view.clear();
+    }
     #[cfg(test)]
     fn pending_len(&self) -> usize {
         self.pending.len()
@@ -209,6 +297,9 @@ pub fn init(cx: &mut App) {
     let hub = cx.new(|_| ToastHub {
         pending: VecDeque::new(),
         spill: ToastSpill::default(),
+        entries: Vec::new(),
+        panel_open: false,
+        panel_view: Vec::new(),
     });
     cx.set_global(ToastsGlobal(hub));
 }
@@ -247,6 +338,18 @@ pub fn warning(cx: &mut App, message: impl Into<SharedString>) {
 
 pub fn error(cx: &mut App, message: impl Into<SharedString>) {
     raise(cx, Toast::new(Level::Error, message));
+}
+
+/// Coarse relative time for panel rows (docs/0059 D4). Pure so tests pin
+/// the boundaries without a clock.
+pub fn relative_time(raised_at: Instant, now: Instant) -> SharedString {
+    let secs = now.duration_since(raised_at).as_secs();
+    match secs {
+        0..=59 => "just now".into(),
+        60..=3599 => format!("{}m ago", secs / 60).into(),
+        3600..=86_399 => format!("{}h ago", secs / 3600).into(),
+        _ => format!("{}d ago", secs / 86_400).into(),
+    }
 }
 
 #[cfg(test)]
@@ -322,5 +425,122 @@ mod tests {
         assert!(!Level::Info.sticky());
         assert!(!Level::Success.sticky());
         assert!(!Level::Warning.sticky());
+    }
+    #[gpui::test]
+    fn every_raise_lands_in_the_unread_log(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            init(cx);
+            raise(cx, Toast::new(Level::Info, "first"));
+            error(cx, "second");
+            spill(cx).push(Toast::new(Level::Warning, "from a thread"));
+            hub(cx).update(cx, |hub, cx| {
+                hub.drain_spill(cx);
+            });
+            let hub = hub(cx);
+            assert_eq!(hub.read(cx).unread_count(), 3);
+            // Forwarding into the notification layer is not a read
+            // (docs/0059 D2): autohide/programmatic paths never flip it.
+            hub.update(cx, |hub, _| assert_eq!(hub.take_pending().len(), 3));
+            assert_eq!(hub.read(cx).unread_count(), 3);
+            assert_eq!(hub.update(cx, |hub, _| hub.open_panel()), 3);
+            let view = hub.read(cx).panel_snapshot();
+            assert_eq!(view[0].toast.message, "first");
+            assert_eq!(view[1].toast.message, "second");
+            assert_eq!(view[2].toast.message, "from a thread");
+        });
+    }
+
+    #[gpui::test]
+    fn log_cap_drops_oldest(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            init(cx);
+            for i in 0..LOG_CAP + 5 {
+                raise(cx, Toast::new(Level::Info, format!("m{i}")));
+            }
+            let hub = hub(cx);
+            assert_eq!(hub.read(cx).unread_count(), LOG_CAP);
+            assert_eq!(hub.update(cx, |hub, _| hub.open_panel()), LOG_CAP);
+            let view = hub.read(cx).panel_snapshot();
+            assert_eq!(view[0].toast.message, "m5", "the oldest five were dropped");
+            assert_eq!(
+                view.last().unwrap().toast.message,
+                format!("m{}", LOG_CAP + 4)
+            );
+        });
+    }
+
+    #[gpui::test]
+    fn panel_open_marks_all_read_and_freezes_the_snapshot(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            init(cx);
+            raise(cx, Toast::new(Level::Info, "first"));
+            raise(cx, Toast::new(Level::Info, "second"));
+            let hub = hub(cx);
+            assert_eq!(hub.update(cx, |hub, _| hub.open_panel()), 2);
+            assert_eq!(hub.read(cx).unread_count(), 0, "badge clears at open");
+            assert!(hub.read(cx).panel_open());
+            // A raise while the panel is open is unseen: the badge nags
+            // again, the frozen view doesn't grow (docs/0059 D4).
+            raise(cx, Toast::new(Level::Info, "third"));
+            assert_eq!(hub.read(cx).unread_count(), 1);
+            assert_eq!(hub.read(cx).panel_snapshot().len(), 2);
+            // Close and reopen: a fresh snapshot of the unseen entry only.
+            hub.update(cx, |hub, _| hub.close_panel());
+            assert!(!hub.read(cx).panel_open());
+            assert_eq!(hub.update(cx, |hub, _| hub.open_panel()), 1);
+            assert_eq!(hub.read(cx).panel_snapshot()[0].toast.message, "third");
+        });
+    }
+
+    #[gpui::test]
+    fn panel_row_dismiss_and_clear_are_index_scoped(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            init(cx);
+            for message in ["a", "b", "c"] {
+                raise(cx, Toast::new(Level::Info, message));
+            }
+            let hub = hub(cx);
+            hub.update(cx, |hub, _| hub.open_panel());
+            hub.update(cx, |hub, _| hub.dismiss_panel_row(1));
+            let view = hub.read(cx).panel_snapshot();
+            assert_eq!(view.len(), 2);
+            assert_eq!(view[0].toast.message, "a");
+            assert_eq!(view[1].toast.message, "c");
+            // Out-of-range dismissal is a no-op, never a panic.
+            hub.update(cx, |hub, _| hub.dismiss_panel_row(9));
+            assert_eq!(hub.read(cx).panel_snapshot().len(), 2);
+            hub.update(cx, |hub, _| hub.clear_panel());
+            assert_eq!(hub.read(cx).panel_snapshot().len(), 0);
+        });
+    }
+
+    #[test]
+    fn relative_time_boundaries() {
+        let now = Instant::now();
+        assert_eq!(relative_time(now, now), "just now");
+        assert_eq!(
+            relative_time(now - std::time::Duration::from_secs(59), now),
+            "just now"
+        );
+        assert_eq!(
+            relative_time(now - std::time::Duration::from_secs(60), now),
+            "1m ago"
+        );
+        assert_eq!(
+            relative_time(now - std::time::Duration::from_secs(3599), now),
+            "59m ago"
+        );
+        assert_eq!(
+            relative_time(now - std::time::Duration::from_secs(3600), now),
+            "1h ago"
+        );
+        assert_eq!(
+            relative_time(now - std::time::Duration::from_secs(86_399), now),
+            "23h ago"
+        );
+        assert_eq!(
+            relative_time(now - std::time::Duration::from_secs(86_400), now),
+            "1d ago"
+        );
     }
 }
