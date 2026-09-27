@@ -10,12 +10,13 @@
 use gpui::{AnyWindowHandle, App, KeyBinding, Menu, MenuItem, WeakEntity, actions};
 use gpui_component::input;
 
-use dashboard_core::Navigator;
+use dashboard_core::{DashboardShell, Navigator};
 
 actions!(
     dashboard,
     [
         Quit,
+        About,
         Hide,
         ToggleSidebar,
         MinimizeWindow,
@@ -48,6 +49,8 @@ pub fn menus() -> Vec<Menu> {
         Menu {
             name: "Dashboard".into(),
             items: vec![
+                MenuItem::action("About Dashboard", About),
+                MenuItem::separator(),
                 MenuItem::action("Hide Dashboard", Hide),
                 MenuItem::separator(),
                 MenuItem::action("Quit Dashboard", Quit),
@@ -99,9 +102,17 @@ pub fn menus() -> Vec<Menu> {
 /// once from the window-build closure: `on_action` pushes onto a
 /// listener list, so this must not run twice (single window, one
 /// build — same lifetime as the window itself).
-pub fn install(cx: &mut App, nav: WeakEntity<Navigator>, window: AnyWindowHandle) {
+pub fn install(
+    cx: &mut App,
+    nav: WeakEntity<Navigator>,
+    shell: WeakEntity<DashboardShell>,
+    window: AnyWindowHandle,
+) {
     cx.on_action(|_: &Quit, cx| cx.quit());
     cx.on_action(|_: &Hide, cx| cx.hide());
+    cx.on_action(move |_: &About, cx| {
+        let _ = shell.update(cx, DashboardShell::open_about);
+    });
     cx.on_action(move |_: &ToggleSidebar, cx| {
         // Same path as the chrome button (nav.toggle_sidebar), so the
         // debounced shell-state save and re-render follow for free.
@@ -134,6 +145,7 @@ mod tests {
         let menus = menus();
         let names: Vec<_> = menus.iter().map(|m| m.name.as_ref()).collect();
         assert_eq!(names, ["Dashboard", "Edit", "View", "Window", "Help"]);
+        assert_eq!(menus[0].items.len(), 5); // About, —, Hide, —, Quit
         assert!(menus.iter().all(|m| !m.items.is_empty()));
     }
 

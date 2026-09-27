@@ -55,6 +55,9 @@ pub struct DashboardShell {
     /// navigation — see the nav observer in [`Self::new`] — and kept
     /// for the session so its frozen `as_of` survives re-entry (D10).
     usage_page: Option<Entity<usage_analytics::UsagePage>>,
+    /// About dialog visibility (docs/0002 D12): opened from the macOS
+    /// app menu; session-only — never persisted to shell.json.
+    about_open: bool,
 }
 
 impl DashboardShell {
@@ -102,6 +105,7 @@ impl DashboardShell {
             in_flight,
             focus_handle,
             usage_page: None,
+            about_open: false,
             save: state_path.map(|p| {
                 // Registered for the quit-time flush (docs/0045 §9,
                 // #283): a quit inside the 500 ms window keeps the last
@@ -172,6 +176,17 @@ impl DashboardShell {
     // page's Esc affordance) steals it back from the root; anything
     // else — module root, repo view, shell pages — keeps the root
     // focused. Either way focus is alive on a node inside the shell.
+    /// About dialog card width — widget geometry is a named constant
+    /// (docs/0002 D9 exemption); spacing goes through the scale.
+    const ABOUT_CARD_WIDTH: f32 = 360.;
+
+    /// macOS About menu item (docs/0002 D12): opens the About dialog.
+    /// Session-only state — never persisted to shell.json.
+    pub fn open_about(&mut self, cx: &mut Context<Self>) {
+        self.about_open = true;
+        cx.notify();
+    }
+
     fn go_back(&mut self, _: &nav::Back, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(route) = self.nav.update(cx, |nav, cx| nav.back(cx)) {
             self.focus_root(window, cx);
@@ -233,8 +248,12 @@ impl Render for DashboardShell {
             Page::Home | Page::Settings | Page::Usage => None,
         };
 
+        // About dialog copy (docs/0002 D12): same source as the
+        // settings About page (docs/0006 §4.4).
+        let (app_name, app_version) = crate::settings::app_info();
         v_flex()
             .id("dashboard-shell")
+            .relative()
             .track_focus(&self.focus_handle)
                 // #360: a focused element needs a role to paint an
                 // a11y node — id + track_focus alone is the
@@ -621,6 +640,60 @@ impl Render for DashboardShell {
                         ),
                 ),
             )
+            // About dialog (docs/0002 D12): backdrop + card overlay.
+            // Theme tokens only (clippy.toml D5 — no literal colors);
+            // backdrop click and the Close button both dismiss; the
+            // card stops propagation so its own clicks don't close.
+            .when(self.about_open, |this| {
+                this.child(
+                    div()
+                        .id("about-overlay")
+                        .role(accesskit::Role::Group)
+                        .absolute()
+                        .inset_0()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .bg(cx.theme().overlay)
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                                this.about_open = false;
+                                cx.notify();
+                            }),
+                        )
+                        .child(
+                            v_flex()
+                                .w(px(Self::ABOUT_CARD_WIDTH))
+                                .gap_3()
+                                .p_4()
+                                .bg(cx.theme().background)
+                                .border_1()
+                                .border_color(cx.theme().border)
+                                .rounded(cx.theme().radius)
+                                .on_mouse_down(
+                                    MouseButton::Left,
+                                    cx.listener(|_, _: &MouseDownEvent, _, cx| {
+                                        cx.stop_propagation();
+                                    }),
+                                )
+                                .child(
+                                    div()
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .child(app_name.to_string()),
+                                )
+                                .child(format!("Version {}", app_version))
+                                .child(
+                                    Button::new("about-close")
+                                        .label("Close")
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.about_open = false;
+                                            cx.notify();
+                                        })),
+                                ),
+                        ),
+                )
+            })
     }
 }
 

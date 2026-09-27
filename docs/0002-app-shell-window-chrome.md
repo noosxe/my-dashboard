@@ -231,9 +231,15 @@ host and new files/crates grow from there.
   live global keys. **Linux installs no menu yet** — native-only for now;
   an in-window `AppMenuBar` fallback is deferred (#373, open question 2).
   Fullscreen stays consistent with D11: the native bar lives in the OS
-  top-edge overlay. About is deferred (needs a modal surface); Help →
-  repository URL. Window commands ride the captured `AnyWindowHandle`
-  (`minimize_window`/`zoom_window`/`toggle_fullscreen` — public Window API).
+  top-edge overlay. **About** (same PR): "About Dashboard" opens a
+  shell-owned overlay dialog (`DashboardShell::about_open` → themed
+  backdrop + card; backdrop click or Close dismisses; the card stops
+  propagation so its own clicks don't), showing name + version from
+  `settings::app_info()` — the same source as the docs/0006 §4.4
+  About settings page. Help → repository URL. Window commands ride
+  the captured `AnyWindowHandle` (`minimize_window`/`zoom_window`/
+  `toggle_fullscreen` — public Window API). Interactive nodes carry
+  ids (`about-overlay`, `about-close`) per docs/0010 D10.
 
 ## 5. Proposed implementation
 
