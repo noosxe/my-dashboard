@@ -1,0 +1,57 @@
+# 0059-notifications.txt — docs/0059's bridge receipt as a committed
+# script: the notification hub's badge → panel → read-on-open contract,
+# exercised through the usage-sink degrade raise (docs/0057 D6) so the
+# whole flow runs without manual raising.
+#
+# Prerequisites (the deterministic raise):
+#   mkdir /tmp/0059-locked && chmod 000 /tmp/0059-locked
+#   DASHBOARD_STATE_DIR=/tmp/0059-locked/dashboard \
+#     dashboard-debug session start --name notif --size 1280x800
+#   (the unwritable state dir trips the degrade toast exactly once —
+#   docs/0058 D7 latch — giving the hub one entry to work with)
+# Run: dashboard-debug run crates/debug/verify/0059-notifications.txt
+#
+# What each snapshot must show (docs/0059 D3/D4):
+#   boot        — bell `status-notifications` present, NO badge number
+#   raised      — toast visible; badge count 1 on the bell; after the
+#                 toast autohides the badge STAYS 1 (autohide ≠ read)
+#   panel-open  — `notification-panel` in the tree with the degrade row
+#                 (Role::ListItem); badge cleared to 0 AT OPEN while the
+#                 row is still listed (open-time snapshot)
+#   cleared     — `notification-clear-all` emptied the view; badge 0
+#   reopened    — empty state ("No unread notifications"), badge 0
+# Also records the notification rows' a11y roles for the upstream
+# issue from docs/0058 F8.
+
+--session notif
+
+# 1. Healthy boot: bell present, no badge.
+wait-frame
+snapshot boot
+tree --json boot-tree
+
+# 2. The degrade raises (latch fires on first open); badge 1; the toast
+#    autohides but the badge survives it (non-human path never marks read).
+wait-frame
+snapshot raised
+tree --json raised-tree
+
+# 3. Open the panel: badge clears at open, the row stays listed.
+click status-notifications
+wait-frame
+snapshot panel-open
+tree --json panel-tree
+
+# 4. Clear all from inside the panel: view empties, badge 0.
+click notification-clear-all
+wait-frame
+snapshot cleared
+tree --json cleared-tree
+
+# 5. Close (Esc), reopen: empty state, badge 0.
+key escape
+wait-frame
+click status-notifications
+wait-frame
+snapshot reopened
+tree --json reopened-tree
