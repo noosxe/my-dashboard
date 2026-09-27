@@ -3,6 +3,7 @@ use gpui_component::{Root, TitleBar};
 
 use dashboard_core::{AppPaths, DashboardShell, ModuleRegistry, Navigator, ShellState, load_json};
 use dashboard_module_github::GithubModule;
+mod menu;
 // Identity & geometry — decisions from docs/0002 §2; single place to tune.
 const APP_ID: &str = "com.noosxe.my-dashboard";
 const WINDOW_TITLE: &str = "Dashboard";
@@ -82,6 +83,8 @@ fn main() {
 
             // MUST be called before using any gpui-component features.
             gpui_component::init(cx);
+            // Menu-bar bindings (docs/0002 D12) — empty off macOS.
+            cx.bind_keys(menu::bindings());
 
             // Global in-flight request tracker (docs/0013 D2) — before
             // module init, so every module's fetch loops can report into it.
@@ -148,6 +151,9 @@ fn main() {
                     // Navigation state, then modules (registry order = sidebar
                     // + home-grid order — docs/0003 §4.2).
                     let nav = cx.new(|_| Navigator::new(shell_state.sidebar_collapsed));
+                    // Menu bar + its action handlers (docs/0002 D12):
+                    // macOS-only today; once per window build.
+                    menu::install(cx, nav.downgrade(), window.window_handle());
                     let registry =
                         ModuleRegistry::new().with::<GithubModule>(&nav, window, paths, cx);
 

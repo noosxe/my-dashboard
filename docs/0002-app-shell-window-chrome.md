@@ -219,6 +219,21 @@ host and new files/crates grow from there.
   for its fullscreen padding tweak. Linux keeps the strip in fullscreen:
   its min/max/close buttons live in it and no OS overlay replaces them.
   Linux stays strictly decoration-driven; Windows is out of scope (untested).
+- **D12 — macOS native menu bar** (2026-09-24, issue #373): the app shipped
+  no menu bar; macOS users expect one (Quit/Hide/full-screen/Edit
+  conventions). Route: gpui's **native** `set_menus` — verified in pinned
+  sources: menu clicks arrive via `App::dispatch_action` (`platform/
+  app_menu.rs` `on_app_menu_action`), so every item is a plain app action
+  (`crates/app/src/menu.rs`); the Edit menu dispatches gpui-component
+  `input::{Undo, Redo, Cut, Copy, Paste, SelectAll}` through the focus path
+  (no-ops when no input is focused). Accelerators come from app keymap
+  bindings registered **macOS-only** (`menu::bindings`) so Linux gains no
+  live global keys. **Linux installs no menu yet** — native-only for now;
+  an in-window `AppMenuBar` fallback is deferred (#373, open question 2).
+  Fullscreen stays consistent with D11: the native bar lives in the OS
+  top-edge overlay. About is deferred (needs a modal surface); Help →
+  repository URL. Window commands ride the captured `AnyWindowHandle`
+  (`minimize_window`/`zoom_window`/`toggle_fullscreen` — public Window API).
 
 ## 5. Proposed implementation
 
