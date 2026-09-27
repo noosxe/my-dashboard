@@ -261,3 +261,34 @@ memoization honest).
   *designed in docs/0057* — historical text preserved (docs/0027 convention).
 - docs/0008 D4 gains no edit (sibling precedent only); docs/0004 §4.1 gains
   no edit (0057 *consumes* the root choice).
+
+## 9. Errata (post-ship fix, 2026-09-27)
+
+**The durable key is engine-assigned at commit, not the pre-stamped in-memory `seq`.**
+D3/D4 of docs/0053 make `seq` a *per-Recorder, per-session* stamp (each
+Recorder's counter starts at 1 on every boot), but §3's schema made that same
+`seq` the persistent `INTEGER PRIMARY KEY` and the flush a plain `INSERT`. Any
+launch after the first therefore collided with the previous session's keys —
+`UNIQUE constraint failed: usage_records.seq` — and three failed batches
+flipped the store to degraded mode with persistence paused. Persistence could
+only ever work in the DB's first session; no test caught it because every
+test opens a fresh database.
+
+The fix: `INSERT` no longer lists `seq`. As a rowid alias it is assigned by
+the engine (`max(rowid)+1`) at commit — globally monotonic across restarts
+*and* across modules (the per-session stamps of two Recorders could already
+collide inside one session), and arrival-ordered because the single writer
+thread inserts batches in drain order. The documented read contract
+(`ORDER BY seq` = arrival order, docs/0054 §9) now holds globally instead of
+per-session. The in-memory `seq` remains the session-local identity docs/0053
+D3 defines — nothing at the `UsageSink` seam changes; the schema comment in
+§3 and the roundtrip test's key-identity expectation are corrected by this
+errata. Regression tests: reopen with restarted stamps survives, cross-restart
+seq order matches arrival order, duplicate in-memory stamps don't collide.
+
+The degrade toast likewise dropped its "check data-dir permissions" hint:
+it was written for the open-failure class (unwritable dir), but flush
+failures — disk full, constraint errors — surface through the same toast and
+the hint sent users looking at the wrong thing. The message is now
+class-neutral: *"Usage history can't be saved this session — persistence
+paused."*
