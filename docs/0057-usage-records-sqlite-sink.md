@@ -58,7 +58,7 @@ memory with the app fully working.
   (`module_data_dir` is the creating variant). docs/0008 D4 is the precedent
   for app-level durable data under the data root.
 - **Row shape** = docs/0053 D1 + docs/0054 D14 additive fields
-  (`limit_after`, `queue_ms`, `resp_bytes`) — 17 columns, keyed on
+  (`limit_after`, `queue_ms`, `resp_bytes`) — 18 columns, keyed on
   pre-stamped monotonic `seq`.
 
 ## 3. Decisions

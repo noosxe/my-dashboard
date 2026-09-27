@@ -260,10 +260,11 @@ The chip and `UsageBook` stay GitHub-local (0050's display layer).
 - **The analytics UI** — per-surface rollups, per-cycle history,
   rare-request ranking, export. Deferred issue (this pipeline is its
   data contract).
-- **SQLite persistence** — deferred issue; the `UsageSink` trait is
-  the seam (a new impl swapped at `init_with`), and the record shape
-  + `cycle_reset_epoch` denormalization exist so the migration is a
-  table, not a redesign.
+- **SQLite persistence** — designed in docs/0057 (#333); the `UsageSink`
+  trait is the seam (a new impl swapped at `init_with`), and the record
+  shape + `cycle_reset_epoch` denormalization exist so the migration is
+  a table, not a redesign. *(2026-09-27 amendment: the pointer only —
+  `usage_sqlite::SQLiteStore` is the startup default per docs/0057.)*
 - **Page/view visit analytics and visit↔cost correlation** — deferred
   issue; would be a separate record type, not an extension of this
   one.
