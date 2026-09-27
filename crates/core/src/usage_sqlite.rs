@@ -66,7 +66,7 @@ const SCHEMA_VERSION: i64 = 1;
 /// `ALTER TABLE`, never reshape.
 const SCHEMA_V1: &str = "
 CREATE TABLE IF NOT EXISTS usage_records (
-    seq               INTEGER PRIMARY KEY,  -- rowid alias: the pre-stamped key
+    seq               INTEGER PRIMARY KEY,  -- rowid alias: engine-assigned at commit (§9)
     ts_epoch_ms       INTEGER NOT NULL,
     module            TEXT NOT NULL,
     transport         TEXT NOT NULL,        -- 'rest' | 'graphql' | 'auth'
@@ -90,11 +90,17 @@ CREATE INDEX IF NOT EXISTS idx_usage_records_ts
 PRAGMA user_version = 1;
 ";
 
+/// The flush write. The durable key is NOT the in-memory `seq`: as a
+/// rowid alias, `seq` is engine-assigned (`max(rowid)+1`) at commit —
+/// globally monotonic across restarts and modules, and arrival-ordered
+/// because the single writer thread inserts batches in drain order
+/// (docs/0057 §9 errata). The in-memory `seq` stays the session-local
+/// identity docs/0053 D3 defines; it is simply not persisted.
 const INSERT_SQL: &str = "INSERT INTO usage_records (
-    seq, ts_epoch_ms, module, transport, op, surface, trigger_kind, ident,
+    ts_epoch_ms, module, transport, op, surface, trigger_kind, ident,
     status, etag_304, cost, remaining_after, limit_after, cycle_reset_epoch,
     duration_ms, queue_ms, resp_bytes, network_error
-) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)";
+) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)";
 
 /// The D8 read: half-open `[from, to)` on the ts index, arrival
 /// (`seq`) order — the documented [`UsageSource`] contract.
@@ -132,7 +138,7 @@ struct ToastSlot {
 fn degrade_toast() -> Toast {
     Toast::new(
         Level::Warning,
-        "Usage history can't be saved this session — check data-dir permissions.",
+        "Usage history can't be saved this session — persistence paused.",
     )
     .dedupe_key("usage-store-degraded")
 }
@@ -304,7 +310,6 @@ impl SQLiteStore {
                 let mut stmt = tx.prepare_cached(INSERT_SQL)?;
                 for rec in &batch {
                     stmt.execute(params![
-                        enc_ms(rec.seq),
                         enc_ms(rec.ts_epoch_ms),
                         rec.module.as_ref(),
                         rec.transport.as_str(),
@@ -657,7 +662,13 @@ mod tests {
         store.flush_blocking();
         let rows = store.records_since(0);
         assert_eq!(rows.len(), 1);
-        assert_eq!(format!("{:?}", rows[0]), format!("{:?}", full_row(ts, 7)));
+        // The durable key is engine-assigned at commit (docs/0057 §9):
+        // first arrival in a fresh table gets 1, whatever the session's
+        // in-memory stamp was. Every other field must roundtrip exactly.
+        assert_eq!(rows[0].seq, 1);
+        let mut expected = full_row(ts, 7);
+        expected.seq = rows[0].seq;
+        assert_eq!(format!("{:?}", rows[0]), format!("{:?}", expected));
     }
 
     #[test]
@@ -900,5 +911,74 @@ mod tests {
         store.flush_blocking();
         store.flush_blocking(); // second call: thread already done
         assert_eq!(store.records_since(0).len(), 1);
+    }
+
+    /// The shipped-bug regression (docs/0057 §9): a fresh session's
+    /// Recorders stamp `seq` from 1 again while the persisted table
+    /// already holds those keys — every boot after the first used to
+    /// trip `UNIQUE constraint failed: usage_records.seq` on flush and
+    /// degrade to memory. The durable key is engine-assigned, so the
+    /// reopen must flush cleanly.
+    #[test]
+    fn reopen_reuses_in_memory_seqs_without_collision() {
+        let path = temp_db("reopen-collision");
+        let t0 = now_epoch_ms();
+        {
+            let store = SQLiteStore::open_at(path.clone());
+            for (off, seq) in [(100, 1), (200, 2), (300, 3)] {
+                store.record(row(t0 + off, seq));
+            }
+            store.flush_blocking();
+        }
+        // A "second session": the same stamps a fresh Recorder emits.
+        let store = SQLiteStore::open_at(path);
+        for (off, seq) in [(400, 1), (500, 2), (600, 3)] {
+            store.record(row(t0 + off, seq));
+        }
+        store.flush_blocking();
+        assert!(!store.is_degraded(), "no flush failures on reopen");
+        assert_eq!(store.records_since(0).len(), 6);
+    }
+
+    /// `ORDER BY seq` is the documented arrival-order contract
+    /// (docs/0054 §9) — including across restarts, where per-session
+    /// in-memory stamps restart at 1. The engine-assigned durable key
+    /// keeps a global arrival order.
+    #[test]
+    fn seq_order_matches_arrival_order_across_restart() {
+        let path = temp_db("restart-order");
+        let t0 = now_epoch_ms();
+        {
+            let store = SQLiteStore::open_at(path.clone());
+            store.record(row(t0 + 100, 1));
+            store.record(row(t0 + 200, 2));
+            store.flush_blocking();
+        }
+        let store = SQLiteStore::open_at(path);
+        store.record(row(t0 + 300, 1));
+        store.flush_blocking();
+        let rows = store.records_since(0);
+        let ts: Vec<u64> = rows.iter().map(|r| r.ts_epoch_ms).collect();
+        assert_eq!(ts, vec![t0 + 100, t0 + 200, t0 + 300]);
+        let seqs: Vec<u64> = rows.iter().map(|r| r.seq).collect();
+        assert!(
+            seqs.windows(2).all(|w| w[0] < w[1]),
+            "durable keys strictly increase in arrival order: {seqs:?}"
+        );
+    }
+
+    /// In-memory `seq` is session-local identity (docs/0053 D3):
+    /// multiple Recorders (today's module plus any future one) can
+    /// stamp the same value within one session. The durable key must
+    /// not care.
+    #[test]
+    fn duplicate_in_memory_seqs_do_not_collide() {
+        let store = SQLiteStore::open_at(temp_db("dup-seqs"));
+        let t0 = now_epoch_ms();
+        store.record(row(t0 + 100, 1));
+        store.record(row(t0 + 200, 1));
+        store.flush_blocking();
+        assert!(!store.is_degraded());
+        assert_eq!(store.records_since(0).len(), 2);
     }
 }
