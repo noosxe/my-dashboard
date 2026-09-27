@@ -17,7 +17,8 @@
 //! Failure handling (D6): an unusable data dir or database flips the
 //! store into degraded mode — records route into an internal
 //! [`MemorySink`] and analytics stay session-local. [`is_degraded`]
-//! exposes the state (the future toast surface, #376).
+//! exposes the state; the degrade transition also raises the docs/0058
+//! D7 toast through the hub's spill.
 //! [`flush_blocking`] is the quit-time flush (D9): drain + commit
 //! before the process exits, beside `flush_pending_on_quit` in `main`.
 //!
@@ -34,6 +35,7 @@ use log::warn;
 use rusqlite::{Connection, params};
 
 use crate::paths::AppPaths;
+use crate::toasts::{Level, Toast, ToastSpill};
 use crate::usage_records::{
     MemorySink, Transport, UsageRecord, UsageSink, UsageSource, UsageStore, now_epoch_ms,
 };
@@ -116,6 +118,25 @@ struct WriterState {
     quit_observed: bool,
 }
 
+/// Degrade-toast plumbing (docs/0058 D7): the spill handle arrives after
+/// construction (the hub lives on the UI thread), so a raise before it
+/// attaches latches in `pending` instead of being lost.
+#[derive(Default)]
+struct ToastSlot {
+    spill: Option<ToastSpill>,
+    pending: bool,
+}
+
+/// The D7 alert: one message, one dedupe key, so upstream's replace-on-id
+/// refreshes instead of stacking.
+fn degrade_toast() -> Toast {
+    Toast::new(
+        Level::Warning,
+        "Usage history can't be saved this session — check data-dir permissions.",
+    )
+    .dedupe_key("usage-store-degraded")
+}
+
 /// The SQLite-backed usage store (docs/0057). Implements the same
 /// [`UsageStore`] seam as [`MemorySink`]; swapped in at `init_with` by
 /// `main` (D9). All fallible paths degrade to in-memory capture rather
@@ -135,6 +156,8 @@ pub struct SQLiteStore {
     degraded: AtomicBool,
     /// Where records go once degraded (D6): the memory impl, unchanged.
     fallback: MemorySink,
+    /// D7: degrade toasts via the hub's spill; see [`ToastSlot`].
+    toast_slot: Mutex<ToastSlot>,
 }
 
 impl SQLiteStore {
@@ -166,6 +189,7 @@ impl SQLiteStore {
             failures: AtomicU32::new(0),
             degraded: AtomicBool::new(false),
             fallback: MemorySink::default(),
+            toast_slot: Mutex::new(ToastSlot::default()),
         });
 
         match open_writer(&db_path) {
@@ -182,6 +206,7 @@ impl SQLiteStore {
                     warn!("usage store: writer thread failed to spawn ({e}); staying in memory");
                     lock(&store.state).thread_done = true;
                     store.degraded.store(true, Ordering::Relaxed);
+                    store.raise_degrade_toast();
                 }
             }
             Err(e) => {
@@ -191,6 +216,7 @@ impl SQLiteStore {
                 );
                 lock(&store.state).thread_done = true;
                 store.degraded.store(true, Ordering::Relaxed);
+                store.raise_degrade_toast();
             }
         }
         store
@@ -199,6 +225,34 @@ impl SQLiteStore {
     /// Whether persistence is paused and records are memory-only (D6).
     pub fn is_degraded(&self) -> bool {
         self.degraded.load(Ordering::Relaxed)
+    }
+
+    /// Hand the store the toast spill (docs/0058 D7). Called once from
+    /// `main` after the hub exists; a raise that happened earlier (the
+    /// startup fallback) surfaces here instead of being lost.
+    pub fn attach_toast_spill(&self, spill: ToastSpill) {
+        let mut slot = lock(&self.toast_slot);
+        slot.spill = Some(spill.clone());
+        if slot.pending {
+            slot.pending = false;
+            spill.push(degrade_toast());
+        }
+    }
+
+    /// The degrade toast, exactly once per transition (docs/0058 D7).
+    /// With no spill attached yet the raise latches — the hub lives on
+    /// the UI thread and `main` attaches after the store is built.
+    fn raise_degrade_toast(&self) {
+        let mut slot = lock(&self.toast_slot);
+        match &slot.spill {
+            Some(spill) => spill.push(degrade_toast()),
+            None => {
+                if !slot.pending {
+                    slot.pending = true;
+                    warn!("usage store: degrade toast latched; hub not attached yet");
+                }
+            }
+        }
     }
 
     /// Quit-time flush (D9): wake the writer, let it run one final
@@ -237,6 +291,7 @@ impl SQLiteStore {
                 self.fallback.record(rec);
             }
             warn!("usage store: degraded to in-memory capture; persistence paused");
+            self.raise_degrade_toast();
         }
     }
 
@@ -786,6 +841,56 @@ mod tests {
         assert!(store.is_degraded(), "the limit flips to memory capture");
         store.record(row(100, 1));
         assert_eq!(store.records_since(0).len(), 1);
+    }
+
+    #[test]
+    fn degrade_toast_latches_until_the_spill_attaches() {
+        // The startup fallback raises before `main` can attach the spill
+        // (the hub lives on the UI thread) — the raise must survive the
+        // gap (docs/0058 D7).
+        let dir = temp_db("toast-latch");
+        std::fs::create_dir_all(dir.parent().unwrap()).unwrap();
+        std::fs::write(&dir, b"not a directory").unwrap();
+        let store = SQLiteStore::open_at(dir.join("usage.db"));
+        assert!(store.is_degraded());
+
+        let spill = ToastSpill::default();
+        assert!(
+            spill.take().is_empty(),
+            "not attached yet — nothing surfaces"
+        );
+        store.attach_toast_spill(spill.clone());
+        let drained = spill.take();
+        assert_eq!(drained.len(), 1);
+        assert_eq!(drained[0].level, Level::Warning);
+        assert_eq!(
+            drained[0].dedupe_key.as_deref(),
+            Some("usage-store-degraded")
+        );
+        // Re-attaching must not replay the latch.
+        store.attach_toast_spill(spill.clone());
+        assert!(spill.take().is_empty());
+    }
+
+    #[test]
+    fn three_strikes_raise_exactly_one_degrade_toast() {
+        let store = SQLiteStore::open_at(temp_db("toast-3strike"));
+        let spill = ToastSpill::default();
+        store.attach_toast_spill(spill.clone());
+        let err = || rusqlite::Error::InvalidParameterName("injected".into());
+        for _ in 0..3 {
+            store.note_flush_failure(err());
+        }
+        assert!(store.is_degraded());
+        let drained = spill.take();
+        assert_eq!(
+            drained.len(),
+            1,
+            "one toast per transition, not per failure"
+        );
+        // Post-transition failures stay silent — the flip is one-way.
+        store.note_flush_failure(err());
+        assert!(spill.take().is_empty());
     }
 
     #[test]

@@ -12,6 +12,7 @@ pub mod settings;
 pub mod shell;
 pub mod status;
 pub mod store;
+pub mod toasts;
 pub mod usage_analytics;
 pub mod usage_records;
 pub mod usage_sqlite;

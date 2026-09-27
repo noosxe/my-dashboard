@@ -8,10 +8,11 @@ use gpui::{prelude::FluentBuilder as _, *};
 use gpui::Decorations;
 
 use gpui_component::{
-    ActiveTheme, Disableable as _, Icon, IconName, Sizable as _, TitleBar,
+    ActiveTheme, Disableable as _, Icon, IconName, Root, Sizable as _, TitleBar,
     breadcrumb::{Breadcrumb, BreadcrumbItem},
     button::{Button, ButtonVariants},
     h_flex,
+    notification::Notification,
     setting::Settings,
     sidebar::{Sidebar, SidebarCollapsible, SidebarHeader, SidebarMenuItem, SidebarToggleButton},
     v_flex,
@@ -24,6 +25,7 @@ use crate::registry::ModuleRegistry;
 use crate::settings as app_settings;
 use crate::status;
 use crate::store::DebouncedSave;
+use crate::toasts;
 use crate::usage_analytics;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -93,6 +95,33 @@ impl DashboardShell {
         // mutation; the bar reads the aggregated snapshot per frame.
         let in_flight = status::tracker(cx);
         cx.observe(&in_flight, |_, _, cx| cx.notify()).detach();
+        // Toast forwarding (docs/0058 D2/D5/D6): the hub is core-global;
+        // this shell is the only place that touches the UI layer. One
+        // window-aware observation forwards staged toasts; a 1 s pump
+        // drains the cross-thread spill (spill pushes cannot notify —
+        // they come from non-UI threads like the usage writer).
+        let toasts_hub = toasts::hub(cx);
+        cx.observe_in(&toasts_hub, window, |this, hub, window, cx| {
+            this.forward_toasts(&hub, window, cx);
+        })
+        .detach();
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(Duration::from_secs(1)).await;
+                // Err → the shell (and its window) is gone; stop pumping.
+                if this
+                    .update(cx, |_, cx| {
+                        toasts::hub(cx).update(cx, |hub, cx| {
+                            hub.drain_spill(cx);
+                        });
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
+        .detach();
         let focus_handle = cx.focus_handle();
         // Boot focus: without a focused node, key actions dispatch from
         // the tree root and never reach this shell's handlers
@@ -115,6 +144,26 @@ impl DashboardShell {
                 save
             }),
         }
+    }
+
+    /// Drain the hub's staged toasts into the notification layer (docs/
+    /// 0058 D1/D5). The shell never renders toasts itself — `Root` owns
+    /// the layer, the z-order, and the lifecycle.
+    fn forward_toasts(
+        &mut self,
+        hub: &Entity<toasts::ToastHub>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let staged = hub.update(cx, |hub, _| hub.take_pending());
+        if staged.is_empty() {
+            return;
+        }
+        Root::update(window, cx, |root, window, cx| {
+            for toast in staged {
+                root.push_notification(toast.into_notification(), window, cx);
+            }
+        });
     }
 
     /// Snapshot the sidebar toggle and schedule the debounced save.
@@ -752,6 +801,33 @@ fn nav_menu_items(
         .collect()
 }
 
+/// Marker scoping hub-raised dedupe ids (docs/0058 D4): every hub toast
+/// shares this TypeId, so its keys can't collide with ids other code
+/// registers on the notification layer.
+struct HubToast;
+
+impl toasts::Toast {
+    /// D3's mapping: severity constructor per level, `Error` sticky, the
+    /// dedupe key as the upstream id. `ToastAction` is carried but not
+    /// wired yet — docs/0058 §10 defers action wiring until a raise site
+    /// needs one (upstream's `.action()` would also force sticky).
+    fn into_notification(self) -> Notification {
+        let mut note = match self.level {
+            toasts::Level::Info => Notification::info(self.message),
+            toasts::Level::Success => Notification::success(self.message),
+            toasts::Level::Warning => Notification::warning(self.message),
+            toasts::Level::Error => Notification::error(self.message).autohide(false),
+        };
+        if let Some(title) = self.title {
+            note = note.title(title);
+        }
+        if let Some(key) = self.dedupe_key {
+            note = note.id1::<HubToast>(key);
+        }
+        note
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
@@ -893,6 +969,7 @@ mod tests {
             gpui_component::theme::init(cx);
             crate::settings::init(None, None, cx);
             crate::status::init(cx);
+            crate::toasts::init(cx);
         });
         let nav = cx.update(|cx| cx.new(|_| Navigator::default()));
         let (shell, vcx) = {
@@ -960,6 +1037,7 @@ mod tests {
             gpui_component::theme::init(cx);
             crate::settings::init(None, None, cx);
             crate::status::init(cx);
+            crate::toasts::init(cx);
         });
         let nav = cx.update(|cx| cx.new(|_| Navigator::default()));
         let (shell, vcx) = {
@@ -1024,6 +1102,7 @@ mod tests {
             gpui_component::theme::init(cx);
             crate::settings::init(None, None, cx);
             crate::status::init(cx);
+            crate::toasts::init(cx);
         });
         let nav = cx.update(|cx| cx.new(|_| Navigator::default()));
         let (shell, vcx) = {
