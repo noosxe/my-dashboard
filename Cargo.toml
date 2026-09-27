@@ -52,6 +52,14 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # default features (no HTML output path). Bare-URL autolinks come from
 # linkify — the pairing zed's markdown crate uses.
 pulldown-cmark = { version = "0.13", default-features = false }
+# Usage-records persistence (docs/0057 D1): SQLite via the bundled
+# amalgamation — hermetic (the pinned C source rides Cargo.lock, same
+# build on macOS/Nix/CI). rusqlite ≥0.40's default FFI backend switched
+# to a WASIX-compiled SQLite (sqlite-wasm-rs) — opted out; we take the
+# classic bundled build + statement cache, nothing else.
+rusqlite = { version = "0.40", default-features = false, features = [
+    "bundled", "cache",
+] }
 # Diff-row syntax highlighting (docs/0040 D7): tokenizer only — no
 # syntect themes, no Oniguruma C toolchain (fancy-regex backend). The
 # default syntax pack loads from an embedded dump at first use.
