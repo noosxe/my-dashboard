@@ -131,19 +131,22 @@ bound; upstream's visible-mount limit handles overflow). Width stays 382 px.
 
 ### D6 — Cross-thread raises: bounded spill channel
 
-Non-UI threads (the docs/0057 writer thread) cannot touch gpui state.
-`ToastHub` therefore exposes:
+Non-UI threads (the docs/0057 writer thread) cannot touch gpui state — and the
+entity itself is `!Send`. The hub therefore hands out a clonable spill handle:
 
 ```rust
-impl ToastHub {
-    pub fn spill(&self, toast: Toast);   // Send+Sync; Mutex<Vec<Toast>>, cap 16, drop-oldest + warn!
+#[derive(Clone, Default)]
+pub struct ToastSpill(Arc<Mutex<Vec<Toast>>>);  // Send + Sync; cap 16, drop-oldest + warn!
+impl ToastSpill {
+    pub fn push(&self, toast: Toast);  // from any thread; mirrored to the log (D8)
+    fn take(&self) -> Vec<Toast>;      // hub thread only
 }
 ```
 
 The shell drains the spill on every hub notification and via a 1 s timer pump
 (`cx.spawn` loop, window lifetime) so thread-raised toasts appear without any
-raiser-side UI coupling. `ToastHub` is `Send + Sync` at the spill surface only;
-all other state lives on the UI thread.
+raiser-side UI coupling. The spill handle is `Send + Sync`; all other hub
+state lives on the UI thread.
 
 ### D7 — First consumer: usage-sink degradation (docs/0057 D6)
 

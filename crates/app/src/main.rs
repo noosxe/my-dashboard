@@ -89,10 +89,18 @@ fn main() {
             // Global in-flight request tracker (docs/0013 D2) — before
             // module init, so every module's fetch loops can report into it.
             dashboard_core::status::init(cx);
+            // Toast hub (docs/0058 D2): beside status::init and before
+            // module init — raisers may exist before the window does.
+            dashboard_core::toasts::init(cx);
             // Usage records (docs/0053 D3): the module-global flight log.
             // SQLite is the startup default (docs/0057 D1/D9); an unusable
             // data dir degrades to in-memory capture (docs/0057 D6).
             let usage_store = dashboard_core::usage_sqlite::SQLiteStore::open_or_fallback(paths);
+            // Cross-thread degrade toasts (docs/0058 D6/D7): the store
+            // raises from the writer thread through the hub's spill; the
+            // shell's pump surfaces it once the window exists. A startup
+            // fallback raises before this attach and is latched (D7).
+            usage_store.attach_toast_spill(dashboard_core::toasts::spill(cx));
             dashboard_core::usage_records::init_with(cx, usage_store.clone());
 
             // Flush debounced state writes at quit (docs/0045 §9, #283):
@@ -121,6 +129,13 @@ fn main() {
                 cx,
             );
             dashboard_core::settings::set_app_info("Dashboard", env!("CARGO_PKG_VERSION"));
+            // Toast geometry (docs/0058 D5): keep the upstream TopRight +
+            // title-bar-aware margins; tighten the stack to the issue's
+            // bound. `Theme::change` only recolors — it never resets this
+            // field — so setting it once here survives appearance flips.
+            cx.global_mut::<gpui_component::Theme>()
+                .notification
+                .max_items = 3;
             log::info!(
                 target: "dashboard_app",
                 "dashboard {} starting: data={}, state={}",
