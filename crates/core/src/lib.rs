@@ -14,6 +14,7 @@ pub mod status;
 pub mod store;
 pub mod usage_analytics;
 pub mod usage_records;
+pub mod usage_sqlite;
 
 pub use module::{Module, ModuleEntry, ModuleMeta};
 pub use nav::{Crumb, Navigator, Page};

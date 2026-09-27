@@ -6,8 +6,9 @@
 //! dispatching module's own closed enums), held by an injectable
 //! [`UsageStore`] behind a `gpui::Global`. The v1 store is the capped
 //! in-memory [`MemorySink`]; a future SQLite backend is a new
-//! `UsageStore` swapped at [`init_with`] — the row is pre-stamped and
-//! storage-independent, so nothing else changes (D3).
+//! in-memory [`MemorySink`]; the SQLite backend (`crate::usage_sqlite`,
+//! docs/0057) is the `UsageStore` swapped at [`init_with`] — the row is
+//! pre-stamped and storage-independent, so nothing else changes (D3).
 //!
 //! The write side is the [`Recorder`] (one per module): it stamps
 //! `seq`/timestamp/`cycle_reset_epoch` *before* the sink sees the row,

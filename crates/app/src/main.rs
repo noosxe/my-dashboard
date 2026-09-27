@@ -89,17 +89,27 @@ fn main() {
             // Global in-flight request tracker (docs/0013 D2) — before
             // module init, so every module's fetch loops can report into it.
             dashboard_core::status::init(cx);
-            // Usage records (docs/0053 D3): the module-global flight log,
-            // defaulting to the capped in-memory sink.
-            dashboard_core::usage_records::init(cx);
+            // Usage records (docs/0053 D3): the module-global flight log.
+            // SQLite is the startup default (docs/0057 D1/D9); an unusable
+            // data dir degrades to in-memory capture (docs/0057 D6).
+            let usage_store = dashboard_core::usage_sqlite::SQLiteStore::open_or_fallback(paths);
+            dashboard_core::usage_records::init_with(cx, usage_store.clone());
 
             // Flush debounced state writes at quit (docs/0045 §9, #283):
             // a quit landing inside a 500 ms quiet window would otherwise
             // lose the tail — shell state, settings, and open draft
             // composers land synchronously here. Log-and-swallow (0004
             // §4.7): a failed flush must never block quitting.
-            cx.on_app_quit(|_| async move {
-                dashboard_core::store::flush_pending_on_quit();
+            cx.on_app_quit(move |_| {
+                let store = usage_store.clone();
+                async move {
+                    dashboard_core::store::flush_pending_on_quit();
+                    // Usage tail: drain + commit the record buffer before
+                    // the process exits (docs/0057 D9) — same log-and-
+                    // swallow rule: a failed flush must never block
+                    // quitting.
+                    store.flush_blocking();
+                }
             })
             .detach();
 
