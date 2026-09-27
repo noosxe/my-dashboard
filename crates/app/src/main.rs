@@ -151,9 +151,6 @@ fn main() {
                     // Navigation state, then modules (registry order = sidebar
                     // + home-grid order — docs/0003 §4.2).
                     let nav = cx.new(|_| Navigator::new(shell_state.sidebar_collapsed));
-                    // Menu bar + its action handlers (docs/0002 D12):
-                    // macOS-only today; once per window build.
-                    menu::install(cx, nav.downgrade(), window.window_handle());
                     let registry =
                         ModuleRegistry::new().with::<GithubModule>(&nav, window, paths, cx);
 
@@ -165,6 +162,9 @@ fn main() {
                         dashboard_core::settings::sync_window_appearance,
                     );
                     std::mem::forget(appearance_sub);
+                    // The menu keeps its own handle — nav moves into the
+                    // shell below.
+                    let nav_handle = nav.clone();
                     let shell = cx.new(|cx| {
                         DashboardShell::new(
                             registry,
@@ -175,6 +175,15 @@ fn main() {
                             cx,
                         )
                     });
+                    // Menu bar + action handlers (docs/0002 D12): needs
+                    // both entity handles, so it runs after the shell
+                    // exists.
+                    menu::install(
+                        cx,
+                        nav_handle.downgrade(),
+                        shell.downgrade(),
+                        window.window_handle(),
+                    );
                     // No .bg() refinement here: Root already paints the live
                     // theme background + foreground every frame; a style
                     // refinement is baked at window construction and would

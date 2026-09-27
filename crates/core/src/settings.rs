@@ -174,6 +174,12 @@ pub fn set_app_info(name: &'static str, version: &'static str) {
     let _ = APP_INFO.set((name, version));
 }
 
+/// App name + version (About surfaces: the D12 dialog, the
+/// docs/0006 §4.4 settings page).
+pub fn app_info() -> (&'static str, &'static str) {
+    APP_INFO.get().copied().unwrap_or(("Dashboard", "0.0.0"))
+}
+
 // ---------------------------------------------------------------------------
 // Theme application (docs/0006 §4.4)
 // ---------------------------------------------------------------------------
@@ -441,7 +447,7 @@ impl SettingFieldElement for OpenPathField {
 /// The core-owned About subpage (docs/0006 §4.4). `modules` is a snapshot
 /// of the registry (icon + title), taken by the shell per render.
 pub fn about_page(modules: &[(Option<ModuleIcon>, gpui::SharedString)]) -> SettingPage {
-    let (app_name, app_version) = APP_INFO.get().copied().unwrap_or(("Dashboard", "0.0.0"));
+    let (app_name, app_version) = app_info();
 
     let module_chips = modules.to_vec();
     let repo_url = "https://github.com/noosxe/my-dashboard";
