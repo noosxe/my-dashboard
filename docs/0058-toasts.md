@@ -283,3 +283,53 @@ unread count, and a popover panel lists the unread entries. That supersedes
 unchanged (the log still dies with the process). Upstream `on_close` fires on
 the autohide path too (docs/0059 D2, canary test in `shell.rs`), so toast
 dismissal is never treated as a read signal.
+
+## 13. Raise-site adoption (2026-09-27, #382)
+
+The §11 follow-up landed as the github module's first adoption batch. The
+contract per site follows the severity guidance settled on #382:
+user-action failures raise sticky Errors, background transitions raise one
+Warning per incident (transition-only), everything else stays log-only.
+
+**Adopted (raise sites):**
+
+- Thread mutations (`notification_page.rs`): a failed mark-read / mark-done
+  raises a sticky `Error` ("Couldn't mark the notification as read/done —
+  try again."), deduped per thread + action (`thread-mark-{read,done}-<id>`)
+  so retrying the same action refreshes instead of stacking (D4).
+- Auth terminal transitions (`service.rs`): the first transition to
+  `TokenRejected` / `KeychainError` in an incident raises a sticky `Error`
+  ("GitHub session expired — reconnect required.", key
+  `github-auth-expired`); repeats (drained waiters' follow-up 401s, a
+  second `Surface`) stay log-only. `install_credential` re-arms; `sign_out`
+  resets.
+- Transport health (`service.rs`): the first network-level failure on a
+  service lane (`Kind::is_service_lane` — inventory, notifications,
+  snapshot, card totals, home PRs, the rate-limit probe) raises a `Warning`
+  ("GitHub is unreachable — retrying in the background.", key
+  `github-poll-offline`); repeats stay log-only; any landed response heals
+  the incident **silently** (recovery needs no action — D9).
+
+Mechanics: `apply`/`apply_refresh` are cx-free, so they only *stage* alerts
+(`GithubState::pending_alerts`, bounded by the transition edges); the tick
+loop and the refresh lead drain and raise on the main thread via the
+free-fn API (`toasts::raise`). Worst-case raise latency is one tick
+(60 s) for alerts staged by page-driven `apply` calls.
+
+**Consciously log-only (the §audit outcome):**
+
+- `notification_page.rs` thread-GET degrade — superseded: the page renders
+  the load error inline (`notification-load-error`, since docs/0026); the
+  issue's "silent degrade" line ref predates that.
+- PR/issue create + PR mutations — pages render `mutation_error` inline on
+  the form the user is acting on.
+- Page-owned lane fetch failures (pr-detail, files, threads, pickers…) —
+  page-local error + Retry UI per the detail-page convention.
+- `DraftStore::discard` failure — self-healing on the next overwrite, and
+  the store has no `App` access to raise from.
+- Infra warnings (etag/last-known writes, settings/theme fallbacks, store
+  flushes) — not user-actionable in-session.
+
+Non-goals riding #382's close: per-module toast styling (docs/0058 §10),
+the first real `ToastAction` consumer (§11), and a `ToastAction`
+("Reconnect") on the auth toast — filed with the follow-ups.

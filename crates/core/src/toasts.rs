@@ -228,6 +228,13 @@ impl ToastHub {
     }
 
     /// Unread entries in the log — the badge count (docs/0059 D3).
+    /// The unread log as-is (docs/0059 D1) — read access for surfaces
+    /// and tests outside the hub's module.
+    pub fn log(&self) -> &[HubEntry] {
+        &self.entries
+    }
+
+    /// Unread entries in the log — the badge count (docs/0059 D3).
     pub fn unread_count(&self) -> usize {
         self.entries.iter().filter(|entry| !entry.read).count()
     }

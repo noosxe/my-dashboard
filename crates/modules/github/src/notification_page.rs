@@ -237,6 +237,17 @@ impl NotificationDetailPage {
             } else {
                 log::warn!("thread-mutation: mark-read failed (network)");
             }
+            // docs/0058 §13 adoption: a failed user action raises — Error
+            // sticks until dismissed; retrying the same action refreshes
+            // the same toast via the per-thread key (D4 replace-on-id).
+            dashboard_core::toasts::raise(
+                cx,
+                dashboard_core::toasts::Toast::new(
+                    dashboard_core::toasts::Level::Error,
+                    "Couldn't mark the notification as read — try again.",
+                )
+                .dedupe_key(format!("thread-mark-read-{}", self.thread_id())),
+            );
             // Revert the optimistic flip (D3); the button arms as retry.
             self.mark = MarkState::Failed;
             self.read = false;
@@ -288,6 +299,16 @@ impl NotificationDetailPage {
             } else {
                 log::warn!("thread-mutation: mark-done failed (network)");
             }
+            // docs/0058 §13 adoption — the mark-read convention above,
+            // keyed per thread for the done action.
+            dashboard_core::toasts::raise(
+                cx,
+                dashboard_core::toasts::Toast::new(
+                    dashboard_core::toasts::Level::Error,
+                    "Couldn't mark the notification as done — try again.",
+                )
+                .dedupe_key(format!("thread-mark-done-{}", self.thread_id())),
+            );
             // The page stays; the button re-arms as the retry (D8).
             self.done = MarkState::Failed;
         }
@@ -896,6 +917,9 @@ mod tests {
     ) {
         cx.update(gpui_component::init);
         cx.update(dashboard_core::status::init);
+        // docs/0058 §13 raise sites (failing marks) land in the hub —
+        // every page test gets the global, as `main` provides it.
+        cx.update(dashboard_core::toasts::init);
         let state = cx.update(|cx| {
             let store: std::sync::Arc<dyn crate::auth::TokenStore> =
                 std::sync::Arc::new(crate::auth::MockTokenStore::with("t0k".into()));
@@ -913,6 +937,41 @@ mod tests {
             entity
         });
         cx.add_window_view(|window, cx| NotificationDetailPage::new(state, seed, window, cx))
+    }
+
+    #[gpui::test]
+    fn failed_mark_raises_a_sticky_error_toast(cx: &mut gpui::TestAppContext) {
+        // docs/0058 §13: the mark is a user action — its failure raises
+        // a sticky Error beside the state revert, keyed per thread so a
+        // retry of the same action refreshes instead of stacking (D4).
+        let mock = lane_mock(1, 200, thread_payload("PullRequest", Some("u"), true));
+        let (page, vcx) = probe_page(cx, probe_seed(true, "PullRequest", Some("u")), mock);
+        vcx.run_until_parked();
+        assert_eq!(vcx.read(|cx| page.read(cx).mark), MarkState::Failed);
+        let raised = vcx.update(|_, cx| {
+            dashboard_core::toasts::hub(cx)
+                .read(cx)
+                .log()
+                .iter()
+                .map(|e| {
+                    (
+                        e.toast.level,
+                        e.toast
+                            .dedupe_key
+                            .as_deref()
+                            .unwrap_or_default()
+                            .to_string(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(
+            raised,
+            vec![(
+                dashboard_core::toasts::Level::Error,
+                "thread-mark-read-19".to_string()
+            )]
+        );
     }
 
     #[gpui::test]
