@@ -1577,6 +1577,24 @@ pub(crate) fn anchor_patch(patch: &str) -> Vec<AnchoredLine> {
 }
 
 impl Kind {
+    /// docs/0058 §13: the lanes whose results the service state itself
+    /// consumes (inventory, notifications, snapshot, card totals, home
+    /// PRs, the free probe) — including when a visible surface
+    /// triggered them. The offline toast's transition detector keys on
+    /// these; page-owned lanes surface failures inline where the user
+    /// is looking and stay log-only.
+    pub(crate) fn is_service_lane(&self) -> bool {
+        matches!(
+            self,
+            Kind::CardTotals
+                | Kind::SessionInventory
+                | Kind::Notifications
+                | Kind::RepoSnapshot
+                | Kind::RepoNotifications
+                | Kind::AccountPullRequests
+                | Kind::RateLimit
+        )
+    }
     fn kind_name(&self) -> &'static str {
         match self {
             Kind::CardTotals => "card-totals",
@@ -1695,6 +1713,21 @@ pub struct GithubState {
     /// error + Retry when neither snapshot nor union has rows to show;
     /// cleared on the next landing.
     pub(crate) home_error: Option<String>,
+    /// docs/0058 §13 adoption: alerts staged by the cx-free result
+    /// sinks (`apply`, `apply_refresh`), drained and raised on the
+    /// main thread by the tick loop / refresh lead. Bounded by
+    /// construction — only transition edges stage (the FSM flags
+    /// below) and the tick drains every beat.
+    pub(crate) pending_alerts: Vec<dashboard_core::toasts::Toast>,
+    /// Transport-health FSM (transition-only, docs/0058 §13): `true`
+    /// from the first service-lane network failure until the next
+    /// landed response. One offline toast per incident; recovery is
+    /// log-only.
+    pub(crate) net_down: bool,
+    /// Auth-alert latch: `true` from the first terminal-auth
+    /// transition of an incident until
+    /// [`GithubState::install_credential`].
+    pub(crate) auth_alert_open: bool,
     pub(crate) etags: BTreeMap<String, String>,
     pub(crate) client: Arc<dyn Http>,
     /// API-usage ledger (docs/0050 D3): shared with the `CountingHttp`
@@ -1825,6 +1858,9 @@ impl GithubState {
             shared_refresh,
             cache,
             drafts,
+            pending_alerts: Vec::new(),
+            net_down: false,
+            auth_alert_open: false,
         }
     }
 
@@ -2249,6 +2285,32 @@ impl GithubState {
     /// Apply a finished spec: parse, update state, store last-known + etag,
     /// handle 401/403 (Q9). Malformed payloads degrade to stale data with a
     /// stderr note — never a dialog.
+    /// The auth incident's single toast (docs/0058 §13): the first
+    /// terminal transition raises "reconnect required"; repeats — the
+    /// drained waiters' follow-up 401s, a second Surface — stay
+    /// log-only. [`GithubState::install_credential`] re-arms for the
+    /// next incident.
+    fn note_auth_failure(&mut self) {
+        if self.auth_alert_open {
+            return;
+        }
+        self.auth_alert_open = true;
+        self.pending_alerts.push(
+            dashboard_core::toasts::Toast::new(
+                dashboard_core::toasts::Level::Error,
+                "GitHub session expired — reconnect required.",
+            )
+            .dedupe_key("github-auth-expired"),
+        );
+    }
+
+    /// Drain staged alerts — main-thread callers holding `&mut App`
+    /// (the tick loop, the refresh lead); each toast raises through
+    /// the core free-fn API at the call site (docs/0058 D2/D6).
+    pub(crate) fn take_pending_alerts(&mut self) -> Vec<dashboard_core::toasts::Toast> {
+        std::mem::take(&mut self.pending_alerts)
+    }
+
     pub fn apply(&mut self, result: SpecResult) {
         // Inactive-session guard (#168): fetches launched before a
         // sign-out (or before any session exists) keep flying; their
@@ -2299,7 +2361,28 @@ impl GithubState {
         }
         if let Some(m) = result.network {
             log::warn!("{}: network error: {m}", result.kind.kind_name());
+            // Transition-only (docs/0058 §13): the first transport-level
+            // failure on a service lane raises one offline toast per
+            // incident; repeats stay log-only, recovery heals silently.
+            if result.kind.is_service_lane() && !self.net_down {
+                self.net_down = true;
+                self.pending_alerts.push(
+                    dashboard_core::toasts::Toast::new(
+                        dashboard_core::toasts::Level::Warning,
+                        "GitHub is unreachable — retrying in the background.",
+                    )
+                    .dedupe_key("github-poll-offline"),
+                );
+            }
             return;
+        }
+        // Recovery edge (docs/0058 §13): any landed transport response on
+        // a service lane — 200, 304, even a 4xx/5xx the server answered —
+        // heals the offline incident. Log-only: D9 keeps toasts for what
+        // needs action, and nothing does once lanes land again.
+        if result.kind.is_service_lane() && self.net_down {
+            self.net_down = false;
+            log::info!("github: connection recovered — service lanes land again");
         }
         match result.status {
             200 => {}
@@ -2344,6 +2427,7 @@ impl GithubState {
                     result.kind.kind_name()
                 );
                 self.auth = AuthStatus::TokenRejected;
+                self.note_auth_failure();
                 return;
             }
             _ => {
@@ -2698,6 +2782,9 @@ impl GithubState {
         self.auth = AuthStatus::Connected;
         self.rate_limited_until = None;
         self.needs_bootstrap = true;
+        // A fresh credential re-arms the auth alert (docs/0058 §13):
+        // the next terminal failure is a new incident.
+        self.auth_alert_open = false;
         Ok(())
     }
 
@@ -2713,6 +2800,7 @@ impl GithubState {
                     // terminal for the session (docs/0011 §4.4).
                     log::warn!("token refresh keychain save failed: {e} — reconnect required");
                     self.auth = AuthStatus::KeychainError(e);
+                    self.note_auth_failure();
                     self.gate.spend();
                     GateOutcome::Surface
                 } else {
@@ -2737,6 +2825,7 @@ impl GithubState {
                 log::warn!("token refresh failed: {m} — reconnect required");
                 self.gate.spend();
                 self.auth = AuthStatus::TokenRejected;
+                self.note_auth_failure();
                 GateOutcome::Surface
             }
         }
@@ -2745,6 +2834,10 @@ impl GithubState {
     /// Sign-out (Q5): keychain + token slot + caches + data.
     pub fn sign_out(&mut self) {
         let _ = self.store.delete();
+        // Alert books reset with the session (docs/0058 §13).
+        self.pending_alerts.clear();
+        self.net_down = false;
+        self.auth_alert_open = false;
         if let Ok(mut slot) = self.shared_token.write() {
             *slot = None;
         }
@@ -3101,11 +3194,15 @@ async fn run_refresh(state: Entity<GithubState>, cx: &mut AsyncApp) {
     // never triggers them. The page sync + crumb (docs/0009 D6, docs/0014
     // D1/D6) and the card badge rely on these notifies.
     let gate_outcome = cx.update(|cx| {
-        state.update(cx, |s, cx| {
+        let (outcome, alerts) = state.update(cx, |s, cx| {
             let o = s.apply_refresh(outcome);
             cx.notify();
-            o
-        })
+            (o, s.take_pending_alerts())
+        });
+        alerts
+            .into_iter()
+            .for_each(|toast| dashboard_core::toasts::raise(cx, toast));
+        outcome
     });
     let drained = guard.gate.complete(gate_outcome.clone());
     match gate_outcome {
@@ -3247,10 +3344,14 @@ pub fn spawn_tick_loop(state: Entity<GithubState>, window: AnyWindowHandle, cx: 
                     continue;
                 };
                 cx.update(|cx| {
-                    state.update(cx, |s, cx| {
+                    let alerts = state.update(cx, |s, cx| {
                         s.apply(result);
                         cx.notify();
-                    })
+                        s.take_pending_alerts()
+                    });
+                    alerts
+                        .into_iter()
+                        .for_each(|toast| dashboard_core::toasts::raise(cx, toast));
                 });
             }
             let _ = window.update(cx, |_, window, _| window.refresh());
@@ -3506,6 +3607,106 @@ mod tests {
         );
         seed_fresh_usage(&state);
         state
+    }
+
+    fn service_lane_result(status: u16, network: Option<&str>) -> SpecResult {
+        SpecResult {
+            kind: Kind::Notifications,
+            ident: None,
+            status,
+            etag: None,
+            rate: None,
+            body: None,
+            network: network.map(str::to_string),
+            cursor: None,
+        }
+    }
+
+    fn staged_keys(state: &GithubState) -> Vec<(dashboard_core::toasts::Level, String)> {
+        state
+            .pending_alerts
+            .iter()
+            .map(|t| {
+                (
+                    t.level,
+                    t.dedupe_key.as_deref().unwrap_or_default().to_string(),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn offline_toast_stages_once_per_incident_and_recovery_re_arms() {
+        // docs/0058 §13: transition-only. The first transport failure on
+        // a service lane stages exactly one offline toast; repeats stage
+        // none; any landed response heals silently; the next failure is
+        // a new incident.
+        let mut state = make_state(Arc::new(MockHttp::ok(200, "{}")));
+        state.apply(service_lane_result(0, Some("timeout")));
+        assert!(state.net_down);
+        assert_eq!(
+            staged_keys(&state),
+            vec![(
+                dashboard_core::toasts::Level::Warning,
+                "github-poll-offline".to_string()
+            )]
+        );
+        state.apply(service_lane_result(0, Some("timeout")));
+        assert_eq!(state.pending_alerts.len(), 1, "repeats stay log-only");
+        // A landed response — even a bare 304 — heals the incident.
+        state.apply(service_lane_result(304, None));
+        assert!(!state.net_down);
+        assert_eq!(state.pending_alerts.len(), 1, "recovery is log-only");
+        // The next failure is a new incident: it raises again.
+        state.apply(service_lane_result(0, Some("timeout")));
+        assert_eq!(state.pending_alerts.len(), 2);
+    }
+
+    #[test]
+    fn page_lane_network_failures_stay_log_only() {
+        // docs/0058 §13: page-owned lanes surface failures inline where
+        // the user is looking — no offline toast, no FSM flip.
+        let mut state = make_state(Arc::new(MockHttp::ok(200, "{}")));
+        state.apply(SpecResult {
+            kind: Kind::PrDetail,
+            ident: None,
+            status: 0,
+            etag: None,
+            rate: None,
+            body: None,
+            network: Some("timeout".to_string()),
+            cursor: None,
+        });
+        assert!(state.pending_alerts.is_empty());
+        assert!(!state.net_down);
+    }
+
+    #[test]
+    fn auth_incident_raises_once_until_reconnect() {
+        // docs/0058 §13: one "reconnect required" toast per auth
+        // incident; repeats (drained waiters' 401s) stay log-only; a
+        // fresh credential re-arms.
+        let mut state = make_state(Arc::new(MockHttp::ok(200, "{}")));
+        state.apply(service_lane_result(401, None));
+        assert_eq!(
+            staged_keys(&state),
+            vec![(
+                dashboard_core::toasts::Level::Error,
+                "github-auth-expired".to_string()
+            )]
+        );
+        state.apply(service_lane_result(401, None));
+        assert_eq!(state.pending_alerts.len(), 1, "transition-only");
+        state
+            .install_credential(crate::auth::StoredCredential {
+                access_token: "t1".to_string(),
+                refresh_token: Some("r1".to_string()),
+                access_expires_at: None,
+            })
+            .unwrap();
+        assert!(!state.auth_alert_open, "reconnect re-arms the alert");
+        state.apply(service_lane_result(401, None));
+        assert_eq!(state.pending_alerts.len(), 2);
     }
 
     #[test]
@@ -5961,6 +6162,7 @@ mod tests {
     #[gpui::test]
     async fn read_deduped_skips_duplicate_dispatch(cx: &mut gpui::TestAppContext) {
         cx.update(dashboard_core::status::init);
+        cx.update(dashboard_core::toasts::init); // refresh raises auth alerts
         let http = Arc::new(MockHttp::new(vec![api_result(200, "[]")]));
         let state = gate_state_entity(cx, http.clone(), "dedup-skip");
 
@@ -6012,6 +6214,7 @@ mod tests {
         // never consults the guard (docs/0031 D1) — a write retry must go
         // out even while an identical-keyed read is in flight.
         cx.update(dashboard_core::status::init);
+        cx.update(dashboard_core::toasts::init); // refresh raises auth alerts
         let http = Arc::new(MockHttp::new(vec![api_result(200, "[]")]));
         let state = gate_state_entity(cx, http.clone(), "dedup-mutation");
 
@@ -6037,6 +6240,7 @@ mod tests {
         // docs/0028 §5: the reactive flow — the 401'd request itself is
         // retried after the refresh + install, no tick, no bootstrap.
         cx.update(dashboard_core::status::init);
+        cx.update(dashboard_core::toasts::init); // refresh raises auth alerts
         let http = Arc::new(MockHttp::new(vec![
             api_result(401, r#"{"message":"Bad credentials"}"#),
             api_result(200, &refresh_ok_body()),
@@ -6121,6 +6325,7 @@ mod tests {
         // grant (rotation is single-use), both runs settle on their retry.
         // Per-URL scripts keep the test scheduling-insensitive.
         cx.update(dashboard_core::status::init);
+        cx.update(dashboard_core::toasts::init); // refresh raises auth alerts
         let http = Arc::new(RoutedHttp::new(vec![
             (
                 api::notifications_url(1),
@@ -6184,6 +6389,7 @@ mod tests {
         // docs/0028 §5.5: a rejected grant surfaces the original 401 and
         // ends the session (TokenRejected); the gate is spent.
         cx.update(dashboard_core::status::init);
+        cx.update(dashboard_core::toasts::init); // refresh raises auth alerts
         let http = Arc::new(MockHttp::new(vec![
             api_result(401, r#"{"message":"Bad credentials"}"#),
             api_result(200, r#"{"error":"invalid_grant"}"#),
@@ -6206,6 +6412,7 @@ mod tests {
         // docs/0028 §5.6: a transport-failed grant surfaces a synthesized
         // network error — never TokenRejected — and burns nothing.
         cx.update(dashboard_core::status::init);
+        cx.update(dashboard_core::toasts::init); // refresh raises auth alerts
         let http = Arc::new(MockHttp::new(vec![
             api_result(401, r#"{"message":"Bad credentials"}"#),
             Err(HttpError("dns lookup failed".into())),
