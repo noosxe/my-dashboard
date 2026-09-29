@@ -158,6 +158,20 @@ On macOS the same dev shell evaluates (`nix develop` gives the pinned
 toolchain); the GUI runtime above — gpui's dylibs, AT-SPI, hermetic fonts —
 is Linux-only (the macOS backend is Cocoa/Metal and needs none of it).
 
+One macOS wrinkle since the gpui-pre 0.3.7 pin (#363): the stack
+compiles its Metal shaders **at build time**, which needs (a) Xcode's
+downloadable Metal Toolchain —
+`/Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -downloadComponent MetalToolchain`,
+run once per Xcode install (the dev shell's `xcodebuild` is a nix shim
+that can't do it) — and (b) Apple's `xcrun` for the `metal` tool,
+because the dev shell's 2019 `xcbuild` xcrun shim cannot resolve the
+downloaded toolchain. Gate runs shadow just that: put a dir first on
+`PATH` whose `xcrun` delegates `metal`/`metallib` to `/usr/bin/xcrun`
+with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` and
+everything else to the shim (SDK resolution for the nix cc/ld wrappers
+must stay on the shim — nix's ld cannot parse Xcode 27's `.tbd`
+format).
+
 macOS OS-notification delivery (docs/0060) additionally requires a trusted
 bundle — plain `cargo run` posts are silently dropped by macOS.
 `./scripts/macos-app.sh` builds the release binary, wraps it in

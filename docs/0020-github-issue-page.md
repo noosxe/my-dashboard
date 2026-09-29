@@ -116,6 +116,10 @@ introspection is the source of record here):**
 > `debug_selector`/`debug_bounds` are gpui-side (pre-oss), untouched by
 > the component bump — the #154 timeline anchor tests assert real
 > measured bounds and scroll offsets on `94a313a`.
+>
+> **Re-verified at the v0.7.0 pin `0c830f4` (2026-09-29, #363):** the trap
+> is intact (`size_full` now :526/:857 — the cites move with the file,
+> the sites don't); the rail Select probes pass on the new pin.
 
 **Upstream widgets (pinned gpui-component @ 0c746df):** no new widgets —
 `GroupBox`, `Badge`, `Button` (danger), `Textarea` (`auto_grow`), the 0017

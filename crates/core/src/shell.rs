@@ -8,7 +8,7 @@ use gpui::{prelude::FluentBuilder as _, *};
 use gpui::Decorations;
 
 use gpui_component::{
-    ActiveTheme, Disableable as _, Icon, IconName, Root, Sizable as _, TitleBar,
+    ActiveTheme, Disableable as _, Icon, IconName, Sizable as _, TitleBar, WindowExt,
     breadcrumb::{Breadcrumb, BreadcrumbItem},
     button::{Button, ButtonVariants},
     h_flex,
@@ -165,11 +165,12 @@ impl DashboardShell {
         // docs/0060 D2: one activation read per drain — the whole batch
         // shares the window state at drain time.
         let active = window.is_window_active();
-        Root::update(window, cx, |root, window, cx| {
-            for toast in staged {
-                root.push_notification(toast.into_notification(hub, active), window, cx);
-            }
-        });
+        // 0.7.0: notifications moved off `Root`'s API onto `WindowExt`
+        // (component window_ext.rs) — Root still owns the layer, we just
+        // address it through the window.
+        for toast in staged {
+            window.push_notification(toast.into_notification(hub, active), cx);
+        }
     }
 
     /// Snapshot the sidebar toggle and schedule the debounced save.
@@ -889,7 +890,7 @@ mod tests {
     use crate::paths::AppPaths;
     use crate::registry::ModuleRegistry;
     use gpui_component::{
-        Root,
+        Root, WindowExt,
         notification::{Notification, NotificationDelivery},
     };
 
@@ -1233,7 +1234,7 @@ mod tests {
                 let registry =
                     ModuleRegistry::new().with::<FakeModule>(&nav, window, AppPaths::init(), cx);
                 // Mirror main.rs: the shell view is wrapped in Root — the
-                // forward path's `Root::update` panics without it.
+                // forward path's `WindowExt` notification layer needs it.
                 let shell = cx.new(|cx| {
                     DashboardShell::new(registry, nav, ShellState::default(), None, window, cx)
                 });
@@ -1244,13 +1245,10 @@ mod tests {
         let fired = Rc::new(std::cell::Cell::new(false));
         let flag = fired.clone();
         vcx.update(|window, cx| {
-            Root::update(window, cx, |root, window, cx| {
-                root.push_notification(
-                    Notification::info("t1 autohide").on_close(move |_, _| flag.set(true)),
-                    window,
-                    cx,
-                );
-            });
+            window.push_notification(
+                Notification::info("t1 autohide").on_close(move |_, _| flag.set(true)),
+                cx,
+            );
         });
         cx.run_until_parked();
 

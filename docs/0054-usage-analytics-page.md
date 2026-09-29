@@ -675,3 +675,12 @@ window drew ~40 eight-character labels into a ~300–450 px panel: unreadable.
 The shared panel now thins ticks to at most six (`tick_stride`), preferring
 a stride that also lands a tick on the newest sample so "now" stays
 readable. Data resolution is unchanged — thinning affects axis labels only.
+
+**0.7.0 note (2026-09-29, #363).** Re-verified at the v0.7.0 pin
+`0c830f4`: `tick_margin` semantics are unchanged — the label thinning
+still lives in `labeled_items` (`(i + 1) % tick_margin == 0`, chart/
+mod.rs:186 at 0.7.0), so `tick_stride` keeps landing a tick on the newest
+sample. 0.7.0 also adds a native `x_tick_count(n)` builder (the
+`label_count` path in the same helper) — a future simplification could
+replace `tick_stride` + `tick_margin` with `.x_tick_count(6)`; deliberately
+not folded into the bump PR.

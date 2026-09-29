@@ -43,9 +43,13 @@ All checked against the pinned checkout — `crates/component` unless noted.
   theme tokens (`info`, `success`, `warning`, `danger`) — consistent with our
   styling-token discipline (docs/0002 D5/D9/D10).
 - **F3** — sanctioned raise path from any windowed context:
-  `Root::update(window, cx, |root, window, cx|
-    root.push_notification(note, window, cx))` (`root.rs:153`, `root.rs:422`).
-  Dismissal by source type: `Root::remove_notification::<T>()`.
+- **F3** — sanctioned raise path from any windowed context:
+  `window.push_notification(note, cx)` via `WindowExt for Window`
+  (`window_ext.rs:66`). At the v0.6.0 pin this was
+  `Root::update(window, cx, |root, window, cx| root.push_notification(
+  note, window, cx))` (`root.rs:153`, `root.rs:422`); upstream 0.7.0 moved
+  the API onto `WindowExt` (2026-09-29, #363) — `Root` still owns the
+  layer. Dismissal by source type: `window.remove_notification::<T>()`.
 - **F4** — `NotificationDelivery` defaults to **`InApp`**; OS notification
   center delivery is strictly opt-in per notification (`notification.rs:53–70`).
   docs/0060 opts in behind the window-activation gate (macOS only).
@@ -203,11 +207,9 @@ Forwarding sketch (shell side):
 ```rust
 // DashboardShell::new — one subscription, window lifetime.
 cx.subscribe(&toasts::hub(cx), window, |this, _, _, window, cx| {
-    Root::update(window, cx, |root, window, cx| {
-        for toast in this.drain() {                    // hub → Notification
-            root.push_notification(toast.into_notification(), window, cx);
-        }
-    });
+    for toast in this.drain() {                    // hub → Notification
+        window.push_notification(toast.into_notification(), cx);
+    }
 });
 ```
 
