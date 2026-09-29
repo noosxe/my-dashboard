@@ -66,6 +66,11 @@ cross-checked with the docs.github.com reference where fetchable.
   > editor-swap semantics (prefill/focus/`auto_grow`) hold line-for-line.
   > The `(edited)` marker sources our own `updatedAt` field (D2), so it
   > is upstream-independent.
+  >
+  > **Re-verified at the v0.7.0 pin `0c830f4` (2026-09-29, #363):** 0.7.0
+  > touched input/textarea (standard sizing, IME/undo/caret lifecycle
+  > fixes) but the editor-swap semantics (prefill/focus/`auto_grow`)
+  > hold — the 0019 probes pass on the new pin.
   - Timeline rows render through `body_card(...)`, whose header row has a
     `trailing` slot already carrying the review badge and the description
     card's `Edit` button — the affordance slot exists.

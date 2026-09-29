@@ -131,6 +131,13 @@ Out (non-goals):
 > byte-identical across the bump; `tab/tab.rs`'s only diff is a rustfmt
 > reformat of one `child()` call — no behavior change. Every fact below
 > holds line-for-line.
+>
+> **Re-verified at the v0.7.0 pin `0c830f4` (2026-09-29, #363):** the
+> `size_full` trap survives — `select.rs` still carries exactly two
+> `size_full` sites (:526, :857 at 0.7.0). 0.7.0 reworked window startup
+> (Base-owned Root) and notification delivery (`Root::push_notification` →
+> `WindowExt`), not Select layout; the 0016 probes pass unchanged on the
+> new pin.
 
 - `ui::tab::{Tab, TabBar}` with `.underline()` variant — the GitHub-style tab
   chrome; `selected_index` + `on_click` drive an enum in our state.
@@ -317,6 +324,10 @@ A `GroupBox` at the rail top:
   the layout probes (`files_split_has_real_layout`, the 0018 §8 sidebar
   probe) and the #154 timeline anchor tests all assert real measured
   bounds and pass on `94a313a`.
+>
+> Re-verified on the v0.7.0 build (2026-09-29, #363): gpui layout
+> semantics, untouched again; the probes and the #154 anchor tests pass
+> on `0c830f4`.
 
 ### D6 — Commits tab
 

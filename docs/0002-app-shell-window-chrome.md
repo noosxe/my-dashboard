@@ -208,7 +208,9 @@ host and new files/crates grow from there.
   moved with the mouse. Fix: the strip renders on macOS too
   (`draw_titlebar = client_decorated || cfg!(target_os = "macos")`).
   Verified in pinned upstream (gpui-component 94a313a `title_bar.rs`,
-  gpui-pre 0.3.3): the `TitleBar` renders its 34px bar with drag via
+  gpui-pre 0.3.3; re-verified at `0c830f4` / 0.3.7, 2026-09-29, #363 —
+  `TITLE_BAR_HEIGHT = px(34.)` and the drag/controls mechanism are
+  unchanged): the `TitleBar` renders its 34px bar with drag via
   `start_window_move` + `WindowControlArea::Drag`, double-click →
   `titlebar_double_click()`, an 80px left inset so the lights land inside
   the strip, and **empty** `WindowControls` on macOS — no duplicate buttons.

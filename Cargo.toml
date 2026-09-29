@@ -14,13 +14,17 @@ rust-version = "1.85"
 
 [workspace.dependencies]
 anyhow = "1"
-# GPUI stack at gpui-component v0.6.0 — the "GPUI Kit" rebrand. Upstream
-# republished the zed gpui family to crates.io as gpui-pre-* (gpui-component
-# no longer builds against zed-git gpui, so our direct deps moved with it;
-# the package-rename aliases keep `use gpui::…` etc. unchanged), renamed the
-# assets crate to gpui-kit-assets, and added a gpui-kit umbrella crate — we
-# deliberately don't adopt it: explicit deps pin the same versions with zero
-# import churn (see PR for #114).
+# GPUI stack at gpui-component v0.7.0 (v0.6.0 was the "GPUI Kit" rebrand:
+# upstream republished the zed gpui family to crates.io as gpui-pre-*
+# (gpui-component no longer builds against zed-git gpui, so our direct deps
+# moved with it; the package-rename aliases keep `use gpui::…` etc.
+# unchanged), renamed the assets crate to gpui-kit-assets, and added a
+# gpui-kit umbrella crate — we deliberately don't adopt it: explicit deps pin
+# the same versions with zero import churn (see PR for #114). 0.7.0 keeps that
+# stance for startup too: our manual `cx.open_window` + `Root::new` wrap is
+# exactly what the umbrella's `gpui_kit::open_window` does internally, and
+# `Root::new`/`Root::update` remain public (base/src/root.rs :147/:183), so
+# no startup churn rides the bump.
 #
 # Exact pins (=), not caret (#126): each gpui-pre release is a snapshot of a
 # DIFFERENT zed rev — "same-ish version" is not the same code, so a pin that
@@ -28,22 +32,23 @@ anyhow = "1"
 # never remembered details). The caret already bit at birth: #124's manifest
 # said 0.3.1 and its own lockfile resolved 0.3.3, and 0.3.4 (zed@6916400) is
 # published now — one lockfile regen away from a silent behavior change.
-# Upstream pins its own family the same way (`=0.3.3` in gpui-pre-platform's
-# Cargo.toml, verified in the vendored crate). Bumps are deliberate PRs:
-# flip all three to the same new =x.y.z together, run the full gates, the
-# #125 upstream-quirk re-verification checklist, and an app smoke.
-gpui = { package = "gpui-pre", version = "=0.3.3" }
-gpui_platform = { package = "gpui-pre-platform", version = "=0.3.3", features = [
+# Upstream pins its own family the same way (=0.3.7 in gpui-pre-platform's
+# Cargo.toml at v0.7.0) and now pins the exact snapshot per release
+# (gpui-kit #3163). Bumps are deliberate PRs: flip all three to the same new
+# =x.y.z together, run the full gates, the #125 upstream-quirk
+# re-verification checklist, and an app smoke.
+gpui = { package = "gpui-pre", version = "=0.3.7" }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.7", features = [
     "font-kit", "x11", "wayland",
 ] }
 # Concrete gpui HttpClient — serves remote avatar images (docs/0005 §6.3,
 # doc 0012 D1). Same gpui-pre family as gpui; exact-pinned with it.
-reqwest_client = { package = "gpui-pre-reqwest-client", version = "=0.3.3" }
-gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "94a313a72a2513aee2780240cd322d552b2395f0" } # v0.6.0
+reqwest_client = { package = "gpui-pre-reqwest-client", version = "=0.3.7" }
+gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "0c830f4d257e69fdd17200650533ab4ca9a40cc0" } # v0.7.0
 # The nav-history primitive (docs/0048 D1): gpui_base::History — same
 # pinned checkout as gpui-component, so the family stays on one rev.
-gpui_base = { package = "gpui-base", git = "https://github.com/longbridge/gpui-component", rev = "94a313a72a2513aee2780240cd322d552b2395f0" }
-gpui-kit-assets = { git = "https://github.com/longbridge/gpui-component", rev = "94a313a72a2513aee2780240cd322d552b2395f0" } # v0.6.0
+gpui_base = { package = "gpui-base", git = "https://github.com/longbridge/gpui-component", rev = "0c830f4d257e69fdd17200650533ab4ca9a40cc0" }
+gpui-kit-assets = { git = "https://github.com/longbridge/gpui-component", rev = "0c830f4d257e69fdd17200650533ab4ca9a40cc0" } # v0.7.0
 dashboard-core = { path = "crates/core" }
 dashboard-debug = { path = "crates/debug" }
 dashboard-module-github = { path = "crates/modules/github" }

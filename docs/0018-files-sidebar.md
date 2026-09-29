@@ -52,6 +52,11 @@ The product owner wants GitHub-style master–detail instead:
 > identical (all semantic tokens survive). The Select `size_full` trap
 > below **survives** — `size_full` still at select.rs:465/782 — so the
 > wrapper-div workaround (§8) stays.
+>
+> **Re-verified at the v0.7.0 pin `0c830f4` (2026-09-29, #363):** the
+> wrapper stays proven — the probe passes on the new pin; 0.7.0's List
+> work (container `Role::List`, perf) doesn't touch the layout semantics
+> the workaround pins.
 
 All of this ships upstream today; no new dependencies:
 
@@ -283,3 +288,4 @@ window and asserts measured bounds via gpui `debug_bounds`, with
 test-only `debug_selector` anchors in `files.rs` (noop in release).
 Executable half re-run on the v0.6.0 pin (2026-09-09, #125): the probe
 passes on `94a313a` — the workaround remains necessary and proven.
+Re-run on the v0.7.0 pin (2026-09-29, #363): passes on `0c830f4` too.
