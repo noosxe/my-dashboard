@@ -77,7 +77,11 @@ fn dispatch_via(job_tx: &JobSender, request: Request) -> Result<Value, RpcError>
 }
 
 /// Ask the main thread to resolve the window and read
-fn request_dump(job_tx: &JobSender, window: Option<u64>) -> Result<(u64, String), RpcError> {
+fn request_dump(
+    job_tx: &JobSender,
+    window: Option<u64>,
+    dump_only: bool,
+) -> Result<(u64, String), RpcError> {
     let (tx, rx) = channel::<Result<(u64, String), RpcError>>();
     let job: Job = Box::new(move |app: &mut App| {
         let handle = match jobs::resolve_window(app, window) {
@@ -110,8 +114,27 @@ fn request_dump(job_tx: &JobSender, window: Option<u64>) -> Result<(u64, String)
                         }
                         Err(RpcError::new(
                             error_code::INTERNAL,
-                            "the a11y tree never became available — \
-                             activation did not produce a recorded frame",
+                            if dump_only {
+                                // No bus was activated, so nothing will
+                                // flip the a11y flag either — name the
+                                // two causes instead of a generic
+                                // timeout (docs/0010 D4).
+                                if cfg!(target_os = "macos") {
+                                    "the a11y tree never became available \
+                                     — macOS does not populate the a11y \
+                                     tree yet (upstream gap); logs and \
+                                     input.dispatch still work"
+                                } else {
+                                    "the a11y tree never became available \
+                                     — the a11y bus is off and no frame \
+                                     recorded the tree; retry with the \
+                                     bus up"
+                                }
+                            } else {
+                                "the a11y tree never became available \
+                                 activation did not produce a recorded \
+                                 frame"
+                            },
                         ))
                     };
                     // The receiver may be gone (client hung up): ignore.
@@ -150,23 +173,82 @@ fn resolve_window_id(job_tx: &JobSender, window: Option<u64>) -> Result<u64, Rpc
 }
 
 fn tree_dump(job_tx: &JobSender, params: TreeDumpParams) -> Result<Value, RpcError> {
-    let session = a11y::ensure_activated()?;
-    let (window_id, dump_json) = request_dump(job_tx, params.window)?;
+    // D4: the walk is enrichment, not substrate. Activation failure
+    // (no a11y bus — always on macOS, sometimes elsewhere) degrades
+    // the dump instead of failing it, so the in-app half still serves
+    // tree, snapshots, --tab-stops and wait-frame.
+    let activated = a11y::ensure_activated();
+    let (window_id, dump_json) = request_dump(job_tx, params.window, activated.is_err())?;
     let mut dump: Value = serde_json::from_str(&dump_json)
         .map_err(|err| internal(format!("dump re-parse: {err}")))?;
-    let walk = session.walk(window_id as usize)?;
-    let stats = merge::merge_dump(&mut dump, &walk);
+    let mut walk_note: Option<String> = None;
+    let stats = match &activated {
+        Ok(session) => match session.walk(window_id as usize) {
+            Ok(walk) => merge::merge_dump(&mut dump, &walk),
+            Err(err) => {
+                walk_note = Some(short_reason(&err));
+                dump_only_stats(&dump)
+            }
+        },
+        Err(err) => {
+            walk_note = Some(short_reason(err));
+            dump_only_stats(&dump)
+        }
+    };
     // The dump's own focus pointers are the only focus signal on this
     // stack (AT-SPI State::Focused never fires); surface them on the
     // nodes so --tab-stops and snapshot diffs can see focus moves.
     merge::mark_pointer_focus(&mut dump);
+    attach_summary(&mut dump, stats, walk_note.as_deref());
+    Ok(dump)
+}
+
+/// Stats for a dump served without the walk: node counts stay real,
+/// enrichment counts stay zero (docs/0010 D4 dump-only mode).
+fn dump_only_stats(dump: &Value) -> MergeStats {
+    let nodes = dump
+        .get("nodes")
+        .and_then(Value::as_object)
+        .map_or(0, |nodes| nodes.len());
+    MergeStats {
+        dump_nodes: nodes,
+        unmatched_dump: nodes,
+        ..MergeStats::default()
+    }
+}
+
+/// First sentence of an activation/walk error, bounded so the `walk`
+/// note stays readable in the dump.
+fn short_reason(err: &RpcError) -> String {
+    let first = err
+        .message
+        .split(". ")
+        .next()
+        .unwrap_or_default()
+        .to_string();
+    if first.chars().count() <= 140 {
+        first
+    } else {
+        let truncated: String = first.chars().take(140).collect();
+        format!("{truncated}…")
+    }
+}
+
+/// Attach `a11y_merge` (always) and the `walk` note (only when the
+/// walk did not run — bus-present responses stay byte-identical).
+fn attach_summary(dump: &mut Value, stats: MergeStats, walk_note: Option<&str>) {
     if let Some(object) = dump.as_object_mut() {
         object.insert(
             "a11y_merge".into(),
             serde_json::to_value(MergeStatsSummary::from(stats)).unwrap_or(Value::Null),
         );
+        if let Some(reason) = walk_note {
+            object.insert(
+                "walk".into(),
+                serde_json::json!({"status": "unavailable", "reason": reason}),
+            );
+        }
     }
-    Ok(dump)
 }
 
 #[derive(serde::Serialize)]
@@ -238,5 +320,49 @@ fn enrich_titles(list: &mut Value) {
         if let Some(object) = entry.as_object_mut() {
             object.insert("title".into(), title);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dump_only_summary_counts_nodes_and_notes_the_walk() {
+        let mut dump = serde_json::json!({
+            "frame": {"frame_number": 7},
+            "nodes": {"a": {"accesskit_id": "1"}, "b": {"accesskit_id": "2"}}
+        });
+        let stats = dump_only_stats(&dump);
+        assert_eq!(stats.dump_nodes, 2);
+        assert_eq!(stats.unmatched_dump, 2);
+        assert_eq!(stats.enriched, 0);
+        attach_summary(&mut dump, stats, Some("no session bus"));
+        assert_eq!(dump["a11y_merge"]["dump_nodes"], 2);
+        assert_eq!(dump["a11y_merge"]["enriched"], 0);
+        assert_eq!(dump["walk"]["status"], "unavailable");
+        assert_eq!(dump["walk"]["reason"], "no session bus");
+    }
+
+    #[test]
+    fn walk_present_responses_carry_no_walk_note() {
+        // Bus-present responses stay byte-identical: no `walk` key.
+        let mut dump = serde_json::json!({"nodes": {}});
+        attach_summary(&mut dump, MergeStats::default(), None);
+        assert!(dump.get("walk").is_none());
+        assert!(dump.get("a11y_merge").is_some());
+    }
+
+    #[test]
+    fn short_reason_takes_the_first_sentence_bounded() {
+        let err = RpcError::new(
+            error_code::A11Y_UNAVAILABLE,
+            "AT-SPI unavailable (boom). The debug bridge needs. More.",
+        );
+        assert_eq!(short_reason(&err), "AT-SPI unavailable (boom)");
+        let long = RpcError::new(0, format!("{}.", "x".repeat(200)));
+        let reason = short_reason(&long);
+        assert!(reason.chars().count() <= 141);
+        assert!(reason.ends_with('…'));
     }
 }

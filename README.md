@@ -158,6 +158,11 @@ On macOS the same dev shell evaluates (`nix develop` gives the pinned
 toolchain); the GUI runtime above — gpui's dylibs, AT-SPI, hermetic fonts —
 is Linux-only (the macOS backend is Cocoa/Metal and needs none of it).
 
+The debug bridge works on macOS in attach mode without that stack
+(`logs`, `key`/`type`/`mouse`, `doctor`); the `tree` cluster degrades
+to dump-only until the platform populates its a11y tree upstream
+([#400](https://github.com/noosxe/my-dashboard/issues/400)).
+
 One macOS wrinkle since the gpui-pre 0.3.7 pin (#363): the stack
 compiles its Metal shaders **at build time**, which needs (a) Xcode's
 downloadable Metal Toolchain —

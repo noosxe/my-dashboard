@@ -180,6 +180,17 @@ socket thread's async runtime and don't touch gpui types.
 Adapter index = window id (both follow window-creation order; verified
 against `accesskit_atspi_common::AppContext::adapter_index`).
 Single window in v1 (`params.window` optional; error if absent and
+
+**Shipped 2026-09-29 (#400):** the walk is enrichment, not substrate.
+When activation fails or the walk errors (no a11y bus — always on
+macOS, sometimes on Linux), `tree.dump` degrades to dump-only instead
+of failing: real node counts, zero enrichment counts, and a `walk
+{"status": "unavailable", "reason": …}` note on the response.
+Bus-present responses are byte-identical (no `walk` key). The frame
+header still advances dump-only, so `wait-frame` keeps working. On
+macOS the platform never populates the a11y tree yet (upstream gap),
+so the dump stays empty there until that lands; activation errors on
+macOS now say so instead of prescribing at-spi2 setup.
 `cx.windows().len() != 1`).
 
 ### D5 — Activation: `ScreenReaderEnabled` gate, auto-enabled by the bridge

@@ -34,11 +34,38 @@ impl Check {
     }
 }
 
-/// Classify `a11y_merge` counters (check 6): FAIL when nodes exist but
-/// nothing enriched (the bus is dead — every node is blind), WARN when
-/// a substantial share of dump nodes found no walk counterpart (the
-/// #351 class: app-side nodes the bus never saw).
-pub fn merge_verdict(nodes: usize, enriched: usize, unmatched_dump: usize) -> (Status, String) {
+/// Classify `a11y_merge` counters (check 6). Without a walk (dump-only
+/// mode, docs/0010 D4) the counters say nothing about bus health —
+/// WARN with the platform fact instead. With the walk: FAIL when nodes
+/// exist but nothing enriched (the bus is dead — every node is
+/// blind), WARN when a substantial share of dump nodes found no walk
+/// counterpart (the #351 class: app-side nodes the bus never saw).
+pub fn merge_verdict(
+    nodes: usize,
+    enriched: usize,
+    unmatched_dump: usize,
+    walk_available: bool,
+) -> (Status, String) {
+    if !walk_available {
+        if nodes == 0 {
+            return (
+                Status::Warn,
+                "no nodes and no walk — the a11y tree is not populated \
+                 (on macOS: upstream platform gap, docs/0010 D4); tree, \
+                 --tab-stops and snapshots are unavailable; logs and \
+                 input.dispatch still work"
+                    .to_string(),
+            );
+        }
+        return (
+            Status::Warn,
+            format!(
+                "dump-only: {nodes} nodes, no walk (a11y bus off) — \
+                 bounds/focusable/focused absent; focus comes from \
+                 the dump's own pointers"
+            ),
+        );
+    }
     if nodes == 0 {
         return (
             Status::Fail,
@@ -110,21 +137,35 @@ mod tests {
     #[test]
     fn merge_verdict_classes() {
         assert_eq!(
-            merge_verdict(0, 0, 0),
+            merge_verdict(0, 0, 0, true),
             (
                 Status::Fail,
                 "dump has no nodes — the tree is empty".to_string()
             )
         );
-        let (status, detail) = merge_verdict(50, 0, 50);
+        let (status, detail) = merge_verdict(50, 0, 50, true);
         assert_eq!(status, Status::Fail);
         assert!(detail.contains("bus is dead"));
-        let (status, detail) = merge_verdict(100, 70, 30);
+        let (status, detail) = merge_verdict(100, 70, 30, true);
         assert_eq!(status, Status::Warn);
         assert!(detail.contains("#351"));
-        let (status, detail) = merge_verdict(100, 99, 1);
+        let (status, detail) = merge_verdict(100, 99, 1, true);
         assert_eq!(status, Status::Ok);
         assert!(detail.contains("99/100"));
+    }
+
+    #[test]
+    fn merge_verdict_without_walk_is_dump_only() {
+        // Walk off + nodes present: dump-only, never a bus-health verdict.
+        let (status, detail) = merge_verdict(40, 0, 40, false);
+        assert_eq!(status, Status::Warn);
+        assert!(detail.contains("dump-only"));
+        assert!(detail.contains("40 nodes"));
+        // Walk off + no nodes: the not-populated fact (macOS pre-#401),
+        // not an empty-tree FAIL — nothing user-actionable failed.
+        let (status, detail) = merge_verdict(0, 0, 0, false);
+        assert_eq!(status, Status::Warn);
+        assert!(detail.contains("not populated"));
     }
 
     #[test]

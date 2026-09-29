@@ -117,14 +117,20 @@ pub fn shutdown() {
 }
 
 fn unavailable(err: impl std::fmt::Display) -> RpcError {
+    // Advice is platform-scoped: the at-spi2 fixes are noise on macOS,
+    // where no bus can exist (docs/0010 D4 dump-only mode, D7 fallbacks).
+    let advice = if cfg!(target_os = "macos") {
+        "AT-SPI is Linux-only: tree.dump serves the in-app half without the \
+         bus; drive the UI with the key/type/mouse verbs (input.dispatch) \
+         — node-id click/focus has no bus to ride."
+    } else {
+        "The debug bridge needs the at-spi2 bus. In a dev shell: \
+         `at-spi-bus-launcher --launch-immediately &` before running the app. \
+         On NixOS: services.gnome.at-spi2.enable + re-login. Then retry."
+    };
     RpcError::new(
         error_code::A11Y_UNAVAILABLE,
-        format!(
-            "AT-SPI unavailable ({err}). The debug bridge needs the at-spi2 \
-             bus. In a dev shell: `at-spi-bus-launcher --launch-immediately &` \
-             before running the app. On NixOS: services.gnome.at-spi2.enable \
-             + re-login. Then retry."
-        ),
+        format!("AT-SPI unavailable ({err}). {advice}"),
     )
 }
 
