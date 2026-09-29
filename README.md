@@ -166,7 +166,8 @@ run once per Xcode install (the dev shell's `xcodebuild` is a nix shim
 that can't; the dev shell warns at entry if it's missing) — and (b)
 Apple's `xcrun` for the `metal` tool, because the dev shell's 2019
 `xcbuild` xcrun shim cannot resolve the downloaded toolchain. The flake
-dev shell handles (b) automatically on macOS: its shellHook installs
+dev shell handles (b) automatically on macOS (works under `nix develop`
+and direnv's `use flake` alike): its shellHook installs
 `scripts/xcrun-metal-shadow.sh` as the first `PATH` entry — a wrapper
 that routes `metal`/`metallib` to Apple's `xcrun` (`DEVELOPER_DIR` →
 Xcode.app, override via `XCODE_DEVELOPER_DIR`) and everything else to the

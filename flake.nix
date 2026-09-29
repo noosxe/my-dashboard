@@ -211,7 +211,10 @@
               # (nix ld can't parse Xcode 27 .tbd files, so SDK resolution
               # must not move).
               + lib.optionalString isDarwin ''
-                shadow="''${TMPDIR:-/tmp}/my-dashboard-xcrun-shadow-$UID"
+                # Stable per-user dir (direnv/nix-direnv evaluates this
+                # hook ONCE and caches the env: a per-session $TMPDIR
+                # install would leave a dead PATH entry behind).
+                shadow="''${XDG_CACHE_HOME:-$HOME/.cache}/my-dashboard-xcrun-shadow"
                 mkdir -p "$shadow"
                 install -m 0755 ${./scripts/xcrun-metal-shadow.sh} "$shadow/xcrun"
                 export PATH="$shadow:$PATH"
