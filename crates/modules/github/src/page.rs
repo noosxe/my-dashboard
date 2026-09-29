@@ -1827,7 +1827,18 @@ impl GithubPage {
                                 let glyph = div()
                                     .id(id.clone())
                                     .debug_selector(move || id.to_string())
-                                    .child(Icon::new(icon).size_4().text_color(color))
+                                    // #397: pending spins, GitHub-style; the
+                                    // Spinner handles reduced-motion (static,
+                                    // zero frames) upstream and scopes the
+                                    // animation to this glyph's box.
+                                    .child(if state == gql::CheckState::Pending {
+                                        Spinner::new().icon(icon).color(color).into_any_element()
+                                    } else {
+                                        Icon::new(icon)
+                                            .size_4()
+                                            .text_color(color)
+                                            .into_any_element()
+                                    })
                                     .tooltip(move |window, cx| Tooltip::new(tip).build(window, cx));
                                 row.child(glyph)
                             })
@@ -1901,7 +1912,9 @@ impl GithubPage {
     /// (#67) — same tone contract as pr_page's `check_visual` (D7):
     /// success green, failure red, pending amber. The Neutral arm is
     /// unreachable via `rollup_state` (null rollup → no glyph) but
-    /// keeps the match exhaustive.
+    /// keeps the match exhaustive. Pending renders spinning upstream
+    /// (`Spinner`) at the call site — #397, decoration only; the
+    /// tooltip carries the semantics.
     fn ci_row_glyph(
         state: gql::CheckState,
         cx: &Context<Self>,
