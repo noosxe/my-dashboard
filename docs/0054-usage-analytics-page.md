@@ -664,3 +664,14 @@ any `None` degrades gracefully across every consumer.
   splits per transport) + slowest-op card (D16) — owner pick A + B;
   failed-flights card stays deferred in #336, the >1s badge and
   p50/p90 strip stay deferred in #337 (scope amended by comment).
+
+## 12. Errata (post-ship fix, 2026-09-27)
+
+**Chart x-axis tick density.** The overview and trend line panels shipped
+with upstream `LineChart`'s default `tick_margin` of 1 — one x label per
+bucket. Combined with the ~40-bucket rule (§7) and the second-resolution
+labels the ordinal point scale forces (§5, `format_hms`), a populated
+window drew ~40 eight-character labels into a ~300–450 px panel: unreadable.
+The shared panel now thins ticks to at most six (`tick_stride`), preferring
+a stride that also lands a tick on the newest sample so "now" stays
+readable. Data resolution is unchanged — thinning affects axis labels only.

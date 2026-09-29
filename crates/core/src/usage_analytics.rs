@@ -1411,6 +1411,22 @@ fn unique_labels(ts: &[u64]) -> Vec<SharedString> {
     labels.into_iter().map(SharedString::from).collect()
 }
 
+/// The most x-tick labels a chart panel shows (docs/0054 §12): our
+/// second-resolution labels are ~8 chars, and upstream `LineChart`
+/// defaults `tick_margin` to 1 — one label per bucket overflows any
+/// panel width and the axis turns to mush.
+const MAX_X_TICKS: usize = 6;
+
+/// Even tick thinning for `n` points: show ≤ [`MAX_X_TICKS`] labels.
+/// Prefers a stride that also lands a tick on the newest sample
+/// (upstream keeps index `i` when `(i + 1) % stride == 0`, so
+/// `n % stride == 0` labels the last point); widens the search two
+/// steps before settling for the ceil.
+fn tick_stride(points: usize) -> usize {
+    let base = points.div_ceil(MAX_X_TICKS).max(1);
+    (base..=base + 2).find(|s| points % s == 0).unwrap_or(base)
+}
+
 /// Snapshot age copy: `3m ago`, `2h ago` — staleness stays visible
 /// (D11 card 2).
 fn age_of(ms: u64) -> String {
@@ -1496,12 +1512,17 @@ fn line_panel<T: 'static>(
     cx: &Context<T>,
 ) -> impl IntoElement {
     let muted = cx.theme().muted_foreground;
+    // Before the move: `data` is consumed by `LineChart::new` below.
+    let ticks = tick_stride(data.len());
     let mut chart = LineChart::new(data)
         .id(id.to_string())
         .name(id)
         .x(|p: &(SharedString, f64)| p.0.clone())
         .y(|p: &(SharedString, f64)| p.1)
-        .stroke(stroke);
+        .stroke(stroke)
+        // docs/0054 §12: thin the x labels — upstream defaults to one
+        // per point, which drowns the axis at ~40 buckets.
+        .tick_margin(ticks);
     if step {
         chart = chart.step_after();
     }
@@ -3303,6 +3324,26 @@ mod tests {
         )
     }
 
+    #[test]
+    fn tick_stride_keeps_labels_readable_and_recent() {
+        // docs/0054 §12: ≤ MAX_X_TICKS labels per axis; when a stride
+        // can also land on the newest sample it does — 40 buckets (the
+        // shared rule) → stride 8: five ticks, the last one = now.
+        assert_eq!(tick_stride(0), 1);
+        assert_eq!(tick_stride(5), 1);
+        assert_eq!(tick_stride(6), 1);
+        assert_eq!(tick_stride(7), 2);
+        assert_eq!(tick_stride(13), 3);
+        assert_eq!(tick_stride(37), 7);
+        assert_eq!(tick_stride(40), 8);
+        for n in [0, 1, 5, 7, 13, 37, 40] {
+            let stride = tick_stride(n);
+            assert!(
+                n == 0 || n.div_ceil(stride) <= MAX_X_TICKS,
+                "{n} points at stride {stride} still dense"
+            );
+        }
+    }
     #[test]
     fn window_is_half_open_on_both_ends() {
         let rows = vec![
