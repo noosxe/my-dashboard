@@ -104,10 +104,24 @@ pub(crate) fn run_grim(record: &SessionRecord, session_root: &Path, stem: &str) 
     0
 }
 
-/// `doctor [--session <name>]` (D13): nine checks, one verdict.
+/// `doctor [--session <name>]` (D13): ten checks, one verdict — the
+/// platform line scopes the rest (a mac attach is not a broken linux
+/// session; docs/0010 D4 dump-only mode).
 pub fn doctor(session: Option<&str>) -> i32 {
     let mut checks: Vec<Check> = Vec::new();
 
+    // 0: what this platform supports — scopes every later line.
+    checks.push(Check::new(
+        "platform",
+        Status::Info,
+        if cfg!(target_os = "macos") {
+            "macos attach mode — logs, input.dispatch and quit work; the tree \
+             cluster waits on a11y-tree population (docs/0010 D4)"
+                .to_string()
+        } else {
+            "linux — full bridge: sessions, tree, AT-SPI enrichment".to_string()
+        },
+    ));
     // 1-3: the session record and what it points at. Without a session
     // these have nothing to check — the default attach has no record.
     let mut record = None;
@@ -343,11 +357,20 @@ pub fn doctor(session: Option<&str>) -> i32 {
                 )),
             }
         } else {
-            checks.push(Check::new(
-                "frames",
-                Status::Fail,
-                "tree.dump failed — the app is wedged; restart the session",
-            ));
+            let (status, detail) = if cfg!(target_os = "macos") {
+                (
+                    Status::Na,
+                    "tree.dump unavailable — macOS does not populate the a11y \
+                     tree yet (docs/0010 D4); frames are not observable \
+                     until it does",
+                )
+            } else {
+                (
+                    Status::Fail,
+                    "tree.dump failed — the app is wedged; restart the session",
+                )
+            };
+            checks.push(Check::new("frames", status, detail));
         }
     }
 
@@ -367,9 +390,20 @@ pub fn doctor(session: Option<&str>) -> i32 {
                 .and_then(Value::as_u64)
                 .unwrap_or(0),
         );
-        let (status, detail) =
-            doctor::merge_verdict(nodes as usize, enriched as usize, unmatched as usize);
+        let walk_available = dump.get("walk").is_none();
+        let (status, detail) = doctor::merge_verdict(
+            nodes as usize,
+            enriched as usize,
+            unmatched as usize,
+            walk_available,
+        );
         checks.push(Check::new("a11y merge", status, detail));
+    } else if conn.is_some() {
+        checks.push(Check::new(
+            "a11y merge",
+            Status::Na,
+            "not checked — tree.dump unavailable on this platform",
+        ));
     }
 
     // 7: the recorded flag vs the bus. A *live* bridge legitimately
@@ -427,6 +461,10 @@ pub fn doctor(session: Option<&str>) -> i32 {
         Status::Info,
         if grim_path().is_some() {
             "on PATH — screenshots ready (D10)".to_string()
+        } else if cfg!(target_os = "macos") {
+            "not applicable on macOS (grim is a Wayland tool) — screenshots \
+             wait on the in-app frame capture (docs/0055 follow-ups)"
+                .to_string()
         } else {
             "not on PATH — screenshots unavailable; the dev shell ships it".to_string()
         },

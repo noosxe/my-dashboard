@@ -471,6 +471,14 @@ discovery target) prints one line per check, `[ok]` / `[FAIL]` /
 Output ends with a one-line verdict. This is the command that turns
 "silently verified nothing" into a named failure.
 
+**Shipped 2026-09-29 (#400):** the list now opens with a `platform`
+line (ten checks): on macOS doctor scopes itself to attach mode —
+tree-cluster checks report `[n/a]` with the platform fact instead of
+linux session failure classes, and the merge verdict distinguishes
+dump-only dumps (walk unavailable, docs/0010 D4) from a dead bus.
+grim reports not-applicable on macOS instead of a PATH miss. Linux
+output is unchanged for healthy sessions.
+
 Implementation notes (#357): the frames nudge is a **`key tab`, not a
 mouse move** — gpui redraws only on state change, and a mouse move
 that crosses no hover boundary draws nothing (verified live on both a
