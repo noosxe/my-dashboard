@@ -3154,7 +3154,17 @@ impl PrDetailPage {
                     .items_center()
                     .px_3()
                     .py_2()
-                    .child(Icon::new(icon).size_4().text_color(color))
+                    // #397: running rows spin, GitHub-style; Spinner
+                    // covers reduced-motion (static, zero frames) and
+                    // keeps the animation inside the glyph's box.
+                    .child(if check.state == gql::CheckState::Pending {
+                        Spinner::new().icon(icon).color(color).into_any_element()
+                    } else {
+                        Icon::new(icon)
+                            .size_4()
+                            .text_color(color)
+                            .into_any_element()
+                    })
                     .child(
                         div()
                             .text_sm()
@@ -5388,7 +5398,9 @@ pub(crate) fn checks_header_line(counts: &ChecksCounts) -> String {
 
 /// Unified check state → (icon, theme color) for the D7 row mapping:
 /// SUCCESS success / FAILURE danger / running warning / NEUTRAL+SKIPPED
-/// muted.
+/// muted. Running rows render the LoaderCircle spinning upstream
+/// (`Spinner`) at the call site — #397, decoration only; reduced
+/// motion renders it static.
 fn check_visual(state: gql::CheckState, cx: &Context<PrDetailPage>) -> (IconName, Hsla) {
     match state {
         gql::CheckState::Success => (IconName::CircleCheck, cx.theme().success),

@@ -563,3 +563,15 @@ closes the timeline. Notes beyond §11's follow-up line:
 - **Testing**: probe test — absent when every node is on the page,
   present after a refetch that truncates both connections; the issue
   page gains a comments-only-truncation arm on its existing cap test.
+
+## 13. Shipped (2026-09-29, issue #397 — spinning pending glyph)
+
+The D7 `running` row glyph animates: pending checks render through the
+upstream `Spinner` (`IconName::LoaderCircle` in the same warning amber
+via `.color()`, Medium = the `size_4` the static arms keep) instead of a
+static `Icon`. The tone contract itself is untouched — amber in, amber
+out. Animation is decoration only: the row text and details carry the
+semantics, upstream handles reduced-motion (static, zero frame
+requests), and the animation stays scoped to the glyph's box so rows
+repaint only their icon area. The repo-view PR rows spin through the
+same seam (0007 §10).

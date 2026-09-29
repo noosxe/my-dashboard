@@ -323,3 +323,8 @@ passing" / "CI: failing" / "CI: pending"), `CircleCheck`/`CircleX`/
 `LoaderCircle` per the icon family, probe key `pr-ci-{key}` (0010 D10).
 Same tone contract as the PR-detail page's `check_visual` (0016 D7).
 Snapshot-only — no query, service, or cache changes.
+
+**2026-09-29, #397**: the pending glyph above now spins — same
+`LoaderCircle`, same warning amber, rendered through the upstream
+`Spinner` (reduced-motion: static). Decoration only; the tooltip keeps
+the "CI: pending" semantics and the probe row/bounds are unchanged.
