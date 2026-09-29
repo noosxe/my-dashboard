@@ -158,6 +158,13 @@ On macOS the same dev shell evaluates (`nix develop` gives the pinned
 toolchain); the GUI runtime above — gpui's dylibs, AT-SPI, hermetic fonts —
 is Linux-only (the macOS backend is Cocoa/Metal and needs none of it).
 
+macOS OS-notification delivery (docs/0060) additionally requires a trusted
+bundle — plain `cargo run` posts are silently dropped by macOS.
+`./scripts/macos-app.sh` builds the release binary, wraps it in
+`My Dashboard.app` (ad-hoc signed), and installs it into `~/Applications`;
+`SIGN_IDENTITY=<id>` re-signs with a stable identity so rebuilds don't
+re-prompt for notification authorization.
+
 Gates before pushing (see [AGENTS.md](AGENTS.md)):
 `cargo fmt --all --check`, `cargo clippy --workspace --all-targets` (zero
 warnings), `cargo test --workspace`.

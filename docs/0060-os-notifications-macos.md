@@ -184,3 +184,31 @@ already has a home for it.
 - Sounds, app icon, dock badge count, notification-center widget.
 - Release packaging: DMG, notarization, signed distribution builds.
 - Querying or surfacing authorization state in-app (not exposed by gpui).
+
+## 8. Implementation notes (2026-09-28, #395)
+
+- **D2 deviation, API-level:** the sketch used `WindowHandle::is_active()
+  -> Option<bool>`; the drain site holds a live `&mut Window`, whose API
+  is `Window::is_window_active() -> bool` (gpui-pre-0.3.3 `window.rs:2664`)
+  — no borrow gymnastics, and no `None` case arises at the drain. The
+  gate takes a plain `bool`; "unknown → deliver" collapses into
+  "not focused → deliver" (`deliver_to_os = !window_active`).
+- **D3 correction:** there was no pre-existing on-close → mark-read wiring
+  to ride — docs/0059 shipped panel-open as the read path, and upstream
+  `on_close` fires on autohide too, so it can't discriminate. The click
+  path instead wires `Notification::on_click` → the new
+  `ToastHub::mark_read_by_key`, an unambiguous human action. A side
+  effect: an in-app toast *body* click now also marks its entry read —
+  docs/0059 D2's toast-side read path arriving with it. Unkeyed raises
+  still read via the panel only (can't be attributed to a click).
+- **D5 placement:** the post-attempt log line lives in
+  `into_notification` (the single mapping point), not the drain.
+- **Tests:** gate truth table + per-platform delivery mapping (both
+  compile paths), plus the D3 acceptance test replaying the platform
+  response with the shown notification's tag (`NotificationId`/`system_tag`
+  are `pub(crate)` upstream, so the tag is read back from
+  `shown_system_notifications()`). The acceptance test is macOS-gated;
+  the test platform never activates windows, so the gate is
+  deterministically open, and identity-less tests elsewhere no-op their
+  system posts exactly as upstream documents (test platform drops posts
+  until an identity is set).
