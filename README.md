@@ -163,14 +163,17 @@ compiles its Metal shaders **at build time**, which needs (a) Xcode's
 downloadable Metal Toolchain —
 `/Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -downloadComponent MetalToolchain`,
 run once per Xcode install (the dev shell's `xcodebuild` is a nix shim
-that can't do it) — and (b) Apple's `xcrun` for the `metal` tool,
-because the dev shell's 2019 `xcbuild` xcrun shim cannot resolve the
-downloaded toolchain. Gate runs shadow just that: put a dir first on
-`PATH` whose `xcrun` delegates `metal`/`metallib` to `/usr/bin/xcrun`
-with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` and
-everything else to the shim (SDK resolution for the nix cc/ld wrappers
-must stay on the shim — nix's ld cannot parse Xcode 27's `.tbd`
-format).
+that can't; the dev shell warns at entry if it's missing) — and (b)
+Apple's `xcrun` for the `metal` tool, because the dev shell's 2019
+`xcbuild` xcrun shim cannot resolve the downloaded toolchain. The flake
+dev shell handles (b) automatically on macOS: its shellHook installs
+`scripts/xcrun-metal-shadow.sh` as the first `PATH` entry — a wrapper
+that routes `metal`/`metallib` to Apple's `xcrun` (`DEVELOPER_DIR` →
+Xcode.app, override via `XCODE_DEVELOPER_DIR`) and everything else to the
+stock shim, since SDK resolution for the nix cc/ld wrappers must stay
+there (nix's ld cannot parse Xcode 27's `.tbd` format). Outside the dev
+shell, the same script works standalone:
+`PATH="$(dirname scripts/xcrun-metal-shadow.sh):$PATH" cargo build`.
 
 macOS OS-notification delivery (docs/0060) additionally requires a trusted
 bundle — plain `cargo run` posts are silently dropped by macOS.
