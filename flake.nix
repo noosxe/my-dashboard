@@ -32,6 +32,7 @@
         inherit (pkgs) lib;
 
         isLinux = pkgs.stdenv.hostPlatform.isLinux;
+        isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
 
         # Hermetic font config for the GUI in the *dev shell* (mirrors
         # upstream). The installed package deliberately does NOT pin
@@ -96,10 +97,10 @@
           cargoLock = {
             lockFile = ./Cargo.lock;
             outputHashes = {
-              "gpui-base-0.6.0" = "sha256-KTzR9JeRpYfVQex19iY/RLoLo829wA7mVvlzcX327G0=";
-              "gpui-component-0.6.0" = "sha256-KTzR9JeRpYfVQex19iY/RLoLo829wA7mVvlzcX327G0=";
-              "gpui-component-macros-0.6.0" = "sha256-KTzR9JeRpYfVQex19iY/RLoLo829wA7mVvlzcX327G0=";
-              "gpui-kit-assets-0.6.0" = "sha256-KTzR9JeRpYfVQex19iY/RLoLo829wA7mVvlzcX327G0=";
+              "gpui-base-0.7.0" = "sha256-Ii3wGy0gLfT2PiSkrqNWPCT2SdSAz5CruC46UrW/55M=";
+              "gpui-component-0.7.0" = "sha256-Ii3wGy0gLfT2PiSkrqNWPCT2SdSAz5CruC46UrW/55M=";
+              "gpui-component-macros-0.7.0" = "sha256-Ii3wGy0gLfT2PiSkrqNWPCT2SdSAz5CruC46UrW/55M=";
+              "gpui-kit-assets-0.7.0" = "sha256-Ii3wGy0gLfT2PiSkrqNWPCT2SdSAz5CruC46UrW/55M=";
             };
           };
 
@@ -199,9 +200,29 @@
               );
             };
             # at-spi2-core ships its daemons in libexec/, not bin/.
-            shellHook = lib.optionalString isLinux ''
-              export PATH="${atSpi}/libexec:$PATH"
-            '';
+            shellHook =
+              lib.optionalString isLinux ''
+                export PATH="${atSpi}/libexec:$PATH"
+              ''
+              # gpui-pre >= 0.3.7 compiles Metal shaders at build time
+              # (README "Development"): shadow xcrun with the delegating
+              # wrapper so `metal`/`metallib` resolve Xcode's downloadable
+              # Metal Toolchain while SDK queries stay on the stock shim
+              # (nix ld can't parse Xcode 27 .tbd files, so SDK resolution
+              # must not move).
+              + lib.optionalString isDarwin ''
+                shadow="''${TMPDIR:-/tmp}/my-dashboard-xcrun-shadow-$UID"
+                mkdir -p "$shadow"
+                install -m 0755 ${./scripts/xcrun-metal-shadow.sh} "$shadow/xcrun"
+                export PATH="$shadow:$PATH"
+                # The Metal Toolchain is a per-Xcode-install download; fail
+                # loudly at shell entry instead of deep inside a build.
+                if env DEVELOPER_DIR="''${XCODE_DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}" \
+                    /usr/bin/xcrun metal --version 2>&1 | grep -q 'missing Metal Toolchain'; then
+                  echo "warning: Xcode's Metal Toolchain is missing — Metal-shader builds will fail. Fix once per Xcode install:" >&2
+                  echo "  /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -downloadComponent MetalToolchain" >&2
+                fi
+              '';
           };
       }
     )
