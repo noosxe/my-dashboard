@@ -12,7 +12,7 @@ use gpui_component::{
     breadcrumb::{Breadcrumb, BreadcrumbItem},
     button::{Button, ButtonVariants},
     h_flex,
-    notification::Notification,
+    notification::{Notification, NotificationDelivery},
     setting::Settings,
     sidebar::{Sidebar, SidebarCollapsible, SidebarHeader, SidebarMenuItem, SidebarToggleButton},
     v_flex,
@@ -162,9 +162,12 @@ impl DashboardShell {
         if staged.is_empty() {
             return;
         }
+        // docs/0060 D2: one activation read per drain — the whole batch
+        // shares the window state at drain time.
+        let active = window.is_window_active();
         Root::update(window, cx, |root, window, cx| {
             for toast in staged {
-                root.push_notification(toast.into_notification(), window, cx);
+                root.push_notification(toast.into_notification(hub, active), window, cx);
             }
         });
     }
@@ -811,10 +814,22 @@ struct HubToast;
 
 impl toasts::Toast {
     /// D3's mapping: severity constructor per level, `Error` sticky, the
-    /// dedupe key as the upstream id. `ToastAction` is carried but not
-    /// wired yet — docs/0058 §10 defers action wiring until a raise site
-    /// needs one (upstream's `.action()` would also force sticky).
-    fn into_notification(self) -> Notification {
+    /// dedupe key as the upstream id. docs/0060 D2/D3 add the OS-delivery
+    /// gate and click-marks-read wiring on keyed raises. `ToastAction`
+    /// is carried but not wired yet — docs/0058 §10 defers action wiring
+    /// until a raise site needs one (upstream's `.action()` would also
+    /// force sticky).
+    fn into_notification(self, hub: &Entity<toasts::ToastHub>, active: bool) -> Notification {
+        let delivery = os_delivery(active);
+        if delivery.includes_system() {
+            // docs/0060 D5: a denied or unavailable authorization drops
+            // the post silently — this line is the only trace it fired.
+            log::info!(
+                "posting os notification key={:?} level={:?} (docs/0060 D5)",
+                self.dedupe_key,
+                self.level
+            );
+        }
         let mut note = match self.level {
             toasts::Level::Info => Notification::info(self.message),
             toasts::Level::Success => Notification::success(self.message),
@@ -825,9 +840,33 @@ impl toasts::Toast {
             note = note.title(title);
         }
         if let Some(key) = self.dedupe_key {
-            note = note.id1::<HubToast>(key);
+            // docs/0060 D3/F9: the key gives OS posts replace-not-stack
+            // semantics upstream, and a banner (or toast) click is a
+            // human action — it marks that incident read (docs/0059 D2).
+            // Unkeyed raises keep today's behavior: read via the panel.
+            let hub = hub.clone();
+            note = note.id1::<HubToast>(key.clone()).on_click(move |_, _, cx| {
+                hub.update(cx, |hub, cx| hub.mark_read_by_key(&key, cx));
+            });
         }
-        note
+        note.delivery(delivery)
+    }
+}
+
+/// docs/0060 D2: the activation gate — a hub raise reaches the OS
+/// notification center only while the owner is not looking at the app.
+fn deliver_to_os(window_active: bool) -> bool {
+    !window_active
+}
+
+/// docs/0060 D1: the gate compiles to `InApp` off macOS — behavior there
+/// is byte-identical to docs/0058 (Windows needs identity plumbing we
+/// don't run; Linux can't retract, breaking docs/0059 D2's ✕-retracts).
+fn os_delivery(window_active: bool) -> NotificationDelivery {
+    if cfg!(target_os = "macos") && deliver_to_os(window_active) {
+        NotificationDelivery::InAppAndSystem
+    } else {
+        NotificationDelivery::InApp
     }
 }
 
@@ -843,13 +882,16 @@ mod tests {
         VisualTestContext, Window, div, point, px,
     };
 
-    use super::DashboardShell;
+    use super::{DashboardShell, deliver_to_os, os_delivery};
     use crate::ShellState;
     use crate::module::{Module, ModuleEntry, ModuleMeta, ModuleNav};
     use crate::nav::{Navigator, Page, Route};
     use crate::paths::AppPaths;
     use crate::registry::ModuleRegistry;
-    use gpui_component::{Root, notification::Notification};
+    use gpui_component::{
+        Root,
+        notification::{Notification, NotificationDelivery},
+    };
 
     // docs/0048 D3/D6 shell contract, with a minimal fake module:
     // cross-branch `navigate` collapses the abandoned module, Back
@@ -1281,5 +1323,90 @@ mod tests {
             vcx.debug_bounds("notification-panel").is_some(),
             "the panel renders with the snapshot rows"
         );
+    }
+
+    /// docs/0060 D2: the gate is a pure function of window activation —
+    /// focused raises stay in-app, unfocused ones also reach the OS
+    /// notification center.
+    #[test]
+    fn os_delivery_gate_follows_window_activation() {
+        assert!(!deliver_to_os(true));
+        assert!(deliver_to_os(false));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn os_delivery_maps_the_gate_on_macos() {
+        assert_eq!(os_delivery(true), NotificationDelivery::InApp);
+        assert_eq!(os_delivery(false), NotificationDelivery::InAppAndSystem);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn os_delivery_stays_in_app_off_macos() {
+        assert_eq!(os_delivery(true), NotificationDelivery::InApp);
+        assert_eq!(os_delivery(false), NotificationDelivery::InApp);
+    }
+
+    /// docs/0060 D3 acceptance: a keyed raise drained while the window is
+    /// unfocused lands in the OS notification center (macOS only; the
+    /// test platform never activates windows, so the gate is open), and
+    /// the banner click must mark the hub entry read. Mirrors upstream's
+    /// notification.rs system tests: identity first, then replay the
+    /// platform response with the shown notification's tag.
+    #[cfg(target_os = "macos")]
+    #[gpui::test]
+    fn os_banner_click_marks_keyed_hub_entry_read(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            crate::settings::init(None, None, cx);
+            crate::status::init(cx);
+            crate::toasts::init(cx);
+            cx.set_app_identity("com.noosxe.my-dashboard", "My Dashboard");
+        });
+        let nav = cx.update(|cx| cx.new(|_| Navigator::default()));
+        let (_root, vcx) = {
+            let nav = nav.clone();
+            cx.add_window_view(|window, cx| {
+                let registry =
+                    ModuleRegistry::new().with::<FakeModule>(&nav, window, AppPaths::init(), cx);
+                let shell = cx.new(|cx| {
+                    DashboardShell::new(registry, nav, ShellState::default(), None, window, cx)
+                });
+                Root::new(shell, window, cx)
+            })
+        };
+
+        // Unfocused drain: the test window never activates, so the gate
+        // (docs/0060 D2) is open and the post goes to the OS center.
+        vcx.update(|_, cx| {
+            crate::toasts::raise(
+                cx,
+                crate::toasts::Toast::new(crate::toasts::Level::Warning, "token expired")
+                    .title("GitHub")
+                    .dedupe_key("github-auth-expired"),
+            );
+        });
+        vcx.update(|window, cx| window.draw(cx).clear(cx));
+
+        let shown = vcx.shown_system_notifications();
+        assert_eq!(shown.len(), 1, "the unfocused drain must post once");
+        let tag = shown[0].tag.clone();
+
+        vcx.simulate_system_notification_response(gpui::SystemNotificationResponse {
+            tag,
+            action_id: None,
+        });
+        vcx.run_until_parked();
+
+        vcx.update(|_, cx| {
+            let hub = crate::toasts::hub(cx);
+            let entries = hub.read(cx).log();
+            assert_eq!(entries.len(), 1);
+            assert!(
+                entries[0].read,
+                "a banner click is a human action (docs/0059 D2 / 0060 D3)"
+            );
+        });
     }
 }

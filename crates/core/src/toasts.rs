@@ -288,6 +288,25 @@ impl ToastHub {
     pub fn clear_panel(&mut self) {
         self.panel_view.clear();
     }
+
+    /// Human action (docs/0060 D3): a click on a keyed raise's toast or
+    /// OS banner marks that incident's entries read — the same intent as
+    /// opening the panel (docs/0059 D2), one incident at a time. All
+    /// entries sharing the key flip together: same incident, re-armed.
+    /// Returns whether anything flipped (the badge only re-renders then).
+    pub fn mark_read_by_key(&mut self, key: &SharedString, cx: &mut Context<Self>) -> bool {
+        let mut marked = false;
+        for entry in &mut self.entries {
+            if entry.toast.dedupe_key.as_ref() == Some(key) {
+                marked |= !entry.read;
+                entry.read = true;
+            }
+        }
+        if marked {
+            cx.notify();
+        }
+        marked
+    }
     #[cfg(test)]
     fn pending_len(&self) -> usize {
         self.pending.len()

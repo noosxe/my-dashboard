@@ -48,7 +48,7 @@ All checked against the pinned checkout — `crates/component` unless noted.
   Dismissal by source type: `Root::remove_notification::<T>()`.
 - **F4** — `NotificationDelivery` defaults to **`InApp`**; OS notification
   center delivery is strictly opt-in per notification (`notification.rs:53–70`).
-  We never set it.
+  docs/0060 opts in behind the window-activation gate (macOS only).
 - **F5** — lifecycle: autohide → `ToastOptions { timeout: 5 s }`, otherwise the
   toast is sticky until dismissed; a wall-clock advancing loop drives
   enter/exit transitions (`notification.rs:798–860`, shell `root.rs:47`).
@@ -261,7 +261,8 @@ the hub's type) maps level → severity ctor, `dedupe_key` → `.id1`, error →
 
 From the issue: OS/system notification integration (DBus
 `org.freedesktop.Notifications`, `NSUserNotification`) — upstream supports it
-(F4) and we simply never opt in; per-module custom toast styling; sounds.
+(F4); docs/0060 opts macOS in behind the activation gate — Windows/Linux
+stay out (0060 D1); per-module custom toast styling; sounds.
 Added here: toast persistence or restart replay; a toast settings UI; toast
 actions wiring beyond the `ToastAction` type (no first consumer yet).
 

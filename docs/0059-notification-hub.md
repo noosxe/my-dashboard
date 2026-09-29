@@ -165,8 +165,9 @@ opens a **panel** listing unread notifications, where they can be cleared.
 - Cross-session persistence of the log (needs storage decision) — D5.
 - Per-entry actions/deep links — D7, rides #382.
 - Notification preferences/settings UI.
-- OS-notification delivery bridging (upstream `NotificationDelivery` exists;
-  separate evaluation).
+- OS-notification delivery bridging — resolved: docs/0060 ships the
+  macOS-only window-activation gate (banner click marks read via the
+  key); Windows/Linux remain deferred there (0060 §7).
 
 ## 9. Review resolutions (owner, 2026-09-27)
 
