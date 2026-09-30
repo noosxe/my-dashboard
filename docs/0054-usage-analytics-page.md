@@ -392,8 +392,20 @@ charts (D4–D8), and adds one control.
    caption; the slowest table caps at 20 and shows `queue` in its own
    right-aligned column, `—` when not recorded)*
 
-**Deferred views** — distribution histogram, at-a-glance strip,
-304-vs-200 time comparison: issue #337 (`deferred`).
+**Deferred views — landed with #337.** The round-5 deferral, as
+amended (its slowest-op item was absorbed into D16): *(implemented
+in the #337 PR — PR #NNN: the at-a-glance strip renders p50/p90 per
+transport plus the >1 s count as the tab's first card row; the
+distribution histogram is six fixed bands — `<100 ms`, `100–250`,
+`250–500`, `0.5–1 s`, `1–2 s`, `>2 s` — always all six in band order,
+empty bands kept, horizontal bars beside the trend; the 304-vs-200
+comparison lists only ops with both sides in-window — median per
+side, Δ median, and a `≈` bytes-saved estimate from `resp_bytes` —
+as a table after the slowest list. All three ride the D13 split
+(procedures `latency_glance` / `duration_histogram` /
+`revalidation_comparison`, each with its `{window, filters}` query)
+and freeze with the page's `as_of`. The payload-size histogram
+split and the contention view stay deferred: #410.)*
 
 ## 7. The analytics calculator (shared engine)
 
@@ -555,8 +567,9 @@ any `None` degrades gracefully across every consumer.
 - Calculator units, per procedure: fixture rows → expected structs
   (quota, latency ranking incl. nearest-rank percentiles and the
   metric selector, trend bucketing rule, slowest-flights order and
-  context, overview cards); determinism on seq-ordered input; serde
-  JSON round-trip of every output struct.
+  context, overview cards, #337 views — band boundaries, per-
+  transport glance, revalidation medians and bytes); determinism on
+  seq-ordered input; serde JSON round-trip of every output struct.
 - Overview chart units: bucket sums equal the window's Σ cost (per
   transport); burn-down carry-forward holds the last snapshot to
   `as_of`; ceiling line present only when `limit_after` exists;
@@ -595,7 +608,8 @@ any `None` degrades gracefully across every consumer.
 - CLI/MCP exposure itself — future work; the calculator (D13) is the
   seam it will consume, including serializer versioning.
 - Flight-overlap/contention chart — derivable from `ts − duration`
-  intervals + `queue_ms`; deferred with #337's enrichment notes.
+  intervals + `queue_ms`; deferred with the payload-size histogram
+  split (#410).
 - Retry/attempt index field — 401 re-entries already re-emit as
   separate records (0053 D1); linkage is seq adjacency.
 - CSV/export of the table.

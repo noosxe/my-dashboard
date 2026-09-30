@@ -597,6 +597,245 @@ pub fn slowest_flights(rows: &[UsageRecord], q: &SlowestQuery) -> SlowestFlights
 }
 
 // ---------------------------------------------------------------------------
+// Deferred latency views (#337): distribution histogram, at-a-glance
+// strip, 304-vs-200 comparison
+// ---------------------------------------------------------------------------
+
+/// The at-a-glance strip's slow line (#337): how many flights were
+/// actually slow. Same boundary as the histogram's `1–2 s` band, so
+/// the two views count the same flights.
+const OVER_1S_MS: u32 = 1_000;
+
+/// The fixed duration bands of the histogram (#337): upper bounds,
+/// half-open below — 100 ms lands in `100–250 ms`, not `<100 ms`.
+const DURATION_BAND_BOUNDS_MS: [u32; 5] = [100, 250, 500, 1_000, 2_000];
+
+/// The band labels, in band order — fixed, never re-sorted by count:
+/// the tail's position *is* the information (spike or plateau).
+const DURATION_BAND_LABELS: [&str; 6] = [
+    "<100 ms",
+    "100–250 ms",
+    "250–500 ms",
+    "0.5–1 s",
+    "1–2 s",
+    ">2 s",
+];
+
+fn band_index(duration_ms: u32) -> usize {
+    DURATION_BAND_BOUNDS_MS
+        .iter()
+        .position(|&upper| duration_ms < upper)
+        .unwrap_or(DURATION_BAND_LABELS.len() - 1)
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HistogramQuery {
+    pub window: WindowSpec,
+    pub filters: Filters,
+}
+
+/// One duration band of the histogram — always the full set, in band
+/// order, empty bands included (honest gaps, like the trend's empty
+/// buckets).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DurationBand {
+    pub label: String,
+    pub lower_ms: u32,
+    /// `None` for the last band (`>2 s`).
+    pub upper_ms: Option<u32>,
+    pub flights: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DurationHistogram {
+    pub bands: Vec<DurationBand>,
+    pub flights: u64,
+}
+
+/// The duration distribution (#337 view 1): the honest companion to
+/// percentiles — how many flights live above p90, and whether the
+/// tail is a spike or a plateau.
+pub fn duration_histogram(rows: &[UsageRecord], q: &HistogramQuery) -> DurationHistogram {
+    let scoped = scoped(rows, &q.window, &q.filters);
+    let mut counts = [0u64; 6];
+    for r in &scoped {
+        counts[band_index(r.duration_ms)] += 1;
+    }
+    let bands = DURATION_BAND_LABELS
+        .iter()
+        .enumerate()
+        .map(|(i, label)| DurationBand {
+            label: (*label).to_string(),
+            lower_ms: if i == 0 {
+                0
+            } else {
+                DURATION_BAND_BOUNDS_MS[i - 1]
+            },
+            upper_ms: DURATION_BAND_BOUNDS_MS.get(i).copied(),
+            flights: counts[i],
+        })
+        .collect();
+    DurationHistogram {
+        bands,
+        flights: scoped.len() as u64,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GlanceQuery {
+    pub window: WindowSpec,
+    pub filters: Filters,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TransportGlance {
+    pub transport: String,
+    pub flights: u64,
+    pub p50_ms: Option<u32>,
+    pub p90_ms: Option<u32>,
+    pub over_1s: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LatencyGlance {
+    /// Per transport, in fixed transport order, present transports
+    /// only — pooling REST and GQL hides that GQL is fewer-and-heavier
+    /// by design (#337).
+    pub transports: Vec<TransportGlance>,
+    pub flights: u64,
+    pub over_1s: u64,
+}
+
+/// The at-a-glance strip (#337 view 2, amended scope): p50/p90 per
+/// transport plus the >1 s count. The slowest-op item was absorbed
+/// into the Overview tab's D16 card.
+pub fn latency_glance(rows: &[UsageRecord], q: &GlanceQuery) -> LatencyGlance {
+    let scoped = scoped(rows, &q.window, &q.filters);
+    let mut transports = Vec::new();
+    for t in [Transport::Rest, Transport::Graphql, Transport::Auth] {
+        let rows_t: Vec<&UsageRecord> = scoped
+            .iter()
+            .copied()
+            .filter(|r| r.transport == t)
+            .collect();
+        if rows_t.is_empty() {
+            continue;
+        }
+        transports.push(TransportGlance {
+            transport: t.as_str().to_string(),
+            flights: rows_t.len() as u64,
+            p50_ms: Some(percentile(&rows_t, 50)),
+            p90_ms: Some(percentile(&rows_t, 90)),
+            over_1s: rows_t
+                .iter()
+                .filter(|r| r.duration_ms >= OVER_1S_MS)
+                .count() as u64,
+        });
+    }
+    LatencyGlance {
+        transports,
+        flights: scoped.len() as u64,
+        over_1s: scoped
+            .iter()
+            .filter(|r| r.duration_ms >= OVER_1S_MS)
+            .count() as u64,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RevalidationQuery {
+    pub window: WindowSpec,
+    pub filters: Filters,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RevalidationOp {
+    pub op: String,
+    pub full_flights: u64,
+    pub full_median_ms: u32,
+    pub revalidated_flights: u64,
+    pub revalidated_median_ms: u32,
+    /// Full median − revalidated median; positive = revalidation
+    /// faster — the wall-clock side of the ETag story, beside the
+    /// quota side (0050/0053).
+    pub delta_ms: i64,
+    /// Mean `resp_bytes` over the op's full responses that recorded
+    /// a body — the payload a revalidation skips; `None` when none
+    /// recorded one.
+    pub full_mean_bytes: Option<u64>,
+    /// ≈ `full_mean_bytes × revalidated_flights` — an estimate from
+    /// the 200 side (a 304 carries no body to measure); the caller
+    /// marks it `≈`.
+    pub bytes_saved_est: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RevalidationComparison {
+    /// Ops with **both** a full and a revalidated flight in-window — a
+    /// comparison needs both sides. Sorted Δ median desc, ties: full
+    /// flights desc, op asc.
+    pub ops: Vec<RevalidationOp>,
+}
+
+/// A full 200 response: the payload delivered in full, versus the
+/// `etag_304` revalidation of the same op.
+fn is_full_response(rec: &UsageRecord) -> bool {
+    rec.status == 200 && !rec.etag_304
+}
+
+/// The 304-vs-200 time comparison (#337 view 3): per op, median
+/// duration of full responses vs revalidations — whether
+/// revalidation is also *faster* in practice, not just cheaper.
+pub fn revalidation_comparison(
+    rows: &[UsageRecord],
+    q: &RevalidationQuery,
+) -> RevalidationComparison {
+    let scoped = scoped(rows, &q.window, &q.filters);
+    use std::collections::BTreeMap;
+    let mut by_op: BTreeMap<String, Vec<&UsageRecord>> = BTreeMap::new();
+    for r in &scoped {
+        by_op.entry(r.op.to_string()).or_default().push(r);
+    }
+    let mut ops = Vec::new();
+    for (op, members) in by_op {
+        let mut full: Vec<&UsageRecord> = Vec::new();
+        let mut revalidated: Vec<&UsageRecord> = Vec::new();
+        for r in &members {
+            if is_full_response(r) {
+                full.push(*r);
+            } else if r.etag_304 {
+                revalidated.push(*r);
+            }
+        }
+        if full.is_empty() || revalidated.is_empty() {
+            continue; // a comparison needs both sides
+        }
+        let full_median = percentile(&full, 50);
+        let revalidated_median = percentile(&revalidated, 50);
+        let bytes: Vec<u32> = full.iter().filter_map(|r| r.resp_bytes).collect();
+        let full_mean_bytes = (!bytes.is_empty())
+            .then(|| bytes.iter().map(|b| *b as u64).sum::<u64>() / bytes.len() as u64);
+        ops.push(RevalidationOp {
+            op,
+            full_flights: full.len() as u64,
+            full_median_ms: full_median,
+            revalidated_flights: revalidated.len() as u64,
+            revalidated_median_ms: revalidated_median,
+            delta_ms: full_median as i64 - revalidated_median as i64,
+            bytes_saved_est: full_mean_bytes.map(|b| b * revalidated.len() as u64),
+            full_mean_bytes,
+        });
+    }
+    ops.sort_by(|a, b| {
+        b.delta_ms
+            .cmp(&a.delta_ms)
+            .then(b.full_flights.cmp(&a.full_flights))
+            .then_with(|| a.op.cmp(&b.op))
+    });
+    RevalidationComparison { ops }
+}
+
+// ---------------------------------------------------------------------------
 // Overview (D11, D15, D16) — one procedure, the tab's full view
 // ---------------------------------------------------------------------------
 
@@ -1462,15 +1701,49 @@ fn fmt_ms(ms: u32) -> String {
     }
 }
 
-/// One D11 card: number-first, one-line details, an id + `Label` role
-/// carrying the same numbers for AT (pixels are invisible).
-fn stat_card(
+/// Signed Δ copy for the revalidation table: `+812 ms` (304
+/// faster), `−54 ms` (slower) — the column header carries the
+/// 200−304 convention.
+fn fmt_delta_ms(ms: i64) -> String {
+    let sign = if ms < 0 { "−" } else { "+" };
+    let abs = ms.unsigned_abs().min(u32::MAX as u64) as u32;
+    format!("{sign}{}", fmt_ms(abs))
+}
+
+/// Bytes copy: `812 B`, `1.4 KB`, `2.1 MB`.
+fn fmt_bytes(bytes: u64) -> String {
+    if bytes < 1_024 {
+        format!("{bytes} B")
+    } else if bytes < 1_024 * 1_024 {
+        format!("{:.1} KB", bytes as f64 / 1_024.0)
+    } else {
+        format!("{:.1} MB", bytes as f64 / 1_048_576.0)
+    }
+}
+
+/// Card-title transport labels, facet-consistent (`REST`, not
+/// `rest`) — the glance strip's per-transport cards.
+fn transport_label(transport: &str) -> &str {
+    match transport {
+        "rest" => "REST",
+        "graphql" => "GraphQL",
+        "auth" => "Auth",
+        other => other,
+    }
+}
+
+/// One D11-pattern card: number-first, one-line details, an id +
+/// `Label` role carrying the same numbers for AT (pixels are
+/// invisible). Generic over the rendering component's context, like
+/// [`line_panel`] — the Overview page and the latency tab both
+/// compose strips of these.
+fn stat_card<T: 'static>(
     id: &str,
     title: &str,
     headline: SharedString,
     lines: Vec<SharedString>,
     a11y: String,
-    cx: &Context<UsagePage>,
+    cx: &Context<T>,
 ) -> impl IntoElement {
     let theme = cx.theme();
     let (border, fg, muted) = (theme.border, theme.foreground, theme.muted_foreground);
@@ -2788,6 +3061,110 @@ impl TableDelegate for SlowTable {
     }
 }
 
+/// One 304-vs-200 row (#337 view 3): the op's two medians, their Δ,
+/// and the `≈` bytes-saved estimate.
+struct RevalRow {
+    op: String,
+    full_flights: u64,
+    full_median: String,
+    revalidated_flights: u64,
+    revalidated_median: String,
+    delta: String,
+    bytes_saved: String,
+}
+
+/// The 304-vs-200 table's delegate: `revalidation_comparison` output
+/// rendered verbatim.
+struct RevalTable {
+    rows: Vec<RevalRow>,
+    columns: Vec<Column>,
+}
+
+impl RevalTable {
+    fn new(reval: &RevalidationComparison) -> Self {
+        Self {
+            rows: reval
+                .ops
+                .iter()
+                .map(|o| RevalRow {
+                    op: o.op.clone(),
+                    full_flights: o.full_flights,
+                    full_median: fmt_ms(o.full_median_ms),
+                    revalidated_flights: o.revalidated_flights,
+                    revalidated_median: fmt_ms(o.revalidated_median_ms),
+                    delta: fmt_delta_ms(o.delta_ms),
+                    bytes_saved: o
+                        .bytes_saved_est
+                        .map_or_else(|| "—".into(), |b| format!("≈ {}", fmt_bytes(b))),
+                })
+                .collect(),
+            columns: Self::columns(),
+        }
+    }
+
+    fn columns() -> Vec<Column> {
+        vec![
+            Column::new("op", "op"),
+            Column::new("full", "200s").text_right(),
+            Column::new("full-median", "200 median").text_right(),
+            Column::new("rev", "304s").text_right(),
+            Column::new("rev-median", "304 median").text_right(),
+            // The Δ convention rides the header, not a footnote.
+            Column::new("delta", "Δ 200−304").text_right(),
+            Column::new("bytes", "≈ bytes saved").text_right(),
+        ]
+    }
+}
+
+impl TableDelegate for RevalTable {
+    fn columns_count(&self, _: &App) -> usize {
+        self.columns.len()
+    }
+
+    fn rows_count(&self, _: &App) -> usize {
+        self.rows.len()
+    }
+
+    fn column(&self, col_ix: usize, _: &App) -> Column {
+        self.columns
+            .get(col_ix)
+            .cloned()
+            .unwrap_or_else(|| Column::new("op", ""))
+    }
+
+    fn render_td(
+        &mut self,
+        row_ix: usize,
+        col_ix: usize,
+        _: &mut Window,
+        cx: &mut Context<TableState<Self>>,
+    ) -> impl IntoElement {
+        let Some(row) = self.rows.get(row_ix) else {
+            return div().into_any_element();
+        };
+        let muted = cx.theme().muted_foreground;
+        let text = match col_ix {
+            1 => row.full_flights.to_string(),
+            2 => row.full_median.clone(),
+            3 => row.revalidated_flights.to_string(),
+            4 => row.revalidated_median.clone(),
+            5 => row.delta.clone(),
+            6 => row.bytes_saved.clone(),
+            _ => row.op.clone(),
+        };
+        div()
+            .flex()
+            .h_full()
+            .w_full()
+            .items_center()
+            .when(col_ix >= 1, |c| c.justify_end())
+            // `—` means "not recorded", not zero — keep it muted.
+            .when(text == "—", |c| c.text_color(muted))
+            .child(text)
+            .into_any_element()
+    }
+}
+
 /// The page-global inputs the latency tab derives from (D7/D10):
 /// the same frozen window, facets and fetched rows the quota tab
 /// sees — pushed by the page, never re-read.
@@ -2810,11 +3187,17 @@ struct LatencyTab {
     ranking: LatencyRanking,
     trend: LatencyTrend,
     slowest: SlowestFlights,
+    /// The #337 deferred views, riding the same frozen inputs and
+    /// `apply` re-derivation as the v1 views.
+    glance: LatencyGlance,
+    histogram: DurationHistogram,
+    reval: RevalidationComparison,
     group_by_select: Entity<SelectState<SearchableVec<SharedString>>>,
     then_by_select: Entity<SelectState<SearchableVec<SharedString>>>,
     metric_select: Entity<SelectState<SearchableVec<SharedString>>>,
     table: Entity<TableState<LatencyTable>>,
     slow_table: Entity<TableState<SlowTable>>,
+    reval_table: Entity<TableState<RevalTable>>,
 }
 
 impl LatencyTab {
@@ -2860,6 +3243,7 @@ impl LatencyTab {
         let table =
             cx.new(|cx| TableState::new(LatencyTable::empty(Dimension::Surface), window, cx));
         let slow_table = cx.new(|cx| TableState::new(SlowTable::empty(), window, cx));
+        let reval_table = cx.new(|cx| TableState::new(RevalTable::empty(), window, cx));
 
         // The selectors re-apply over the same frozen inputs (D7):
         // pick dimensions or a metric, see a ranking — no read.
@@ -2949,11 +3333,22 @@ impl LatencyTab {
             slowest: SlowestFlights {
                 flights: Vec::new(),
             },
+            glance: LatencyGlance {
+                transports: Vec::new(),
+                flights: 0,
+                over_1s: 0,
+            },
+            histogram: DurationHistogram {
+                bands: Vec::new(),
+                flights: 0,
+            },
+            reval: RevalidationComparison { ops: Vec::new() },
             group_by_select,
             then_by_select,
             metric_select,
             table,
             slow_table,
+            reval_table,
         }
     }
 
@@ -3004,6 +3399,29 @@ impl LatencyTab {
                 limit: SLOWEST_LIMIT,
             },
         );
+        // The #337 deferred views ride the same inputs and the same
+        // freeze — no new state discipline, just more procedures.
+        self.glance = latency_glance(
+            &self.inputs.rows,
+            &GlanceQuery {
+                window: self.inputs.window,
+                filters: self.inputs.filters.clone(),
+            },
+        );
+        self.histogram = duration_histogram(
+            &self.inputs.rows,
+            &HistogramQuery {
+                window: self.inputs.window,
+                filters: self.inputs.filters.clone(),
+            },
+        );
+        self.reval = revalidation_comparison(
+            &self.inputs.rows,
+            &RevalidationQuery {
+                window: self.inputs.window,
+                filters: self.inputs.filters.clone(),
+            },
+        );
         let delegate = LatencyTable::new(&self.ranking, self.group_by);
         self.table.update(cx, |state, cx| {
             *state.delegate_mut() = delegate;
@@ -3013,6 +3431,12 @@ impl LatencyTab {
         let slow_delegate = SlowTable::new(&self.slowest);
         self.slow_table.update(cx, |state, cx| {
             *state.delegate_mut() = slow_delegate;
+            state.refresh(cx);
+            state.refresh_header_layout(cx);
+        });
+        let reval_delegate = RevalTable::new(&self.reval);
+        self.reval_table.update(cx, |state, cx| {
+            *state.delegate_mut() = reval_delegate;
             state.refresh(cx);
             state.refresh_header_layout(cx);
         });
@@ -3042,6 +3466,15 @@ impl SlowTable {
                 Column::new("duration", "duration").text_right(),
                 Column::new("queue", "queue").text_right(),
             ],
+        }
+    }
+}
+
+impl RevalTable {
+    fn empty() -> Self {
+        Self {
+            rows: Vec::new(),
+            columns: Self::columns(),
         }
     }
 }
@@ -3189,6 +3622,143 @@ impl Render for LatencyTab {
             None => format!("Ranked by {}: no groups", self.metric.label()),
         };
 
+        // The at-a-glance strip (#337 view 2): p50/p90 per transport —
+        // pooling REST and GQL hides that GQL is fewer-and-heavier
+        // by design — plus the >1 s count. (The strip's slowest-op
+        // item lives on the Overview tab, D16.)
+        let mut glance_strip = h_flex().flex_none().flex_wrap().gap_3().items_start();
+        for t in &self.glance.transports {
+            let (p50, p90) = (
+                t.p50_ms.map_or_else(|| "—".into(), fmt_ms),
+                t.p90_ms.map_or_else(|| "—".into(), fmt_ms),
+            );
+            glance_strip = glance_strip.child(stat_card(
+                &format!("usage-latency-glance-{}", t.transport),
+                transport_label(&t.transport),
+                SharedString::from(format!("p50 {p50} · p90 {p90}")),
+                vec![SharedString::from(format!(
+                    "{} flights · {} over 1 s",
+                    t.flights, t.over_1s
+                ))],
+                format!(
+                    "{} latency: p50 {}, p90 {}, {} flights, {} over 1 second",
+                    transport_label(&t.transport),
+                    p50,
+                    p90,
+                    t.flights,
+                    t.over_1s
+                ),
+                cx,
+            ));
+        }
+        let glance_total = self.glance.flights;
+        let glance_over = self.glance.over_1s;
+        let mut over_lines = vec![SharedString::from(format!(
+            "of {glance_total} flights · {:.0}%",
+            if glance_total > 0 {
+                glance_over as f64 / glance_total as f64 * 100.0
+            } else {
+                0.0
+            }
+        ))];
+        let splits = self
+            .glance
+            .transports
+            .iter()
+            .filter(|t| t.over_1s > 0)
+            .map(|t| format!("{} {}", transport_label(&t.transport), t.over_1s))
+            .collect::<Vec<_>>()
+            .join(" · ");
+        if !splits.is_empty() {
+            over_lines.push(SharedString::from(splits.clone()));
+        }
+        glance_strip = glance_strip.child(stat_card(
+            "usage-latency-glance-over1s",
+            ">1 s flights",
+            SharedString::from(glance_over.to_string()),
+            over_lines,
+            format!(
+                "Flights over 1 second: {glance_over} of {glance_total}{}",
+                if splits.is_empty() {
+                    String::new()
+                } else {
+                    format!("; {splits}")
+                }
+            ),
+            cx,
+        ));
+
+        // The duration distribution (#337 view 1): six fixed bands, in
+        // band order, empty bands kept — whether the tail is a spike
+        // or a plateau is the answer, so position beats sorting.
+        let hist_bands = self.histogram.bands.clone();
+        let hist_total = self.histogram.flights;
+        let pct_of = |n: u64| {
+            if hist_total > 0 {
+                n as f64 / hist_total as f64 * 100.0
+            } else {
+                0.0
+            }
+        };
+        let hist_under_250: u64 = hist_bands.iter().take(2).map(|b| b.flights).sum();
+        let hist_over_1s: u64 = hist_bands.iter().skip(4).map(|b| b.flights).sum();
+        let hist_summary = format!(
+            "Duration distribution: {} flights · {:.0}% under 250 ms · {:.0}% over 1 s",
+            hist_total,
+            pct_of(hist_under_250),
+            pct_of(hist_over_1s)
+        );
+
+        // The 304-vs-200 comparison (#337 view 3): the wall-clock side
+        // of the ETag story — per op, median of full 200 responses vs
+        // 304 revalidations, only where both sides exist in-window.
+        let reval_summary = match self.reval.ops.first() {
+            Some(top) => {
+                let (verb, gap) = if top.delta_ms >= 0 {
+                    ("faster", fmt_ms(top.delta_ms as u32))
+                } else {
+                    ("slower", fmt_ms(top.delta_ms.unsigned_abs() as u32))
+                };
+                format!(
+                    "304 vs 200: {} comparable op{} · {} revalidates {gap} {verb} (median)",
+                    self.reval.ops.len(),
+                    if self.reval.ops.len() == 1 { "" } else { "s" },
+                    top.op
+                )
+            }
+            None => "304 vs 200: no op with both sides in the window".to_string(),
+        };
+        let reval_section = if self.reval.ops.is_empty() {
+            div()
+                .flex_none()
+                .id("usage-latency-reval-summary")
+                .role(gpui::accesskit::Role::Label)
+                .aria_label(reval_summary.clone())
+                .text_sm()
+                .text_color(muted_fg)
+                .child(reval_summary)
+                .into_any_element()
+        } else {
+            v_flex()
+                .flex_none()
+                .gap_1()
+                .child(
+                    div()
+                        .id("usage-latency-reval-summary")
+                        .role(gpui::accesskit::Role::Label)
+                        .aria_label(reval_summary.clone())
+                        .text_sm()
+                        .text_color(muted_fg)
+                        .child(reval_summary),
+                )
+                .child(
+                    div()
+                        .h(px(220.))
+                        .child(DataTable::new(&self.reval_table).small()),
+                )
+                .into_any_element()
+        };
+
         v_flex()
             .id("usage-latency")
             .flex_1()
@@ -3211,7 +3781,37 @@ impl Render for LatencyTab {
                     .text_color(muted_fg)
                     .child(definition),
             )
+            // The at-a-glance strip (#337): natural height inside
+            // the scroll root, like every row above and below.
+            .child(glance_strip)
             .child(trend_row.flex_none())
+            // The duration distribution (#337): horizontal bars over
+            // the six fixed bands — the honest companion to the
+            // percentiles in the strip above and the trend beside.
+            .child(
+                v_flex()
+                    .flex_none()
+                    .gap_1()
+                    .child(
+                        div()
+                            .id("usage-latency-histogram-summary")
+                            .role(gpui::accesskit::Role::Label)
+                            .aria_label(hist_summary.clone())
+                            .text_sm()
+                            .text_color(muted_fg)
+                            .child(hist_summary),
+                    )
+                    .child(
+                        div().h(px(160.)).child(
+                            BarChart::new(hist_bands)
+                                .id("usage-latency-histogram")
+                                .name("flights")
+                                .band(|b| SharedString::from(b.label.clone()))
+                                .value(|b| b.flights as f64)
+                                .alignment(BarAlignment::Left),
+                        ),
+                    ),
+            )
             // The metric ranking table (D12 view 1).
             .child(
                 v_flex()
@@ -3253,6 +3853,9 @@ impl Render for LatencyTab {
                             .child(DataTable::new(&self.slow_table).small()),
                     ),
             )
+            // The 304-vs-200 comparison (#337): wall-clock beside
+            // the quota savings the ledger already books.
+            .child(reval_section)
             .into_any_element()
     }
 }
@@ -3604,6 +4207,230 @@ mod tests {
         assert_eq!(s.flights[0].queue_ms, Some(7));
     }
 
+    #[test]
+    fn histogram_bands_are_fixed_boundaries_and_keep_empties() {
+        // #337 view 1: bands are upper bounds, half-open below — 100
+        // lands in `100–250 ms`, 2000 in `>2 s`.
+        let durations = [99u32, 100, 249, 250, 499, 500, 999, 1000, 1999, 2000];
+        let rows: Vec<UsageRecord> = durations
+            .iter()
+            .enumerate()
+            .map(|(i, d)| {
+                let mut r = rec(AS_OF - 10 - i as u64, "s", Some(1));
+                r.duration_ms = *d;
+                r
+            })
+            .collect();
+        let h = duration_histogram(
+            &rows,
+            &HistogramQuery {
+                window: W,
+                filters: Filters::default(),
+            },
+        );
+        assert_eq!(h.bands.len(), 6, "six fixed bands, always");
+        assert_eq!(
+            h.bands.iter().map(|b| b.flights).collect::<Vec<_>>(),
+            vec![1, 2, 2, 2, 2, 1]
+        );
+        assert_eq!(h.flights, 10);
+        assert_eq!(h.bands[0].label, "<100 ms");
+        assert_eq!(h.bands[0].lower_ms, 0);
+        assert_eq!(h.bands[0].upper_ms, Some(100));
+        assert_eq!(h.bands[5].label, ">2 s");
+        assert_eq!(h.bands[5].lower_ms, 2_000);
+        assert_eq!(h.bands[5].upper_ms, None);
+
+        // Empty bands stay, in band order (never count-sorted) —
+        // the tail's position is the information.
+        let mut single = rec(AS_OF - 5, "s", Some(1));
+        single.duration_ms = 3_000;
+        let h = duration_histogram(
+            &[single],
+            &HistogramQuery {
+                window: W,
+                filters: Filters::default(),
+            },
+        );
+        assert_eq!(
+            h.bands.iter().map(|b| b.flights).collect::<Vec<_>>(),
+            vec![0, 0, 0, 0, 0, 1]
+        );
+        assert_eq!(h.bands[0].label, "<100 ms", "band order is fixed");
+    }
+
+    #[test]
+    fn glance_splits_per_transport_and_counts_over_1s() {
+        let mut rows = Vec::new();
+        // REST: 100, 100, 900 → p50 100, p90 900, none over 1 s.
+        for (i, d) in [100u32, 100, 900].iter().enumerate() {
+            let mut r = rec(AS_OF - 10 - i as u64, "s", Some(1));
+            r.duration_ms = *d;
+            rows.push(r);
+        }
+        // GraphQL: 1200, 1500 → p50 1200, p90 1500, both over 1 s —
+        // fewer-and-heavier, exactly what pooling would hide.
+        for (i, d) in [1200u32, 1500].iter().enumerate() {
+            let mut r = rec(AS_OF - 20 - i as u64, "s", Some(1));
+            r.transport = Transport::Graphql;
+            r.duration_ms = *d;
+            rows.push(r);
+        }
+        let mut auth = rec(AS_OF - 30, "s", Some(1));
+        auth.transport = Transport::Auth;
+        auth.duration_ms = 200;
+        rows.push(auth);
+
+        let g = latency_glance(
+            &rows,
+            &GlanceQuery {
+                window: W,
+                filters: Filters::default(),
+            },
+        );
+        assert_eq!(g.flights, 6);
+        assert_eq!(g.over_1s, 2);
+        let names: Vec<&str> = g.transports.iter().map(|t| t.transport.as_str()).collect();
+        assert_eq!(
+            names,
+            vec!["rest", "graphql", "auth"],
+            "fixed order, present only"
+        );
+        let rest = &g.transports[0];
+        assert_eq!(
+            (rest.flights, rest.p50_ms, rest.p90_ms, rest.over_1s),
+            (3, Some(100), Some(900), 0)
+        );
+        let gql = &g.transports[1];
+        assert_eq!(
+            (gql.flights, gql.p50_ms, gql.p90_ms, gql.over_1s),
+            (2, Some(1200), Some(1500), 2)
+        );
+
+        // The transport facet keeps only its own card.
+        let g = latency_glance(
+            &rows,
+            &GlanceQuery {
+                window: W,
+                filters: Filters {
+                    transport: Some(Transport::Graphql),
+                    ..Default::default()
+                },
+            },
+        );
+        assert_eq!(g.transports.len(), 1);
+        assert_eq!(g.flights, 2);
+    }
+
+    #[test]
+    fn revalidation_compares_medians_counts_and_bytes() {
+        let mut rows = Vec::new();
+        // op-a: full 200s (100, 300 ms; 1 KB and 2 KB bodies) plus
+        // 304 revalidations (50, 70 ms) — comparable.
+        for (i, (d, bytes)) in [(100u32, Some(1_000u32)), (300, Some(2_000))]
+            .iter()
+            .enumerate()
+        {
+            let mut r = rec(AS_OF - 10 - i as u64, "s", Some(1));
+            r.op = SharedString::from("op-a");
+            r.duration_ms = *d;
+            r.resp_bytes = *bytes;
+            rows.push(r);
+        }
+        for (i, d) in [50u32, 70].iter().enumerate() {
+            let mut r = rec(AS_OF - 20 - i as u64, "s", Some(1));
+            r.op = SharedString::from("op-a");
+            r.status = 304;
+            r.etag_304 = true;
+            r.duration_ms = *d;
+            rows.push(r);
+        }
+        // op-b: full 200s only; op-c: 304s only — neither compares.
+        let mut b = rec(AS_OF - 30, "s", Some(1));
+        b.op = SharedString::from("op-b");
+        b.duration_ms = 900;
+        rows.push(b);
+        let mut c = rec(AS_OF - 40, "s", Some(1));
+        c.op = SharedString::from("op-c");
+        c.status = 304;
+        c.etag_304 = true;
+        c.duration_ms = 40;
+        rows.push(c);
+
+        let q = RevalidationQuery {
+            window: W,
+            filters: Filters::default(),
+        };
+        let rv = revalidation_comparison(&rows, &q);
+        assert_eq!(rv.ops.len(), 1, "both sides or nothing");
+        let a = &rv.ops[0];
+        assert_eq!(a.op, "op-a");
+        // Nearest-rank medians: p50 of [100, 300] → 100, of [50, 70]
+        // → 50.
+        assert_eq!((a.full_flights, a.full_median_ms), (2, 100));
+        assert_eq!((a.revalidated_flights, a.revalidated_median_ms), (2, 50));
+        assert_eq!(a.delta_ms, 50);
+        assert_eq!(a.full_mean_bytes, Some(1_500));
+        assert_eq!(a.bytes_saved_est, Some(3_000), "1.5 KB × 2 revalidations");
+
+        // op-d: a bigger revalidation win, but no bodies recorded →
+        // Δ sorts it first, no bytes estimate.
+        let mut d1 = rec(AS_OF - 50, "s", Some(1));
+        d1.op = SharedString::from("op-d");
+        d1.duration_ms = 1_000;
+        rows.push(d1);
+        let mut d2 = rec(AS_OF - 51, "s", Some(1));
+        d2.op = SharedString::from("op-d");
+        d2.status = 304;
+        d2.etag_304 = true;
+        d2.duration_ms = 100;
+        rows.push(d2);
+        let rv = revalidation_comparison(&rows, &q);
+        let ops: Vec<&str> = rv.ops.iter().map(|o| o.op.as_str()).collect();
+        assert_eq!(ops, vec!["op-d", "op-a"], "Δ median desc");
+        assert_eq!(rv.ops[0].delta_ms, 900);
+        assert_eq!(rv.ops[0].full_mean_bytes, None, "no body recorded");
+        assert_eq!(rv.ops[0].bytes_saved_est, None);
+    }
+
+    #[test]
+    fn deferred_views_respect_the_frozen_window() {
+        // #337 acceptance: freeze semantics under test — rows at or
+        // after `as_of`, and rows before the window, are invisible.
+        let mut in_window = rec(FROM + 10, "s", Some(1));
+        in_window.duration_ms = 1_500;
+        let mut at_freeze = rec(AS_OF, "s", Some(1));
+        at_freeze.duration_ms = 1_500;
+        let mut before = rec(FROM - 1, "s", Some(1));
+        before.duration_ms = 1_500;
+        let rows = vec![in_window, at_freeze, before];
+        let h = duration_histogram(
+            &rows,
+            &HistogramQuery {
+                window: W,
+                filters: Filters::default(),
+            },
+        );
+        assert_eq!(h.flights, 1);
+        assert_eq!(h.bands[4].flights, 1);
+        let g = latency_glance(
+            &rows,
+            &GlanceQuery {
+                window: W,
+                filters: Filters::default(),
+            },
+        );
+        assert_eq!(g.flights, 1);
+        assert_eq!(g.over_1s, 1);
+        let rv = revalidation_comparison(
+            &rows,
+            &RevalidationQuery {
+                window: W,
+                filters: Filters::default(),
+            },
+        );
+        assert!(rv.ops.is_empty());
+    }
     #[test]
     fn overview_points_split_budget_and_runway() {
         let mut rows = Vec::new();
@@ -4208,6 +5035,79 @@ mod tests {
     }
 
     #[gpui::test]
+    fn latency_tab_deferred_views_freeze_until_refresh(cx: &mut TestAppContext) {
+        cx.update(gpui_component::init);
+        let store = Arc::new(MemorySink::default());
+        cx.update(|cx| init_with(cx, store.clone() as Arc<dyn UsageStore>));
+
+        let t0 = usage_records::now_epoch_ms();
+        cx.update(|cx| {
+            let s = sink(cx);
+            // One REST flight over 1 s, plus a 200/304 pair for one op.
+            let mut slow = rec(t0 - 10, "pr-page", Some(1));
+            slow.duration_ms = 1_500;
+            s.record(slow);
+            let mut full = rec(t0 - 20, "pr-page", Some(1));
+            full.duration_ms = 300;
+            full.resp_bytes = Some(2_000);
+            s.record(full);
+            let mut rev = rec(t0 - 30, "pr-page", Some(1));
+            rev.status = 304;
+            rev.etag_304 = true;
+            rev.duration_ms = 60;
+            s.record(rev);
+        });
+
+        let (page, _window_ctx) = cx.add_window_view(UsagePage::new);
+        let tab = cx.update(|cx| page.read(cx).latency.clone().unwrap());
+        let as_of0 = cx.update(|cx| page.read(cx).as_of_ms);
+        cx.update(|cx| {
+            let t = tab.read(cx);
+            // Strip: one transport (REST), one flight over 1 s.
+            assert_eq!(t.glance.transports.len(), 1);
+            assert_eq!(t.glance.over_1s, 1);
+            // Histogram: the 1.5 s flight lands in the 1–2 s band.
+            assert_eq!(t.histogram.flights, 3);
+            assert_eq!(t.histogram.bands[4].flights, 1);
+            // Revalidation: one comparable op — Δ 240 ms, ≈ 2 KB saved.
+            assert_eq!(t.reval.ops.len(), 1);
+            assert_eq!(t.reval.ops[0].delta_ms, 240);
+            assert_eq!(t.reval.ops[0].bytes_saved_est, Some(2_000));
+        });
+
+        // A post-freeze arrival (ts == as_of is outside the half-open
+        // window): invisible to all three deferred views until
+        // refresh (D10 — the issue's freeze acceptance).
+        cx.update(|cx| {
+            let mut late = rec(as_of0, "pr-page", Some(1));
+            late.duration_ms = 3_000;
+            sink(cx).record(late);
+        });
+        cx.update(|cx| {
+            let t = tab.read(cx);
+            assert_eq!(t.histogram.flights, 3, "post-freeze rows stay invisible");
+            assert_eq!(t.glance.over_1s, 1);
+            assert_eq!(
+                t.reval.ops[0].full_flights, 2,
+                "the slow 200 and the full 200"
+            );
+        });
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        page.update(cx, |p, cx| p.refresh(cx));
+        cx.update(|cx| {
+            let t = tab.read(cx);
+            assert_eq!(
+                t.histogram.flights, 4,
+                "refresh is the only path that moves them"
+            );
+            assert_eq!(
+                t.histogram.bands[5].flights, 1,
+                "the 3 s flight lands in >2 s"
+            );
+            assert_eq!(t.glance.over_1s, 2);
+        });
+    }
+    #[gpui::test]
     fn quota_tab_re_ranks_when_the_dimension_changes(cx: &mut TestAppContext) {
         // Selects/TableState read the theme global at construction.
         cx.update(gpui_component::init);
@@ -4435,6 +5335,27 @@ mod tests {
                 window: w,
                 filters: Filters::default(),
                 limit: 5,
+            },
+        ));
+        round_trips(&duration_histogram(
+            &rows,
+            &HistogramQuery {
+                window: w,
+                filters: Filters::default(),
+            },
+        ));
+        round_trips(&latency_glance(
+            &rows,
+            &GlanceQuery {
+                window: w,
+                filters: Filters::default(),
+            },
+        ));
+        round_trips(&revalidation_comparison(
+            &rows,
+            &RevalidationQuery {
+                window: w,
+                filters: Filters::default(),
             },
         ));
         round_trips(&overview(&rows, &OverviewQuery { window: w }));
