@@ -405,7 +405,23 @@ as a table after the slowest list. All three ride the D13 split
 (procedures `latency_glance` / `duration_histogram` /
 `revalidation_comparison`, each with its `{window, filters}` query)
 and freeze with the page's `as_of`. The payload-size histogram
-split and the contention view stay deferred: #410.)*
+split and the contention view followed: #410.)*
+
+**Latency enrichments — landed with #410.** The two views the #337
+PR left out, both riding the same D13 split (`payload_split` /
+`contention`, each with its `{window, filters}` query) and the same
+freeze: *(implemented in the #410 PR — PR #NNN: the histogram gains
+its payload axis as a cross-tab — the six duration bands × five
+binary size bands `<1 KB` / `1–10 KB` / `10–100 KB` / `100 KB–1 MB` /
+`>1 MB`, all bands in fixed order, empty cells kept — so "slow
+because heavy" separates from "slow because far"; flights with no
+measured body (304s, network errors) are counted beside the grid,
+never guessed into a band. The contention view counts network spans
+`[ts − duration, ts)` — half-open, touching spans never overlap, a
+zero-duration span occupies nothing — as a peak card (max in flight,
+first instant, ops), a queue card (p50/p90 of `queue_ms`, waits
+≥ 100 ms), and a per-bucket max-in-flight step line beside the
+trend.)*
 
 ## 7. The analytics calculator (shared engine)
 
@@ -568,7 +584,10 @@ any `None` degrades gracefully across every consumer.
   (quota, latency ranking incl. nearest-rank percentiles and the
   metric selector, trend bucketing rule, slowest-flights order and
   context, overview cards, #337 views — band boundaries, per-
-  transport glance, revalidation medians and bytes); determinism on
+  transport glance, revalidation medians and bytes — and #410
+  views: size-band boundaries incl. the 1_024 edge and the
+  unmeasured/304 case, peak/touching-span/bucket-max contention,
+  queue percentiles; determinism on
   seq-ordered input; serde JSON round-trip of every output struct.
 - Overview chart units: bucket sums equal the window's Σ cost (per
   transport); burn-down carry-forward holds the last snapshot to
@@ -607,9 +626,6 @@ any `None` degrades gracefully across every consumer.
   time-bucketing machinery is shared with D12).
 - CLI/MCP exposure itself — future work; the calculator (D13) is the
   seam it will consume, including serializer versioning.
-- Flight-overlap/contention chart — derivable from `ts − duration`
-  intervals + `queue_ms`; deferred with the payload-size histogram
-  split (#410).
 - Retry/attempt index field — 401 re-entries already re-emit as
   separate records (0053 D1); linkage is seq adjacency.
 - CSV/export of the table.
