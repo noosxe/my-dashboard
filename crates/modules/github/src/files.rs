@@ -863,7 +863,11 @@ fn diff_body(
     let x_handle = page.diff_x_scroll.clone();
     let page_h = page_h.clone();
     let rows: std::sync::Arc<[crate::service::AnchoredLine]> = rows.iter().cloned().collect();
-    let rows_for_width = rows.clone();
+    // #413: the content width now sizes each row's *scrolled code* —
+    // the gutter is outside the scroller, so it no longer adds to
+    // the scrollable width.
+    let content_w = content_width(&rows);
+    let row_x = x_handle.clone();
     let list = list(
         state.clone(),
         move |ix: usize, window: &mut Window, cx: &mut App| {
@@ -879,7 +883,10 @@ fn diff_body(
                         return empty();
                     };
                     let row_spans = spans.as_ref().and_then(|v| v.get(*rix)).map(Vec::as_slice);
-                    diff_row(page, &page_h, window, &path, anchored, row_spans, cx)
+                    diff_row(
+                        page, &page_h, window, &path, *rix, anchored, row_spans, content_w, &row_x,
+                        cx,
+                    )
                 }
                 Some(DiffItem::ThreadCard(tix)) => match page.threads_nodes().get(*tix) {
                     Some(t) => thread_card(page, &page_h, window, *tix, t, cx),
@@ -919,22 +926,29 @@ fn diff_body(
         .flex_1()
         .min_h_0()
         .min_w_0()
-        .overflow_x_scroll()
-        .track_scroll(&x_handle)
-        .horizontal_scrollbar(&x_handle)
+        // #413: both scrollbars live on this outer, NON-scrolling
+        // host. gpui applies a scroll container's offset to every
+        // child — absolute overlays included — so a scrollbar rendered
+        // inside x-scrolled content translates away with it. Bound
+        // to the handles here, they stay pinned to the pane's bottom
+        // and right edges.
         .vertical_scrollbar(&state)
-        // Padding the old scroll container had (py_2) lives on the items
-        // now; the list sizes itself, so keep the wrapper clean.
-        .child(list.w(px(content_width(&rows_for_width))).h_full())
+        .horizontal_scrollbar(&x_handle)
+        // Padding the old scroll container had (py_2) lives on the
+        // items; the list sizes itself to the viewport now — each
+        // code row owns its horizontal scroll (#413), so the pane
+        // itself never scrolls x.
+        .child(list.w_full().h_full())
         .into_any_element()
 }
 
-/// The list's content width (docs/0041 D5): the longest row's text at a
-/// generous mono advance, plus the gutter and padding, capped — honest
-/// scrollbar travel without unbounded width.
+/// Each code row's scrolled content width (docs/0041 D5, #413): the
+/// longest row's text at a generous mono advance, plus the sign cell
+/// and padding, capped — honest scrollbar travel without unbounded
+/// width. The gutter is outside the scroller and adds nothing.
 fn content_width(rows: &[crate::service::AnchoredLine]) -> f32 {
     const CHAR_W: f32 = 8.0;
-    const CHROME: f32 = 120.0;
+    const CHROME: f32 = 48.0;
     const CAP: f32 = 16_384.0;
     let max_len = rows.iter().map(row_text_len).max().unwrap_or(0) as f32;
     (CHROME + max_len * CHAR_W).clamp(400.0, CAP)
@@ -978,115 +992,176 @@ fn row_anchor(anchored: &AnchoredLine) -> Option<(DiffSide, u32)> {
 pub(crate) static DIFF_ROWS_BUILT: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 
+/// The pinned gutter's width (#413): two 44 px number columns, outside
+/// every row's x-scroller.
+const GUTTER_W: f32 = 88.0;
+
+#[allow(clippy::too_many_arguments)]
 fn diff_row(
     page: &PrDetailPage,
     page_h: &Entity<PrDetailPage>,
     window: &mut Window,
     path: &str,
+    rix: usize,
     anchored: &AnchoredLine,
     spans: Option<&[(Range<usize>, TokenKind)]>,
+    content_w: f32,
+    x_handle: &ScrollHandle,
     cx: &App,
 ) -> AnyElement {
     #[cfg(test)]
     DIFF_ROWS_BUILT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let mono = cx.theme().mono_font_family.clone();
-    // docs/0040 §4 D6 amendment: the row's comment button renders only
-    // while this row is hovered — 460 always-on Buttons+tooltips were
-    // the diff-pane scroll jank.
     let row_id = row_comment_id(path, anchored);
     match &anchored.line {
-        PatchLine::Hunk(text) => div()
-            .flex_none()
-            .whitespace_nowrap()
-            .px_2()
-            .py_0p5()
-            .text_xs()
-            .font_family(mono)
-            .text_color(cx.theme().muted_foreground)
-            .bg(cx.theme().accent.opacity(0.15))
-            .child(text.clone())
-            .into_any_element(),
-        PatchLine::Context(text) => h_flex()
-            .flex_none()
-            .whitespace_nowrap()
-            .child(gutter_cell(anchored.old, cx))
-            .child(gutter_cell(anchored.new, cx))
-            .px_2()
-            .text_xs()
-            .font_family(mono)
-            .child(glyph_cell("", None))
-            .child(diff_content(text, spans, cx))
-            .children(row_comment_button(
-                page, page_h, window, &row_id, path, anchored,
-            ))
-            .id(row_id.clone())
-            .on_hover(
-                window.listener_for(page_h, move |this, hovered: &bool, _, cx| {
-                    let next = hovered.then(|| row_id.clone());
-                    if this.hovered_row != next {
-                        this.hovered_row = next;
-                        cx.notify();
-                    }
-                }),
+        PatchLine::Hunk(text) => h_flex()
+            .w_full()
+            // Hunk headers carry no numbers; a blank spacer keeps the
+            // header aligned with the code column.
+            .child(
+                div()
+                    .flex_none()
+                    .w(px(GUTTER_W))
+                    .debug_selector(|| format!("pr-diff-gutter-{rix}")),
             )
+            .child(x_scrolled(
+                rix,
+                content_w,
+                x_handle,
+                div()
+                    .whitespace_nowrap()
+                    .px_2()
+                    .py_0p5()
+                    .text_xs()
+                    .font_family(cx.theme().mono_font_family.clone())
+                    .text_color(cx.theme().muted_foreground)
+                    .bg(cx.theme().accent.opacity(0.15))
+                    .child(text.clone()),
+            ))
             .into_any_element(),
+        PatchLine::Context(text) => code_row(
+            page, page_h, window, &row_id, path, rix, anchored, text, spans, "", None, None,
+            content_w, x_handle, cx,
+        ),
         // docs/0040 §4 D6 (amended): the tint stays in the background,
         // the sign glyph alone carries the saturated color (0016 D10's
         // letter), and the content renders in ambient foreground with
         // token spans — the old whole-row saturated `text_color` fought
         // the token palette and made added-line keywords unreadable.
-        PatchLine::Add(text) => h_flex()
-            .flex_none()
-            .whitespace_nowrap()
-            .child(gutter_cell(anchored.old, cx))
-            .child(gutter_cell(anchored.new, cx))
-            .px_2()
-            .text_xs()
-            .font_family(mono)
-            .bg(cx.theme().success.opacity(0.12))
-            .child(glyph_cell("+", Some(cx.theme().success)))
-            .child(diff_content(text, spans, cx))
-            .children(row_comment_button(
-                page, page_h, window, &row_id, path, anchored,
-            ))
-            .id(row_id.clone())
-            .on_hover(
-                window.listener_for(page_h, move |this, hovered: &bool, _, cx| {
-                    let next = hovered.then(|| row_id.clone());
-                    if this.hovered_row != next {
-                        this.hovered_row = next;
-                        cx.notify();
-                    }
-                }),
-            )
-            .into_any_element(),
-        PatchLine::Del(text) => h_flex()
-            .flex_none()
-            .whitespace_nowrap()
-            .child(gutter_cell(anchored.old, cx))
-            .child(gutter_cell(anchored.new, cx))
-            .px_2()
-            .text_xs()
-            .font_family(mono)
-            .bg(cx.theme().danger.opacity(0.12))
-            .child(glyph_cell("\u{2212}", Some(cx.theme().danger)))
-            .child(diff_content(text, spans, cx))
-            .children(row_comment_button(
-                page, page_h, window, &row_id, path, anchored,
-            ))
-            .id(row_id.clone())
-            .on_hover(
-                window.listener_for(page_h, move |this, hovered: &bool, _, cx| {
-                    let next = hovered.then(|| row_id.clone());
-                    if this.hovered_row != next {
-                        this.hovered_row = next;
-                        cx.notify();
-                    }
-                }),
-            )
-            .into_any_element(),
+        PatchLine::Add(text) => code_row(
+            page,
+            page_h,
+            window,
+            &row_id,
+            path,
+            rix,
+            anchored,
+            text,
+            spans,
+            "+",
+            Some(cx.theme().success),
+            Some(cx.theme().success.opacity(0.12)),
+            content_w,
+            x_handle,
+            cx,
+        ),
+        PatchLine::Del(text) => code_row(
+            page,
+            page_h,
+            window,
+            &row_id,
+            path,
+            rix,
+            anchored,
+            text,
+            spans,
+            "\u{2212}",
+            Some(cx.theme().danger),
+            Some(cx.theme().danger.opacity(0.12)),
+            content_w,
+            x_handle,
+            cx,
+        ),
     }
     .into_any_element()
+}
+
+/// One code row (#413): the two gutter columns sit OUTSIDE the row's
+/// x-scroller — pinned at the pane's left edge while the code scrolls
+/// under the shared handle. The tint spans the whole row band (gutter
+/// included), so added/removed lines read as full-width bands.
+#[allow(clippy::too_many_arguments)]
+fn code_row(
+    page: &PrDetailPage,
+    page_h: &Entity<PrDetailPage>,
+    window: &mut Window,
+    row_id: &SharedString,
+    path: &str,
+    rix: usize,
+    anchored: &AnchoredLine,
+    text: &str,
+    spans: Option<&[(Range<usize>, TokenKind)]>,
+    glyph: &'static str,
+    glyph_color: Option<Hsla>,
+    bg: Option<Hsla>,
+    content_w: f32,
+    x_handle: &ScrollHandle,
+    cx: &App,
+) -> AnyElement {
+    // docs/0040 §4 D6 amendment: the row's comment button renders only
+    // while this row is hovered — 460 always-on Buttons+tooltips were
+    // the diff-pane scroll jank.
+    // Owned for the 'static hover closure below.
+    let row_id = row_id.clone();
+    let code = h_flex()
+        .debug_selector(|| format!("pr-diff-code-{rix}"))
+        .whitespace_nowrap()
+        .px_2()
+        .text_xs()
+        .font_family(cx.theme().mono_font_family.clone())
+        .child(glyph_cell(glyph, glyph_color))
+        .child(diff_content(text, spans, cx))
+        .children(row_comment_button(
+            page, page_h, window, &row_id, path, anchored,
+        ));
+    let mut row = h_flex()
+        .w_full()
+        .id(row_id.clone())
+        .on_hover(
+            window.listener_for(page_h, move |this, hovered: &bool, _, cx| {
+                let next = hovered.then(|| row_id.clone());
+                if this.hovered_row != next {
+                    this.hovered_row = next;
+                    cx.notify();
+                }
+            }),
+        )
+        .child(
+            div()
+                .flex_none()
+                .debug_selector(|| format!("pr-diff-gutter-{rix}"))
+                .child(gutter_cell(anchored.old, cx))
+                .child(gutter_cell(anchored.new, cx)),
+        )
+        .child(x_scrolled(rix, content_w, x_handle, code));
+    if let Some(bg) = bg {
+        row = row.bg(bg);
+    }
+    row.into_any_element()
+}
+
+/// One row's horizontally scrolled code region (#413). All rows share
+/// the pane's single `ScrollHandle`, so a wheel over any row and the
+/// pinned horizontal scrollbar move them together; every row's content
+/// is sized to the same `content_w`, so no row's clamp can claw the
+/// shared offset back (diverging row widths would fight over it).
+fn x_scrolled(rix: usize, content_w: f32, x_handle: &ScrollHandle, content: Div) -> Stateful<Div> {
+    div()
+        .id(format!("pr-diff-x-{rix}"))
+        .flex_1()
+        .min_w_0()
+        .overflow_x_scroll()
+        .track_scroll(x_handle)
+        .child(content.w(px(content_w)).flex_none())
 }
 
 /// The fixed-width sign cell (one of `" "`, `"+"`, `"\u{2212}"`) —
