@@ -212,3 +212,11 @@ already has a home for it.
   deterministically open, and identity-less tests elsewhere no-op their
   system posts exactly as upstream documents (test platform drops posts
   until an identity is set).
+
+**Shipped 2026-09-30 (docs/0061):** the script now defaults to the
+owner's Apple Development identity (auto-discovered from the keychain;
+`SIGN_IDENTITY` still overrides, ad-hoc remains the fallback) and grew a
+`--dev` profile (`My Dashboard Dev.app`, debug binary, own bundle id
+`com.noosxe.my-dashboard.dev`, independent notification authorization).
+D4's ad-hoc re-prompt papercut is thereby fixed for both profiles;
+release-shaped signing stays parked (0061 §6).
