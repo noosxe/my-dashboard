@@ -394,7 +394,7 @@ charts (D4–D8), and adds one control.
 
 **Deferred views — landed with #337.** The round-5 deferral, as
 amended (its slowest-op item was absorbed into D16): *(implemented
-in the #337 PR — PR #NNN: the at-a-glance strip renders p50/p90 per
+in the #337 PR — #411: the at-a-glance strip renders p50/p90 per
 transport plus the >1 s count as the tab's first card row; the
 distribution histogram is six fixed bands — `<100 ms`, `100–250`,
 `250–500`, `0.5–1 s`, `1–2 s`, `>2 s` — always all six in band order,
