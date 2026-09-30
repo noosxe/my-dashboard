@@ -57,7 +57,47 @@ impl Level {
             Level::Info | Level::Success => log::Level::Info,
         }
     }
+
+    /// All levels in badge/display order (docs/0062 D4).
+    pub const ALL: [Level; 4] = [Level::Info, Level::Success, Level::Warning, Level::Error];
+
+    /// Stable serde-safe name (docs/0062 D4): level names round-trip
+    /// through `settings.json` as lowercase strings.
+    pub fn name(self) -> &'static str {
+        match self {
+            Level::Info => "info",
+            Level::Success => "success",
+            Level::Warning => "warning",
+            Level::Error => "error",
+        }
+    }
+
+    /// Parse a level name; unknown names are `None` (load-side drop,
+    /// docs/0062 D4).
+    pub fn from_name(name: &str) -> Option<Level> {
+        match name {
+            "info" => Some(Level::Info),
+            "success" => Some(Level::Success),
+            "warning" => Some(Level::Warning),
+            "error" => Some(Level::Error),
+            _ => None,
+        }
+    }
+
+    /// Display name for settings rows (docs/0062 §4).
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Level::Info => "Info",
+            Level::Success => "Success",
+            Level::Warning => "Warning",
+            Level::Error => "Error",
+        }
+    }
 }
+
+/// The fallback source id (docs/0062 D2): raises without `.source(...)`
+/// attribute to the app itself.
+pub const APP_SOURCE: &str = "app";
 
 /// The action-button callback for [`ToastAction`] (docs/0058 D3): runs on
 /// the main thread when the user clicks the button.
@@ -82,6 +122,9 @@ pub struct Toast {
     /// Stable identity for dedupe: repeats *refresh* the visible toast
     /// instead of stacking (upstream replace-on-id, docs/0058 D4).
     pub dedupe_key: Option<SharedString>,
+    /// Source attribution (docs/0062 D2): the raising surface's stable
+    /// id (module registry id, or [`APP_SOURCE`]'s "app" when absent).
+    pub source: Option<SharedString>,
     pub action: Option<ToastAction>,
 }
 
@@ -92,6 +135,7 @@ impl Toast {
             title: None,
             message: message.into(),
             dedupe_key: None,
+            source: None,
             action: None,
         }
     }
@@ -106,6 +150,18 @@ impl Toast {
         self
     }
 
+    /// Attribute the raise to a source (docs/0062 D2) — the id the
+    /// settings page mutes and the panel tags display.
+    pub fn source(mut self, source: impl Into<SharedString>) -> Self {
+        self.source = Some(source.into());
+        self
+    }
+
+    /// The raise's effective source id (docs/0062 D2): explicit, or
+    /// [`APP_SOURCE`] for unattributed raises.
+    pub fn effective_source(&self) -> &str {
+        self.source.as_deref().unwrap_or(APP_SOURCE)
+    }
     /// D8: every raise is mirrored to the log at its own priority, so a
     /// toast is never the only copy of the information.
     fn mirror_to_log(&self) {
@@ -181,6 +237,12 @@ impl ToastHub {
     /// Main-thread ingest (D2).
     fn push_local(&mut self, toast: Toast, cx: &mut Context<Self>) {
         toast.mirror_to_log();
+        // Muted sources are suppressed here (docs/0062 D3): the log-file
+        // mirror above already fired, so the paper trail survives; nothing
+        // user-visible — toast, log entry, badge — lands.
+        if is_muted(&toast, cx) {
+            return;
+        }
         self.append_log(&toast);
         if self.pending.len() >= QUEUE_CAP {
             self.pending.pop_front();
@@ -195,9 +257,16 @@ impl ToastHub {
     /// arrived (the pump logs nothing by itself — this is for tests).
     pub fn drain_spill(&mut self, cx: &mut Context<Self>) -> usize {
         let spilled = self.spill.take();
-        let arrived = spilled.len();
-        spilled.iter().for_each(|toast| self.append_log(toast));
-        for toast in spilled {
+        // docs/0062 D3: muted sources are suppressed on this ingest path
+        // too — the spill mirrored each toast to the log file at push
+        // time; only the user-visible half is dropped here.
+        let kept: Vec<Toast> = spilled
+            .into_iter()
+            .filter(|toast| !is_muted(toast, cx))
+            .collect();
+        let arrived = kept.len();
+        kept.iter().for_each(|toast| self.append_log(toast));
+        for toast in kept {
             if self.pending.len() >= QUEUE_CAP {
                 self.pending.pop_front();
                 log::warn!("toast queue overflow; dropped the oldest pending toast");
@@ -237,6 +306,17 @@ impl ToastHub {
     /// Unread entries in the log — the badge count (docs/0059 D3).
     pub fn unread_count(&self) -> usize {
         self.entries.iter().filter(|entry| !entry.read).count()
+    }
+
+    /// Unread count filtered to a level set (docs/0062 D4): what the
+    /// badge shows. An empty set counts nothing — the badge-off state.
+    /// The panel stays unfiltered: `unread_count` and [`Self::log`] are
+    /// the full record.
+    pub fn unread_count_for(&self, levels: &[Level]) -> usize {
+        self.entries
+            .iter()
+            .filter(|entry| !entry.read && levels.contains(&entry.toast.level))
+            .count()
     }
 
     /// Whether the notification panel is open (docs/0059 D3).
@@ -313,6 +393,72 @@ impl ToastHub {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Source registry (docs/0062 D2)
+// ---------------------------------------------------------------------------
+
+/// One known notification source: a stable id (module registry id, or
+/// [`APP_SOURCE`]) plus its display label.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourceEntry {
+    pub id: SharedString,
+    pub label: SharedString,
+}
+
+struct SourcesGlobal(Vec<SourceEntry>);
+
+impl Global for SourcesGlobal {}
+
+/// Register (or re-label) a source (docs/0062 D2): `init` registers
+/// `"app"`; each module registers itself in its own `init`. Idempotent
+/// per id — first registration wins the slot, later calls update labels.
+pub fn register_source(id: &str, label: &str, cx: &mut App) {
+    if cx.has_global::<SourcesGlobal>() {
+        let sources = &mut cx.global_mut::<SourcesGlobal>().0;
+        match sources.iter_mut().find(|s| s.id == id) {
+            Some(existing) => existing.label = label.into(),
+            None => sources.push(SourceEntry {
+                id: id.into(),
+                label: label.into(),
+            }),
+        }
+    } else {
+        cx.set_global(SourcesGlobal(vec![SourceEntry {
+            id: id.into(),
+            label: label.into(),
+        }]));
+    }
+}
+
+/// The registered sources, in registration order (docs/0062 D2). The
+/// settings page unions this with ids seen in the log.
+pub fn sources(cx: &App) -> Vec<SourceEntry> {
+    cx.try_global::<SourcesGlobal>()
+        .map(|g| g.0.clone())
+        .unwrap_or_default()
+}
+
+/// Display label for a toast's source (docs/0062 D8): the registry's
+/// label when registered, else the raw id. Unattributed raises resolve
+/// to [`APP_SOURCE`].
+pub fn source_label(source: Option<&SharedString>, cx: &App) -> SharedString {
+    let id = source.map(|s| s.as_ref()).unwrap_or(APP_SOURCE);
+    if let Some(found) = sources(cx).into_iter().find(|s| s.id == id) {
+        return found.label;
+    }
+    id.to_string().into()
+}
+
+/// Mute check (docs/0062 D3): absolute, per effective source. Reads the
+/// settings global live; a missing global (settings not initialized —
+/// tests) mutes nothing.
+fn is_muted(toast: &Toast, cx: &App) -> bool {
+    let source = toast.effective_source();
+    cx.try_global::<crate::settings::AppSettings>()
+        .map(|s| s.muted_sources().iter().any(|m| m.as_str() == source))
+        .unwrap_or(false)
+}
+
 struct ToastsGlobal(Entity<ToastHub>);
 
 impl Global for ToastsGlobal {}
@@ -327,11 +473,18 @@ pub fn init(cx: &mut App) {
         panel_open: false,
         panel_view: Vec::new(),
     });
+    register_source(APP_SOURCE, "App", cx);
     cx.set_global(ToastsGlobal(hub));
 }
 
 /// Fetch the hub entity. Panics if [`init`] was never called — the same
 /// programming-error contract as `status::tracker`.
+/// The hub entity when initialized (docs/0062 §4); `None` in tests that
+/// never called [`init`] — surfaces degrade instead of panicking.
+pub fn try_hub(cx: &App) -> Option<Entity<ToastHub>> {
+    cx.try_global::<ToastsGlobal>().map(|g| g.0.clone())
+}
+
 pub fn hub(cx: &App) -> Entity<ToastHub> {
     let ToastsGlobal(hub) = cx.global::<ToastsGlobal>();
     hub.clone()
@@ -568,5 +721,114 @@ mod tests {
             relative_time(now - std::time::Duration::from_secs(86_400), now),
             "1d ago"
         );
+    }
+
+    #[test]
+    fn level_names_roundtrip() {
+        for level in Level::ALL {
+            assert_eq!(Level::from_name(level.name()), Some(level));
+        }
+        assert_eq!(Level::from_name("bogus"), None);
+        assert_eq!(Level::ALL.len(), 4);
+    }
+
+    #[gpui::test]
+    fn source_defaults_to_app_and_registry_labels(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            // Unattributed raises resolve to the app source (D2).
+            let toast = Toast::new(Level::Info, "hello");
+            assert_eq!(toast.effective_source(), "app");
+            assert_eq!(
+                Toast::new(Level::Info, "hello")
+                    .source("github")
+                    .effective_source(),
+                "github"
+            );
+            // init registers the app source; a second registration
+            // relabels, a new id appends.
+            init(cx);
+            assert_eq!(sources(cx).len(), 1);
+            assert_eq!(sources(cx)[0].id, "app");
+            register_source("app", "Dashboard", cx);
+            register_source("github", "GitHub", cx);
+            let sources = sources(cx);
+            assert_eq!(sources.len(), 2);
+            assert_eq!(
+                sources[0].label, "Dashboard",
+                "re-registration relabels in place"
+            );
+            assert_eq!(sources[1].id, "github");
+            // Labels resolve through the registry, degrade to the id.
+            assert_eq!(
+                source_label(Some(&"github".into()), cx),
+                "GitHub".to_string()
+            );
+            assert_eq!(source_label(None, cx), "Dashboard".to_string());
+            assert_eq!(
+                source_label(Some(&"unknown".into()), cx),
+                "unknown".to_string()
+            );
+        });
+    }
+
+    #[gpui::test]
+    fn muted_sources_are_suppressed_at_both_ingest_paths(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            init(cx);
+            cx.set_global(crate::settings::AppSettings::default());
+            crate::settings::set_source_muted("github", true, cx);
+
+            // Direct path: no pending, no log entry, no badge (D3).
+            raise(cx, Toast::new(Level::Error, "boom").source("github"));
+            let hub = hub(cx);
+            assert_eq!(hub.read(cx).pending_len(), 0);
+            assert_eq!(hub.read(cx).log().len(), 0);
+            assert_eq!(hub.read(cx).unread_count(), 0);
+
+            // Spill path: suppressed at the drain, not counted as arrived.
+            spill(cx).push(Toast::new(Level::Warning, "spilled").source("github"));
+            assert_eq!(hub.update(cx, |hub, cx| hub.drain_spill(cx)), 0);
+            assert_eq!(hub.read(cx).pending_len(), 0);
+            assert_eq!(hub.read(cx).log().len(), 0);
+
+            // Unmuted sources — including unattributed app raises —
+            // are unaffected.
+            raise(cx, Toast::new(Level::Info, "kept").source("github-app"));
+            error(cx, "kept too");
+            assert_eq!(hub.read(cx).pending_len(), 2);
+            assert_eq!(hub.read(cx).unread_count(), 2);
+
+            // Unmuting restores delivery.
+            crate::settings::set_source_muted("github", false, cx);
+            raise(cx, Toast::new(Level::Error, "back").source("github"));
+            assert_eq!(hub.read(cx).unread_count(), 3);
+        });
+    }
+
+    #[gpui::test]
+    fn unread_count_for_respects_the_level_set(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            init(cx);
+            info(cx, "i");
+            error(cx, "e");
+            raise(cx, Toast::new(Level::Warning, "w"));
+            let hub = hub(cx);
+            assert_eq!(
+                hub.read(cx).unread_count(),
+                3,
+                "unfiltered keeps the full record"
+            );
+            assert_eq!(hub.read(cx).unread_count_for(&[Level::Error]), 1);
+            assert_eq!(
+                hub.read(cx)
+                    .unread_count_for(&[Level::Error, Level::Warning]),
+                2
+            );
+            assert_eq!(
+                hub.read(cx).unread_count_for(&[]),
+                0,
+                "an empty set is the badge-off preference (D4)"
+            );
+        });
     }
 }

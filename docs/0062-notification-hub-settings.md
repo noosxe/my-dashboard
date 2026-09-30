@@ -1,7 +1,7 @@
 # 0062 — Notification hub settings (badge, levels, per-source mute)
 
-Status: design for review. Implements #388 — the settings round deferred by
-docs/0059 §8. Tracking: implementation issue filed on merge of this doc.
+Status: implemented (#416, landed via PR #413-PLACEHOLDER). Implements #388 —
+the settings round deferred by docs/0059 §8.
 
 ## 1. Problem
 
@@ -105,6 +105,11 @@ three and defers the fourth (§3 D6 — upstream-hardcoded).
   with an explicit `.id(...)` per docs/0010 D10. Rows in the panel gain a
   dim source tag (e.g. "GitHub") before the relative time — the user needs
   to see *which* source a row came from to make an informed mute.
+  *(Implementation note: upstream's `Settings` keeps the subnav selection
+  in per-window keyed state that cannot be set externally at our pin, so
+  the gear's one-shot request preselects Notifications via
+  `default_selected_index` — effective while the subnav state is fresh; a
+  remembered selection wins once the user has browsed.)*
 
 ## 4. File layout
 

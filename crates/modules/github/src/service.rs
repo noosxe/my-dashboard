@@ -2300,6 +2300,7 @@ impl GithubState {
                 dashboard_core::toasts::Level::Error,
                 "GitHub session expired — reconnect required.",
             )
+            .source("github")
             .dedupe_key("github-auth-expired"),
         );
     }
@@ -2371,6 +2372,7 @@ impl GithubState {
                         dashboard_core::toasts::Level::Warning,
                         "GitHub is unreachable — retrying in the background.",
                     )
+                    .source("github")
                     .dedupe_key("github-poll-offline"),
                 );
             }

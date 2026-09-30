@@ -246,6 +246,7 @@ impl NotificationDetailPage {
                     dashboard_core::toasts::Level::Error,
                     "Couldn't mark the notification as read — try again.",
                 )
+                .source("github")
                 .dedupe_key(format!("thread-mark-read-{}", self.thread_id())),
             );
             // Revert the optimistic flip (D3); the button arms as retry.
@@ -307,6 +308,7 @@ impl NotificationDetailPage {
                     dashboard_core::toasts::Level::Error,
                     "Couldn't mark the notification as done — try again.",
                 )
+                .source("github")
                 .dedupe_key(format!("thread-mark-done-{}", self.thread_id())),
             );
             // The page stays; the button re-arms as the retry (D8).
