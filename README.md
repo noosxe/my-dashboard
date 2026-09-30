@@ -186,9 +186,11 @@ shell, the same script works standalone:
 macOS OS-notification delivery (docs/0060) additionally requires a trusted
 bundle — plain `cargo run` posts are silently dropped by macOS.
 `./scripts/macos-app.sh` builds the release binary, wraps it in
-`My Dashboard.app` (ad-hoc signed), and installs it into `~/Applications`;
-`SIGN_IDENTITY=<id>` re-signs with a stable identity so rebuilds don't
-re-prompt for notification authorization.
+`My Dashboard.app`, and installs it into `~/Applications`; it signs with
+your Apple Development identity by default (auto-discovered from the
+keychain) so rebuilds don't re-prompt for notification authorization
+(docs/0061). `./scripts/macos-app.sh --dev` does the same for the debug
+binary as `My Dashboard Dev.app` with its own bundle id.
 
 Gates before pushing (see [AGENTS.md](AGENTS.md)):
 `cargo fmt --all --check`, `cargo clippy --workspace --all-targets` (zero
