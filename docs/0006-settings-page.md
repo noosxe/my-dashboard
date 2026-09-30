@@ -22,7 +22,8 @@ An idiomatic settings surface for the app:
 - Subpages come from two sources (owner requirement): a few **app-specific
   pages** (core-owned) and one **per-module page for modules that opt in**.
 - v1 app pages: **Appearance** (theme mode + theme) and **About**. v1 module
-  page: **GitHub** (account state + disconnect).
+  page: **GitHub** (account state + disconnect). Later app page: **Notifications**
+  (docs/0062 — badge style, per-level badge filtering, per-source mute).
 - Persistence: app-level settings in a new `state/settings.json`; module
   settings stay inside each module's own storage (`state/modules/<id>/`).
 
