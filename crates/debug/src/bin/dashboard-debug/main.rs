@@ -85,6 +85,15 @@ fn run() -> i32 {
                     return 2;
                 }
             };
+            // #401 interim: degraded, not broken — warn before the
+            // session bind, so session-bound scripts (all committed
+            // receipts) surface the macOS degradation even though
+            // their bind then fails (sessions are Linux-only).
+            if let Some(reason) = dashboard_debug::gate::gate_reason() {
+                eprintln!(
+                    "warning: receipts are degraded on macOS — tree-backed and screenshot steps will fail; {reason}"
+                );
+            }
             let bound = invocation
                 .session
                 .clone()
@@ -227,6 +236,22 @@ pub(crate) fn report(response: &Value) -> i32 {
 
 /// Run one parsed command; returns the process exit code.
 pub(crate) fn run_command(conn: &mut Conn, command: &Command) -> i32 {
+    // #401 interim (docs/0010 D4): tree-backed verbs cannot work on
+    // macOS — the platform never populates the a11y tree. Gate them
+    // up front with the tracking-issue link instead of a multi-second
+    // poll; DASHBOARD_DEBUG_A11Y=1 skips the gate (local force-patch).
+    if matches!(
+        command,
+        Command::Tree { .. }
+            | Command::WaitFrame { .. }
+            | Command::Click { .. }
+            | Command::Focus { .. }
+    ) {
+        if let Some(reason) = dashboard_debug::gate::gate_reason() {
+            eprintln!("error: {reason}");
+            return 1;
+        }
+    }
     match command {
         Command::Tree { json, window, view } => match view {
             TreeView::Plain => {

@@ -116,7 +116,7 @@ pub fn doctor(session: Option<&str>) -> i32 {
         Status::Info,
         if cfg!(target_os = "macos") {
             "macos attach mode — logs, input.dispatch and quit work; the tree \
-             cluster waits on a11y-tree population (docs/0010 D4)"
+             cluster waits on a11y-tree population (#401)"
                 .to_string()
         } else {
             "linux — full bridge: sessions, tree, AT-SPI enrichment".to_string()
@@ -361,7 +361,7 @@ pub fn doctor(session: Option<&str>) -> i32 {
                 (
                     Status::Na,
                     "tree.dump unavailable — macOS does not populate the a11y \
-                     tree yet (docs/0010 D4); frames are not observable \
+                     tree yet (#401); frames are not observable \
                      until it does",
                 )
             } else {
@@ -402,7 +402,7 @@ pub fn doctor(session: Option<&str>) -> i32 {
         checks.push(Check::new(
             "a11y merge",
             Status::Na,
-            "not checked — tree.dump unavailable on this platform",
+            "not checked — tree.dump unavailable on this platform (#401)",
         ));
     }
 
@@ -546,6 +546,9 @@ fn stray_debug_processes(self_pid: u32) -> Vec<String> {
 /// `run <script>` (D12): execute the parsed script against `conn`,
 /// echoing line + outcome into `transcripts/<stem>-<n>.log`.
 pub fn run(conn: &mut Conn, script_path: &Path, parsed: &Script, session: Option<&str>) -> i32 {
+    // #401 interim: degraded, not broken — input/logging steps run;
+    // tree-backed and screenshot steps will fail. Warn once, per the
+    // gate policy (docs/0010 D4); DASHBOARD_DEBUG_A11Y=1 skips it.
     // transcripts/ sits beside snapshots/ — the session root when a
     // session is bound, the resolved state-dir parent otherwise.
     let root = snapshots_root();

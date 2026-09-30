@@ -173,10 +173,17 @@ fn resolve_window_id(job_tx: &JobSender, window: Option<u64>) -> Result<u64, Rpc
 }
 
 fn tree_dump(job_tx: &JobSender, params: TreeDumpParams) -> Result<Value, RpcError> {
+    // #401 interim: without a populated a11y tree the dump cannot
+    // exist — fail fast with the tracking-issue link instead of a
+    // multi-second poll that errors opaquely (docs/0010 D4).
+    if let Some(reason) = crate::gate::gate_reason() {
+        log::error!("debug bridge: tree.dump {reason}");
+        return Err(RpcError::new(error_code::A11Y_UNAVAILABLE, reason));
+    }
     // D4: the walk is enrichment, not substrate. Activation failure
-    // (no a11y bus — always on macOS, sometimes elsewhere) degrades
-    // the dump instead of failing it, so the in-app half still serves
-    // tree, snapshots, --tab-stops and wait-frame.
+    // (no a11y bus — sometimes on Linux) degrades the dump instead of
+    // failing it, so the in-app half still serves tree, snapshots,
+    // --tab-stops and wait-frame.
     let activated = a11y::ensure_activated();
     let (window_id, dump_json) = request_dump(job_tx, params.window, activated.is_err())?;
     let mut dump: Value = serde_json::from_str(&dump_json)
@@ -281,6 +288,10 @@ fn click_node(job_tx: &JobSender, params: ClickNodeParams) -> Result<Value, RpcE
              other buttons or click counts",
         ));
     }
+    if let Some(reason) = crate::gate::gate_reason() {
+        log::error!("debug bridge: input.click_node {reason}");
+        return Err(RpcError::new(error_code::A11Y_UNAVAILABLE, reason));
+    }
     let session = a11y::ensure_activated()?;
     let window_id = resolve_window_id(job_tx, params.window)?;
     session.click_node(window_id as usize, &params.node)?;
@@ -288,6 +299,10 @@ fn click_node(job_tx: &JobSender, params: ClickNodeParams) -> Result<Value, RpcE
 }
 
 fn focus_node(job_tx: &JobSender, params: FocusNodeParams) -> Result<Value, RpcError> {
+    if let Some(reason) = crate::gate::gate_reason() {
+        log::error!("debug bridge: input.focus_node {reason}");
+        return Err(RpcError::new(error_code::A11Y_UNAVAILABLE, reason));
+    }
     let session = a11y::ensure_activated()?;
     let window_id = resolve_window_id(job_tx, params.window)?;
     session.focus_node(window_id as usize, &params.node)?;
@@ -299,6 +314,17 @@ fn focus_node(job_tx: &JobSender, params: FocusNodeParams) -> Result<Value, RpcE
 /// stable across sessions.
 fn enrich_titles(list: &mut Value) {
     let Some(session) = a11y::try_session() else {
+        // #401 interim: degraded, not broken — the windows still list;
+        // the title metadata needs AT-SPI. Warn once per process.
+        if crate::gate::gate_reason().is_some() {
+            static TITLES_WARNED: std::sync::Once = std::sync::Once::new();
+            TITLES_WARNED.call_once(|| {
+                log::warn!(
+                    "debug bridge: window.list is degraded on macOS — titles stay \
+                     null (https://github.com/noosxe/my-dashboard/issues/401)"
+                );
+            });
+        }
         if let Some(entries) = list.as_array_mut() {
             for entry in entries {
                 if let Some(object) = entry.as_object_mut() {

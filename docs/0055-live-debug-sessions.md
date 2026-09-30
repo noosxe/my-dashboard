@@ -479,6 +479,10 @@ dump-only dumps (walk unavailable, docs/0010 D4) from a dead bus.
 grim reports not-applicable on macOS instead of a PATH miss. Linux
 output is unchanged for healthy sessions.
 
+**Also 2026-09-29 (#401 interim):** `run` receipts warn on macOS
+(degraded: input/logging steps run, tree/screenshot steps fail,
+docs/0010 D4 gate policy) and the doctor mac lines link #401.
+
 Implementation notes (#357): the frames nudge is a **`key tab`, not a
 mouse move** — gpui redraws only on state change, and a mouse move
 that crosses no hover boundary draws nothing (verified live on both a

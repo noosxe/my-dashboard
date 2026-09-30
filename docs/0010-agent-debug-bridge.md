@@ -191,6 +191,19 @@ header still advances dump-only, so `wait-frame` keeps working. On
 macOS the platform never populates the a11y tree yet (upstream gap),
 so the dump stays empty there until that lands; activation errors on
 macOS now say so instead of prescribing at-spi2 setup.
+
+**Shipped 2026-09-29 (#401 interim):** while macOS does not populate
+the a11y tree upstream, tree-backed verbs are **gated** there —
+completely broken beats degraded-with-a-poll: `tree` (all views),
+`wait-frame`, `click`/`focus <id>` fail immediately from both the CLI
+and the server (`tree.dump`, `input.click_node`, `input.focus_node`;
+error code 4004 + the tracking-issue link, `log::error!` in the app
+ring). Degraded surfaces **warn** instead: `run` receipts (input and
+logging steps still run; tree/screenshot steps fail), `doctor`'s
+tree-cluster lines, `window.list` null titles (once per process).
+`DASHBOARD_DEBUG_A11Y=1` bypasses every gate — the escape hatch for
+the planned local force-patch (#401 route A), so it can land without
+re-gating.
 `cx.windows().len() != 1`).
 
 ### D5 — Activation: `ScreenReaderEnabled` gate, auto-enabled by the bridge
