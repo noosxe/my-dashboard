@@ -410,7 +410,7 @@ split and the contention view followed: #410.)*
 **Latency enrichments — landed with #410.** The two views the #337
 PR left out, both riding the same D13 split (`payload_split` /
 `contention`, each with its `{window, filters}` query) and the same
-freeze: *(implemented in the #410 PR — PR #NNN: the histogram gains
+freeze: *(implemented in the #410 PR — #412: the histogram gains
 its payload axis as a cross-tab — the six duration bands × five
 binary size bands `<1 KB` / `1–10 KB` / `10–100 KB` / `100 KB–1 MB` /
 `>1 MB`, all bands in fixed order, empty cells kept — so "slow
