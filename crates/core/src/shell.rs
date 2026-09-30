@@ -13,7 +13,7 @@ use gpui_component::{
     button::{Button, ButtonVariants},
     h_flex,
     notification::{Notification, NotificationDelivery},
-    setting::Settings,
+    setting::{SelectIndex, Settings},
     sidebar::{Sidebar, SidebarCollapsible, SidebarHeader, SidebarMenuItem, SidebarToggleButton},
     v_flex,
 };
@@ -661,8 +661,18 @@ impl Render for DashboardShell {
                                                             .collect::<Vec<_>>();
                                                         let mut pages = vec![
                                                             app_settings::appearance_page(cx),
+                                                            app_settings::notifications_page(cx),
                                                             app_settings::about_page(&modules),
                                                         ];
+                                                        // Notifications sits at index 1 above; the
+                                                        // deep-link preselect (docs/0062 D1/D8)
+                                                        // consumes the panel gear's one-shot
+                                                        // request. Upstream keyed state keeps a
+                                                        // remembered selection once the user
+                                                        // has browsed — the default applies only
+                                                        // to a fresh subnav.
+                                                        let deep_link_notifications =
+                                                            app_settings::take_notifications_settings_request(cx);
                                                         pages.extend(
                                                             self.registry
                                                                 .settings_pages(window, cx),
@@ -670,8 +680,21 @@ impl Render for DashboardShell {
                                                         div()
                                                             .size_full()
                                                             .child(
-                                                                Settings::new("app-settings")
-                                                                    .pages(pages),
+                                                                {
+                                                                    let mut settings =
+                                                                        Settings::new(
+                                                                            "app-settings",
+                                                                        )
+                                                                        .pages(pages);
+                                                                    if deep_link_notifications {
+                                                                        settings = settings
+                                                                            .default_selected_index(SelectIndex {
+                                                                                page_ix: 1, // Notifications (vec above)
+                                                                                group_ix: None,
+                                                                            });
+                                                                    }
+                                                                    settings
+                                                                }
                                                             )
                                                             .into_any_element()
                                                     }
@@ -689,6 +712,7 @@ impl Render for DashboardShell {
                             status::bar(
                                 &self.in_flight,
                                 &self.registry,
+                                &self.nav,
                                 &self.nav.read(cx).page,
                                 cx,
                             )

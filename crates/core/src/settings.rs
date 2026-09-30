@@ -26,6 +26,7 @@ use serde::{Deserialize, Serialize};
 use crate::module::ModuleIcon;
 use crate::paths::AppPaths;
 use crate::store::{DebouncedSave, load_json};
+use crate::toasts::{self, Level};
 
 /// Registry names of the two bundled palettes (docs/0056 D2). The
 /// registry is name-keyed and first registration wins, so user files
@@ -114,6 +115,9 @@ pub struct AppSettings {
     /// Palette of the **dark** slot — a dark-mode `ThemeRegistry` name;
     /// `None` = factory dark (`Aurora Dark`, docs/0056 D2).
     pub theme_name_dark: Option<String>,
+    /// Notification hub preferences (docs/0062 D7); `None` = factory
+    /// behavior (numeric badge, all levels, nothing muted).
+    pub notifications: Option<NotificationsSettings>,
 }
 
 impl Global for AppSettings {}
@@ -341,6 +345,264 @@ pub(crate) fn set_theme_slot(mode: ThemeMode, name: &str, cx: &mut App) {
 }
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Notification settings (docs/0062 D3–D5, D7)
+// ---------------------------------------------------------------------------
+
+/// Persisted notification-hub values (docs/0062 D7). Every field
+/// optional; a missing section is the factory default.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NotificationsSettings {
+    /// `"count"` (default) or `"dot"`; unknown loads degrade to count.
+    pub badge_style: Option<String>,
+    /// Level names counted by the badge (docs/0062 D4); `None` = all
+    /// four, `Some(vec![])` = badge off. Unknown names drop on load.
+    pub badge_levels: Option<Vec<String>>,
+    /// Muted source ids (docs/0062 D3) — absolute suppression.
+    pub muted: Option<Vec<String>>,
+}
+
+/// Badge visual mode (docs/0062 D5).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BadgeStyle {
+    #[default]
+    Count,
+    Dot,
+}
+
+impl BadgeStyle {
+    pub fn name(self) -> &'static str {
+        match self {
+            BadgeStyle::Count => "count",
+            BadgeStyle::Dot => "dot",
+        }
+    }
+
+    /// Unknown names degrade to the factory default (count).
+    pub fn from_name(name: &str) -> Self {
+        match name {
+            "dot" => BadgeStyle::Dot,
+            _ => BadgeStyle::Count,
+        }
+    }
+}
+
+impl AppSettings {
+    /// Badge style, defaulted (docs/0062 D5).
+    pub fn badge_style(&self) -> BadgeStyle {
+        self.notifications
+            .as_ref()
+            .and_then(|n| n.badge_style.as_deref())
+            .map(BadgeStyle::from_name)
+            .unwrap_or_default()
+    }
+
+    /// Levels the badge counts (docs/0062 D4): the saved set with
+    /// unknown names dropped, or all four when unsaved. An explicitly
+    /// empty saved set stays empty — the badge-off preference.
+    pub fn badge_levels(&self) -> Vec<Level> {
+        self.notifications
+            .as_ref()
+            .and_then(|n| n.badge_levels.as_ref())
+            .map(|names| {
+                names
+                    .iter()
+                    .filter_map(|name| Level::from_name(name))
+                    .collect()
+            })
+            .unwrap_or_else(|| Level::ALL.to_vec())
+    }
+
+    /// Muted source ids (docs/0062 D3).
+    pub fn muted_sources(&self) -> &[String] {
+        self.notifications
+            .as_ref()
+            .and_then(|n| n.muted.as_deref())
+            .unwrap_or(&[])
+    }
+}
+
+/// Set the badge style (docs/0062 D5).
+pub fn set_badge_style(style: BadgeStyle, cx: &mut App) {
+    let notifications = cx
+        .global_mut::<AppSettings>()
+        .notifications
+        .get_or_insert_with(Default::default);
+    notifications.badge_style = Some(style.name().to_string());
+    persist(cx);
+    cx.refresh_windows();
+}
+
+/// Toggle one level in the badge's counted set (docs/0062 D4). The
+/// unsaved state reads as all-on; the first toggle materializes the
+/// full set, then adds/removes the named level. Removing the last
+/// level is legal — the badge-off preference.
+pub fn set_badge_level(level: Level, on: bool, cx: &mut App) {
+    let settings = cx.global::<AppSettings>();
+    let mut names: Vec<String> = settings
+        .badge_levels()
+        .iter()
+        .map(|l| l.name().to_string())
+        .collect();
+    match (on, names.iter().position(|n| n == level.name())) {
+        (true, None) => names.push(level.name().to_string()),
+        (false, Some(ix)) => {
+            names.remove(ix);
+        }
+        _ => {}
+    }
+    let notifications = cx
+        .global_mut::<AppSettings>()
+        .notifications
+        .get_or_insert_with(Default::default);
+    notifications.badge_levels = Some(names);
+    persist(cx);
+    cx.refresh_windows();
+}
+
+/// Mute or unmute one source (docs/0062 D3).
+pub fn set_source_muted(id: &str, muted: bool, cx: &mut App) {
+    let notifications = cx
+        .global_mut::<AppSettings>()
+        .notifications
+        .get_or_insert_with(Default::default);
+    let muted_list = notifications.muted.get_or_insert_with(Vec::new);
+    match (muted, muted_list.iter().position(|m| m == id)) {
+        (true, None) => muted_list.push(id.to_string()),
+        (false, Some(ix)) => {
+            muted_list.remove(ix);
+        }
+        _ => {}
+    }
+    persist(cx);
+    cx.refresh_windows();
+}
+
+/// One-shot deep-link request (docs/0062 D1/D8): the panel's gear sets
+/// it, then navigates to Settings; the Settings render consumes it and
+/// preselects the Notifications subpage — effective when the settings
+/// subnav state is fresh (upstream keyed state remembers an existing
+/// selection; a remembered subpage wins in that case).
+#[derive(Default)]
+struct NotificationsDeepLink(bool);
+
+impl Global for NotificationsDeepLink {}
+
+pub fn request_notifications_settings(cx: &mut App) {
+    cx.set_global(NotificationsDeepLink(true));
+}
+
+pub(crate) fn take_notifications_settings_request(cx: &mut App) -> bool {
+    let requested = cx
+        .try_global::<NotificationsDeepLink>()
+        .is_some_and(|g| g.0);
+    if requested {
+        cx.global_mut::<NotificationsDeepLink>().0 = false;
+    }
+    requested
+}
+
+/// The core-owned Notifications subpage (docs/0062 D1): badge style,
+/// counted levels, per-source muting. Rebuilt per render from live
+/// state — the source list unions the registry with log-seen ids.
+pub fn notifications_page(cx: &App) -> SettingPage {
+    let mut sources = toasts::sources(cx);
+    if let Some(hub) = toasts::try_hub(cx) {
+        for entry in hub.read(cx).log() {
+            let id = entry.toast.effective_source();
+            if !sources.iter().any(|s| s.id == id) {
+                sources.push(toasts::SourceEntry {
+                    id: id.into(),
+                    label: id.into(),
+                });
+            }
+        }
+    }
+    // `app` pinned first (docs/0062 §4); the rest keep arrival order.
+    sources.sort_by_key(|s| s.id.as_ref() != toasts::APP_SOURCE);
+
+    let level_items = Level::ALL
+        .iter()
+        .map(|&level| {
+            SettingItem::new(
+                level.display_name(),
+                SettingField::checkbox(
+                    move |cx| cx.global::<AppSettings>().badge_levels().contains(&level),
+                    move |on, cx| set_badge_level(level, on, cx),
+                ),
+            )
+            .description(format!(
+                "Count {} notifications in the badge.",
+                level.display_name()
+            ))
+        })
+        .collect::<Vec<_>>();
+
+    let source_items = sources
+        .iter()
+        .map(|source| {
+            let id = source.id.to_string();
+            let mute_id = id.clone();
+            SettingItem::new(
+                source.label.clone(),
+                SettingField::switch(
+                    move |cx| {
+                        cx.global::<AppSettings>()
+                            .muted_sources()
+                            .iter()
+                            .any(|m| m == &id)
+                    },
+                    move |muted, cx| set_source_muted(&mute_id, muted, cx),
+                ),
+            )
+            .description(format!("Mute notifications from {}.", source.label))
+        })
+        .collect::<Vec<_>>();
+
+    SettingPage::new("Notifications")
+        .icon(Icon::new(IconName::Bell))
+        .description(
+            "Badge style, counted levels, and per-source muting for the notification hub.",
+        )
+        .groups(vec![
+            SettingGroup::new()
+                .title("Badge")
+                .items(vec![SettingItem::new(
+                    "Style",
+                    SettingField::dropdown(
+                        vec![
+                            ("count".into(), "Count".into()),
+                            ("dot".into(), "Dot".into()),
+                        ],
+                        |cx: &App| {
+                            cx.global::<AppSettings>()
+                                .badge_style()
+                                .name()
+                                .into()
+                        },
+                        |value: SharedString, cx: &mut App| {
+                            set_badge_style(BadgeStyle::from_name(&value), cx);
+                        },
+                    )
+                    .default_value("count"),
+                )
+                .description("Numeric unread count, or a plain dot.")
+                .keywords(["badge", "count", "dot", "style", "unread"]),]),
+            SettingGroup::new()
+                .title("Levels")
+                .description(
+                    "Which levels count toward the badge. Unchecking all hides the badge; the panel still lists every unread notification.",
+                )
+                .items(level_items),
+            SettingGroup::new()
+                .title("Sources")
+                .description(
+                    "Muting hides all notifications from a source, including errors. Failures still show inline and in the log.",
+                )
+                .items(source_items),
+        ])
+}
+
 // Appearance page
 // ---------------------------------------------------------------------------
 
@@ -550,6 +812,7 @@ mod tests {
             theme_mode: Some("dark".into()),
             theme_name_light: Some("Default Light".into()),
             theme_name_dark: Some("Custom Dark".into()),
+            notifications: None,
         };
         let json = serde_json::to_string(&values).unwrap();
         let back: AppSettings = serde_json::from_str(&json).unwrap();
@@ -707,6 +970,7 @@ mod tests {
                 theme_mode: Some("dark".into()),
                 theme_name_light: None,
                 theme_name_dark: Some("Catppuccin Mocha".into()),
+                notifications: None,
             });
             apply_saved_theme(cx);
             // D8 degrade + docs/0056 D3: the unknown name warns and the
@@ -716,6 +980,104 @@ mod tests {
                 cx.global::<AppSettings>().theme_name_dark.as_deref(),
                 Some("Catppuccin Mocha")
             );
+        });
+    }
+
+    #[test]
+    fn notifications_settings_roundtrip_and_degrade() {
+        // Round-trip a fully populated section.
+        let values = AppSettings {
+            notifications: Some(NotificationsSettings {
+                badge_style: Some("dot".into()),
+                badge_levels: Some(vec!["error".into(), "warning".into()]),
+                muted: Some(vec!["github".into()]),
+            }),
+            ..AppSettings::default()
+        };
+        let json = serde_json::to_string(&values).unwrap();
+        let back: AppSettings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.notifications, values.notifications);
+        assert_eq!(back.badge_style(), BadgeStyle::Dot);
+        assert_eq!(
+            back.badge_levels(),
+            vec![Level::Error, Level::Warning],
+            "the saved order round-trips"
+        );
+        assert_eq!(back.muted_sources(), ["github".to_string()]);
+
+        // Factory defaults: no section, empty object, missing fields.
+        let factory: AppSettings = serde_json::from_str("{}").unwrap();
+        assert_eq!(factory.badge_style(), BadgeStyle::Count);
+        assert_eq!(factory.badge_levels(), Level::ALL.to_vec());
+        assert!(factory.muted_sources().is_empty());
+
+        // Unknown values degrade: style falls back to count, unknown
+        // level names drop, a bogus style never errors (D7).
+        let hand_edited: AppSettings = serde_json::from_str(
+            r#"{"notifications":{"badge_style":"neon","badge_levels":["error","bogus"],"muted":["x"]}}"#,
+        )
+        .unwrap();
+        assert_eq!(hand_edited.badge_style(), BadgeStyle::Count);
+        assert_eq!(hand_edited.badge_levels(), vec![Level::Error]);
+        assert_eq!(hand_edited.muted_sources(), ["x".to_string()]);
+
+        // An explicitly empty level set is the badge-off preference (D4).
+        let badge_off: AppSettings =
+            serde_json::from_str(r#"{"notifications":{"badge_levels":[]}}"#).unwrap();
+        assert!(badge_off.badge_levels().is_empty());
+    }
+
+    #[gpui::test]
+    fn notification_setters_toggle_levels_styles_and_mutes(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            cx.set_global(AppSettings::default());
+
+            // Style: set and degrade-back on an unknown hand-edit.
+            set_badge_style(BadgeStyle::Dot, cx);
+            assert_eq!(cx.global::<AppSettings>().badge_style(), BadgeStyle::Dot);
+            cx.global_mut::<AppSettings>().notifications = Some(NotificationsSettings {
+                badge_style: Some("neon".into()),
+                ..Default::default()
+            });
+            assert_eq!(cx.global::<AppSettings>().badge_style(), BadgeStyle::Count);
+
+            // Levels: the unsaved state reads all-on; toggling Info off
+            // materializes the other three; toggling the rest off lands
+            // on the (legal) empty set; Info back on re-adds it.
+            set_badge_level(Level::Info, false, cx);
+            assert_eq!(
+                cx.global::<AppSettings>().badge_levels(),
+                vec![Level::Success, Level::Warning, Level::Error]
+            );
+            for level in [Level::Success, Level::Warning, Level::Error] {
+                set_badge_level(level, false, cx);
+            }
+            assert!(cx.global::<AppSettings>().badge_levels().is_empty());
+            set_badge_level(Level::Info, true, cx);
+            assert_eq!(cx.global::<AppSettings>().badge_levels(), vec![Level::Info]);
+            // Idempotent toggles.
+            set_badge_level(Level::Info, true, cx);
+            assert_eq!(cx.global::<AppSettings>().badge_levels(), vec![Level::Info]);
+
+            // Mutes: add, dedupe, remove.
+            set_source_muted("github", true, cx);
+            set_source_muted("github", true, cx);
+            set_source_muted("app", true, cx);
+            assert_eq!(
+                cx.global::<AppSettings>().muted_sources(),
+                ["github".to_string(), "app".to_string()]
+            );
+            set_source_muted("github", false, cx);
+            assert_eq!(
+                cx.global::<AppSettings>().muted_sources(),
+                ["app".to_string()]
+            );
+
+            // The deep-link flag is one-shot (D1/D8).
+            assert!(!take_notifications_settings_request(cx));
+            request_notifications_settings(cx);
+            assert!(take_notifications_settings_request(cx));
+            assert!(!take_notifications_settings_request(cx), "consumed once");
         });
     }
 }

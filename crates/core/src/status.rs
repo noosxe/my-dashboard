@@ -170,6 +170,7 @@ pub fn end(cx: &mut App, id: u64) {
 pub fn bar(
     tracker: &Entity<InFlight>,
     registry: &ModuleRegistry,
+    nav: &Entity<crate::nav::Navigator>,
     active: &crate::nav::Page,
     cx: &App,
 ) -> StatusBar {
@@ -203,7 +204,7 @@ pub fn bar(
     }
     // The notification indicator is the rightmost slot (docs/0059 D3),
     // after module-contributed items.
-    bar = bar.right(notifications_indicator(cx));
+    bar = bar.right(notifications_indicator(cx, nav));
     // Stable height (docs/0013 D5): with no items the component collapses
     // to its bare padding, and the first fetch would then grow it to the
     // content height — resizing the columns above. The minimum pins the
@@ -221,11 +222,39 @@ pub fn indicator_label(unread: usize) -> SharedString {
     format!("Notifications, {unread} unread").into()
 }
 
+/// What the trigger's badge renders (docs/0062 D5), decided purely so
+/// tests can pin it: `Hidden` wraps the trigger bare (zero unread, or
+/// an empty counted-level set), `Count` is the numeric 99+-capped
+/// badge, `Dot` is the numberless dot.
+pub enum BadgeView {
+    Hidden,
+    Count(usize),
+    Dot,
+}
+
+pub fn badge_view(unread: usize, style: crate::settings::BadgeStyle) -> BadgeView {
+    if unread == 0 {
+        return BadgeView::Hidden;
+    }
+    match style {
+        crate::settings::BadgeStyle::Count => BadgeView::Count(unread),
+        crate::settings::BadgeStyle::Dot => BadgeView::Dot,
+    }
+}
+
 /// The rightmost bar slot (docs/0059 D3): a bell button under an unread
 /// `Badge` (upstream hides the number at 0); clicking opens the panel.
-fn notifications_indicator(cx: &App) -> AnyElement {
+fn notifications_indicator(cx: &App, nav: &Entity<crate::nav::Navigator>) -> AnyElement {
     let hub = crate::toasts::hub(cx);
-    let unread = hub.read(cx).unread_count();
+    // docs/0062 D4/D5: the badge counts the level-filtered unread and
+    // takes the configured style; the trigger's label carries the same
+    // (filtered) count in both modes. Missing settings = factory.
+    let settings = cx.try_global::<crate::settings::AppSettings>();
+    let style = settings.map(|s| s.badge_style()).unwrap_or_default();
+    let levels = settings
+        .map(|s| s.badge_levels())
+        .unwrap_or_else(|| crate::toasts::Level::ALL.to_vec());
+    let unread = hub.read(cx).unread_count_for(&levels);
 
     let trigger = Button::new("status-notifications")
         // debug_bounds/bridge findability (docs/0010 D10) — ids alone are
@@ -254,24 +283,34 @@ fn notifications_indicator(cx: &App) -> AnyElement {
                 });
             }
         })
-        .content(|_, _, cx| {
-            let hub = crate::toasts::hub(cx);
-            let rows = hub.read(cx).panel_snapshot().to_vec();
-            notification_panel(rows, cx)
+        .content({
+            let nav = nav.clone();
+            move |_, _, cx| {
+                let hub = crate::toasts::hub(cx);
+                let rows = hub.read(cx).panel_snapshot().to_vec();
+                notification_panel(rows, &nav, cx)
+            }
         });
 
-    Badge::new()
-        .count(unread)
-        .max(99)
-        .color(cx.theme().danger)
-        .child(popover)
-        .into_any_element()
+    // docs/0062 D5: count caps at 99+, dot hides the number, hidden
+    // wraps the trigger with no badge at all (upstream's Dot variant
+    // would render at zero unread).
+    let badge = match badge_view(unread, style) {
+        BadgeView::Hidden => Badge::new(),
+        BadgeView::Count(count) => Badge::new().count(count).max(99),
+        BadgeView::Dot => Badge::new().dot(),
+    };
+    badge.child(popover).into_any_element()
 }
 
 /// The panel body (docs/0059 D4): header + rows from the open-time
 /// snapshot. Opening already marked everything read — this is a review
 /// surface, not a live filter.
-fn notification_panel(rows: Vec<crate::toasts::HubEntry>, cx: &App) -> AnyElement {
+fn notification_panel(
+    rows: Vec<crate::toasts::HubEntry>,
+    nav: &Entity<crate::nav::Navigator>,
+    cx: &App,
+) -> AnyElement {
     let theme = cx.theme();
     let mut list = v_flex().w(px(384.)); // ~24 rem (docs/0059 D4)
     if rows.is_empty() {
@@ -315,6 +354,14 @@ fn notification_panel(rows: Vec<crate::toasts::HubEntry>, cx: &App) -> AnyElemen
                                 .child(toast.message.clone()),
                         ),
                 )
+                // docs/0062 D8: a dim source tag so mutes are informed
+                // decisions, then the relative time.
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(theme.muted_foreground)
+                        .child(crate::toasts::source_label(toast.source.as_ref(), cx)),
+                )
                 .child(div().text_xs().text_color(theme.muted_foreground).child(
                     crate::toasts::relative_time(entry.raised_at, Instant::now()),
                 ))
@@ -345,16 +392,41 @@ fn notification_panel(rows: Vec<crate::toasts::HubEntry>, cx: &App) -> AnyElemen
                 .py_2()
                 .child(div().text_sm().font_medium().child("Notifications"))
                 .child(
-                    Button::new("notification-clear-all")
-                        .ghost()
-                        .xsmall()
-                        .label("Clear all")
-                        .on_click(|_, _, cx| {
-                            crate::toasts::hub(cx).update(cx, |hub, cx| {
-                                hub.clear_panel();
-                                cx.notify();
-                            });
-                        }),
+                    h_flex()
+                        .gap_1()
+                        .child(
+                            // docs/0062 D1: the panel's settings entry —
+                            // navigates to Settings (deep-linking the
+                            // Notifications subpage when the subnav state
+                            // is fresh); no toggles inside the popover.
+                            Button::new("notification-settings")
+                                .ghost()
+                                .xsmall()
+                                .icon(IconName::Settings)
+                                .accessibility_label("Notification settings")
+                                .debug_selector(|| "notification-settings".to_string())
+                                .on_click({
+                                    let nav = nav.clone();
+                                    move |_, _, cx| {
+                                        crate::settings::request_notifications_settings(cx);
+                                        nav.update(cx, |nav, cx| {
+                                            nav.go(crate::nav::Page::Settings, cx)
+                                        });
+                                    }
+                                }),
+                        )
+                        .child(
+                            Button::new("notification-clear-all")
+                                .ghost()
+                                .xsmall()
+                                .label("Clear all")
+                                .on_click(|_, _, cx| {
+                                    crate::toasts::hub(cx).update(cx, |hub, cx| {
+                                        hub.clear_panel();
+                                        cx.notify();
+                                    });
+                                }),
+                        ),
                 ),
         )
         .child(list)
@@ -460,5 +532,27 @@ mod tests {
         assert_eq!(indicator_label(0), "Notifications, 0 unread");
         assert_eq!(indicator_label(12), "Notifications, 12 unread");
         assert_eq!(indicator_label(105), "Notifications, 105 unread");
+    }
+
+    #[test]
+    fn badge_view_modes() {
+        // docs/0062 D5: zero unread hides the badge in either style; the
+        // count style carries the number (99+ capping happens at render
+        // via .max(99)); dot never shows a number.
+        use crate::settings::BadgeStyle;
+        assert!(matches!(
+            badge_view(0, BadgeStyle::Count),
+            BadgeView::Hidden
+        ));
+        assert!(matches!(badge_view(0, BadgeStyle::Dot), BadgeView::Hidden));
+        assert!(matches!(
+            badge_view(3, BadgeStyle::Count),
+            BadgeView::Count(3)
+        ));
+        assert!(matches!(
+            badge_view(105, BadgeStyle::Count),
+            BadgeView::Count(105)
+        ));
+        assert!(matches!(badge_view(105, BadgeStyle::Dot), BadgeView::Dot));
     }
 }

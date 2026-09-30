@@ -89,6 +89,9 @@ impl Module for GithubModule {
                 Some("GithubNewPrPage"),
             ),
         ]);
+        // Notification source label (docs/0062 D2): every github raise
+        // attributes here; the settings page mutes by this id.
+        dashboard_core::toasts::register_source("github", "GitHub", cx);
         // Keychain-backed token slot + shared client + cache root (0005 Q3/Q6).
         let store: Arc<dyn TokenStore> = Arc::new(KeyringTokenStore);
         let shared_token: SharedToken = Arc::new(std::sync::RwLock::new(None));
