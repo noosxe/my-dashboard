@@ -476,14 +476,20 @@ fn finalize_latency(groups: &mut [LatencyGroup], metric: LatencyMetric) {
 /// Nearest-rank percentile (D12): sorted durations, rank
 /// `ceil(p·n/100)` clamped to `[1, n]`, value at that 1-based rank.
 fn percentile(rows: &[&UsageRecord], p: u64) -> u32 {
-    let mut ds: Vec<u32> = rows.iter().map(|r| r.duration_ms).collect();
-    ds.sort_unstable();
-    let n = ds.len();
+    percentile_of(rows.iter().map(|r| r.duration_ms).collect(), p)
+}
+
+/// The same nearest-rank rule over any sample set — the queue
+/// waits of the contention view (#410) are durations' sibling, not
+/// their copy.
+fn percentile_of(mut vals: Vec<u32>, p: u64) -> u32 {
+    vals.sort_unstable();
+    let n = vals.len();
     if n == 0 {
         return 0;
     }
     let rank = (p * n as u64).div_ceil(100).clamp(1, n as u64) as usize;
-    ds[rank - 1]
+    vals[rank - 1]
 }
 
 // ---------------------------------------------------------------------------
@@ -835,6 +841,238 @@ pub fn revalidation_comparison(
     RevalidationComparison { ops }
 }
 
+// ---------------------------------------------------------------------------
+// Latency enrichments (#410): payload × duration split, contention
+// view — same D13 treatment, same frozen inputs
+// ---------------------------------------------------------------------------
+
+/// The payload-size bands of the cross-tab (#410): upper bounds,
+/// half-open below. Binary thresholds, so a band edge and
+/// [`fmt_bytes`] agree — a body that formats as `1.0 KB` is never
+/// in the `<1 KB` band.
+const SIZE_BAND_BOUNDS_BYTES: [u32; 4] = [1_024, 10_240, 102_400, 1_048_576];
+
+/// Size labels in fixed band order — the same never-re-sorted rule
+/// as the duration bands: position is the information.
+const SIZE_BAND_LABELS: [&str; 5] = ["<1 KB", "1–10 KB", "10–100 KB", "100 KB–1 MB", ">1 MB"];
+
+fn size_band_index(bytes: u32) -> usize {
+    SIZE_BAND_BOUNDS_BYTES
+        .iter()
+        .position(|&upper| bytes < upper)
+        .unwrap_or(SIZE_BAND_LABELS.len() - 1)
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PayloadSplitQuery {
+    pub window: WindowSpec,
+    pub filters: Filters,
+}
+
+/// One duration band of the cross-tab: flight counts per size
+/// band — always the full size-band set, in band order.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PayloadSplitRow {
+    pub label: String,
+    pub lower_ms: u32,
+    /// `None` for the last band (`>2 s`).
+    pub upper_ms: Option<u32>,
+    /// Counts per size band, in [`SIZE_BAND_LABELS`] order.
+    pub cells: Vec<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PayloadSplit {
+    /// The size-band column labels, in fixed band order.
+    pub size_labels: Vec<String>,
+    /// All six duration bands, band order, empties kept (honest
+    /// gaps, like the trend's empty buckets).
+    pub rows: Vec<PayloadSplitRow>,
+    /// Flights with no measured body (304 revalidations, network
+    /// errors) — excluded from the cells, never a guessed number.
+    pub unmeasured: u64,
+    pub flights: u64,
+}
+
+/// The payload × duration split (#410 view 1): the histogram's six
+/// duration bands crossed with five payload-size bands, so "slow
+/// because heavy" separates from "slow because far" in one view —
+/// only flights with a measured body land in cells; `unmeasured`
+/// carries the rest.
+pub fn payload_split(rows: &[UsageRecord], q: &PayloadSplitQuery) -> PayloadSplit {
+    let scoped = scoped(rows, &q.window, &q.filters);
+    let mut cells = [[0u64; 5]; 6];
+    let mut unmeasured = 0u64;
+    for r in &scoped {
+        match r.resp_bytes {
+            Some(bytes) => cells[band_index(r.duration_ms)][size_band_index(bytes)] += 1,
+            None => unmeasured += 1,
+        }
+    }
+    let rows = DURATION_BAND_LABELS
+        .iter()
+        .enumerate()
+        .map(|(i, label)| PayloadSplitRow {
+            label: (*label).to_string(),
+            lower_ms: if i == 0 {
+                0
+            } else {
+                DURATION_BAND_BOUNDS_MS[i - 1]
+            },
+            upper_ms: DURATION_BAND_BOUNDS_MS.get(i).copied(),
+            cells: cells[i].to_vec(),
+        })
+        .collect();
+    PayloadSplit {
+        size_labels: SIZE_BAND_LABELS.iter().map(|l| l.to_string()).collect(),
+        rows,
+        unmeasured,
+        flights: scoped.len() as u64,
+    }
+}
+
+/// Queue waits at or above this read as contention evidence
+/// (#410) — the first duration-band boundary; below it a wait is
+/// ordinary scheduling jitter, not self-inflicted contention.
+const QUEUE_NOTABLE_MS: u32 = 100;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ContentionQuery {
+    pub window: WindowSpec,
+    pub filters: Filters,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ContentionBucket {
+    pub start_ms: u64,
+    pub end_ms: u64,
+    /// Max simultaneously-in-flight spans during the bucket — a
+    /// flight spans `[ts − duration, ts)` and is counted in every
+    /// bucket its span touches.
+    pub max_in_flight: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Contention {
+    /// The window's peak: max simultaneously-in-flight spans.
+    /// Touching intervals (`[a,b)` + `[b,c)`) do not overlap —
+    /// half-open, like the record window itself.
+    pub peak_in_flight: u64,
+    /// The first instant the peak was reached; 0 when nothing was
+    /// ever in flight (no span, no instant).
+    pub peak_at_ms: u64,
+    /// Distinct ops in flight at that instant, op order.
+    pub peak_ops: Vec<String>,
+    /// Every bucket of the window (fixed count, like the trend),
+    /// empties kept.
+    pub buckets: Vec<ContentionBucket>,
+    /// Flights that recorded a queue wait at all.
+    pub queued_measured: u64,
+    /// …of those, the waits ≥ [`QUEUE_NOTABLE_MS`].
+    pub queued_notable: u64,
+    pub queue_p50_ms: Option<u32>,
+    pub queue_p90_ms: Option<u32>,
+    pub flights: u64,
+}
+
+/// The flight-overlap/contention view (#410 view 2): how many
+/// requests were in flight at once — self-inflicted contention —
+/// and the queue waits it caused. Network spans only:
+/// `duration_ms` excludes `queue_ms` (D14), so overlap is transport
+/// contention and the queue waits are its receipts.
+pub fn contention(rows: &[UsageRecord], q: &ContentionQuery) -> Contention {
+    let scoped = scoped(rows, &q.window, &q.filters);
+    // A zero-duration span occupies nothing ([t, t)) and joins no
+    // overlap — it still counts toward flights and queue stats.
+    let spans: Vec<(u64, u64, &UsageRecord)> = scoped
+        .iter()
+        .filter(|r| r.duration_ms > 0)
+        .map(|r| {
+            (
+                r.ts_epoch_ms.saturating_sub(r.duration_ms as u64),
+                r.ts_epoch_ms,
+                *r,
+            )
+        })
+        .collect();
+    // Sweep events: ends sort before starts at the same instant
+    // (half-open spans — a flight ending exactly when another
+    // starts never overlaps it).
+    let mut events: Vec<(u64, i64)> = spans
+        .iter()
+        .flat_map(|(s, e, _)| [(*s, 1i64), (*e, -1)])
+        .collect();
+    events.sort();
+
+    // Peak: running count after each event is the in-flight count
+    // at that instant (partial sums of a same-instant group never
+    // exceed the group's result — ends are applied first).
+    let (mut running, mut peak, mut peak_at) = (0i64, 0u64, 0u64);
+    for &(t, d) in &events {
+        running += d;
+        if running > peak as i64 {
+            peak = running as u64;
+            peak_at = t;
+        }
+    }
+    let mut peak_ops: Vec<String> = spans
+        .iter()
+        .filter(|(s, e, _)| *s <= peak_at && peak_at < *e)
+        .map(|(_, _, r)| r.op.to_string())
+        .collect();
+    peak_ops.sort();
+    peak_ops.dedup();
+
+    // Per-bucket max: consume events up to and including the
+    // bucket start (that count *is* the bucket's entry state), then
+    // every event strictly inside the bucket.
+    let (start, len, count) = buckets(&q.window);
+    let mut out = Vec::with_capacity(count);
+    let mut idx = 0usize;
+    let mut running = 0i64;
+    for i in 0..count {
+        let b0 = start + i as u64 * len;
+        let b1 = b0 + len;
+        while idx < events.len() && events[idx].0 <= b0 {
+            running += events[idx].1;
+            idx += 1;
+        }
+        let mut max = running.max(0) as u64;
+        while idx < events.len() && events[idx].0 < b1 {
+            running += events[idx].1;
+            max = max.max(running.max(0) as u64);
+            idx += 1;
+        }
+        out.push(ContentionBucket {
+            start_ms: b0,
+            end_ms: b1,
+            max_in_flight: max,
+        });
+    }
+
+    let queued: Vec<&UsageRecord> = scoped
+        .iter()
+        .filter(|r| r.queue_ms.is_some())
+        .copied()
+        .collect();
+    let queued_notable = queued
+        .iter()
+        .filter(|r| r.queue_ms.is_some_and(|w| w >= QUEUE_NOTABLE_MS))
+        .count() as u64;
+    Contention {
+        peak_in_flight: peak,
+        peak_at_ms: peak_at,
+        peak_ops,
+        buckets: out,
+        queued_measured: queued.len() as u64,
+        queued_notable,
+        queue_p50_ms: (!queued.is_empty())
+            .then(|| percentile_of(queued.iter().filter_map(|r| r.queue_ms).collect(), 50)),
+        queue_p90_ms: (!queued.is_empty())
+            .then(|| percentile_of(queued.iter().filter_map(|r| r.queue_ms).collect(), 90)),
+        flights: scoped.len() as u64,
+    }
+}
 // ---------------------------------------------------------------------------
 // Overview (D11, D15, D16) — one procedure, the tab's full view
 // ---------------------------------------------------------------------------
@@ -3192,6 +3430,9 @@ struct LatencyTab {
     glance: LatencyGlance,
     histogram: DurationHistogram,
     reval: RevalidationComparison,
+    /// The #410 enrichments, on the same frozen inputs.
+    payload: PayloadSplit,
+    contention: Contention,
     group_by_select: Entity<SelectState<SearchableVec<SharedString>>>,
     then_by_select: Entity<SelectState<SearchableVec<SharedString>>>,
     metric_select: Entity<SelectState<SearchableVec<SharedString>>>,
@@ -3343,6 +3584,23 @@ impl LatencyTab {
                 flights: 0,
             },
             reval: RevalidationComparison { ops: Vec::new() },
+            payload: PayloadSplit {
+                size_labels: Vec::new(),
+                rows: Vec::new(),
+                unmeasured: 0,
+                flights: 0,
+            },
+            contention: Contention {
+                peak_in_flight: 0,
+                peak_at_ms: 0,
+                peak_ops: Vec::new(),
+                buckets: Vec::new(),
+                queued_measured: 0,
+                queued_notable: 0,
+                queue_p50_ms: None,
+                queue_p90_ms: None,
+                flights: 0,
+            },
             group_by_select,
             then_by_select,
             metric_select,
@@ -3418,6 +3676,21 @@ impl LatencyTab {
         self.reval = revalidation_comparison(
             &self.inputs.rows,
             &RevalidationQuery {
+                window: self.inputs.window,
+                filters: self.inputs.filters.clone(),
+            },
+        );
+        // The #410 enrichments ride the same inputs and freeze.
+        self.payload = payload_split(
+            &self.inputs.rows,
+            &PayloadSplitQuery {
+                window: self.inputs.window,
+                filters: self.inputs.filters.clone(),
+            },
+        );
+        self.contention = contention(
+            &self.inputs.rows,
+            &ContentionQuery {
                 window: self.inputs.window,
                 filters: self.inputs.filters.clone(),
             },
@@ -3759,6 +4032,190 @@ impl Render for LatencyTab {
                 .into_any_element()
         };
 
+        // The contention view (#410 view 2): flights in flight at
+        // once — self-inflicted contention — and the queue waits it
+        // caused. Cards for the peaks and the queue evidence, a step
+        // line for the over-time shape (counts, not a continuous
+        // quantity, so step-after).
+        let cont = &self.contention;
+        let peak_line = if cont.peak_in_flight == 0 {
+            "no measured spans".to_string()
+        } else {
+            format!(
+                "at {} · {}",
+                format_hms(cont.peak_at_ms),
+                cont.peak_ops.join(", ")
+            )
+        };
+        let peak_card = stat_card(
+            "usage-latency-contention-peak",
+            "Peak in flight",
+            SharedString::from(cont.peak_in_flight.to_string()),
+            vec![SharedString::from(peak_line.clone())],
+            format!(
+                "Peak {} flights in flight simultaneously, {}",
+                cont.peak_in_flight, peak_line
+            ),
+            cx,
+        );
+        let (q50, q90) = (
+            cont.queue_p50_ms.map_or_else(|| "—".into(), fmt_ms),
+            cont.queue_p90_ms.map_or_else(|| "—".into(), fmt_ms),
+        );
+        let queue_card = stat_card(
+            "usage-latency-contention-queue",
+            "Queue wait",
+            SharedString::from(q50.clone()),
+            vec![SharedString::from(format!(
+                "p90 {q90} · {} of {} ≥ 100 ms",
+                cont.queued_notable, cont.queued_measured
+            ))],
+            format!(
+                "Queue wait: p50 {q50}, p90 {q90}, {} of {} measured waits at or over 100 milliseconds",
+                cont.queued_notable, cont.queued_measured
+            ),
+            cx,
+        );
+        let cont_data: Vec<(SharedString, f64)> = cont
+            .buckets
+            .iter()
+            .map(|b| {
+                (
+                    SharedString::from(format_hms(b.start_ms)),
+                    b.max_in_flight as f64,
+                )
+            })
+            .collect();
+        let cont_panel = line_panel(
+            "usage-latency-contention",
+            format!(
+                "In flight per bucket: up to {} simultaneously",
+                cont.peak_in_flight
+            ),
+            cont_data,
+            cx.theme().chart_5,
+            true,
+            Some(SharedString::from(
+                "bucket max of simultaneously-in-flight spans (queue wait excluded)",
+            )),
+            cx,
+        );
+        let contention_row = h_flex()
+            .flex_none()
+            .flex_wrap()
+            .gap_3()
+            .items_start()
+            .child(peak_card)
+            .child(queue_card)
+            .child(cont_panel);
+
+        // The payload × duration split (#410 view 1): the histogram's
+        // bands crossed with payload-size bands — "slow because
+        // heavy" vs "slow because far" in one grid. 304s and network
+        // errors have no body: counted as unmeasured, never guessed
+        // into a band.
+        let ps = &self.payload;
+        let with_body = ps.flights - ps.unmeasured;
+        let over1_body: u64 = ps
+            .rows
+            .iter()
+            .skip(4)
+            .map(|r| r.cells.iter().sum::<u64>())
+            .sum();
+        let over1_heavy: u64 = ps
+            .rows
+            .iter()
+            .skip(4)
+            .map(|r| r.cells.iter().skip(1).sum::<u64>())
+            .sum();
+        let payload_summary = if with_body == 0 {
+            format!(
+                "Payload × duration: no flight recorded a body ({} flights)",
+                ps.flights
+            )
+        } else {
+            format!(
+                "Payload × duration: {with_body} flights with a body · {over1_heavy} of {over1_body} over-1 s flights carried ≥10 KB · {} without a body",
+                ps.unmeasured
+            )
+        };
+        let payload_fg = cx.theme().foreground;
+        let payload_cell = |n: u64| {
+            div()
+                .w(px(84.))
+                .flex_none()
+                .flex()
+                .justify_end()
+                .text_sm()
+                .text_color(if n == 0 { muted_fg } else { payload_fg })
+                .child(if n == 0 {
+                    SharedString::from("·")
+                } else {
+                    SharedString::from(n.to_string())
+                })
+        };
+        let mut payload_grid = v_flex().gap_1();
+        let mut header = h_flex().gap_1().child(div().w(px(90.)).flex_none());
+        for label in &ps.size_labels {
+            header = header.child(
+                div()
+                    .w(px(84.))
+                    .flex_none()
+                    .flex()
+                    .justify_end()
+                    .text_sm()
+                    .text_color(muted_fg)
+                    .child(label.clone()),
+            );
+        }
+        payload_grid = payload_grid.child(header);
+        for row in &ps.rows {
+            let mut line = h_flex().gap_1().child(
+                div()
+                    .w(px(90.))
+                    .flex_none()
+                    .text_sm()
+                    .text_color(muted_fg)
+                    .child(row.label.clone()),
+            );
+            for n in &row.cells {
+                line = line.child(payload_cell(*n));
+            }
+            payload_grid = payload_grid.child(line);
+        }
+        // The AT form of the grid (D8): one Label carrying every row.
+        let payload_at = ps
+            .rows
+            .iter()
+            .map(|r| {
+                let counts = r
+                    .cells
+                    .iter()
+                    .zip(&ps.size_labels)
+                    .map(|(n, l)| format!("{l}: {n}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{} — {counts}", r.label)
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        let payload_grid = payload_grid
+            .id("usage-latency-payload-grid")
+            .role(gpui::accesskit::Role::Label)
+            .aria_label(format!("Payload by duration band: {payload_at}"));
+        let payload_section = v_flex()
+            .flex_none()
+            .gap_1()
+            .child(
+                div()
+                    .id("usage-latency-payload-summary")
+                    .role(gpui::accesskit::Role::Label)
+                    .aria_label(payload_summary.clone())
+                    .text_sm()
+                    .text_color(muted_fg)
+                    .child(payload_summary),
+            )
+            .child(payload_grid);
         v_flex()
             .id("usage-latency")
             .flex_1()
@@ -3785,6 +4242,10 @@ impl Render for LatencyTab {
             // the scroll root, like every row above and below.
             .child(glance_strip)
             .child(trend_row.flex_none())
+            // The contention view (#410): the time-series
+            // neighbor of the trend — bursts of parallel flights,
+            // and the queue waits they caused.
+            .child(contention_row)
             // The duration distribution (#337): horizontal bars over
             // the six fixed bands — the honest companion to the
             // percentiles in the strip above and the trend beside.
@@ -3812,6 +4273,10 @@ impl Render for LatencyTab {
                         ),
                     ),
             )
+            // The payload × duration split (#410): the histogram's
+            // bands, now with the payload axis — heavy-and-slow
+            // separates from fast-and-far.
+            .child(payload_section)
             // The metric ranking table (D12 view 1).
             .child(
                 v_flex()
@@ -4430,6 +4895,113 @@ mod tests {
             },
         );
         assert!(rv.ops.is_empty());
+        let ps = payload_split(
+            &rows,
+            &PayloadSplitQuery {
+                window: W,
+                filters: Filters::default(),
+            },
+        );
+        assert_eq!(ps.flights, 1);
+        assert_eq!(ps.unmeasured, 1, "no body recorded on the fixture row");
+        let ct = contention(
+            &rows,
+            &ContentionQuery {
+                window: W,
+                filters: Filters::default(),
+            },
+        );
+        assert_eq!(ct.flights, 1);
+        assert_eq!(ct.peak_in_flight, 1);
+    }
+
+    #[test]
+    fn payload_split_crosses_bands_and_excludes_unmeasured() {
+        // #410 view 1: bytes are upper bounds, half-open below —
+        // 1_024 lands in `1–10 KB`; 304s (no body) are unmeasured,
+        // never guessed into a band.
+        let mk = |ts: u64, dur: u32, bytes: Option<u32>| {
+            let mut r = rec(ts, "s", Some(1));
+            r.duration_ms = dur;
+            r.resp_bytes = bytes;
+            r
+        };
+        let mut revalidated = mk(AS_OF - 50, 40, None);
+        revalidated.status = 304;
+        revalidated.etag_304 = true;
+        let rows = vec![
+            mk(AS_OF - 10, 99, Some(500)),
+            mk(AS_OF - 20, 100, Some(1_024)),
+            mk(AS_OF - 30, 1_500, Some(5_000)),
+            mk(AS_OF - 40, 1_500, Some(500_000)),
+            mk(AS_OF - 60, 3_000, Some(2_000_000)),
+            revalidated,
+        ];
+        let p = payload_split(
+            &rows,
+            &PayloadSplitQuery {
+                window: W,
+                filters: Filters::default(),
+            },
+        );
+        assert_eq!(p.flights, 6);
+        assert_eq!(p.unmeasured, 1, "the 304 has no body to measure");
+        assert_eq!(
+            p.size_labels,
+            vec!["<1 KB", "1–10 KB", "10–100 KB", "100 KB–1 MB", ">1 MB"]
+        );
+        assert_eq!(p.rows.len(), 6, "all six duration bands, always");
+        assert_eq!(p.rows[0].cells, vec![1, 0, 0, 0, 0]);
+        assert_eq!(p.rows[1].cells, vec![0, 1, 0, 0, 0], "1_024 B is 1–10 KB");
+        assert_eq!(p.rows[2].cells, vec![0, 0, 0, 0, 0], "empty bands kept");
+        assert_eq!(p.rows[4].cells, vec![0, 1, 0, 1, 0]);
+        assert_eq!(p.rows[5].cells, vec![0, 0, 0, 0, 1]);
+    }
+
+    #[test]
+    fn contention_peak_touching_spans_and_queue_evidence() {
+        // #410 view 2: spans are `[ts − duration, ts)` — half-open,
+        // so a flight ending exactly when another starts never
+        // overlaps it. Buckets follow the shared 40-bucket rule
+        // (H1 → 90 s buckets).
+        let t = FROM + 250_000;
+        let mk = |ts: u64, dur: u32, op: &str, queue: Option<u32>| {
+            let mut r = rec(ts, "s", Some(1));
+            r.duration_ms = dur;
+            r.op = SharedString::from(op);
+            r.queue_ms = queue;
+            r
+        };
+        // a [t−100, t), b [t−150, t−50), c [t−90, t−60): all three
+        // overlap around t−70 → peak 3 at t−90. d starts exactly
+        // where b ends (t−50) — touching, never concurrent.
+        let rows = vec![
+            mk(t, 100, "pr-detail", Some(30)),
+            mk(t - 50, 100, "pr-list", Some(120)),
+            mk(t - 60, 30, "issue-list", None),
+            mk(t - 10, 40, "pr-files", Some(200)),
+            // A zero-duration span occupies nothing — no overlap.
+            mk(t - 70, 0, "zero", None),
+        ];
+        let c = contention(
+            &rows,
+            &ContentionQuery {
+                window: W,
+                filters: Filters::default(),
+            },
+        );
+        assert_eq!(c.flights, 5);
+        assert_eq!(c.peak_in_flight, 3);
+        assert_eq!(c.peak_at_ms, t - 90, "first instant the peak is reached");
+        assert_eq!(c.peak_ops, vec!["issue-list", "pr-detail", "pr-list"]);
+        assert_eq!(c.buckets.len(), 40);
+        assert_eq!(c.buckets[2].max_in_flight, 3, "the burst lives in bucket 2");
+        assert_eq!(c.buckets[0].max_in_flight, 0);
+        assert_eq!(c.buckets[3].max_in_flight, 0);
+        assert_eq!(c.queued_measured, 3);
+        assert_eq!(c.queued_notable, 2, "120 ms and 200 ms; 30 ms is jitter");
+        assert_eq!(c.queue_p50_ms, Some(120));
+        assert_eq!(c.queue_p90_ms, Some(200));
     }
     #[test]
     fn overview_points_split_budget_and_runway() {
@@ -5073,6 +5645,15 @@ mod tests {
             assert_eq!(t.reval.ops.len(), 1);
             assert_eq!(t.reval.ops[0].delta_ms, 240);
             assert_eq!(t.reval.ops[0].bytes_saved_est, Some(2_000));
+            // Payload × duration: only the full 200 has a body —
+            // 300 ms × 2 KB lands in row 2, col 1.
+            assert_eq!(t.payload.flights, 3);
+            assert_eq!(t.payload.unmeasured, 2);
+            assert_eq!(t.payload.rows[2].cells, vec![0, 1, 0, 0, 0]);
+            // Contention: slow, full and rev all overlap around
+            // t0 − 90 → peak 3 (one distinct op).
+            assert_eq!(t.contention.peak_in_flight, 3);
+            assert_eq!(t.contention.peak_ops, vec!["pr-detail"]);
         });
 
         // A post-freeze arrival (ts == as_of is outside the half-open
@@ -5091,6 +5672,8 @@ mod tests {
                 t.reval.ops[0].full_flights, 2,
                 "the slow 200 and the full 200"
             );
+            assert_eq!(t.payload.flights, 3, "post-freeze rows stay invisible");
+            assert_eq!(t.contention.peak_in_flight, 3);
         });
         std::thread::sleep(std::time::Duration::from_millis(2));
         page.update(cx, |p, cx| p.refresh(cx));
@@ -5105,6 +5688,11 @@ mod tests {
                 "the 3 s flight lands in >2 s"
             );
             assert_eq!(t.glance.over_1s, 2);
+            assert_eq!(t.payload.unmeasured, 3, "the late flight has no body");
+            assert_eq!(
+                t.contention.peak_in_flight, 4,
+                "the 3 s late flight overlaps all three"
+            );
         });
     }
     #[gpui::test]
@@ -5335,6 +5923,20 @@ mod tests {
                 window: w,
                 filters: Filters::default(),
                 limit: 5,
+            },
+        ));
+        round_trips(&payload_split(
+            &rows,
+            &PayloadSplitQuery {
+                window: w,
+                filters: Filters::default(),
+            },
+        ));
+        round_trips(&contention(
+            &rows,
+            &ContentionQuery {
+                window: w,
+                filters: Filters::default(),
             },
         ));
         round_trips(&duration_histogram(
