@@ -6188,6 +6188,102 @@ mod tests {
     }
 
     #[gpui::test]
+    fn diff_horizontal_scroll_pins_the_gutter(cx: &mut gpui::TestAppContext) {
+        // #413: horizontal scroll moves only the code — the line-number
+        // gutter stays pinned at the pane's left edge. The vertical
+        // scrollbar is pinned by construction: it renders on the pane's
+        // non-scrolling host, not inside the x-scrolled content (the
+        // owner checks its stillness visually).
+        cx.update(gpui_component::init);
+        cx.update(|cx| cx.background_executor().allow_parking());
+        let state = cx.update(|cx| {
+            let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
+            let store: std::sync::Arc<dyn crate::auth::TokenStore> =
+                std::sync::Arc::new(ProbeStore);
+            cx.new(|_| {
+                GithubState::new(
+                    client,
+                    store,
+                    Default::default(),
+                    Default::default(),
+                    GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    DraftStore::at_tmp("pr-page-x"),
+                )
+            })
+        });
+        let (page, vcx) = cx.add_window_view(|window, cx| {
+            let summary = gql::PullRequest {
+                key: "o/r#7".into(),
+                database_id: None,
+                number: 7,
+                title: "wide line".into(),
+                draft: false,
+                state: None,
+                author: None,
+                updated_at: None,
+                url: "https://probe".into(),
+                status: None,
+                labels: None,
+                review_requests: None,
+            };
+            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
+            page.tab = PrTab::Files;
+            let long = format!("+{}\n", "x".repeat(400));
+            let body = format!("+short\n{long}+tail\n");
+            page.files = Fetch::ready(vec![PrFile {
+                filename: "src/wide.rs".into(),
+                status: "modified".into(),
+                additions: 3,
+                deletions: 0,
+                changes: 3,
+                patch: Some(format!("@@ -1,2 +1,4 @@\n{body}")),
+            }]);
+            page.apply_files_payload(cx);
+            page
+        });
+        vcx.run_until_parked();
+        // rix 0 is the hunk header; rix 2 is the 400-char line.
+        let pane = vcx.debug_bounds("pr-diff-scroll-key").unwrap();
+        let gutter = vcx.debug_bounds("pr-diff-gutter-2").unwrap();
+        let code = vcx.debug_bounds("pr-diff-code-2").unwrap();
+        assert!(
+            code.size.width > pane.size.width,
+            "precondition: the long line overflows the pane"
+        );
+        assert_eq!(
+            gutter.left(),
+            pane.left(),
+            "the gutter starts at the pane's left edge"
+        );
+        // Scroll right over the code region (the area right of the
+        // gutter) — negative x delta scrolls right.
+        let at = gpui::point(gutter.right() + px(60.), gutter.center().y);
+        vcx.simulate_event(gpui::ScrollWheelEvent {
+            position: at,
+            delta: gpui::ScrollDelta::Pixels(gpui::point(px(-160.), px(0.))),
+            modifiers: Default::default(),
+            touch_phase: gpui::TouchPhase::Moved,
+        });
+        vcx.run_until_parked();
+        let x = vcx.update(|_, cx| page.read_with(cx, |p, _| p.diff_x_scroll.offset().x));
+        assert!(
+            x < px(0.),
+            "the horizontal wheel moved the shared handle ({x:?})"
+        );
+        let gutter2 = vcx.debug_bounds("pr-diff-gutter-2").unwrap();
+        let code2 = vcx.debug_bounds("pr-diff-code-2").unwrap();
+        assert_eq!(
+            gutter2.left(),
+            pane.left(),
+            "#413: the gutter must not move with horizontal scroll"
+        );
+        assert!(
+            code2.left() < code.left(),
+            "#413: the code content must scroll under the pinned gutter"
+        );
+    }
+
+    #[gpui::test]
     fn diff_items_flatten_in_0030_order(cx: &mut gpui::TestAppContext) {
         // docs/0041 §6: the flattened virtualized items follow the exact
         // order the pre-list pane rendered — file-level threads, then per

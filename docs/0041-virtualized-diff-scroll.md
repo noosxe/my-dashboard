@@ -143,12 +143,36 @@ are already cached in the `AnchorCache`) inside the x-scroll wrapper, with
 honest up to the cap (rows longer than ~2 000 chars clip, like GitHub's own
 wide-diff behavior).
 
+### D5 (amended again, #413 — pinned gutter): per-row x-scrollers
+
+The pane-level wrapper scrolled the gutter away with the code, and the
+scrollbar overlays rendered *inside* the scrolled content (gpui applies a
+scroll container's offset to every child, absolute overlays included), so
+the vertical scrollbar translated with horizontal scroll. New shape: the
+list stays viewport-width and never scrolls x; each code row is
+`[gutter (flex_none, 88 px, outside)] + [x-scroll div]`. All rows
+`track_scroll` the pane's single `ScrollHandle`, and every row's content
+is sized to the same content-derived width (now code-only chrome, 48 px)
+so every row clamps the shared offset to the same max — diverging row
+widths would fight over the shared offset in prepaint. Wheel and
+scrollbar-drag changes notify the view, so all rows resync each frame;
+`ListState` keeps owning vertical scroll and virtualization, and the
+handle keeps horizontal persistence across refreshes (D7). Hunk rows ride
+the same scroller behind a blank spacer (headers carry no numbers).
+Add/DEL tints now span the full row band, gutter included (GitHub-style).
+
 ### D6 — Scrollbars: `ScrollbarHandle for ListState`
 
 Attach the existing gpui-component `Scrollbar` overlay to the diff list
 (vertical, via `ListState`) and to the horizontal wrapper (via its
 `ScrollHandle`). This is the same pattern as the check-log pane (#249) and
 gives the diff pane its first visible scrollbars.
+
+**#413 amendment:** both overlays attach to the pane's outer *non-scrolling*
+host — never inside scrolled content — so the vertical scrollbar stays
+pinned to the diff area's right edge at every horizontal offset (and the
+horizontal one to the bottom). The handles are unchanged: vertical still
+`ListState`, horizontal still the shared row `ScrollHandle`.
 
 ### D7 — Selection/scroll persistence across refresh
 
@@ -187,6 +211,10 @@ The old implicit "the pane renders everything" cost stops bounding file
   splices (count changes, scroll survives); drafts land under their row;
   horizontal wrapper scrolls for a >viewport-width row; scrollbar handles
   attach (viewport_bounds non-degenerate).
+- #413 regression: a simulated horizontal wheel over a >viewport-width row
+  moves the shared handle and the code content, while the row's gutter
+  bounds stay at the pane's left edge
+  (`diff_horizontal_scroll_pins_the_gutter`).
 - Perf probe (manual, recorded in the PR body): repeat the §1 bench against
   the real `diff_body` — expect rows-built-per-frame ≈ viewport rows.
 - Gates: fmt, clippy (workspace, zero warnings), workspace tests.
@@ -208,7 +236,9 @@ The old implicit "the pane renders everything" cost stops bounding file
 - [ ] Open/collapse threads and type drafts mid-file: cards appear/disappear
       under the right rows without viewport jumps (besides intended growth).
 - [ ] Horizontal scroll on a long-line file (e.g. a minified lockfile):
-      gutter + content move together; horizontal scrollbar present.
+      the line-number gutter stays pinned at the left and only the code
+      moves; the vertical scrollbar stays pinned to the pane's right edge;
+      horizontal scrollbar present and pinned to the bottom (#413).
 
 ## 9. Follow-ups (GitHub issues, not this PR)
 
