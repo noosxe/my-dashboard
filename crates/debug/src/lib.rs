@@ -13,6 +13,7 @@
 pub mod a11y;
 pub mod cli;
 pub mod doctor;
+pub mod gate;
 mod handlers;
 mod jobs;
 pub mod logs;
