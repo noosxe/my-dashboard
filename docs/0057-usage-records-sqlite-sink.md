@@ -252,7 +252,8 @@ memoization honest).
   access, Windows** — not needed at this scale; VACUUM can be revisited if
   freelist growth after prunes ever shows up in practice.
 - **Adopting the sink in other modules** — Forgejo/Gitea later; D6 of 0053
-  keeps the schema module-agnostic already.
+  keeps the schema module-agnostic already. *(Lifted by docs/0063: the file
+  is the general app database — `notification_log` is its second table.)*
 
 ## 8. Docs amendments (ride with the implementation PR)
 
