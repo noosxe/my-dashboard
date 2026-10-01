@@ -75,7 +75,9 @@ for one INSERT + one range SELECT), system sqlite (version drift), rusqlite
 defaults (drags in the WASIX runtime). Version floors ride `Cargo.lock` in
 the repo's normal style; bumps are ordinary PRs.
 
-**D2 — Database at `AppPaths::data_dir()/usage.db`.** Linux
+**D2 — Database at `AppPaths::data_dir()/usage.db`** *(amended by
+docs/0063: this file is the app database — `notification_log` is its
+second table; the module lives at `core/src/app_db.rs`)*.** Linux
 `~/.local/share/my-dashboard/usage.db`, macOS
 `~/Library/Application Support/my-dashboard/usage.db`. Usage records are
 durable app data — not user state (`state/` holds shell.json/settings.json)
@@ -98,7 +100,9 @@ Buffer bound: 100 000 records with drop-oldest + a `warn!`-counted drop
 counter — pathology guard for a dead writer thread, not a working-set cap
 (the *retention* cap is D7).
 
-**D4 — Schema v1, additive migrations via `PRAGMA user_version`.**
+**D4 — Schema v1, additive migrations via `PRAGMA user_version`**
+*(amended by docs/0063 D2: the chain is centrally-ordered and shared —
+one `user_version` per file; v2 adds `notification_log`).*
 
 ```sql
 CREATE TABLE IF NOT EXISTS usage_records (

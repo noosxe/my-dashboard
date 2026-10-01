@@ -1,5 +1,6 @@
 //! my-dashboard core: module framework, navigation, home grid, app shell.
 
+pub mod app_db;
 pub mod data_color;
 pub mod freshness;
 pub mod home;
@@ -15,7 +16,6 @@ pub mod store;
 pub mod toasts;
 pub mod usage_analytics;
 pub mod usage_records;
-pub mod usage_sqlite;
 
 pub use module::{Module, ModuleEntry, ModuleMeta};
 pub use nav::{Crumb, Navigator, Page};

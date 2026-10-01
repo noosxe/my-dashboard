@@ -1,29 +1,43 @@
-//! SQLite persistence for usage records (docs/0057): the [`UsageStore`]
-//! impl that becomes the app's startup default.
+//! The app database (docs/0063 D1): `usage.db` under the data root is
+//! the single SQLite file for all persistent data. `usage_records`
+//! (docs/0057) was its first table; `notification_log` (docs/0063) the
+//! second. The store generalizes the original sink's machinery — one
+//! file, one writer thread, one additive `user_version` chain shared by
+//! every table's migrations — instead of per-concern engines.
 //!
-//! Shape (docs/0057 D3): `record()` appends to a mutex-guarded buffer —
-//! the same microsecond-scale lock shape as [`MemorySink`] — and one
-//! dedicated `std::thread` commits batches to SQLite. The thread wakes
-//! on a 1 s condvar timeout, drains by swap, and runs its transaction
-//! *outside* the buffer lock, so `record()` never waits on I/O. A plain
-//! thread is correct precisely because the sink seam is `Send + Sync`
-//! with no gpui types — no executor, no waker, no entity access.
+//! Shape (docs/0057 D3, generalized by docs/0063 D4): callers push a
+//! [`WriteCmd`] onto a mutex-guarded buffer — the same microsecond-scale
+//! lock shape as [`MemorySink`] — and one dedicated `std::thread` commits
+//! batches to SQLite. The thread wakes on a 1 s condvar timeout, drains
+//! by swap, and runs its transaction *outside* the buffer lock, so no
+//! caller ever waits on I/O. A plain thread is correct precisely because
+//! the seams are `Send + Sync` with no gpui types — no executor, no
+//! waker, no entity access.
 //!
-//! Durability (D5): WAL journal, `synchronous = NORMAL`, one writer
-//! connection owned by the writer thread and one lazy reader
-//! connection. Reads are direct indexed queries on the calling thread
-//! (D8) — the owner accepted UI-thread blocking at this app's volume.
+//! Durability (0057 D5): WAL journal, `synchronous = NORMAL`, one writer
+//! connection owned by the writer thread and one lazy reader connection.
+//! Reads are direct indexed queries on the calling thread (D8) — the
+//! owner accepted UI-thread blocking at this app's volume.
 //!
-//! Failure handling (D6): an unusable data dir or database flips the
-//! store into degraded mode — records route into an internal
-//! [`MemorySink`] and analytics stay session-local. [`is_degraded`]
-//! exposes the state; the degrade transition also raises the docs/0058
-//! D7 toast through the hub's spill.
-//! [`flush_blocking`] is the quit-time flush (D9): drain + commit
+//! Failure handling (0057 D6 + 0063 D4): an unusable data dir or
+//! database flips the store into degraded mode — *usage* records route
+//! into an internal [`MemorySink`] and analytics stay session-local.
+//! [`is_degraded`] exposes the state; the degrade transition also raises
+//! the docs/0058 D7 toast through the hub's spill. **Failure isolation**
+//! (0063 D4): notification-log writes are best-effort and log-only — a
+//! failed notification batch never strikes out usage, never flips
+//! [`is_degraded`], and never toasts (the in-memory hub stays the
+//! session's source of truth; a dead database is already covered by the
+//! store-level degrade toast).
+//!
+//! [`flush_blocking`] is the quit-time flush (0057 D9): drain + commit
 //! before the process exits, beside `flush_pending_on_quit` in `main`.
 //!
-//! Retention (D7): 90 days, pruned inside the writer thread at most
-//! once per hour — never the startup path, never the UI thread.
+//! Retention (0057 D7 + 0063 D6): usage rows prune past 90 days; the
+//! notification log keeps at most 500 unread rows (drop-oldest — unread
+//! has no time TTL, it dies by being read). Both prune inside the writer
+//! thread at most once per hour — never the startup path, never the UI
+//! thread.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
@@ -35,7 +49,7 @@ use log::warn;
 use rusqlite::{Connection, params};
 
 use crate::paths::AppPaths;
-use crate::toasts::{Level, Toast, ToastSpill};
+use crate::toasts::{Level, NotificationLog, PendingNotification, Toast, ToastSpill};
 use crate::usage_records::{
     MemorySink, Transport, UsageRecord, UsageSink, UsageSource, UsageStore, now_epoch_ms,
 };
@@ -56,8 +70,11 @@ const PRUNE_INTERVAL: Duration = Duration::from_secs(60 * 60);
 const BUSY_TIMEOUT: Duration = Duration::from_secs(2);
 /// The database file name under [`AppPaths::data_dir`] (D2).
 const DB_FILE: &str = "usage.db";
-/// The only schema version; future steps are additive (D4).
-const SCHEMA_VERSION: i64 = 1;
+/// The chain head (D4 + docs/0063 D2): one centrally-ordered,
+/// additive-only migration chain per database file — no concern bumps
+/// `user_version` alone. v1 = `usage_records` (docs/0057), v2 =
+/// `notification_log` (docs/0063).
+const SCHEMA_VERSION: i64 = 2;
 
 /// Schema v1 (docs/0057 D4): column order mirrors [`UsageRecord`];
 /// Option fields are nullable columns, bools are 0/1. `trigger_kind` is
@@ -109,9 +126,58 @@ trigger_kind, ident, status, etag_304, cost, remaining_after, limit_after, \
 cycle_reset_epoch, duration_ms, queue_ms, resp_bytes, network_error \
 FROM usage_records WHERE ts_epoch_ms >= ?1 AND ts_epoch_ms < ?2 ORDER BY seq";
 
-/// Buffer state shared between `record()` and the writer thread.
+/// Schema v2 (docs/0063 D2/D3): the notification log is a
+/// pending-unread queue — only unread rows persist; "read" is DELETE.
+/// `id` is engine-assigned (rowid, the §9 errata rule) and
+/// arrival-ordered by the single writer. No TTL column exists (D6):
+/// unread rows die by being read, bounded by the row cap in the prune.
+const SCHEMA_V2: &str = "
+CREATE TABLE IF NOT EXISTS notification_log (
+    id           INTEGER PRIMARY KEY,  -- rowid alias: engine-assigned (§9)
+    raised_at_ms INTEGER NOT NULL,
+    level        TEXT NOT NULL,        -- Level::name()
+    source       TEXT NOT NULL,        -- effective source id
+    title        TEXT,                 -- NULL = no title
+    message      TEXT NOT NULL,
+    dedupe_key   TEXT                  -- NULL = unkeyed
+);
+CREATE INDEX IF NOT EXISTS idx_notification_log_key
+    ON notification_log(dedupe_key);
+PRAGMA user_version = 2;
+";
+
+/// The notification statements (docs/0063 D3): insert on append,
+/// key-delete on mark-read, all-delete on panel open.
+const INSERT_NOTIF_SQL: &str = "INSERT INTO notification_log (\
+     raised_at_ms, level, source, title, message, dedupe_key) \
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6)";
+const DELETE_NOTIF_KEY_SQL: &str = "DELETE FROM notification_log WHERE dedupe_key = ?1";
+const DELETE_NOTIF_ALL_SQL: &str = "DELETE FROM notification_log";
+/// D5's boot restore: newest-first (the caller reverses into log
+/// order), bounded to the hub's restore window.
+const SELECT_NOTIF_SQL: &str = "SELECT raised_at_ms, level, source, title, \
+     message, dedupe_key FROM notification_log ORDER BY id DESC LIMIT ?1";
+/// The persisted-unread cap (D6): drop-oldest, inside the hourly prune.
+const NOTIF_CAP: usize = 500;
+/// The restore window (D5): the newest unread rows the hub re-seeds its
+/// log with (`LOG_CAP` semantics on restore).
+const NOTIF_RESTORE_LIMIT: usize = 100;
+
+/// One buffered write (docs/0063 D4): usage records and notification
+/// commands share the writer thread; each kind commits in its own
+/// transaction so a failure in one never strikes out the other.
+enum WriteCmd {
+    Usage(UsageRecord),
+    Notification(PendingNotification),
+    /// docs/0063 D3: `mark_read_by_key` — the incident deletes.
+    NotifDeleteKey(String),
+    /// docs/0063 D3: panel open — everything acknowledges.
+    NotifDeleteAll,
+}
+
+/// Buffer state shared between callers and the writer thread.
 struct WriterState {
-    buffer: Vec<UsageRecord>,
+    buffer: Vec<WriteCmd>,
     quit: bool,
     /// Bumps once per writer-loop iteration — [`flush_blocking`] waits
     /// on this to know its final flush (and prune) has run.
@@ -206,7 +272,7 @@ impl SQLiteStore {
                 // It holds the store's Arc while parked; process exit
                 // reaps it on any path that skips quit-time flush.
                 let spawned = std::thread::Builder::new()
-                    .name("usage-sqlite".into())
+                    .name("app-db".into())
                     .spawn(move || writer_loop(worker, conn));
                 if let Err(e) = spawned {
                     warn!("usage store: writer thread failed to spawn ({e}); staying in memory");
@@ -293,8 +359,12 @@ impl SQLiteStore {
     fn degrade(&self) {
         if !self.degraded.swap(true, Ordering::Relaxed) {
             let buffered = std::mem::take(&mut lock(&self.state).buffer);
-            for rec in buffered {
-                self.fallback.record(rec);
+            for cmd in buffered {
+                if let WriteCmd::Usage(rec) = cmd {
+                    self.fallback.record(rec);
+                }
+                // Notification commands drop: best-effort by design
+                // (docs/0063 D4).
             }
             warn!("usage store: degraded to in-memory capture; persistence paused");
             self.raise_degrade_toast();
@@ -355,10 +425,16 @@ impl SQLiteStore {
     }
 }
 
-impl UsageSink for SQLiteStore {
-    fn record(&self, rec: UsageRecord) {
+impl SQLiteStore {
+    /// The one buffered-push path (D3/D4): lock, cap-guard, push. Never
+    /// I/O, never a notify — the writer's 1 s wake commits it. A
+    /// degraded store routes usage into the memory fallback and drops
+    /// notification commands (D4: best-effort, log-only).
+    fn push_cmd(&self, cmd: WriteCmd) {
         if self.degraded.load(Ordering::Relaxed) {
-            self.fallback.record(rec);
+            if let WriteCmd::Usage(rec) = cmd {
+                self.fallback.record(rec);
+            }
             return;
         }
         let mut st = lock(&self.state);
@@ -368,12 +444,58 @@ impl UsageSink for SQLiteStore {
             st.dropped += 1;
             if st.dropped == 1 || st.dropped % 10_000 == 0 {
                 warn!(
-                    "usage store: writer stalled, dropped {} oldest unflushed records",
+                    "app db: writer stalled, dropped {} oldest unflushed commands",
                     st.dropped
                 );
             }
         }
-        st.buffer.push(rec);
+        st.buffer.push(cmd);
+    }
+
+    /// D4: one wake's notification commands, replayed in exact drain
+    /// order (an insert-before-delete must not be reordered away) in a
+    /// single transaction. Log-only failure — no strike counter, no
+    /// degrade, no toast (0063 D4): the in-memory hub stays the
+    /// session's source of truth.
+    fn commit_notifications(&self, conn: &Connection, cmds: Vec<WriteCmd>) {
+        let res = (|| -> rusqlite::Result<()> {
+            let tx = conn.unchecked_transaction()?;
+            for cmd in &cmds {
+                match cmd {
+                    WriteCmd::Notification(row) => {
+                        let mut stmt = tx.prepare_cached(INSERT_NOTIF_SQL)?;
+                        stmt.execute(params![
+                            enc_ms(row.raised_at_ms),
+                            row.level.name(),
+                            row.source,
+                            row.title,
+                            row.message,
+                            row.dedupe_key,
+                        ])?;
+                    }
+                    WriteCmd::NotifDeleteKey(key) => {
+                        let mut stmt = tx.prepare_cached(DELETE_NOTIF_KEY_SQL)?;
+                        stmt.execute(params![key.as_str()])?;
+                    }
+                    WriteCmd::NotifDeleteAll => {
+                        tx.execute(DELETE_NOTIF_ALL_SQL, [])?;
+                    }
+                    // Usage commands take the batch path; a mixed call
+                    // would only reorder usage rows, never destroy them.
+                    WriteCmd::Usage(_) => {}
+                }
+            }
+            tx.commit()
+        })();
+        if let Err(e) = res {
+            warn!("app db: notification batch failed ({e}); best-effort, session state unaffected");
+        }
+    }
+}
+
+impl UsageSink for SQLiteStore {
+    fn record(&self, rec: UsageRecord) {
+        self.push_cmd(WriteCmd::Usage(rec));
     }
 }
 
@@ -430,6 +552,61 @@ impl UsageSource for SQLiteStore {
 
 impl UsageStore for SQLiteStore {}
 
+impl NotificationLog for SQLiteStore {
+    fn insert(&self, row: PendingNotification) {
+        self.push_cmd(WriteCmd::Notification(row));
+    }
+
+    fn delete_by_key(&self, key: &str) {
+        self.push_cmd(WriteCmd::NotifDeleteKey(key.to_string()));
+    }
+
+    fn delete_all(&self) {
+        self.push_cmd(WriteCmd::NotifDeleteAll);
+    }
+
+    /// The D5 boot read: direct query on the lazy reader, newest-first,
+    /// bounded by the restore window. Best-effort by contract — a
+    /// failure reads as empty and must NOT flip the store degraded
+    /// (0063 D4/D8; the hub then runs ephemeral, exactly pre-0063).
+    fn load_unread(&self) -> Vec<PendingNotification> {
+        if self.degraded.load(Ordering::Relaxed) {
+            return Vec::new();
+        }
+        let mut guard = lock(&self.reader);
+        if guard.is_none() {
+            match Connection::open(&self.db_path).and_then(|c| {
+                configure(&c)?;
+                Ok(c)
+            }) {
+                Ok(conn) => *guard = Some(conn),
+                Err(e) => {
+                    warn!("app db: notification read connection failed ({e})");
+                    return Vec::new();
+                }
+            }
+        }
+        let Some(conn) = guard.as_ref() else {
+            return Vec::new();
+        };
+        let read = (|| -> rusqlite::Result<Vec<PendingNotification>> {
+            let mut stmt = conn.prepare_cached(SELECT_NOTIF_SQL)?;
+            let rows = stmt.query_map(
+                params![i64::try_from(NOTIF_RESTORE_LIMIT).unwrap_or(i64::MAX)],
+                dec_notif_row,
+            )?;
+            rows.collect()
+        })();
+        match read {
+            Ok(rows) => rows,
+            Err(e) => {
+                warn!("app db: notification read failed ({e})");
+                Vec::new()
+            }
+        }
+    }
+}
+
 /// The writer loop (D3): park up to 1 s, drain by swap, commit outside
 /// the lock, check retention (D7) at most hourly. One final full
 /// iteration runs after `quit` is set, which is what makes
@@ -437,24 +614,44 @@ impl UsageStore for SQLiteStore {}
 fn writer_loop(store: Arc<SQLiteStore>, conn: Connection) {
     let mut last_prune: Option<Instant> = None;
     loop {
-        let (batch, quitting) = {
+        let (cmds, quitting) = {
             let mut st = lock(&store.state);
-            let batch = std::mem::take(&mut st.buffer);
+            let cmds = std::mem::take(&mut st.buffer);
             let quitting = st.quit;
             if quitting {
                 st.quit_observed = true;
             }
-            (batch, quitting)
+            (cmds, quitting)
         };
 
-        if !batch.is_empty() {
+        if !cmds.is_empty() {
             if store.is_degraded() {
-                // Flipped mid-flight (D6): finish the drain into memory.
-                for rec in batch {
-                    store.fallback.record(rec);
+                // Flipped mid-flight (D6): finish the drain into memory;
+                // notification commands drop (best-effort, 0063 D4).
+                for cmd in cmds {
+                    if let WriteCmd::Usage(rec) = cmd {
+                        store.fallback.record(rec);
+                    }
                 }
             } else {
-                store.commit_batch(&conn, batch);
+                // D4: one drain, two transactions — usage batches keep
+                // their commit path (and strike counter) untouched;
+                // notification commands replay in their own log-only
+                // transaction, preserving drain order within each kind.
+                let mut usage: Vec<UsageRecord> = Vec::new();
+                let mut notifs: Vec<WriteCmd> = Vec::new();
+                for cmd in cmds {
+                    match cmd {
+                        WriteCmd::Usage(rec) => usage.push(rec),
+                        cmd => notifs.push(cmd),
+                    }
+                }
+                if !usage.is_empty() {
+                    store.commit_batch(&conn, usage);
+                }
+                if !notifs.is_empty() {
+                    store.commit_notifications(&conn, notifs);
+                }
             }
         }
         // Retention check (D7): hourly, and always on the quitting
@@ -470,6 +667,13 @@ fn writer_loop(store: Arc<SQLiteStore>, conn: Connection) {
                 }
                 Ok(_) => {}
                 Err(e) => warn!("usage store: prune failed ({e})"),
+            }
+            // 0063 D6: the notification cap rides the same pass —
+            // drop-oldest past 500. Log-only failures, and eviction
+            // here never moves the usage mutation token (docs/0054 §9's
+            // contract is usage-scoped).
+            if let Err(e) = prune_notifications(&conn) {
+                warn!("app db: notification prune failed ({e})");
             }
             last_prune = Some(Instant::now());
         }
@@ -502,6 +706,17 @@ fn prune_once(conn: &Connection, now_ms: u64) -> rusqlite::Result<usize> {
     )
 }
 
+/// docs/0063 D6: keep the newest [`NOTIF_CAP`] unread rows. Unread has
+/// no time TTL — it dies by being read — so only the absolute cap
+/// bounds the table.
+fn prune_notifications(conn: &Connection) -> rusqlite::Result<usize> {
+    conn.execute(
+        "DELETE FROM notification_log WHERE id NOT IN \
+         (SELECT id FROM notification_log ORDER BY id DESC LIMIT ?1)",
+        params![i64::try_from(NOTIF_CAP).unwrap_or(i64::MAX)],
+    )
+}
+
 /// Writer connection setup: create the data dir (D2 — the one
 /// filesystem touch on the open path, a local mkdir), then pragmas
 /// (D5) and schema migration (D4) before the thread starts. Errors
@@ -525,13 +740,19 @@ fn configure(conn: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
-/// D4: `user_version` gates additive steps; v0/v1 → create. Future
-/// steps follow the same pattern (`if v < 2 { … ALTER TABLE … }`).
+/// D4 + docs/0063 D2: `user_version` gates one centrally-ordered,
+/// additive-only chain. Every step is idempotent (`IF NOT EXISTS`), so
+/// a crash mid-migration re-runs cleanly; a v1 install migrates to v2
+/// in place — zero data movement, `usage_records` untouched.
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let v: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-    if v < SCHEMA_VERSION {
+    if v < 1 {
         conn.execute_batch(SCHEMA_V1)?;
     }
+    if v < 2 {
+        conn.execute_batch(SCHEMA_V2)?;
+    }
+    debug_assert_eq!(v.max(2), SCHEMA_VERSION);
     Ok(())
 }
 
@@ -574,6 +795,20 @@ fn dec_row(row: &rusqlite::Row) -> rusqlite::Result<UsageRecord> {
         queue_ms: row.get::<_, Option<i64>>(15)?.map(|v| v as u32),
         resp_bytes: row.get::<_, Option<i64>>(16)?.map(|v| v as u32),
         network_error: row.get::<_, i64>(17)? != 0,
+    })
+}
+
+/// A persisted notification row (docs/0063 D3). Unknown level names
+/// read as Info — we only ever write `Level::name()` values, so this is
+/// defensive: severity degrades, the unread alert never drops.
+fn dec_notif_row(row: &rusqlite::Row) -> rusqlite::Result<PendingNotification> {
+    Ok(PendingNotification {
+        raised_at_ms: dec_ms(row.get(0)?),
+        level: Level::from_name(&row.get::<_, String>(1)?).unwrap_or(Level::Info),
+        source: row.get(2)?,
+        title: row.get(3)?,
+        message: row.get(4)?,
+        dedupe_key: row.get(5)?,
     })
 }
 
@@ -734,7 +969,7 @@ mod tests {
     }
 
     #[test]
-    fn migration_creates_v1_and_rows_survive_reopen() {
+    fn migration_creates_schema_and_rows_survive_reopen() {
         let path = temp_db("migrate");
         let t0 = now_epoch_ms();
         {
@@ -980,5 +1215,265 @@ mod tests {
         store.flush_blocking();
         assert!(!store.is_degraded());
         assert_eq!(store.records_since(0).len(), 2);
+    }
+
+    // --- notification log (docs/0063) --------------------------------
+
+    fn notif(tag: &str, key: Option<&str>) -> PendingNotification {
+        PendingNotification {
+            level: Level::Warning,
+            source: "github".into(),
+            title: Some(format!("t-{tag}")),
+            message: format!("m-{tag}"),
+            dedupe_key: key.map(|k| k.to_string()),
+            raised_at_ms: now_epoch_ms(),
+        }
+    }
+
+    fn user_version(path: &Path) -> i64 {
+        Connection::open(path)
+            .unwrap()
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn fresh_db_lands_at_v2_with_both_tables() {
+        let path = temp_db("fresh-v2");
+        let store = SQLiteStore::open_at(path.clone());
+        assert!(!store.is_degraded());
+        store.flush_blocking();
+        assert_eq!(user_version(&path), SCHEMA_VERSION);
+        let tables: i64 = Connection::open(&path)
+            .unwrap()
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' \
+                 AND name IN ('usage_records','notification_log')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(tables, 2);
+    }
+
+    #[test]
+    fn v1_install_migrates_in_place_usage_rows_survive() {
+        let path = temp_db("v1-migrate");
+        let t0 = now_epoch_ms();
+        {
+            // A genuine v1 install: only the v1 schema, stamped v1.
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(SCHEMA_V1).unwrap();
+            conn.execute(
+                INSERT_SQL,
+                params![
+                    enc_ms(t0),
+                    "github",
+                    "rest",
+                    "op",
+                    "surface",
+                    "manual",
+                    None::<&str>,
+                    200,
+                    0,
+                    None::<i64>,
+                    None::<i64>,
+                    None::<i64>,
+                    None::<i64>,
+                    5,
+                    None::<i64>,
+                    None::<i64>,
+                    0
+                ],
+            )
+            .unwrap();
+            assert_eq!(user_version(&path), 1);
+        }
+        // Open with the current store: in-place bump to v2, usage rows
+        // untouched (D2 — zero data movement), notification table live.
+        let store = SQLiteStore::open_at(path.clone());
+        assert!(!store.is_degraded());
+        store.insert(notif("migrated", None));
+        store.flush_blocking();
+        assert_eq!(user_version(&path), 2);
+        assert_eq!(store.records_since(0).len(), 1, "v1 usage row survived");
+        assert_eq!(store.load_unread().len(), 1);
+    }
+
+    #[test]
+    fn notification_roundtrip_preserves_every_field() {
+        let store = SQLiteStore::open_at(temp_db("notif-roundtrip"));
+        let ts = now_epoch_ms() - 1234;
+        let row = PendingNotification {
+            level: Level::Error,
+            source: "github".into(),
+            title: None,
+            message: "m-full".into(),
+            dedupe_key: Some("incident-1".into()),
+            raised_at_ms: ts,
+        };
+        store.insert(row.clone());
+        store.insert(PendingNotification {
+            level: Level::Success,
+            source: "app".into(),
+            title: Some("t".into()),
+            message: "m2".into(),
+            dedupe_key: None,
+            raised_at_ms: ts + 1,
+        });
+        store.flush_blocking();
+        let back = store.load_unread();
+        assert_eq!(back.len(), 2);
+        // Newest first (D5's contract) — the caller reverses.
+        assert_eq!(back[0].message, "m2");
+        assert_eq!(back[1], row, "every field round-trips, NULLs included");
+    }
+
+    #[test]
+    fn notification_delete_all_and_by_key() {
+        let path = temp_db("notif-delete");
+        // One flush per store lifetime (quit semantics) — a second
+        // delete round reopens the file, which is exactly the restart
+        // shape D7 describes.
+        let store = SQLiteStore::open_at(path.clone());
+        store.insert(notif("a", Some("k1")));
+        store.insert(notif("b", Some("k1")));
+        store.insert(notif("c", Some("k2")));
+        // D7: key-mark deletes the whole incident — insert and delete
+        // replay in drain order within one wake.
+        store.delete_by_key("k1");
+        store.flush_blocking();
+        drop(store);
+        let store = SQLiteStore::open_at(path.clone());
+        let back = store.load_unread();
+        assert_eq!(back.len(), 1);
+        assert_eq!(back[0].dedupe_key.as_deref(), Some("k2"));
+        // D3: panel open deletes everything.
+        store.delete_all();
+        store.flush_blocking();
+        drop(store);
+        assert!(SQLiteStore::open_at(path).load_unread().is_empty());
+    }
+
+    #[test]
+    fn notification_commands_commit_in_drain_order() {
+        let store = SQLiteStore::open_at(temp_db("notif-order"));
+        // Insert, acknowledge (delete-all), insert again: the second
+        // raise happened *after* the panel opened and must survive —
+        // the writer replays commands in exact order (D4).
+        store.insert(notif("before", None));
+        store.delete_all();
+        store.insert(notif("after", None));
+        store.flush_blocking();
+        let back = store.load_unread();
+        assert_eq!(back.len(), 1);
+        assert_eq!(back[0].message, "m-after");
+    }
+
+    #[test]
+    fn notification_cap_keeps_newest_500() {
+        let path = temp_db("notif-cap");
+        let store = SQLiteStore::open_at(path.clone());
+        let t0 = now_epoch_ms();
+        for i in 0..=NOTIF_CAP + 4 {
+            store.insert(PendingNotification {
+                level: Level::Info,
+                source: "app".into(),
+                title: None,
+                message: format!("m{i}"),
+                dedupe_key: None,
+                raised_at_ms: t0 + i as u64,
+            });
+        }
+        // The quit-style flush drains → commits → prunes deterministically.
+        store.flush_blocking();
+        let count = |sql: &str| -> i64 {
+            Connection::open(&path)
+                .unwrap()
+                .query_row(sql, [], |r| r.get(0))
+                .unwrap()
+        };
+        assert_eq!(
+            count("SELECT COUNT(*) FROM notification_log"),
+            NOTIF_CAP as i64,
+            "the cap bounds the table (D6)"
+        );
+        assert_eq!(
+            count(
+                "SELECT COUNT(*) FROM notification_log WHERE message IN ('m0','m1','m2','m3','m4')"
+            ),
+            0,
+            "drop-oldest past the cap"
+        );
+        assert_eq!(
+            count("SELECT COUNT(*) FROM notification_log WHERE message = 'm504'"),
+            1,
+            "the newest rows stay"
+        );
+    }
+
+    #[test]
+    fn notification_failures_never_degrade_or_pause_usage() {
+        let path = temp_db("notif-fail");
+        let store = SQLiteStore::open_at(path.clone());
+        store.insert(notif("x", None));
+        store.flush_blocking();
+        assert_eq!(store.load_unread().len(), 1);
+        drop(store);
+        // Kill the table out from under a fresh store (migrate sees
+        // user_version = 2 and does not recreate it): every
+        // notification batch and read now fails while usage commits
+        // keep succeeding — both in the same failed wake (D4).
+        Connection::open(&path)
+            .unwrap()
+            .execute("DROP TABLE notification_log", [])
+            .unwrap();
+        let store = SQLiteStore::open_at(path.clone());
+        store.insert(notif("y", None));
+        store.record(near_now(50, 1));
+        let before = store.high_water();
+        store.flush_blocking();
+        assert!(
+            !store.is_degraded(),
+            "notification failures are log-only (D4)"
+        );
+        assert_eq!(store.records_since(0).len(), 1, "usage unaffected");
+        assert!(
+            store.high_water() > before,
+            "usage commits keep moving the token"
+        );
+        assert!(
+            store.load_unread().is_empty(),
+            "failed read = empty, no panic"
+        );
+    }
+
+    #[test]
+    fn load_unread_restores_at_most_100_newest_first() {
+        let store = SQLiteStore::open_at(temp_db("notif-limit"));
+        let t0 = now_epoch_ms();
+        for i in 0..NOTIF_RESTORE_LIMIT + 20 {
+            store.insert(PendingNotification {
+                level: Level::Info,
+                source: "app".into(),
+                title: None,
+                message: format!("m{i}"),
+                dedupe_key: None,
+                raised_at_ms: t0 + i as u64,
+            });
+        }
+        store.flush_blocking();
+        let back = store.load_unread();
+        assert_eq!(back.len(), NOTIF_RESTORE_LIMIT, "the restore window (D5)");
+        assert_eq!(
+            back[0].message,
+            format!("m{}", NOTIF_RESTORE_LIMIT + 19),
+            "newest first"
+        );
+        assert_eq!(
+            back[NOTIF_RESTORE_LIMIT - 1].message,
+            "m20",
+            "oldest kept is #20"
+        );
     }
 }

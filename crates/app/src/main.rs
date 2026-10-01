@@ -95,13 +95,23 @@ fn main() {
             // Usage records (docs/0053 D3): the module-global flight log.
             // SQLite is the startup default (docs/0057 D1/D9); an unusable
             // data dir degrades to in-memory capture (docs/0057 D6).
-            let usage_store = dashboard_core::usage_sqlite::SQLiteStore::open_or_fallback(paths);
+            let usage_store = dashboard_core::app_db::SQLiteStore::open_or_fallback(paths);
             // Cross-thread degrade toasts (docs/0058 D6/D7): the store
             // raises from the writer thread through the hub's spill; the
             // shell's pump surfaces it once the window exists. A startup
             // fallback raises before this attach and is latched (D7).
             usage_store.attach_toast_spill(dashboard_core::toasts::spill(cx));
             dashboard_core::usage_records::init_with(cx, usage_store.clone());
+            // Notification log persistence (docs/0063 D5/D10): the hub
+            // attaches the app DB's `NotificationLog` impl and restores
+            // the persisted unread set here — before any window exists,
+            // so the badge's first frame reflects what survived the
+            // restart. The restore read is the one blocking call on this
+            // path (the docs/0054 §8 precedent); a degraded store
+            // restores nothing and the hub runs ephemeral (0063 D8).
+            dashboard_core::toasts::hub(cx).update(cx, |hub, cx| {
+                hub.attach_log_and_restore(usage_store.clone(), cx);
+            });
 
             // Flush debounced state writes at quit (docs/0045 §9, #283):
             // a quit landing inside a 500 ms quiet window would otherwise
