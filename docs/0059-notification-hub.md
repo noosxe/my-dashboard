@@ -162,7 +162,8 @@ opens a **panel** listing unread notifications, where they can be cleared.
 
 ## 8. Non-goals (filed as follow-ups, `deferred`)
 
-- Cross-session persistence of the log (needs storage decision) — D5.
+- Cross-session persistence of the log (needs storage decision) — D5 —
+  resolved: docs/0063 (design round; implementation tracked there).
 - Per-entry actions/deep links — D7, rides #382.
 - Notification preferences/settings UI — resolved: docs/0062 (design round;
   implementation tracked there).
