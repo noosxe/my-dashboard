@@ -84,10 +84,12 @@ opens a **panel** listing unread notifications, where they can be cleared.
   captured at open, so it doesn't vanish mid-read; rows stay individually
   dismissible until the panel closes, and the next open re-snapshots
   (previously read entries don't reappear).
-- **D5 — still ephemeral across restarts (docs/0058 D9 unchanged).** The log
-  lives in the hub entity; process exit discards it. Cross-session
-  persistence needs a storage decision (the usage DB is analytics-scoped) —
-  follow-up issue, not this design.
+- **D5 — ~~still ephemeral across restarts~~ — superseded by docs/0063
+  (implemented with it).** The unread log now persists as the
+  `notification_log` table in the app database: only unread rows persist
+  ("read" is a delete), boot restores them before the first frame, and
+  read/unread state survives restarts. The visible toast queue stays
+  ephemeral (docs/0058 D9).
 - **D6 — bridge ids and roles.** Trigger `status-notifications`, panel
   `notification-panel`, clear-all `notification-clear-all`, rows
   `notification-row-<n>` (n = entry index), per-row dismiss

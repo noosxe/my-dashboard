@@ -471,7 +471,10 @@ docs/0053 D3 shipped one trait with both concerns — `record` (writer)
 and `snapshot` (reader, but only a §5 *test* affordance). The page
 needs a real read contract, and the general-case rule decides its
 shape: the page must never force a backend to materialize data it
-didn't ask for. **This section amends 0053 D3** — `snapshot()`
+didn't ask for. *(Unchanged by docs/0063: the app DB generalization
+shares the writer thread and file, never this contract — notification
+reads ride the same lazy reader and the usage token stays
+usage-scoped.)* **This section amends 0053 D3** — `snapshot()`
 migrates from `UsageSink` to the new source trait; the amendment
 line lands in 0053 with this doc's PR.
 

@@ -6,7 +6,7 @@
 //! dispatching module's own closed enums), held by an injectable
 //! [`UsageStore`] behind a `gpui::Global`. The v1 store is the capped
 //! in-memory [`MemorySink`]; a future SQLite backend is a new
-//! in-memory [`MemorySink`]; the SQLite backend (`crate::usage_sqlite`,
+//! in-memory [`MemorySink`]; the SQLite backend (`crate::app_db`,
 //! docs/0057) is the `UsageStore` swapped at [`init_with`] — the row is
 //! pre-stamped and storage-independent, so nothing else changes (D3).
 //!
