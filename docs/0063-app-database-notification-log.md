@@ -208,3 +208,14 @@ Two problems, one PR's worth of work:
 - Persisting the visible toast queue or OS-notification state — only the
   log persists.
 - Cross-device sync of any kind.
+
+## 9. Review resolutions (owner)
+
+1. Numbers stand (D5/D6): 500-row persisted cap; restore limited to the
+   newest 100 (`LOG_CAP` semantics).
+2. Unread has no time TTL (D6) — an old unread error keeps badging until
+   read.
+3. Module rename approved (D1): `usage_sqlite.rs` → `app_db.rs`; type
+   names unchanged.
+4. Existing JSON stores stay put (§8): this design builds the rail, not
+   the migrations.
