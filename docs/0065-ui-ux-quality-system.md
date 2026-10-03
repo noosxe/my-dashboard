@@ -1,10 +1,13 @@
 0065 — UI/UX quality system for agent-authored surfaces
 ========================================================
 
-Status: **Phases 1–2 implemented** (Phase 1: audit verb + contrast
+Status: **Phases 1–3 implemented** (Phase 1: audit verb + contrast
 gate + structural goldens + process wiring, #440; Phase 2: pixel
 goldens via `golden`/`assert-golden` + the paired `critique` capture,
-#441); Phase 3 pending (#442). Born from an owner-directed research
+#441; Phase 3: owner-picked anchor library — Linear, Things 3, and
+provisional Zed under `docs/references/` — plus the AGENTS.md
+anchor-naming slot, #442). Remaining execution: the #445 Linux-box
+capture run, then the #437/#439 redos under the full system. Born from an owner-directed research
 round (prompt: "figure out a systematic approach for giving AI agents
 proper tools for high-quality UI/UX design") after the favicon module's
 PR verdict — functionally right, visually not good at all.
