@@ -1,8 +1,9 @@
 # 0064 — Favicon generator module
 
-Status: design for review. Implements the requirements in #427 (reference
-audit condensed there); cut scope lives in #428–#432 (+ #433, §7). Owner
-rulings from the requirements pass are encoded below and called out in §9.
+Status: implemented via #435 (the implementation PR for this doc).
+Requirements #427; cut scope #428–#433. **S2 resolved at implementation:**
+resvg 0.46 rasterizes color emoji natively (`spike_emoji_raster_has_color`,
+macOS verified — the D12 fallback path stays designed but unneeded).
 
 ## 1. Context & problem
 

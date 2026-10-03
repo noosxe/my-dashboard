@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS usage_records (
     seq               INTEGER PRIMARY KEY,  -- rowid alias: engine-assigned at commit (§9)
     ts_epoch_ms       INTEGER NOT NULL,
     module            TEXT NOT NULL,
-    transport         TEXT NOT NULL,        -- 'rest' | 'graphql' | 'auth'
+    transport         TEXT NOT NULL,        -- 'rest' | 'graphql' | 'auth' | 'local' (0064 D9)
     op                TEXT NOT NULL,
     surface           TEXT NOT NULL,
     trigger_kind      TEXT NOT NULL,
@@ -771,6 +771,7 @@ fn transport_of(s: &str) -> Transport {
     match s {
         "graphql" => Transport::Graphql,
         "auth" => Transport::Auth,
+        "local" => Transport::Local, // docs/0064 D9
         _ => Transport::Rest,
     }
 }

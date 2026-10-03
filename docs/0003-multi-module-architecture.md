@@ -196,7 +196,9 @@ impl ModuleRegistry {
 ```
 
 `main.rs` lists modules explicitly — the registry is data, the crate graph is
-the plugin system.
+the plugin system. First two consumers: github (docs/0005) and the favicon
+generator (docs/0064) — the latter shows the pattern generalizes past
+data-consumer modules.
 
 ### 4.3 Navigation
 
