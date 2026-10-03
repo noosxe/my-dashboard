@@ -1,0 +1,39 @@
+# audit.txt — the 0065 D3 audit receipt (Phase 1, #440). Runs the
+# deterministic tree rules over every major surface and fails on
+# FAIL-severity findings only. Findings/incomplete lines print for the
+# owner checklist (0065 Appendix A, part 3) — triage them in the PR,
+# never silently.
+#
+# Prerequisites: dashboard-debug session start --name audit --size 1280x800
+# Run: dashboard-debug run crates/debug/verify/audit.txt
+
+--session audit
+
+# Home surface first — the boot state every review starts from.
+audit
+
+# Tab-order coverage pairs with the audit (0065 D3): the walk itself
+# exits nonzero on traps or an unclosed cycle.
+tab-stops
+
+# Home → GitHub module page (card center — proven in usage-freeze.txt)
+mouse down 448 169
+mouse up 448 169
+wait-frame
+audit
+
+# GitHub module page → usage analytics (tab center — proven in usage-freeze.txt)
+mouse down 1239 740
+mouse up 1239 740
+wait-frame
+audit
+
+# Usage analytics → notification hub (status bell id — proven in 0059-notifications.txt)
+click status-notifications
+wait-frame
+audit
+
+# Settings + favicon generator: LINUX-BOX TODO (first run) — the sidebar
+# items carry per-run numeric ids, so navigation needs coordinates from
+# the first `dashboard-debug tree` dump at 1280x800; add the two hops
+# here and audit each surface. Tracked in #440's PR checklist.

@@ -243,6 +243,8 @@ pub(crate) fn run_command(conn: &mut Conn, command: &Command) -> i32 {
     if matches!(
         command,
         Command::Tree { .. }
+            | Command::Audit { .. }
+            | Command::Baseline { .. }
             | Command::WaitFrame { .. }
             | Command::Click { .. }
             | Command::Focus { .. }
@@ -273,6 +275,33 @@ pub(crate) fn run_command(conn: &mut Conn, command: &Command) -> i32 {
             TreeView::Diff(a, b) => tree_diff(a, b, *json),
             TreeView::TabStops => tab_stops(conn, window),
         },
+        Command::Audit { json, window } => {
+            let dump = match tree_dump(conn, window) {
+                Ok(result) => result,
+                Err(code) => return code,
+            };
+            let report = match dashboard_debug::audit::audit_dump(&dump) {
+                Ok(report) => report,
+                Err(err) => {
+                    eprintln!("cannot audit dump: {err}");
+                    return 1;
+                }
+            };
+            if *json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&report.render_json()).expect("serialize")
+                );
+            } else {
+                print!("{}", report.render_human());
+            }
+            if report.fails() > 0 { 1 } else { 0 }
+        }
+        Command::Baseline {
+            surface,
+            update,
+            window,
+        } => baseline_verb(conn, surface, *update, window),
         Command::WaitFrame { above, timeout_ms } => {
             let first = match tree_dump(conn, &None) {
                 Ok(result) => result,
@@ -629,7 +658,7 @@ pub(crate) fn focused_node(dump: &Value) -> Option<(String, String, Option<Strin
 /// `tree --tab-stops` (D8): walk the focus cycle with tab + wait-frame,
 /// numbering stops until focus returns to the start. A focus that never
 /// moves is a trap; a cycle that never closes hits the 100-stop cap.
-fn tab_stops(conn: &mut Conn, window: &Option<u64>) -> i32 {
+pub(crate) fn tab_stops(conn: &mut Conn, window: &Option<u64>) -> i32 {
     let first = match tree_dump(conn, window) {
         Ok(result) => result,
         Err(code) => return code,
@@ -708,6 +737,99 @@ fn dispatch_tab(conn: &mut Conn, window: &Option<u64>) -> Result<(), i32> {
     Ok(())
 }
 
+// ---- structural goldens (docs/0065 D5) ---------------------------------------
+
+/// The committed baseline directory, resolved from the repo root. Runs
+/// assume the repo root as cwd (receipts already do — `run` paths are
+/// repo-relative); the manifest fallback covers other launch dirs in a
+/// built checkout.
+fn baselines_root() -> std::path::PathBuf {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let local = cwd.join("crates/debug/verify/snapshots");
+    if local.is_dir() || cwd.join("crates/debug").is_dir() {
+        return local;
+    }
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("verify/snapshots")
+}
+
+/// `baseline <surface> [--update]` — compare the live tree against the
+/// committed golden (or write it, with `--update` as the deliberate
+/// refresh path). Drift prints the structural diff and exits 1; the
+/// diff — never silence — is the review artifact.
+fn baseline_verb(conn: &mut Conn, surface: &str, update: bool, window: &Option<u64>) -> i32 {
+    let dump = match tree_dump(conn, window) {
+        Ok(result) => result,
+        Err(code) => return code,
+    };
+    let current = match dashboard_debug::snapshot::Snapshot::from_dump(surface, &dump) {
+        Ok(snapshot) => snapshot,
+        Err(err) => {
+            eprintln!("cannot flatten dump: {err}");
+            return 1;
+        }
+    };
+    // Byte-stable baselines: frame/timestamps churn every capture and
+    // the diff never reads them — zero both on write.
+    let mut sanitized = current.clone();
+    sanitized.frame_number = 0;
+    sanitized.taken_at = 0;
+
+    let path = baselines_root().join(format!("{surface}.json"));
+    if update {
+        if let Some(parent) = path.parent() {
+            if let Err(err) = std::fs::create_dir_all(parent) {
+                eprintln!("cannot create {}: {err}", parent.display());
+                return 1;
+            }
+        }
+        let text = serde_json::to_string_pretty(&sanitized).expect("serialize baseline");
+        if let Err(err) = std::fs::write(&path, format!("{text}\n")) {
+            eprintln!("cannot write {}: {err}", path.display());
+            return 1;
+        }
+        println!(
+            "baseline {surface} updated: {} nodes → {}",
+            sanitized.nodes.len(),
+            path.display()
+        );
+        return 0;
+    }
+
+    let baseline = match std::fs::read_to_string(&path) {
+        Ok(text) => match serde_json::from_str::<dashboard_debug::snapshot::Snapshot>(&text) {
+            Ok(baseline) => baseline,
+            Err(err) => {
+                eprintln!("cannot parse {}: {err}", path.display());
+                return 1;
+            }
+        },
+        Err(err) => {
+            let path_text = path.display().to_string();
+            eprintln!(
+                "no baseline for {surface} ({path_text}: {err}) — generate with \
+                 `baseline {surface} --update` on the Linux box and commit it"
+            );
+            return 1;
+        }
+    };
+    let diff = dashboard_debug::snapshot::diff(&baseline, &sanitized);
+    if diff.entries.is_empty() {
+        println!(
+            "baseline {surface}: clean ({} nodes)",
+            sanitized.nodes.len()
+        );
+        0
+    } else {
+        print!("{}", dashboard_debug::snapshot::render_human(&diff));
+        eprintln!(
+            "baseline {surface} drifted: {} changed, {} added, {} removed",
+            diff.changed(),
+            diff.added(),
+            diff.removed()
+        );
+        1
+    }
+}
 // ---- click fallback (D9) ----------------------------------------------------
 
 /// `click` with the stale-bus fallback: on 4005 UNKNOWN_NODE / 4006
