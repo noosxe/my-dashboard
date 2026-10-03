@@ -1,12 +1,12 @@
 0065 — UI/UX quality system for agent-authored surfaces
 ========================================================
 
-Status: design for review. Born from an owner-directed research round
-(prompt: "figure out a systematic approach for giving AI agents proper
-tools for high-quality UI/UX design") after the favicon module's PR
-verdict — functionally right, visually not good at all. Nothing in this
-doc is implemented yet; implementation issues follow per the design-first
-workflow once this doc merges.
+Status: **Phase 1 implemented** (audit verb + contrast gate + structural
+goldens + process wiring — the implementation PR for issue #440);
+Phases 2–3 pending (#441, #442). Born from an owner-directed research
+round (prompt: "figure out a systematic approach for giving AI agents
+proper tools for high-quality UI/UX design") after the favicon module's
+PR verdict — functionally right, visually not good at all.
 
 Scope note (owner): the quality problem is **not favicon-specific** — the
 usage/analytics pages already need review and improvement too. This doc
@@ -120,11 +120,21 @@ step) so one command produces the audit receipt.
 
 `aurora.json` is already data with semantic fg/bg slot pairs. A unit
 test computes WCAG contrast ratios for every declared pair and fails
-below threshold — text pairs at 4.5:1, large-text/UI pairs at 3:1
-(**implementation must verify these numbers against primary W3C text**;
-the research round could not reach WebAIM, so they are unverified
-here). Decorative/icon-only pairs are exempt by explicit list in the
-test, not by silence.
+below threshold — text pairs at 4.5:1 (SC 1.4.3 AA; verified against
+primary W3C text at implementation). Decorative/non-text pairs are
+exempt by explicit list in the test, not by silence.
+
+**Amendment (Phase 1 implementation):** pre-computing every pair found
+(a) two real text failures in Aurora Light — `info.foreground` and
+`warning.foreground` were white ink on fills darker than their
+dark-theme twins (4.11:1 and 3.39:1); both now use the dark-theme ink
+pattern (#0e0f15 → 4.66:1 / 5.65:1); and (b) the entire hairline
+border/bar register sitting at 1.0–1.7:1 against its surfaces. (b) is
+the quiet-chrome aesthetic working as designed, and SC 1.4.11 exempts
+visual information not required to identify components — so the *gate*
+covers text pairs only, and the non-text slots live on the documented
+exemption list. Promoting any of them to gating is an owner decision
+made in a PR, never a test.
 
 ### D5 — Structural goldens (cross-platform, works on macOS today)
 

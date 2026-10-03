@@ -507,6 +507,39 @@ unit-tested modules** in the `dashboard-debug` lib; process spawning
 and zbus stay in the thin bin layer. No clap (same rationale as
 0010: the grammar stays small enough to hand-roll).
 
+### D15 — `audit`: deterministic tree rules (0065 D3)
+
+`dashboard-debug audit [--json] [--window N]` runs the docs/0065 rule
+set over the live tree dump: role+label on interactive nodes (FAIL —
+0010 D10 made mechanical), degenerate/missing bounds (FAIL/FINDING),
+off-scale sibling gaps against the D10 spacing scale (FINDING, ±1px
+tolerance, 64px ceiling), sibling overlaps (FINDING, overlay roles and
+`overlay-*`/`popover-*` ids exempt), duplicate sibling labels
+(FINDING). Exit 1 only on FAIL; findings/incomplete print for the
+owner checklist — axe-style: deterministic, zero-false-positive bias,
+undecidable results route to humans. Tab-order coverage is not
+duplicated here: `tree --tab-stops` already exits nonzero on traps and
+unclosed cycles; receipts pair the two (`audit` then `tab-stops`).
+Script step: `audit` (receipt-red on FAILs).
+
+### D16 — `baseline`: committed structural goldens (0065 D5)
+
+`dashboard-debug baseline <surface> [--update] [--window N]` compares
+the live tree against the committed golden at
+`crates/debug/verify/snapshots/<surface>.json` — same flattening and
+diff machinery as D7 snapshots, but committed to the repo and
+byte-stable (frame/timestamps zeroed). Drift prints the structural
+diff and exits 1; `--update` is the deliberate refresh path and the
+resulting file change is reviewed like code. Baselines are captured on
+the Linux box (the tree cluster is macOS-gated, #405) and only ever
+compared in the same environment that captured them. Script steps:
+`baseline <surface> [--update]` (generation) and
+`assert-baseline <surface>` (receipt-red on drift). Receipt grammar is
+guarded by a unit test parsing every committed `verify/*.txt` — a
+grammar change that breaks a shipped script fails CI, not the Linux
+box (added after two shipped receipts carried a `tree --json` step
+that was never a verb).
+
 ## 5. Dev environment
 
 `flake.nix` devShell `packages` gains `sway` and `grim` (both in the

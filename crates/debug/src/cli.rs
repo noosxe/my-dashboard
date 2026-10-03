@@ -24,6 +24,19 @@ pub enum Command {
         window: Option<u64>,
         view: TreeView,
     },
+    /// `audit [--json] [--window N]` — deterministic rules over the
+    /// tree dump (docs/0065 D3). Exit 1 only on FAIL-severity
+    /// findings; findings/incomplete print for the owner checklist.
+    Audit { json: bool, window: Option<u64> },
+    /// `baseline <surface> [--update] [--window N]` — structural
+    /// golden against the committed `crates/debug/verify/snapshots/
+    /// <surface>.json` (docs/0065 D5). `--update` is the deliberate
+    /// refresh path; drift exits 1 with the node diff.
+    Baseline {
+        surface: String,
+        update: bool,
+        window: Option<u64>,
+    },
     /// `click <accesskit_id> [--window N] [--wait-frame[=ms]]`
     Click {
         node: String,
@@ -132,6 +145,8 @@ pub const USAGE: &str = "usage: dashboard-debug [--session <name>] <verb> [args]
   tree --snapshot <name>           write snapshots/<name>.json (D7)
   tree --diff <a> <b> [--json]     structural diff of two snapshots
   tree --tab-stops                 walk the focus cycle, numbered (D8)
+  audit [--json] [--window N]         deterministic rules over the tree dump (0065 D3)
+  baseline <surface> [--update] [--window N]  structural golden vs committed snapshot (0065 D5)
   wait-frame [--above N] [--timeout ms]  block until the app drew again (D6)
   screenshot [--name stem]         grim capture of the session compositor (D10)
   run <script>                     replay a committed receipt script (D12)
@@ -195,6 +210,45 @@ pub fn parse_args(args: &[String]) -> Result<Command, String> {
     };
     match verb.as_str() {
         "tree" => parse_tree(rest),
+        "audit" => {
+            let json = rest.iter().any(|arg| arg == "--json");
+            let unknown: Vec<&String> = rest
+                .iter()
+                .filter(|arg| *arg != "--json" && !arg.starts_with("--window"))
+                .collect();
+            if !unknown.is_empty() {
+                return Err(format!(
+                    "unknown audit argument {} — usage: dashboard-debug audit [--json] [--window N]",
+                    unknown[0]
+                ));
+            }
+            let window = parse_window_flag(rest)?;
+            Ok(Command::Audit { json, window })
+        }
+        "baseline" => {
+            let positional: Vec<&String> =
+                rest.iter().filter(|arg| !arg.starts_with("--")).collect();
+            let surface = match positional.as_slice() {
+                [surface] => (*surface).clone(),
+                _ => {
+                    return Err(
+                        "usage: dashboard-debug baseline <surface> [--update] [--window N]".into(),
+                    );
+                }
+            };
+            if !crate::snapshot::valid_name(&surface) {
+                return Err(format!(
+                    "bad surface name {surface:?} — want a-z0-9- (it names a committed file)"
+                ));
+            }
+            let update = rest.iter().any(|arg| arg == "--update");
+            let window = parse_window_flag(rest)?;
+            Ok(Command::Baseline {
+                surface: surface.clone(),
+                update,
+                window,
+            })
+        }
         "wait-frame" => parse_wait_frame(rest),
         "screenshot" => {
             let mut name = "shot".to_string();

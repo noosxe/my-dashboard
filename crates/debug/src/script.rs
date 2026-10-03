@@ -43,6 +43,17 @@ pub enum StepOp {
         b: String,
         substr: String,
     },
+    /// `audit` — run the 0065 D3 rules; receipt-red on FAIL severity.
+    Audit,
+    /// `tab-stops` — the D8 focus-cycle walk; red on traps or an
+    /// unclosed cycle. Pairs with `audit` (0065 D3).
+    TabStops,
+    /// `baseline <surface> [--update]` — write/refresh the committed
+    /// golden (generation scripts only).
+    Baseline { surface: String, update: bool },
+    /// `assert-baseline <surface>` — structural golden check, red on
+    /// drift (0065 D5).
+    AssertBaseline(String),
     /// `screenshot [stem]` — grim capture into the session's
     /// `screenshots/` (D10).
     Screenshot(String),
@@ -179,6 +190,42 @@ fn parse_line(text: &str, line_no: usize) -> Result<StepOp, String> {
                 substr: substr.clone(),
             })
         }
+        "audit" => {
+            if !rest.is_empty() {
+                return Err(err("audit takes no arguments here"));
+            }
+            Ok(StepOp::Audit)
+        }
+        "tab-stops" => {
+            if !rest.is_empty() {
+                return Err(err("tab-stops takes no arguments here"));
+            }
+            Ok(StepOp::TabStops)
+        }
+        "baseline" => {
+            let update = rest.iter().any(|arg| arg == "--update");
+            let positional: Vec<&String> =
+                rest.iter().filter(|arg| !arg.starts_with("--")).collect();
+            let [surface] = positional.as_slice() else {
+                return Err(err("baseline needs exactly one <surface>"));
+            };
+            if !crate::snapshot::valid_name(surface) {
+                return Err(err("bad surface name (a-z0-9-)"));
+            }
+            Ok(StepOp::Baseline {
+                surface: (*surface).clone(),
+                update,
+            })
+        }
+        "assert-baseline" => {
+            let [surface] = rest else {
+                return Err(err("assert-baseline needs exactly one <surface>"));
+            };
+            if !crate::snapshot::valid_name(surface) {
+                return Err(err("bad surface name (a-z0-9-)"));
+            }
+            Ok(StepOp::AssertBaseline(surface.clone()))
+        }
         "screenshot" => match rest {
             [] => Ok(StepOp::Screenshot("shot".to_string())),
             [stem] => Ok(StepOp::Screenshot(stem.clone())),
@@ -275,6 +322,30 @@ pub fn allocate_path(dir: &std::path::Path, stem: &str, ext: &str) -> std::path:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every committed receipt must parse — a grammar change that
+    /// breaks a shipped script is a regression, not a surprise for the
+    /// Linux box (found the hard way: favicon.txt shipped a `tree
+    /// --json` step that was never a verb).
+    #[test]
+    fn committed_receipt_scripts_still_parse() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("verify");
+        let mut checked = 0;
+        let entries = std::fs::read_dir(&dir)
+            .unwrap_or_else(|err| panic!("verify dir {}: {err}", dir.display()));
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("txt") {
+                continue;
+            }
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            let source =
+                std::fs::read_to_string(&path).unwrap_or_else(|err| panic!("{name}: {err}"));
+            parse_script(&source).unwrap_or_else(|err| panic!("{name}: {err}"));
+            checked += 1;
+        }
+        assert!(checked >= 3, "expected the committed receipts to exist");
+    }
 
     #[test]
     fn parses_the_design_example() {

@@ -17,8 +17,8 @@ use dashboard_debug::session::{
 };
 
 use crate::{
-    Conn, connect_quiet, focused_node, frame_number, run_command, snapshots_root, tree_diff,
-    tree_dump, tree_snapshot,
+    Conn, baseline_verb, connect_quiet, focused_node, frame_number, run_command, snapshots_root,
+    tab_stops, tree_diff, tree_dump, tree_snapshot,
 };
 
 /// `screenshot [--name stem]` (D10): grim against the session's
@@ -780,6 +780,56 @@ fn run_step(conn: &mut Conn, session: Option<&str>, op: &StepOp) -> StepOutcome 
                     diff.changed()
                 )),
             }
+        }
+        StepOp::Audit => {
+            let dump = match tree_dump(conn, &None) {
+                Ok(dump) => dump,
+                Err(code) => return StepOutcome::Failed(format!("dump failed (exit {code})")),
+            };
+            match dashboard_debug::audit::audit_dump(&dump) {
+                Ok(report) => {
+                    if report.fails() > 0 {
+                        StepOutcome::Failed(format!(
+                            "audit: {} FAIL findings (of {} nodes) — {}",
+                            report.fails(),
+                            report.nodes_audited,
+                            report
+                                .findings
+                                .iter()
+                                .filter(|f| f.severity == dashboard_debug::audit::Severity::Fail)
+                                .map(|f| f.detail.clone())
+                                .collect::<Vec<_>>()
+                                .join("; ")
+                        ))
+                    } else {
+                        StepOutcome::Ok(format!(
+                            " audit clean ({} nodes, {} findings, {} incomplete)",
+                            report.nodes_audited,
+                            report.findings_count(),
+                            report.incomplete()
+                        ))
+                    }
+                }
+                Err(err) => StepOutcome::Failed(format!("cannot audit dump: {err}")),
+            }
+        }
+        StepOp::TabStops => {
+            let code = tab_stops(conn, &None);
+            outcome(code, " tab-stops cycle closed")
+        }
+        StepOp::Baseline { surface, update } => {
+            let code = baseline_verb(conn, surface, *update, &None);
+            outcome(
+                code,
+                &format!(
+                    " baseline {surface}{}",
+                    if *update { " updated" } else { "" }
+                ),
+            )
+        }
+        StepOp::AssertBaseline(surface) => {
+            let code = baseline_verb(conn, surface, false, &None);
+            outcome(code, &format!(" baseline {surface} clean"))
         }
         StepOp::Screenshot(stem) => {
             let code = screenshot_via_record(session, stem);

@@ -32,10 +32,19 @@
 
 --session favicon
 
+# 0. Navigate to the Palette module (LINUX-BOX TODO, first run): the
+# sidebar items carry per-run numeric ids, so receipts navigate by
+# coordinates. Replace the placeholder below with the favicon card's
+# center from `dashboard-debug tree` at 1440x900 (home grid, second
+# card after GitHub), then keep it — 1440x900 is pinned, so it stays.
+mouse down 450 430
+mouse up 450 430
+wait-frame
+
 # 1. Boot: the whole generator surface with its D10 ids.
 wait-frame
 snapshot boot
-tree --json boot-tree
+snapshot boot-tree
 
 # 2. Type the glyph: "D" (set + commit on the text input).
 focus favicon-text-input

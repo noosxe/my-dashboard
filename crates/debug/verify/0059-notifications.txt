@@ -28,25 +28,25 @@
 # 1. Healthy boot: bell present, no badge.
 wait-frame
 snapshot boot
-tree --json boot-tree
+snapshot boot-tree
 
 # 2. The degrade raises (latch fires on first open); badge 1; the toast
 #    autohides but the badge survives it (non-human path never marks read).
 wait-frame
 snapshot raised
-tree --json raised-tree
+snapshot raised-tree
 
 # 3. Open the panel: badge clears at open, the row stays listed.
 click status-notifications
 wait-frame
 snapshot panel-open
-tree --json panel-tree
+snapshot panel-tree
 
 # 4. Clear all from inside the panel: view empties, badge 0.
 click notification-clear-all
 wait-frame
 snapshot cleared
-tree --json cleared-tree
+snapshot cleared-tree
 
 # 5. Close (Esc), reopen: empty state, badge 0.
 key escape
@@ -54,4 +54,4 @@ wait-frame
 click status-notifications
 wait-frame
 snapshot reopened
-tree --json reopened-tree
+snapshot reopened-tree

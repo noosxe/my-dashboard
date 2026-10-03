@@ -11,6 +11,7 @@
 //! auto-activation), and the log ring + `dashboard-debug` CLI (#47).
 
 pub mod a11y;
+pub mod audit;
 pub mod cli;
 pub mod doctor;
 pub mod gate;
