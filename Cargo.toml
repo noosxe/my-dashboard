@@ -5,6 +5,7 @@ members = [
     "crates/core",
     "crates/debug",
     "crates/modules/github",
+    "crates/modules/favicon",
 ]
 
 [workspace.package]
@@ -52,6 +53,7 @@ gpui-kit-assets = { git = "https://github.com/longbridge/gpui-component", rev = 
 dashboard-core = { path = "crates/core" }
 dashboard-debug = { path = "crates/debug" }
 dashboard-module-github = { path = "crates/modules/github" }
+dashboard-module-favicon = { path = "crates/modules/favicon" }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # Markdown bodies (docs/0017 D1): CommonMark + GFM extensions parser; no
 # default features (no HTML output path). Bare-URL autolinks come from
@@ -75,6 +77,20 @@ linkify = "0.11"
 dirs = "7"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Favicon raster pipeline (docs/0064 D2): resvg 0.46 is the exact copy
+# gpui-pre 0.3.7 already compiles into the workspace (the lockfile's
+# 0.45.1 copy is platform-gated dead weight) — a direct edge adds no
+# second compile. `image` 0.25 unifies with gpui's own copy too: preview
+# frames are built as image::Frame.
+resvg = "0.46"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+# Native folder/file picker (docs/0064 D7). default-features off drops
+# the gtk3 tree; xdg-portal only wires on Linux (macOS stays cocoa).
+rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
+# Data-URI embeds for the emitted favicon.svg (docs/0064 D4) — lockfile
+# copy via gpui, no new compile.
+base64 = "0.22"
+smallvec = "1"
 # Debug bridge (docs/0010 D3): unbounded channel for socket-thread →
 # main-thread job marshalling.
 futures = "0.3"

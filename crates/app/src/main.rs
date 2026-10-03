@@ -2,6 +2,7 @@ use gpui::*;
 use gpui_component::{Root, TitleBar};
 
 use dashboard_core::{AppPaths, DashboardShell, ModuleRegistry, Navigator, ShellState, load_json};
+use dashboard_module_favicon::FaviconModule;
 use dashboard_module_github::GithubModule;
 mod menu;
 // Identity & geometry — decisions from docs/0002 §2; single place to tune.
@@ -186,8 +187,9 @@ fn main() {
                     // Navigation state, then modules (registry order = sidebar
                     // + home-grid order — docs/0003 §4.2).
                     let nav = cx.new(|_| Navigator::new(shell_state.sidebar_collapsed));
-                    let registry =
-                        ModuleRegistry::new().with::<GithubModule>(&nav, window, paths, cx);
+                    let registry = ModuleRegistry::new()
+                        .with::<GithubModule>(&nav, window, paths, cx)
+                        .with::<FaviconModule>(&nav, window, paths, cx);
 
                     // Live system-appearance follow (docs/0006 §3.6): while
                     // the mode is implicit (System), OS appearance changes

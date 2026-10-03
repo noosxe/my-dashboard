@@ -37,12 +37,16 @@ use serde::{Deserialize, Serialize};
 pub const RECORD_CAP: usize = 10_000;
 
 /// Which wire a flight went out on. Generic across modules (docs/0053
-/// D6): REST, GraphQL, or the provider's auth endpoints.
+/// D6): REST, GraphQL, or the provider's auth endpoints — plus `Local`
+/// for non-network records (docs/0064 D9: the favicon generator's
+/// export runs). Additive value; storage is a plain TEXT column, so old
+/// rows and readers are unaffected.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Transport {
     Rest,
     Graphql,
     Auth,
+    Local,
 }
 
 impl Transport {
@@ -51,6 +55,7 @@ impl Transport {
             Transport::Rest => "rest",
             Transport::Graphql => "graphql",
             Transport::Auth => "auth",
+            Transport::Local => "local",
         }
     }
 }

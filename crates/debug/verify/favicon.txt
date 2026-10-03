@@ -1,0 +1,70 @@
+# favicon.txt — docs/0064 §6's bridge receipt as a committed script:
+# the favicon generator's source → styling → platform → export flow,
+# driven end to end. The export dir is set via the bridge-addressable
+# path field (D7 — the rfd picker is OS-level and invisible to `tree`),
+# which is exactly the testability seam the design bought.
+#
+# Prerequisites:
+#   DASHBOARD_STATE_DIR=/tmp/favicon-verify/dashboard \
+#     dashboard-debug session start --name favicon --size 1440x900
+#   mkdir -p /tmp/favicon-out   (fresh: no collisions on first run)
+# Run: dashboard-debug run crates/debug/verify/favicon.txt
+# After: /tmp/favicon-out holds favicon.svg, favicon.ico,
+#   favicon-96x96.png, favicon.html (web defaults), and a second
+#   run must surface favicon-overwrite-confirm before writing.
+#
+# What each snapshot must show (docs/0064 D2/D5/D7):
+#   boot        — favicon-page, favicon-source-tabs, favicon-text-input,
+#                 favicon-font-family, the three light pickers,
+#                 favicon-preview-{16..512} frames, favicon-export dir
+#                 field, favicon-export button
+#   edited      — text changed to "D" (set on favicon-text-input)
+#   platformed  — favicon-platform-ios and -pwa checked, favicon-ios-1024
+#                 visible; the file-count hint reads 9
+#   exported    — success toast (source "favicon"); exporting back to
+#                 false; /tmp/favicon-out holds 9 files
+#   re-export   — favicon-overwrite-confirm panel with the 9 collisions
+#                 (never silent overwrite), cancel leaves files intact
+#
+# Also covers the analytics rail: the export emitted one
+# module="favicon" transport="local" op="export" record (D9) — visible
+# on the usage page's transport facet after refresh.
+
+--session favicon
+
+# 1. Boot: the whole generator surface with its D10 ids.
+wait-frame
+snapshot boot
+tree --json boot-tree
+
+# 2. Type the glyph: "D" (set + commit on the text input).
+focus favicon-text-input
+type D
+wait-frame
+snapshot edited
+
+# 3. Platform matrix: iOS (with marketing icon) + PWA on top of web.
+click favicon-platform-ios
+wait-frame
+click favicon-ios-1024
+wait-frame
+click favicon-platform-pwa
+wait-frame
+snapshot platformed
+
+# 4. Export to a fresh dir via the path field.
+focus favicon-export-dir
+type /tmp/favicon-out
+wait-frame
+click favicon-export
+wait-frame
+wait-frame
+snapshot exported
+
+# 5. Re-export: collisions pre-flight must surface the confirm panel.
+click favicon-export
+wait-frame
+snapshot re-export
+click favicon-overwrite-cancel
+wait-frame
+snapshot cancelled

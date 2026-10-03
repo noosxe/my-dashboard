@@ -718,7 +718,12 @@ pub struct LatencyGlance {
 pub fn latency_glance(rows: &[UsageRecord], q: &GlanceQuery) -> LatencyGlance {
     let scoped = scoped(rows, &q.window, &q.filters);
     let mut transports = Vec::new();
-    for t in [Transport::Rest, Transport::Graphql, Transport::Auth] {
+    for t in [
+        Transport::Rest,
+        Transport::Graphql,
+        Transport::Auth,
+        Transport::Local,
+    ] {
         let rows_t: Vec<&UsageRecord> = scoped
             .iter()
             .copied()
@@ -1310,7 +1315,9 @@ pub fn overview(rows: &[UsageRecord], q: &OverviewQuery) -> OverviewView {
         match r.transport {
             Transport::Rest => spend_slots[idx].0 += c,
             Transport::Graphql => spend_slots[idx].1 += c,
-            Transport::Auth => {} // never bills (docs/0050 D1)
+            // Neither ever bills: auth flights (docs/0050 D1) and
+            // local records (docs/0064 D9) carry no quota cost.
+            Transport::Auth | Transport::Local => {}
         }
         if c > 0 {
             *spend_slots[idx].2.entry(r.surface.to_string()).or_insert(0) += c;
@@ -1348,6 +1355,9 @@ pub fn overview(rows: &[UsageRecord], q: &OverviewQuery) -> OverviewView {
             Transport::Rest => p90_slots[idx].0.push(r),
             Transport::Graphql => p90_slots[idx].1.push(r),
             Transport::Auth => p90_slots[idx].2.push(r),
+            // No wire, no per-transport latency slot (docs/0064 D9):
+            // local rows stay reachable through the facet filter.
+            Transport::Local => {}
         }
     }
     let p90_trend = P90Trend {
@@ -1463,12 +1473,14 @@ impl UsageTab {
     }
 }
 
-/// Transport facet segments (D4): `All` plus the three wires.
-const TRANSPORT_SEGMENTS: [(&str, Option<Transport>); 4] = [
+/// Transport facet segments (D4): `All` plus the wires — `Local` since
+/// docs/0064 D9 (non-network module records; the favicon export runs).
+const TRANSPORT_SEGMENTS: [(&str, Option<Transport>); 5] = [
     ("All", None),
     ("REST", Some(Transport::Rest)),
     ("GraphQL", Some(Transport::Graphql)),
     ("Auth", Some(Transport::Auth)),
+    ("Local", Some(Transport::Local)),
 ];
 
 /// The usage analytics page (docs/0054 §3): global range picker +

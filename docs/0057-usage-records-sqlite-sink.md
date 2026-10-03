@@ -109,7 +109,7 @@ CREATE TABLE IF NOT EXISTS usage_records (
     seq               INTEGER PRIMARY KEY,  -- rowid alias: the pre-stamped key
     ts_epoch_ms       INTEGER NOT NULL,
     module            TEXT NOT NULL,
-    transport         TEXT NOT NULL,        -- 'rest' | 'graphql' | 'auth'
+    transport         TEXT NOT NULL,        -- 'rest' | 'graphql' | 'auth' | 'local' (0064 D9)
     op                TEXT NOT NULL,
     surface           TEXT NOT NULL,
     trigger_kind      TEXT NOT NULL,        -- Rust field `trigger`; TRIGGER is

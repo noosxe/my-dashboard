@@ -146,7 +146,9 @@ questions are pairs):
   `Surface ▸ Trigger` (the origin matrix) and `Operation ▸ Target`
   (endpoint drill). Any cross is allowed; none is required.
 - **Filter facets** (predicates, not rankings — low-cardinality
-  slices set once and forgotten): `Transport` (rest/graphql/auth),
+  slices set once and forgotten): `Transport`
+  (rest/graphql/auth — plus `local` since docs/0064 D9: non-network
+  module records, e.g. the favicon generator's export runs),
   `Module`, and an errors-only toggle (`network_error` / failed
   `status`). They apply to charts and table alike.
 
