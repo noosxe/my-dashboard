@@ -1,9 +1,10 @@
 0065 — UI/UX quality system for agent-authored surfaces
 ========================================================
 
-Status: **Phase 1 implemented** (audit verb + contrast gate + structural
-goldens + process wiring — the implementation PR for issue #440);
-Phases 2–3 pending (#441, #442). Born from an owner-directed research
+Status: **Phases 1–2 implemented** (Phase 1: audit verb + contrast
+gate + structural goldens + process wiring, #440; Phase 2: pixel
+goldens via `golden`/`assert-golden` + the paired `critique` capture,
+#441); Phase 3 pending (#442). Born from an owner-directed research
 round (prompt: "figure out a systematic approach for giving AI agents
 proper tools for high-quality UI/UX design") after the favicon module's
 PR verdict — functionally right, visually not good at all.

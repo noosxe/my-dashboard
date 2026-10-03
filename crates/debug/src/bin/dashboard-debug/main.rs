@@ -69,6 +69,16 @@ fn run() -> i32 {
         Command::Screenshot { name } => {
             return receipts::screenshot(session_name.as_deref(), &name);
         }
+        Command::Critique { surface } => {
+            return receipts::critique_verb(session_name.as_deref(), &surface);
+        }
+        Command::Golden {
+            surface,
+            theme,
+            update,
+        } => {
+            return receipts::golden_verb(session_name.as_deref(), &surface, &theme, update);
+        }
         Command::Doctor => return receipts::doctor(session_name.as_deref()),
         Command::Run { script } => {
             let source = match std::fs::read_to_string(&script) {
@@ -445,7 +455,11 @@ pub(crate) fn run_command(conn: &mut Conn, command: &Command) -> i32 {
         Command::Session(_) => unreachable!("session verbs handled before connecting"),
         // The receipt verbs own their session resolution and never
         // reach the connected dispatch (see run()).
-        Command::Screenshot { .. } | Command::Run { .. } | Command::Doctor => {
+        Command::Screenshot { .. }
+        | Command::Critique { .. }
+        | Command::Golden { .. }
+        | Command::Run { .. }
+        | Command::Doctor => {
             unreachable!("receipt verbs handled before connecting")
         }
     }

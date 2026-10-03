@@ -540,6 +540,38 @@ grammar change that breaks a shipped script fails CI, not the Linux
 box (added after two shipped receipts carried a `tree --json` step
 that was never a verb).
 
+### D17 — `critique <surface>`: the ritual input, paired by construction
+
+`dashboard-debug critique <surface>` (0065 D7) is one command for the
+critique bundle: wait-frame, grim screenshot, tree snapshot — written
+as a pair under the session's `critique/` dir with one stem and one
+counter (`<surface>-<n>.png` + `<surface>-<n>.tree.json`). The pairing
+is the rule, not a convention: the measured reason for the whole
+system is that pixel-only critique misses layout structure
+(Design2Code), so the tool refuses to produce pixels alone. Session-
+bound, Linux-only (grim + a11y). Script step: `critique <surface>`;
+before/after pairs are two critiques of the same surface — the counter
+keeps them apart.
+
+### D18 — `golden <surface> --theme <t> [--update]`: pixel goldens
+
+`dashboard-debug golden <surface> --theme dark|light [--update]`
+(0065 D6) waits one frame, captures the session compositor, and
+compares against the committed baseline at
+`crates/debug/verify/pixels/<surface>-<WxH>-<theme>.png` (size comes
+from the session record — pinned `--size` is the receipt contract;
+the theme flag is the operator stating which Aurora theme is active).
+The differ is a pure module (`pixels.rs`): per-channel tolerance of
+2/255 — above anti-aliasing jitter, far below anything visible — any
+pixel over tolerance is drift (exit 1 with count, worst delta, first
+offending coordinate). Size mismatch is an error, not a verdict:
+recapture, never compare across frame sizes. `--update` overwrites
+the baseline and is the only deliberate refresh path, reviewed like
+code. The same-environment rule is absolute: baselines live and die
+on the Linux runner. Script steps: `golden <surface> [--theme t]
+[--update]` (capture) and `assert-golden <surface> [--theme t]`
+(receipt-red on drift; refuses `--update`). See `verify/golden.txt`.
+
 ## 5. Dev environment
 
 `flake.nix` devShell `packages` gains `sway` and `grim` (both in the

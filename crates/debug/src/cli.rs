@@ -77,6 +77,21 @@ pub enum Command {
     /// headless compositor into `screenshots/<stem>-<n>.png` (D10).
     /// Session-bound: needs `--session` (or the env default).
     Screenshot { name: String },
+    /// `critique <surface>` — the 0065 D7 ritual input in one command:
+    /// wait-frame, then screenshot AND tree snapshot (never
+    /// pixels-only), paired as `critique/<surface>-<n>.png` +
+    /// `.tree.json`. Session-bound, Linux-only (grim + a11y).
+    Critique { surface: String },
+    /// `golden <surface> --theme <dark|light> [--update]` — pixel
+    /// golden vs committed `verify/pixels/<surface>-<WxH>-<theme>.png`
+    /// (0065 D6). `--update` is the only deliberate refresh path;
+    /// compare exits 1 on any pixel over tolerance. Session-bound,
+    /// Linux-only.
+    Golden {
+        surface: String,
+        theme: String,
+        update: bool,
+    },
     /// `run <script>` — execute a committed receipt script (D12),
     /// echoing line + outcome into `transcripts/<stem>-<n>.log`.
     Run { script: std::path::PathBuf },
@@ -149,6 +164,8 @@ pub const USAGE: &str = "usage: dashboard-debug [--session <name>] <verb> [args]
   baseline <surface> [--update] [--window N]  structural golden vs committed snapshot (0065 D5)
   wait-frame [--above N] [--timeout ms]  block until the app drew again (D6)
   screenshot [--name stem]         grim capture of the session compositor (D10)
+  critique <surface>               D7 ritual input: screenshot + tree snapshot, paired
+  golden <surface> --theme <t> [--update]  pixel golden vs committed PNG (0065 D6)
   run <script>                     replay a committed receipt script (D12)
   doctor                           nine session health checks (D13)
   click <accesskit_id> [--window N] [--wait-frame[=ms]]  AT-SPI click;
@@ -265,6 +282,61 @@ pub fn parse_args(args: &[String]) -> Result<Command, String> {
                 }
             }
             Ok(Command::Screenshot { name })
+        }
+        "critique" => {
+            let [surface] = rest else {
+                return Err("critique takes exactly one surface name".into());
+            };
+            if !crate::snapshot::valid_name(surface) {
+                return Err(format!("bad surface name {surface:?}"));
+            }
+            Ok(Command::Critique {
+                surface: surface.clone(),
+            })
+        }
+        "golden" => {
+            let mut surface: Option<String> = None;
+            let mut theme: Option<String> = None;
+            let mut update = false;
+            let mut rest = rest.iter().peekable();
+            while let Some(arg) = rest.next() {
+                match arg.as_str() {
+                    "--theme" => {
+                        let Some(value) = rest.next() else {
+                            return Err("--theme needs dark|light".into());
+                        };
+                        if value != "dark" && value != "light" {
+                            return Err(format!(
+                                "unknown theme {value:?} — the operator states which \
+                                 Aurora theme is active; dark|light only"
+                            ));
+                        }
+                        theme = Some(value.clone());
+                    }
+                    "--update" => update = true,
+                    other => {
+                        if surface.is_none() {
+                            surface = Some(other.to_string());
+                        } else {
+                            return Err(format!("unknown golden argument {other:?}"));
+                        }
+                    }
+                }
+            }
+            let Some(surface) = surface else {
+                return Err("golden needs a surface name".into());
+            };
+            if !crate::snapshot::valid_name(&surface) {
+                return Err(format!("bad surface name {surface:?}"));
+            }
+            let Some(theme) = theme else {
+                return Err("golden needs --theme dark|light (the operator states which Aurora theme is active)".into());
+            };
+            Ok(Command::Golden {
+                surface,
+                theme,
+                update,
+            })
         }
         "run" => {
             let [script] = rest else {

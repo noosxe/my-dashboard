@@ -18,7 +18,7 @@ use dashboard_debug::session::{
 
 use crate::{
     Conn, baseline_verb, connect_quiet, focused_node, frame_number, run_command, snapshots_root,
-    tab_stops, tree_diff, tree_dump, tree_snapshot,
+    tab_stops, tree_diff, tree_dump, tree_snapshot, wait_for_frame,
 };
 
 /// `screenshot [--name stem]` (D10): grim against the session's
@@ -835,6 +835,22 @@ fn run_step(conn: &mut Conn, session: Option<&str>, op: &StepOp) -> StepOutcome 
             let code = screenshot_via_record(session, stem);
             outcome(code, &format!(" screenshot {stem} taken"))
         }
+        StepOp::Critique(surface) => {
+            let code = critique_verb(session, surface);
+            outcome(code, &format!(" critique pair for {surface}"))
+        }
+        StepOp::Golden {
+            surface,
+            theme,
+            update,
+        } => {
+            let code = golden_verb(session, surface, theme, *update);
+            outcome(code, &format!(" golden {surface} [{theme}]"))
+        }
+        StepOp::AssertGolden { surface, theme } => {
+            let code = golden_verb(session, surface, theme, false);
+            outcome(code, &format!(" golden {surface} [{theme}] holds"))
+        }
         StepOp::Bind(_) => StepOutcome::Ok(" (binding recorded)".into()),
     }
 }
@@ -866,6 +882,257 @@ fn screenshot_via_record(session: Option<&str>, stem: &str) -> i32 {
         Ok(Some(record)) => run_grim(&record, &dirs.dir, stem),
         _ => 1,
     }
+}
+
+/// Resolve the session record + root for the session-bound visual
+/// verbs (critique/golden share this with screenshot).
+fn session_record(session: Option<&str>) -> Option<(SessionRecord, std::path::PathBuf)> {
+    let Some(name) = session else {
+        eprintln!(
+            "this verb needs a session — pass --session <name> (visual \
+             captures target the session compositor, never the host's)"
+        );
+        return None;
+    };
+    if !valid_name(name) {
+        eprintln!("invalid session name {name:?}");
+        return None;
+    }
+    let dirs = SessionDirs::at(sessions_root(), name);
+    match read_record(&dirs.session_json()) {
+        Ok(Some(record)) => Some((record, dirs.dir)),
+        _ => None,
+    }
+}
+
+/// `critique <surface>` (0065 D7): wait for a frame, then screenshot
+/// AND tree snapshot — the pairing is the rule (Design2Code's
+/// layout-recall weakness: never critique pixels alone). One counter,
+/// one stem, two files: `<surface>-<n>.png` + `<surface>-<n>.tree.json`
+/// under the session's `critique/` dir.
+pub fn critique_verb(session: Option<&str>, surface: &str) -> i32 {
+    let Some((record, root)) = session_record(session) else {
+        return 1;
+    };
+    let Some(grim) = grim_path() else {
+        eprintln!(
+            "grim is not on PATH — screenshots need it (the dev shell ships it: nix develop)"
+        );
+        return 1;
+    };
+    let mut conn = match connect_quiet() {
+        Ok(conn) => conn,
+        Err(code) => return code,
+    };
+    // D6 determinism applies to critiques too: capture settled frames.
+    let first = match tree_dump(&mut conn, &None) {
+        Ok(result) => result,
+        Err(code) => return code,
+    };
+    if let Err(last) = wait_for_frame(&mut conn, &None, frame_number(&first), 2000) {
+        eprintln!("critique {surface}: frame still {last} — nothing drew");
+        return 1;
+    }
+    let dump = match tree_dump(&mut conn, &None) {
+        Ok(result) => result,
+        Err(code) => return code,
+    };
+    let snapshot = match dashboard_debug::snapshot::Snapshot::from_dump(surface, &dump) {
+        Ok(snap) => snap,
+        Err(err) => {
+            eprintln!("cannot snapshot: {err}");
+            return 1;
+        }
+    };
+    let dir = root.join("critique");
+    if let Err(err) = std::fs::create_dir_all(&dir) {
+        eprintln!("cannot create {}: {err}", dir.display());
+        return 1;
+    }
+    let png = dashboard_debug::script::allocate_path(&dir, surface, "png");
+    let stem = png.file_stem().unwrap().to_string_lossy().into_owned();
+    let tree = dir.join(format!("{stem}.tree.json"));
+    let output = StdCommand::new(&grim)
+        .env(
+            "WAYLAND_DISPLAY",
+            record.wayland_display.as_deref().unwrap_or_default(),
+        )
+        .arg(&png)
+        .stderr(Stdio::piped())
+        .output();
+    let output = match output {
+        Ok(output) => output,
+        Err(err) => {
+            eprintln!("cannot run grim: {err}");
+            return 1;
+        }
+    };
+    if !output.status.success() {
+        eprintln!("grim failed for critique {surface}");
+        return 1;
+    }
+    let body = serde_json::to_string_pretty(&snapshot).expect("serialize snapshot");
+    if let Err(err) = std::fs::write(&tree, body) {
+        eprintln!("cannot write {}: {err}", tree.display());
+        return 1;
+    }
+    println!(
+        "critique {surface}: {} nodes · {} + {}",
+        snapshot.nodes.len(),
+        png.display(),
+        tree.display()
+    );
+    0
+}
+
+/// Committed pixel-golden root: `crates/debug/verify/pixels/` — same
+/// repo-relative resolution as the structural baselines (D5).
+pub fn pixels_root() -> std::path::PathBuf {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let local = cwd.join("crates/debug/verify/pixels");
+    if local.is_dir() {
+        return local;
+    }
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("verify/pixels")
+}
+
+/// `golden <surface> --theme <t> [--update]` (0065 D6): wait-frame,
+/// capture, then compare against the committed baseline keyed
+/// `<surface>-<WxH>-<theme>.png` (WxH from the session record — size
+/// pinning is the receipt contract). `--update` overwrites the
+/// baseline and is reviewed like code; compare exits 1 on any pixel
+/// over tolerance. Same-environment rule is absolute: this only ever
+/// runs against the session compositor.
+pub fn golden_verb(session: Option<&str>, surface: &str, theme: &str, update: bool) -> i32 {
+    let Some((record, root)) = session_record(session) else {
+        return 1;
+    };
+    let Some(grim) = grim_path() else {
+        eprintln!(
+            "grim is not on PATH — screenshots need it (the dev shell ships it: nix develop)"
+        );
+        return 1;
+    };
+    let mut conn = match connect_quiet() {
+        Ok(conn) => conn,
+        Err(code) => return code,
+    };
+    // Playwright semantics, stronger primitive: the frame counter only
+    // advances on change, so waiting one frame past "now" means the
+    // capture is of a settled frame.
+    let first = match tree_dump(&mut conn, &None) {
+        Ok(result) => result,
+        Err(code) => return code,
+    };
+    if let Err(last) = wait_for_frame(&mut conn, &None, frame_number(&first), 2000) {
+        eprintln!("golden {surface}: frame still {last} — nothing drew");
+        return 1;
+    }
+    let (w, h) = record.size;
+    let baseline = pixels_root().join(format!("{surface}-{w}x{h}-{theme}.png"));
+    if !update && !baseline.is_file() {
+        eprintln!(
+            "no baseline at {} — capture it with --update on the Linux \
+             runner (same-environment rule, 0065 D6)",
+            baseline.display()
+        );
+        return 1;
+    }
+    let dir = root.join("critique");
+    if let Err(err) = std::fs::create_dir_all(&dir) {
+        eprintln!("cannot create {}: {err}", dir.display());
+        return 1;
+    }
+    let capture = dir.join(format!("golden-{surface}.png"));
+    let output = StdCommand::new(&grim)
+        .env(
+            "WAYLAND_DISPLAY",
+            record.wayland_display.as_deref().unwrap_or_default(),
+        )
+        .arg(&capture)
+        .stderr(Stdio::piped())
+        .output();
+    let output = match output {
+        Ok(output) => output,
+        Err(err) => {
+            eprintln!("cannot run grim: {err}");
+            return 1;
+        }
+    };
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        eprintln!(
+            "grim failed for golden {surface}{stderr_part}",
+            stderr_part = if stderr.is_empty() {
+                String::new()
+            } else {
+                format!(": {stderr}")
+            }
+        );
+        return 1;
+    }
+    if update {
+        if let Some(parent) = baseline.parent() {
+            if let Err(err) = std::fs::create_dir_all(parent) {
+                eprintln!("cannot create {}: {err}", parent.display());
+                return 1;
+            }
+        }
+        if let Err(err) = std::fs::copy(&capture, &baseline) {
+            eprintln!("cannot write {}: {err}", baseline.display());
+            return 1;
+        }
+        println!(
+            "golden {surface} [{theme}, {w}x{h}] baseline updated: {}",
+            baseline.display()
+        );
+        return 0;
+    }
+    let a = match image::open(&baseline) {
+        Ok(img) => img.to_rgba8(),
+        Err(err) => {
+            eprintln!("cannot decode {}: {err}", baseline.display());
+            return 1;
+        }
+    };
+    let b = match image::open(&capture) {
+        Ok(img) => img.to_rgba8(),
+        Err(err) => {
+            eprintln!("cannot decode {}: {err}", capture.display());
+            return 1;
+        }
+    };
+    let diff = match dashboard_debug::pixels::diff_rgba(
+        &a,
+        &b,
+        dashboard_debug::pixels::DEFAULT_TOLERANCE,
+    ) {
+        Ok(diff) => diff,
+        Err(err) => {
+            eprintln!("golden {surface}: {err}");
+            return 1;
+        }
+    };
+    if diff.is_drift() {
+        let first = diff
+            .first_over
+            .map(|(x, y)| format!("first at ({x},{y})"))
+            .unwrap_or_default();
+        eprintln!(
+            "golden {surface} [{theme}, {w}x{h}] DRIFT: {} px over \
+             tolerance (max channel delta {}), {first} vs baseline {}",
+            diff.over_tolerance,
+            diff.max_channel_delta,
+            baseline.display()
+        );
+        return 1;
+    }
+    println!(
+        "golden {surface} [{theme}, {w}x{h}] clean: {w}x{h} identical within \
+         tolerance (max channel delta {})",
+        diff.max_channel_delta
+    );
+    0
 }
 
 fn snapshot_nodes(conn: &mut Conn) -> Result<Vec<dashboard_debug::snapshot::SnapshotNode>, i32> {

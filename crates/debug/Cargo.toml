@@ -8,6 +8,9 @@ publish = false
 
 [dependencies]
 gpui.workspace = true
+# Pixel-golden differ (0065 D6): decode session captures for the
+# tolerance compare. Same copy gpui/favicon already unify on.
+image.workspace = true
 dashboard-core.workspace = true
 log.workspace = true
 serde.workspace = true
