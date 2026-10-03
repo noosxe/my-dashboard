@@ -1,0 +1,41 @@
+# golden.txt — the 0065 D6 pixel-golden receipt (Phase 2, #441).
+# Linux box only: grim captures the session compositor, and the
+# same-environment rule is absolute (baselines live and die on the
+# runner; macOS captures are never compared).
+#
+# First run per surface/theme: replace the assert-golden lines with
+# `golden <surface> --theme <t> --update`, commit the PNGs this
+# produces (verify/pixels/), then restore the asserts. Drift after
+# that is red: fix the UI or refresh the baseline in a reviewed PR —
+# never mid-receipt.
+#
+# Prerequisites: dashboard-debug session start --name golden --size 1280x800
+# Run: dashboard-debug run crates/debug/verify/golden.txt
+
+--session golden
+
+# Home at both Aurora themes. Theme switch is a settings interaction:
+# drive it before capturing (assert-golden records which theme each
+# baseline means).
+wait-frame
+assert-golden home
+
+# The Linux-box operator captures the light twins in the same run
+# after flipping the theme in settings (assert-golden home --theme light).
+
+# GitHub module page — proven navigation from usage-freeze.txt.
+mouse down 448 169
+mouse up 448 169
+wait-frame
+assert-golden github
+
+# Usage analytics — proven tab click.
+mouse down 1239 740
+mouse up 1239 740
+wait-frame
+assert-golden usage
+
+# Notification hub — the bell id from 0059-notifications.txt.
+click status-notifications
+wait-frame
+assert-golden hub

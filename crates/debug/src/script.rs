@@ -48,6 +48,20 @@ pub enum StepOp {
     /// `tab-stops` — the D8 focus-cycle walk; red on traps or an
     /// unclosed cycle. Pairs with `audit` (0065 D3).
     TabStops,
+    /// `critique <surface>` — the 0065 D7 ritual input: screenshot +
+    /// tree snapshot as one paired capture.
+    Critique(String),
+    /// `golden <surface> [--theme t] [--update]` — pixel golden
+    /// capture/compare (0065 D6). Theme defaults dark on the step
+    /// (receipts pin what they mean).
+    Golden {
+        surface: String,
+        theme: String,
+        update: bool,
+    },
+    /// `assert-golden <surface> [--theme t]` — receipt-red on pixel
+    /// drift against the committed baseline.
+    AssertGolden { surface: String, theme: String },
     /// `baseline <surface> [--update]` — write/refresh the committed
     /// golden (generation scripts only).
     Baseline { surface: String, update: bool },
@@ -202,6 +216,63 @@ fn parse_line(text: &str, line_no: usize) -> Result<StepOp, String> {
             }
             Ok(StepOp::TabStops)
         }
+        "critique" => {
+            let [surface] = rest else {
+                return Err(err("critique takes exactly one surface name"));
+            };
+            if !crate::snapshot::valid_name(surface) {
+                return Err(err("bad surface name"));
+            }
+            Ok(StepOp::Critique(surface.clone()))
+        }
+        "golden" | "assert-golden" => {
+            let assert = verb == "assert-golden";
+            let mut surface: Option<String> = None;
+            let mut theme = "dark".to_string();
+            let mut update = false;
+            let mut rest = rest.iter().peekable();
+            while let Some(arg) = rest.next() {
+                match arg.as_str() {
+                    "--theme" => {
+                        let Some(value) = rest.next() else {
+                            return Err(err("--theme needs dark|light"));
+                        };
+                        if value != "dark" && value != "light" {
+                            return Err(err("unknown theme — dark|light only"));
+                        }
+                        theme = value.clone();
+                    }
+                    "--update" => {
+                        if assert {
+                            return Err(err("assert-golden never updates — drift is red"));
+                        }
+                        update = true;
+                    }
+                    other => {
+                        if surface.is_none() {
+                            surface = Some(other.to_string());
+                        } else {
+                            return Err(err("unknown golden argument"));
+                        }
+                    }
+                }
+            }
+            let Some(surface) = surface else {
+                return Err(err("golden needs a surface name"));
+            };
+            if !crate::snapshot::valid_name(&surface) {
+                return Err(err("bad surface name"));
+            }
+            if assert {
+                Ok(StepOp::AssertGolden { surface, theme })
+            } else {
+                Ok(StepOp::Golden {
+                    surface,
+                    theme,
+                    update,
+                })
+            }
+        }
         "baseline" => {
             let update = rest.iter().any(|arg| arg == "--update");
             let positional: Vec<&String> =
@@ -327,6 +398,42 @@ mod tests {
     /// breaks a shipped script is a regression, not a surprise for the
     /// Linux box (found the hard way: favicon.txt shipped a `tree
     /// --json` step that was never a verb).
+    #[test]
+    fn parses_visual_golden_steps() {
+        let script =
+            parse_script("critique home\ngolden home --theme light --update\nassert-golden home\n")
+                .unwrap();
+        assert_eq!(
+            script.steps[0].op,
+            StepOp::Critique("home".into()),
+            "critique takes the surface name"
+        );
+        assert_eq!(
+            script.steps[1].op,
+            StepOp::Golden {
+                surface: "home".into(),
+                theme: "light".into(),
+                update: true
+            }
+        );
+        assert_eq!(
+            script.steps[2].op,
+            StepOp::AssertGolden {
+                surface: "home".into(),
+                theme: "dark".into()
+            },
+            "assert-golden defaults dark — receipts pin what they mean"
+        );
+    }
+
+    #[test]
+    fn assert_golden_never_updates() {
+        let err = parse_script("assert-golden home --update\n").unwrap_err();
+        assert!(err.contains("never updates"), "got: {err}");
+        let err = parse_script("golden home --theme sepia\n").unwrap_err();
+        assert!(err.contains("dark|light"), "got: {err}");
+    }
+
     #[test]
     fn committed_receipt_scripts_still_parse() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("verify");
