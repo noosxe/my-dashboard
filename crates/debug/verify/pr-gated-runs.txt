@@ -33,7 +33,15 @@
 
 --session gated
 
+# 0. The conversation rail (docs/0066 D3 rail amendment): the checks
+#    summary reads "N waiting for approval" — never "Checks status
+#    unknown" while runs are held — with the "Review approval" jump.
+wait-frame
+snapshot gated-rail
+snapshot gated-rail-tree
+
 # 1. The waiting section on the PR's checks tab.
+click pr-view-checks
 wait-frame
 snapshot gated
 snapshot gated-tree

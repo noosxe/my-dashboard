@@ -4965,12 +4965,24 @@ impl PrDetailPage {
     }
 
     fn render_checks_summary(&self, d: &gql::PrDetail, cx: &Context<Self>) -> AnyElement {
-        let (label, tone) = rollup_summary(d.rollup_state.as_deref());
+        // docs/0066 D3 (rail amendment): the sweep's waiting count
+        // overrides the rollup — "Checks status unknown" on a gated PR
+        // is a lie, the held runs are exactly why nothing reports.
+        let waiting = self.gated.data().map(|rows| rows.len()).unwrap_or(0);
+        let (label, tone) = checks_summary_line(d.rollup_state.as_deref(), waiting);
         let color = match tone {
             ChecksTone::Success => cx.theme().success,
             ChecksTone::Danger => cx.theme().danger,
             ChecksTone::Warning => cx.theme().warning,
             ChecksTone::Muted => cx.theme().muted_foreground,
+        };
+        let (button_label, button_tooltip) = if waiting > 0 {
+            (
+                "Review approval",
+                "Approve or reject the held workflow runs",
+            )
+        } else {
+            ("View checks", "Open the checks tab")
         };
         v_flex()
             .id("pr-checks-summary")
@@ -4981,20 +4993,27 @@ impl PrDetailPage {
             .p_3()
             .child(
                 div()
+                    .id("pr-checks-summary-label")
+                    .debug_selector(|| "pr-checks-summary-label".to_string())
                     .text_sm()
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(color)
                     .child(label),
             )
             .child(
-                Button::new("pr-view-checks")
-                    .ghost()
-                    .small()
-                    .label("View checks")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.tab = PrTab::Checks;
-                        cx.notify();
-                    })),
+                div()
+                    .debug_selector(|| "pr-view-checks-btn".to_string())
+                    .child(
+                        Button::new("pr-view-checks")
+                            .ghost()
+                            .small()
+                            .label(button_label)
+                            .tooltip(button_tooltip)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.tab = PrTab::Checks;
+                                cx.notify();
+                            })),
+                    ),
             )
             .into_any_element()
     }
@@ -5802,6 +5821,23 @@ pub(crate) fn rollup_summary(state: Option<&str>) -> (&'static str, ChecksTone) 
     }
 }
 
+/// The rail summary line (docs/0066 D3, rail amendment): gated runs
+/// override the rollup — GitHub's rollup cannot see approval-held runs
+/// (they have no check runs yet), so the line must never read "unknown"
+/// while a run is waiting. `waiting` is the gated-run count from the
+/// sweep; zero delegates to [`rollup_summary`] untouched. When both a
+/// rollup state and waiting runs exist, waiting wins — the checks tab
+/// carries the full picture either way.
+pub(crate) fn checks_summary_line(rollup: Option<&str>, waiting: usize) -> (String, ChecksTone) {
+    if waiting > 0 {
+        return (
+            format!("{waiting} waiting for approval"),
+            ChecksTone::Warning,
+        );
+    }
+    let (label, tone) = rollup_summary(rollup);
+    (label.to_string(), tone)
+}
 fn tab_label(name: &str, count: Option<i64>) -> SharedString {
     match count {
         Some(c) => format!("{name} ({c})").into(),
@@ -6321,11 +6357,11 @@ mod tests {
     use crate::pr_page::{
         BusyOp, ChecksCounts, ChecksTone, ErrorScope, FinishEvent, MergeLineTone, MergeMethod,
         PrDetailPage, PrMetaEditor, PrStateTone, PrTab, ReviewTone, TimelineKind, allowed_methods,
-        checks_counts, checks_header_line, comment_action_allowed, composer_body_allowed,
-        default_method, gate_error_copy, merge_enabled, merge_state_line, pr_assignees_arming,
-        pr_labels_arming, pr_milestone_arming, pr_reviewers_arming, pr_state_tone,
-        review_batch_allowed, review_event, review_state_label, rollup_summary, short_sha,
-        split_repo, timeline_order,
+        checks_counts, checks_header_line, checks_summary_line, comment_action_allowed,
+        composer_body_allowed, default_method, gate_error_copy, merge_enabled, merge_state_line,
+        pr_assignees_arming, pr_labels_arming, pr_milestone_arming, pr_reviewers_arming,
+        pr_state_tone, review_batch_allowed, review_event, review_state_label, rollup_summary,
+        short_sha, split_repo, timeline_order,
     };
     use crate::service::{GithubCache, GithubState};
     use crate::usage::Origin;
@@ -8634,6 +8670,30 @@ mod tests {
         );
     }
 
+    #[test]
+    fn checks_summary_line_lets_waiting_override_the_rollup() {
+        // docs/0066 D3 rail amendment: a gated PR's rail must not read
+        // "Checks status unknown" — the held runs are exactly why
+        // nothing reports. Waiting wins over any rollup state…
+        assert_eq!(
+            checks_summary_line(None, 2),
+            ("2 waiting for approval".to_string(), ChecksTone::Warning)
+        );
+        assert_eq!(
+            checks_summary_line(Some("SUCCESS"), 1),
+            ("1 waiting for approval".to_string(), ChecksTone::Warning)
+        );
+        // …and zero waiting delegates to the rollup line untouched.
+        assert_eq!(
+            checks_summary_line(Some("SUCCESS"), 0),
+            ("All checks passed".to_string(), ChecksTone::Success)
+        );
+        assert_eq!(
+            checks_summary_line(None, 0),
+            ("Checks status unknown".to_string(), ChecksTone::Muted)
+        );
+    }
+
     #[gpui::test]
     fn gated_runs_render_fork_gate_approve_only(cx: &mut gpui::TestAppContext) {
         // docs/0066 D3/D4: a fork-gated run renders its waiting section
@@ -8673,6 +8733,27 @@ mod tests {
         assert!(
             vcx.debug_bounds("pr-gate-review-37300500213").is_none(),
             "a fork-gated row renders no review panel"
+        );
+        // The conversation rail says the same thing (docs/0066 D3 rail
+        // amendment): the summary label is the waiting line — never
+        // "Checks status unknown" while rows are held — and the jump
+        // button reads "Review approval".
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.tab = PrTab::Conversation;
+                cx.notify();
+            });
+        });
+        vcx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+        });
+        assert!(
+            vcx.debug_bounds("pr-checks-summary-label").is_some(),
+            "the rail summary renders on the conversation tab"
+        );
+        assert!(
+            vcx.debug_bounds("pr-view-checks-btn").is_some(),
+            "the rail's review-approval jump renders"
         );
     }
 
