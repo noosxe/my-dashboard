@@ -1923,6 +1923,14 @@ impl GithubPage {
             gql::CheckState::Success => (IconName::CircleCheck, cx.theme().success, "CI: passing"),
             gql::CheckState::Failure => (IconName::CircleX, cx.theme().danger, "CI: failing"),
             gql::CheckState::Pending => (IconName::LoaderCircle, cx.theme().warning, "CI: pending"),
+            // docs/0066: unreachable via `rollup_state` (null rollup → no
+            // glyph) but the match stays exhaustive — the Neutral arm's
+            // treatment.
+            gql::CheckState::Waiting => (
+                IconName::Pause,
+                cx.theme().warning,
+                "CI: waiting for approval",
+            ),
             gql::CheckState::Neutral => {
                 (IconName::Dash, cx.theme().muted_foreground, "CI: no status")
             }

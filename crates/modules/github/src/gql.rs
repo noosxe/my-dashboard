@@ -880,6 +880,11 @@ pub enum CheckState {
     Success,
     Failure,
     Pending,
+    /// REST-only (docs/0066 D1): the run was created but is held for
+    /// manual approval — minted only by [`gated_run_state`] from the
+    /// gated-runs sweep, never by the GraphQL mappers. Waiting means
+    /// "won't run until a human acts"; Pending means "will run".
+    Waiting,
     Neutral,
 }
 
@@ -918,6 +923,17 @@ pub fn check_run_state(status: Option<&str>, conclusion: Option<&str>) -> CheckS
     }
 }
 
+/// REST sweep row → unified state (docs/0066 D2): the sweep is
+/// server-filtered to `status=action_required`, so `action_required`
+/// maps to [`CheckState::Waiting`]. Anything else on this endpoint is
+/// not a gated run — Neutral, never Failure (the run may simply have
+/// been approved between listing and render).
+pub fn gated_run_state(conclusion: Option<&str>) -> CheckState {
+    match conclusion {
+        Some("action_required") => CheckState::Waiting,
+        _ => CheckState::Neutral,
+    }
+}
 /// `StatusContext.state` (GraphQL `StatusState`: SUCCESS / ERROR /
 /// EXPECTED / FAILURE / PENDING) → unified. `EXPECTED` is a required
 /// status that hasn't reported yet — Pending, matching `rollup_state`
@@ -3606,6 +3622,26 @@ mod tests {
             check_run_state(Some("COMPLETED"), None),
             CheckState::Failure
         );
+    }
+
+    #[test]
+    fn gated_run_state_mints_waiting_only() {
+        // docs/0066 D1/D2: the REST sweep's mapper — `action_required`
+        // is the held state; anything else on this endpoint is not a
+        // gated run (Neutral, never Failure). The GraphQL mappers never
+        // mint Waiting — their tests above stay conclusive.
+        use super::{CheckState, gated_run_state};
+        assert_eq!(
+            gated_run_state(Some("action_required")),
+            CheckState::Waiting
+        );
+        for other in [None, Some("success"), Some("failure"), Some("")] {
+            assert_eq!(
+                gated_run_state(other),
+                CheckState::Neutral,
+                "conclusion {other:?}"
+            );
+        }
     }
 
     #[test]
