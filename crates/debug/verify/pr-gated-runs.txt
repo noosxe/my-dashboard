@@ -1,0 +1,51 @@
+# pr-gated-runs.txt — docs/0066's bridge receipt as a committed script:
+# the PR-page "Waiting for approval" section — discovery (REST sweep),
+# gate-probe actions (fork gate approve-only), and the post-approve
+# transition — exercised against a live gated run.
+#
+# Prerequisites (the live fixture — a run in `action_required`):
+#   worker-mcp's flake-update PR is the canonical fixture (docs/0066
+#   §1). If nothing is waiting, recreate: re-run/rebase the flake-update
+#   workflow so fresh runs enter `action_required`.
+#   DASHBOARD_STATE_DIR=<signed-in state dir> \
+#     dashboard-debug session start --name gated --size 1280x800
+# Then navigate to the gated PR's page (notifications list → the PR, or
+# the repo view), and switch to the Checks tab.
+#
+# Run: dashboard-debug run crates/debug/verify/pr-gated-runs.txt
+#
+# What each snapshot must show (docs/0066 D3/D4/D5):
+#   gated      — the `pr-gated-header` section ("Waiting for approval"),
+#                one `pr-gated-row-*` per held run with pause glyphs, the
+#                fork gate's approve-only button (`pr-gate-approve-*` —
+#                no reject: upstream has none for this gate), age + run
+#                number muted text; the checks header reads "… · N
+#                waiting" (or "N waiting for approval" when no checks)
+#   approving  — after `click pr-gate-approve-*`: the row reads
+#                "approved, starting…" with buttons gone (D5 in-flight)
+#   confirmed  — after the targeted sweep refetch lands: the row LEFT
+#                the section (run out of `action_required`; check rows
+#                appear as jobs start) — no zombie rows
+# The run ids in the click step change per fixture run: read the live
+# id off the `gated-tree` snapshot and substitute it below.
+# Also records the section's a11y roles/labels for the docs/0066 D7
+# receipts (audit + tree --tab-stops run separately over this surface).
+
+--session gated
+
+# 1. The waiting section on the PR's checks tab.
+wait-frame
+snapshot gated
+snapshot gated-tree
+
+# 2. Approve the (substituted) run: optimistic in-flight state.
+click pr-gate-approve-RUN_ID
+wait-frame
+snapshot approving
+snapshot approving-tree
+
+# 3. The sweep refetch confirms: row gone, checks take over.
+wait-frame
+wait-frame
+snapshot confirmed
+snapshot confirmed-tree

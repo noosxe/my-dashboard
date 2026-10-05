@@ -477,6 +477,26 @@ pub enum Kind {
     /// [`GithubState::apply`], on top of whatever headers the wrapper
     /// already harvested.
     RateLimit,
+    /// docs/0066 D2 — the gated-runs sweep: one REST GET of
+    /// `actions/runs?branch=…&event=pull_request&status=action_required`,
+    /// client-filtered by head SHA (branch names collide across forks).
+    /// Page-owned result convention ([`Kind::PrDetail`]): the page parses
+    /// the 200 body; only non-200 results forward to
+    /// [`GithubState::apply`].
+    GatedRuns,
+    /// docs/0066 D4 — one gated run's gate probe: `GET
+    /// …/runs/{id}/pending_deployments`. Non-empty ⇒ environment gate
+    /// (required reviewers); empty ⇒ fork/external-contributor gate.
+    /// Same page-owned convention.
+    GateProbe,
+    /// docs/0066 D4 — a gated-run write (the REST mutation lane, per
+    /// [`Kind::ThreadMutation`]): `POST …/runs/{id}/approve` (fork gate —
+    /// no body, expect 201) or `POST …/runs/{id}/pending_deployments`
+    /// (environment gate — the JSON body rides [`FetchSpec::variables`],
+    /// this lane's kind-specific carrier). Success is any 2xx; the page
+    /// treats those as settled and forwards only failures for the shared
+    /// auth/rate-limit handling.
+    RunGateReview,
 }
 
 /// docs/0047 D2 — which account qualifier a home snapshot was fetched
@@ -889,6 +909,7 @@ pub fn run_spec(
         Kind::IssueDetail => run_issue_detail(&rec, spec),
         Kind::ThreadDetail => run_thread_detail(&rec, spec),
         Kind::ThreadMutation(op) => run_thread_mutation(&rec, spec, op),
+        Kind::RunGateReview => run_gate_review(&rec, spec),
         Kind::RepoLabels => run_graphql_fetch(&rec, spec, gql::REPO_LABELS_QUERY, "repo-labels"),
         Kind::RepoAssignableUsers => run_graphql_fetch(
             http,
@@ -917,7 +938,9 @@ pub fn run_spec(
             "repo-pr-templates",
         ),
         Kind::Notifications | Kind::RepoNotifications | Kind::PrFiles => run_rest(&rec, spec),
-        Kind::JobLog | Kind::RateLimit => run_plain_get(&rec, spec),
+        Kind::JobLog | Kind::GatedRuns | Kind::GateProbe | Kind::RateLimit => {
+            run_plain_get(&rec, spec)
+        }
         Kind::AccountPullRequests => run_home_prs(&rec, spec),
     }
 }
@@ -959,6 +982,41 @@ fn run_plain_get(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
         } else {
             None
         },
+        network,
+        cursor: None,
+    }
+}
+
+/// One gated-run write (docs/0066 D4): `POST …/runs/{id}/approve` (fork
+/// gate — no body, expect 201) or `POST …/runs/{id}/pending_deployments`
+/// (environment gate — the JSON body rides [`FetchSpec::variables`], the
+/// lane's kind-specific carrier). Success is any 2xx; the body is empty
+/// upstream and never surfaced.
+fn run_gate_review(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
+    let mut status = 0u16;
+    let mut rate = None;
+    let mut network = None;
+    let sent_at = Instant::now();
+    let body = spec.variables.as_ref().map(Value::to_string);
+    match http.request(Verb::Post, &spec.url, body.as_deref(), None) {
+        Err(HttpError(m)) => network = Some(m),
+        Ok(result) => {
+            status = result.status;
+            rate = result.rate;
+            log::debug!(
+                "gate-review {}: → {status} in {}ms",
+                spec.kind.kind_name(),
+                sent_at.elapsed().as_millis()
+            );
+        }
+    }
+    SpecResult {
+        kind: spec.kind,
+        ident: spec.ident.clone(),
+        status,
+        etag: None,
+        rate,
+        body: None,
         network,
         cursor: None,
     }
@@ -1618,6 +1676,9 @@ impl Kind {
             Kind::RepoNotifications => "repo-notifs",
             Kind::ThreadDetail => "thread-detail",
             Kind::ThreadMutation(_) => "thread-mutation",
+            Kind::GatedRuns => "gated-runs",
+            Kind::GateProbe => "gate-probe",
+            Kind::RunGateReview => "gate-review",
             Kind::RateLimit => "rate-limit",
         }
     }
@@ -2671,7 +2732,13 @@ impl GithubState {
             | Kind::RepoPrTemplates
             | Kind::RepoTemplatesConfig
             | Kind::ThreadDetail
-            | Kind::ThreadMutation(_) => {}
+            | Kind::ThreadMutation(_)
+            // docs/0066: gated-lane kinds are page-owned too — the CI
+            // pane parses its own 200 bodies; only their failures ever
+            // reach here, handled in the status arms above.
+            | Kind::GatedRuns
+            | Kind::GateProbe
+            | Kind::RunGateReview => {}
         }
 
         // ETag keyed by logical resource (kind + ident), not raw URL, so
@@ -3147,6 +3214,341 @@ pub(crate) async fn run_check_log_chain(
         result.body.as_deref().unwrap_or_default(),
         crate::pr_page::LOG_TAIL_CAP,
     ))
+}
+
+// ---------------------------------------------------------------------------
+// Gated workflow runs (docs/0066): sweep → gate probes → approve/reject.
+// ---------------------------------------------------------------------------
+
+/// One waiting-for-approval run, gate-resolved (docs/0066 D3/D4) — the
+/// sweep's domain row; what the CI pane's waiting section renders.
+#[derive(Clone, Debug)]
+pub(crate) struct GatedRunRow {
+    pub run_id: u64,
+    pub name: String,
+    pub run_number: Option<i64>,
+    pub created_at: Option<String>,
+    pub gate: GatedRunGate,
+}
+
+/// Which gate holds the run (docs/0066 §2.2), decided by the probe: empty
+/// `pending_deployments` ⇒ fork/external-contributor (approve only —
+/// upstream has no reject); non-empty ⇒ environment protection rule
+/// (approve or reject; `comment` is required on the wire).
+#[derive(Clone, Debug)]
+pub(crate) enum GatedRunGate {
+    ForkGate,
+    Environments {
+        /// The probe's `current_user_can_approve` across the pending
+        /// deployments (absent ⇒ assumed yes; the 403 copy is the
+        /// fallback). Drives button enablement (docs/0066 D6).
+        can_approve: bool,
+        environments: Vec<GateEnvironment>,
+        /// Prior reviews when readable — `None` on read failure (the
+        /// popover hides the section rather than pretending it's empty).
+        approvals: Option<Vec<api::RunApprovalNode>>,
+    },
+    /// The probe failed — the gate (and therefore the right actions) are
+    /// unknowable; the row renders a retry hint instead of buttons.
+    ProbeFailed,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct GateEnvironment {
+    pub id: u64,
+    pub name: String,
+    pub html_url: Option<String>,
+}
+
+/// Why a gate write failed — the status picks the copy (docs/0066 D6).
+#[derive(Clone, Debug)]
+pub(crate) struct GateActionFailure {
+    pub status: u16,
+    pub network: Option<String>,
+}
+
+/// One plain GET on the gated lane (docs/0066 D2/D4): dispatches through
+/// the tracked lane (usage record + 401 gate), forwards non-200s through
+/// [`GithubState::apply`] for the shared auth/rate-limit handling before
+/// failing — the [`run_check_log_chain`] convention.
+async fn gated_get(
+    state: &Entity<GithubState>,
+    kind: Kind,
+    ident: String,
+    url: String,
+    trigger: Trigger,
+    cx: &mut AsyncApp,
+) -> Result<SpecResult, String> {
+    let spec = FetchSpec {
+        origin: Origin::new(Surface::PrPage, trigger),
+        kind,
+        url,
+        etag: None,
+        ident: Some(ident),
+        max_pages: 1,
+        variables: None,
+    };
+    let result = run_spec_tracked(state.clone(), spec, cx).await;
+    if let Some(m) = &result.network {
+        return Err(format!("Network error: {m}"));
+    }
+    if result.status != 200 {
+        let status = result.status;
+        cx.update(|cx| {
+            state.update(cx, |s, cx| {
+                s.apply(result);
+                cx.notify();
+            })
+        });
+        return Err(format!("GitHub answered HTTP {status}"));
+    }
+    Ok(result)
+}
+
+/// One gated-run POST (docs/0066 D4): forwards failures for the shared
+/// handling, then reports them with the status so the page can pick the
+/// D6 copy (403 vs 404/422).
+async fn gate_review_post(
+    state: &Entity<GithubState>,
+    ident: String,
+    url: String,
+    body: Option<Value>,
+    cx: &mut AsyncApp,
+) -> Result<(), GateActionFailure> {
+    let spec = FetchSpec {
+        origin: Origin::new(Surface::PrPage, Trigger::MutationRefetch),
+        kind: Kind::RunGateReview,
+        url,
+        etag: None,
+        ident: Some(ident),
+        max_pages: 1,
+        variables: body,
+    };
+    let result = run_spec_tracked(state.clone(), spec, cx).await;
+    if let Some(m) = &result.network {
+        return Err(GateActionFailure {
+            status: 0,
+            network: Some(m.clone()),
+        });
+    }
+    if !(200..300).contains(&result.status) {
+        let status = result.status;
+        cx.update(|cx| {
+            state.update(cx, |s, cx| {
+                s.apply(result);
+                cx.notify();
+            })
+        });
+        return Err(GateActionFailure {
+            status,
+            network: None,
+        });
+    }
+    Ok(())
+}
+
+/// The gate probe (docs/0066 D4): `pending_deployments` empty ⇒ fork
+/// gate; non-empty ⇒ environment gate, carrying writability, the
+/// environments, and any prior reviews. Probe/read failures ⇒
+/// [`GatedRunGate::ProbeFailed`] — the row stays visible with a retry
+/// hint instead of guessing at actions.
+async fn probe_gate(
+    state: &Entity<GithubState>,
+    repo: &str,
+    run_id: u64,
+    cx: &mut AsyncApp,
+) -> GatedRunGate {
+    let Some((owner, name)) = repo.split_once('/') else {
+        return GatedRunGate::ProbeFailed;
+    };
+    let ident = format!("{repo}#run-{run_id}");
+    let url = api::run_pending_deployments_url(owner, name, run_id);
+    let result = match gated_get(state, Kind::GateProbe, ident, url, Trigger::Probe, cx).await {
+        Ok(result) => result,
+        Err(_) => return GatedRunGate::ProbeFailed,
+    };
+    let pending: Vec<api::PendingDeploymentNode> =
+        serde_json::from_str(result.body.as_deref().unwrap_or_default()).unwrap_or_default();
+    if pending.is_empty() {
+        return GatedRunGate::ForkGate;
+    }
+    let mut environments = Vec::new();
+    let mut can_approve = true;
+    for deployment in pending {
+        can_approve &= deployment.current_user_can_approve != Some(false);
+        if let Some(env) = deployment.environment {
+            environments.push(GateEnvironment {
+                id: env.id,
+                name: env.name.unwrap_or_else(|| env.id.to_string()),
+                html_url: env.html_url,
+            });
+        }
+    }
+    if environments.is_empty() {
+        return GatedRunGate::ProbeFailed;
+    }
+    let approvals = read_run_approvals(state, repo, run_id, cx).await;
+    GatedRunGate::Environments {
+        can_approve,
+        environments,
+        approvals,
+    }
+}
+
+/// Prior deployment reviews for an env-gated run (docs/0066 §2.2 read
+/// side) — `None` on any failure; the popover hides the history rather
+/// than showing a lie.
+async fn read_run_approvals(
+    state: &Entity<GithubState>,
+    repo: &str,
+    run_id: u64,
+    cx: &mut AsyncApp,
+) -> Option<Vec<api::RunApprovalNode>> {
+    let (owner, name) = repo.split_once('/')?;
+    let ident = format!("{repo}#run-{run_id}-approvals");
+    let url = api::run_approvals_url(owner, name, run_id);
+    let result = gated_get(state, Kind::GateProbe, ident, url, Trigger::Probe, cx)
+        .await
+        .ok()?;
+    serde_json::from_str(result.body.as_deref().unwrap_or_default()).ok()
+}
+
+/// The docs/0066 D2 sweep: runs waiting on approval for the PR's head
+/// commit — server-filtered by branch + event + `action_required`, then
+/// client-filtered by exact head SHA, then probe-resolved per run.
+pub(crate) async fn load_gated_runs(
+    state: Entity<GithubState>,
+    repo: &str,
+    head_branch: &str,
+    head_oid: &str,
+    cx: &mut AsyncApp,
+) -> Result<Vec<GatedRunRow>, String> {
+    let Some((owner, name)) = repo.split_once('/') else {
+        return Err("Malformed repository id".into());
+    };
+    let short = head_oid.get(..7).unwrap_or(head_oid);
+    let ident = format!("{repo}#gated-{short}");
+    let url = api::gated_runs_url(owner, name, head_branch);
+    let result = gated_get(&state, Kind::GatedRuns, ident, url, Trigger::ViewShown, cx).await?;
+    let page: api::GatedRunsPage = serde_json::from_str(result.body.as_deref().unwrap_or_default())
+        .map_err(|e| format!("Malformed gated-runs payload ({e})"))?;
+    let mut rows = Vec::new();
+    for run in page.workflow_runs {
+        if run.head_sha.as_deref() != Some(head_oid) {
+            continue;
+        }
+        let gate = probe_gate(&state, repo, run.id, cx).await;
+        rows.push(GatedRunRow {
+            run_id: run.id,
+            name: run.name.unwrap_or_else(|| format!("run {}", run.id)),
+            run_number: run.run_number,
+            created_at: run.created_at,
+            gate,
+        });
+    }
+    Ok(rows)
+}
+
+/// The docs/0066 D2 fallback: when the sweep finds nothing while the PR
+/// shows zero check runs, walk the head SHA's check suites (which exist
+/// even pre-approval) and resolve each `action_required` suite's run
+/// through the docs/0039 step-2 URL. Fallback rows know the run id but
+/// not the workflow name (the suite payload doesn't carry it).
+pub(crate) async fn load_gated_runs_via_suites(
+    state: Entity<GithubState>,
+    repo: &str,
+    head_oid: &str,
+    cx: &mut AsyncApp,
+) -> Result<Vec<GatedRunRow>, String> {
+    let Some((owner, name)) = repo.split_once('/') else {
+        return Err("Malformed repository id".into());
+    };
+    let short = head_oid.get(..7).unwrap_or(head_oid);
+    let ident = format!("{repo}#suites-{short}");
+    let url = api::check_suites_for_sha_url(owner, name, head_oid);
+    let result = gated_get(&state, Kind::GatedRuns, ident, url, Trigger::Expand, cx).await?;
+    let page: api::CheckSuitesPage =
+        serde_json::from_str(result.body.as_deref().unwrap_or_default())
+            .map_err(|e| format!("Malformed check-suites payload ({e})"))?;
+    let mut rows = Vec::new();
+    for suite in page.check_suites {
+        if suite.conclusion.as_deref() != Some("action_required") {
+            continue;
+        }
+        let suite_ident = format!("{repo}#suite-{}", suite.id);
+        let suite_url = api::workflow_runs_by_suite_url(owner, name, suite.id);
+        let runs_result = gated_get(
+            &state,
+            Kind::GatedRuns,
+            suite_ident,
+            suite_url,
+            Trigger::Expand,
+            cx,
+        )
+        .await?;
+        let runs: api::WorkflowRunsPage =
+            serde_json::from_str(runs_result.body.as_deref().unwrap_or_default())
+                .map_err(|e| format!("Malformed suite-runs payload ({e})"))?;
+        for run in runs.workflow_runs {
+            let gate = probe_gate(&state, repo, run.id, cx).await;
+            rows.push(GatedRunRow {
+                run_id: run.id,
+                name: format!("workflow run {}", run.id),
+                run_number: None,
+                created_at: None,
+                gate,
+            });
+        }
+    }
+    Ok(rows)
+}
+
+/// Approve a fork-gated run (docs/0066 D4): `POST …/runs/{run_id}/approve`,
+/// empty body, 201. The fork gate's only disposition — there is no
+/// upstream reject.
+pub(crate) async fn approve_gated_run(
+    state: Entity<GithubState>,
+    repo: &str,
+    run_id: u64,
+    cx: &mut AsyncApp,
+) -> Result<(), GateActionFailure> {
+    let Some((owner, name)) = repo.split_once('/') else {
+        return Err(GateActionFailure {
+            status: 0,
+            network: Some("Malformed repository id".into()),
+        });
+    };
+    let ident = format!("{repo}#approve-{run_id}");
+    let url = api::approve_run_url(owner, name, run_id);
+    gate_review_post(&state, ident, url, None, cx).await
+}
+
+/// Approve or reject an environment-gated run (docs/0066 D4): `POST
+/// …/runs/{run_id}/pending_deployments` with the selected environments,
+/// the decision, and the (non-empty) wire comment.
+pub(crate) async fn review_pending_deployments(
+    state: Entity<GithubState>,
+    repo: &str,
+    run_id: u64,
+    environment_ids: Vec<u64>,
+    decision: &str,
+    comment: &str,
+    cx: &mut AsyncApp,
+) -> Result<(), GateActionFailure> {
+    let Some((owner, name)) = repo.split_once('/') else {
+        return Err(GateActionFailure {
+            status: 0,
+            network: Some("Malformed repository id".into()),
+        });
+    };
+    let ident = format!("{repo}#review-{run_id}");
+    let url = api::run_pending_deployments_url(owner, name, run_id);
+    let body = serde_json::json!({
+        "environment_ids": environment_ids,
+        "state": decision,
+        "comment": comment,
+    });
+    gate_review_post(&state, ident, url, Some(body), cx).await
 }
 
 /// The single refresh procedure (docs/0028 §3.2): the gate lead only.

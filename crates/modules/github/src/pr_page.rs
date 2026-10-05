@@ -307,6 +307,25 @@ pub(crate) struct PrDetailPage {
     pub(crate) diff_list: gpui::ListState,
     pub(crate) diff_items: std::sync::Arc<Vec<crate::files::DiffItem>>,
     diff_key: Option<(SharedString, u64)>,
+    /// docs/0066 D2: gated runs for the head SHA — armed when the detail
+    /// lands and refetched with it (the manual-refresh contract,
+    /// docs/0052 — nothing polls).
+    pub(crate) gated: Fetch<Vec<crate::service::GatedRunRow>>,
+    /// Runs approved but still listed in the last sweep (propagation
+    /// lag): rendered "approved, starting…" until the next sweep drops
+    /// them (docs/0066 D5).
+    pub(crate) gate_approved: Vec<u64>,
+    /// The run id whose gate action is in flight; that row's buttons
+    /// disable and its label reads "working…" (docs/0066 D5).
+    pub(crate) gate_busy: Option<u64>,
+    /// The open environment-gate review panel (docs/0066 D4) — one at a
+    /// time, like every other page surface.
+    pub(crate) gate_review: Option<GateReview>,
+    /// The last gate action failure, scoped to the checks pane (D6).
+    pub(crate) gate_error: Option<String>,
+    /// The D2 fallback ran for the current sweep — once per sweep, so an
+    /// empty fallback can't loop (docs/0066 D2).
+    pub(crate) gate_fallback_done: bool,
     /// The diff wrapper's horizontal scroll (docs/0041 D5) — persistent
     /// so x-position survives frames.
     pub(crate) diff_x_scroll: ScrollHandle,
@@ -476,6 +495,12 @@ impl PrDetailPage {
             diff_list: gpui::ListState::new(0, gpui::ListAlignment::Top, px(400.)),
             diff_items: std::sync::Arc::default(),
             diff_key: None,
+            gated: Fetch::new(),
+            gate_approved: Vec::new(),
+            gate_busy: None,
+            gate_review: None,
+            gate_error: None,
+            gate_fallback_done: false,
             diff_x_scroll: ScrollHandle::new(),
             anchor_cache: crate::files::AnchorCache::default(),
             composer_sub: None,
@@ -691,6 +716,9 @@ impl PrDetailPage {
                             // docs/0026 D9: the payload is in — try to arm
                             // the notification jump against it.
                             self.resolve_comment_anchor();
+                            // docs/0066 D2: the detail landed — arm the
+                            // gated-runs sweep for the (possibly new) head.
+                            self.fetch_gated(cx);
                         }
                         None => {
                             log::warn!("pr-detail: repository/pullRequest null — keeping header");
@@ -706,6 +734,588 @@ impl PrDetailPage {
             }
         }
         cx.notify();
+    }
+
+    /// docs/0066 D2: arm the gated-runs sweep for the head SHA. Fires
+    /// when the detail lands (the same funnel the refresh button drives
+    /// — the manual-refresh contract, docs/0052) and after a gate action
+    /// (D5). One sweep at a time, via the shared docs/0031 guard.
+    fn fetch_gated(&mut self, cx: &mut Context<Self>) {
+        if !self.state.read(cx).auth.connected() {
+            return; // the page is about to be torn down by the auth gate
+        }
+        let Some(d) = self.detail.data() else {
+            return;
+        };
+        let (Some(head_ref), Some(head_oid)) = (&d.head_ref, &d.head_oid) else {
+            return;
+        };
+        let state = self.state.clone();
+        let repo = self.repo.clone();
+        let head_ref = head_ref.clone();
+        let head_oid = head_oid.clone();
+        let short = head_oid.get(..7).unwrap_or(&head_oid).to_string();
+        let key = (Kind::GatedRuns, Some(format!("{repo}#gated-{short}")));
+        let armed = self.state.update(cx, |s, _| s.in_flight_arm(key.clone()));
+        if !armed {
+            log::debug!("gated-runs: skipped — an identical sweep is in flight");
+            return;
+        }
+        self.gate_fallback_done = false;
+        self.gated.begin();
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result =
+                crate::service::load_gated_runs(state.clone(), &repo, &head_ref, &head_oid, cx)
+                    .await;
+            cx.update(|cx| state.update(cx, |s, _| s.in_flight_clear(&key)));
+            let _ = this.update(cx, |page, cx| page.apply_gated_result(result, cx));
+        })
+        .detach();
+    }
+
+    fn apply_gated_result(
+        &mut self,
+        result: Result<Vec<crate::service::GatedRunRow>, String>,
+        cx: &mut Context<Self>,
+    ) {
+        match result {
+            Ok(rows) => {
+                // Approved-but-lingering runs keep their mark only while
+                // GitHub still lists them (D5); cleared ids drop out.
+                self.gate_approved
+                    .retain(|id| rows.iter().any(|r| r.run_id == *id));
+                self.gated.land(rows);
+                self.maybe_fetch_gated_fallback(cx);
+            }
+            Err(e) => self.gated.fail(e),
+        }
+        cx.notify();
+    }
+
+    /// The D2 fallback: the sweep landed empty while the PR shows zero
+    /// check runs — walk the head SHA's check suites instead (a gated run
+    /// has a suite even though it has no check runs). Runs once per
+    /// sweep (the flag resets when the next sweep arms), so an empty
+    /// fallback can't loop.
+    fn maybe_fetch_gated_fallback(&mut self, cx: &mut Context<Self>) {
+        if self.gate_fallback_done {
+            return;
+        }
+        let checks_empty = self.detail.data().is_none_or(|d| d.checks.nodes.is_empty());
+        let sweep_empty = self.gated.data().is_none_or(|rows| rows.is_empty());
+        if !checks_empty || !sweep_empty || self.gated.in_flight {
+            return;
+        }
+        let Some(d) = self.detail.data() else {
+            return;
+        };
+        let Some(head_oid) = d.head_oid.clone() else {
+            return;
+        };
+        self.gate_fallback_done = true;
+        let state = self.state.clone();
+        let repo = self.repo.clone();
+        let short = head_oid.get(..7).unwrap_or(&head_oid).to_string();
+        let key = (Kind::GatedRuns, Some(format!("{repo}#suites-{short}")));
+        let armed = self.state.update(cx, |s, _| s.in_flight_arm(key.clone()));
+        if !armed {
+            return;
+        }
+        self.gated.begin();
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result =
+                crate::service::load_gated_runs_via_suites(state.clone(), &repo, &head_oid, cx)
+                    .await;
+            cx.update(|cx| state.update(cx, |s, _| s.in_flight_clear(&key)));
+            let _ = this.update(cx, |page, cx| page.apply_gated_result(result, cx));
+        })
+        .detach();
+    }
+
+    /// Approve a fork-gated run (docs/0066 D4): `POST /approve`, then a
+    /// targeted sweep refetch (D5) — the row leaves the section when
+    /// GitHub confirms; until then it reads "approved, starting…".
+    fn approve_gated_run(&mut self, run_id: u64, window: &mut Window, cx: &mut Context<Self>) {
+        if self.gate_busy.is_some() {
+            return;
+        }
+        self.gate_error = None;
+        self.gate_busy = Some(run_id);
+        cx.notify();
+        let state = self.state.clone();
+        let repo = self.repo.clone();
+        cx.spawn_in(window, async move |this, cx| {
+            let result = crate::service::approve_gated_run(state.clone(), &repo, run_id, cx).await;
+            let _ = this.update(cx, |page, cx| {
+                page.apply_gate_action(run_id, "approved", result, cx)
+            });
+        })
+        .detach();
+    }
+
+    /// Open the env-gate review panel (docs/0066 D4): environments come
+    /// preselected; the comment starts empty.
+    fn open_gate_review(&mut self, run_id: u64, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(rows) = self.gated.data() else {
+            return;
+        };
+        let Some(row) = rows.iter().find(|r| r.run_id == run_id) else {
+            return;
+        };
+        let crate::service::GatedRunGate::Environments {
+            environments,
+            approvals,
+            ..
+        } = &row.gate
+        else {
+            return;
+        };
+        let comment = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .rows(2)
+                .placeholder("Comment (optional — a default goes on the wire)")
+        });
+        self.gate_review = Some(GateReview {
+            run_id,
+            environments: environments
+                .iter()
+                .map(|e| (e.id, e.name.clone(), e.html_url.clone(), true))
+                .collect(),
+            approvals: approvals.clone(),
+            comment,
+        });
+        cx.notify();
+    }
+
+    fn toggle_gate_env(&mut self, run_id: u64, ix: usize, cx: &mut Context<Self>) {
+        if let Some(review) = &mut self.gate_review {
+            if review.run_id == run_id {
+                if let Some((.., selected)) = review.environments.get_mut(ix) {
+                    *selected = !*selected;
+                    cx.notify();
+                }
+            }
+        }
+    }
+
+    fn dismiss_gate_review(&mut self, cx: &mut Context<Self>) {
+        self.gate_review = None;
+        cx.notify();
+    }
+
+    /// Submit the env-gate review (docs/0066 D4): the selected
+    /// environments + decision; an empty comment box sends the neutral
+    /// default (the wire comment is never empty — GitHub requires the
+    /// field). The panel closes immediately; the busy mark and the sweep
+    /// refetch carry the feedback (D5).
+    fn submit_gate_review(
+        &mut self,
+        run_id: u64,
+        decision: &'static str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(review) = &self.gate_review else {
+            return;
+        };
+        if review.run_id != run_id || self.gate_busy.is_some() {
+            return;
+        }
+        let ids: Vec<u64> = review
+            .environments
+            .iter()
+            .filter(|(.., selected)| *selected)
+            .map(|(id, ..)| *id)
+            .collect();
+        if ids.is_empty() {
+            return;
+        }
+        let typed = review.comment.read(cx).value().trim().to_string();
+        let comment = if typed.is_empty() {
+            format!(
+                "{} via my-dashboard",
+                if decision == "approved" {
+                    "Approved"
+                } else {
+                    "Rejected"
+                }
+            )
+        } else {
+            typed
+        };
+        self.gate_review = None;
+        self.gate_error = None;
+        self.gate_busy = Some(run_id);
+        cx.notify();
+        let state = self.state.clone();
+        let repo = self.repo.clone();
+        cx.spawn_in(window, async move |this, cx| {
+            let result = crate::service::review_pending_deployments(
+                state.clone(),
+                &repo,
+                run_id,
+                ids,
+                decision,
+                &comment,
+                cx,
+            )
+            .await;
+            let _ = this.update(cx, |page, cx| {
+                page.apply_gate_action(run_id, decision, result, cx)
+            });
+        })
+        .detach();
+    }
+
+    /// A gate action came back (docs/0066 D5/D6): success marks the run
+    /// "approved, starting…" and refetches the sweep (the confirmation is
+    /// GitHub flipping the run out of `action_required`); failure lands
+    /// as scoped D6 copy, and a gone-run (404/422) refetches so the
+    /// stale row can't linger.
+    fn apply_gate_action(
+        &mut self,
+        run_id: u64,
+        decision: &str,
+        result: Result<(), crate::service::GateActionFailure>,
+        cx: &mut Context<Self>,
+    ) {
+        self.gate_busy = None;
+        match result {
+            Ok(()) => {
+                if !self.gate_approved.contains(&run_id) {
+                    self.gate_approved.push(run_id);
+                }
+                self.fetch_gated(cx);
+            }
+            Err(f) => {
+                self.gate_error = Some(gate_error_copy(&f, decision));
+                if matches!(f.status, 404 | 422) {
+                    self.fetch_gated(cx);
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    /// docs/0066 D3: the "Waiting for approval" section — prepended
+    /// above the check rows, so the docs/0039 D4 tail cap applies to the
+    /// check rows after it. Renders the section header, an optional
+    /// scoped error line (D6), one row per gated run, and the open
+    /// review panel under its row.
+    fn render_gated_section(&self, cx: &Context<Self>) -> Vec<AnyElement> {
+        let Some(rows) = self.gated.data() else {
+            if let Some(err) = self.gated.load_error() {
+                return vec![
+                    div()
+                        .id("pr-gated-error")
+                        .px_3()
+                        .py_2()
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(format!("Gated runs: {err}"))
+                        .into_any_element(),
+                ];
+            }
+            return Vec::new();
+        };
+        if rows.is_empty() && self.gate_error.is_none() {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        if let Some(err) = &self.gate_error {
+            out.push(
+                div()
+                    .id("pr-gate-error")
+                    .px_3()
+                    .py_2()
+                    .text_sm()
+                    .text_color(cx.theme().danger)
+                    .child(err.clone())
+                    .into_any_element(),
+            );
+        }
+        if rows.is_empty() {
+            return out;
+        }
+        out.push(
+            div()
+                .id("pr-gated-header")
+                .debug_selector(|| "pr-gated-header".to_string())
+                .px_3()
+                .py_2()
+                .text_sm()
+                .font_weight(FontWeight::MEDIUM)
+                .child(format!("Waiting for approval ({})", rows.len()))
+                .into_any_element(),
+        );
+        for row in rows.iter() {
+            out.push(self.render_gated_row(row, cx));
+            if self.gate_review.as_ref().map(|r| r.run_id) == Some(row.run_id) {
+                out.push(self.render_gate_review_panel(cx));
+            }
+        }
+        out
+    }
+
+    /// One gated row (docs/0066 D3): dashed circle (waiting — not a
+    /// spinner: nothing is running), name + run number, gate hint, and
+    /// the gate's action buttons. Ids per docs/0010 D10 — every
+    /// interactive element is bridge-clickable.
+    fn render_gated_row(
+        &self,
+        gated: &crate::service::GatedRunRow,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        let busy = self.gate_busy == Some(gated.run_id);
+        let approved = self.gate_approved.contains(&gated.run_id);
+        let run_label = match gated.run_number {
+            Some(n) => format!("{} — run #{n}", gated.name),
+            None => gated.name.clone(),
+        };
+        let label = if approved {
+            format!("{run_label} — approved, starting…")
+        } else if busy {
+            format!("{run_label} — working…")
+        } else {
+            run_label
+        };
+        // Copy the id out — the listener closures must not hold the
+        // row's borrow past the method body (it escapes into the tree).
+        let gated_run_id = gated.run_id;
+        let mut row = h_flex()
+            .id(SharedString::from(format!("pr-gated-row-{}", gated.run_id)))
+            .gap_2()
+            .items_center()
+            .px_3()
+            .py_2()
+            .child(
+                Icon::new(IconName::Pause)
+                    .size_4()
+                    .text_color(cx.theme().warning),
+            )
+            .child(div().text_sm().min_w_0().flex_1().truncate().child(label));
+        let age = relative_age(gated.created_at.as_deref());
+        row = row.when(!age.is_empty(), |row| {
+            row.child(
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(age),
+            )
+        });
+        let open_review = self.gate_review.as_ref().map(|r| r.run_id) != Some(gated.run_id);
+        if !approved && !busy {
+            match &gated.gate {
+                crate::service::GatedRunGate::ForkGate => {
+                    row = row.child(
+                        // The wrapper carries the probe selector (docs/0010
+                        // D10 id discipline lives on the Button itself).
+                        div()
+                            .debug_selector(move || {
+                                format!("pr-gate-approve-{}", gated_run_id)
+                            })
+                            .child(
+                                Button::new(SharedString::from(format!(
+                                    "pr-gate-approve-{}",
+                                    gated.run_id
+                                )))
+                                .ghost()
+                                .xsmall()
+                                .label("Approve and run")
+                                .tooltip("This repo requires approval for runs from outside contributors — approving is GitHub's only disposition for this gate")
+                                .accessibility_label(format!(
+                                    "Approve gated workflow run {}",
+                                    gated.name
+                                ))
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.approve_gated_run(gated_run_id, window, cx)
+                                })),
+                            ),
+                    );
+                }
+                crate::service::GatedRunGate::Environments {
+                    can_approve,
+                    environments,
+                    ..
+                } => {
+                    let noun = if environments.len() == 1 {
+                        "environment"
+                    } else {
+                        "environments"
+                    };
+                    row = row
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(format!("{} {noun} to review", environments.len())),
+                        )
+                        .when(open_review, |row| {
+                            row.child(
+                                div()
+                                    .debug_selector(move || {
+                                        format!("pr-gate-review-{}", gated_run_id)
+                                    })
+                                    .child(
+                                        Button::new(SharedString::from(format!(
+                                            "pr-gate-review-{}",
+                                            gated.run_id
+                                        )))
+                                        .ghost()
+                                        .xsmall()
+                                        .label("Approve…")
+                                        .disabled(!can_approve)
+                                        .tooltip(if *can_approve {
+                                            "Review the pending deployment".to_string()
+                                        } else {
+                                            "You are not a required reviewer on this environment"
+                                                .to_string()
+                                        })
+                                        .accessibility_label(format!(
+                                            "Review gated workflow run {}",
+                                            gated.name
+                                        ))
+                                        .on_click(
+                                            cx.listener(move |this, _, window, cx| {
+                                                this.open_gate_review(gated_run_id, window, cx)
+                                            }),
+                                        ),
+                                    ),
+                            )
+                        });
+                }
+                crate::service::GatedRunGate::ProbeFailed => {
+                    row = row.child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child("Couldn't determine the gate — refresh to retry"),
+                    );
+                }
+            }
+        }
+        v_flex()
+            .border_b_1()
+            .border_color(cx.theme().border)
+            .child(row)
+            .into_any_element()
+    }
+
+    /// The env-gate review panel (docs/0066 D4): environments (all
+    /// preselected), optional comment, prior reviews when readable, and
+    /// Approve / Reject / Cancel. Inline under its row — the log-pane
+    /// pattern. Reject needs a non-empty selection too; the fork gate
+    /// never renders one (upstream has no reject).
+    fn render_gate_review_panel(&self, cx: &Context<Self>) -> AnyElement {
+        let Some(review) = &self.gate_review else {
+            return div().into_any_element();
+        };
+        let run_id = review.run_id;
+        let busy = self.gate_busy == Some(run_id);
+        let any_selected = review.environments.iter().any(|(.., selected)| *selected);
+        let mut panel = v_flex()
+            .id(SharedString::from(format!("pr-gate-review-{run_id}")))
+            .debug_selector(move || format!("pr-gate-review-{}", run_id))
+            .gap_2()
+            .px_3()
+            .pb_3()
+            .pl_9()
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child("Review pending deployment"),
+            );
+        for (ix, (id, name, url, selected)) in review.environments.iter().enumerate() {
+            let checked = *selected;
+            let env_row = h_flex()
+                .id(SharedString::from(format!("pr-gate-env-{id}")))
+                .gap_2()
+                .items_center()
+                .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _, cx| {
+                    this.toggle_gate_env(run_id, ix, cx)
+                }))
+                .child(
+                    Checkbox::new(SharedString::from(format!("pr-gate-env-check-{id}")))
+                        .checked(checked)
+                        .small()
+                        .tab_stop(false),
+                )
+                .child(div().text_sm().child(name.clone()));
+            let env_row = env_row.when_some(url.clone(), |env_row, url| {
+                env_row.child(
+                    Button::new(SharedString::from(format!("pr-gate-env-open-{id}")))
+                        .ghost()
+                        .xsmall()
+                        .icon(IconName::ExternalLink)
+                        .tooltip("View environment on GitHub")
+                        .accessibility_label(format!("Open environment {name} on GitHub"))
+                        .on_click(move |_, _, cx| cx.open_url(&url)),
+                )
+            });
+            panel = panel.child(env_row);
+        }
+        panel = panel.child(review.comment.clone());
+        if let Some(approvals) = &review.approvals {
+            if !approvals.is_empty() {
+                panel = panel.child(
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child("Prior reviews:"),
+                );
+                for approval in approvals {
+                    let who = approval
+                        .user
+                        .as_ref()
+                        .and_then(|u| u.login.clone())
+                        .unwrap_or_else(|| "someone".into());
+                    let state = approval.state.clone().unwrap_or_else(|| "reviewed".into());
+                    panel = panel.child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(format!("{who} — {state}")),
+                    );
+                }
+            }
+        }
+        panel = panel.child(
+            h_flex()
+                .gap_2()
+                .child(
+                    Button::new(SharedString::from(format!("pr-gate-confirm-{run_id}")))
+                        .label("Approve")
+                        .primary()
+                        .small()
+                        .disabled(busy || !any_selected)
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.submit_gate_review(run_id, "approved", window, cx)
+                        })),
+                )
+                .child(
+                    Button::new(SharedString::from(format!("pr-gate-reject-{run_id}")))
+                        .label("Reject")
+                        .danger()
+                        .ghost()
+                        .small()
+                        .disabled(busy || !any_selected)
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.submit_gate_review(run_id, "rejected", window, cx)
+                        })),
+                )
+                .child(
+                    Button::new(SharedString::from(format!("pr-gate-cancel-{run_id}")))
+                        .label("Cancel")
+                        .ghost()
+                        .small()
+                        .disabled(busy)
+                        .on_click(cx.listener(move |this, _, _, cx| this.dismiss_gate_review(cx))),
+                ),
+        );
+        panel.into_any_element()
     }
 
     /// docs/0026 D9: resolve the pending REST-id anchor against the landed
@@ -3118,10 +3728,17 @@ impl PrDetailPage {
             }
             return skeleton_list();
         };
-        if d.checks.nodes.is_empty() {
+        let gated_rows = self.gated.data();
+        // docs/0066 D3: gated-only PRs (no check runs pre-approval) render
+        // their waiting section instead of the "no checks" empty cell.
+        if d.checks.nodes.is_empty()
+            && gated_rows.is_none_or(|rows| rows.is_empty())
+            && self.gate_error.is_none()
+        {
             return empty_cell("No checks reported for this pull request", cx);
         }
         let counts = checks_counts(&d.checks.nodes);
+        let waiting = gated_rows.map(|rows| rows.len()).unwrap_or(0);
         let header = div()
             .id("pr-checks-header")
             .flex_none()
@@ -3133,99 +3750,90 @@ impl PrDetailPage {
                 div()
                     .text_sm()
                     .font_weight(FontWeight::MEDIUM)
-                    .child(checks_header_line(&counts)),
+                    .child(checks_header_line(&counts, waiting)),
             );
-        let rows: Vec<AnyElement> = d
-            .checks
-            .nodes
-            .iter()
-            .enumerate()
-            .map(|(i, check)| {
-                let (icon, color) = check_visual(check.state, cx);
-                let expanded = self.expanded_check.as_deref() == Some(check.name.as_str());
-                // docs/0039 D3: only completed Actions-origin check runs
-                // have job logs — statuses, third-party checks and
-                // in-progress rows keep the external-link affordance.
-                let loggable = check.origin == gql::CheckOrigin::Actions
-                    && check.state != gql::CheckState::Pending;
-                let row = h_flex()
-                    .id(SharedString::from(format!("pr-check-{i}")))
-                    .gap_2()
-                    .items_center()
-                    .px_3()
-                    .py_2()
-                    // #397: running rows spin, GitHub-style; Spinner
-                    // covers reduced-motion (static, zero frames) and
-                    // keeps the animation inside the glyph's box.
-                    .child(if check.state == gql::CheckState::Pending {
-                        Spinner::new().icon(icon).color(color).into_any_element()
-                    } else {
-                        Icon::new(icon)
-                            .size_4()
-                            .text_color(color)
-                            .into_any_element()
-                    })
-                    .child(
-                        div()
-                            .text_sm()
-                            .min_w_0()
-                            .flex_1()
-                            .truncate()
-                            .child(check.name.clone()),
-                    );
-                let row = row.when(loggable, |row| {
-                    let page = cx.entity();
-                    let name = check.name.clone();
-                    row.child(
-                        // The wrapper carries the probe selector (docs/0010
-                        // D10 id discipline lives on the Button itself).
-                        div()
-                            .debug_selector(move || format!("check-log-toggle-{i}"))
-                            .child(
-                                Button::new(SharedString::from(format!("check-log-toggle-{i}")))
-                                    .ghost()
-                                    .xsmall()
-                                    .icon(if expanded {
-                                        IconName::ChevronDown
-                                    } else {
-                                        IconName::ChevronRight
-                                    })
-                                    .tooltip(if expanded { "Hide log" } else { "View log" })
-                                    // docs/0049 D1: expand/collapse
-                                    // semantics on the log toggle.
-                                    .accessibility_label(if expanded {
-                                        "Hide log"
-                                    } else {
-                                        "View log"
-                                    })
-                                    .toggled(expanded)
-                                    .on_click(move |_, _, cx| {
-                                        page.update(cx, |this, cx| this.toggle_check_log(&name, cx))
-                                    }),
-                            ),
-                    )
-                });
-                let row = row.when_some(check.details_url.clone(), |row, url| {
-                    row.child(
-                        Button::new(SharedString::from(format!("pr-check-open-{i}")))
-                            .ghost()
-                            .xsmall()
-                            .icon(IconName::ExternalLink)
-                            .tooltip("View details")
-                            .accessibility_label("Open check on GitHub")
-                            .on_click(move |_, _, cx| cx.open_url(&url)),
-                    )
-                });
-                v_flex()
-                    .border_b_1()
-                    .border_color(cx.theme().border)
-                    .child(row)
-                    .when(expanded && loggable, |col| {
-                        col.child(self.render_check_log_pane(i, check, cx))
-                    })
-                    .into_any_element()
-            })
-            .collect();
+        let mut rows: Vec<AnyElement> = self.render_gated_section(cx);
+        rows.extend(d.checks.nodes.iter().enumerate().map(|(i, check)| {
+            let (icon, color) = check_visual(check.state, cx);
+            let expanded = self.expanded_check.as_deref() == Some(check.name.as_str());
+            // docs/0039 D3: only completed Actions-origin check runs
+            // have job logs — statuses, third-party checks and
+            // in-progress rows keep the external-link affordance.
+            let loggable = check.origin == gql::CheckOrigin::Actions
+                && check.state != gql::CheckState::Pending;
+            let row = h_flex()
+                .id(SharedString::from(format!("pr-check-{i}")))
+                .gap_2()
+                .items_center()
+                .px_3()
+                .py_2()
+                // #397: running rows spin, GitHub-style; Spinner
+                // covers reduced-motion (static, zero frames) and
+                // keeps the animation inside the glyph's box.
+                .child(if check.state == gql::CheckState::Pending {
+                    Spinner::new().icon(icon).color(color).into_any_element()
+                } else {
+                    Icon::new(icon)
+                        .size_4()
+                        .text_color(color)
+                        .into_any_element()
+                })
+                .child(
+                    div()
+                        .text_sm()
+                        .min_w_0()
+                        .flex_1()
+                        .truncate()
+                        .child(check.name.clone()),
+                );
+            let row = row.when(loggable, |row| {
+                let page = cx.entity();
+                let name = check.name.clone();
+                row.child(
+                    // The wrapper carries the probe selector (docs/0010
+                    // D10 id discipline lives on the Button itself).
+                    div()
+                        .debug_selector(move || format!("check-log-toggle-{i}"))
+                        .child(
+                            Button::new(SharedString::from(format!("check-log-toggle-{i}")))
+                                .ghost()
+                                .xsmall()
+                                .icon(if expanded {
+                                    IconName::ChevronDown
+                                } else {
+                                    IconName::ChevronRight
+                                })
+                                .tooltip(if expanded { "Hide log" } else { "View log" })
+                                // docs/0049 D1: expand/collapse
+                                // semantics on the log toggle.
+                                .accessibility_label(if expanded { "Hide log" } else { "View log" })
+                                .toggled(expanded)
+                                .on_click(move |_, _, cx| {
+                                    page.update(cx, |this, cx| this.toggle_check_log(&name, cx))
+                                }),
+                        ),
+                )
+            });
+            let row = row.when_some(check.details_url.clone(), |row, url| {
+                row.child(
+                    Button::new(SharedString::from(format!("pr-check-open-{i}")))
+                        .ghost()
+                        .xsmall()
+                        .icon(IconName::ExternalLink)
+                        .tooltip("View details")
+                        .accessibility_label("Open check on GitHub")
+                        .on_click(move |_, _, cx| cx.open_url(&url)),
+                )
+            });
+            v_flex()
+                .border_b_1()
+                .border_color(cx.theme().border)
+                .child(row)
+                .when(expanded && loggable, |col| {
+                    col.child(self.render_check_log_pane(i, check, cx))
+                })
+                .into_any_element()
+        }));
         v_flex()
             .id("pr-checks")
             .flex_1()
@@ -4774,6 +5382,19 @@ enum PrMetaEditor {
     },
 }
 
+/// The open environment-gate review panel (docs/0066 D4): one at a time,
+/// like every other page surface. Environments arrive preselected (the
+/// accepted §4 default); the comment is optional — an empty box sends the
+/// neutral default text on the wire (GitHub requires the field).
+pub(crate) struct GateReview {
+    pub(crate) run_id: u64,
+    /// (environment id, name, html_url, selected) — the url drives the
+    /// per-environment external-link affordance.
+    pub(crate) environments: Vec<(u64, String, Option<String>, bool)>,
+    /// Prior reviews, when readable — `None` hides the history section.
+    pub(crate) approvals: Option<Vec<api::RunApprovalNode>>,
+    pub(crate) comment: Entity<TextareaState>,
+}
 /// The write operation in flight (D4/D5) — one at a time.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BusyOp {
@@ -5356,6 +5977,9 @@ pub(crate) struct ChecksCounts {
     pub failed: usize,
     pub pending: usize,
     pub muted: usize,
+    /// docs/0066 D3 — not a rollup bucket: the gated runs live in their
+    /// own section; the count rides the header line.
+    pub waiting: usize,
 }
 
 pub(crate) fn checks_counts(nodes: &[gql::PrCheck]) -> ChecksCounts {
@@ -5366,6 +5990,7 @@ pub(crate) fn checks_counts(nodes: &[gql::PrCheck]) -> ChecksCounts {
             gql::CheckState::Success => counts.passed += 1,
             gql::CheckState::Failure => counts.failed += 1,
             gql::CheckState::Pending => counts.pending += 1,
+            gql::CheckState::Waiting => counts.waiting += 1,
             gql::CheckState::Neutral => counts.muted += 1,
         }
     }
@@ -5374,7 +5999,16 @@ pub(crate) fn checks_counts(nodes: &[gql::PrCheck]) -> ChecksCounts {
 
 /// The D7 summary line: `"8 checks · 7 passed · 1 failed"` — the total
 /// always renders (singular/plural aware); buckets only when non-zero.
-pub(crate) fn checks_header_line(counts: &ChecksCounts) -> String {
+/// `waiting` is the gated-runs count (docs/0066 D3): those runs aren't
+/// rollup members, they prepend their own section. With no rollup checks
+/// at all the line is just the waiting count — else the old "0 checks".
+pub(crate) fn checks_header_line(counts: &ChecksCounts, waiting: usize) -> String {
+    if counts.total == 0 {
+        if waiting > 0 {
+            return format!("{waiting} waiting for approval");
+        }
+        return "0 checks".into();
+    }
     let mut line = format!(
         "{} check{}",
         counts.total,
@@ -5384,6 +6018,7 @@ pub(crate) fn checks_header_line(counts: &ChecksCounts) -> String {
         (counts.passed, "passed"),
         (counts.failed, "failed"),
         (counts.pending, "running"),
+        (waiting, "waiting"),
         (counts.muted, "skipped"),
     ] {
         if n > 0 {
@@ -5396,6 +6031,28 @@ pub(crate) fn checks_header_line(counts: &ChecksCounts) -> String {
     line
 }
 
+/// D6 copy for a failed gate action — actionable, never a raw dump. The
+/// 403 names the two real causes (token scope, reviewer list); a gone
+/// run explains and the caller refetches; anything else stays short.
+fn gate_error_copy(f: &crate::service::GateActionFailure, decision: &str) -> String {
+    if let Some(m) = &f.network {
+        return format!("Network error: {m}");
+    }
+    match f.status {
+        403 => "GitHub refused: your token lacks Actions write access, or you are not a required reviewer on this environment.".into(),
+        404 | 422 => "This run is no longer waiting for approval — refreshing.".into(),
+        _ => format!(
+            "{} failed (HTTP {})",
+            if decision == "approved" {
+                "Approval"
+            } else {
+                "Rejection"
+            },
+            f.status
+        ),
+    }
+}
+
 /// Unified check state → (icon, theme color) for the D7 row mapping:
 /// SUCCESS success / FAILURE danger / running warning / NEUTRAL+SKIPPED
 /// muted. Running rows render the LoaderCircle spinning upstream
@@ -5406,6 +6063,9 @@ fn check_visual(state: gql::CheckState, cx: &Context<PrDetailPage>) -> (IconName
         gql::CheckState::Success => (IconName::CircleCheck, cx.theme().success),
         gql::CheckState::Failure => (IconName::CircleX, cx.theme().danger),
         gql::CheckState::Pending => (IconName::LoaderCircle, cx.theme().warning),
+        // docs/0066 D3: pause glyph — held, not running (the row is
+        // static; a spinner would promise progress GitHub isn't making).
+        gql::CheckState::Waiting => (IconName::Pause, cx.theme().warning),
         gql::CheckState::Neutral => (IconName::Dash, cx.theme().muted_foreground),
     }
 }
@@ -5662,9 +6322,10 @@ mod tests {
         BusyOp, ChecksCounts, ChecksTone, ErrorScope, FinishEvent, MergeLineTone, MergeMethod,
         PrDetailPage, PrMetaEditor, PrStateTone, PrTab, ReviewTone, TimelineKind, allowed_methods,
         checks_counts, checks_header_line, comment_action_allowed, composer_body_allowed,
-        default_method, merge_enabled, merge_state_line, pr_assignees_arming, pr_labels_arming,
-        pr_milestone_arming, pr_reviewers_arming, pr_state_tone, review_batch_allowed,
-        review_event, review_state_label, rollup_summary, short_sha, split_repo, timeline_order,
+        default_method, gate_error_copy, merge_enabled, merge_state_line, pr_assignees_arming,
+        pr_labels_arming, pr_milestone_arming, pr_reviewers_arming, pr_state_tone,
+        review_batch_allowed, review_event, review_state_label, rollup_summary, short_sha,
+        split_repo, timeline_order,
     };
     use crate::service::{GithubCache, GithubState};
     use crate::usage::Origin;
@@ -7504,7 +8165,8 @@ mod tests {
                 passed: 2,
                 failed: 1,
                 pending: 1,
-                muted: 1
+                muted: 1,
+                waiting: 0
             }
         );
         assert_eq!(checks_counts(&[]), ChecksCounts::default());
@@ -7909,35 +8571,202 @@ mod tests {
     fn checks_header_line_segments() {
         // The doc example: "8 checks · 7 passed · 1 failed".
         assert_eq!(
-            checks_header_line(&ChecksCounts {
-                total: 8,
-                passed: 7,
-                failed: 1,
-                ..Default::default()
-            }),
+            checks_header_line(
+                &ChecksCounts {
+                    total: 8,
+                    passed: 7,
+                    failed: 1,
+                    ..Default::default()
+                },
+                0
+            ),
             "8 checks · 7 passed · 1 failed"
         );
         // Singular total, zero buckets dropped.
         assert_eq!(
-            checks_header_line(&ChecksCounts {
-                total: 1,
-                passed: 1,
-                ..Default::default()
-            }),
+            checks_header_line(
+                &ChecksCounts {
+                    total: 1,
+                    passed: 1,
+                    ..Default::default()
+                },
+                0
+            ),
             "1 check · 1 passed"
         );
         // Every bucket present, "running" for pending (GitHub's
         // in-flight wording), "skipped" for neutral.
         assert_eq!(
-            checks_header_line(&ChecksCounts {
-                total: 4,
-                passed: 1,
-                failed: 1,
-                pending: 1,
-                muted: 1
-            }),
+            checks_header_line(
+                &ChecksCounts {
+                    total: 4,
+                    passed: 1,
+                    failed: 1,
+                    pending: 1,
+                    muted: 1,
+                    waiting: 0
+                },
+                0
+            ),
             "4 checks · 1 passed · 1 failed · 1 running · 1 skipped"
         );
+    }
+
+    #[test]
+    fn checks_header_line_waits_for_approval() {
+        // docs/0066 D3: waiting rides the header line as its own bucket…
+        assert_eq!(
+            checks_header_line(
+                &ChecksCounts {
+                    total: 2,
+                    passed: 1,
+                    failed: 1,
+                    ..Default::default()
+                },
+                2
+            ),
+            "2 checks · 1 passed · 1 failed · 2 waiting"
+        );
+        // …and a gated-only PR (no rollup checks at all) leads with it.
+        assert_eq!(
+            checks_header_line(&ChecksCounts::default(), 2),
+            "2 waiting for approval"
+        );
+    }
+
+    #[gpui::test]
+    fn gated_runs_render_fork_gate_approve_only(cx: &mut gpui::TestAppContext) {
+        // docs/0066 D3/D4: a fork-gated run renders its waiting section
+        // with the approve-only action (upstream has no reject for this
+        // gate) and none of the env-gate review controls.
+        let (page, vcx) = probe_pr_anchored(cx, None);
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.tab = PrTab::Checks;
+                p.apply_gated_result(
+                    Ok(vec![crate::service::GatedRunRow {
+                        run_id: 37300500213,
+                        name: "CI".into(),
+                        run_number: Some(138),
+                        created_at: None,
+                        gate: crate::service::GatedRunGate::ForkGate,
+                    }]),
+                    cx,
+                );
+            });
+        });
+        // The landed rows need a forced frame before the bounds exist —
+        // debug_bounds reads the last rendered frame (the checks-pane
+        // probes' explicit draw).
+        vcx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+        });
+        let _ = vcx.debug_bounds("pr-checks-0"); // flush frames
+        assert!(
+            vcx.debug_bounds("pr-gated-header").is_some(),
+            "the waiting section header renders on the checks tab"
+        );
+        assert!(
+            vcx.debug_bounds("pr-gate-approve-37300500213").is_some(),
+            "the fork gate's approve button is bridge-clickable"
+        );
+        assert!(
+            vcx.debug_bounds("pr-gate-review-37300500213").is_none(),
+            "a fork-gated row renders no review panel"
+        );
+    }
+
+    #[test]
+    fn gate_action_outcomes_land_as_copy_and_marks() {
+        // docs/0066 D5/D6: success marks the run "approved, starting…";
+        // failures land as scoped copy — 403 names the causes, 404/422
+        // says the run moved on. No raw dumps.
+        use crate::service::GateActionFailure;
+        assert_eq!(
+            gate_error_copy(
+                &GateActionFailure {
+                    status: 403,
+                    network: None
+                },
+                "approved"
+            ),
+            "GitHub refused: your token lacks Actions write access, or you are not a required reviewer on this environment."
+        );
+        assert_eq!(
+            gate_error_copy(
+                &GateActionFailure {
+                    status: 422,
+                    network: None
+                },
+                "rejected"
+            ),
+            "This run is no longer waiting for approval — refreshing."
+        );
+        assert_eq!(
+            gate_error_copy(
+                &GateActionFailure {
+                    status: 0,
+                    network: Some("offline".into())
+                },
+                "approved"
+            ),
+            "Network error: offline"
+        );
+        assert_eq!(
+            gate_error_copy(
+                &GateActionFailure {
+                    status: 500,
+                    network: None
+                },
+                "approved"
+            ),
+            "Approval failed (HTTP 500)"
+        );
+    }
+
+    #[gpui::test]
+    fn apply_gate_action_marks_approved_and_reports_failures(cx: &mut gpui::TestAppContext) {
+        // docs/0066 D5: the page-level transition — success adds the
+        // approval mark (the sweep refetch owns the rest); failure
+        // stores the copy; neither leaves a busy mark behind.
+        cx.update(gpui_component::init);
+        cx.update(|cx| cx.background_executor().allow_parking());
+        cx.update(dashboard_core::status::init);
+        let (page, vcx) = probe_pr_anchored(cx, None);
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.gated = Fetch::ready(vec![crate::service::GatedRunRow {
+                    run_id: 7,
+                    name: "CI".into(),
+                    run_number: None,
+                    created_at: None,
+                    gate: crate::service::GatedRunGate::ForkGate,
+                }]);
+                p.apply_gate_action(7, "approved", Ok(()), cx);
+                assert_eq!(p.gate_approved, vec![7]);
+                assert_eq!(p.gate_busy, None);
+            });
+        });
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.apply_gate_action(
+                    7,
+                    "approved",
+                    Err(crate::service::GateActionFailure {
+                        status: 403,
+                        network: None,
+                    }),
+                    cx,
+                );
+                assert_eq!(p.gate_busy, None);
+                assert!(
+                    p.gate_error
+                        .as_deref()
+                        .is_some_and(|e| e.contains("Actions write access")),
+                    "the 403 copy names the causes"
+                );
+            });
+        });
     }
 
     #[test]

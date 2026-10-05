@@ -230,6 +230,43 @@ pub fn run_jobs_url(owner: &str, repo: &str, run_id: u64) -> String {
     format!("{API_BASE}/repos/{owner}/{repo}/actions/runs/{run_id}/jobs")
 }
 
+/// docs/0066 D2 — the gated-runs sweep: server-filtered to runs waiting on
+/// approval for one branch. Rows are filtered client-side by `head_sha`
+/// (branch names are not unique across forks; the SHA is the guarantee —
+/// live-verified 2026-10-05 that the endpoint honors the filters and
+/// carries `head_sha` on every row).
+pub fn gated_runs_url(owner: &str, repo: &str, head_branch: &str) -> String {
+    format!(
+        "{API_BASE}/repos/{owner}/{repo}/actions/runs?branch={head_branch}&event=pull_request&status=action_required&per_page=50"
+    )
+}
+
+/// docs/0066 D4 — the gate probe: non-empty ⇒ environment gate (required
+/// reviewers), empty ⇒ fork/external-contributor gate. Live-verified
+/// 2026-10-05: `[]` on worker-mcp's fork-gated runs.
+pub fn run_pending_deployments_url(owner: &str, repo: &str, run_id: u64) -> String {
+    format!("{API_BASE}/repos/{owner}/{repo}/actions/runs/{run_id}/pending_deployments")
+}
+
+/// docs/0066 D4 — the fork gate's only disposition: approve (201, empty
+/// body). Upstream has no reject for this gate (§2.2).
+pub fn approve_run_url(owner: &str, repo: &str, run_id: u64) -> String {
+    format!("{API_BASE}/repos/{owner}/{repo}/actions/runs/{run_id}/approve")
+}
+
+/// docs/0066 D2 fallback — suites for a head SHA: a gated run has a check
+/// suite (with `conclusion: "action_required"`) even though it has no
+/// check runs; live-verified 2026-10-05 on worker-mcp PR #69's head.
+pub fn check_suites_for_sha_url(owner: &str, repo: &str, sha: &str) -> String {
+    format!("{API_BASE}/repos/{owner}/{repo}/commits/{sha}/check-suites")
+}
+
+/// docs/0066 §2.2 read side — prior deployment reviews for a gated run
+/// (environment gate only; the fork gate has no approvals read side).
+pub fn run_approvals_url(owner: &str, repo: &str, run_id: u64) -> String {
+    format!("{API_BASE}/repos/{owner}/{repo}/actions/runs/{run_id}/approvals")
+}
+
 /// `GET /repos/{o}/{r}/actions/jobs/{job_id}/logs` — step 4: a 302 to a
 /// 1-minute signed URL; the transport follows it and hands back the
 /// plain-text log (docs/0039 §2.1, D2).
@@ -279,6 +316,89 @@ pub struct WorkflowRunsPage {
 #[derive(Debug, Clone, Deserialize)]
 pub struct WorkflowRunNode {
     pub id: u64,
+}
+
+/// docs/0066 D2: the sweep's payload (`workflow_runs` array, same envelope
+/// as [`WorkflowRunsPage`]).
+#[derive(Debug, Clone, Deserialize)]
+pub struct GatedRunsPage {
+    #[serde(default)]
+    pub workflow_runs: Vec<GatedRunNode>,
+}
+
+/// One gated workflow run. Live-verified 2026-10-05 (worker-mcp runs
+/// 37300500213/37300500222): `status` reads `"completed"` while the run is
+/// held — `action_required` is a *conclusion*, not a status. Fields beyond
+/// these are tolerated (`serde(default)`), the upstream object is wide.
+#[derive(Debug, Clone, Deserialize)]
+pub struct GatedRunNode {
+    pub id: u64,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub head_sha: Option<String>,
+    #[serde(default)]
+    pub run_number: Option<i64>,
+    #[serde(default)]
+    pub conclusion: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+}
+
+/// docs/0066 D4: one environment awaiting review (reference response shape;
+/// a bare array — no envelope struct). `current_user_can_approve` is the
+/// cheap writability signal D6 hoped existed: it gates the buttons.
+#[derive(Debug, Clone, Deserialize)]
+pub struct PendingDeploymentNode {
+    #[serde(default)]
+    pub environment: Option<PendingEnvironment>,
+    #[serde(default)]
+    pub current_user_can_approve: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PendingEnvironment {
+    pub id: u64,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub html_url: Option<String>,
+}
+
+/// docs/0066 D4: one recorded deployment review (`GET .../approvals`,
+/// reference response shape — a bare array). Env-gate only; the fork gate
+/// has no approvals read side.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RunApprovalNode {
+    #[serde(default)]
+    pub state: Option<String>,
+    #[serde(default)]
+    pub comment: Option<String>,
+    #[serde(default)]
+    pub user: Option<RunApprovalUser>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RunApprovalUser {
+    #[serde(default)]
+    pub login: Option<String>,
+}
+
+/// docs/0066 D2 fallback payload: check suites for a head SHA (live
+/// verified: suites carry `conclusion: "action_required"` pre-approval).
+#[derive(Debug, Clone, Deserialize)]
+pub struct CheckSuitesPage {
+    #[serde(default)]
+    pub check_suites: Vec<CheckSuiteNode>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CheckSuiteNode {
+    pub id: u64,
+    #[serde(default)]
+    pub conclusion: Option<String>,
+    #[serde(default)]
+    pub head_sha: Option<String>,
 }
 
 /// Step-3 payload: the run's jobs, name-matched for the job id.
@@ -477,6 +597,133 @@ mod tests {
         for (input, want) in cases {
             assert_eq!(web_url(input).as_deref(), *want, "web_url({input})");
         }
+    }
+
+    #[test]
+    fn gated_run_urls_are_well_formed() {
+        // docs/0066 D2/D4: the sweep, the gate probe, the fork-gate
+        // approve, the D2 fallback suites, and the approvals read side.
+        assert_eq!(
+            gated_runs_url("o", "r", "update_flake_lock_action"),
+            format!(
+                "{API_BASE}/repos/o/r/actions/runs?branch=update_flake_lock_action&event=pull_request&status=action_required&per_page=50"
+            )
+        );
+        assert_eq!(
+            run_pending_deployments_url("o", "r", 37300500213),
+            format!("{API_BASE}/repos/o/r/actions/runs/37300500213/pending_deployments")
+        );
+        assert_eq!(
+            approve_run_url("o", "r", 37300500213),
+            format!("{API_BASE}/repos/o/r/actions/runs/37300500213/approve")
+        );
+        assert_eq!(
+            run_approvals_url("o", "r", 7),
+            format!("{API_BASE}/repos/o/r/actions/runs/7/approvals")
+        );
+        assert_eq!(
+            check_suites_for_sha_url("o", "r", "58df0f2"),
+            format!("{API_BASE}/repos/o/r/commits/58df0f2/check-suites")
+        );
+    }
+
+    #[test]
+    fn gated_run_parses_live_fork_gated_payload() {
+        // Live-captured 2026-10-05, noosxe/worker-mcp run 37300500213
+        // (PR #69's CI, fork-gated): `status` reads completed while the
+        // run is held — `action_required` is a conclusion, not a status.
+        // Fields beyond the struct are tolerated (upstream is wide).
+        let page: GatedRunsPage = serde_json::from_str(
+            r#"{"total_count": 2, "workflow_runs": [
+                {"id": 37300500213, "name": "CI",
+                 "head_branch": "update_flake_lock_action",
+                 "head_sha": "58df0f2221d69d16ac68bc8d6a85c3305121cb9b",
+                 "status": "completed", "conclusion": "action_required",
+                 "run_number": 138, "event": "pull_request", "run_attempt": 1,
+                 "check_suite_id": 101028134107,
+                 "created_at": "2026-10-05T11:03:38Z"},
+                {"id": 999, "head_sha": "0000000000000000000000000000000000000000"}
+            ]}"#,
+        )
+        .unwrap();
+        assert_eq!(page.workflow_runs.len(), 2);
+        let run = &page.workflow_runs[0];
+        assert_eq!(run.id, 37300500213);
+        assert_eq!(run.name.as_deref(), Some("CI"));
+        assert_eq!(run.conclusion.as_deref(), Some("action_required"));
+        assert_eq!(run.run_number, Some(138));
+        assert_eq!(
+            run.head_sha.as_deref(),
+            Some("58df0f2221d69d16ac68bc8d6a85c3305121cb9b")
+        );
+        // The second row proves the SHA filter's input: a run for a
+        // different head must not survive `load_gated_runs`' filter.
+        assert_eq!(
+            page.workflow_runs[1].head_sha.as_deref(),
+            Some("0000000000000000000000000000000000000000")
+        );
+    }
+
+    #[test]
+    fn pending_deployments_parse_reference_shape() {
+        // Reference response shape (REST reference, fetched 2026-10-05):
+        // a bare array; `current_user_can_approve` gates the buttons (D6).
+        let pending: Vec<PendingDeploymentNode> = serde_json::from_str(
+            r#"[{"environment": {"id": 161088068, "name": "staging",
+                  "html_url": "https://github.com/o/r/deployments"},
+                 "wait_timer": 30,
+                 "current_user_can_approve": true,
+                 "reviewers": []},
+                {"environment": {"id": 2, "name": "prod"}}]"#,
+        )
+        .unwrap();
+        assert_eq!(pending.len(), 2);
+        let env = pending[0].environment.as_ref().unwrap();
+        assert_eq!(env.id, 161088068);
+        assert_eq!(env.name.as_deref(), Some("staging"));
+        assert_eq!(pending[0].current_user_can_approve, Some(true));
+        // Absent writability ⇒ None — assumed yes, the 403 copy is the
+        // fallback (D6).
+        assert_eq!(pending[1].current_user_can_approve, None);
+        // Empty array = the fork gate (live-verified on worker-mcp).
+        let empty: Vec<PendingDeploymentNode> = serde_json::from_str("[]").unwrap();
+        assert!(empty.is_empty());
+    }
+
+    #[test]
+    fn run_approvals_parse_reference_shape() {
+        // Reference response shape: state + comment + user login.
+        let approvals: Vec<RunApprovalNode> = serde_json::from_str(
+            r#"[{"state": "approved", "comment": "Ship it!",
+                 "user": {"login": "octocat", "id": 1}}]"#,
+        )
+        .unwrap();
+        assert_eq!(approvals[0].state.as_deref(), Some("approved"));
+        assert_eq!(
+            approvals[0].user.as_ref().unwrap().login.as_deref(),
+            Some("octocat")
+        );
+    }
+
+    #[test]
+    fn check_suites_parse_live_gated_payload() {
+        // Live-captured 2026-10-05: a gated run has a check suite with
+        // `conclusion: "action_required"` even though it has no check
+        // runs — the D2 fallback's discovery key.
+        let page: CheckSuitesPage = serde_json::from_str(
+            r#"{"total_count": 2, "check_suites": [
+                {"id": 101028134107, "status": "completed",
+                 "conclusion": "action_required",
+                 "head_sha": "58df0f2221d69d16ac68bc8d6a85c3305121cb9b",
+                 "app": {"slug": "github-actions"}}
+            ]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            page.check_suites[0].conclusion.as_deref(),
+            Some("action_required")
+        );
+        assert_eq!(page.check_suites[0].id, 101028134107);
     }
 
     #[test]
