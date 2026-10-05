@@ -119,6 +119,13 @@ Gated rows render as their own section above the queued/running check rows:
   their reserved tail; waiting rows prepend.
 - Rollup chip: waiting count gets its own slot; a PR whose only CI activity is
   gated shows *waiting*, not *passing* or *no checks*.
+- **The conversation rail says the same thing** (rail amendment, review
+  round): the merge/close rail's checks summary (docs/0016 D5) shows
+  "N waiting for approval" in warning tone instead of the rollup line
+  while the sweep holds rows — GitHub's rollup cannot see held runs, so
+  "Checks status unknown" would be a lie — and its button reads "Review
+  approval", jumping to the checks tab where the actions live. Zero
+  waiting delegates to the rollup line untouched.
 - Approved-by-someone-else mid-session: next refresh's sweep no longer returns
   the run; the row disappears and normal CheckRun rows take over once jobs
   start. No zombie rows.
