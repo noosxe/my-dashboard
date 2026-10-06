@@ -1,0 +1,70 @@
+# pr-update-branch.txt — docs/0067's bridge receipt as a committed
+# script: the PR-page "Update branch" split button (merge-commit /
+# rebase) — gating (hidden unless viewerCanUpdateBranch), the dropdown
+# methods, the rebase force-push confirm, and the post-update state-
+# line transition — exercised against a live behind-base PR.
+#
+# Prerequisites (the live fixture — a PR whose head is BEHIND its base):
+#   any PR you can push to that is genuinely behind; worker-mcp's
+#   flake-update PR is the recurring fixture. If nothing is behind,
+#   merge/rebase anything into the PR's base (or re-run the
+#   flake-update workflow) until GitHub reports BEHIND.
+#   DASHBOARD_STATE_DIR=<signed-in state dir> \
+#     dashboard-debug session start --name updbranch --size 1280x800
+# Then navigate to that PR's page (conversation tab — the merge rail).
+#
+# Run: dashboard-debug run crates/debug/verify/pr-update-branch.txt
+#
+# What each snapshot must show (docs/0067 D1/D2/D4/D5):
+#   gated      — the merge rail carries `pr-update-branch` (the split
+#                button) under the out-of-date state line; the negative
+#                case is checked first from an up-to-date PR (button
+#                hidden — the gate hides, never disables)
+#   menu       — after `click pr-update-branch`: the two probe-visible
+#                rows `pr-update-branch-merge` ("Update with a merge
+#                commit") and `pr-update-branch-rebase` ("Update with
+#                rebase")
+#   confirm    — after `click pr-update-branch-rebase`: the split
+#                button is replaced by `pr-update-rebase-confirm` with
+#                the force-push warning and `pr-update-rebase-go` /
+#                `pr-update-rebase-cancel`
+#   rebasing   — after `click pr-update-rebase-go`: the row's spinner,
+#                controls disabled (D5 in-flight)
+#   updated    — after the envelope refetch lands: the state line has
+#                left the BEHIND warning (typically the no-conflicts
+#                success line), the button is gone (the gate is false
+#                again — head up to date)
+# Records the ids/labels for the docs/0067 D7 receipts (audit +
+# tree --tab-stops run separately over this surface).
+
+--session updbranch
+
+# 0. The rail on the conversation tab: the split button under the
+#    out-of-date line.
+wait-frame
+snapshot update-rail
+snapshot update-rail-tree
+
+# 1. Open the dropdown: both methods, probe-visible.
+click pr-update-branch
+wait-frame
+snapshot menu
+snapshot menu-tree
+
+# 2. Pick rebase: the confirm replaces the row.
+click pr-update-branch-rebase
+wait-frame
+snapshot confirm
+snapshot confirm-tree
+
+# 3. Fire it: in-flight spinner, controls disabled.
+click pr-update-rebase-go
+wait-frame
+snapshot rebasing
+snapshot rebasing-tree
+
+# 4. The refetch confirms: state line left BEHIND, button gone.
+wait-frame
+wait-frame
+snapshot updated
+snapshot updated-tree

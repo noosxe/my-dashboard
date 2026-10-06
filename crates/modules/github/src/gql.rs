@@ -660,6 +660,10 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
       createdAt
       author { login avatarUrl }
       viewerCanUpdate
+      # docs/0067 D2 — the update-branch gate: false when the head ref
+      # is up to date or the viewer can't update it (server truth; the
+      # client never ANDs mergeStateStatus in).
+      viewerCanUpdateBranch
       # docs/0023 D1 on the PR surfaces (#196): the body, review summaries
       # and issue comments are all Reactable — one shared group shape.
       viewerCanReact
@@ -775,6 +779,9 @@ pub struct PrDetail {
     pub draft: bool,
     /// `viewerCanUpdate` — gates the description Edit affordance (D4).
     pub viewer_can_update: bool,
+    /// docs/0067 D2 — `viewerCanUpdateBranch`: the update-branch gate
+    /// (server truth for "may update AND needs update"). Absent ⇒ false.
+    pub viewer_can_update_branch: bool,
     /// docs/0023 D1 on the PR body (#196) — gates the body's `+` picker.
     pub viewer_can_react: bool,
     /// docs/0023 D3 — the body's reaction groups. Absent fields degrade
@@ -2046,6 +2053,12 @@ pub fn pr_detail_from_value(value: &serde_json::Value) -> Option<PrDetail> {
             .get("viewerCanUpdate")
             .and_then(|v| v.as_bool())
             .unwrap_or(false),
+        // docs/0067 D2 — degraded default false (§2.3): a payload
+        // without the gate hides the button, never guesses.
+        viewer_can_update_branch: pr
+            .get("viewerCanUpdateBranch")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
         // docs/0023 D1 on the PR body (#196) — same degraded defaults as
         // the comment parse.
         viewer_can_react: pr
@@ -2267,6 +2280,17 @@ mutation PrRequestReviews($input: RequestReviewsInput!) {
 pub const PR_MERGE_MUTATION: &str = r#"
 mutation PrMerge($input: MergePullRequestInput!) {
   mergePullRequest(input: $input) { pullRequest { state } }
+}
+"#;
+
+/// Update PR branch (docs/0067 D3 — `UpdatePullRequestBranchInput {
+/// pullRequestId, expectedHeadOid, updateMethod }`, method MERGE |
+/// REBASE, server default MERGE; the documented two-method path — the
+/// REST twin has no method choice, §2.1). The payload selection is a
+/// small confirming field, like PrMerge's.
+pub const PR_UPDATE_BRANCH_MUTATION: &str = r#"
+mutation PrUpdateBranch($input: UpdatePullRequestBranchInput!) {
+  updatePullRequestBranch(input: $input) { pullRequest { id mergeStateStatus } }
 }
 "#;
 
@@ -3155,6 +3179,7 @@ mod tests {
                 PR_UPDATE_DESCRIPTION_MUTATION,
             ),
             ("PR_MERGE_MUTATION", PR_MERGE_MUTATION),
+            ("PR_UPDATE_BRANCH_MUTATION", PR_UPDATE_BRANCH_MUTATION),
             ("PR_CLOSE_MUTATION", PR_CLOSE_MUTATION),
             ("PR_UPDATE_COMMENT_MUTATION", PR_UPDATE_COMMENT_MUTATION),
             ("PR_DELETE_COMMENT_MUTATION", PR_DELETE_COMMENT_MUTATION),
@@ -3749,13 +3774,14 @@ mod tests {
             r#"{"data":{"repository":{"mergeCommitAllowed":true,"squashMergeAllowed":false,"rebaseMergeAllowed":true,"pullRequest":"#,
         );
         body.push_str(
-            r#"{"id":"PR_9","viewerCanUpdate":true,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","statusCheckRollup":{"state":"SUCCESS"}}"#,
+            r#"{"id":"PR_9","viewerCanUpdate":true,"viewerCanUpdateBranch":true,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","statusCheckRollup":{"state":"SUCCESS"}}"#,
         );
         body.push_str("}}}");
         let env: Envelope<PrDetailData> = serde_json::from_str(&body).unwrap();
         let value = env.data.unwrap().repository.unwrap();
         let d = pr_detail_from_value(&value).unwrap();
         assert!(d.viewer_can_update);
+        assert!(d.viewer_can_update_branch);
         assert_eq!(d.mergeable.as_deref(), Some("MERGEABLE"));
         assert_eq!(d.merge_state_status.as_deref(), Some("CLEAN"));
         assert_eq!(d.rollup_state.as_deref(), Some("SUCCESS"));
@@ -3778,6 +3804,7 @@ mod tests {
         let value = env.data.unwrap().repository.unwrap();
         let d = pr_detail_from_value(&value).unwrap();
         assert!(!d.viewer_can_update);
+        assert!(!d.viewer_can_update_branch);
         assert_eq!(d.mergeable, None);
         assert_eq!(d.merge_state_status, None);
         assert_eq!(d.rollup_state, None);

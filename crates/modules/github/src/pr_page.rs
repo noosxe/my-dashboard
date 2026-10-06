@@ -276,6 +276,10 @@ pub(crate) struct PrDetailPage {
     /// Method Select state — built once, on the first render that has a
     /// detail payload (SelectState needs a window; render has one).
     method_select: Option<Entity<SelectState<SearchableVec<SharedString>>>>,
+    /// docs/0067 D4 — the rebase option's force-push confirm (the
+    /// two-step delete-confirm pattern; the panel renders it in place
+    /// of the split button while up).
+    update_rebase_confirm: bool,
     /// Changed-files fetch lifecycle (D8): lazy — `Idle` until the
     /// Files tab is first opened, then one REST walk; `Ready` keeps the
     /// parsed list (a refresh refetches it).
@@ -484,6 +488,7 @@ impl PrDetailPage {
             users_search: users_search.clone(),
             timeline_edit: None,
             delete_confirm: None,
+            update_rebase_confirm: false,
             methods: Vec::new(),
             method_select: None,
             files: Fetch::new(),
@@ -2626,6 +2631,66 @@ impl PrDetailPage {
         self.spawn_mutation(BusyOp::Close, Mutation::Close, variables, window, cx);
     }
 
+    // --- branch update (docs/0067 D1-D5) ---------------------------------
+
+    /// Update the PR branch (D3): the gate is server truth
+    /// (`viewer_can_update_branch`, D2), the input rides the rendered
+    /// envelope's head OID as the staleness guard, and the method is
+    /// always explicit (MERGE | REBASE).
+    fn update_branch_pr(
+        &mut self,
+        method: UpdateBranchMethod,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(d) = self.detail.data().cloned() else {
+            return;
+        };
+        if !update_branch_enabled(
+            d.state.as_deref(),
+            d.viewer_can_update_branch,
+            self.busy.is_some(),
+        ) || d.id.is_empty()
+            || d.head_oid.as_deref().is_none_or(str::is_empty)
+        {
+            return;
+        }
+        self.update_rebase_confirm = false;
+        let variables = json!({
+            "input": {
+                "pullRequestId": d.id,
+                "expectedHeadOid": d.head_oid,
+                "updateMethod": method.as_str(),
+            }
+        });
+        self.mutation_error = None;
+        self.busy = Some(BusyOp::UpdateBranch);
+        cx.notify();
+        self.spawn_mutation(
+            BusyOp::UpdateBranch,
+            Mutation::UpdateBranch,
+            variables,
+            window,
+            cx,
+        );
+    }
+
+    /// Arm the rebase confirm (D4): merge-commit updates are one-click;
+    /// rebase rewrites the branch and force-pushes — it confirms first.
+    fn arm_update_rebase(&mut self, cx: &mut Context<Self>) {
+        if self.busy.is_some() {
+            return;
+        }
+        self.update_rebase_confirm = true;
+        cx.notify();
+    }
+
+    /// Disarm the rebase confirm (D4 Cancel).
+    fn cancel_update_rebase(&mut self, cx: &mut Context<Self>) {
+        self.update_rebase_confirm = false;
+        cx.notify();
+    }
+
     // --- Files-tab review writes (docs/0030 D4/D5/D7) -------------------
 
     /// Arm the row composer on a diff line (D4). One composer at a time:
@@ -3171,6 +3236,11 @@ impl PrDetailPage {
         cx: &mut Context<Self>,
     ) {
         self.busy = None;
+        // docs/0067 D4: any branch-update outcome closes the confirm —
+        // success repaints from the refetch, a retry re-arms it.
+        if op == BusyOp::UpdateBranch {
+            self.update_rebase_confirm = false;
+        }
         let scope = op.error_scope();
         let mut failed: Option<String> = None;
         if let Some(m) = &result.network {
@@ -3200,6 +3270,13 @@ impl PrDetailPage {
             }
         }
         if let Some(message) = failed {
+            // docs/0067 D6: branch-update failures get the mapped copy —
+            // the raw upstream prose stays in the log line above.
+            let message = if op == BusyOp::UpdateBranch {
+                update_branch_error_copy(&message)
+            } else {
+                message
+            };
             self.mutation_error = Some(MutationError { scope, message });
         } else {
             self.mutation_error = None;
@@ -3227,6 +3304,9 @@ impl PrDetailPage {
                     self.delete_confirm = None;
                 }
                 BusyOp::Merge | BusyOp::Close => {}
+                // docs/0067 D5: no surface to close — the refetch below
+                // repaints the state line from the fresh envelope.
+                BusyOp::UpdateBranch => {}
                 // 0030 D7: Files-tab successes close the surface they
                 // came from; the threads refetch below repaints the pane.
                 BusyOp::LineComment => {
@@ -4892,6 +4972,12 @@ impl PrDetailPage {
             busy,
             self.methods.is_empty(),
         );
+        // docs/0067 D1/D2: the update-branch split button — hidden
+        // unless the server gate is open, never disabled-guessed.
+        let can_update =
+            update_branch_enabled(d.state.as_deref(), d.viewer_can_update_branch, busy)
+                && !d.id.is_empty()
+                && d.head_oid.as_deref().is_some_and(|oid| !oid.is_empty());
         // Method selector (D5): shown only when the repo allows a real
         // choice; a single method makes the button carry the verb.
         let method_row = match (&self.method_select, self.methods.len()) {
@@ -4911,6 +4997,12 @@ impl PrDetailPage {
                     .gap_2()
                     .py_1()
                     .child(div().text_sm().text_color(line_color).child(line))
+                    .when(can_update && !self.update_rebase_confirm, |col| {
+                        col.child(self.render_update_branch_row(busy, cx))
+                    })
+                    .when(self.update_rebase_confirm, |col| {
+                        col.child(self.render_update_rebase_confirm(d, cx))
+                    })
                     .child(method_row)
                     .when_some(
                         self.mutation_error
@@ -4959,6 +5051,110 @@ impl PrDetailPage {
                                         }),
                                     ),
                             ),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    /// The update-branch split-button row (docs/0067 D1): the main click
+    /// is the merge-commit update; the dropdown offers both methods —
+    /// rebase arms the confirm instead of firing.
+    fn render_update_branch_row(&self, busy: bool, cx: &Context<Self>) -> AnyElement {
+        let weak = cx.entity().downgrade();
+        h_flex()
+            .id("pr-update-branch-row")
+            .debug_selector(|| "pr-update-branch-row".to_string())
+            .gap_2()
+            .items_center()
+            .when(matches!(self.busy, Some(BusyOp::UpdateBranch)), |row| {
+                row.child(Spinner::new().small())
+            })
+            .child(
+                Button::new("pr-update-branch")
+                    .debug_selector(|| "pr-update-branch".to_string())
+                    .label("Update branch")
+                    .small()
+                    .disabled(busy)
+                    .tooltip("Bring this branch up to date with the base branch")
+                    .dropdown_menu(move |menu, _, _| {
+                        let mut next = menu;
+                        for method in [UpdateBranchMethod::MergeCommit, UpdateBranchMethod::Rebase]
+                        {
+                            let item_weak = weak.clone();
+                            let probe = format!("pr-update-branch-{}", method.slug());
+                            next = next.item(
+                                PopupMenuItem::element(move |_, _| {
+                                    // Probe-visible row (0010 D10) — the
+                                    // plain Item variant is not.
+                                    let key = probe.clone();
+                                    h_flex()
+                                        .debug_selector(move || key.clone())
+                                        .child(method.menu_label())
+                                })
+                                .disabled(busy)
+                                .on_click(move |_, window, cx| {
+                                    // The click dispatches inside the window's
+                                    // update — defer to the end of the effect
+                                    // cycle, then post from the live context
+                                    // (the reaction picker's pattern).
+                                    let item_weak = item_weak.clone();
+                                    window.defer(cx, move |window, cx| {
+                                        let _ = item_weak.update(cx, |page, cx| match method {
+                                            UpdateBranchMethod::MergeCommit => {
+                                                page.update_branch_pr(method, window, cx)
+                                            }
+                                            UpdateBranchMethod::Rebase => {
+                                                page.arm_update_rebase(cx)
+                                            }
+                                        });
+                                    });
+                                }),
+                            );
+                        }
+                        next
+                    }),
+            )
+            .into_any_element()
+    }
+
+    /// The rebase confirm (docs/0067 D4) — the force-push warning with
+    /// Rebase branch / Cancel, riding the panel's inline surface.
+    fn render_update_rebase_confirm(&self, d: &gql::PrDetail, cx: &Context<Self>) -> AnyElement {
+        v_flex()
+            .id("pr-update-rebase-confirm")
+            .debug_selector(|| "pr-update-rebase-confirm".to_string())
+            .gap_2()
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(cx.theme().warning)
+                    .child(format!(
+                        "Rebase {} onto {} and force-push the branch? Anyone \
+                         working off it must re-pull.",
+                        d.head_ref.as_deref().unwrap_or_default(),
+                        d.base_ref.as_deref().unwrap_or_default()
+                    )),
+            )
+            .child(
+                h_flex()
+                    .gap_2()
+                    .child(
+                        Button::new("pr-update-rebase-go")
+                            .debug_selector(|| "pr-update-rebase-go".to_string())
+                            .label("Rebase branch")
+                            .danger()
+                            .small()
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.update_branch_pr(UpdateBranchMethod::Rebase, window, cx)
+                            })),
+                    )
+                    .child(
+                        Button::new("pr-update-rebase-cancel")
+                            .debug_selector(|| "pr-update-rebase-cancel".to_string())
+                            .label("Cancel")
+                            .ghost()
+                            .small()
+                            .on_click(cx.listener(|this, _, _, cx| this.cancel_update_rebase(cx))),
                     ),
             )
             .into_any_element()
@@ -5422,6 +5618,9 @@ pub(crate) enum BusyOp {
     Description,
     Merge,
     Close,
+    // docs/0067 D3: the branch update — one op, MERGE | REBASE ride
+    // the input; Panel scope like merge/close.
+    UpdateBranch,
     // 0019 D5: timeline-row writes — the op names the surface (and the
     // log line) honestly; all of them error into the timeline scope.
     CommentEdit,
@@ -5465,7 +5664,7 @@ impl BusyOp {
             | BusyOp::ReviewEdit
             | BusyOp::ReviewDelete
             | BusyOp::Reaction => ErrorScope::Timeline,
-            BusyOp::Merge | BusyOp::Close => ErrorScope::Panel,
+            BusyOp::Merge | BusyOp::Close | BusyOp::UpdateBranch => ErrorScope::Panel,
             // 0030 D7: Files-tab failures render in the diff pane —
             // inline, never modal (the composer stays open with its draft).
             BusyOp::LineComment
@@ -5690,6 +5889,43 @@ impl MergeMethod {
     }
 }
 
+/// docs/0067 D1 — the two update-branch methods (GitHub's dropdown);
+/// `PullRequestBranchUpdateMethod` wire values, always sent explicit
+/// (D3: explicit beats the omitted-default for logs and tests). Unlike
+/// merge, no repo-level flag gates the methods — both always offered.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum UpdateBranchMethod {
+    MergeCommit,
+    Rebase,
+}
+
+impl UpdateBranchMethod {
+    /// `PullRequestBranchUpdateMethod` wire value.
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::MergeCommit => "MERGE",
+            Self::Rebase => "REBASE",
+        }
+    }
+
+    /// Menu wording (D1) — pinned; github.com parity is re-checked in
+    /// the implementation critique pass.
+    fn menu_label(self) -> &'static str {
+        match self {
+            Self::MergeCommit => "Update with a merge commit",
+            Self::Rebase => "Update with rebase",
+        }
+    }
+
+    /// The debug-bridge id suffix (0010 D10).
+    fn slug(self) -> &'static str {
+        match self {
+            Self::MergeCommit => "merge",
+            Self::Rebase => "rebase",
+        }
+    }
+}
+
 /// Exactly the methods the repo allows, in GitHub order (D5). Empty when
 /// the repo disables all in-app merging.
 pub(crate) fn allowed_methods(m: &gql::MergeMethods) -> Vec<MergeMethod> {
@@ -5776,6 +6012,42 @@ fn merge_disabled_reason(can_merge: bool, line: &str) -> SharedString {
         "Merge this pull request".into()
     } else {
         line.into()
+    }
+}
+
+/// Update-branch gating (docs/0067 D2): open, server gate open, idle.
+/// The schema defines `viewerCanUpdateBranch` false when the head ref
+/// is up to date or the viewer can't update it — the complete gate; we
+/// deliberately never AND `mergeStateStatus` in client-side.
+pub(crate) fn update_branch_enabled(state: Option<&str>, gate: bool, busy: bool) -> bool {
+    state == Some("OPEN") && gate && !busy
+}
+
+/// Branch-update failure copy (docs/0067 D6): stable-fragment match
+/// with the generic fallback carrying the upstream message — never raw
+/// prose in the panel, never guessed data in the message.
+pub(crate) fn update_branch_error_copy(message: &str) -> String {
+    let m = message.to_ascii_lowercase();
+    if m.contains("expectedheadoid")
+        || (m.contains("head") && m.contains("match"))
+        || (m.contains("branch") && m.contains("moved"))
+        || (m.contains("branch") && m.contains("changed"))
+    {
+        "The branch moved while you were viewing it — refreshing.".into()
+    } else if m.contains("conflict") {
+        "GitHub can't update this branch — the merge/rebase conflicts must be resolved first."
+            .into()
+    } else if m.contains("permission")
+        || m.contains("authorized")
+        || m.contains("not allowed")
+        || m.contains("protected")
+        || m.contains("protection")
+        || m.contains("forbidden")
+    {
+        "GitHub refused: your token can't update this branch (repository permissions or branch protection)."
+            .into()
+    } else {
+        format!("GitHub couldn't update the branch: {message}")
     }
 }
 
@@ -6361,7 +6633,7 @@ mod tests {
         composer_body_allowed, default_method, gate_error_copy, merge_enabled, merge_state_line,
         pr_assignees_arming, pr_labels_arming, pr_milestone_arming, pr_reviewers_arming,
         pr_state_tone, review_batch_allowed, review_event, review_state_label, rollup_summary,
-        short_sha, split_repo, timeline_order,
+        short_sha, split_repo, timeline_order, update_branch_enabled, update_branch_error_copy,
     };
     use crate::service::{GithubCache, GithubState};
     use crate::usage::Origin;
@@ -9174,6 +9446,86 @@ mod tests {
     }
 
     #[test]
+    fn update_branch_enabled_table() {
+        // docs/0067 D2: the server gate is the complete gate — open +
+        // viewerCanUpdateBranch + idle. mergeStateStatus is deliberately
+        // not an input (BEHIND is the state line's business, D2).
+        assert!(update_branch_enabled(Some("OPEN"), true, false));
+        // Each disqualifier alone flips it off.
+        assert!(!update_branch_enabled(Some("CLOSED"), true, false));
+        assert!(!update_branch_enabled(Some("MERGED"), true, false));
+        assert!(!update_branch_enabled(Some("OPEN"), false, false));
+        assert!(!update_branch_enabled(None, true, false));
+        assert!(!update_branch_enabled(Some("OPEN"), true, true));
+    }
+
+    #[test]
+    fn update_branch_error_copy_table() {
+        // docs/0067 D6: stable fragments map to actionable copy;
+        // everything else falls through to the generic form carrying
+        // the upstream message.
+        assert_eq!(
+            update_branch_error_copy("expectedHeadOid does not match HEAD"),
+            "The branch moved while you were viewing it — refreshing."
+        );
+        assert_eq!(
+            update_branch_error_copy("the head branch has changed since the page rendered"),
+            "The branch moved while you were viewing it — refreshing."
+        );
+        assert_eq!(
+            update_branch_error_copy("merge conflicts between base and head"),
+            "GitHub can't update this branch — the merge/rebase conflicts must be resolved first."
+        );
+        assert_eq!(
+            update_branch_error_copy("you are not authorized to push to this branch"),
+            "GitHub refused: your token can't update this branch (repository permissions or branch protection)."
+        );
+        assert_eq!(
+            update_branch_error_copy("something odd happened"),
+            "GitHub couldn't update the branch: something odd happened"
+        );
+    }
+
+    #[gpui::test]
+    fn update_branch_button_gates_and_confirms(cx: &mut gpui::TestAppContext) {
+        // docs/0067 D1/D2/D4: the split button renders only when the
+        // server gate is open (hidden, never disabled); choosing rebase
+        // swaps the row for the force-push confirm; Cancel restores.
+        let (page, vcx) = probe_pr_anchored(cx, None);
+        assert!(
+            vcx.debug_bounds("pr-update-branch").is_none(),
+            "update button visible without the gate"
+        );
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                let mut d = p.detail.data().unwrap().clone();
+                d.state = Some("OPEN".into());
+                d.head_oid = Some("abc123".into());
+                d.viewer_can_update_branch = true;
+                p.detail = Fetch::ready(d);
+                cx.notify();
+            });
+        });
+        let _ = vcx.debug_bounds("pr-update-branch"); // flush frames
+        assert!(
+            vcx.debug_bounds("pr-update-branch").is_some(),
+            "gated-in update button missing"
+        );
+        vcx.update(|_, cx| page.update(cx, |p, cx| p.arm_update_rebase(cx)));
+        let _ = vcx.debug_bounds("pr-update-branch"); // flush frames
+        assert!(
+            vcx.debug_bounds("pr-update-branch").is_none(),
+            "the confirm must replace the split button"
+        );
+        assert!(vcx.debug_bounds("pr-update-rebase-go").is_some());
+        assert!(vcx.debug_bounds("pr-update-rebase-cancel").is_some());
+        vcx.update(|_, cx| page.update(cx, |p, cx| p.cancel_update_rebase(cx)));
+        let _ = vcx.debug_bounds("pr-update-branch"); // flush frames
+        assert!(vcx.debug_bounds("pr-update-branch").is_some());
+        assert!(vcx.debug_bounds("pr-update-rebase-go").is_none());
+    }
+
+    #[test]
     fn rollup_summary_table() {
         assert_eq!(
             rollup_summary(Some("SUCCESS")),
@@ -9212,6 +9564,7 @@ mod tests {
         assert_eq!(BusyOp::Description.error_scope(), ErrorScope::Timeline);
         assert_eq!(BusyOp::Merge.error_scope(), ErrorScope::Panel);
         assert_eq!(BusyOp::Close.error_scope(), ErrorScope::Panel);
+        assert_eq!(BusyOp::UpdateBranch.error_scope(), ErrorScope::Panel);
     }
 
     #[test]
