@@ -1088,7 +1088,10 @@ fn diff_row(
 /// One code row (#413): the two gutter columns sit OUTSIDE the row's
 /// x-scroller — pinned at the pane's left edge while the code scrolls
 /// under the shared handle. The tint spans the whole row band (gutter
-/// included), so added/removed lines read as full-width bands.
+/// included), so added/removed lines read as full-width bands. The
+/// hover comment button floats over the row's right edge: absolutely
+/// positioned (a hovered row keeps its height, so numbers never slide
+/// off their lines) and deferred (paints above the next row's tint).
 #[allow(clippy::too_many_arguments)]
 fn code_row(
     page: &PrDetailPage,
@@ -1109,9 +1112,13 @@ fn code_row(
 ) -> AnyElement {
     // docs/0040 §4 D6 amendment: the row's comment button renders only
     // while this row is hovered — 460 always-on Buttons+tooltips were
-    // the diff-pane scroll jank.
+    // the diff-pane scroll jank. It is NOT a row child: an in-flow
+    // xsmall Button is 26px against a 19.5px row band, so every hover
+    // grew the row and slid all numbers below it off their lines (it
+    // renders in the deferred overlay at the bottom of this fn).
     // Owned for the 'static hover closure below.
     let row_id = row_id.clone();
+    let hover_key = row_id.clone();
     let code = h_flex()
         .debug_selector(|| format!("pr-diff-code-{rix}"))
         .whitespace_nowrap()
@@ -1119,16 +1126,13 @@ fn code_row(
         .text_xs()
         .font_family(cx.theme().mono_font_family.clone())
         .child(glyph_cell(glyph, glyph_color))
-        .child(diff_content(text, spans, cx))
-        .children(row_comment_button(
-            page, page_h, window, &row_id, path, anchored,
-        ));
+        .child(diff_content(text, spans, cx));
     let mut row = h_flex()
         .w_full()
         .id(row_id.clone())
         .on_hover(
             window.listener_for(page_h, move |this, hovered: &bool, _, cx| {
-                let next = hovered.then(|| row_id.clone());
+                let next = hovered.then(|| hover_key.clone());
                 if this.hovered_row != next {
                     this.hovered_row = next;
                     cx.notify();
@@ -1136,7 +1140,11 @@ fn code_row(
             }),
         )
         .child(
-            div()
+            // Flex row, not a plain `div()`: gpui's default Display is
+            // Block, which stacked the two number cells vertically —
+            // old above new — doubling every row to ~39px and putting
+            // the numbers on lines of their own.
+            h_flex()
                 .flex_none()
                 .debug_selector(|| format!("pr-diff-gutter-{rix}"))
                 .child(gutter_cell(anchored.old, cx))
@@ -1145,6 +1153,22 @@ fn code_row(
         .child(x_scrolled(rix, content_w, x_handle, code));
     if let Some(bg) = bg {
         row = row.bg(bg);
+    }
+    if let Some(button) = row_comment_button(page, page_h, window, &row_id, path, anchored) {
+        // The floating comment affordance: `absolute` keeps it out of
+        // flow (hover cannot change the row's height), `deferred` paints
+        // it above the sibling rows its 26px band overhangs.
+        row = row.child(deferred(
+            div()
+                .debug_selector(|| format!("pr-diff-comment-{rix}"))
+                .absolute()
+                .right_2()
+                .top_0()
+                .h_full()
+                .flex()
+                .items_center()
+                .child(button),
+        ));
     }
     row.into_any_element()
 }

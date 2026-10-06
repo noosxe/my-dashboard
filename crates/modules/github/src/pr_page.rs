@@ -7253,6 +7253,139 @@ mod tests {
     }
 
     #[gpui::test]
+    fn diff_rows_keep_numbers_on_their_code_band(cx: &mut gpui::TestAppContext) {
+        // 0030 D2 + #413 regression: the gutter's two 44px number
+        // columns sit side by side on the row's ONE text band — a plain
+        // `div()` is Display::Block in gpui and stacked old/new numbers
+        // vertically, doubling every row to ~39px with the numbers on
+        // lines of their own. And hovering a row (the 0040 §4 D6 comment
+        // affordance) must change no row's height: an in-flow xsmall
+        // Button is 26px against a ~19.5px band, so every hover slid
+        // all numbers below the pointer off their code lines.
+        cx.update(gpui_component::init);
+        cx.update(|cx| cx.background_executor().allow_parking());
+        let state = cx.update(|cx| {
+            let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
+            let store: std::sync::Arc<dyn crate::auth::TokenStore> =
+                std::sync::Arc::new(ProbeStore);
+            cx.new(|_| {
+                GithubState::new(
+                    client,
+                    store,
+                    Default::default(),
+                    Default::default(),
+                    GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    DraftStore::at_tmp("pr-page-diff-band"),
+                )
+            })
+        });
+        let (_page, vcx) = cx.add_window_view(|window, cx| {
+            let summary = gql::PullRequest {
+                key: "o/r#11".into(),
+                database_id: None,
+                number: 11,
+                title: "aligned".into(),
+                draft: false,
+                state: None,
+                author: None,
+                updated_at: None,
+                url: "https://probe".into(),
+                status: None,
+                labels: None,
+                review_requests: None,
+            };
+            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
+            page.tab = PrTab::Files;
+            let body = " kept\n-removed\n+added\n kept2\n";
+            page.files = Fetch::ready(vec![PrFile {
+                filename: "src/a.rs".into(),
+                status: "modified".into(),
+                additions: 2,
+                deletions: 1,
+                changes: 3,
+                patch: Some(format!("@@ -1,2 +1,3 @@\n{body}")),
+            }]);
+            page.apply_files_payload(cx);
+            page
+        });
+        vcx.run_until_parked();
+
+        // Every code row: the two number columns side by side (88px),
+        // the gutter exactly as tall as the code text and starting on
+        // the same line, the code right of the gutter.
+        for (gutter_sel, code_sel) in [
+            ("pr-diff-gutter-1", "pr-diff-code-1"),
+            ("pr-diff-gutter-2", "pr-diff-code-2"),
+            ("pr-diff-gutter-3", "pr-diff-code-3"),
+            ("pr-diff-gutter-4", "pr-diff-code-4"),
+        ] {
+            let gutter = vcx.debug_bounds(gutter_sel).unwrap();
+            let code = vcx.debug_bounds(code_sel).unwrap();
+            assert_eq!(
+                gutter.size.width,
+                px(88.),
+                "{gutter_sel}: old/new number columns side by side"
+            );
+            assert_eq!(
+                gutter.origin.y, code.origin.y,
+                "{gutter_sel}: the numbers share the code line"
+            );
+            assert_eq!(
+                gutter.size.height, code.size.height,
+                "{gutter_sel}: one text band tall, not a stacked pair"
+            );
+            assert_eq!(
+                code.origin.x,
+                gutter.origin.x + px(88.),
+                "{code_sel}: the code starts right of the gutter"
+            );
+        }
+        // Single-line pitch: three consecutive rows span exactly three
+        // bands (pre-fix the block-stacked gutter made rows ~39px).
+        let first = vcx.debug_bounds("pr-diff-gutter-1").unwrap();
+        let fourth = vcx.debug_bounds("pr-diff-gutter-4").unwrap();
+        let band_h = vcx.debug_bounds("pr-diff-code-1").unwrap().size.height;
+        assert_eq!(
+            fourth.origin.y - first.origin.y,
+            band_h * 3.0,
+            "rows are one line tall"
+        );
+
+        // Hover the add row (rix 3, new side 2): the floating comment
+        // button appears ON the hovered row and moves nothing.
+        let below_before = vcx.debug_bounds("pr-diff-gutter-4").unwrap().origin.y;
+        assert!(
+            vcx.debug_bounds("pr-diff-comment-3").is_none(),
+            "no comment affordance before hover"
+        );
+        let hovered = vcx.debug_bounds("pr-diff-gutter-3").unwrap();
+        vcx.simulate_mouse_move(hovered.center(), None, gpui::Modifiers::default());
+        vcx.run_until_parked();
+        let button = vcx
+            .debug_bounds("pr-diff-comment-3")
+            .expect("the hovered add row arms its comment button");
+        let hovered_after = vcx.debug_bounds("pr-diff-gutter-3").unwrap();
+        assert_eq!(
+            hovered_after.size.height, hovered.size.height,
+            "hover must not grow the row"
+        );
+        assert_eq!(
+            vcx.debug_bounds("pr-diff-gutter-4").unwrap().origin.y,
+            below_before,
+            "rows below the pointer must not shift"
+        );
+        assert!(
+            (button.center().y - hovered.center().y).abs() < px(4.),
+            "the button floats on the hovered row's band"
+        );
+        let pane = vcx.debug_bounds("pr-diff-scroll-key").unwrap();
+        assert!(
+            button.right() <= pane.right(),
+            "the button stays inside the pane"
+        );
+    }
+
+    #[gpui::test]
     fn diff_items_flatten_in_0030_order(cx: &mut gpui::TestAppContext) {
         // docs/0041 §6: the flattened virtualized items follow the exact
         // order the pre-list pane rendered — file-level threads, then per

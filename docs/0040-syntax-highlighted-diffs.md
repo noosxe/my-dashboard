@@ -150,6 +150,15 @@ github.com's diff view.
   frame, which (not the token runs) dominated diff-pane scroll cost.
   Rows are now stateful (`id`) with an `on_hover` listener; the page
   tracks the hovered row id and renders exactly one button.
+- **The hover-gated button is out of flow.** The button rendered as a
+  row child: an xsmall Button (26px) inside a ~19.5px text row grew
+  every hovered row, sliding all line numbers below the pointer off
+  their code lines in the virtualized list. It now floats — absolutely
+  positioned at the row's right edge, wrapped in `deferred` so the
+  next row's tint never paints over its overhang — and a hovered row
+  keeps its exact height (`pr_page::tests::diff_rows_keep_numbers_on_their_code_band`
+  pins the contract: the two number columns sit side by side on the
+  row's single text band, and hover moves nothing).
 
 1. **D6 — the sign glyph gets its own cell; content goes ambient.**
    The old rows painted the whole line in the saturated
