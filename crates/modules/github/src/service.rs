@@ -556,6 +556,10 @@ pub enum Mutation {
     Review,
     UpdateDescription,
     Merge,
+    // docs/0067 D3: the PR page's branch update — one document
+    // (updatePullRequestBranch); MERGE | REBASE ride the input, the
+    // variant is the op identity (busy mark, log line) as usual.
+    UpdateBranch,
     Close,
     // 0019 D5: timeline-row writes — one variant per document.
     UpdateComment,
@@ -1446,6 +1450,7 @@ fn run_pr_mutation(http: &dyn Http, spec: &FetchSpec, mutation: Mutation) -> Spe
         Mutation::Review => gql::PR_ADD_REVIEW_MUTATION,
         Mutation::UpdateDescription => gql::PR_UPDATE_DESCRIPTION_MUTATION,
         Mutation::Merge => gql::PR_MERGE_MUTATION,
+        Mutation::UpdateBranch => gql::PR_UPDATE_BRANCH_MUTATION,
         Mutation::Close => gql::PR_CLOSE_MUTATION,
         Mutation::UpdateComment => gql::PR_UPDATE_COMMENT_MUTATION,
         Mutation::DeleteComment => gql::PR_DELETE_COMMENT_MUTATION,
