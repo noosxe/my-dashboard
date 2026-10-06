@@ -719,3 +719,12 @@ sample. 0.7.0 also adds a native `x_tick_count(n)` builder (the
 `label_count` path in the same helper) — a future simplification could
 replace `tick_stride` + `tick_margin` with `.x_tick_count(6)`; deliberately
 not folded into the bump PR.
+
+**0.7.1 note (2026-10-06, gpui-kit bump).** Upstream v0.7.1 (`87d10ae`,
+gpui-kit #3296/#3308) gives every built-in chart a first-paint draw-in
+animation by default — reduced-motion aware, `.appear(false)` opts out,
+`.appear_key(...)` replays. The quota bar/donut and latency charts on this
+page inherit the default (we set no `appear` flag and no
+`interactive(false)`); the one-line opt-out is the documented rollback if
+the motion reads wrong. Visual re-check rides the bump PR's human-check
+list (Linux-box bridge audit pending).
