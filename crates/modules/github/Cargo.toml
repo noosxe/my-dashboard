@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 log.workspace = true
 dashboard-core.workspace = true
+dashboard-agent.workspace = true
 gpui.workspace = true
 gpui-component.workspace = true
 serde.workspace = true
