@@ -9,7 +9,7 @@ statuses, analyze GitHub API usage from the analytics pipeline, and generally
 (Model Context Protocol) with **local-only transport** (no HTTP server).
 
 This doc designs the in-app **agent data bridge**: a product-feature socket
-serving typed, read-only (phase 1) data operations backed by the same module
+serving typed, read-only data operations backed by the same module
 state the UI reads, plus a thin stdio MCP front-end binary. It deliberately
 reuses three proven assets: the debug bridge's socket/token/main-thread
 pattern (docs/0010), the module provider seam (docs/0003), and the usage
@@ -27,9 +27,10 @@ ledger's origin taxonomy (docs/0053 D2) for agent-attributed API accounting.
 - **D3** — module-agnostic seam: the bridge is generic; each module
   registers an agent-ops provider (like `SettingsProvider`), so ops live in
   the module that owns the data. Phase 1 = github module only.
-- **D4** — phase 1 is **strictly held-state reads: zero network flights**.
-  On-demand fetches arrive in phase 2 behind an explicit `refresh` flag;
-  writes arrive in phase 3 as draft→apply two-step, audit-logged.
+- **D4** — the bridge is **read-only, end to end**. Phase 1 is strictly
+  held-state reads (zero network flights); on-demand fetches (phase 2)
+  ride an explicit `refresh` flag. No write operations exist in this
+  design.
 - **D5** — every response carries mandatory envelope metadata:
   `freshness {age_s, source}` and `truncation {returned, total_known}` —
   agents must never mistake a 5-minute-old cached snapshot for live truth
@@ -38,8 +39,9 @@ ledger's origin taxonomy (docs/0053 D2) for agent-attributed API accounting.
   `Surface::Agent` / `Trigger::Agent` variants in the github module's
   taxonomy (docs/0053 D2), so the usage page can separate agent spend from
   UI spend — and the `api_usage` op can report it.
-- **D7** — closed op set in v1; **no raw GraphQL passthrough** (deferred;
-  see Open Questions).
+- **D7** — closed op set; **no raw GraphQL passthrough** (owner decision,
+  2026-10-06): new capabilities arrive as curated ops, never as an escape
+  hatch.
 
 ## 2. Goals
 
@@ -53,8 +55,8 @@ ledger's origin taxonomy (docs/0053 D2) for agent-attributed API accounting.
 3. The agent never gets *silent* staleness or truncation: every answer
    states its age and its bounds (D5).
 4. The surface is **incremental**: each later phase (on-demand fetches,
-   writes, more modules) adds ops inside the owning module without touching
-   the bridge core.
+   more modules) adds ops inside the owning module without touching the
+   bridge core.
 5. Local-only: a same-user Unix socket; nothing listens on TCP; nothing
    crosses a trust boundary the user's own processes don't already have.
 
@@ -64,11 +66,13 @@ ledger's origin taxonomy (docs/0053 D2) for agent-attributed API accounting.
   a future work item; the debug bridge is already Unix-only — same stance).
 - **No webhooks / push channel** — the polling model (docs/0029 §2) stands;
   agents poll the bridge like the UI polls GitHub.
-- **No raw GraphQL/REST passthrough in v1** (D7) — a `query` escape hatch
-  would bypass the curated op set and let one agent call burn unbounded
-  quota. Deferred until there is a budget-guard design.
-- **No write operations in phase 1.** Mutations (comment, label, merge,
-  mark-read…) are phase 3 with draft→apply + audit log; not designed here.
+- **No raw GraphQL/REST passthrough** (D7, owner decision 2026-10-06) — a
+  `query` escape hatch would bypass the curated op set and let one agent
+  call burn unbounded quota. Decided: none, not deferred.
+- **No write operations at all** (owner decision 2026-10-06) — the bridge
+  is read-only by design; state entities accept no mutations through it.
+  Writes, if ever wanted, need a fresh design doc (draft→apply gating,
+  audit log), not an extension of this one.
 - **No agent sessions or server-side agent state** — stateless
   request/response; concurrency = concurrent connections (D9).
 - **No secrets over the bridge** — tokens never appear in any response.
@@ -90,7 +94,6 @@ ledger's origin taxonomy (docs/0053 D2) for agent-attributed API accounting.
 | Read contract for usage data is already headless-shaped: `UsageSource::{records_between, records_since, high_water, snapshot}` — window filter storage-side, aggregation in core's pure functions (one implementation) | docs/0054 §8 D9 |
 | The counting seam wraps the single shared client, so *any* new dispatch path is metered for free | `crates/modules/github/src/lib.rs:110–124` (`usage::new_ledger`, `CountingHttp::wrap`) |
 | Token lifecycle (8 h refresh, single-flight 401 gate, FIFO retry) is automatic for any consumer of the state entity — agents inherit it, never see tokens | docs/0028; `service.rs:1727–1736` |
-| pi consumes MCP servers from `.pi/mcp.json` (project-level, trust-gated); stdio shape is `command`+`args`; per-server tool exposure is configurable | pi `docs/mcp.md` |
 
 Consequence of the freshness rows: a phase-1 `repo_prs` op is **honest only
 if it can return "not held"** — the snapshot inventory deliberately does not
@@ -137,8 +140,8 @@ of phase 1 is therefore an exercise in "what can this read", not "what can
 this trigger". Phase 2 adds explicit-fetch ops (`refresh: true`) which
 dispatch through the module's existing one-shot paths with
 `Surface::Agent`/`Trigger::Agent` (D6) — quota-metered, attributable.
-Phase 3 adds writes behind draft→apply and an audit log; each write op gets
-its own design note before implementation.
+There is no write phase: mutations are ruled out of scope entirely (owner
+decision 2026-10-06) — the bridge never calls a mutating path.
 
 **D5 — mandatory envelope metadata on every response.** Every success
 result carries:
@@ -176,9 +179,10 @@ hand-written JSON Schemas unit-tested against the serde types (no new
 dependency). Tool descriptions state freshness semantics ("reads the cached
 snapshot, up to ~5 min old"). The same binary's `--call OP JSON` mode is
 the human-check CLI (agent-bridge answer to `dashboard-debug` verbs), and is
-what committed verification scripts will replay. Project-level
-`.pi/mcp.json` is the documented wiring for pi; other MCP clients are config
-only, no code.
+what committed verification scripts will replay. Client wiring is out of
+scope (owner decision 2026-10-06): the binary is a standard stdio MCP
+server; any conforming client connects it as a plain command, nothing
+app-side.
 
 **D9 — stateless request/response; concurrent connections allowed.** No
 server-side agent sessions to leak or clean up. Each connection
@@ -211,13 +215,13 @@ single dispatch site, reviewable as "what can this see".
 ## 7. Phasing / delivery
 
 1. **Phase 1 (this design's implementation PRs):** crate + server + github
-   ops provider (§6) + MCP binary + `--call` mode + pi wiring docs.
+   ops provider (§6) + MCP binary + `--call` mode.
 2. **Phase 2:** `refresh: true` on `repo_prs`/`repo_issues`; `pr_detail`,
    `pr_checks`, `issue_timeline` via the lazy one-shot paths; `Surface`/
    `Trigger::Agent` variants land here (first flights exist to attribute).
-3. **Phase 3:** writes (draft→apply, audit-logged) — design notes per op.
-4. **Later/deferred:** second module's ops; Windows transport; raw
-   `query` (D7); agent budget guardrails if phase 2 data shows need.
+3. **Later/deferred:** second module's ops; Windows transport; agent
+   budget guardrails if phase-2 data shows need. No write phase — the
+   bridge is read-only (Non-goals).
 
 ## 8. Testing & acceptance criteria
 
@@ -230,24 +234,22 @@ single dispatch site, reviewable as "what can this see".
 - Integration: app + `dashboard-agent-mcp --call` drive each op; scripted
   under `crates/agent/verify/*.txt` mirroring the debug-bridge receipt
   convention (replayable human checks).
-- MCP conformance: wired via project `.pi/mcp.json`; a pi session lists the
-  tools and completes a `list_repos` + `api_usage` round-trip.
+- MCP conformance: the binary completes a standard stdio handshake and
+  `tools/list` with an off-the-shelf MCP client; `--call` drives a
+  `list_repos` + `api_usage` round-trip.
 - **No UI surface** → 0065 audit/critique receipts N/A for phase 1 (stated
   in the implementation PR body); usage-page *rendering* of `Agent` rows
   (phase 2 follow-up) will need its own surface check.
 - Gates as always: fmt, clippy (zero warnings), `cargo test --workspace`.
 
-## 9. Open questions for the product owner
+## 9. Open questions
 
 1. **Kill-switch default:** proposal is `agent_bridge = true` by default
    (token-file-gated). Comfortable with on-by-default, or prefer opt-in?
-2. **D7 raw passthrough:** confirm "deferred, bias never", or is there an
-   agent workflow you already know needs raw GraphQL?
-3. **First client:** pi project config assumed as the documented path —
-   any other MCP client you want supported in the docs from day one?
-4. **Phase 3 writes:** any *particular* mutation you want first when we get
-   there (mark-read is the least destructive candidate), or leave ordering
-   to the phase-3 design note?
+
+Resolved on the design PR (owner, 2026-10-06): raw GraphQL passthrough —
+**none**; mutations — **out of scope entirely**, the bridge is read-only;
+client wiring — **out of scope**, any standard MCP client is config-only.
 
 ## References
 
@@ -255,4 +257,3 @@ single dispatch site, reviewable as "what can this see".
 - docs/0003 (module architecture — provider seam), docs/0005 (github module), docs/0029 (module state of the world), docs/0051 (card lanes), docs/0007 (global snapshot + lazy repo scope)
 - docs/0050 D2 (counting seam), docs/0053 (usage ledger, Origin taxonomy), docs/0054 §8 (UsageSource read contract), docs/0058 (usage page)
 - docs/0028 (token lifecycle), docs/0008 (logging), docs/0004 (state persistence)
-- pi `docs/mcp.md` (stdio server config, `.pi/mcp.json`, tool exposure)
