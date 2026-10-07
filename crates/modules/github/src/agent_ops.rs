@@ -946,4 +946,69 @@ mod tests {
         });
         assert!(result.unwrap()["connected"].is_boolean());
     }
+
+    /// The MCP tool schemas (`dashboard_agent::mcp::TOOL_SPECS`) are
+    /// hand-written; this is the coupling test (docs/0068 D8): every
+    /// schema must admit exactly what this module's serde param types
+    /// parse. For each op a maximal valid instance — required fields
+    /// present, enums at a legal value — must be (a) covered by the
+    /// schema's properties and (b) accepted by the actual param struct.
+    #[test]
+    fn mcp_tool_schemas_admit_the_documented_params() {
+        use dashboard_agent::mcp::TOOL_SPECS;
+
+        let spec = |op: &str| {
+            TOOL_SPECS
+                .iter()
+                .find(|spec| spec.op == op)
+                .unwrap_or_else(|| panic!("no MCP tool for op {op}"))
+        };
+
+        // (op, maximal instance) — the typed parse checks below use the
+        // same `protocol::parse` the ops use, against the real types.
+        let cases: Vec<(&str, serde_json::Value)> = vec![
+            (OP_APP_STATUS, json!({})),
+            (OP_LIST_REPOS, json!({ "org": "acme" })),
+            (OP_NOTIFICATIONS_UNREAD, json!({ "repo": "acme/x" })),
+            (OP_REPO_PRS, json!({ "repo": "acme/x", "state": "open" })),
+            (OP_REPO_ISSUES, json!({ "repo": "acme/x", "state": "open" })),
+            (OP_API_USAGE, json!({ "group_by": "op", "window": "1d" })),
+        ];
+
+        for (op, instance) in cases {
+            let spec = spec(op);
+            let properties = spec.input_schema["properties"]
+                .as_object()
+                .unwrap_or_else(|| panic!("{op} schema lacks a properties object"));
+            for key in instance.as_object().unwrap().keys() {
+                assert!(properties.contains_key(key), "{op} schema lacks {key:?}");
+            }
+            // Required fields must match the struct's required fields:
+            // exactly `repo` where the struct demands one, empty where
+            // everything defaults.
+            let required: Vec<&str> = spec.input_schema["required"]
+                .as_array()
+                .map(|array| array.iter().filter_map(Value::as_str).collect())
+                .unwrap_or_default();
+            let expected_required: &[&str] = match op {
+                OP_REPO_PRS | OP_REPO_ISSUES => &["repo"],
+                _ => &[],
+            };
+            assert_eq!(required, expected_required, "{op} required mismatch");
+        }
+
+        // Typed checks: the structs the ops actually parse accept the
+        // schema-permitted instances, with defaults where documented.
+        assert!(parse::<ListReposParams>(&json!({ "org": "acme" })).is_some());
+        assert!(parse::<NotificationsParams>(&json!({ "repo": "acme/x" })).is_some());
+        let params = parse::<RepoRowsParams>(&json!({ "repo": "acme/x", "state": "open" }))
+            .expect("repo_prs params");
+        assert_eq!(params.repo, "acme/x");
+        assert_eq!(params.state.as_deref(), Some("open"));
+        assert!(parse::<RepoRowsParams>(&json!({ "repo": "acme/x" })).is_some());
+        let params =
+            parse::<ApiUsageParams>(&json!({ "group_by": "op", "window": "1d" })).expect("params");
+        assert_eq!(params.group_by.as_deref(), Some("op"));
+        assert_eq!(params.window.as_deref(), Some("1d"));
+    }
 }

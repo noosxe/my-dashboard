@@ -1,0 +1,67 @@
+# 0068-agent-mcp-stdio.txt — docs/0068 D8's MCP conformance receipt as
+# a committed script: the binary completes the standard stdio handshake
+# (initialize → notifications/initialized → tools/list) and answers
+# tools/call, speaking newline-delimited JSON-RPC with nothing but
+# messages on stdout.
+#
+# Prerequisites:
+#   - the binary is built: cargo build -p dashboard-agent
+#   - step 3 needs the app RUNNING (bridge default-on); steps 1–2
+#     deliberately run with NO app to prove lazy/degraded behavior.
+#
+# Run: bash crates/agent/verify/0068-agent-mcp-stdio.txt
+set -euo pipefail
+
+BIN="${BIN:-target/debug/dashboard-agent-mcp}"
+py() { python3 -c "$1"; }
+
+# 1. Handshake + tool discovery, no app running at all.
+printf '%s\n%s\n%s\n' \
+  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"verify","version":"0"}}}' \
+  '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+  '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+  | "$BIN" 2>/dev/null | py '
+import json, sys
+lines = [json.loads(line) for line in sys.stdin if line.strip()]
+assert len(lines) == 2, lines          # the notification got NO reply
+assert lines[0]["id"] == 1 and lines[0]["result"]["protocolVersion"] == "2025-06-18", lines[0]
+assert lines[0]["result"]["serverInfo"]["name"] == "dashboard-agent-mcp", lines[0]
+tools = lines[1]["result"]["tools"]
+assert [t["name"] for t in tools] == [
+    "app_status", "list_repos", "notifications_unread",
+    "repo_prs", "repo_issues", "api_usage",
+], tools
+for tool in tools:
+    assert tool["inputSchema"]["type"] == "object", tool
+print("ok — initialize negotiated 2025-06-18; tools/list = 6 ops, object schemas")
+'
+
+# 2. tools/call with the app DOWN → a readable tool error, not a crash.
+printf '%s\n' \
+  '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"app_status","arguments":{}}}' \
+  | DASHBOARD_STATE_DIR=/tmp/0068-mcp-no-app "$BIN" 2>/dev/null | py '
+import json, sys
+reply = json.loads(sys.stdin.readline())
+result = reply["result"]
+assert result["isError"] is True, result
+payload = json.loads(result["content"][0]["text"])
+assert payload["error"] == "NOT_CONNECTED", payload
+print("ok — tools/call without app: isError + NOT_CONNECTED text")
+'
+rm -rf /tmp/0068-mcp-no-app
+
+# 3. tools/call with the app UP → the op result as JSON text content.
+printf '%s\n%s\n%s\n' \
+  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"verify","version":"0"}}}' \
+  '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+  '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"app_status","arguments":{}}}' \
+  | "$BIN" 2>/dev/null | tail -1 | py '
+import json, sys
+reply = json.loads(sys.stdin.readline())
+assert reply["id"] == 4 and "result" in reply, reply
+payload = json.loads(reply["result"]["content"][0]["text"])
+assert "freshness" in payload and "connected" in payload, payload
+print("ok — tools/call app_status: freshness", payload["freshness"])
+'
+
+echo "all MCP stdio checks passed"

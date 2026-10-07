@@ -42,7 +42,7 @@ pub mod error_code {
 /// One request line: `{"v":1,"id":n,"op":"list_repos","params":{…}}`.
 /// The auth line carries none of `v`/`id` — all three of `v`, `id` and
 /// `params` default so one struct parses both shapes.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Request {
     #[serde(default)]
     pub v: Option<u64>,

@@ -1,0 +1,122 @@
+# 0068-agent-ops.txt — docs/0068 §8's bridge receipt as a committed
+# script: every phase-1 op driven end-to-end through the MCP binary's
+# `--call` passthrough (the human-check CLI), asserting the D5 honesty
+# envelope rather than any particular data.
+#
+# Prerequisites:
+#   - the binary is built:            cargo build -p dashboard-agent
+#   - the app is RUNNING with the bridge on (kill switch `agent_bridge`
+#     defaults to on; docs/0068 D2) and, if it uses a redirected state
+#     dir, run this script with the same DASHBOARD_STATE_DIR.
+#
+# Run: bash crates/agent/verify/0068-agent-ops.txt
+# Each step prints "ok — <what>" or the script aborts (set -e) with the
+# failing assertion. Python blocks are single-quoted: no shell
+# interpolation inside them, by design.
+set -euo pipefail
+
+BIN="${BIN:-target/debug/dashboard-agent-mcp}"
+py() { python3 -c "$1"; }
+call() { "$BIN" --call "$@"; }
+
+# 0. Wait out the app's startup window: the socket binds before the
+#    modules register their ops (docs/0068 D3 — registration happens at
+#    module init, after the bridge starts), so the very first calls can
+#    answer UNKNOWN_OP. Bounded poll; fails after ~10 s.
+ok=0
+for _ in $(seq 1 50); do
+  if { call app_status '{}' || true; } | grep -q '"ok":true'; then
+    ok=1
+    break
+  fi
+  sleep 0.2
+done
+[ "$ok" = 1 ] || { echo "FAIL — app_status never answered ok within 10s"; exit 1; }
+
+# 1. app_status — the "am I looking at live data?" snapshot.
+call app_status '{}' | py '
+import json, sys
+r = json.load(sys.stdin)
+assert r["ok"], r
+s = r["result"]
+assert isinstance(s["connected"], bool), s
+assert s["freshness"]["source"] in ("disk", "cache"), s
+assert "truncation" in s, s
+print("ok — app_status: envelope + connected/freshness present")
+'
+
+# 2. list_repos — inventory rows with the truncation contract.
+call list_repos '{}' | py '
+import json, sys
+r = json.load(sys.stdin)
+assert r["ok"], r
+t = r["result"]["truncation"]
+assert isinstance(t["returned"], int), t
+assert t["total_known"] is None or isinstance(t["total_known"], int), t
+print("ok — list_repos: truncation", t)
+'
+
+# 3. notifications_unread — held unread rows (empty is honest here;
+#    the field is `notifications`, exact total_known).
+call notifications_unread '{}' | py '
+import json, sys
+r = json.load(sys.stdin)
+assert r["ok"], r
+assert isinstance(r["result"]["notifications"], list), r
+assert "truncation" in r["result"], r
+print("ok — notifications_unread:", r["result"]["truncation"])
+'
+
+# 4. repo_prs for the first held repo — held OR structured not_held,
+#    never an empty-array lie (docs/0068 D5).
+REPO=$(call list_repos '{}' | py '
+import json, sys
+r = json.load(sys.stdin)
+repos = r["result"]["repos"]
+print(repos[0]["key"] if repos else "")
+')
+if [ -n "$REPO" ]; then
+  call repo_prs "{\"repo\": \"$REPO\"}" | py '
+import json, sys
+r = json.load(sys.stdin)
+assert r["ok"], r
+assert isinstance(r["result"]["held"], bool), r
+print("ok — repo_prs held:", r["result"]["held"])
+'
+else
+  echo "ok — repo_prs skipped (inventory empty; open a repo view in the app to hold rows)"
+fi
+
+# 5. api_usage — grouped ledger read, no attribution side effects.
+call api_usage '{"group_by": "op"}' | py '
+import json, sys
+r = json.load(sys.stdin)
+assert r["ok"], r
+assert isinstance(r["result"]["groups"], list), r
+assert r["result"]["truncation"]["total_known"] is None, r
+print("ok — api_usage:", len(r["result"]["groups"]), "groups, total_known null (retention)")
+'
+
+# 6. Unknown op → UNKNOWN_OP with a nonzero exit (the `|| true` keeps
+#    pipefail from aborting on the intentional failure; stdout flows).
+{ call definitely_not_an_op '{}' || true; } | py '
+import json, sys
+r = json.load(sys.stdin)
+assert not r["ok"] and r["error"]["code"] == "UNKNOWN_OP", r
+print("ok — unknown op: UNKNOWN_OP")
+'
+if call definitely_not_an_op '{}' >/dev/null 2>&1; then
+  echo "FAIL — unknown op must exit nonzero"; exit 1
+fi
+
+# 7. Non-open state → BAD_PARAMS (phase 1 holds open rows only).
+if [ -n "$REPO" ]; then
+  { call repo_prs "{\"repo\": \"$REPO\", \"state\": \"closed\"}" || true; } | py '
+import json, sys
+r = json.load(sys.stdin)
+assert not r["ok"] and r["error"]["code"] == "BAD_PARAMS", r
+print("ok — state=closed rejected with BAD_PARAMS")
+'
+fi
+
+echo "all agent-ops checks passed"

@@ -26,10 +26,10 @@ const LOG_TARGET: &str = "dashboard_agent";
 /// Everything `start` needs from the filesystem, bound and ready. Split
 /// out of `start` so the permission/token contract is testable without
 /// a gpui `App`.
-struct Endpoint {
-    listener: UnixListener,
-    token: Arc<String>,
-    socket_path: PathBuf,
+pub(crate) struct Endpoint {
+    pub(crate) listener: UnixListener,
+    pub(crate) token: Arc<String>,
+    pub(crate) socket_path: PathBuf,
 }
 
 /// Start the bridge. See `crate::start`.
@@ -88,7 +88,7 @@ pub fn start(app: &mut App) -> Option<PathBuf> {
 /// Bind `agent.sock` in `runtime_dir` and write the per-run token:
 /// runtime dir 0700, socket 0600, token file 0600 — the docs/0068 D2
 /// trust model, identical to the debug bridge's (docs/0010 D2).
-fn bind_endpoint(runtime_dir: &Path) -> Option<Endpoint> {
+pub(crate) fn bind_endpoint(runtime_dir: &Path) -> Option<Endpoint> {
     let socket_path = runtime_dir.join(SOCKET_NAME);
     let token_path = runtime_dir.join(TOKEN_NAME);
 
@@ -131,7 +131,7 @@ fn bind_endpoint(runtime_dir: &Path) -> Option<Endpoint> {
 /// Connection lifecycle (D2): first line MUST be `auth` with the run
 /// token; after that, one request/response per NDJSON line. Returns when
 /// the client disconnects or auth fails.
-fn serve_connection<D>(stream: UnixStream, expected_token: &str, dispatch: D)
+pub(crate) fn serve_connection<D>(stream: UnixStream, expected_token: &str, dispatch: D)
 where
     D: Fn(Request) -> Result<Value, RpcError>,
 {

@@ -16,10 +16,12 @@
 //! `repo_issues`, `api_usage`) arrive with the github provider (#468);
 //! the stdio MCP front-end `dashboard-agent-mcp` with #469.
 
+pub mod client;
 pub mod jobs;
+pub mod mcp;
 pub mod ops;
 pub mod protocol;
-mod server;
+pub(crate) mod server;
 
 pub use ops::{AgentOps, OpsRegistry, register_ops};
 
