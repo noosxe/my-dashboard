@@ -82,6 +82,22 @@ fn main() {
                 );
             }
 
+            // Agent Data Bridge (docs/0068, #467): read-only, token-gated
+            // Unix-socket server for AI agents — held-state reads only.
+            // Kill switch `agent_bridge` in settings.json, default **on**
+            // (docs/0068 §9); read straight from disk because the settings
+            // global installs later in boot. Failures are logged and
+            // non-fatal (the bridge must never take the app down with it).
+            if dashboard_core::settings::agent_bridge_enabled(&paths.settings_file()) {
+                if let Some(socket) = dashboard_agent::start(cx) {
+                    log::info!(
+                        target: "dashboard_app",
+                        "agent bridge listening on {}",
+                        socket.display()
+                    );
+                }
+            }
+
             // MUST be called before using any gpui-component features.
             gpui_component::init(cx);
             // Menu-bar bindings (docs/0002 D12) — empty off macOS.

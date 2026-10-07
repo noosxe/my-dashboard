@@ -1,0 +1,18 @@
+[package]
+name = "dashboard-agent"
+description = "Agent Data Bridge — in-process read-only socket server + protocol (docs/0068)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+gpui.workspace = true
+dashboard-core.workspace = true
+log.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+# Unbounded channel for socket-thread → main-thread job marshalling (D9);
+# `unbounded_send` is callable from plain threads, the receiver is awaited
+# on the foreground executor.
+futures.workspace = true

@@ -1416,10 +1416,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "dashboard-agent"
+version = "0.1.0"
+dependencies = [
+ "dashboard-core",
+ "futures",
+ "gpui-pre",
+ "log",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "dashboard-app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "dashboard-agent",
  "dashboard-core",
  "dashboard-debug",
  "dashboard-module-favicon",
