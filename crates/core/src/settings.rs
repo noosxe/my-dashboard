@@ -118,6 +118,34 @@ pub struct AppSettings {
     /// Notification hub preferences (docs/0062 D7); `None` = factory
     /// behavior (numeric badge, all levels, nothing muted).
     pub notifications: Option<NotificationsSettings>,
+    /// Agent data bridge kill switch (docs/0068 D2); `None` = factory
+    /// default, **on** (owner decision, docs/0068 §9). `Some(false)` at
+    /// startup never binds `agent.sock`. No settings UI in v1 — edit
+    /// `settings.json` by hand and restart the app.
+    pub agent_bridge: Option<bool>,
+}
+
+impl AppSettings {
+    /// Effective kill-switch value (docs/0068 D2): the field is optional
+    /// with the documented factory default **on**.
+    pub fn agent_bridge_enabled(&self) -> bool {
+        self.agent_bridge.unwrap_or(true)
+    }
+}
+
+/// Startup kill-switch read (docs/0068 D2): straight from the settings
+/// file, because the agent bridge starts earlier in boot than the gpui
+/// settings global is installed. A missing file or field, or a file that
+/// fails to parse, means the documented default: on.
+pub fn agent_bridge_enabled(path: &std::path::Path) -> bool {
+    match load_json::<AppSettings>(path) {
+        Ok(Some(values)) => values.agent_bridge_enabled(),
+        Ok(None) => true,
+        Err(err) => {
+            log::warn!("agent_bridge kill switch unreadable ({err}); defaulting to on");
+            true
+        }
+    }
 }
 
 impl Global for AppSettings {}

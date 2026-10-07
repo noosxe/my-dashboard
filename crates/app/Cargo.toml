@@ -23,6 +23,7 @@ gpui-kit-assets.workspace = true
 dashboard-core.workspace = true
 dashboard-module-github.workspace = true
 dashboard-module-favicon.workspace = true
+dashboard-agent.workspace = true
 dashboard-debug = { workspace = true, optional = true }
 
 [features]

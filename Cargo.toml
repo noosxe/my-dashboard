@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "crates/app",
+    "crates/agent",
     "crates/core",
     "crates/debug",
     "crates/modules/github",
@@ -53,6 +54,7 @@ gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "
 gpui_base = { package = "gpui-base", git = "https://github.com/longbridge/gpui-component", rev = "87d10ae5e1299d1be18670a37570c5402f952e34" }
 gpui-kit-assets = { git = "https://github.com/longbridge/gpui-component", rev = "87d10ae5e1299d1be18670a37570c5402f952e34" } # v0.7.1
 dashboard-core = { path = "crates/core" }
+dashboard-agent = { path = "crates/agent" }
 dashboard-debug = { path = "crates/debug" }
 dashboard-module-github = { path = "crates/modules/github" }
 dashboard-module-favicon = { path = "crates/modules/favicon" }
