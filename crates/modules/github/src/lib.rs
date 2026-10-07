@@ -9,6 +9,7 @@
 //! bundled SVG, served by the app's asset source.
 //! Deep gpui builder trees in page.rs need macro-expansion headroom.
 #![recursion_limit = "512"]
+pub mod agent_ops;
 pub mod api;
 pub mod auth;
 pub mod card;
@@ -136,6 +137,12 @@ impl Module for GithubModule {
         // auth/rate-limit state and refreshes per tick (0003 §3.12
         // pattern, docs/0005 Q8); the lanes decide what actually fires.
         spawn_tick_loop(state.clone(), window_handle, cx);
+
+        // Agent data bridge (docs/0068 D3, #468): the module's read-only
+        // ops — zero-network-flight reads of held state. Resolution is
+        // per request, so registering here is enough regardless of the
+        // bridge's startup order.
+        dashboard_agent::register_ops(cx, Arc::new(agent_ops::GithubAgentOps::new(state.clone())));
 
         let overview = cx.new(|cx| card::GithubCard::new(state.clone(), nav.clone(), window, cx));
         let main_page = cx.new(|cx| page::GithubPage::new(state.clone(), nav.clone(), window, cx));

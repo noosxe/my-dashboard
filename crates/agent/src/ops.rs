@@ -41,7 +41,7 @@ impl OpsRegistry {
     /// The provider serving `op`, if any. First registration wins; ops
     /// are module-namespaced in practice (`app_status`, …), so collisions
     /// are a programming error — the tests pin the first-wins behavior.
-    pub(crate) fn resolve(&self, op: &str) -> Option<Arc<dyn AgentOps>> {
+    pub fn resolve(&self, op: &str) -> Option<Arc<dyn AgentOps>> {
         self.providers
             .iter()
             .find(|provider| provider.ops().contains(&op))
