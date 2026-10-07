@@ -841,6 +841,7 @@ mod tests {
             theme_name_light: Some("Default Light".into()),
             theme_name_dark: Some("Custom Dark".into()),
             notifications: None,
+            agent_bridge: None,
         };
         let json = serde_json::to_string(&values).unwrap();
         let back: AppSettings = serde_json::from_str(&json).unwrap();
@@ -999,6 +1000,7 @@ mod tests {
                 theme_name_light: None,
                 theme_name_dark: Some("Catppuccin Mocha".into()),
                 notifications: None,
+                agent_bridge: None,
             });
             apply_saved_theme(cx);
             // D8 degrade + docs/0056 D3: the unknown name warns and the

@@ -169,9 +169,12 @@ where
     // defense-in-depth, not a secret channel.
     if token.as_deref() != Some(expected_token) {
         let _ = writer.write_all(
-            &Response::err(request_id(&request), RpcError::new(error_code::AUTH, "invalid token"))
-                .to_line()
-                .into_bytes(),
+            &Response::err(
+                request_id(&request),
+                RpcError::new(error_code::AUTH, "invalid token"),
+            )
+            .to_line()
+            .into_bytes(),
         );
         return;
     }
@@ -182,7 +185,9 @@ where
         if line.trim().is_empty() {
             continue;
         }
-        let id = parse_request(&line).map(|request| request_id(&request)).unwrap_or(0);
+        let id = parse_request(&line)
+            .map(|request| request_id(&request))
+            .unwrap_or(0);
         let response = match parse_request(&line) {
             None => Response::err(0, RpcError::new(error_code::PARSE, "malformed JSON line")),
             Some(request) if request.op == OP_AUTH => Response::err(
@@ -329,20 +334,15 @@ mod tests {
     /// Serve exactly one connection with a canned dispatch that mirrors
     /// `jobs::dispatch`'s resolve semantics: the one op a provider serves
     /// echoes, anything else is UNKNOWN_OP. Returns the serving thread.
-    fn serve_one(
-        listener: UnixListener,
-        token: &'static str,
-    ) -> std::thread::JoinHandle<()> {
+    fn serve_one(listener: UnixListener, token: &'static str) -> std::thread::JoinHandle<()> {
         std::thread::spawn(move || {
             if let Ok(stream) = listener.incoming().next().unwrap() {
-                serve_connection(stream, token, |request| {
-                    match request.op.as_str() {
-                        "app_status" => Ok(serde_json::json!({"echo": request.op})),
-                        op => Err(RpcError::new(
-                            error_code::UNKNOWN_OP,
-                            format!("no op named {op:?}"),
-                        )),
-                    }
+                serve_connection(stream, token, |request| match request.op.as_str() {
+                    "app_status" => Ok(serde_json::json!({"echo": request.op})),
+                    op => Err(RpcError::new(
+                        error_code::UNKNOWN_OP,
+                        format!("no op named {op:?}"),
+                    )),
                 });
             }
         })

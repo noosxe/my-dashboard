@@ -43,7 +43,10 @@ pub(crate) fn dispatch(job_tx: &UnboundedSender<Job>, request: Request) -> Resul
             let _ = reply_tx.send(outcome);
         }))
         .map_err(|_| RpcError::new(error_code::INTERNAL, "agent bridge job queue is gone"))?;
-    reply_rx
-        .recv()
-        .map_err(|_| RpcError::new(error_code::INTERNAL, "main-thread executor dropped the reply"))?
+    reply_rx.recv().map_err(|_| {
+        RpcError::new(
+            error_code::INTERNAL,
+            "main-thread executor dropped the reply",
+        )
+    })?
 }

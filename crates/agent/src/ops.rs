@@ -107,7 +107,7 @@ mod tests {
             ops: &["app_status"],
         }));
         registry.register(Arc::new(StubOps {
-        // A real collision on `app_status` — the first provider must keep it.
+            // A real collision on `app_status` — the first provider must keep it.
             ops: &["app_status", "list_repos"],
         }));
 
