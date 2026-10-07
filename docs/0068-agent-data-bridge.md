@@ -242,14 +242,17 @@ single dispatch site, reviewable as "what can this see".
   (phase 2 follow-up) will need its own surface check.
 - Gates as always: fmt, clippy (zero warnings), `cargo test --workspace`.
 
-## 9. Open questions
+## 9. Resolved questions
 
-1. **Kill-switch default:** proposal is `agent_bridge = true` by default
-   (token-file-gated). Comfortable with on-by-default, or prefer opt-in?
+All raised questions were resolved on the design PR (owner, 2026-10-06):
 
-Resolved on the design PR (owner, 2026-10-06): raw GraphQL passthrough —
-**none**; mutations — **out of scope entirely**, the bridge is read-only;
-client wiring — **out of scope**, any standard MCP client is config-only.
+- **Kill-switch default: on.** `agent_bridge = true` by default — the
+  owner asked for this surface; the per-run token file is the security
+  boundary, the flag is the breaker.
+- **Raw GraphQL passthrough: none** (D7).
+- **Mutations: out of scope entirely** — the bridge is read-only by design.
+- **Client wiring: out of scope** — any standard MCP client is
+  config-only.
 
 ## References
 
