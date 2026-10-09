@@ -370,6 +370,9 @@ fn notification_panel(
                         .ghost()
                         .xsmall()
                         .icon(IconName::Close)
+                        // docs/0049 D1: icon-only buttons get an
+                        // explicit accessible name.
+                        .accessibility_label("Dismiss notification")
                         .on_click(move |_, _, cx| {
                             crate::toasts::hub(cx).update(cx, |hub, cx| {
                                 hub.dismiss_panel_row(index);
