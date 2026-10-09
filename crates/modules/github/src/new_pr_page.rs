@@ -19,6 +19,7 @@
 //! page's `GithubNewPrPage` key context), the Cancel button, the repo
 //! crumb, and sign-out (the host auto-drops it when auth drops).
 
+use dashboard_core::ui::{page_canvas, page_title};
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 
@@ -872,7 +873,7 @@ impl Render for NewPrPage {
         // branches differ — input validity, not a permission gate.
         let submit_ok = pr_submit_allowed(title_empty, base.as_deref(), head.as_deref(), busy);
 
-        v_flex()
+        page_canvas()
             .id("new-pr")
             .key_context("GithubNewPrPage")
             .track_focus(&self.focus_handle)
@@ -887,20 +888,12 @@ impl Render for NewPrPage {
                 this.request_close(cx);
             }))
             .size_full()
-            .min_w_0()
             .overflow_y_scroll()
-            .p_4()
-            .gap_3()
             // Header: what is being created, and where it will land.
             .child(
                 v_flex()
                     .gap_1()
-                    .child(
-                        div()
-                            .text_base()
-                            .font_weight(FontWeight::MEDIUM)
-                            .child("New pull request"),
-                    )
+                    .child(page_title("New pull request"))
                     .child(
                         div()
                             .text_sm()

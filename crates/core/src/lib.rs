@@ -14,6 +14,7 @@ pub mod shell;
 pub mod status;
 pub mod store;
 pub mod toasts;
+pub mod ui;
 pub mod usage_analytics;
 pub mod usage_records;
 

@@ -31,6 +31,7 @@ use gpui_component::{
 };
 
 use crate::registry::ModuleRegistry;
+use crate::ui::section_header;
 
 /// Entries older than this are swept on the next mutation (docs/0013 D3) —
 /// the stuck-spinner backstop for a lost `end`. The worst legal single-spec
@@ -393,7 +394,7 @@ fn notification_panel(
                 .justify_between()
                 .px_3()
                 .py_2()
-                .child(div().text_sm().font_medium().child("Notifications"))
+                .child(section_header("Notifications"))
                 .child(
                     h_flex()
                         .gap_1()

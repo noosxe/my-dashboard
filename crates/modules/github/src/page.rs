@@ -12,6 +12,7 @@ use std::sync::Arc;
 
 use std::time::Duration;
 
+use dashboard_core::ui::{page_canvas, page_title};
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::{
@@ -684,9 +685,7 @@ impl GithubPage {
 
         // The freshness cluster refreshes the account it renders for.
         let refresh = account.clone();
-        v_flex()
-            .p_4()
-            .gap_3()
+        page_canvas()
             .child(
                 h_flex()
                     .id("home-header")
@@ -697,12 +696,7 @@ impl GithubPage {
                         v_flex()
                             .gap_1()
                             .min_w_0()
-                            .child(
-                                div()
-                                    .text_base()
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .child("Open pull requests"),
-                            )
+                            .child(page_title("Open pull requests"))
                             .when_some(account.as_ref().map(|(l, _)| l.clone()), |col, login| {
                                 col.child(
                                     div()
@@ -2637,9 +2631,7 @@ impl GithubPage {
             // docs/0047 D1: the home view replaces the placeholder — the
             // module's landing surface is the account's open PRs.
             None => self.render_home_view(cx),
-            Some(repo) => v_flex()
-                .p_4()
-                .gap_3()
+            Some(repo) => page_canvas()
                 // Header (the PR page's idiom): title and description
                 // left, the freshness cluster right-aligned — one
                 // freshness cluster per page (docs/0037 Q1), not a
@@ -2680,12 +2672,7 @@ impl GithubPage {
                                                 ))
                                             }
                                         })
-                                        .child(
-                                            div()
-                                                .text_base()
-                                                .font_weight(FontWeight::MEDIUM)
-                                                .child(repo.full_name.clone()),
-                                        )
+                                        .child(page_title(repo.full_name.clone()))
                                         .when(repo.private, |row| {
                                             row.child(private_lock(cx.theme().muted_foreground))
                                         }),

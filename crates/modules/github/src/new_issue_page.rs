@@ -15,6 +15,7 @@
 //! page's `GithubNewIssuePage` key context), the Cancel button, the repo
 //! crumb, and sign-out (the host auto-drops it when auth drops).
 
+use dashboard_core::ui::{page_canvas, page_title};
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 
@@ -558,7 +559,7 @@ impl Render for NewIssuePage {
             }
             template_row = Some(row.into_any_element());
         }
-        v_flex()
+        page_canvas()
             .id("new-issue")
             .key_context("GithubNewIssuePage")
             .track_focus(&self.focus_handle)
@@ -573,26 +574,15 @@ impl Render for NewIssuePage {
                 this.request_close(cx);
             }))
             .size_full()
-            .min_w_0()
             .overflow_y_scroll()
-            .p_4()
-            .gap_3()
             // Header: what is being created, and where it will land.
             .child(
-                v_flex()
-                    .gap_1()
-                    .child(
-                        div()
-                            .text_base()
-                            .font_weight(FontWeight::MEDIUM)
-                            .child("New issue"),
-                    )
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(self.repo.clone()),
-                    ),
+                v_flex().gap_1().child(page_title("New issue")).child(
+                    div()
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(self.repo.clone()),
+                ),
             )
             // The form card (D4).
             .child(

@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use dashboard_core::ui::{page_canvas, page_title};
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::{
@@ -1072,21 +1073,14 @@ impl Render for FaviconPage {
             bg1_dark: bg1_d,
             ..
         } = widgets.clone();
-        v_flex()
+        page_canvas()
             .id("favicon-page")
             .size_full()
-            .p_4()
-            .gap_3()
             .child(
                 h_flex()
                     .items_center()
                     .gap_3()
-                    .child(
-                        div()
-                            .text_xl()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("Favicon generator"),
-                    )
+                    .child(page_title("Favicon generator"))
                     .child(
                         div()
                             .text_sm()

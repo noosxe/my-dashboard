@@ -30,6 +30,7 @@
 //! list item, §2.1); only non-200 results are forwarded to
 //! `GithubState::apply` for the shared 401/403 handling. Session-only,
 //! no cache.
+use dashboard_core::ui::{page_canvas, page_title};
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 
@@ -521,28 +522,24 @@ impl NotificationDetailPage {
                     // Issue/PR subjects (docs/0026 D6), plain text
                     // otherwise (their only hand-off is the ↗ button).
                     .child(match self.subject_handoff() {
-                        Some((_, number)) => div()
-                            .id("notification-subject-link")
-                            .debug_selector(|| "notification-subject-link".to_string())
-                            .text_lg()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(cx.theme().accent)
-                            .cursor_pointer()
-                            // docs/0049 D1: the subject link is a Link
-                            // role carrying its own name (text children
-                            // don't become the node's name).
-                            .role(accesskit::Role::Link)
-                            .aria_label(format!("Open {} #{}", n.subject.title, number))
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.open_subject(None, window, cx)
-                            }))
-                            .child(format!("{}  #{}", n.subject.title, number)),
-                        None => div()
+                        Some((_, number)) => {
+                            page_title(format!("{}  #{}", n.subject.title, number))
+                                .id("notification-subject-link")
+                                .debug_selector(|| "notification-subject-link".to_string())
+                                .text_color(cx.theme().accent)
+                                .cursor_pointer()
+                                // docs/0049 D1: the subject link is a Link
+                                // role carrying its own name (text children
+                                // don't become the node's name).
+                                .role(accesskit::Role::Link)
+                                .aria_label(format!("Open {} #{}", n.subject.title, number))
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.open_subject(None, window, cx)
+                                }))
+                        }
+                        None => page_title(n.subject.title.clone())
                             .id("notification-subject-text")
-                            .debug_selector(|| "notification-subject-text".to_string())
-                            .text_lg()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(n.subject.title.clone()),
+                            .debug_selector(|| "notification-subject-text".to_string()),
                     })
                     // The latest-comment jump (docs/0026 D9, #154): Issue/PR
                     // subjects with a parseable `latest_comment_url` — clicking
@@ -710,7 +707,7 @@ fn meta_row(
 
 impl Render for NotificationDetailPage {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        v_flex()
+        page_canvas()
             .id("notification-detail")
             .key_context("GithubNotificationPage")
             .track_focus(&self.focus_handle)
@@ -723,9 +720,6 @@ impl Render for NotificationDetailPage {
                 this.request_close(cx);
             }))
             .size_full()
-            .min_w_0()
-            .p_4()
-            .gap_3()
             .child(self.render_header(cx))
             .when_some(self.thread.load_error().map(str::to_string), |col, err| {
                 col.child(
