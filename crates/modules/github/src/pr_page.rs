@@ -18,6 +18,7 @@
 //! `on_click` to the sub-pages doc), and sign-out (the page auto-clears in
 //! `page.rs::sync_from_state_in` when auth drops).
 
+use dashboard_core::ui::{page_canvas, page_title, section_header};
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 
@@ -1045,14 +1046,11 @@ impl PrDetailPage {
             return out;
         }
         out.push(
-            div()
+            section_header(format!("Waiting for approval ({})", rows.len()))
                 .id("pr-gated-header")
                 .debug_selector(|| "pr-gated-header".to_string())
                 .px_3()
                 .py_2()
-                .text_sm()
-                .font_weight(FontWeight::MEDIUM)
-                .child(format!("Waiting for approval ({})", rows.len()))
                 .into_any_element(),
         );
         for row in rows.iter() {
@@ -3569,12 +3567,7 @@ impl PrDetailPage {
                                     .color(state_color(tone, cx))
                                     .child(state_label(tone)),
                             )
-                            .child(
-                                div()
-                                    .text_lg()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .child(title),
-                            )
+                            .child(page_title(title))
                             .child(
                                 div()
                                     .text_color(cx.theme().muted_foreground)
@@ -3826,12 +3819,7 @@ impl PrDetailPage {
             .py_2()
             .border_b_1()
             .border_color(cx.theme().border)
-            .child(
-                div()
-                    .text_sm()
-                    .font_weight(FontWeight::MEDIUM)
-                    .child(checks_header_line(&counts, waiting)),
-            );
+            .child(section_header(checks_header_line(&counts, waiting)));
         let mut rows: Vec<AnyElement> = self.render_gated_section(cx);
         rows.extend(d.checks.nodes.iter().enumerate().map(|(i, check)| {
             let (icon, color) = check_visual(check.state, cx);
@@ -5188,13 +5176,10 @@ impl PrDetailPage {
             .border_color(cx.theme().border)
             .p_3()
             .child(
-                div()
+                section_header(label)
                     .id("pr-checks-summary-label")
                     .debug_selector(|| "pr-checks-summary-label".to_string())
-                    .text_sm()
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(color)
-                    .child(label),
+                    .text_color(color),
             )
             .child(
                 div()
@@ -5334,7 +5319,7 @@ impl Render for PrDetailPage {
             }
         }
         let detail = self.detail.data();
-        v_flex()
+        page_canvas()
             .id("pr-detail")
             .key_context("GithubPrPage")
             .track_focus(&self.focus_handle)
@@ -5351,9 +5336,6 @@ impl Render for PrDetailPage {
                 }
             }))
             .size_full()
-            .min_w_0()
-            .p_4()
-            .gap_3()
             .child(self.render_header(detail, cx))
             .child(self.render_tabs(detail, cx))
             .child(self.render_tab_content(detail, cx))

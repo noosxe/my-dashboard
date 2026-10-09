@@ -22,6 +22,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::ui::page_canvas;
 use crate::usage_records::{self, Transport, UsageRecord};
 use gpui::SharedString;
 
@@ -1666,11 +1667,9 @@ impl Render for UsagePage {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let (flights, oldest_retained) = self.header_facts();
 
-        v_flex()
+        page_canvas()
             .id("usage-page")
             .size_full()
-            .p_4()
-            .gap_3()
             // Control strip (D2/D4): range picker + refresh button,
             // then the page-global facets. Every id is bridge-visible
             // (docs/0010 D10).

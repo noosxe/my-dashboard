@@ -21,6 +21,7 @@
 //! page's `GithubIssuePage` key context), the repo crumb, and sign-out
 //! (the page auto-clears in `page.rs` when auth drops).
 
+use dashboard_core::ui::{page_canvas, page_title};
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use std::time::Duration;
@@ -1508,12 +1509,7 @@ impl IssueDetailPage {
                     .color(badge_color(badge_tone, cx))
                     .child(badge_label),
             )
-            .child(
-                div()
-                    .text_lg()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(title),
-            )
+            .child(page_title(title))
             .child(
                 div()
                     .text_color(cx.theme().muted_foreground)
@@ -2822,7 +2818,7 @@ impl Render for IssueDetailPage {
             }
         }
         let detail = self.detail.data();
-        v_flex()
+        page_canvas()
             .id("issue-detail")
             .key_context("GithubIssuePage")
             .track_focus(&self.focus_handle)
@@ -2839,9 +2835,6 @@ impl Render for IssueDetailPage {
                 }
             }))
             .size_full()
-            .min_w_0()
-            .p_4()
-            .gap_3()
             .child(self.render_header(detail, cx))
             .child(self.render_body(detail, cx))
     }

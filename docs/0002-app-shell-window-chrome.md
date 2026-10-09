@@ -242,6 +242,23 @@ host and new files/crates grow from there.
   the captured `AnyWindowHandle` (`minimize_window`/`zoom_window`/
   `toggle_fullscreen` — public Window API). Interactive nodes carry
   ids (`about-overlay`, `about-close`) per docs/0010 D10.
+- **D13 — Page canvas & type tiers** (2026-10-09, #487/#488): the content
+  inset and the page type levels each get one owner, in `core::ui`.
+  `page_canvas()` is the single source of the page-root contract — `min_w_0`
+  + `p_4` inset + `gap_3` stack rhythm — so the canvas inset is tuned in one
+  place instead of repeating the recipe per page root; page roots add their
+  own sizing/scroll (`.size_full()`, `.overflow_y_scroll()`), and the home
+  module grid is the one deliberate exception (a wrapping card grid: its own
+  `p_4().gap_4()`, docs/0003 §F2). Whether the canvas inset should also
+  optically align with the sidebar's internal padding — the shell's framed
+  panel already carries the D8 window inset — is a docs/0065 bridge check,
+  not decided here. Type tiers: page-identity titles are `text_lg` +
+  semibold (`page_title`) — issue/PR/notification subject titles,
+  creator/generator headers, module landing headers; section/box headers
+  are `text_sm` + semibold (`section_header`); list-item titles stay
+  regular/MEDIUM (item emphasis is not a heading). This unifies the
+  previous drift: hub and creator headers were `text_base` + MEDIUM,
+  favicon was `text_xl`, detail titles `text_lg`.
 
 ## 5. Proposed implementation
 
