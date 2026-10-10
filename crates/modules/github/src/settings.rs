@@ -73,7 +73,7 @@ pub fn page(state: &Entity<GithubState>, cx: &App) -> SettingPage {
                     move |options, _, cx| {
                         Button::new("github-sign-in")
                             .primary()
-                            .label("Sign in...")
+                            .label("Sign in…")
                             .with_size(options.size())
                             .disabled(!sign_in_allowed(&state.read(cx).auth))
                             .on_click({

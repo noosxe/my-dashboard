@@ -807,7 +807,7 @@ pub fn about_page(modules: &[(Option<ModuleIcon>, gpui::SharedString)]) -> Setti
                 "Repository",
                 SettingField::element(OpenPathField {
                     id: "open-repo".into(),
-                    label: "Open GitHub...".into(),
+                    label: "Open GitHub…".into(),
                     url: repo_url.into(),
                 }),
             )
