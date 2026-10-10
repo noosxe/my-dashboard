@@ -73,6 +73,9 @@ use crate::syntax;
 use crate::usage::{Origin, Surface, Trigger};
 use dashboard_core::freshness::{Freshness, freshness_row, relative_age};
 
+/// The check-run log pane's max height before it scrolls (0002 D10).
+const CHECK_LOG_MAX_H: f32 = 384.0;
+
 actions!(github, [DismissPrPage]);
 
 /// Ask the hosting `GithubPage` to close the PR sub-page (docs/0016 D1).
@@ -3982,7 +3985,7 @@ impl PrDetailPage {
                             .track_scroll(&self.check_log_scroll)
                             .overflow_y_scroll()
                             .vertical_scrollbar(&self.check_log_scroll)
-                            .max_h(px(384.))
+                            .max_h(px(CHECK_LOG_MAX_H))
                             .font_family(cx.theme().mono_font_family.clone())
                             .text_xs()
                             .child(text.clone())

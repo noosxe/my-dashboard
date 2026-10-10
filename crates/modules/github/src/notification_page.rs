@@ -52,6 +52,9 @@ use std::time::Duration;
 
 use crate::service::{Fetch, FetchSpec, GithubState, Kind, ThreadOp, run_spec_tracked};
 
+/// The fixed label lane in notification detail rows (0002 D10).
+const DETAIL_LABEL_W: f32 = 96.0;
+
 actions!(github, [DismissNotificationPage]);
 
 /// Events to the hosting `GithubPage` (docs/0026 D1/D3/D6).
@@ -696,7 +699,7 @@ fn meta_row(
         .gap_2()
         .child(
             div()
-                .w(px(96.))
+                .w(px(DETAIL_LABEL_W))
                 .flex_none()
                 .text_color(cx.theme().muted_foreground)
                 .child(label.to_string()),
