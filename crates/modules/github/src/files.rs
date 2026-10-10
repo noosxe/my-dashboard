@@ -27,6 +27,7 @@ use gpui_component::{
     h_flex,
     input::{Input, Textarea, TextareaState},
     list::{List, ListDelegate, ListItem, ListState},
+    resizable::{ResizableState, h_resizable, resizable_panel},
     scroll::ScrollableElement as _,
     select::Select,
     tree::{TreeEntry, TreeItem, tree},
@@ -43,6 +44,10 @@ use crate::pr_page::{
 use crate::service::{AnchoredLine, PatchLine, anchor_patch};
 use crate::syntax::{self, TokenKind};
 use dashboard_core::freshness::relative_age;
+use dashboard_core::panes::{
+    FILES_SIDEBAR_DEFAULT, FILES_SIDEBAR_MAX, FILES_SIDEBAR_MIN, RESIZE_KEYBOARD_STEP,
+    set_files_sidebar,
+};
 use dashboard_core::ui::empty_state;
 /// Files sidebar view mode (0018 D3). `List` is the default — the flat
 /// rendering is the closest to the accordion it replaces.
@@ -250,9 +255,9 @@ impl ListDelegate for FileListDelegate {
     }
 }
 
-/// The Files tab master–detail split (0018 D1/D2): fixed-width sidebar
-/// (border right) and the selected file's diff pane. Called only with a
-/// ready, non-empty payload.
+/// The Files tab master–detail split (0018 D1, amended by docs/0069):
+/// a resizable master sidebar and the selected file's diff pane — the
+/// primary remainder. Called only with a ready, non-empty payload.
 pub(crate) fn render_split(
     page_h: &Entity<PrDetailPage>,
     page: &PrDetailPage,
@@ -267,8 +272,28 @@ pub(crate) fn render_split(
         .flex_1()
         .min_h_0()
         .w_full()
-        .child(sidebar(page, files, cx))
-        .child(diff_pane(page_h, page, files, cx))
+        .child(
+            // The seam (docs/0069 D1/D3): the master sidebar holds a
+            // declared width in [220, 480], seeded from the saved
+            // value; the diff pane is the primary remainder and keeps
+            // the surplus. `on_resize` fires when a drag settles.
+            h_resizable("files-split-group")
+                .with_state(&page.files_split)
+                .child(
+                    resizable_panel()
+                        .size(px(page.files_sidebar_px))
+                        .flex_none()
+                        .size_range(px(FILES_SIDEBAR_MIN)..px(FILES_SIDEBAR_MAX))
+                        .child(sidebar(page, files, cx)),
+                )
+                .child(resizable_panel().child(diff_pane(page_h, page, files, cx)))
+                .on_resize(|state, _, cx| {
+                    let Some(width) = state.read(cx).sizes().first().copied() else {
+                        return;
+                    };
+                    set_files_sidebar(width, cx);
+                }),
+        )
         .into_any_element()
 }
 
@@ -283,14 +308,11 @@ fn sidebar(page: &PrDetailPage, files: &[PrFile], cx: &Context<PrDetailPage>) ->
     v_flex()
         .id("pr-files-sidebar")
         .debug_selector(|| "files-sidebar".into())
-        .w(px(300.))
-        .flex_none()
-        // Structural height (0016 D5 lesson): stretch to the split's
-        // definite cross size — never a percentage of it.
-        .self_stretch()
+        // The resizable panel (0069 D1) owns the width now — the
+        // sidebar fills it and hosts the seam handle at its right edge.
+        .relative()
+        .size_full()
         .min_h_0()
-        .border_r_1()
-        .border_color(cx.theme().border)
         .p_2()
         .gap_2()
         .child(
@@ -321,8 +343,64 @@ fn sidebar(page: &PrDetailPage, files: &[PrFile], cx: &Context<PrDetailPage>) ->
                     .accessibility_id("pr-files-filter"),
             ),
         )
+        .child(seam_handle(page))
         .child(view_area(page, cx))
         .into_any_element()
+}
+
+/// The seam handle (docs/0069 D5): a keyboard-operable splitter
+/// straddling the sidebar's right edge. Pointer resizing stays on the
+/// group's own handle — upstream owns the hit band, the cursor and the
+/// drag — so this strip is pointer-transparent and carries the
+/// keyboard path plus the a11y node (#360: id + focus + role).
+fn seam_handle(page: &PrDetailPage) -> Stateful<Div> {
+    div()
+        .id("files-split-handle")
+        .debug_selector(|| "files-split-handle".into())
+        .absolute()
+        .top_0()
+        .bottom_0()
+        .right(px(-2.))
+        .w(px(5.))
+        .track_focus(&page.files_handle_focus)
+        .role(accesskit::Role::Splitter)
+        .aria_label("Resize files sidebar")
+        .on_key_down(seam_keyboard(page.files_split.clone()))
+}
+
+/// Keyboard resize (docs/0069 D5): `resize_panel` redistributes space
+/// exactly like a drag and clamps to the panel's declared range; the
+/// settled width then lands in the pane-widths global and the shell's
+/// debounced save picks it up (docs/0004 §4.3).
+fn seam_keyboard(state: Entity<ResizableState>) -> impl Fn(&KeyDownEvent, &mut Window, &mut App) {
+    move |event, window, cx| {
+        let current = state
+            .read(cx)
+            .sizes()
+            .first()
+            .map(|size| size.as_f32())
+            .unwrap_or(FILES_SIDEBAR_DEFAULT);
+        let next = match event.keystroke.key.as_str() {
+            "left" => current - RESIZE_KEYBOARD_STEP,
+            "right" => current + RESIZE_KEYBOARD_STEP,
+            "home" => FILES_SIDEBAR_MIN,
+            "end" => FILES_SIDEBAR_MAX,
+            _ => return,
+        };
+        state.update(cx, |state, cx| {
+            state.resize_panel(
+                0,
+                px(next.clamp(FILES_SIDEBAR_MIN, FILES_SIDEBAR_MAX)),
+                window,
+                cx,
+            );
+        });
+        let Some(width) = state.read(cx).sizes().first().copied() else {
+            return;
+        };
+        set_files_sidebar(width, cx);
+        cx.stop_propagation();
+    }
 }
 
 /// The active view area (0018 D4/D5): the List or the Tree, filling the

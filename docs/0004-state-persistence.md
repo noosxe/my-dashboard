@@ -282,15 +282,17 @@ no dead ends).
 `state/my-dashboard/shell.json`:
 
 ```json
-{ "sidebar_collapsed": false }
+{ "sidebar_collapsed": false, "files_sidebar_px": 300.0 }
 ```
 
 - Chrome is no longer persisted at all (owner decision in this PR's
   review, superseding 0002 D7: chrome is decoration-driven, resolved
   per render from `window.window_decorations()` — Client → full title
   bar; Server → nothing, not even a close X). `ShellState` shrank to
-  the sidebar toggle; older files with a `show_titlebar` field still
-  load (serde ignores unknown fields).
+  the sidebar toggle (and, since docs/0069 D4, the Files sidebar
+  width); older files with a `show_titlebar` field still
+  load (serde ignores unknown fields; a missing `files_sidebar_px`
+  falls back to the pre-seam default 300).
 - The sidebar toggle handler calls `save_debounced` (500 ms) with the
   snapshot.
 - Missing/corrupt file → defaults (sidebar expanded).

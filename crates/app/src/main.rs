@@ -200,6 +200,11 @@ fn main() {
                         .flatten()
                         .unwrap_or_default();
 
+                    // Pane widths (docs/0069 D4): seed the seam
+                    // global from the loaded state before any page
+                    // entity can exist; panes::seed clamps the
+                    // restore.
+                    dashboard_core::panes::seed(cx, shell_state.files_sidebar_px);
                     // Navigation state, then modules (registry order = sidebar
                     // + home-grid order — docs/0003 §4.2).
                     let nav = cx.new(|_| Navigator::new(shell_state.sidebar_collapsed));
