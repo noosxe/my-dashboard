@@ -20,7 +20,7 @@ use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 
 use gpui_component::{
-    ActiveTheme, Disableable, Sizable as _,
+    ActiveTheme, Disableable, Selectable as _, Sizable as _,
     button::{Button, ButtonVariants},
     h_flex,
     input::{InputEvent, Textarea, TextareaState},
@@ -526,11 +526,12 @@ impl Render for NewIssuePage {
             for (index, template) in templates.iter().enumerate() {
                 let selected = self.selected_template == Some(index);
                 let id: SharedString = format!("new-issue-tpl-{index}").into();
-                let mut button = if selected {
-                    Button::new(id).primary().xsmall()
-                } else {
-                    Button::new(id).ghost().xsmall()
-                };
+                // Selected pill = the component system's own selected
+                // state on the shared ghost silhouette (upstream paints
+                // the persistent selected look from the theme) — never
+                // the primary variant, which stays reserved for the
+                // commit button (docs/0046 D2, #481).
+                let mut button = Button::new(id).ghost().xsmall().selected(selected);
                 button = button
                     .debug_selector(move || format!("new-issue-tpl-{index}"))
                     .label(template.name.clone());
@@ -543,11 +544,10 @@ impl Render for NewIssuePage {
             }
             if self.blank_allowed {
                 let blank_selected = self.selected_template.is_none();
-                let blank = if blank_selected {
-                    Button::new("new-issue-tpl-blank").primary().xsmall()
-                } else {
-                    Button::new("new-issue-tpl-blank").ghost().xsmall()
-                };
+                let blank = Button::new("new-issue-tpl-blank")
+                    .ghost()
+                    .xsmall()
+                    .selected(blank_selected);
                 row = row.child(
                     blank
                         .debug_selector(|| "new-issue-tpl-blank".to_string())
