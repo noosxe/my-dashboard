@@ -5,11 +5,12 @@
 
 use gpui::{prelude::FluentBuilder as _, *};
 
-use gpui_component::{ActiveTheme, Icon, h_flex, v_flex};
+use gpui_component::{ActiveTheme, Icon, h_flex};
 
 use crate::module::{ModuleEntry, ModuleIcon};
 use crate::nav::{Navigator, Page};
 use crate::registry::ModuleRegistry;
+use crate::ui::{CardVariant, card};
 
 /// Card frame (Q2): fixed width + wrap; height keeps the grid regular.
 pub const CARD_SIZE: (f32, f32) = (320., 200.);
@@ -19,20 +20,10 @@ pub fn render(
     nav: &Entity<Navigator>,
     cx: &mut App,
 ) -> impl IntoElement {
-    // Snapshot theme colors first (Copy) so the card builder needs no `cx`
-    // — a `FnMut` map closure can't hand out borrowed `&mut App`.
-    let theme = cx.theme();
-    let colors = CardColors {
-        border: theme.border,
-        muted: theme.muted_foreground,
-        hover_bg: theme.secondary,
-        bg: theme.background,
-    };
-
     let cards: Vec<_> = registry
         .entries()
         .iter()
-        .map(|entry| card(entry, nav.clone(), colors))
+        .map(|entry| card_tile(entry, nav.clone(), cx))
         .collect();
 
     h_flex()
@@ -52,15 +43,7 @@ pub fn render(
         .children(cards)
 }
 
-#[derive(Clone, Copy)]
-struct CardColors {
-    border: Hsla,
-    muted: Hsla,
-    hover_bg: Hsla,
-    bg: Hsla,
-}
-
-fn card(entry: &ModuleEntry, nav: Entity<Navigator>, colors: CardColors) -> impl IntoElement {
+fn card_tile(entry: &ModuleEntry, nav: Entity<Navigator>, cx: &App) -> impl IntoElement {
     let id = entry.meta.id.clone();
     let title = entry.meta.title.clone();
     let icon = entry.meta.icon.as_ref().map(|i| match i {
@@ -69,31 +52,29 @@ fn card(entry: &ModuleEntry, nav: Entity<Navigator>, colors: CardColors) -> impl
     });
     let overview = entry.overview.clone();
 
-    v_flex()
+    card(cx, CardVariant::Interactive)
         .id(ElementId::Name(id.clone()))
         .w(px(CARD_SIZE.0))
         .h(px(CARD_SIZE.1))
         .flex_shrink_0()
-        .border_1()
-        .border_color(colors.border)
-        .rounded_lg()
-        .bg(colors.bg)
-        .p_3()
         .gap_2()
         .overflow_hidden()
-        .hover(|this| this.bg(colors.hover_bg))
         // docs/0049 D1: module cards are list items that open the
         // module — id + role + explicit name.
         .role(accesskit::Role::ListItem)
         .aria_label(format!("Open {title} module"))
-        .cursor_pointer()
         .child(
             h_flex()
                 .gap_2()
                 .items_center()
                 .flex_shrink_0()
                 .when_some(icon, |this, icon| this.child(Icon::new(icon)))
-                .child(div().text_sm().text_color(colors.muted).child(title)),
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(title),
+                ),
         )
         .child(div().flex_1().min_h_0().child(overview))
         .on_click(move |_, _window, cx| {

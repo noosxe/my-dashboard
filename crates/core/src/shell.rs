@@ -26,6 +26,7 @@ use crate::settings as app_settings;
 use crate::status;
 use crate::store::DebouncedSave;
 use crate::toasts;
+use crate::ui::{CardVariant, card};
 use crate::usage_analytics;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -743,14 +744,10 @@ impl Render for DashboardShell {
                             }),
                         )
                         .child(
-                            v_flex()
+                            card(cx, CardVariant::Quiet)
                                 .w(px(Self::ABOUT_CARD_WIDTH))
                                 .gap_3()
                                 .p_4()
-                                .bg(cx.theme().background)
-                                .border_1()
-                                .border_color(cx.theme().border)
-                                .rounded(cx.theme().radius)
                                 .on_mouse_down(
                                     MouseButton::Left,
                                     cx.listener(|_, _: &MouseDownEvent, _, cx| {

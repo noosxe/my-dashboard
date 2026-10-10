@@ -22,7 +22,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::ui::page_canvas;
+use crate::ui::{CardVariant, card, page_canvas};
 use crate::usage_records::{self, Transport, UsageRecord};
 use gpui::SharedString;
 
@@ -1995,18 +1995,14 @@ fn stat_card<T: 'static>(
     cx: &Context<T>,
 ) -> impl IntoElement {
     let theme = cx.theme();
-    let (border, fg, muted) = (theme.border, theme.foreground, theme.muted_foreground);
-    v_flex()
+    let (fg, muted) = (theme.foreground, theme.muted_foreground);
+    card(cx, CardVariant::Quiet)
         .id(id.to_string())
         .role(gpui::accesskit::Role::Label)
         .aria_label(a11y)
         .flex_1()
         .min_w(px(220.))
         .gap_1()
-        .p_3()
-        .border_1()
-        .border_color(border)
-        .rounded_md()
         .child(
             div()
                 .text_sm()

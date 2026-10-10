@@ -1,10 +1,11 @@
 //! Shared page-scaffold helpers — one owner for the canvas contract and
 //! the type tiers pages compose from (#487, #488).
 
+use gpui::InteractiveElement as _;
 use gpui::ParentElement as _;
 use gpui::Styled as _;
-use gpui::{Div, FontWeight, SharedString, div};
-use gpui_component::v_flex;
+use gpui::{App, Div, FontWeight, SharedString, div};
+use gpui_component::{ActiveTheme as _, v_flex};
 
 /// The page canvas: the single owner of the content inset (`p_4`) and the
 /// stack rhythm (`gap_3`). Page roots start here instead of repeating the
@@ -41,4 +42,42 @@ pub fn section_header(text: impl Into<SharedString>) -> Div {
         .text_sm()
         .font_weight(FontWeight::SEMIBOLD)
         .child(text.into())
+}
+
+/// How a card is framed. One construction for the app's box language:
+/// `border_1` + the `border` token, the `radius_lg` semantic tier, the
+/// page background, and an owned `p_3` inset (docs/0002 D14).
+///
+/// The line against [`gpui_component::group_box::GroupBox`]: a **titled**
+/// container is a GroupBox (PR-page boxes); an **untitled** tile is a
+/// card. A tinted/filled variant is deliberately absent until a surface
+/// needs one — the page background is the only fill so cards also work
+/// over the about overlay's backdrop.
+pub enum CardVariant {
+    /// Static tile: framed, no affordances (stat tiles, dialogs).
+    Quiet,
+    /// Clickable tile: [`CardVariant::Quiet`] plus the one hover wash
+    /// (`theme.secondary`) and the pointer cursor. The caller keeps the
+    /// `id`, role/name, and `on_click` — semantics stay at the surface.
+    Interactive,
+}
+
+/// The card tile (docs/0002 D14). Chain sizing, `id`, a11y, and content
+/// on top; do not re-add frame, radius, fill, padding, hover, or cursor —
+/// that is the drift this replaces (#489, #491's card half).
+pub fn card(cx: &App, variant: CardVariant) -> Div {
+    let theme = cx.theme();
+    let base = v_flex()
+        .border_1()
+        .border_color(theme.border)
+        .rounded(theme.radius_lg)
+        .bg(theme.background)
+        .p_3();
+    match variant {
+        CardVariant::Quiet => base,
+        CardVariant::Interactive => {
+            let wash = theme.secondary;
+            base.hover(move |this| this.bg(wash)).cursor_pointer()
+        }
+    }
 }

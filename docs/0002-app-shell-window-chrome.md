@@ -259,6 +259,21 @@ host and new files/crates grow from there.
   regular/MEDIUM (item emphasis is not a heading). This unifies the
   previous drift: hub and creator headers were `text_base` + MEDIUM,
   favicon was `text_xl`, detail titles `text_lg`.
+- **D14 — One card construction** (2026-10-09, #489): an untitled content
+  tile is `core::ui::card()` — `border_1` + the `border` token, the
+  `radius_lg` semantic tier, the page background, an owned `p_3` inset,
+  and for `CardVariant::Interactive` the one hover wash
+  (`theme.secondary`) plus the pointer cursor. Variants are
+  `Quiet`/`Interactive` only: a tinted "filled" variant is deliberately
+  absent until a surface needs one. The line against GroupBox:
+  **titled** container = `GroupBox` (PR-page boxes), **untitled** tile =
+  `card()`. Callers keep `id`, role/name, and `on_click`; they do not
+  re-add frame/radius/fill/padding/hover — that is the drift #489
+  replaces (five constructions: radius `lg` vs `md`, border vs
+  borderless, `CardColors` color-threading, accent-tint hover). The two
+  home overview cards (github, favicon) gained the border and standard
+  inset they lacked — the unification is the point — and the
+  accent-tint hover wash is gone wherever a card is clickable.
 
 ## 5. Proposed implementation
 
