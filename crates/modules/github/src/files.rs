@@ -361,7 +361,7 @@ fn seam_handle(page: &PrDetailPage) -> Stateful<Div> {
         .top_0()
         .bottom_0()
         .right(px(-2.))
-        .w(px(5.))
+        .w(px(SEAM_HANDLE_W))
         .track_focus(&page.files_handle_focus)
         .role(accesskit::Role::Splitter)
         .aria_label("Resize files sidebar")
@@ -449,7 +449,7 @@ fn tree_row(entry: &TreeEntry, selected: bool, cx: &App) -> ListItem {
             .gap_1()
             .items_center()
             .when(depth > 0, |row| {
-                row.child(div().flex_none().w(px(depth as f32 * 12.)))
+                row.child(div().flex_none().w(px(depth as f32 * TREE_INDENT_STEP)))
             })
             .when(is_folder, |row| {
                 let chevron = if entry.is_expanded() {
@@ -467,13 +467,14 @@ fn tree_row(entry: &TreeEntry, selected: bool, cx: &App) -> ListItem {
             })
             .when(!is_folder, |row| {
                 // Spacer under the folder chevron so basenames align.
-                row.child(div().flex_none().w(px(16.))).child(
-                    div()
-                        .truncate()
-                        .text_xs()
-                        .font_family(cx.theme().mono_font_family.clone())
-                        .child(entry.item().label.clone()),
-                )
+                row.child(div().flex_none().w(px(TREE_CHEVRON_SPACER_W)))
+                    .child(
+                        div()
+                            .truncate()
+                            .text_xs()
+                            .font_family(cx.theme().mono_font_family.clone())
+                            .child(entry.item().label.clone()),
+                    )
             }),
     )
 }
@@ -1040,7 +1041,7 @@ fn row_text_len(anchored: &crate::service::AnchoredLine) -> usize {
 fn gutter_cell(n: Option<u32>, cx: &App) -> Div {
     div()
         .flex_none()
-        .w(px(44.))
+        .w(px(GUTTER_COL_W))
         .text_right()
         .pr_2()
         .text_xs()
@@ -1064,9 +1065,21 @@ fn row_anchor(anchored: &AnchoredLine) -> Option<(DiffSide, u32)> {
 pub(crate) static DIFF_ROWS_BUILT: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 
-/// The pinned gutter's width (#413): two 44 px number columns, outside
-/// every row's x-scroller.
-const GUTTER_W: f32 = 88.0;
+/// One pinned number column's width (#413). The pinned gutter is two
+/// of them, outside every row's x-scroller.
+const GUTTER_COL_W: f32 = 44.0;
+const GUTTER_W: f32 = GUTTER_COL_W * 2.0;
+/// The seam handle's hit band (docs/0069 D5): wide enough to tab to,
+/// centered on the panel edge by its negative `right` offset.
+const SEAM_HANDLE_W: f32 = 5.0;
+/// The tree indent per depth level (0002 D10): one step per nesting
+/// level, so basenames align across the hierarchy.
+const TREE_INDENT_STEP: f32 = 12.0;
+/// The spacer under a folder's chevron (0002 D10): keeps file
+/// basenames aligned with folder labels.
+const TREE_CHEVRON_SPACER_W: f32 = 16.0;
+/// The add/del glyph cell's width (0002 D10).
+const GLYPH_CELL_W: f32 = 10.0;
 
 #[allow(clippy::too_many_arguments)]
 fn diff_row(
@@ -1266,7 +1279,7 @@ fn x_scrolled(rix: usize, content_w: f32, x_handle: &ScrollHandle, content: Div)
 fn glyph_cell(glyph: &'static str, color: Option<Hsla>) -> Div {
     let mut cell = div()
         .flex_none()
-        .w(px(10.))
+        .w(px(GLYPH_CELL_W))
         .text_center()
         .text_xs()
         .child(glyph);

@@ -31,6 +31,17 @@ use crate::render::{self, RenderError};
 use crate::spec::{DesignSpec, EMOJI_GRID, FONT_FAMILIES, ImageMime, Source, ThemeColors};
 use crate::state::SpecStore;
 
+/// The generator tabs' fixed form-control widths (0002 D10): one
+/// constant per control role, shared by both shape/emoji tab variants.
+const TEXT_CHARS_INPUT_W: f32 = 80.0; // text-mode character input
+const EMOJI_INPUT_W: f32 = 120.0; // emoji keyword input
+const RADIUS_SLIDER_W: f32 = 160.0; // corner-radius slider
+const SCALE_SLIDER_W: f32 = 180.0; // padding-scale slider (both tabs)
+const APP_NAME_INPUT_W: f32 = 200.0; // app-name input (export tab)
+const FAMILY_INPUT_W: f32 = 220.0; // font-family input
+const DIR_INPUT_W: f32 = 280.0; // output-directory input (export tab)
+const CONTROLS_COL_W: f32 = 420.0; // the left controls column
+
 /// Preview ladder (D2/D10): raster frames of the exact emitted SVG.
 const PREVIEW_SIZES: [u32; 5] = [16, 32, 96, 180, 512];
 
@@ -858,7 +869,7 @@ impl FaviconPage {
                 .gap_2()
                 .child(
                     h_flex().gap_2().child(
-                        div().id("favicon-text-input").child(Input::new(chars).w(px(80.))),
+                        div().id("favicon-text-input").child(Input::new(chars).w(px(TEXT_CHARS_INPUT_W))),
                     ),
                 )
                 .child(
@@ -867,7 +878,7 @@ impl FaviconPage {
                         .child(
                             div()
                                 .id("favicon-font-family")
-                                .child(Input::new(family).w(px(220.))),
+                                .child(Input::new(family).w(px(FAMILY_INPUT_W))),
                         )
                         .child(
                             TabBar::new("favicon-font-weight")
@@ -912,7 +923,7 @@ impl FaviconPage {
                 .child(
                     h_flex()
                         .gap_2()
-                        .child(div().id("favicon-scale").child(Slider::new(scale).horizontal().w(px(180.))))
+                        .child(div().id("favicon-scale").child(Slider::new(scale).horizontal().w(px(SCALE_SLIDER_W))))
                         .child(
                             div()
                                 .text_xs()
@@ -925,7 +936,7 @@ impl FaviconPage {
                 .gap_2()
                 .child(
                     h_flex().gap_2().child(
-                        div().id("favicon-emoji-input").child(Input::new(emoji).w(px(120.))),
+                        div().id("favicon-emoji-input").child(Input::new(emoji).w(px(EMOJI_INPUT_W))),
                     ),
                 )
                 .child(
@@ -949,7 +960,7 @@ impl FaviconPage {
                 .child(
                     h_flex()
                         .gap_2()
-                        .child(div().id("favicon-scale").child(Slider::new(scale).horizontal().w(px(180.)))),
+                        .child(div().id("favicon-scale").child(Slider::new(scale).horizontal().w(px(SCALE_SLIDER_W)))),
                 )
                 .into_any_element(),
             2 => v_flex()
@@ -1096,7 +1107,7 @@ impl Render for FaviconPage {
                     .child(
                         v_flex()
                             .gap_3()
-                            .w(px(420.))
+                            .w(px(CONTROLS_COL_W))
                             .flex_shrink_0()
                             .child(
                                 TabBar::new("favicon-source-tabs")
@@ -1171,7 +1182,7 @@ impl Render for FaviconPage {
                                                 Slider::new(&radius)
                                                     .horizontal()
                                                     .disabled(shape_circle)
-                                                    .w(px(160.)),
+                                                    .w(px(RADIUS_SLIDER_W)),
                                             ),
                                     ),
                             )
@@ -1234,7 +1245,7 @@ impl Render for FaviconPage {
                                             .child(
                                                 div()
                                                     .id("favicon-export-dir")
-                                                    .child(Input::new(&dir).w(px(280.))),
+                                                    .child(Input::new(&dir).w(px(DIR_INPUT_W))),
                                             )
                                             .child(
                                                 Button::new("favicon-export-browse")
@@ -1252,7 +1263,7 @@ impl Render for FaviconPage {
                                             .gap_2()
                                             .child(
                                                 div().id("favicon-app-name").child(
-                                                    Input::new(&app_name).w(px(200.)),
+                                                    Input::new(&app_name).w(px(APP_NAME_INPUT_W)),
                                                 ),
                                             )
                                             .child(

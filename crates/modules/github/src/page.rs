@@ -52,6 +52,12 @@ use crate::service::{
 };
 use crate::usage::{Origin, Surface, Trigger};
 
+/// The reconcile view's fixed left column (0002 D10).
+const RECONCILE_COL_W: f32 = 280.0;
+/// The connect panel's blurb max width (0002 D10): keeps the sign-in
+/// text measure readable on wide windows.
+const CONNECT_BLURB_MAX_W: f32 = 420.0;
+
 /// docs/0052 D6: the age-label clock — a render-only wake. Repaints
 /// advance the relative ages ("synced 2 m ago", #192 / docs/0033 D4);
 /// it never dispatches a spec (D1 forbids timer-driven fetches, not
@@ -2492,7 +2498,7 @@ impl GithubPage {
             (state.snapshot_age, state.notifications_age)
         };
         v_flex()
-            .w(px(280.))
+            .w(px(RECONCILE_COL_W))
             .flex_none()
             .h_full()
             .border_r_1()
@@ -3428,7 +3434,7 @@ fn connect_panel(auth: &AuthStatus, cx: &mut Context<GithubPage>) -> AnyElement 
         .child(github_mark(cx).into_any_element())
         .child(
             div()
-                .max_w(px(420.))
+                .max_w(px(CONNECT_BLURB_MAX_W))
                 .text_center()
                 .text_color(cx.theme().muted_foreground)
                 .child(body),
