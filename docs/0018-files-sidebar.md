@@ -34,7 +34,7 @@ The product owner wants GitHub-style master–detail instead:
 
 - "Viewed" checkboxes, expand-context hunks, per-file commenting.
 - Image/binary diffs beyond today's placeholder.
-- Sidebar drag-resize; persistence of view mode across page opens.
+- Sidebar drag-resize (delivered by docs/0069 / #497); persistence of view mode across page opens.
 - Virtualized tree (upstream `Tree` is a uniform list internally —
   fine for PR-scale file counts).
 
@@ -87,12 +87,23 @@ All of this ships upstream today; no new dependencies:
 
 ### D1 — Master–detail split
 
-`render_files` (fetch-ready branch) returns an `h_flex()` filling the
+> **Amended by docs/0069** (pane seam, #497): the fixed sidebar became
+> a resizable master pane. The text below describes the original,
+> pre-seam shape.
+
+`render_files` (fetch-ready branch) returned an `h_flex()` filling the
 tab area: **sidebar** (fixed `w_75` ≈ 300px, `border_r` on
 `cx.theme().border`, `h_full`, own internal scroll regions) +
-**diff pane** (`flex_1().min_w_0()`). Both children are
+**diff pane** (`flex_1().min_w_0()`). Both children were
 `v_flex().min_h_0()` so internal scrolls never grow the tab (0016 D5
 lesson: size containers explicitly).
+
+Since 0069, the split is an `h_resizable("files-split-group")` group:
+the sidebar is a `resizable_panel` (`size_range` px(220)–px(480),
+seeded from the persisted width, default 300 — see 0069 D3/D4) and the
+diff pane is the primary remainder. The sidebar hosts the keyboard
+seam handle at its right edge (`files-split-handle`, 0069 D5); the
+pointer band, cursor and drag stay on the group's own handle.
 
 ### D2 — Sidebar composition
 

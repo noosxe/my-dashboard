@@ -1,7 +1,7 @@
 # 0069 — Resizable pane seam: one split mechanism, pane roles, inspector scope
 
 Date: 2026-10-10
-Status: Accepted by design review (implementation tracked in the issue filed from this PR)
+Status: Shipped (2026-10-10, #497 — pilot per D3–D5; inspector role pending its first consumer, see the deferred issue)
 
 ## 1. Context
 

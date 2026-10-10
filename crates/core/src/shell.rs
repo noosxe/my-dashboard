@@ -39,6 +39,16 @@ use std::time::Duration;
 #[derive(Serialize, Deserialize, Default)]
 pub struct ShellState {
     pub sidebar_collapsed: bool,
+    /// Files-tab sidebar width in px (docs/0069 D4). Older files lack
+    /// it → the pre-seam default; restored clamped into the declared
+    /// range via `panes::seed`.
+    #[serde(default = "default_files_sidebar_px")]
+    pub files_sidebar_px: f32,
+}
+
+/// Pre-seam sidebar width (docs/0069 D3) — also the serde default.
+fn default_files_sidebar_px() -> f32 {
+    crate::panes::FILES_SIDEBAR_DEFAULT
 }
 
 pub struct DashboardShell {
@@ -79,6 +89,13 @@ impl DashboardShell {
             KeyBinding::new("alt-left", nav::Back, None),
             KeyBinding::new("alt-right", nav::Forward, None),
         ]);
+        // Pane widths (docs/0069 D4): a seam resize settled (drag end or
+        // keyboard step) — funnel it into the same debounced save as
+        // every other shell state.
+        cx.observe_global::<crate::panes::PaneWidths>(|this, cx| {
+            this.save_state(cx);
+        })
+        .detach();
         cx.observe_in(&nav, window, |this, nav, window, cx| {
             // Usage page (docs/0054 D1/D10): the entity is created at
             // FIRST navigation, not app start — its `as_of` freeze and
@@ -174,11 +191,22 @@ impl DashboardShell {
         }
     }
 
-    /// Snapshot the sidebar toggle and schedule the debounced save.
+    /// Snapshot the sidebar toggle and the pane widths (docs/0069 D4)
+    /// and schedule the debounced save.
     fn save_state(&mut self, cx: &Context<Self>) {
         if let Some(save) = &self.save {
             let sidebar_collapsed = self.nav.read(cx).sidebar_collapsed;
-            save.schedule(ShellState { sidebar_collapsed }, cx);
+            let files_sidebar_px = cx
+                .try_global::<crate::panes::PaneWidths>()
+                .map(|panes| panes.files_sidebar_px)
+                .unwrap_or(crate::panes::FILES_SIDEBAR_DEFAULT);
+            save.schedule(
+                ShellState {
+                    sidebar_collapsed,
+                    files_sidebar_px,
+                },
+                cx,
+            );
         }
     }
 

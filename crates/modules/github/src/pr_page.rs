@@ -33,6 +33,7 @@ use gpui_component::{
     input::{Input, InputEvent, InputState, Textarea, TextareaState},
     list::{ListEvent, ListState},
     menu::{DropdownMenu as _, PopupMenuItem},
+    resizable::ResizableState,
     scroll::ScrollableElement as _,
     searchable_list::SearchableVec,
     select::{Select, SelectEvent, SelectState},
@@ -361,6 +362,12 @@ pub(crate) struct PrDetailPage {
     pub(crate) file_filter: Entity<InputState>,
     pub(crate) file_list: Entity<ListState<FileListDelegate>>,
     pub(crate) file_tree: Entity<TreeState>,
+    /// Files-split pane seam (docs/0069): upstream resizable state for
+    /// the group, the seam handle's keyboard focus, and the seeded
+    /// sidebar width (read from the pane-widths global at creation).
+    pub(crate) files_split: Entity<ResizableState>,
+    pub(crate) files_handle_focus: FocusHandle,
+    pub(crate) files_sidebar_px: f32,
     /// Parsed markdown bodies (docs/0017 D6) keyed by card id — rebuilt
     /// whenever a detail payload lands, never re-parsed per frame.
     pub(crate) md: BTreeMap<String, Arc<[markdown::Block]>>,
@@ -446,6 +453,15 @@ impl PrDetailPage {
         let file_list =
             cx.new(|cx| ListState::new(FileListDelegate::default(), window, cx).searchable(false));
         let file_tree = cx.new(|cx| TreeState::new(cx));
+        // Pane seam (docs/0069 D4): the sidebar width seeds from the
+        // shell's pane-widths global (already clamped on restore at
+        // boot); the resizable state lives on the page for its lifetime.
+        let files_sidebar_px = cx
+            .try_global::<dashboard_core::panes::PaneWidths>()
+            .map(|panes| panes.files_sidebar_px)
+            .unwrap_or(dashboard_core::panes::FILES_SIDEBAR_DEFAULT);
+        let files_split = cx.new(|_| ResizableState::default());
+        let files_handle_focus = cx.focus_handle();
         let number = summary.number;
         // 0045 D4: restore the comment draft. `set_value` suppresses
         // events, so the prefill cannot schedule the save it came from.
@@ -527,6 +543,9 @@ impl PrDetailPage {
             file_filter: file_filter.clone(),
             file_list: file_list.clone(),
             file_tree: file_tree.clone(),
+            files_split: files_split.clone(),
+            files_handle_focus,
+            files_sidebar_px,
             md: BTreeMap::new(),
             anchor: anchor.map_or(CommentAnchor::Idle, CommentAnchor::Pending),
             timeline_scroll,

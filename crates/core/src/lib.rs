@@ -7,6 +7,7 @@ pub mod home;
 pub mod logging;
 pub mod module;
 pub mod nav;
+pub mod panes;
 pub mod paths;
 pub mod registry;
 pub mod settings;
