@@ -26,6 +26,21 @@ use crate::ui::{CardVariant, card, page_canvas};
 use crate::usage_records::{self, Transport, UsageRecord};
 use gpui::SharedString;
 
+/// The usage page's fixed widget geometry (docs/0002 D10: canvas
+/// sizes are exempt from the rem scale and therefore named).
+const STAT_CARD_MIN_W: f32 = 220.0; // flexed stat cards never narrow below this
+const CHART_CARD_MIN_W: f32 = 280.0; // wide trend/comparison cards ditto
+const PICKER_COL_W: f32 = 220.0; // the fixed left picker column
+const COMPOSITION_COL_W: f32 = 280.0; // the donut + top-7 column
+const HIST_H: f32 = 160.0; // latency histogram canvas
+const TREND_H: f32 = 180.0; // trend line canvas
+const CHART_H: f32 = 220.0; // standard chart canvas (quota bar, donut)
+const REVAL_TABLE_H: f32 = 220.0; // revaluation table canvas
+const TABLE_H: f32 = 300.0; // full-page table canvas (overview, latency)
+const SLOWEST_TABLE_H: f32 = 320.0; // slowest-flights table canvas
+const LANE_W: f32 = 84.0; // comparison matrix lane cells
+const LANE_HEADER_W: f32 = 90.0; // comparison matrix header cells
+
 // ---------------------------------------------------------------------------
 // Shared inputs
 // ---------------------------------------------------------------------------
@@ -2001,7 +2016,7 @@ fn stat_card<T: 'static>(
         .role(gpui::accesskit::Role::Label)
         .aria_label(a11y)
         .flex_1()
-        .min_w(px(220.))
+        .min_w(px(STAT_CARD_MIN_W))
         .gap_1()
         .child(
             div()
@@ -2046,7 +2061,7 @@ fn line_panel<T: 'static>(
     }
     v_flex()
         .flex_1()
-        .min_w(px(280.))
+        .min_w(px(CHART_CARD_MIN_W))
         .gap_1()
         .child(
             div()
@@ -2057,7 +2072,7 @@ fn line_panel<T: 'static>(
                 .text_color(muted)
                 .child(summary),
         )
-        .child(div().h(px(180.)).child(chart))
+        .child(div().h(px(TREND_H)).child(chart))
         .when_some(caption, |this, caption| {
             this.child(div().text_sm().text_color(muted).child(caption))
         })
@@ -2859,7 +2874,7 @@ impl Render for QuotaTab {
                         // cell and flex-wraps the controls apart. The
                         // page.rs org-picker slot pattern: bound it
                         // from the parent.
-                        div().w(px(220.)).flex_none().child(
+                        div().w(px(PICKER_COL_W)).flex_none().child(
                             Select::new(&self.group_by_select)
                                 .accessibility_label("Group by dimension"),
                         ),
@@ -2870,7 +2885,7 @@ impl Render for QuotaTab {
                             .text_color(cx.theme().muted_foreground)
                             .child("Then by"),
                     )
-                    .child(div().w(px(220.)).flex_none().child(
+                    .child(div().w(px(PICKER_COL_W)).flex_none().child(
                         Select::new(&self.then_by_select).accessibility_label("Then by dimension"),
                     )),
             )
@@ -2937,7 +2952,7 @@ impl Render for QuotaTab {
                                 .child(
                                     v_flex()
                                         .flex_1()
-                                        .min_w(px(280.))
+                                        .min_w(px(CHART_CARD_MIN_W))
                                         .gap_2()
                                         .child(
                                             div()
@@ -2949,7 +2964,7 @@ impl Render for QuotaTab {
                                                 .child(summary),
                                         )
                                         .child(
-                                            div().h(px(220.)).child(
+                                            div().h(px(CHART_H)).child(
                                                 BarChart::new(bars)
                                                     .id("usage-quota-bar")
                                                     .name("Σ cost")
@@ -2963,7 +2978,7 @@ impl Render for QuotaTab {
                                 // top 7 + other, total under it.
                                 .child(
                                     v_flex()
-                                        .w(px(280.))
+                                        .w(px(COMPOSITION_COL_W))
                                         .gap_1()
                                         .items_center()
                                         .child(
@@ -2982,7 +2997,7 @@ impl Render for QuotaTab {
                                                 )),
                                         )
                                         .child(
-                                            div().h(px(220.)).w_full().child(
+                                            div().h(px(CHART_H)).w_full().child(
                                                 PieChart::new(donut)
                                                     .value(|s| s.cost as f32)
                                                     .label(move |s| {
@@ -3043,7 +3058,7 @@ impl Render for QuotaTab {
                             // does the same): a flex_1 slice would
                             // collapse to nothing whenever controls +
                             // charts exceed the tab's height.
-                            .h(px(300.))
+                            .h(px(TABLE_H))
                             .child(DataTable::new(&self.table).small()),
                     )
                     .into_any_element()
@@ -3794,16 +3809,16 @@ impl Render for LatencyTab {
                 .gap_2()
                 .flex_wrap()
                 .child(div().text_sm().text_color(muted_fg).child("Group by"))
-                .child(div().w(px(220.)).flex_none().child(
+                .child(div().w(px(PICKER_COL_W)).flex_none().child(
                     Select::new(&self.group_by_select).accessibility_label("Group by dimension"),
                 ))
                 .child(div().text_sm().text_color(muted_fg).child("Then by"))
-                .child(div().w(px(220.)).flex_none().child(
+                .child(div().w(px(PICKER_COL_W)).flex_none().child(
                     Select::new(&self.then_by_select).accessibility_label("Then by dimension"),
                 ))
                 .child(div().text_sm().text_color(muted_fg).child("Rank by"))
                 .child(
-                    div().w(px(220.)).flex_none().child(
+                    div().w(px(PICKER_COL_W)).flex_none().child(
                         Select::new(&self.metric_select).accessibility_label("Rank by metric"),
                     ),
                 );
@@ -4033,7 +4048,7 @@ impl Render for LatencyTab {
                 )
                 .child(
                     div()
-                        .h(px(220.))
+                        .h(px(REVAL_TABLE_H))
                         .child(DataTable::new(&self.reval_table).small()),
                 )
                 .into_any_element()
@@ -4149,7 +4164,7 @@ impl Render for LatencyTab {
         let payload_fg = cx.theme().foreground;
         let payload_cell = |n: u64| {
             div()
-                .w(px(84.))
+                .w(px(LANE_W))
                 .flex_none()
                 .flex()
                 .justify_end()
@@ -4162,11 +4177,13 @@ impl Render for LatencyTab {
                 })
         };
         let mut payload_grid = v_flex().gap_1();
-        let mut header = h_flex().gap_1().child(div().w(px(90.)).flex_none());
+        let mut header = h_flex()
+            .gap_1()
+            .child(div().w(px(LANE_HEADER_W)).flex_none());
         for label in &ps.size_labels {
             header = header.child(
                 div()
-                    .w(px(84.))
+                    .w(px(LANE_W))
                     .flex_none()
                     .flex()
                     .justify_end()
@@ -4179,7 +4196,7 @@ impl Render for LatencyTab {
         for row in &ps.rows {
             let mut line = h_flex().gap_1().child(
                 div()
-                    .w(px(90.))
+                    .w(px(LANE_HEADER_W))
                     .flex_none()
                     .text_sm()
                     .text_color(muted_fg)
@@ -4270,7 +4287,7 @@ impl Render for LatencyTab {
                             .child(hist_summary),
                     )
                     .child(
-                        div().h(px(160.)).child(
+                        div().h(px(HIST_H)).child(
                             BarChart::new(hist_bands)
                                 .id("usage-latency-histogram")
                                 .name("flights")
@@ -4300,7 +4317,7 @@ impl Render for LatencyTab {
                     )
                     .child(
                         div()
-                            .h(px(300.))
+                            .h(px(TABLE_H))
                             .child(DataTable::new(&self.table).small()),
                     ),
             )
@@ -4321,7 +4338,7 @@ impl Render for LatencyTab {
                     )
                     .child(
                         div()
-                            .h(px(320.))
+                            .h(px(SLOWEST_TABLE_H))
                             .child(DataTable::new(&self.slow_table).small()),
                     ),
             )

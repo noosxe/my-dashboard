@@ -38,6 +38,10 @@ use crate::ui::{empty_state, section_header};
 /// run is the 10-page notifications walk (10 × 30 s ureq timeout = 300 s);
 /// 10 minutes covers it with headroom.
 const STALE_AFTER: Duration = Duration::from_secs(600);
+/// The notification panel's width: ~24 rem (docs/0059 D4).
+const NOTIFICATION_PANEL_W: f32 = 384.0;
+/// The notification list's max height before it scrolls.
+const NOTIFICATION_PANEL_MAX_H: f32 = 420.0;
 
 // ---------------------------------------------------------------------------
 // Pure bookkeeping (D3) — no gpui types below this line except SharedString.
@@ -313,7 +317,7 @@ fn notification_panel(
     cx: &App,
 ) -> AnyElement {
     let theme = cx.theme();
-    let mut list = v_flex().w(px(384.)); // ~24 rem (docs/0059 D4)
+    let mut list = v_flex().w(px(NOTIFICATION_PANEL_W));
     if rows.is_empty() {
         list = list.child(empty_state("No unread notifications", cx));
     }
@@ -379,7 +383,7 @@ fn notification_panel(
     div()
         .id("notification-panel")
         .debug_selector(|| "notification-panel".to_string())
-        .max_h(px(420.))
+        .max_h(px(NOTIFICATION_PANEL_MAX_H))
         .overflow_y_scroll()
         .child(
             h_flex()
