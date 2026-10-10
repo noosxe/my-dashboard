@@ -15,6 +15,7 @@ use gpui_component::{
 };
 
 use dashboard_core::nav::{Navigator, Page};
+use dashboard_core::ui::{CardVariant, card};
 
 use crate::page::FaviconModel;
 
@@ -57,11 +58,9 @@ impl Render for FaviconCard {
         };
         let selected = spec.platform_code();
 
-        div()
+        card(cx, CardVariant::Interactive)
             .id("favicon-card")
             .size_full()
-            .cursor_pointer()
-            .hover(|s| s.bg(cx.theme().accent.opacity(0.06)))
             .role(accesskit::Role::ListItem)
             .aria_label(format!(
                 "Open Favicon generator — {summary}, platforms {selected}"
@@ -70,7 +69,6 @@ impl Render for FaviconCard {
             .child(
                 v_flex()
                     .gap_2()
-                    .p_3()
                     .child(
                         h_flex()
                             .gap_3()

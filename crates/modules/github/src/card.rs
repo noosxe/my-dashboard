@@ -8,6 +8,7 @@ use gpui_component::{
 };
 
 use dashboard_core::nav::{Navigator, Page};
+use dashboard_core::ui::{CardVariant, card};
 
 use crate::page::stale_chip_label;
 use crate::service::{AuthStatus, ConnectPhase, GithubState, run_read_deduped, start_connect};
@@ -218,11 +219,9 @@ impl Render for GithubCard {
                         "Open GitHub module — {notifications} notifications, loading counts"
                     ),
                 };
-                div()
+                card(cx, CardVariant::Interactive)
                     .id("github-card")
                     .size_full()
-                    .cursor_pointer()
-                    .hover(|s| s.bg(cx.theme().accent.opacity(0.06)))
                     .role(accesskit::Role::ListItem)
                     .aria_label(aria)
                     .on_click(cx.listener(|this, _, _, cx| this.open_module(cx)))
