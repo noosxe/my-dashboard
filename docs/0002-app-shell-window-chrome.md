@@ -274,6 +274,20 @@ host and new files/crates grow from there.
   home overview cards (github, favicon) gained the border and standard
   inset they lacked — the unification is the point — and the
   accent-tint hover wash is gone wherever a card is clickable.
+- **D15 — One empty state** (2026-10-10, #491): "nothing here" renders
+  `core::ui::empty_state()` — centered, `text_sm`, `muted_foreground`,
+  `py_4` of breathing room. It is not an error panel and not a skeleton;
+  callers chain sizing (`.flex_1().min_h_0()` fills a tab body) and
+  keep their probe `id`s. No detail/next-action slot until a surface
+  asks for one. Left-aligned muted placeholder *rows* (list cells,
+  `+N more`) are a different idiom and stay local. The notification
+  panel's empty line gains the centering — deliberate.
+- **D16 — One hover wash** (2026-10-10, #491): every hand-rolled hover
+  wash is `bg(theme.secondary)` — the answer `card()` already uses.
+  Accent-tint washes (`accent.opacity(...)`) are gone: a translucent
+  accent reads as selection/link (docs/0024), not hover. The diff
+  view's static code tint (0040 §4 D6) is untouched — that is a token
+  semantic, not an interaction. Link-underline hovers stay.
 
 ## 5. Proposed implementation
 

@@ -43,6 +43,7 @@ use crate::pr_page::{
 use crate::service::{AnchoredLine, PatchLine, anchor_patch};
 use crate::syntax::{self, TokenKind};
 use dashboard_core::freshness::relative_age;
+use dashboard_core::ui::empty_state;
 /// Files sidebar view mode (0018 D3). `List` is the default — the flat
 /// rendering is the closest to the accordion it replaces.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -245,14 +246,7 @@ impl ListDelegate for FileListDelegate {
         } else {
             "No files match"
         };
-        h_flex()
-            .size_full()
-            .justify_center()
-            .pt_6()
-            .text_sm()
-            .text_color(cx.theme().muted_foreground)
-            .child(text)
-            .into_any_element()
+        empty_state(text, cx).size_full().pt_6().into_any_element()
     }
 }
 

@@ -1799,7 +1799,7 @@ impl GithubPage {
             .rounded_sm()
             .text_sm()
             .cursor_pointer()
-            .hover(|s| s.bg(cx.theme().accent.opacity(0.08)))
+            .hover(|s| s.bg(cx.theme().secondary))
             .on_click(move |_, window, cx| {
                 page.update(cx, |this, cx| this.open_pr(&repo, &row, None, window, cx));
             })
@@ -1971,7 +1971,7 @@ impl GithubPage {
             .rounded_sm()
             .text_sm()
             .cursor_pointer()
-            .hover(|s| s.bg(cx.theme().accent.opacity(0.08)))
+            .hover(|s| s.bg(cx.theme().secondary))
             .on_click(move |_, window, cx| {
                 page.update(cx, |this, cx| {
                     this.open_issue(&repo, &row, None, window, cx)
@@ -2063,7 +2063,7 @@ impl GithubPage {
             .rounded_sm()
             .text_sm()
             .cursor_pointer()
-            .hover(|s| s.bg(cx.theme().accent.opacity(0.08)))
+            .hover(|s| s.bg(cx.theme().secondary))
             .on_click(move |_, window, cx| {
                 page.update(cx, |this, cx| {
                     this.open_notification(row.clone(), window, cx)
