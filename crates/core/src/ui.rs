@@ -81,3 +81,19 @@ pub fn card(cx: &App, variant: CardVariant) -> Div {
         }
     }
 }
+
+/// The empty state (docs/0002 D15): centered muted text with breathing
+/// room — "nothing here" is not an error and not a skeleton. Chain
+/// sizing (`.flex_1().min_h_0()` fills a tab body), `.id(...)` for a
+/// probe handle, and `.into_any_element()` where the container wants it.
+pub fn empty_state(text: impl Into<SharedString>, cx: &App) -> Div {
+    div()
+        .w_full()
+        .py_4()
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_sm()
+        .text_color(cx.theme().muted_foreground)
+        .child(text.into())
+}

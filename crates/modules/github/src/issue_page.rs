@@ -21,7 +21,7 @@
 //! page's `GithubIssuePage` key context), the repo crumb, and sign-out
 //! (the page auto-clears in `page.rs` when auth drops).
 
-use dashboard_core::ui::{page_canvas, page_title};
+use dashboard_core::ui::{empty_state, page_canvas, page_title};
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use std::time::Duration;
@@ -1775,7 +1775,7 @@ impl IssueDetailPage {
             children.push(cap);
         }
         if d.comments.nodes.is_empty() {
-            children.push(muted_centered("No comments yet", cx));
+            children.push(empty_state("No comments yet", cx).into_any_element());
         }
         // docs/0023 D6: the composer hides while the conversation is
         // locked and the viewer lacks lock rights; a muted notice takes
@@ -2243,7 +2243,7 @@ impl IssueDetailPage {
             .px_2()
             .py_1()
             .rounded_sm()
-            .hover(|s| s.bg(cx.theme().accent.opacity(0.08)))
+            .hover(|s| s.bg(cx.theme().secondary))
             // docs/0049 D1: picker rows are listbox options —
             // the checkbox mirrors the selected state.
             .role(accesskit::Role::ListItem)
@@ -2311,7 +2311,7 @@ impl IssueDetailPage {
                     .px_2()
                     .py_1()
                     .rounded_sm()
-                    .hover(|s| s.bg(cx.theme().accent.opacity(0.08)))
+                    .hover(|s| s.bg(cx.theme().secondary))
                     .role(accesskit::Role::ListItem)
                     .aria_label(row.label.clone())
                     .aria_selected(selected)
@@ -3184,20 +3184,6 @@ fn error_cell(message: &str, cx: &Context<IssueDetailPage>) -> AnyElement {
                 .text_color(cx.theme().muted_foreground)
                 .child("Use the refresh button in the header to retry"),
         )
-        .into_any_element()
-}
-
-fn muted_centered(text: &str, cx: &Context<IssueDetailPage>) -> AnyElement {
-    div()
-        .id("issue-muted")
-        .w_full()
-        .py_4()
-        .flex()
-        .items_center()
-        .justify_center()
-        .text_sm()
-        .text_color(cx.theme().muted_foreground)
-        .child(text.to_string())
         .into_any_element()
 }
 

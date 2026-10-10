@@ -31,7 +31,7 @@ use gpui_component::{
 };
 
 use crate::registry::ModuleRegistry;
-use crate::ui::section_header;
+use crate::ui::{empty_state, section_header};
 
 /// Entries older than this are swept on the next mutation (docs/0013 D3) —
 /// the stuck-spinner backstop for a lost `end`. The worst legal single-spec
@@ -315,14 +315,7 @@ fn notification_panel(
     let theme = cx.theme();
     let mut list = v_flex().w(px(384.)); // ~24 rem (docs/0059 D4)
     if rows.is_empty() {
-        list = list.child(
-            div()
-                .px_3()
-                .py_4()
-                .text_sm()
-                .text_color(theme.muted_foreground)
-                .child("No unread notifications"),
-        );
+        list = list.child(empty_state("No unread notifications", cx));
     }
     for (index, entry) in rows.iter().enumerate() {
         let toast = &entry.toast;

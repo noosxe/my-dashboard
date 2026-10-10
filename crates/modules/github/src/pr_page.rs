@@ -18,7 +18,7 @@
 //! `on_click` to the sub-pages doc), and sign-out (the page auto-clears in
 //! `page.rs::sync_from_state_in` when auth drops).
 
-use dashboard_core::ui::{page_canvas, page_title, section_header};
+use dashboard_core::ui::{empty_state, page_canvas, page_title, section_header};
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 
@@ -4297,7 +4297,7 @@ impl PrDetailPage {
             children.push(cap_row("pr-comments-more", missing, &d.url, cx));
         }
         if d.comments.nodes.is_empty() && d.reviews.nodes.is_empty() {
-            children.push(muted_centered("No conversation yet", cx));
+            children.push(empty_state("No conversation yet", cx).into_any_element());
         }
         children.push(self.render_comment_box(cx));
         // D4/D5: the timeline scrolls; the rail (merge/close panel + checks
@@ -4708,7 +4708,7 @@ impl PrDetailPage {
                             .px_2()
                             .py_1()
                             .rounded_sm()
-                            .hover(|s| s.bg(cx.theme().accent.opacity(0.08)))
+                            .hover(|s| s.bg(cx.theme().secondary))
                             // docs/0049 D1: picker rows are listbox
                             // options — the checkbox mirrors the
                             // selected state.
@@ -4808,7 +4808,7 @@ impl PrDetailPage {
                     .px_2()
                     .py_1()
                     .rounded_sm()
-                    .hover(|s| s.bg(cx.theme().accent.opacity(0.08)))
+                    .hover(|s| s.bg(cx.theme().secondary))
                     .role(accesskit::Role::ListItem)
                     .aria_label(row.label.clone())
                     .aria_selected(selected)
@@ -6239,16 +6239,10 @@ fn skeleton_list() -> AnyElement {
 /// Centered muted empty-state cell for a tab with nothing to show
 /// (D6/D7): not a skeleton, not an error — just no content.
 fn empty_cell(text: &str, cx: &App) -> AnyElement {
-    div()
+    empty_state(text, cx)
         .id("pr-empty")
         .flex_1()
         .min_h_0()
-        .flex()
-        .items_center()
-        .justify_center()
-        .text_color(cx.theme().muted_foreground)
-        .text_sm()
-        .child(text.to_string())
         .into_any_element()
 }
 
@@ -6510,20 +6504,6 @@ pub(crate) fn delete_confirm_card(
                         .on_click(on_confirm),
                 ),
         )
-        .into_any_element()
-}
-
-fn muted_centered(text: &str, cx: &App) -> AnyElement {
-    div()
-        .id("pr-muted")
-        .w_full()
-        .py_4()
-        .flex()
-        .items_center()
-        .justify_center()
-        .text_sm()
-        .text_color(cx.theme().muted_foreground)
-        .child(text.to_string())
         .into_any_element()
 }
 

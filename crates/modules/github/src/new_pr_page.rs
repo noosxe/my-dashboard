@@ -1018,7 +1018,7 @@ impl Render for NewPrPage {
                                     .px_2()
                                     .py_1()
                                     .rounded_sm()
-                                    .hover(|s| s.bg(cx.theme().accent.opacity(0.08)))
+                                    .hover(|s| s.bg(cx.theme().secondary))
                                     // docs/0049 D1: the row is the
                                     // toggle's semantic owner — the
                                     // checkbox mirrors the state.
