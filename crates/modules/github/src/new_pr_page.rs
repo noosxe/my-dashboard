@@ -1011,7 +1011,6 @@ impl Render for NewPrPage {
                                 h_flex()
                                     .id("new-pr-draft")
                                     .debug_selector(|| "new-pr-draft".to_string())
-                                    .cursor_pointer()
                                     .gap_2()
                                     .items_center()
                                     .w_full()

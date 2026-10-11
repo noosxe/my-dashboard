@@ -1804,7 +1804,6 @@ impl GithubPage {
             .py_1p5()
             .rounded_sm()
             .text_sm()
-            .cursor_pointer()
             .hover(|s| s.bg(cx.theme().secondary))
             .on_click(move |_, window, cx| {
                 page.update(cx, |this, cx| this.open_pr(&repo, &row, None, window, cx));
@@ -1976,7 +1975,6 @@ impl GithubPage {
             .py_1p5()
             .rounded_sm()
             .text_sm()
-            .cursor_pointer()
             .hover(|s| s.bg(cx.theme().secondary))
             .on_click(move |_, window, cx| {
                 page.update(cx, |this, cx| {
@@ -2068,7 +2066,6 @@ impl GithubPage {
             .py_1p5()
             .rounded_sm()
             .text_sm()
-            .cursor_pointer()
             .hover(|s| s.bg(cx.theme().secondary))
             .on_click(move |_, window, cx| {
                 page.update(cx, |this, cx| {

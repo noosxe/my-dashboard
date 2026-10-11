@@ -77,7 +77,10 @@ pub fn card(cx: &App, variant: CardVariant) -> Div {
         CardVariant::Quiet => base,
         CardVariant::Interactive => {
             let wash = theme.secondary;
-            base.hover(move |this| this.bg(wash)).cursor_pointer()
+            // No pointing hand (#485): an interactive card is a
+            // clickable card, not a link — the hover wash carries the
+            // affordance.
+            base.hover(move |this| this.bg(wash))
         }
     }
 }
