@@ -325,7 +325,10 @@ fn notification_panel(
         let toast = &entry.toast;
         list = list.child(
             h_flex()
-                .id(SharedString::from(format!("notification-row-{index}")))
+                .id(SharedString::from(format!(
+                    "notification-row-{}",
+                    crate::toasts::panel_row_key(entry)
+                )))
                 .role(accesskit::Role::ListItem)
                 .items_center()
                 .gap_2()
@@ -364,19 +367,22 @@ fn notification_panel(
                     crate::toasts::relative_time(entry.raised_at, Instant::now()),
                 ))
                 .child(
-                    Button::new(SharedString::from(format!("notification-dismiss-{index}")))
-                        .ghost()
-                        .xsmall()
-                        .icon(IconName::Close)
-                        // docs/0049 D1: icon-only buttons get an
-                        // explicit accessible name.
-                        .accessibility_label("Dismiss notification")
-                        .on_click(move |_, _, cx| {
-                            crate::toasts::hub(cx).update(cx, |hub, cx| {
-                                hub.dismiss_panel_row(index);
-                                cx.notify();
-                            });
-                        }),
+                    Button::new(SharedString::from(format!(
+                        "notification-dismiss-{}",
+                        crate::toasts::panel_row_key(entry)
+                    )))
+                    .ghost()
+                    .xsmall()
+                    .icon(IconName::Close)
+                    // docs/0049 D1: icon-only buttons get an
+                    // explicit accessible name.
+                    .accessibility_label("Dismiss notification")
+                    .on_click(move |_, _, cx| {
+                        crate::toasts::hub(cx).update(cx, |hub, cx| {
+                            hub.dismiss_panel_row(index);
+                            cx.notify();
+                        });
+                    }),
                 ),
         );
     }
