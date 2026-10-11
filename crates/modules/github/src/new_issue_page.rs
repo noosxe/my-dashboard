@@ -84,7 +84,7 @@ pub(crate) struct NewIssuePage {
     /// docs/0046 D2 — the selected pill (`None` = Blank). Selection is
     /// a prefill affordance, not persistent state: it survives re-opens
     /// so the highlight keeps matching parked text.
-    selected_template: Option<usize>,
+    selected_template: Option<SharedString>,
     /// docs/0046 D5 — the blank-disabled auto-selection is armed until
     /// something claims the fields: a restored draft (D4 — the user's
     /// own words win), any edit, or one auto/pick firing. One-shot per
@@ -314,20 +314,20 @@ impl NewIssuePage {
             return;
         };
         let first = templates[0].clone();
-        self.apply_template(first, 0, window, cx);
+        self.apply_template(first, window, cx);
     }
 
     /// docs/0046 D2 — a pill click: the explicit template pick.
-    fn select_template(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+    fn select_template(&mut self, name: SharedString, window: &mut Window, cx: &mut Context<Self>) {
         let Some(template) = self
             .templates
             .as_deref()
-            .and_then(|t| t.get(index))
+            .and_then(|t| t.iter().find(|t| t.name == &*name))
             .cloned()
         else {
             return;
         };
-        self.apply_template(template, index, window, cx);
+        self.apply_template(template, window, cx);
     }
 
     /// docs/0046 D3/D4 — one template lands in the fields: the parked
@@ -338,7 +338,6 @@ impl NewIssuePage {
     fn apply_template(
         &mut self,
         template: gql::IssueTemplate,
-        index: usize,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -352,7 +351,7 @@ impl NewIssuePage {
         self.body
             .update(cx, |state, cx| state.set_value(body, window, cx));
         self.autoselect_armed = false;
-        self.selected_template = Some(index);
+        self.selected_template = Some(SharedString::from(template.name));
         self.draft_changed(cx);
         cx.notify();
     }
@@ -523,9 +522,11 @@ impl Render for NewIssuePage {
                         .text_color(cx.theme().muted_foreground)
                         .child("Template"),
                 );
-            for (index, template) in templates.iter().enumerate() {
-                let selected = self.selected_template == Some(index);
-                let id: SharedString = format!("new-issue-tpl-{index}").into();
+            for template in templates.iter() {
+                let selected = self.selected_template.as_deref() == Some(template.name.as_str());
+                let id: SharedString = format!("new-issue-tpl-{}", template.name).into();
+                let tpl_name = template.name.clone();
+                let click_name = tpl_name.clone();
                 // Selected pill = the component system's own selected
                 // state on the shared ghost silhouette (upstream paints
                 // the persistent selected look from the theme) — never
@@ -533,13 +534,13 @@ impl Render for NewIssuePage {
                 // commit button (docs/0046 D2, #481).
                 let mut button = Button::new(id).ghost().xsmall().selected(selected);
                 button = button
-                    .debug_selector(move || format!("new-issue-tpl-{index}"))
+                    .debug_selector(move || format!("new-issue-tpl-{tpl_name}"))
                     .label(template.name.clone());
                 if let Some(about) = &template.about {
                     button = button.tooltip(about.clone());
                 }
                 row = row.child(button.on_click(cx.listener(move |this, _, window, cx| {
-                    this.select_template(index, window, cx);
+                    this.select_template(click_name.clone().into(), window, cx);
                 })));
             }
             if self.blank_allowed {
@@ -1291,8 +1292,8 @@ mod tests {
             vcx.debug_bounds("new-issue-template-row").is_some(),
             "template row renders"
         );
-        assert!(vcx.debug_bounds("new-issue-tpl-0").is_some());
-        assert!(vcx.debug_bounds("new-issue-tpl-1").is_some());
+        assert!(vcx.debug_bounds("new-issue-tpl-Bug report").is_some());
+        assert!(vcx.debug_bounds("new-issue-tpl-Feature").is_some());
         assert!(vcx.debug_bounds("new-issue-tpl-blank").is_some());
         vcx.update(|_, cx| {
             page.update(cx, |page, _| {
@@ -1301,12 +1302,15 @@ mod tests {
         });
         // Pick template 0: title+body prefill (D3), the content parks as
         // the live draft (D4).
-        let tpl0 = vcx.debug_bounds("new-issue-tpl-0").unwrap().center();
+        let tpl0 = vcx
+            .debug_bounds("new-issue-tpl-Bug report")
+            .unwrap()
+            .center();
         vcx.simulate_click(tpl0, gpui::Modifiers::default());
-        let _ = vcx.debug_bounds("new-issue-tpl-0"); // flush frames
+        let _ = vcx.debug_bounds("new-issue-tpl-Bug report"); // flush frames
         vcx.update(|_, cx| {
             page.update(cx, |page, cx| {
-                assert_eq!(page.selected_template, Some(0));
+                assert_eq!(page.selected_template, Some("Bug report".into()));
                 assert_eq!(page.title.read(cx).value(), "[Bug]: ");
                 assert_eq!(page.body.read(cx).value(), "<!-- bug -->");
             });
@@ -1359,7 +1363,7 @@ mod tests {
             vcx.debug_bounds("new-issue-tpl-blank").is_none(),
             "blank_issues_enabled: false hides the Blank pill"
         );
-        assert!(vcx.debug_bounds("new-issue-tpl-0").is_some());
+        assert!(vcx.debug_bounds("new-issue-tpl-Bug report").is_some());
     }
 
     #[gpui::test]
@@ -1378,7 +1382,7 @@ mod tests {
             page.update(cx, |page, cx| {
                 // D5: the creator never starts empty on a blank-disabled
                 // repo — the first template preselects.
-                assert_eq!(page.selected_template, Some(0));
+                assert_eq!(page.selected_template, Some("Bug report".into()));
                 assert_eq!(page.title.read(cx).value(), "[Bug]: ");
                 assert_eq!(page.body.read(cx).value(), "<!-- bug -->");
             });

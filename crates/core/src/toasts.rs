@@ -281,6 +281,18 @@ pub struct HubEntry {
     pub read: bool,
 }
 
+/// A panel row's stable identity (docs/0059, #482): the toast's
+/// dedupe key when present (dedupe guarantees uniqueness among live
+/// rows), else the raise instant. UI element ids key on this — never
+/// the row index, which shifts on every dismissal.
+pub fn panel_row_key(entry: &HubEntry) -> SharedString {
+    entry
+        .toast
+        .dedupe_key
+        .clone()
+        .unwrap_or_else(|| SharedString::from(format!("raised-{:?}", entry.raised_at)))
+}
+
 /// The app-wide toast queue (docs/0058 D2). Pure staging: raises land
 /// here, the shell drains into the notification layer.
 pub struct ToastHub {

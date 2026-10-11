@@ -1265,6 +1265,10 @@ fn code_row(
 /// shared offset back (diverging row widths would fight over it).
 fn x_scrolled(rix: usize, content_w: f32, x_handle: &ScrollHandle, content: Div) -> Stateful<Div> {
     div()
+        // Positional by decision (#482): diff rows are positions under
+        // one shared x-scroll — re-deriving the diff resets it, which is
+        // the wanted behavior. Stable domain ids (`row_id`) key
+        // hover/comment state instead.
         .id(format!("pr-diff-x-{rix}"))
         .flex_1()
         .min_w_0()
