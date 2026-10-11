@@ -24,11 +24,11 @@ pub struct FaviconModule;
 
 impl Module for FaviconModule {
     fn meta() -> ModuleMeta {
-        ModuleMeta {
-            id: "favicon".into(),
-            title: "Favicon".into(),
-            icon: Some(ModuleIcon::BuiltIn(gpui_component::IconName::Palette)),
-        }
+        ModuleMeta::new(
+            "favicon",
+            "Favicon",
+            Some(ModuleIcon::BuiltIn(gpui_component::IconName::Palette)),
+        )
     }
 
     fn init(
@@ -53,15 +53,15 @@ impl Module for FaviconModule {
         let overview = cx.new(|cx| card::FaviconCard::new(model.clone(), nav.clone(), cx));
         let main_page = cx.new(|cx| page::FaviconPage::new(model.clone(), window, cx));
 
-        ModuleEntry {
-            meta: Self::meta(),
-            overview: overview.into(),
-            main_page: main_page.into(),
-            // No settings subpage and no nav-trail places in v1 (D1):
-            // a single-page surface.
-            settings: None,
-            nav: None,
-            status_item: None,
-        }
+        // No settings subpage and no nav-trail places in v1 (D1):
+        // a single-page surface.
+        ModuleEntry::new(
+            Self::meta(),
+            overview.into(),
+            main_page.into(),
+            None,
+            None,
+            None,
+        )
     }
 }

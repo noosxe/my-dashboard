@@ -48,6 +48,7 @@ pub enum Page {
 /// carry the module id), so nav state stays module-agnostic and nothing
 /// needs serialization — the trail is session-only.
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct Route {
     /// Stable dedup identity (docs/0048 D4): shell pages derive it from
     /// the page; modules hand theirs to [`Route::module_place`].
@@ -123,6 +124,7 @@ impl Route {
 pub type CrumbAction = Arc<dyn Fn(&mut Window, &mut App)>;
 
 /// One breadcrumb entry reported by a module.
+#[non_exhaustive]
 pub struct Crumb {
     pub label: SharedString,
     /// Module-provided back-nav; `None` renders a non-clickable crumb.
@@ -137,9 +139,19 @@ impl Crumb {
             on_click: None,
         }
     }
+
+    /// Clickable crumb: the module hands its own back-nav closure
+    /// (arcs so the shell can clone the crumb per render).
+    pub fn action(label: impl Into<SharedString>, on_click: CrumbAction) -> Self {
+        Self {
+            label: label.into(),
+            on_click: Some(on_click),
+        }
+    }
 }
 
 /// Owned by the shell; modules get a clone in [`crate::Module::init`].
+#[non_exhaustive]
 pub struct Navigator {
     pub sidebar_collapsed: bool,
     pub page: Page,

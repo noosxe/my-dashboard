@@ -941,9 +941,9 @@ impl GithubPage {
                 .map(|(ix, label)| {
                     if ix == 0 && sub_page_open {
                         let page = page.clone();
-                        Crumb {
+                        Crumb::action(
                             label,
-                            on_click: Some(Arc::new(move |_window, cx| {
+                            Arc::new(move |_window, cx| {
                                 // Whichever sub-page is open yields to the
                                 // repo view (close_pr/close_issue no-op when
                                 // absent).
@@ -960,8 +960,8 @@ impl GithubPage {
                                         this.record_place(GithubPlace::Repo(name.to_string()), cx);
                                     }
                                 });
-                            })),
-                        }
+                            }),
+                        )
                     } else {
                         Crumb::label(label)
                     }
