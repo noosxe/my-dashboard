@@ -50,11 +50,11 @@ pub struct GithubModule;
 
 impl Module for GithubModule {
     fn meta() -> ModuleMeta {
-        ModuleMeta {
-            id: "github".into(),
-            title: "GitHub".into(),
-            icon: Some(ModuleIcon::Custom(GITHUB_MARK.into())),
-        }
+        ModuleMeta::new(
+            "github",
+            "GitHub",
+            Some(ModuleIcon::Custom(GITHUB_MARK.into())),
+        )
     }
 
     fn init(
@@ -171,13 +171,13 @@ impl Module for GithubModule {
             }
             _ => None,
         });
-        ModuleEntry {
-            meta: Self::meta(),
-            overview: overview.into(),
-            main_page: main_page.into(),
-            settings: Some(settings),
-            nav: Some(nav_support),
-            status_item: Some(status_item),
-        }
+        ModuleEntry::new(
+            Self::meta(),
+            overview.into(),
+            main_page.into(),
+            Some(settings),
+            Some(nav_support),
+            Some(status_item),
+        )
     }
 }

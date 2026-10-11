@@ -25,6 +25,7 @@ pub enum ModuleIcon {
 
 /// Static identity — known before instantiation; drives sidebar, home grid
 /// and navigation keys.
+#[non_exhaustive]
 pub struct ModuleMeta {
     /// Stable id ("clock") — used as the `Page::Module` nav key.
     pub id: SharedString,
@@ -64,6 +65,7 @@ pub trait ModuleNav: 'static {
 
 /// What a module hands to the registry: identity + its two views, both
 /// type-erased and both reading the module's single state entity.
+#[non_exhaustive]
 pub struct ModuleEntry {
     pub meta: ModuleMeta,
     /// Home-page overview card content.
@@ -80,6 +82,41 @@ pub struct ModuleEntry {
     pub status_item: Option<StatusItemFn>,
 }
 
+impl ModuleMeta {
+    /// A module's static identity (0003 §3): stable id, display title,
+    /// sidebar icon.
+    pub fn new(id: &str, title: &str, icon: Option<ModuleIcon>) -> Self {
+        Self {
+            id: id.into(),
+            title: title.into(),
+            icon,
+        }
+    }
+}
+
+impl ModuleEntry {
+    /// The registry hand-off (0003 §4): identity plus the two views;
+    /// settings, trail support and the status item opt in via the last
+    /// three arguments.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        meta: ModuleMeta,
+        overview: AnyView,
+        main_page: AnyView,
+        settings: Option<SettingsProvider>,
+        nav: Option<Arc<dyn ModuleNav>>,
+        status_item: Option<StatusItemFn>,
+    ) -> Self {
+        Self {
+            meta,
+            overview,
+            main_page,
+            settings,
+            nav,
+            status_item,
+        }
+    }
+}
 /// Implemented by module crates; registered statically in `main.rs`.
 pub trait Module: 'static {
     fn meta() -> ModuleMeta;

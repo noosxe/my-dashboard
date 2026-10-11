@@ -66,6 +66,7 @@ impl Transport {
 /// module's closed enums (D6): the shared schema stays stable while
 /// each module keeps compiler-enforced origin vocabularies.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct UsageRecord {
     /// "github" today; "forgejo"/"gitea" when those modules exist (D6).
     pub module: SharedString,
@@ -106,6 +107,37 @@ pub struct UsageRecord {
     /// body (304 revalidations, network errors).
     pub resp_bytes: Option<u32>,
     pub network_error: bool,
+}
+
+impl UsageRecord {
+    /// The write-time baseline (#484): who flew, what, why — stamped
+    /// now; the flight's outcome rides on the returned value's `pub`
+    /// fields (`seq`/identity are the recorder's to stamp).
+    pub fn new(module: &str, op: &str, surface: &str, trigger: &str) -> Self {
+        Self {
+            module: module.into(),
+            seq: 0,
+            ts_epoch_ms: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64,
+            transport: Transport::Rest,
+            op: op.into(),
+            surface: surface.into(),
+            trigger: trigger.into(),
+            ident: None,
+            status: 0,
+            etag_304: false,
+            cost: None,
+            remaining_after: None,
+            limit_after: None,
+            cycle_reset_epoch: None,
+            duration_ms: 0,
+            queue_ms: None,
+            resp_bytes: None,
+            network_error: false,
+        }
+    }
 }
 
 /// The write half (docs/0053 D3, docs/0054 D9): fire-and-forget by
@@ -198,6 +230,7 @@ impl Default for MemorySink {
 /// The mutable half of a record, before the [`Recorder`] stamps
 /// identity — what a flight actually learned.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct RecordDraft {
     pub transport: Transport,
     pub op: SharedString,
@@ -219,6 +252,37 @@ pub struct RecordDraft {
     /// Response body length (docs/0054 D14).
     pub resp_bytes: Option<u32>,
     pub network_error: bool,
+}
+
+impl RecordDraft {
+    /// The flight's write-time baseline (#484): what flew, why, and
+    /// the scope — the measured outcome rides on the returned value's
+    /// `pub` fields.
+    pub fn new(
+        transport: Transport,
+        op: impl Into<SharedString>,
+        surface: impl Into<SharedString>,
+        trigger: impl Into<SharedString>,
+        ident: Option<SharedString>,
+    ) -> Self {
+        Self {
+            transport,
+            op: op.into(),
+            surface: surface.into(),
+            trigger: trigger.into(),
+            ident,
+            status: 0,
+            etag_304: false,
+            cost: None,
+            remaining_after: None,
+            limit_after: None,
+            cycle_reset_epoch: None,
+            duration_ms: 0,
+            queue_ms: None,
+            resp_bytes: None,
+            network_error: false,
+        }
+    }
 }
 
 /// The per-module writer (docs/0053 D3/D4): stamps `seq`, the

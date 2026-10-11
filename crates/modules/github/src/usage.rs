@@ -649,28 +649,24 @@ impl<'a> RecordingHttp<'a> {
         let transport = self.transport_override.unwrap_or(transport);
         let duration_ms = sent_at.elapsed().as_millis().min(u32::MAX as u128) as u32;
         match res {
-            Err(_) => RecordDraft {
-                transport,
-                op: SharedString::from(self.op),
-                surface: SharedString::from(self.origin.surface.as_str()),
-                trigger: SharedString::from(self.origin.trigger.as_str()),
-                ident: self.ident.clone(),
-                status: 0,
-                etag_304: false,
+            Err(_) => {
+                let mut draft = RecordDraft::new(
+                    transport,
+                    SharedString::from(self.op),
+                    SharedString::from(self.origin.surface.as_str()),
+                    SharedString::from(self.origin.trigger.as_str()),
+                    self.ident.clone(),
+                );
                 // Network errors are not attributable — never a guessed
                 // number (D1); a timed-out flight's server-side cost is
-                // unknowable client-side.
-                cost: None,
-                remaining_after: None,
-                // No response → no ceiling, no body (docs/0054 D14).
-                // The queue wait still happened and stays measurable.
-                limit_after: None,
-                cycle_reset_epoch: None,
-                duration_ms,
-                queue_ms,
-                resp_bytes: None,
-                network_error: true,
-            },
+                // unknowable client-side. No response → no ceiling, no
+                // body (docs/0054 D14). The queue wait still happened
+                // and stays measurable.
+                draft.duration_ms = duration_ms;
+                draft.queue_ms = queue_ms;
+                draft.network_error = true;
+                draft
+            }
             Ok(result) => {
                 let etag_304 = result.status == 304;
                 // Booking rules verbatim from docs/0050 (D1): REST = 1
@@ -714,23 +710,23 @@ impl<'a> RecordingHttp<'a> {
                     .body
                     .as_ref()
                     .map(|b| b.len().min(u32::MAX as usize) as u32);
-                RecordDraft {
+                let mut draft = RecordDraft::new(
                     transport,
-                    op: SharedString::from(self.op),
-                    surface: SharedString::from(self.origin.surface.as_str()),
-                    trigger: SharedString::from(self.origin.trigger.as_str()),
-                    ident: self.ident.clone(),
-                    status: result.status,
-                    etag_304,
-                    cost,
-                    remaining_after: remaining,
-                    limit_after: limit,
-                    cycle_reset_epoch: cycle,
-                    duration_ms,
-                    queue_ms,
-                    resp_bytes,
-                    network_error: false,
-                }
+                    SharedString::from(self.op),
+                    SharedString::from(self.origin.surface.as_str()),
+                    SharedString::from(self.origin.trigger.as_str()),
+                    self.ident.clone(),
+                );
+                draft.status = result.status;
+                draft.etag_304 = etag_304;
+                draft.cost = cost;
+                draft.remaining_after = remaining;
+                draft.limit_after = limit;
+                draft.cycle_reset_epoch = cycle;
+                draft.duration_ms = duration_ms;
+                draft.queue_ms = queue_ms;
+                draft.resp_bytes = resp_bytes;
+                draft
             }
         }
     }

@@ -118,6 +118,7 @@ pub struct ToastAction {
 
 /// One alert (docs/0058 D3).
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct Toast {
     pub level: Level,
     pub title: Option<SharedString>,

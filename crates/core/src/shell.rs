@@ -37,6 +37,7 @@ use std::time::Duration;
 /// decoration logic below; older files with a `show_titlebar` field
 /// load fine, serde ignores unknown fields.)
 #[derive(Serialize, Deserialize, Default)]
+#[non_exhaustive]
 pub struct ShellState {
     pub sidebar_collapsed: bool,
     /// Files-tab sidebar width in px (docs/0069 D4). Older files lack

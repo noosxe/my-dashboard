@@ -646,23 +646,19 @@ impl FaviconModel {
                     );
                     // One usage record per export run (D9) — Local
                     // transport, never a quota cost.
-                    recorder.emit(RecordDraft {
-                        transport: Transport::Local,
-                        op: "export".into(),
-                        surface: "page".into(),
-                        trigger: "manual".into(),
-                        ident: Some(spec_echo.platform_code().into()),
-                        status: if ok { 200 } else { 500 },
-                        etag_304: false,
-                        cost: None,
-                        remaining_after: None,
-                        limit_after: None,
-                        cycle_reset_epoch: None,
-                        duration_ms: elapsed,
-                        queue_ms: None,
-                        resp_bytes: Some(bytes.min(u32::MAX as u64) as u32),
-                        network_error: false,
-                    });
+                    // One usage record per export run (D9) — Local
+                    // transport, never a quota cost.
+                    let mut draft = RecordDraft::new(
+                        Transport::Local,
+                        SharedString::from("export"),
+                        SharedString::from("page"),
+                        SharedString::from("manual"),
+                        Some(spec_echo.platform_code().into()),
+                    );
+                    draft.status = if ok { 200 } else { 500 };
+                    draft.duration_ms = elapsed;
+                    draft.resp_bytes = Some(bytes.min(u32::MAX as u64) as u32);
+                    recorder.emit(draft);
                     cx.notify();
                 });
             });

@@ -653,29 +653,15 @@ mod tests {
     }
 
     fn rec(op: &str, surface: &str, trigger: &str, status: u16, cost: Option<u32>) -> UsageRecord {
-        UsageRecord {
-            module: "github".into(),
-            seq: 0,
-            ts_epoch_ms: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as u64,
-            transport: dashboard_core::usage_records::Transport::Rest,
-            op: op.into(),
-            surface: surface.into(),
-            trigger: trigger.into(),
-            ident: None,
-            status,
-            etag_304: status == 304,
-            cost,
-            remaining_after: Some(4000),
-            limit_after: Some(5000),
-            cycle_reset_epoch: None,
-            duration_ms: 10,
-            queue_ms: None,
-            resp_bytes: None,
-            network_error: false,
-        }
+        let mut rec = UsageRecord::new("github", op, surface, trigger);
+        rec.transport = dashboard_core::usage_records::Transport::Rest;
+        rec.status = status;
+        rec.etag_304 = status == 304;
+        rec.cost = cost;
+        rec.remaining_after = Some(4000);
+        rec.limit_after = Some(5000);
+        rec.duration_ms = 10;
+        rec
     }
 
     fn install_ledger(cx: &mut TestAppContext, sink: &Arc<MemorySink>) {
