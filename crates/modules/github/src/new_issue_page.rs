@@ -322,7 +322,7 @@ impl NewIssuePage {
         let Some(template) = self
             .templates
             .as_deref()
-            .and_then(|t| t.iter().find(|t| t.name == &*name))
+            .and_then(|t| t.iter().find(|t| t.name == *name))
             .cloned()
         else {
             return;
