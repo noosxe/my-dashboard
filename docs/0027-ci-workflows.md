@@ -146,7 +146,10 @@ fork-safe by construction.
 
 Both triggers (`pull_request` and `push` to `main`) carry a `paths-ignore`
 **denylist**: `docs/**` and every Markdown file (`**/*.md` plus `*.md` for
-the repo root — README, AGENTS.md). Added 2026-09-17 after a docs-only
+the repo root — README, AGENTS.md), plus the agent-skill/tooling files
+`.agents/**` and `skills-lock.json` (added 2026-10-12 after a skills-only
+PR paid two full cold builds for shell/markdown changes). First added
+2026-09-17 after a docs-only
 design PR paid two full cold builds (~25 min of runner time) for changes
 that cannot affect a build.
 

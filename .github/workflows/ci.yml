@@ -13,20 +13,26 @@ name: CI
 on:
   pull_request:
     branches: [main]
-    # Path filtering (docs/0027 D7): documentation-only changes cannot
-    # affect a build, so they don't burn runner time. A denylist on
-    # purpose — any future build-affecting path keeps CI by default;
-    # an allowlist would silently drop it until the filter is updated.
+    # Path filtering (docs/0027 D7): changes that cannot affect a build
+    # don't burn runner time — documentation, and the agent-skill/tooling
+    # files under .agents/ plus skills-lock.json (added 2026-10-12 after a
+    # skills-only PR paid two cold builds for shell/markdown). A denylist
+    # on purpose — any future build-affecting path keeps CI by default; an
+    # allowlist would silently drop it until the filter is updated.
     paths-ignore:
       - "docs/**"
       - "**/*.md"
       - "*.md"
+      - ".agents/**"
+      - "skills-lock.json"
   push:
     branches: [main]
     paths-ignore:
       - "docs/**"
       - "**/*.md"
       - "*.md"
+      - ".agents/**"
+      - "skills-lock.json"
 
 # One in-flight run per ref: superseded pushes cancel their queued run
 # and free the runners sooner.
