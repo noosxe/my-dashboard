@@ -1,0 +1,9 @@
+# The `runner` hook (documented in the Cargo Book, Configuration →
+# target.<cfg>.runner) routes `cargo run` / `test` / `bench` through
+# .cargo/sign-and-run, which signs the fresh binary first. Bare `cargo
+# build` still produces unsigned artifacts (cargo has no post-build hook,
+# rust-lang/cargo#1894); the signature lands on the first runner-mediated
+# launch after each rebuild. Off macOS the cfg never matches, so this is
+# inert elsewhere.
+[target.'cfg(target_os = "macos")']
+runner = [".cargo/sign-and-run"]
