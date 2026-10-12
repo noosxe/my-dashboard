@@ -138,6 +138,11 @@ Out (non-goals):
 > (Base-owned Root) and notification delivery (`Root::push_notification` →
 > `WindowExt`), not Select layout; the 0016 probes pass unchanged on the
 > new pin.
+>
+> **Re-verified at the v0.7.3 pin `67265a3` (2026-10-12):** `select.rs` is
+> byte-identical to the v0.7.1 pin `87d10ae` — the `size_full` trap
+> stands, still exactly two sites (:527, :858). The v0.7.2/v0.7.3
+> releases carry no Select-layout changes.
 
 - `ui::tab::{Tab, TabBar}` with `.underline()` variant — the GitHub-style tab
   chrome; `selected_index` + `on_click` drive an enum in our state.
