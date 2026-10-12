@@ -1,0 +1,22 @@
+# surfaces-pending.txt — the two surfaces audit.txt cannot carry yet
+# (#530). Navigation and asserts work; the audits FAIL on gpui-kit gaps:
+#   - settings: the Settings nav submenu carets are unlabeled buttons
+#     (longbridge/gpui-kit#3467) — 3 FAILs
+#   - favicon generator: Slider has no label API
+#     (longbridge/gpui-kit#3468) — 2 FAILs
+# EXPECTED RED until both upstream fixes land with a bump. Run it to
+# re-check the blockers, then move both hops into audit.txt and delete
+# this file. Same environment contract as audit.txt (docs/0071,
+# session `audit` at 1280x800).
+
+--session audit
+
+# → settings (sidebar TreeItem id; the sidebar is chrome on every page).
+click 18182534071161197539 --wait-frame
+assert-label "Appearance"
+audit
+
+# → favicon module (sidebar TreeItem id).
+click 6580481900935945976 --wait-frame
+assert-label "Emoji"
+audit

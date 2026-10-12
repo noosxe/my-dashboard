@@ -419,14 +419,18 @@ screenshot opened
 Lines: the D6/D7 verbs plus `assert-label <substr>`,
 `assert-no-label <substr>`, `assert-focus <accesskit_id>`, `diff <a>
 <b>` (prints; `assert-diff-label <a> <b> <substr>` when a receipt
-needs "this label *changed* between snapshots"). `#` comments and
+needs "this label *changed* between snapshots"). `click` takes the
+CLI's atomic `--wait-frame[=ms]` (#530): the counter is sampled before
+the dispatch, which a separate `wait-frame` step can lose to a fast
+page — the usage hop rendered in that gap and timed out on a frame
+newer than the one it had already missed. `#` comments and
 blank lines allowed; a leading `--session` line binds the run
 (overridable by the CLI flag). The runner executes line by line,
 echoing each with its outcome into
 `transcripts/<stem>-<n>.log`, exits 0 only if every assert passed,
 and exits 1 at the first failure with the line number and the actual
-state. Timing determinism comes from D6: `wait-frame` between
-interaction and assertion, never sleeps.
+state. Timing determinism comes from D6: `--wait-frame` on the hop
+itself, `wait-frame` lines for bare steps — never sleeps.
 
 Committed scripts live in `crates/debug/verify/*.txt` next to the
 tooling that runs them; the first script reproduces the
@@ -434,17 +438,24 @@ analytics-freeze receipt (#347's sequence, now a one-liner to
 re-run). This is the seed a future CI smoke job would grow from —
 deliberately not built here (§2).
 
-Implementation notes (#357): committed scripts target by **mouse
-coordinates at a fixed `--size`**, never `accesskit_id`s — ids are
-per-run seeds (the same button differed across restarts in live
-smokes), while fixed-size headless output makes coordinates
-deterministic; the committed script's header names its required size.
+Implementation notes (#357, revised by #530): committed scripts target
+by **`accesskit_id` clicks with the atomic `--wait-frame`**, not mouse
+coordinates. The #357-era rule ("ids are per-run seeds") is
+superseded by observation: across every containerized receipt run this
+session — fresh boots, different sessions, and a source change to the
+audited tree itself — every id held identical (the toggle, cards,
+sidebar items, bell). Ids derive from element paths, so an app change
+*can* renumber one; that failure is loud (`4005 UNKNOWN_NODE`), and
+the id updates in the same PR as the layout change — the same
+maintenance contract as a golden. The committed scripts' headers name
+their required size.
 Arguments may be double-quoted (assert substrings and `type` texts with
 spaces). Transcripts land beside the snapshots (`state/transcripts/`),
 auto-incrementing per script stem; the runner reuses the verb
 implementations verbatim, so a script line's receipt matches the
-interactive verb's output exactly. Drive steps do not auto-settle —
-scripts carry explicit `wait-frame` lines, per the grammar.
+interactive verb's output exactly. Bare drive steps do not auto-settle
+— `click` carries `--wait-frame`, other steps pair with explicit
+`wait-frame` lines, per the grammar.
 
 ### D13 — `doctor`: the archaeology killer
 

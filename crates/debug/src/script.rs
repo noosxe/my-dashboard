@@ -9,8 +9,13 @@ use crate::cli::MouseAction;
 pub enum StepOp {
     /// `--session <name>` — binds the run (must precede every verb).
     Bind(String),
-    /// `click <accesskit_id>`
-    Click(String),
+    /// `click <accesskit_id> [--wait-frame[=ms]]` — the atomic form
+    /// samples the frame counter before the dispatch; a separate
+    /// `wait-frame` step can lose that race on a fast page (#530).
+    Click {
+        node: String,
+        wait_frame: Option<u64>,
+    },
     /// `focus <accesskit_id>`
     Focus(String),
     /// `key <keystroke>`
@@ -122,6 +127,25 @@ pub fn parse_script(source: &str) -> Result<Script, String> {
     Ok(script)
 }
 
+/// `--wait-frame` / `--wait-frame=<ms>` splitter for drive verbs. The
+/// atomic form samples the frame counter before the dispatch, which a
+/// separate `wait-frame` step can lose to a fast page (#530). Bare
+/// `--wait-frame` carries the CLI's default budget (docs/0055 D6).
+fn split_wait_frame(rest: &[String]) -> Result<(&[String], Option<u64>), String> {
+    match rest.split_last() {
+        Some((flag, rest)) if flag == "--wait-frame" => {
+            Ok((rest, Some(crate::cli::DEFAULT_WAIT_FRAME_MS)))
+        }
+        Some((flag, rest)) if flag.starts_with("--wait-frame=") => {
+            let ms = flag["--wait-frame=".len()..]
+                .parse::<u64>()
+                .map_err(|_| format!("--wait-frame=<ms> needs a number, got {flag:?}"))?;
+            Ok((rest, Some(ms)))
+        }
+        _ => Ok((rest, None)),
+    }
+}
+
 fn parse_line(text: &str, line_no: usize) -> Result<StepOp, String> {
     let tokens = tokenize(text).map_err(|err| format!("line {line_no}: {err}"))?;
     let err = |message: &str| format!("line {line_no}: {message}");
@@ -135,15 +159,23 @@ fn parse_line(text: &str, line_no: usize) -> Result<StepOp, String> {
             };
             Ok(StepOp::Bind(name.clone()))
         }
-        "click" | "focus" => {
+        "click" => {
+            let (rest, wait_frame) = split_wait_frame(rest).map_err(|message| err(&message))?;
             let [node] = rest else {
-                return Err(err(&format!("{verb} needs exactly one <accesskit_id>")));
+                return Err(err(
+                    "click needs exactly one <accesskit_id> [--wait-frame[=ms]]",
+                ));
             };
-            Ok(if verb == "click" {
-                StepOp::Click(node.clone())
-            } else {
-                StepOp::Focus(node.clone())
+            Ok(StepOp::Click {
+                node: node.clone(),
+                wait_frame,
             })
+        }
+        "focus" => {
+            let [node] = rest else {
+                return Err(err("focus needs exactly one <accesskit_id>"));
+            };
+            Ok(StepOp::Focus(node.clone()))
         }
         "key" => {
             let [keystroke] = rest else {
@@ -465,7 +497,13 @@ mod tests {
         assert_eq!(script.session.as_deref(), Some("qa"));
         assert_eq!(script.steps.len(), 8);
         assert_eq!(script.steps[0].line_no, 4);
-        assert_eq!(script.steps[0].op, StepOp::Click("#1851".into()));
+        assert_eq!(
+            script.steps[0].op,
+            StepOp::Click {
+                node: "#1851".into(),
+                wait_frame: None
+            }
+        );
         assert_eq!(
             script.steps[4].op,
             StepOp::Diff("opened".into(), "after-tabs".into())
@@ -594,5 +632,82 @@ mod tests {
             )),
             "the freeze receipt must assert the honesty label"
         );
+    }
+
+    #[test]
+    fn committed_audit_receipt_covers_every_surface() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/verify/audit.txt");
+        let source =
+            std::fs::read_to_string(path).expect("crates/debug/verify/audit.txt is committed");
+        let script = parse_script(&source).expect("the audit receipt parses");
+        let audits = script
+            .steps
+            .iter()
+            .filter(|s| matches!(s.op, StepOp::Audit))
+            .count();
+        assert!(
+            audits >= 5,
+            "home, github, usage, hub + the closing home audit — got {audits}"
+        );
+        // #530: every hop is an id click carrying the atomic --wait-frame
+        // (a separate wait-frame step can lose the race to a fast page),
+        // and each hop asserts a page-unique label before its audit.
+        let hops = script
+            .steps
+            .iter()
+            .filter(|s| matches!(s.op, StepOp::Click { .. }))
+            .count();
+        assert!(hops >= 4, "github, usage, hub, home — got {hops}");
+        assert!(
+            script
+                .steps
+                .iter()
+                .filter(|s| matches!(s.op, StepOp::Click { .. }))
+                .all(|s| matches!(
+                    s.op,
+                    StepOp::Click {
+                        wait_frame: Some(_),
+                        ..
+                    }
+                )),
+            "every click hops atomically — no separate wait-frame step to lose the race"
+        );
+        assert!(
+            script
+                .steps
+                .iter()
+                .any(|s| matches!(s.op, StepOp::TabStops)),
+            "tab-order coverage stays paired with the audit (0065 D3)"
+        );
+    }
+
+    #[test]
+    fn pending_surfaces_probe_stays_staged() {
+        // The settings/favicon hops are staged expected-red (#530,
+        // blocked on gpui-kit#3467/#3468): the file must keep parsing and
+        // keep its hop+assert+audit shape so the flip into audit.txt is
+        // a pure move once upstream lands.
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/verify/surfaces-pending.txt");
+        let source = std::fs::read_to_string(path)
+            .expect("crates/debug/verify/surfaces-pending.txt is committed");
+        let script = parse_script(&source).expect("the pending-surfaces probe parses");
+        let hops = script
+            .steps
+            .iter()
+            .filter(|s| matches!(s.op, StepOp::Click { .. }))
+            .count();
+        let asserts = script
+            .steps
+            .iter()
+            .filter(|s| matches!(s.op, StepOp::AssertLabel(_)))
+            .count();
+        let audits = script
+            .steps
+            .iter()
+            .filter(|s| matches!(s.op, StepOp::Audit))
+            .count();
+        assert_eq!(hops, 2, "settings + favicon");
+        assert_eq!(asserts, 2, "each hop asserts its landing");
+        assert_eq!(audits, 2, "each surface audits");
     }
 }
