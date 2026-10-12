@@ -15,7 +15,6 @@
 //! entity, the page observes and reads `selected_entry()`).
 
 use std::collections::BTreeMap;
-use std::ops::Range;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
@@ -24,11 +23,11 @@ use gpui_component::{
     ActiveTheme, Disableable, Icon, IconName, IndexPath, Sizable as _,
     badge::Badge,
     button::{Button, ButtonVariants},
+    diff::{Diff, DiffAnnotation, DiffFile, DiffLinePosition, DiffSide as UpstreamDiffSide},
     h_flex,
     input::{Input, Textarea, TextareaState},
     list::{List, ListDelegate, ListItem, ListState},
     resizable::{ResizableState, h_resizable, resizable_panel},
-    scroll::ScrollableElement as _,
     select::Select,
     tree::{TreeEntry, TreeItem, tree},
     v_flex,
@@ -42,7 +41,6 @@ use crate::pr_page::{
     review_batch_allowed, row_is_edited,
 };
 use crate::service::{AnchoredLine, PatchLine, anchor_patch};
-use crate::syntax::{self, TokenKind};
 use dashboard_core::freshness::relative_age;
 use dashboard_core::panes::{
     FILES_SIDEBAR_DEFAULT, FILES_SIDEBAR_MAX, FILES_SIDEBAR_MIN, RESIZE_KEYBOARD_STEP,
@@ -495,70 +493,101 @@ fn diff_pane(
     let Some(file) = file else {
         return empty_pane(cx);
     };
-    let (dir, name) = split_path(&file.filename);
-    let rows = page
-        .anchor_cache
-        .rows_for(&file.filename, file.patch.as_deref().unwrap_or_default());
+    let rows = anchor_patch(file.patch.as_deref().unwrap_or_default());
     v_flex()
         .id("pr-file-diff")
+        .debug_selector(|| "pr-diff-pane-key".into())
         .flex_1()
         .min_w_0()
         // Structural height — same rationale as the sidebar.
         .self_stretch()
         .min_h_0()
-        .child(diff_header(file, dir, name, cx))
         .children(files_error_row(page, cx))
-        .child(diff_body(page_h, page, file, &rows, cx))
+        .child(diff_element(page_h, page, file, &rows))
+        // Pane-level review chrome (docs/0070 D5): the composer lives
+        // outside the Diff's list — its textarea grows while typing, and a
+        // growing inline annotation has no re-measure trigger.
+        .children(line_composer_card(page, cx))
+        .children(threads_fetch_row(page, cx))
         // 0030 D4: the Finish-review bar — sticky under the diff while
         // drafts exist (outside the scroll).
         .children(finish_review_bar(page, cx))
         .into_any_element()
 }
 
-/// The selected file's header row: mono path with muted dir prefix
-/// (truncating from the front), +adds/−dels, change badge.
-fn diff_header(file: &PrFile, dir: Option<&str>, name: &str, cx: &Context<PrDetailPage>) -> Div {
-    h_flex()
-        .px_3()
-        .py_2()
-        .gap_2()
-        .items_center()
-        .border_b_1()
-        .border_color(cx.theme().border)
-        .child(
-            h_flex()
-                .min_w_0()
-                .flex_1()
-                .gap_1()
-                .text_xs()
-                .font_family(cx.theme().mono_font_family.clone())
-                .when_some(dir, |row, dir| {
-                    row.child(
-                        div()
-                            .truncate()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(format!("{dir}/")),
-                    )
-                })
-                .child(div().truncate().child(name.to_string())),
-        )
-        .child(
-            h_flex()
-                .flex_none()
-                .gap_2()
-                .text_xs()
-                .child(
-                    div()
-                        .text_color(cx.theme().success)
-                        .child(format!("+{}", file.additions)),
-                )
-                .child(
-                    div()
-                        .text_color(cx.theme().danger)
-                        .child(format!("\u{2212}{}", file.deletions)),
-                )
-                .child(file_status_badge(&file.status, cx)),
-        )
+/// The diff body (docs/0070 5.1): the upstream `Diff` — virtualized,
+/// tree-sitter highlighted, theme-driven (D3) — carrying the review
+/// surface as annotations (D5). Upstream's header chrome (path, +/−
+/// counts, collapse) replaces ours; the status badge rides the
+/// title-suffix slot. Unified with inline word-diff off (D6 — upstream's
+/// default is word-on, so the state pins it off at construction).
+fn diff_element(
+    page_h: &Entity<PrDetailPage>,
+    page: &PrDetailPage,
+    file: &PrFile,
+    rows: &[AnchoredLine],
+) -> AnyElement {
+    let path = file.filename.clone();
+    let status = file.status.clone();
+    let page_h = page_h.clone();
+    let page_h_add = page_h.clone();
+    let rows: std::sync::Arc<[AnchoredLine]> = rows.iter().cloned().collect();
+    Diff::new(&page.diff)
+        .annotations(thread_annotations(page, &path, &rows))
+        .render_header_title_suffix(move |_, _, cx| file_status_badge(&status, cx))
+        .render_annotation(move |annotation, window, cx| {
+            let page = page_h.read(cx);
+            let id = annotation.id().to_string();
+            if id.starts_with("pr-stray") {
+                let threads = page.threads_nodes();
+                let placed = place_threads(threads, annotation.path(), &rows);
+                return stray_bucket(page, &page_h, window, &placed, cx)
+                    .unwrap_or_else(|| div().into_any_element());
+            }
+            if let Some(ix) = id
+                .strip_prefix("pr-thread-")
+                .and_then(|s| s.split('-').next())
+                .and_then(|s| s.parse::<usize>().ok())
+            {
+                if let Some(t) = page.threads_nodes().get(ix) {
+                    return thread_card(page, &page_h, window, ix, t, cx).into_any_element();
+                }
+                return div().into_any_element();
+            }
+            if let Some(ix) = id
+                .strip_prefix("pr-draft-")
+                .and_then(|s| s.parse::<usize>().ok())
+            {
+                if ix < page.drafts.len() {
+                    return draft_chip(page, &page_h, window, ix, cx);
+                }
+            }
+            div().into_any_element()
+        })
+        .on_add_annotation({
+            let page_h = page_h_add;
+            move |range, window, cx| {
+                // GitHub anchors a comment range at its END line; opening
+                // the composer there matches thread placement (#211).
+                page_h.update(cx, |this, cx| {
+                    let side = match range.end_side() {
+                        UpstreamDiffSide::Original => DiffSide::Left,
+                        UpstreamDiffSide::Modified => DiffSide::Right,
+                    };
+                    this.open_line_composer(
+                        range.path().to_string(),
+                        side,
+                        u32::try_from(range.end()).unwrap_or(1),
+                        window,
+                        cx,
+                    );
+                });
+            }
+        })
+        .flex_1()
+        .min_h_0()
+        .min_w_0()
+        .into_any_element()
 }
 
 /// Centered muted state for an unselected pane (0018 D8).
@@ -775,279 +804,103 @@ pub(crate) fn place_threads<'a>(
     placed
 }
 
-/// One entry of the virtualized diff body (docs/0041 D2): a structural
-/// descriptor. Page state that changes a card's *height* is deliberately
-/// NOT part of the descriptor — height-only changes resync via
-/// `PrDetailPage::splice_diff_from` from the mutating event.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum DiffItem {
-    /// A file-level review thread (0030 D3), above the diff rows.
-    FileThread(usize),
-    /// A diff row, index into the file's anchored rows.
-    Row(usize),
-    /// A review thread card anchored under its row (`thread_ix` indexes
-    /// the page's thread list).
-    ThreadCard(usize),
-    /// The row composer (0030 D4), under the row it arms.
-    Composer(usize),
-    /// A queued draft chip, under its row.
-    Draft(usize),
-    /// Threads load hint / retry row (0030 D1).
-    FetchRow,
-    /// The end-of-file outdated bucket (0030 D3) — toggle + cards.
-    StrayBucket,
-}
-
-/// Cached rows for one file version: patch hash plus the parsed lines.
-type AnchorEntry = (u64, Arc<Vec<crate::service::AnchoredLine>>);
-
-/// Page-owned anchor cache (docs/0041 D4): one `anchor_patch` parse per
-/// file version, shared by thread placement, the diff body, and the
-/// highlight pump. Entries self-invalidate per path by patch hash.
-#[derive(Default)]
-pub(crate) struct AnchorCache(RefCell<BTreeMap<String, AnchorEntry>>);
-
-impl AnchorCache {
-    pub(crate) fn rows_for(
-        &self,
-        path: &str,
-        patch: &str,
-    ) -> Arc<Vec<crate::service::AnchoredLine>> {
-        let hash = crate::syntax::hash_patch(patch);
-        if let Some((h, rows)) = self.0.borrow().get(path) {
-            if *h == hash {
-                return rows.clone();
-            }
+/// Re-frames one GitHub REST file as a one-file unified diff for
+/// `DiffFile::parse` (docs/0070 5.1): the REST `patch` carries hunk text
+/// without Git's framing, and `DiffFile::new` is `pub(crate)` upstream, so
+/// parse is the only public construction. `/dev/null` sides mark
+/// added/removed (a removed file keeps its path on the old side);
+/// `patch: None` (binary, mode-only) parses as a header with an empty body.
+pub(crate) fn parse_pr_file(file: &PrFile) -> Vec<DiffFile> {
+    let old = match file.status.as_str() {
+        "added" => "/dev/null".to_string(),
+        // Renames arrive without `previous_filename` (api.rs): both sides
+        // take the current path — the display path stays right, and the
+        // old-side line numbers are the new file's (follow-up issue).
+        _ => format!("a/{}", file.filename),
+    };
+    let new = match file.status.as_str() {
+        "removed" => "/dev/null".to_string(),
+        _ => format!("b/{}", file.filename),
+    };
+    let mut text = format!("--- {old}\n+++ {new}\n");
+    if let Some(patch) = file.patch.as_deref() {
+        text.push_str(patch);
+        if !patch.ends_with('\n') {
+            text.push('\n');
         }
-        let rows = Arc::new(anchor_patch(patch));
-        self.0
-            .borrow_mut()
-            .insert(path.to_string(), (hash, rows.clone()));
-        rows
     }
+    DiffFile::parse(&text).unwrap_or_else(|e| {
+        log::warn!("pr diff parse failed for {}: {e}", file.filename);
+        Vec::new()
+    })
 }
 
-use std::cell::RefCell;
-use std::sync::Arc;
-
-/// Flatten one file's diff into the virtualized item list (docs/0041 D2),
-/// in the exact order the pre-list pane rendered: file-level threads,
-/// then per row [row, threads, composer?, drafts*], then the fetch row
-/// and the stray bucket.
-pub(crate) fn flatten_diff_items(
+/// Test-only swap counter for the D4 probe (docs/0070 §6): `sync_diff`
+/// increments exactly when it rebuilds the DiffState.
+#[cfg(test)]
+pub(crate) static SYNC_DIFF_SWAPS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+/// The selected file's review surface as upstream `DiffAnnotation`s
+/// (docs/0070 D5): file-level threads under the header, line threads at
+/// their anchor, queued drafts under theirs, the stray bucket at file
+/// level. Only positions and ids live here — the *contents* render through
+/// `render_annotation`, and upstream re-measures the set per frame, so the
+/// 0041 splice machinery retires with the list. Thread ids carry the
+/// page's annotation revision: `bump_diff_annotations` re-suffixes them on
+/// card-height changes the set alone can't see.
+pub(crate) fn thread_annotations(
     page: &PrDetailPage,
-    rows: &[crate::service::AnchoredLine],
-    placed: &ThreadPlacement<'_>,
-) -> Vec<DiffItem> {
-    let mut items = Vec::new();
+    path: &str,
+    rows: &[AnchoredLine],
+) -> Vec<DiffAnnotation> {
+    let placed = place_threads(page.threads_nodes(), path, rows);
+    let mut out = Vec::new();
     for &(ix, _) in placed.file_level.iter() {
-        items.push(DiffItem::FileThread(ix));
+        out.push(DiffAnnotation::file(
+            SharedString::from(format!("pr-thread-{ix}-r{}", page.reply_rev)),
+            path,
+        ));
     }
-    for row_ix in 0..rows.len() {
-        items.push(DiffItem::Row(row_ix));
-        if let Some(threads) = placed.anchored.get(&row_ix) {
-            for &(ix, _) in threads.iter() {
-                items.push(DiffItem::ThreadCard(ix));
+    for (row_ix, anchored) in rows.iter().enumerate() {
+        let Some((side, line)) = row_anchor(anchored) else {
+            continue;
+        };
+        let position = DiffLinePosition::new(
+            path,
+            match side {
+                DiffSide::Left => UpstreamDiffSide::Original,
+                DiffSide::Right => UpstreamDiffSide::Modified,
+            },
+            line as usize,
+        );
+        if let Some(threads_here) = placed.anchored.get(&row_ix) {
+            for &(ix, _) in threads_here.iter() {
+                out.push(DiffAnnotation::line(
+                    SharedString::from(format!("pr-thread-{ix}-r{}", page.reply_rev)),
+                    position.clone(),
+                ));
             }
         }
-        if let Some(anchored) = rows.get(row_ix) {
-            let armed = row_anchor(anchored);
-            let composer_here =
-                page.line_composer
-                    .as_ref()
-                    .zip(armed)
-                    .is_some_and(|(c, (side, line))| {
-                        c.path == page.selected_file.as_deref().unwrap_or_default()
-                            && c.side == side
-                            && c.line == line
-                    });
-            if composer_here {
-                items.push(DiffItem::Composer(row_ix));
-            }
-            if let Some((side, line)) = armed {
-                if page.drafts.iter().any(|d| {
-                    d.path == page.selected_file.as_deref().unwrap_or_default()
-                        && d.side == side
-                        && d.line == line
-                }) {
-                    items.push(DiffItem::Draft(row_ix));
-                }
-            }
+        for ix in page
+            .drafts
+            .iter()
+            .enumerate()
+            .filter(|(_, d)| d.path == path && d.side == side && d.line == line)
+            .map(|(ix, _)| ix)
+        {
+            out.push(DiffAnnotation::line(
+                SharedString::from(format!("pr-draft-{ix}")),
+                position.clone(),
+            ));
         }
-    }
-    if threads_fetch_row_present(page) {
-        items.push(DiffItem::FetchRow);
     }
     if !placed.stray.is_empty() {
-        items.push(DiffItem::StrayBucket);
+        out.push(DiffAnnotation::file(
+            SharedString::from(format!("pr-stray-r{}", page.reply_rev)),
+            path,
+        ));
     }
-    items
-}
-
-/// Place the page's threads against one file's diff (0030 D3): the
-/// render-side wrapper — rows come from the file's own patch.
-pub(crate) fn thread_placement<'a>(
-    page: &'a PrDetailPage,
-    file: &PrFile,
-    rows: &'a [crate::service::AnchoredLine],
-) -> ThreadPlacement<'a> {
-    let threads = page.threads_nodes();
-    if threads.is_empty() {
-        return ThreadPlacement {
-            anchored: BTreeMap::new(),
-            file_level: Vec::new(),
-            stray: Vec::new(),
-        };
-    }
-    place_threads(threads, &file.filename, rows)
-}
-
-/// The diff body (moved from pr_page, 0018): horizontal scroll, mono
-/// `text_xs`, `flex_none` rows — no soft wrap. Tints come from the
-/// semantic tokens at low opacity (0016 D10); the sign glyph carries
-/// the saturated color. 0030 D2: rows gain a two-column line-number
-/// The diff body (docs/0041 D1/D2): a virtualized `gpui::list` over the
-/// flattened `DiffItem` descriptors. Only viewport rows materialize per
-/// frame; the page's `diff_list` owns scroll position and cached heights.
-/// Horizontal scroll (rows stay `whitespace_nowrap`, 0018): the list is
-/// sized to a content-derived width (capped) inside an x-scroll wrapper —
-/// vertical wheel lives in the list, horizontal in the wrapper. Scrollbars:
-/// vertical tracks the `ListState`, horizontal the wrapper handle (D6).
-/// Tints come from the semantic tokens at low opacity (0016 D10); the sign
-/// glyph carries the saturated color (0040 §4 D6 amendment).
-fn diff_body(
-    page_h: &Entity<PrDetailPage>,
-    page: &PrDetailPage,
-    file: &PrFile,
-    rows: &[crate::service::AnchoredLine],
-    cx: &Context<PrDetailPage>,
-) -> AnyElement {
-    let path = file.filename.clone();
-    let spans = match page.highlight_cache.lookup(
-        &path,
-        syntax::hash_patch(file.patch.as_deref().unwrap_or_default()),
-        &syntax::theme_key(cx.theme()),
-    ) {
-        syntax::Lookup::Done(spans) => spans,
-        syntax::Lookup::Tokenizing | syntax::Lookup::Miss => None,
-    };
-    let items = page.diff_items.clone();
-    let state = page.diff_list.clone();
-    let x_handle = page.diff_x_scroll.clone();
-    let page_h = page_h.clone();
-    let rows: std::sync::Arc<[crate::service::AnchoredLine]> = rows.iter().cloned().collect();
-    // #413: the content width now sizes each row's *scrolled code* —
-    // the gutter is outside the scroller, so it no longer adds to
-    // the scrollable width.
-    let content_w = content_width(&rows);
-    let row_x = x_handle.clone();
-    let list = list(
-        state.clone(),
-        move |ix: usize, window: &mut Window, cx: &mut App| {
-            let page = page_h.read(cx);
-            let empty = || div().into_any_element();
-            match items.get(ix) {
-                Some(DiffItem::FileThread(tix)) => match page.threads_nodes().get(*tix) {
-                    Some(t) => thread_card(page, &page_h, window, *tix, t, cx),
-                    None => empty(),
-                },
-                Some(DiffItem::Row(rix)) => {
-                    let Some(anchored) = rows.get(*rix) else {
-                        return empty();
-                    };
-                    let row_spans = spans.as_ref().and_then(|v| v.get(*rix)).map(Vec::as_slice);
-                    diff_row(
-                        page, &page_h, window, &path, *rix, anchored, row_spans, content_w, &row_x,
-                        cx,
-                    )
-                }
-                Some(DiffItem::ThreadCard(tix)) => match page.threads_nodes().get(*tix) {
-                    Some(t) => thread_card(page, &page_h, window, *tix, t, cx),
-                    None => empty(),
-                },
-                Some(DiffItem::Composer(rix)) => match rows.get(*rix) {
-                    Some(anchored) => {
-                        line_composer_card(page, &page_h, window, &path, anchored, cx)
-                            .unwrap_or_else(empty)
-                    }
-                    None => empty(),
-                },
-                Some(DiffItem::Draft(rix)) => {
-                    let mut cards = v_flex().w_full().min_w_0();
-                    if let Some(anchored) = rows.get(*rix) {
-                        for card in draft_rows(page, &page_h, window, &path, anchored, cx) {
-                            cards = cards.child(card);
-                        }
-                    }
-                    cards.into_any_element()
-                }
-                Some(DiffItem::FetchRow) => {
-                    threads_fetch_row(page, &page_h, window, cx).unwrap_or_else(empty)
-                }
-                Some(DiffItem::StrayBucket) => {
-                    let threads = page.threads_nodes();
-                    let placed = place_threads(threads, &path, &rows);
-                    stray_bucket(page, &page_h, window, &placed, cx).unwrap_or_else(empty)
-                }
-                None => empty(),
-            }
-        },
-    );
-    div()
-        .id("pr-diff-scroll")
-        .debug_selector(|| "pr-diff-scroll-key".into())
-        .flex_1()
-        .min_h_0()
-        .min_w_0()
-        // #413: both scrollbars live on this outer, NON-scrolling
-        // host. gpui applies a scroll container's offset to every
-        // child — absolute overlays included — so a scrollbar rendered
-        // inside x-scrolled content translates away with it. Bound
-        // to the handles here, they stay pinned to the pane's bottom
-        // and right edges.
-        .vertical_scrollbar(&state)
-        .horizontal_scrollbar(&x_handle)
-        // Padding the old scroll container had (py_2) lives on the
-        // items; the list sizes itself to the viewport now — each
-        // code row owns its horizontal scroll (#413), so the pane
-        // itself never scrolls x.
-        .child(list.w_full().h_full())
-        .into_any_element()
-}
-
-/// Each code row's scrolled content width (docs/0041 D5, #413): the
-/// longest row's text at a generous mono advance, plus the sign cell
-/// and padding, capped — honest scrollbar travel without unbounded
-/// width. The gutter is outside the scroller and adds nothing.
-fn content_width(rows: &[crate::service::AnchoredLine]) -> f32 {
-    const CHAR_W: f32 = 8.0;
-    const CHROME: f32 = 48.0;
-    const CAP: f32 = 16_384.0;
-    let max_len = rows.iter().map(row_text_len).max().unwrap_or(0) as f32;
-    (CHROME + max_len * CHAR_W).clamp(400.0, CAP)
-}
-
-fn row_text_len(anchored: &crate::service::AnchoredLine) -> usize {
-    match &anchored.line {
-        crate::service::PatchLine::Hunk(t)
-        | crate::service::PatchLine::Context(t)
-        | crate::service::PatchLine::Add(t)
-        | crate::service::PatchLine::Del(t) => t.chars().count(),
-    }
-}
-
-/// The gutter cells for one row (0030 D2): old-side number, new-side
-/// number — muted, fixed width, blank on hunk rows and unanchored rows.
-fn gutter_cell(n: Option<u32>, cx: &App) -> Div {
-    div()
-        .flex_none()
-        .w(px(GUTTER_COL_W))
-        .text_right()
-        .pr_2()
-        .text_xs()
-        .font_family(cx.theme().mono_font_family.clone())
-        .text_color(cx.theme().muted_foreground)
-        .child(n.map(|v| v.to_string()).unwrap_or_default())
+    out
 }
 
 /// The row's comment anchor (docs/0030 D2/D4): Add/Context rows arm
@@ -1061,14 +914,6 @@ fn row_anchor(anchored: &AnchoredLine) -> Option<(DiffSide, u32)> {
     }
 }
 
-#[cfg(test)]
-pub(crate) static DIFF_ROWS_BUILT: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
-
-/// One pinned number column's width (#413). The pinned gutter is two
-/// of them, outside every row's x-scroller.
-const GUTTER_COL_W: f32 = 44.0;
-const GUTTER_W: f32 = GUTTER_COL_W * 2.0;
 /// The seam handle's hit band (docs/0069 D5): wide enough to tab to,
 /// centered on the panel edge by its negative `right` offset.
 const SEAM_HANDLE_W: f32 = 5.0;
@@ -1078,303 +923,12 @@ const TREE_INDENT_STEP: f32 = 12.0;
 /// The spacer under a folder's chevron (0002 D10): keeps file
 /// basenames aligned with folder labels.
 const TREE_CHEVRON_SPACER_W: f32 = 16.0;
-/// The add/del glyph cell's width (0002 D10).
-const GLYPH_CELL_W: f32 = 10.0;
 
-#[allow(clippy::too_many_arguments)]
-fn diff_row(
-    page: &PrDetailPage,
-    page_h: &Entity<PrDetailPage>,
-    window: &mut Window,
-    path: &str,
-    rix: usize,
-    anchored: &AnchoredLine,
-    spans: Option<&[(Range<usize>, TokenKind)]>,
-    content_w: f32,
-    x_handle: &ScrollHandle,
-    cx: &App,
-) -> AnyElement {
-    #[cfg(test)]
-    DIFF_ROWS_BUILT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let row_id = row_comment_id(path, anchored);
-    match &anchored.line {
-        PatchLine::Hunk(text) => h_flex()
-            .w_full()
-            // Hunk headers carry no numbers; a blank spacer keeps the
-            // header aligned with the code column.
-            .child(
-                div()
-                    .flex_none()
-                    .w(px(GUTTER_W))
-                    .debug_selector(|| format!("pr-diff-gutter-{rix}")),
-            )
-            .child(x_scrolled(
-                rix,
-                content_w,
-                x_handle,
-                div()
-                    .whitespace_nowrap()
-                    .px_2()
-                    .py_0p5()
-                    .text_xs()
-                    .font_family(cx.theme().mono_font_family.clone())
-                    .text_color(cx.theme().muted_foreground)
-                    .bg(cx.theme().accent.opacity(0.15))
-                    .child(text.clone()),
-            ))
-            .into_any_element(),
-        PatchLine::Context(text) => code_row(
-            page, page_h, window, &row_id, path, rix, anchored, text, spans, "", None, None,
-            content_w, x_handle, cx,
-        ),
-        // docs/0040 §4 D6 (amended): the tint stays in the background,
-        // the sign glyph alone carries the saturated color (0016 D10's
-        // letter), and the content renders in ambient foreground with
-        // token spans — the old whole-row saturated `text_color` fought
-        // the token palette and made added-line keywords unreadable.
-        PatchLine::Add(text) => code_row(
-            page,
-            page_h,
-            window,
-            &row_id,
-            path,
-            rix,
-            anchored,
-            text,
-            spans,
-            "+",
-            Some(cx.theme().success),
-            Some(cx.theme().success.opacity(0.12)),
-            content_w,
-            x_handle,
-            cx,
-        ),
-        PatchLine::Del(text) => code_row(
-            page,
-            page_h,
-            window,
-            &row_id,
-            path,
-            rix,
-            anchored,
-            text,
-            spans,
-            "\u{2212}",
-            Some(cx.theme().danger),
-            Some(cx.theme().danger.opacity(0.12)),
-            content_w,
-            x_handle,
-            cx,
-        ),
-    }
-    .into_any_element()
-}
-
-/// One code row (#413): the two gutter columns sit OUTSIDE the row's
-/// x-scroller — pinned at the pane's left edge while the code scrolls
-/// under the shared handle. The tint spans the whole row band (gutter
-/// included), so added/removed lines read as full-width bands. The
-/// hover comment button floats over the row's right edge: absolutely
-/// positioned (a hovered row keeps its height, so numbers never slide
-/// off their lines) and deferred (paints above the next row's tint).
-#[allow(clippy::too_many_arguments)]
-fn code_row(
-    page: &PrDetailPage,
-    page_h: &Entity<PrDetailPage>,
-    window: &mut Window,
-    row_id: &SharedString,
-    path: &str,
-    rix: usize,
-    anchored: &AnchoredLine,
-    text: &str,
-    spans: Option<&[(Range<usize>, TokenKind)]>,
-    glyph: &'static str,
-    glyph_color: Option<Hsla>,
-    bg: Option<Hsla>,
-    content_w: f32,
-    x_handle: &ScrollHandle,
-    cx: &App,
-) -> AnyElement {
-    // docs/0040 §4 D6 amendment: the row's comment button renders only
-    // while this row is hovered — 460 always-on Buttons+tooltips were
-    // the diff-pane scroll jank. It is NOT a row child: an in-flow
-    // xsmall Button is 26px against a 19.5px row band, so every hover
-    // grew the row and slid all numbers below it off their lines (it
-    // renders in the deferred overlay at the bottom of this fn).
-    // Owned for the 'static hover closure below.
-    let row_id = row_id.clone();
-    let hover_key = row_id.clone();
-    let code = h_flex()
-        .debug_selector(|| format!("pr-diff-code-{rix}"))
-        .whitespace_nowrap()
-        .px_2()
-        .text_xs()
-        .font_family(cx.theme().mono_font_family.clone())
-        .child(glyph_cell(glyph, glyph_color))
-        .child(diff_content(text, spans, cx));
-    let mut row = h_flex()
-        .w_full()
-        .id(row_id.clone())
-        .on_hover(
-            window.listener_for(page_h, move |this, hovered: &bool, _, cx| {
-                let next = hovered.then(|| hover_key.clone());
-                if this.hovered_row != next {
-                    this.hovered_row = next;
-                    cx.notify();
-                }
-            }),
-        )
-        .child(
-            // Flex row, not a plain `div()`: gpui's default Display is
-            // Block, which stacked the two number cells vertically —
-            // old above new — doubling every row to ~39px and putting
-            // the numbers on lines of their own.
-            h_flex()
-                .flex_none()
-                .debug_selector(|| format!("pr-diff-gutter-{rix}"))
-                .child(gutter_cell(anchored.old, cx))
-                .child(gutter_cell(anchored.new, cx)),
-        )
-        .child(x_scrolled(rix, content_w, x_handle, code));
-    if let Some(bg) = bg {
-        row = row.bg(bg);
-    }
-    if let Some(button) = row_comment_button(page, page_h, window, &row_id, path, anchored) {
-        // The floating comment affordance: `absolute` keeps it out of
-        // flow (hover cannot change the row's height), `deferred` paints
-        // it above the sibling rows its 26px band overhangs.
-        row = row.child(deferred(
-            div()
-                .debug_selector(|| format!("pr-diff-comment-{rix}"))
-                .absolute()
-                .right_2()
-                .top_0()
-                .h_full()
-                .flex()
-                .items_center()
-                .child(button),
-        ));
-    }
-    row.into_any_element()
-}
-
-/// One row's horizontally scrolled code region (#413). All rows share
-/// the pane's single `ScrollHandle`, so a wheel over any row and the
-/// pinned horizontal scrollbar move them together; every row's content
-/// is sized to the same `content_w`, so no row's clamp can claw the
-/// shared offset back (diverging row widths would fight over it).
-fn x_scrolled(rix: usize, content_w: f32, x_handle: &ScrollHandle, content: Div) -> Stateful<Div> {
-    div()
-        // Positional by decision (#482): diff rows are positions under
-        // one shared x-scroll — re-deriving the diff resets it, which is
-        // the wanted behavior. Stable domain ids (`row_id`) key
-        // hover/comment state instead.
-        .id(format!("pr-diff-x-{rix}"))
-        .flex_1()
-        .min_w_0()
-        .overflow_x_scroll()
-        .track_scroll(x_handle)
-        .child(content.w(px(content_w)).flex_none())
-}
-
-/// The fixed-width sign cell (one of `" "`, `"+"`, `"\u{2212}"`) —
-/// colored separately from the content so token colors never compete
-/// with the row tint (docs/0040 §4 D6, amended).
-fn glyph_cell(glyph: &'static str, color: Option<Hsla>) -> Div {
-    let mut cell = div()
-        .flex_none()
-        .w(px(GLYPH_CELL_W))
-        .text_center()
-        .text_xs()
-        .child(glyph);
-    if let Some(color) = color {
-        cell = cell.text_color(color);
-    }
-    cell
-}
-
-/// One row's content: the bare text, or the same text as a
-/// `StyledText` carrying the token spans (docs/0040 D6). Without spans
-/// — plain file, over the cap, or nothing to color — this is the plain
-/// string exactly as before docs/0040; the sign glyph is a separate
-/// cell, so span ranges need no re-basing.
-fn diff_content(text: &str, spans: Option<&[(Range<usize>, TokenKind)]>, cx: &App) -> AnyElement {
-    let Some(spans) = spans else {
-        return text.to_string().into_any_element();
-    };
-    if spans.is_empty() {
-        return text.to_string().into_any_element();
-    }
-    let highlights: Vec<(Range<usize>, gpui::HighlightStyle)> = spans
-        .iter()
-        .map(|(range, kind)| (range.clone(), syntax::token_style(*kind, cx.theme())))
-        .collect();
-    StyledText::new(text.to_string())
-        .with_highlights(highlights)
-        .into_any_element()
-}
-
-/// The hover comment affordance for one armable row (docs/0030 D4/D8):
-/// hidden until its row is hovered; opens the row composer.
-/// The stable identity of one armable diff row — the comment button's
-/// element id and the page's hovered-row key.
-fn row_comment_id(path: &str, anchored: &AnchoredLine) -> SharedString {
-    match row_anchor(anchored) {
-        Some((side, line)) => {
-            SharedString::from(format!("pr-line-{}-{line}-{path}-comment", side.id_token()))
-        }
-        None => SharedString::default(),
-    }
-}
-
-fn row_comment_button(
-    page: &PrDetailPage,
-    page_h: &Entity<PrDetailPage>,
-    window: &mut Window,
-    row_id: &SharedString,
-    path: &str,
-    anchored: &AnchoredLine,
-) -> Option<AnyElement> {
-    let (side, line) = row_anchor(anchored)?;
-    // docs/0040 §4 D6 amendment: one button under the pointer, not 460.
-    if page.hovered_row.as_ref() != Some(row_id) {
-        return None;
-    }
-    let path = path.to_string();
-    let id = SharedString::from(format!("pr-line-{}-{line}-comment", side.id_token()));
-    Some(
-        div()
-            .child(
-                Button::new(id)
-                    .ghost()
-                    .xsmall()
-                    .icon(IconName::Plus)
-                    .tooltip("Comment on this line")
-                    .accessibility_label("Comment on this line")
-                    .on_click(window.listener_for(page_h, move |this, _, window, cx| {
-                        this.open_line_composer(path.clone(), side, line, window, cx)
-                    })),
-            )
-            .into_any_element(),
-    )
-}
-
-/// The row composer (docs/0030 D4), rendered under its armed row while
-/// open: **Add single comment** publishes an immediate thread,
-/// **Start a review** queues a local draft for the Finish-review bar.
-fn line_composer_card(
-    page: &PrDetailPage,
-    page_h: &Entity<PrDetailPage>,
-    window: &mut Window,
-    path: &str,
-    anchored: &AnchoredLine,
-    cx: &App,
-) -> Option<AnyElement> {
+/// The row composer (docs/0030 D4), pane-level under the diff while open:
+/// **Add single comment** publishes an immediate thread, **Start a review**
+/// queues a local draft for the Finish-review bar.
+fn line_composer_card(page: &PrDetailPage, cx: &Context<PrDetailPage>) -> Option<AnyElement> {
     let composer = page.line_composer.as_ref()?;
-    let (side, line) = row_anchor(anchored)?;
-    if composer.path != path || composer.side != side || composer.line != line {
-        return None;
-    }
     let busy = page.busy.is_some();
     Some(
         v_flex()
@@ -1409,7 +963,7 @@ fn line_composer_card(
                             .xsmall()
                             .label("Add single comment")
                             .disabled(busy)
-                            .on_click(window.listener_for(page_h, |this, _, window, cx| {
+                            .on_click(cx.listener(|this, _, window, cx| {
                                 this.add_single_comment(window, cx)
                             })),
                     )
@@ -1419,7 +973,7 @@ fn line_composer_card(
                             .xsmall()
                             .label("Start a review")
                             .disabled(busy)
-                            .on_click(window.listener_for(page_h, |this, _, window, cx| {
+                            .on_click(cx.listener(|this, _, window, cx| {
                                 this.start_review_draft(window, cx)
                             })),
                     )
@@ -1429,7 +983,7 @@ fn line_composer_card(
                             .xsmall()
                             .label("Cancel")
                             .disabled(busy)
-                            .on_click(window.listener_for(page_h, |this, _, window, cx| {
+                            .on_click(cx.listener(|this, _, window, cx| {
                                 this.cancel_line_composer(window, cx)
                             })),
                     ),
@@ -1438,78 +992,66 @@ fn line_composer_card(
     )
 }
 
-/// The queued drafts anchored to this row (docs/0030 D4) — *Pending*
-/// chips like GitHub's; each discards individually, the Finish-review
-/// bar publishes the whole batch.
-fn draft_rows(
+/// One queued draft chip (docs/0030 D4) — *Pending* like GitHub's;
+/// discards individually, the Finish-review bar publishes the batch.
+/// Rendered through `render_annotation` at its anchor (docs/0070 D5).
+fn draft_chip(
     page: &PrDetailPage,
     page_h: &Entity<PrDetailPage>,
     window: &mut Window,
-    path: &str,
-    anchored: &AnchoredLine,
+    ix: usize,
     cx: &App,
-) -> Vec<AnyElement> {
-    let Some((side, line)) = row_anchor(anchored) else {
-        return Vec::new();
-    };
-    page.drafts
-        .iter()
-        .enumerate()
-        .filter(|(_, d)| d.path == path && d.side == side && d.line == line)
-        .map(|(ix, d)| {
-            v_flex()
-                .debug_selector(move || format!("pr-draft-{ix}-key"))
-                .id(SharedString::from(format!("pr-draft-{ix}")))
-                .w_full()
-                .min_w_0()
-                .mt_1()
-                .rounded_md()
-                .border_1()
-                .border_color(cx.theme().border)
-                .p_2()
-                .gap_1()
+) -> AnyElement {
+    let d = &page.drafts[ix];
+    v_flex()
+        .debug_selector(move || format!("pr-draft-{ix}-key"))
+        .id(SharedString::from(format!("pr-draft-{ix}")))
+        .w_full()
+        .min_w_0()
+        .mt_1()
+        .rounded_md()
+        .border_1()
+        .border_color(cx.theme().border)
+        .p_2()
+        .gap_1()
+        .child(
+            h_flex()
+                .gap_2()
+                .items_center()
                 .child(
-                    h_flex()
-                        .gap_2()
-                        .items_center()
-                        .child(
-                            Badge::new()
-                                .xsmall()
-                                .color(cx.theme().warning)
-                                .child("Pending"),
-                        )
-                        .when_some(d.start, |chip, (_, s)| {
-                            chip.child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(format!("lines {}\u{2013}{}", s, d.line)),
-                            )
-                        })
-                        .child(div().flex_1())
-                        .child(
-                            Button::new(SharedString::from(format!("pr-draft-{ix}-discard")))
-                                .ghost()
-                                .xsmall()
-                                .icon(IconName::CircleX)
-                                .tooltip("Discard draft")
-                                .accessibility_label("Discard draft comment")
-                                .on_click(window.listener_for(page_h, move |this, _, _, cx| {
-                                    this.drafts.remove(ix);
-                                    this.splice_diff_drafts();
-                                    cx.notify();
-                                })),
-                        ),
+                    Badge::new()
+                        .xsmall()
+                        .color(cx.theme().warning)
+                        .child("Pending"),
                 )
-                .child(div().w_full().min_w_0().text_sm().child(d.body.clone()))
-                .into_any_element()
-        })
-        .collect()
+                .when_some(d.start, |chip, (_, s)| {
+                    chip.child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(format!("lines {}\u{2013}{}", s, d.line)),
+                    )
+                })
+                .child(div().flex_1())
+                .child(
+                    Button::new(SharedString::from(format!("pr-draft-{ix}-discard")))
+                        .ghost()
+                        .xsmall()
+                        .icon(IconName::CircleX)
+                        .tooltip("Discard draft")
+                        .accessibility_label("Discard draft comment")
+                        .on_click(window.listener_for(page_h, move |this, _, _, cx| {
+                            this.drafts.remove(ix);
+                            cx.notify();
+                        })),
+                ),
+        )
+        .child(div().w_full().min_w_0().text_sm().child(d.body.clone()))
+        .into_any_element()
 }
 
-/// The fetch-row visibility predicate (0030 D1) — shared by
-/// `threads_fetch_row` and the flatten pass so the virtualized item list
-/// and the rendered element can never disagree.
+/// The fetch-row visibility predicate (0030 D1) — the single source both
+/// the pane's fetch row and the sync gate agree on.
 fn threads_fetch_row_present(page: &PrDetailPage) -> bool {
     if page.threads.is_idle() && !page.threads.in_flight {
         return false;
@@ -1519,13 +1061,8 @@ fn threads_fetch_row_present(page: &PrDetailPage) -> bool {
 
 /// While threads load with nothing landed: a muted hint under the diff;
 /// on failure (nothing landed) a retry row — the diff itself must never
-/// break (0030 D1, docs/0031 D3).
-fn threads_fetch_row(
-    page: &PrDetailPage,
-    page_h: &Entity<PrDetailPage>,
-    window: &mut Window,
-    cx: &App,
-) -> Option<AnyElement> {
+/// break (0030 D1, docs/0031 D3). Pane-level (docs/0070 D5).
+fn threads_fetch_row(page: &PrDetailPage, cx: &Context<PrDetailPage>) -> Option<AnyElement> {
     // Idle-with-data renders no row (the threads are up); a first-load
     // fetch shows the hint; a failure — with nothing landed — the retry
     // row (0030 D1). A failed refresh of landed data also shows the retry
@@ -1550,7 +1087,7 @@ fn threads_fetch_row(
                         .icon(IconName::RotateCw)
                         .tooltip("Retry")
                         .accessibility_label("Retry loading review threads")
-                        .on_click(window.listener_for(page_h, |this, _, _, cx| {
+                        .on_click(cx.listener(|this, _, _, cx| {
                             this.fetch_threads(
                                 crate::usage::Origin::new(
                                     crate::usage::Surface::PrPage,
@@ -1621,7 +1158,7 @@ fn stray_bucket(
                     .on_click(window.listener_for(page_h, move |this, _, _, cx| {
                         let entry = this.outdated_open.entry(path.clone()).or_insert(false);
                         *entry = !*entry;
-                        this.splice_diff_stray();
+                        this.bump_diff_annotations(cx);
                         cx.notify();
                     })),
             )

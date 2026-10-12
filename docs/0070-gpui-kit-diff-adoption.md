@@ -283,4 +283,31 @@ for split diff stay open (#203).
 
 ## 10. Shipped
 
-_(appended at implementation — PR link, deviations, probe results.)_
+Implemented in two PRs: part 1 (#520) enabled the `tree-sitter` /
+`tree-sitter-languages` features (build-only); part 2 (#516) swapped the
+renderer. Deviations from this doc, recorded at implementation:
+
+- **D6 correction:** upstream's default `inline_unit` is `Some(Word)`,
+  not off — the state pins it off explicitly at construction
+  (`with_inline_unit(None)`).
+- **Composer placement:** the row composer is pane-level (under the
+  Diff), not an inline annotation — its textarea grows while typing, and
+  upstream has no public re-measure for a growing annotation. Thread
+  card height changes the annotation *set* can't see (reply boxes,
+  resolve picker, stray toggle) go through `bump_diff_annotations`,
+  which re-suffixes the annotation ids so the set differs and upstream
+  re-measures; focus stays on the editor entity.
+- **Probe swap:** three of our probes retired with the DOM they measured —
+  the `#413` row-band probe, the 0041 §6 viewport-perf probe (the Diff is
+  upstream's virtualized `list`; its kit suite carries the perf burden),
+  and the `#413` pinned-gutter x-scroll probe (upstream owns horizontal
+  scroll). Replaced by `parse_pr_file_maps_the_rest_patch` (mapping) and
+  `sync_diff_noops_on_unchanged_patch_and_swaps_on_change` (the D4
+  no-op/swap contract, via a test-only swap counter).
+- **Renames:** our `PrFile` never deserialized `previous_filename`, so a
+  renamed file parses with the new path on both sides (display path
+  right; old-side numbers are the new file's) — follow-up issue filed.
+- `DiffState::set_files` retains collapse state for surviving paths on
+  its own, so D4's restore is the scroll-back only.
+
+Probe results and receipts: see the part-2 PR description.

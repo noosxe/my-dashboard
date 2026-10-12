@@ -10,6 +10,13 @@
 - **Date:** 2026-09-17. Upstream facts verified against the pinned
   gpui-pre 0.3.3 source and syntect 5.3.0 (crates.io) on this date.
 
+> **Superseded (2026-10-12, docs/0070 / #516):** the Files-tab diff body
+> renders through the gpui-kit `Diff` component, which brings tree-sitter
+> syntax (docs/0070 D2/D3). The syntect tokenizer, the house scope→token
+> mapping, and the highlight memo/pump retire with the renderer they fed.
+> This doc remains the record of the #202 arc; D6's tint decisions are
+> re-derived by upstream's own theme plumbing.
+
 ## 1. Context & problem
 
 The Files tab renders unified diffs as plain monospace text: every

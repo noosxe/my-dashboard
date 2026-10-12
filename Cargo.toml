@@ -83,12 +83,6 @@ pulldown-cmark = { version = "0.13", default-features = false }
 rusqlite = { version = "0.40", default-features = false, features = [
     "bundled", "cache",
 ] }
-# Diff-row syntax highlighting (docs/0040 D7): tokenizer only — no
-# syntect themes, no Oniguruma C toolchain (fancy-regex backend). The
-# default syntax pack loads from an embedded dump at first use.
-syntect = { version = "5", default-features = false, features = [
-    "parsing", "default-syntaxes", "dump-load", "regex-fancy",
-] }
 linkify = "0.11"
 dirs = "7"
 serde = { version = "1", features = ["derive"] }
