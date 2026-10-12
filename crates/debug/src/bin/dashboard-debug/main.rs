@@ -677,8 +677,13 @@ pub(crate) fn tab_stops(conn: &mut Conn, window: &Option<u64>) -> i32 {
         Ok(result) => result,
         Err(code) => return code,
     };
-    let mut start = focused_node(&first).map(|(id, _, _)| id);
-    let mut previous = start.clone();
+    // The cycle anchor is the FIRST TAB STOP, not the boot-focused node:
+    // boot focus can sit on a non-stop (the shell root holds it via
+    // #360's track_focus), and a start outside the cycle can never be
+    // revisited — the walk would always hit the 100-stop cap. The
+    // `start.is_none()` arm below anchors at stop 1.
+    let mut start: Option<String> = None;
+    let mut previous: Option<String> = None;
     let mut moved = false;
     let mut last_stop = None;
     let mut dump = first;

@@ -930,8 +930,12 @@ pub fn critique_verb(session: Option<&str>, surface: &str) -> i32 {
         Err(code) => return code,
     };
     if let Err(last) = wait_for_frame(&mut conn, &None, frame_number(&first), 2000) {
-        eprintln!("critique {surface}: frame still {last} — nothing drew");
-        return 1;
+        // A quiet surface never repaints: frame-stable across the whole
+        // budget IS the settled state D6 wants, not a failure. Liveness
+        // is doctor's check, not this one's.
+        eprintln!(
+            "critique {surface}: frame stable at {last} — quiet surface, capturing the settled frame"
+        );
     }
     let dump = match tree_dump(&mut conn, &None) {
         Ok(result) => result,
@@ -1025,8 +1029,11 @@ pub fn golden_verb(session: Option<&str>, surface: &str, theme: &str, update: bo
         Err(code) => return code,
     };
     if let Err(last) = wait_for_frame(&mut conn, &None, frame_number(&first), 2000) {
-        eprintln!("golden {surface}: frame still {last} — nothing drew");
-        return 1;
+        // Same quiet-surface rule as critique: stable for the whole budget
+        // is the settled frame, not a dead app.
+        eprintln!(
+            "golden {surface}: frame stable at {last} — quiet surface, capturing the settled frame"
+        );
     }
     let (w, h) = record.size;
     let baseline = pixels_root().join(format!("{surface}-{w}x{h}-{theme}.png"));

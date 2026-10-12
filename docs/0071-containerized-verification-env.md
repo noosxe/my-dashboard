@@ -149,6 +149,13 @@ scripts/verify.sh sh -c '
 
 Interactive inspection: `scripts/verify.sh bash`.
 
+Freshness caution: cargo tracks host edits by mtime, and macOS bind
+mounts (osxfs) have coarse, sometimes stale mtimes — an in-container
+build right after host edits can silently reuse a stale binary from the
+volume. When receipts must reflect exactly what the working tree holds,
+start the chain with `cargo clean -q -p <touched crates>` (deps stay
+cached; the rebuild is short).
+
 ## 5. Base-image bump ritual
 
 One PR changes all three pins together: the tag + digest in

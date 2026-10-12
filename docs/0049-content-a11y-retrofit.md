@@ -49,7 +49,11 @@ Verified against the pinned stack (`gpui-pre =0.3.3`, `gpui-component` @
     in the tree (our nav-back/nav-forward/collapse included).
   - `Tab`/`TabBar` self-role with a public `aria_label()` builder (falls back
     to the tab's label). ✅
-  - `BreadcrumbItem` self-roles as `Link` and inherits its label text. ✅
+  - `BreadcrumbItem` self-roles as `Link`/`ListItem` but its text child is
+    its own text node — **no accessible name lands on the crumb** (the
+    first full audit FAILed every link crumb on `role-label`, #522). The
+    shell renders its own crumbs (`shell.rs` `ShellCrumb`) with ids,
+    roles, and explicit `aria_label`s instead. Upstream gap.
   - `ListItem` self-roles as `ListItem` but has **no label builder** →
     the sidebar repo list items are unnamed (#95). Upstream gap.
   - `SidebarMenuItem` takes a label but sets **no role and no accessible

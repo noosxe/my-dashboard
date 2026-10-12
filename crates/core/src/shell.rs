@@ -6,10 +6,10 @@
 use gpui::{prelude::FluentBuilder as _, *};
 
 use gpui::Decorations;
+use std::rc::Rc;
 
 use gpui_component::{
     ActiveTheme, Disableable as _, Icon, IconName, Sizable as _, TitleBar, WindowExt,
-    breadcrumb::{Breadcrumb, BreadcrumbItem},
     button::{Button, ButtonVariants},
     h_flex,
     notification::{Notification, NotificationDelivery},
@@ -288,6 +288,67 @@ impl DashboardShell {
     }
 }
 
+/// Click handler for a [`ShellCrumb`]; the `Rc` twin of [`CrumbAction`]
+/// (which is `Arc`-based for cross-entity sharing).
+type ShellCrumbAction = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
+
+/// One chrome-row breadcrumb crumb (#522): rendered locally instead of
+/// via upstream `Breadcrumb`, whose `BreadcrumbItem` self-roles but never
+/// lands an accessible name — the text child is its own text node
+/// (docs/0049), so every link crumb FAILs the audit's role-label rule.
+/// Local crumbs carry ids, roles, and explicit names (docs/0010 D10).
+struct ShellCrumb {
+    id: SharedString,
+    label: SharedString,
+    /// `None` renders a non-clickable landmark: the current location is
+    /// never a link.
+    on_click: Option<ShellCrumbAction>,
+}
+
+fn shell_crumb(crumb: ShellCrumb, is_last: bool, muted: Hsla, foreground: Hsla) -> AnyElement {
+    let ShellCrumb {
+        id,
+        label,
+        on_click,
+    } = crumb;
+    let mut item = div()
+        .id(ElementId::Name(id))
+        .role(if on_click.is_some() {
+            accesskit::Role::Link
+        } else {
+            accesskit::Role::ListItem
+        })
+        // docs/0010 D10: names are explicit; text children are not names.
+        .aria_label(label.clone())
+        .text_color(if is_last { foreground } else { muted })
+        .child(label);
+    if let Some(on_click) = on_click {
+        item = item
+            .cursor_pointer()
+            .on_click(move |event, window, cx| on_click(event, window, cx));
+    }
+    item.into_any_element()
+}
+
+/// The crumb row itself: upstream-Breadcrumb-identical visuals (muted
+/// text, foreground on the last crumb, chevron separators).
+fn crumb_row(items: Vec<ShellCrumb>, muted: Hsla, foreground: Hsla) -> AnyElement {
+    let count = items.len();
+    let mut row = h_flex().gap_1p5().text_sm().text_color(muted);
+    for (ix, crumb) in items.into_iter().enumerate() {
+        let is_last = ix + 1 == count;
+        row = row.child(shell_crumb(crumb, is_last, muted, foreground));
+        if !is_last {
+            row = row.child(
+                Icon::new(IconName::ChevronRight)
+                    .text_color(muted)
+                    .size_3p5(),
+            );
+        }
+    }
+    row.into_any_element()
+}
+
 impl Render for DashboardShell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // Chrome is decoration-driven (owner decision, 0004 PR #13 —
@@ -334,6 +395,55 @@ impl Render for DashboardShell {
             Page::Home | Page::Settings | Page::Usage => None,
         };
 
+        let (muted_fg, crumb_fg) = (cx.theme().muted_foreground, cx.theme().foreground);
+        // Chrome-row crumbs (#522): id'd, role'd, explicitly labeled — see
+        // `ShellCrumb`. The current location is a landmark, not a link.
+        let home_click = (page != Page::Home).then(|| {
+            Rc::new(cx.listener(|this, _, window, cx| {
+                this.navigate(Page::Home, window, cx);
+            })) as ShellCrumbAction
+        });
+        let mut crumb_items = vec![ShellCrumb {
+            id: "crumb-home".into(),
+            label: "Home".into(),
+            on_click: home_click,
+        }];
+        if let Some((id, title)) = current_module.clone() {
+            let on_click = (page != Page::Module(id.clone())).then(|| {
+                Rc::new(cx.listener(move |this, _, window, cx| {
+                    this.navigate(Page::Module(id.clone()), window, cx);
+                })) as ShellCrumbAction
+            });
+            crumb_items.push(ShellCrumb {
+                id: "crumb-module".into(),
+                label: title,
+                on_click,
+            });
+        }
+        match &page {
+            Page::Settings => crumb_items.push(ShellCrumb {
+                id: "crumb-settings".into(),
+                label: "Settings".into(),
+                on_click: None,
+            }),
+            Page::Usage => crumb_items.push(ShellCrumb {
+                id: "crumb-usage".into(),
+                label: "Usage".into(),
+                on_click: None,
+            }),
+            Page::Home | Page::Module(_) => {}
+        }
+        for (ix, (label, action)) in crumbs.iter().enumerate() {
+            let on_click = action.clone().map(|action| {
+                Rc::new(move |_: &ClickEvent, window: &mut Window, cx: &mut App| action(window, cx))
+                    as ShellCrumbAction
+            });
+            crumb_items.push(ShellCrumb {
+                id: format!("crumb-trail-{ix}").into(),
+                label: label.clone(),
+                on_click,
+            });
+        }
         // About dialog copy (docs/0002 D12): same source as the
         // settings About page (docs/0006 §4.4).
         let (app_name, app_version) = crate::settings::app_info();
@@ -495,6 +605,7 @@ impl Render for DashboardShell {
                                                 .child(
                                                     SidebarToggleButton::new()
                                                         .collapsed(sidebar_collapsed)
+                                                        .accessibility_label("Toggle sidebar")
                                                         .on_click(cx.listener(|this, _, _, cx| {
                                                             this.nav.update(cx, |nav, cx| {
                                                                 nav.toggle_sidebar(cx)
@@ -561,75 +672,11 @@ impl Render for DashboardShell {
                                                         .flex_1()
                                                         .overflow_hidden()
                                                         .child(
-                                                            Breadcrumb::new()
-                                                                .child(
-                                                                    BreadcrumbItem::new("Home")
-                                                                        .on_click(cx.listener(
-                                                                            |this, _, window, cx| {
-                                                                                this.navigate(
-                                                                                    Page::Home,
-                                                                                    window,
-                                                                                    cx,
-                                                                                );
-                                                                            },
-                                                                        )),
-                                                                )
-                                                                .when_some(
-                                                                    current_module.clone(),
-                                                                    |this, m| {
-                                                                        this.child(
-                                                            BreadcrumbItem::new(m.1).on_click(
-                                                                cx.listener(
-                                                                    move |this, _, window, cx| {
-                                                                        this.navigate(
-                                                                            Page::Module(m.0.clone()),
-                                                                            window,
-                                                                            cx,
-                                                                        );
-                                                                    },
-                                                                ),
-                                                            ),
-                                                        )
-                                                                    },
-                                                                )
-                                                                .when(
-                                                                    page == Page::Settings,
-                                                                    |this| {
-                                                                        this.child(
-                                                                            BreadcrumbItem::new(
-                                                                                "Settings",
-                                                                            ),
-                                                                        )
-                                                                    },
-                                                                )
-                                                                .when(
-                                                                    page == Page::Usage,
-                                                                    |this| {
-                                                                        this.child(
-                                                                            BreadcrumbItem::new(
-                                                                                "Usage",
-                                                                            ),
-                                                                        )
-                                                                    },
-                                                                )
-                                                                .children(crumbs.iter().map(
-                                                                    |(label, on_click)| {
-                                                                        let mut item =
-                                                                            BreadcrumbItem::new(
-                                                                                label.clone(),
-                                                                            );
-                                                                        if let Some(f) =
-                                                                            on_click.clone()
-                                                                        {
-                                                                            item = item.on_click(
-                                                                    move |_, window, cx| {
-                                                                        f(window, cx)
-                                                                    },
-                                                                );
-                                                                        }
-                                                                        item
-                                                                    },
-                                                                )),
+                                                            crumb_row(
+                                                                crumb_items,
+                                                                muted_fg,
+                                                                crumb_fg,
+                                                            )
                                                         ),
                                                 ),
                                         )
