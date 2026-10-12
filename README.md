@@ -192,6 +192,22 @@ keychain) so rebuilds don't re-prompt for notification authorization
 (docs/0061). `./scripts/macos-app.sh --dev` does the same for the debug
 binary as `My Dashboard Dev.app` with its own bundle id.
 
+Raw `cargo run` / `cargo test` binaries live outside that bundle, so every
+rebuild changed the binary's code-signing identity and the GitHub
+credential's Keychain grant ("Always Allow", docs/0011 §4.1) never
+stuck — macOS re-prompted for the login password on every rebuild
+(#473). `.cargo/config.toml` now routes macOS `cargo run`/`test`/
+`bench` through `.cargo/sign-and-run` (cargo's documented `runner`
+hook), which signs the fresh binary with the same Apple Development
+identity (`MY_DASHBOARD_CODESIGN_IDENTITY` wins, else the first
+"Apple Development" identity — the same discovery as
+`scripts/macos-app.sh`) before executing it: allow it once, then
+silence. Off macOS, without any codesigning identity, or for bare
+`cargo build` (cargo has no post-build hook), the wrapper is a
+pass-through and nothing changes; bridge sessions spawn the raw
+binary, so sign it once via any `cargo run` and the grant persists
+across rebuilds.
+
 Gates before pushing (see [AGENTS.md](AGENTS.md)):
 `cargo fmt --all --check`, `cargo clippy --workspace --all-targets` (zero
 warnings), `cargo test --workspace`.

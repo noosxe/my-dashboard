@@ -1,0 +1,12 @@
+# macOS dev launches sign with a stable identity (docs/0005 §3.1,
+# docs/0011 §4.1, #473): the Keychain ACL trusts the accessing binary's
+# code-signing requirement — unsigned/ad-hoc builds change identity per
+# rebuild, so the credential grant never sticks and every launch
+# re-prompts. The `runner` hook (documented in the Cargo Book,
+# Configuration → target.<cfg>.runner) routes `cargo run` / `test` /
+# `bench` through `.cargo/sign-and-run`, which signs the fresh binary
+# first. Bare `cargo build` still produces unsigned artifacts (cargo has
+# no post-build hook, rust-lang/cargo#1894); the signature lands on the
+# first runner-mediated launch after each rebuild.
+[target.'cfg(target_os = "macos")']
+runner = [".cargo/sign-and-run"]
