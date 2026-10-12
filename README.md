@@ -150,6 +150,11 @@ $ nix develop            # pinned toolchain (rustfmt, clippy, rust-analyzer),
 $ cargo run              #   gpui's dynamic libs, AT-SPI daemons on PATH
 ```
 
+Bare root commands target the app (`default-members`): `cargo run`
+launches `my-dashboard`; reach the other members explicitly with `-p`,
+and the gates below always spell `--workspace`, which overrides the
+default.
+
 The dev shell pins an IBM Plex fontconfig for hermetic rendering; the dev
 shell's AT-SPI setup powers the in-process debug bridge
 ([docs/0010](docs/0010-agent-debug-bridge.md)) — `cargo run -p dashboard-debug` to

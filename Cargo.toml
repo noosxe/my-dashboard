@@ -9,6 +9,14 @@ members = [
     "crates/modules/favicon",
 ]
 
+# Bare `cargo run` (the documented dev flow — flake.nix shellHook comment,
+# README) selects the app: its single bin is my-dashboard. Explicit -p /
+# --bin / --workspace still reach the other members; the repo gates always
+# spell --workspace, which overrides this default (Cargo Book: workspaces →
+# default-members, "packages to operate on when a specific package wasn't
+# selected").
+default-members = ["crates/app"]
+
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
