@@ -901,7 +901,20 @@ fn session_record(session: Option<&str>) -> Option<(SessionRecord, std::path::Pa
     let dirs = SessionDirs::at(sessions_root(), name);
     match read_record(&dirs.session_json()) {
         Ok(Some(record)) => Some((record, dirs.dir)),
-        _ => None,
+        // #531: silence here is what made a dead/purged session look like
+        // a hung verb — name the miss and the remedy.
+        Ok(None) => {
+            eprintln!(
+                "no session {name:?} record at {} — start one: \
+                 dashboard-debug session start --name {name}",
+                dirs.session_json().display()
+            );
+            None
+        }
+        Err(err) => {
+            eprintln!("{}: {err}", dirs.session_json().display());
+            None
+        }
     }
 }
 
@@ -920,9 +933,23 @@ pub fn critique_verb(session: Option<&str>, surface: &str) -> i32 {
         );
         return 1;
     };
+    // #531: the capture targets the session's bridge — bind redirects this
+    // process's roots so connect_quiet reads the session's token/socket
+    // (bind's failures all print; connect_quiet's never do). Idempotent in
+    // script flows, where `run` already bound.
+    if let Some(name) = session {
+        if let Err(code) = crate::session::bind(name) {
+            return code;
+        }
+    }
     let mut conn = match connect_quiet() {
         Ok(conn) => conn,
-        Err(code) => return code,
+        Err(code) => {
+            eprintln!(
+                "critique {surface}: bridge connect failed — the app may have exited mid-capture"
+            );
+            return code;
+        }
     };
     // D6 determinism applies to critiques too: capture settled frames.
     let first = match tree_dump(&mut conn, &None) {
@@ -1017,9 +1044,22 @@ pub fn golden_verb(session: Option<&str>, surface: &str, theme: &str, update: bo
         );
         return 1;
     };
+    // #531: same binding rule as critique — the capture targets the
+    // session's bridge, so bind redirects the process roots before the
+    // token lookup (its failures all print; connect_quiet's never do).
+    if let Some(name) = session {
+        if let Err(code) = crate::session::bind(name) {
+            return code;
+        }
+    }
     let mut conn = match connect_quiet() {
         Ok(conn) => conn,
-        Err(code) => return code,
+        Err(code) => {
+            eprintln!(
+                "golden {surface}: bridge connect failed — the app may have exited mid-capture"
+            );
+            return code;
+        }
     };
     // Playwright semantics, stronger primitive: the frame counter only
     // advances on change, so waiting one frame past "now" means the
