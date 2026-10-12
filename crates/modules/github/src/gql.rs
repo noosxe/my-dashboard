@@ -2976,13 +2976,6 @@ impl DiffSide {
             DiffSide::Right => "RIGHT",
         }
     }
-    /// The lowercase bridge-id token (docs/0030 D8).
-    pub(crate) fn id_token(self) -> &'static str {
-        match self {
-            DiffSide::Left => "left",
-            DiffSide::Right => "right",
-        }
-    }
 }
 
 /// `PullRequestReviewThreadSubjectType` — a diff line or the whole file.

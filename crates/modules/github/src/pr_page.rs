@@ -28,6 +28,7 @@ use gpui_component::{
     badge::Badge,
     button::{Button, ButtonVariants},
     checkbox::Checkbox,
+    diff::DiffState,
     group_box::GroupBox,
     h_flex,
     input::{Input, InputEvent, InputState, Textarea, TextareaState},
@@ -69,7 +70,6 @@ use crate::service::{
     Fetch, FetchSpec, GithubState, Kind, Mutation, run_check_log_chain, run_mutation,
     run_spec_tracked,
 };
-use crate::syntax;
 use crate::usage::{Origin, Surface, Trigger};
 use dashboard_core::freshness::{Freshness, freshness_row, relative_age};
 
@@ -292,10 +292,6 @@ pub(crate) struct PrDetailPage {
     /// Files tab is first opened, then one REST walk; `Ready` keeps the
     /// parsed list (a refresh refetches it).
     pub(crate) files: Fetch<Vec<PrFile>>,
-    /// Diff-row highlight memo (docs/0040 D5) — per-file span lists,
-    /// invalidated by patch text or palette change. Pure memo: filled
-    /// from render, never notifies.
-    pub(crate) highlight_cache: crate::syntax::HighlightCache,
     /// Check log panes (docs/0039 D4/D5), keyed by check name — unique
     /// across the head ref's checks. `Ready` content is immutable (a
     /// completed job's log never changes) and cached per job fetch;
@@ -305,17 +301,15 @@ pub(crate) struct PrDetailPage {
     /// driven to the bottom on every expand/land so the failure is on
     /// screen first.
     check_log_scroll: ScrollHandle,
-    /// The row id under the pointer (docs/0040 §4 D6 amendment): the
-    /// per-row comment button renders only for this row — 460 always-on
-    /// Buttons+tooltips were the diff-pane scroll jank.
-    pub(crate) hovered_row: Option<SharedString>,
-    /// Virtualized diff body (docs/0041 D1/D2): the list state lives on
-    /// the page (intrusive — heights cache across frames), the flattened
-    /// item list is rebuilt by `sync_diff_list`, and `diff_key` is the
-    /// (file, patch) the current list was built for.
-    pub(crate) diff_list: gpui::ListState,
-    pub(crate) diff_items: std::sync::Arc<Vec<crate::files::DiffItem>>,
+    /// The upstream Diff (docs/0070 D1/D4): one `DiffState` holding the
+    /// selected file's parse; `diff_key` is the (file, patch) hash it was
+    /// built from — an unchanged refresh is a no-op (docs/0052, 0041 §7).
+    pub(crate) diff: Entity<DiffState>,
     diff_key: Option<(SharedString, u64)>,
+    /// Bumped on reply-box changes: thread annotations carry `-r{rev}` ids
+    /// so the annotation *set* differs and upstream re-measures the grown
+    /// row (docs/0070 D5 — upstream has no public re-measure API).
+    pub(crate) reply_rev: u64,
     /// docs/0066 D2: gated runs for the head SHA — armed when the detail
     /// lands and refetched with it (the manual-refresh contract,
     /// docs/0052 — nothing polls).
@@ -335,12 +329,6 @@ pub(crate) struct PrDetailPage {
     /// The D2 fallback ran for the current sweep — once per sweep, so an
     /// empty fallback can't loop (docs/0066 D2).
     pub(crate) gate_fallback_done: bool,
-    /// The diff wrapper's horizontal scroll (docs/0041 D5) — persistent
-    /// so x-position survives frames.
-    pub(crate) diff_x_scroll: ScrollHandle,
-    /// One `anchor_patch` parse per file version (docs/0041 D4), shared
-    /// by placement, body, and the highlight pump.
-    pub(crate) anchor_cache: crate::files::AnchorCache,
     /// Height-resync observers (docs/0041 D3): typing grows the composer
     /// / reply textareas; the subscriptions live while the editor does.
     composer_sub: Option<gpui::Subscription>,
@@ -512,22 +500,18 @@ impl PrDetailPage {
             methods: Vec::new(),
             method_select: None,
             files: Fetch::new(),
-            highlight_cache: crate::syntax::HighlightCache::default(),
             check_logs: BTreeMap::new(),
             expanded_check: None,
             check_log_scroll: ScrollHandle::new(),
-            hovered_row: None,
-            diff_list: gpui::ListState::new(0, gpui::ListAlignment::Top, px(400.)),
-            diff_items: std::sync::Arc::default(),
+            diff: cx.new(|cx| DiffState::new(Vec::new(), cx).with_inline_unit(None)),
             diff_key: None,
+            reply_rev: 0,
             gated: Fetch::new(),
             gate_approved: Vec::new(),
             gate_busy: None,
             gate_review: None,
             gate_error: None,
             gate_fallback_done: false,
-            diff_x_scroll: ScrollHandle::new(),
-            anchor_cache: crate::files::AnchorCache::default(),
             composer_sub: None,
             reply_sub: None,
             threads: Fetch::new(),
@@ -1613,185 +1597,54 @@ impl PrDetailPage {
         cx.notify();
     }
 
-    /// Schedule background tokenization for the selected file when its
-    /// memo entry is missing (0040 D5 amended). The diff renders plain
-    /// until the task lands; `finish` notifies and the next frame is
-    /// colored. Measured: ~0.6 ms/row (fancy-regex) — 440 ms cold for a
-    /// 460-row Rust diff, never acceptable inside render.
-    /// Rebuild the virtualized diff item list (docs/0041 D2/D3). Runs at
-    /// the top of `render`, next to `pump_highlight`: pure state work —
-    /// reset when the (file, patch) changed, a minimal splice when the
-    /// flattened items moved, nothing when they didn't.
-    fn sync_diff_list(&mut self) {
-        use crate::files::{flatten_diff_items, thread_placement};
+    /// Rebuilds the DiffState for the selected file (docs/0070 D4): an
+    /// unchanged (file, patch) hash is a full no-op — the component keeps
+    /// selection, expansion and scroll across refreshes (docs/0052), and
+    /// upstream retains collapse state for surviving paths on its own. A
+    /// real swap resets and scrolls back to the file header; docs/0041
+    /// §7's viewport contract survives.
+    fn sync_diff(&mut self, cx: &mut Context<Self>) {
         if self.tab != PrTab::Files {
             return;
         }
         let selected = self.selected_file.clone();
-        let file = self.files.data().and_then(|files| {
+        let Some(file) = self.files.data().and_then(|files| {
             files
                 .iter()
                 .find(|f| Some(f.filename.as_ref()) == selected.as_deref())
-        });
-        let Some(file) = file else {
-            self.diff_key = None;
-            if !self.diff_items.is_empty() {
-                self.diff_items = std::sync::Arc::default();
-                self.diff_list.reset(0);
+        }) else {
+            if self.diff_key.take().is_some() {
+                self.diff
+                    .update(cx, |state, cx| state.set_files(Vec::new(), cx));
             }
             return;
         };
-        let path = file.filename.clone();
-        let Some(patch) = file.patch.as_deref() else {
-            self.diff_key = None;
-            if !self.diff_items.is_empty() {
-                self.diff_items = std::sync::Arc::default();
-                self.diff_list.reset(0);
-            }
-            return;
-        };
-        let rows = self.anchor_cache.rows_for(&path, patch);
         let key = (
-            SharedString::from(path.as_str()),
-            crate::syntax::hash_patch(patch),
+            SharedString::from(file.filename.as_str()),
+            crate::service::hash_patch(file.patch.as_deref().unwrap_or_default()),
         );
-        if self.diff_key.as_ref() != Some(&key) {
-            let placed = thread_placement(self, file, &rows);
-            let items = flatten_diff_items(self, &rows, &placed);
-            self.diff_list.reset(items.len());
-            self.diff_items = std::sync::Arc::new(items);
-            self.diff_key = Some(key);
+        if self.diff_key.as_ref() == Some(&key) {
             return;
         }
-        let placed = thread_placement(self, file, &rows);
-        let items = flatten_diff_items(self, &rows, &placed);
-        if items != *self.diff_items {
-            let old_len = self.diff_items.len();
-            let first = items
-                .iter()
-                .zip(self.diff_items.iter())
-                .position(|(a, b)| a != b)
-                .unwrap_or(items.len().min(old_len));
-            self.diff_list.splice(first..old_len, items.len() - first);
-            self.diff_items = std::sync::Arc::new(items);
-        }
+        // One file at a time (0018's single-file pane): the sidebar picks,
+        // the state holds exactly that file's parse.
+        let docs = crate::files::parse_pr_file(file);
+        #[cfg(test)]
+        crate::files::SYNC_DIFF_SWAPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.diff.update(cx, |state, cx| {
+            state.set_files(docs, cx);
+            state.scroll_to_file(&key.0, cx);
+        });
+        self.diff_key = Some(key);
     }
 
-    /// Resync the list from `from_ix` after a height-only change
-    /// (docs/0041 D3): composer open/close, drafts, reply box, resolve
-    /// picker, stray bucket. The splice re-measures the tail; the scroll
-    /// anchor above `from_ix` survives.
-    pub(crate) fn splice_diff_from(&mut self, from_ix: usize) {
-        let len = self.diff_items.len();
-        if from_ix < len {
-            self.diff_list.splice(from_ix..len, len - from_ix);
-        }
-    }
-
-    /// Re-measure from a thread's card (docs/0041 D3): the reply box and
-    /// the resolve picker live inside the card, so opening/closing either
-    /// changes its height without changing the flattened items.
-    fn splice_diff_thread(&mut self, thread_id: &str) {
-        let nodes = self.threads_nodes();
-        let ix = self
-            .diff_items
-            .iter()
-            .position(|it| {
-                matches!(it, crate::files::DiffItem::ThreadCard(tix)
-                    if nodes.get(*tix).is_some_and(|t| t.id == thread_id))
-            })
-            .unwrap_or(0);
-        self.splice_diff_from(ix);
-    }
-
-    /// Re-measure from the composer item (typing grows the textarea).
-    fn splice_diff_composer(&mut self) {
-        let ix = self
-            .diff_items
-            .iter()
-            .position(|it| matches!(it, crate::files::DiffItem::Composer(_)))
-            .unwrap_or(0);
-        self.splice_diff_from(ix);
-    }
-
-    /// Re-measure from the first draft chip.
-    pub(crate) fn splice_diff_drafts(&mut self) {
-        let ix = self
-            .diff_items
-            .iter()
-            .position(|it| matches!(it, crate::files::DiffItem::Draft(_)))
-            .unwrap_or(0);
-        self.splice_diff_from(ix);
-    }
-
-    /// Re-measure from the stray bucket.
-    pub(crate) fn splice_diff_stray(&mut self) {
-        let ix = self
-            .diff_items
-            .iter()
-            .position(|it| matches!(it, crate::files::DiffItem::StrayBucket))
-            .unwrap_or(0);
-        self.splice_diff_from(ix);
-    }
-
-    fn pump_highlight(&mut self, cx: &mut Context<Self>) {
-        let Some(file) = self
-            .files
-            .data()
-            .and_then(|files| {
-                files
-                    .iter()
-                    .find(|f| Some(f.filename.as_str()) == self.selected_file.as_deref())
-            })
-            .cloned()
-        else {
-            return;
-        };
-        let Some(patch) = file.patch.clone() else {
-            return;
-        };
-        let path = file.filename;
-        let patch_hash = syntax::hash_patch(&patch);
-        let theme_key = syntax::theme_key(cx.theme());
-        // Already settled or already running for this exact (patch,
-        // theme)? Nothing to do — without this, every render would
-        // re-queue a task whose completion notifies, forever.
-        if !matches!(
-            self.highlight_cache.lookup(&path, patch_hash, &theme_key),
-            syntax::Lookup::Miss
-        ) {
-            return;
-        }
-        // Cheap settled answers stay synchronous; only real tokenization
-        // goes to a task.
-        let rows = self.anchor_cache.rows_for(&path, &patch);
-        if syntax::resolve_syntax(&path).is_none()
-            || rows.len() > syntax::SYNTAX_HIGHLIGHT_MAX_LINES
-        {
-            self.highlight_cache
-                .store_plain(&path, patch_hash, theme_key);
-            return;
-        }
-        if !self
-            .highlight_cache
-            .begin(&path, patch_hash, theme_key.clone())
-        {
-            return; // a task for this exact (patch, theme) is running
-        }
-        let task_path = path.clone();
-        let task_rows = (*rows).clone();
-        cx.spawn(async move |this, cx| {
-            let computed = cx
-                .background_executor()
-                .spawn(async move { syntax::compute_rows(&task_path, &task_rows) })
-                .await;
-            let _ = this.update(cx, |page, cx| {
-                page.highlight_cache
-                    .finish(&path, patch_hash, &theme_key, computed);
-                cx.notify();
-            });
-        })
-        .detach();
+    /// Nudges card-height changes the annotation *set* can't see (docs/0070
+    /// D5): a reply box opening, a resolve picker, a stray-bucket toggle —
+    /// upstream re-measures rows only when the set changes, so the bump
+    /// re-suffixes every thread annotation id and the set differs.
+    pub(crate) fn bump_diff_annotations(&mut self, cx: &mut Context<Self>) {
+        self.reply_rev = self.reply_rev.wrapping_add(1);
+        cx.notify();
     }
 
     // --- review threads (docs/0030 D1) --------------------------------------
@@ -2748,10 +2601,10 @@ impl PrDetailPage {
         });
         self.reply_composer = None;
         self.reply_sub = None;
-        // Typing grows the composer — keep the list heights honest
-        // (0041 D3).
-        self.composer_sub = Some(cx.observe(&editor, |this, _, cx| {
-            this.splice_diff_composer();
+        // The composer is pane-level now (docs/0070 D5) — outside the
+        // Diff's list, so its textarea growth flows naturally; this just
+        // keeps the send buttons' disabled state fresh.
+        self.composer_sub = Some(cx.observe(&editor, |_, _, cx| {
             cx.notify();
         }));
         self.line_composer = Some(LineComposer {
@@ -2869,21 +2722,20 @@ impl PrDetailPage {
         // Typing grows the box — keep the list heights honest (0041 D3).
         self.composer_sub = None;
         self.reply_sub = Some(cx.observe(&editor, {
-            let thread_id = thread_id.clone();
             move |this, _, cx| {
-                this.splice_diff_thread(&thread_id);
+                this.bump_diff_annotations(cx);
                 cx.notify();
             }
         }));
         self.reply_composer = Some((thread_id.clone(), editor));
-        self.splice_diff_thread(&thread_id);
+        self.bump_diff_annotations(cx);
         cx.notify();
     }
 
     pub(crate) fn cancel_reply(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some((thread_id, _)) = self.reply_composer.take() {
+        if self.reply_composer.take().is_some() {
             self.reply_sub = None;
-            self.splice_diff_thread(&thread_id);
+            self.bump_diff_annotations(cx);
         }
         self.refocus_page(window, cx);
         cx.notify();
@@ -2947,17 +2799,15 @@ impl PrDetailPage {
             return;
         }
         self.resolve_picker = Some(thread_id.clone());
-        self.splice_diff_thread(&thread_id);
+        self.bump_diff_annotations(cx);
         cx.notify();
     }
 
     pub(crate) fn cancel_resolve_picker(&mut self, cx: &mut Context<Self>) {
-        let thread_id = self.resolve_picker.clone();
         self.resolve_picker = None;
-        if let Some(id) = thread_id {
-            self.splice_diff_thread(&id);
-        }
-        self.resolve_picker = None;
+        // The picker opens/closes inside a thread card — a height change
+        // the annotation set can't see (docs/0070 D5).
+        self.bump_diff_annotations(cx);
         cx.notify();
     }
 
@@ -5299,11 +5149,7 @@ impl Focusable for PrDetailPage {
 
 impl Render for PrDetailPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.sync_diff_list();
-        // docs/0040 D5 (amended): tokenization is a background task —
-        // pump the selected file's queue from the one &mut Context in
-        // the render path; diff_body only reads.
-        self.pump_highlight(cx);
+        self.sync_diff(cx);
         // docs/0026 D9: fire the armed jump the frame the target card
         // mounts — the anchor records its origin on paint, the offset lands
         // next frame. A card swapped for an editor/confirm (or a
@@ -7057,323 +6903,59 @@ mod tests {
         }
     }
 
-    #[gpui::test]
-    fn virtualized_diff_builds_viewport_rows_per_frame(cx: &mut gpui::TestAppContext) {
-        // docs/0041 \u{a7}6 perf probe: scrolling a large diff must build
-        // ~viewport rows per frame, independent of file size (the old
-        // div stack built every row every frame).
-        use crate::files::DIFF_ROWS_BUILT;
-        use std::sync::atomic::Ordering;
-
-        cx.update(gpui_component::init);
-        cx.update(|cx| cx.background_executor().allow_parking());
-        let state = cx.update(|cx| {
-            let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
-            let store: std::sync::Arc<dyn crate::auth::TokenStore> =
-                std::sync::Arc::new(ProbeStore);
-            cx.new(|_| {
-                GithubState::new(
-                    client,
-                    store,
-                    Default::default(),
-                    Default::default(),
-                    GithubCache::new(dashboard_core::paths::AppPaths::init()),
-                    DraftStore::at_tmp("pr-page-5"),
-                )
-            })
-        });
-        let (page, vcx) = cx.add_window_view(|window, cx| {
-            let summary = gql::PullRequest {
-                key: "o/r#7".into(),
-                database_id: None,
-                number: 7,
-                title: "perf probe".into(),
-                draft: false,
-                state: None,
-                author: None,
-                updated_at: None,
-                url: "https://probe".into(),
-                status: None,
-                labels: None,
-                review_requests: None,
-            };
-            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
-            page.tab = PrTab::Files;
-            let body: String = (0..1000)
-                .map(|i| format!("+    let value_{i} = compute_thing({i}, axis, stride);\n"))
-                .collect();
-            page.files = Fetch::ready(vec![PrFile {
-                filename: "src/generated.rs".into(),
-                status: "modified".into(),
-                additions: 1000,
-                deletions: 0,
-                changes: 1000,
-                patch: Some(format!("@@ -1,2 +1,1001 @@\n{body}")),
-            }]);
-            page.apply_files_payload(cx);
-            page
-        });
-        assert_eq!(
-            vcx.update(|_, cx| page.read_with(cx, |p, _| p.diff_items.len())),
-            1001
-        );
-        DIFF_ROWS_BUILT.store(0, Ordering::Relaxed);
-        // Ten mid-file scroll positions; each triggers a full re-render.
-        for ix in [100usize, 200, 300, 400, 500, 600, 700, 800, 900, 500] {
-            vcx.update(|_, cx| {
-                page.update(cx, |p, cx| {
-                    p.diff_list.scroll_to(gpui::ListOffset {
-                        item_ix: ix,
-                        offset_in_item: px(0.),
-                    });
-                    cx.notify();
-                });
-            });
-            vcx.run_until_parked();
-        }
-        let built = DIFF_ROWS_BUILT.load(Ordering::Relaxed);
-        assert!(
-            built < 10 * 200,
-            "expected ~viewport rows per frame, built {built} over 10 frames"
-        );
+    #[test]
+    fn parse_pr_file_maps_the_rest_patch() {
+        // docs/0070 5.1: `DiffFile::parse` is the only public construction,
+        // so the REST file is re-framed as a one-file unified diff. The
+        // mapping must keep the display path, the /dev/null sides for
+        // added files, and the +/- counts the Diff header shows.
+        use crate::files::parse_pr_file;
+        let modified = PrFile {
+            filename: "src/main.rs".into(),
+            status: "modified".into(),
+            additions: 1,
+            deletions: 1,
+            changes: 2,
+            patch: Some("@@ -1,1 +1,1 @@\n-old\n+new".into()),
+        };
+        let files = parse_pr_file(&modified);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path().as_ref(), "src/main.rs");
+        assert_eq!(files[0].additions(), 1);
+        assert_eq!(files[0].deletions(), 1);
+        let added = PrFile {
+            filename: "new.txt".into(),
+            status: "added".into(),
+            additions: 1,
+            deletions: 0,
+            changes: 1,
+            patch: Some("@@ -0,0 +1,1 @@\n+hi".into()),
+        };
+        let files = parse_pr_file(&added);
+        assert_eq!(files[0].path().as_ref(), "new.txt");
+        assert_eq!(files[0].additions(), 1);
+        // Binary / mode-only files arrive without a patch: header-only
+        // parse, no counts, no panic.
+        let bare = PrFile {
+            filename: "logo.png".into(),
+            status: "modified".into(),
+            additions: 0,
+            deletions: 0,
+            changes: 0,
+            patch: None,
+        };
+        let files = parse_pr_file(&bare);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].additions(), 0);
     }
 
     #[gpui::test]
-    fn diff_horizontal_scroll_pins_the_gutter(cx: &mut gpui::TestAppContext) {
-        // #413: horizontal scroll moves only the code — the line-number
-        // gutter stays pinned at the pane's left edge. The vertical
-        // scrollbar is pinned by construction: it renders on the pane's
-        // non-scrolling host, not inside the x-scrolled content (the
-        // owner checks its stillness visually).
-        cx.update(gpui_component::init);
-        cx.update(|cx| cx.background_executor().allow_parking());
-        let state = cx.update(|cx| {
-            let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
-            let store: std::sync::Arc<dyn crate::auth::TokenStore> =
-                std::sync::Arc::new(ProbeStore);
-            cx.new(|_| {
-                GithubState::new(
-                    client,
-                    store,
-                    Default::default(),
-                    Default::default(),
-                    GithubCache::new(dashboard_core::paths::AppPaths::init()),
-                    DraftStore::at_tmp("pr-page-x"),
-                )
-            })
-        });
-        let (page, vcx) = cx.add_window_view(|window, cx| {
-            let summary = gql::PullRequest {
-                key: "o/r#7".into(),
-                database_id: None,
-                number: 7,
-                title: "wide line".into(),
-                draft: false,
-                state: None,
-                author: None,
-                updated_at: None,
-                url: "https://probe".into(),
-                status: None,
-                labels: None,
-                review_requests: None,
-            };
-            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
-            page.tab = PrTab::Files;
-            let long = format!("+{}\n", "x".repeat(400));
-            let body = format!("+short\n{long}+tail\n");
-            page.files = Fetch::ready(vec![PrFile {
-                filename: "src/wide.rs".into(),
-                status: "modified".into(),
-                additions: 3,
-                deletions: 0,
-                changes: 3,
-                patch: Some(format!("@@ -1,2 +1,4 @@\n{body}")),
-            }]);
-            page.apply_files_payload(cx);
-            page
-        });
-        vcx.run_until_parked();
-        // rix 0 is the hunk header; rix 2 is the 400-char line.
-        let pane = vcx.debug_bounds("pr-diff-scroll-key").unwrap();
-        let gutter = vcx.debug_bounds("pr-diff-gutter-2").unwrap();
-        let code = vcx.debug_bounds("pr-diff-code-2").unwrap();
-        assert!(
-            code.size.width > pane.size.width,
-            "precondition: the long line overflows the pane"
-        );
-        assert_eq!(
-            gutter.left(),
-            pane.left(),
-            "the gutter starts at the pane's left edge"
-        );
-        // Scroll right over the code region (the area right of the
-        // gutter) — negative x delta scrolls right.
-        let at = gpui::point(gutter.right() + px(60.), gutter.center().y);
-        vcx.simulate_event(gpui::ScrollWheelEvent {
-            position: at,
-            delta: gpui::ScrollDelta::Pixels(gpui::point(px(-160.), px(0.))),
-            modifiers: Default::default(),
-            touch_phase: gpui::TouchPhase::Moved,
-        });
-        vcx.run_until_parked();
-        let x = vcx.update(|_, cx| page.read_with(cx, |p, _| p.diff_x_scroll.offset().x));
-        assert!(
-            x < px(0.),
-            "the horizontal wheel moved the shared handle ({x:?})"
-        );
-        let gutter2 = vcx.debug_bounds("pr-diff-gutter-2").unwrap();
-        let code2 = vcx.debug_bounds("pr-diff-code-2").unwrap();
-        assert_eq!(
-            gutter2.left(),
-            pane.left(),
-            "#413: the gutter must not move with horizontal scroll"
-        );
-        assert!(
-            code2.left() < code.left(),
-            "#413: the code content must scroll under the pinned gutter"
-        );
-    }
-
-    #[gpui::test]
-    fn diff_rows_keep_numbers_on_their_code_band(cx: &mut gpui::TestAppContext) {
-        // 0030 D2 + #413 regression: the gutter's two 44px number
-        // columns sit side by side on the row's ONE text band — a plain
-        // `div()` is Display::Block in gpui and stacked old/new numbers
-        // vertically, doubling every row to ~39px with the numbers on
-        // lines of their own. And hovering a row (the 0040 §4 D6 comment
-        // affordance) must change no row's height: an in-flow xsmall
-        // Button is 26px against a ~19.5px band, so every hover slid
-        // all numbers below the pointer off their code lines.
-        cx.update(gpui_component::init);
-        cx.update(|cx| cx.background_executor().allow_parking());
-        let state = cx.update(|cx| {
-            let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
-            let store: std::sync::Arc<dyn crate::auth::TokenStore> =
-                std::sync::Arc::new(ProbeStore);
-            cx.new(|_| {
-                GithubState::new(
-                    client,
-                    store,
-                    Default::default(),
-                    Default::default(),
-                    GithubCache::new(dashboard_core::paths::AppPaths::init()),
-                    DraftStore::at_tmp("pr-page-diff-band"),
-                )
-            })
-        });
-        let (_page, vcx) = cx.add_window_view(|window, cx| {
-            let summary = gql::PullRequest {
-                key: "o/r#11".into(),
-                database_id: None,
-                number: 11,
-                title: "aligned".into(),
-                draft: false,
-                state: None,
-                author: None,
-                updated_at: None,
-                url: "https://probe".into(),
-                status: None,
-                labels: None,
-                review_requests: None,
-            };
-            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
-            page.tab = PrTab::Files;
-            let body = " kept\n-removed\n+added\n kept2\n";
-            page.files = Fetch::ready(vec![PrFile {
-                filename: "src/a.rs".into(),
-                status: "modified".into(),
-                additions: 2,
-                deletions: 1,
-                changes: 3,
-                patch: Some(format!("@@ -1,2 +1,3 @@\n{body}")),
-            }]);
-            page.apply_files_payload(cx);
-            page
-        });
-        vcx.run_until_parked();
-
-        // Every code row: the two number columns side by side (88px),
-        // the gutter exactly as tall as the code text and starting on
-        // the same line, the code right of the gutter.
-        for (gutter_sel, code_sel) in [
-            ("pr-diff-gutter-1", "pr-diff-code-1"),
-            ("pr-diff-gutter-2", "pr-diff-code-2"),
-            ("pr-diff-gutter-3", "pr-diff-code-3"),
-            ("pr-diff-gutter-4", "pr-diff-code-4"),
-        ] {
-            let gutter = vcx.debug_bounds(gutter_sel).unwrap();
-            let code = vcx.debug_bounds(code_sel).unwrap();
-            assert_eq!(
-                gutter.size.width,
-                px(88.),
-                "{gutter_sel}: old/new number columns side by side"
-            );
-            assert_eq!(
-                gutter.origin.y, code.origin.y,
-                "{gutter_sel}: the numbers share the code line"
-            );
-            assert_eq!(
-                gutter.size.height, code.size.height,
-                "{gutter_sel}: one text band tall, not a stacked pair"
-            );
-            assert_eq!(
-                code.origin.x,
-                gutter.origin.x + px(88.),
-                "{code_sel}: the code starts right of the gutter"
-            );
-        }
-        // Single-line pitch: three consecutive rows span exactly three
-        // bands (pre-fix the block-stacked gutter made rows ~39px).
-        let first = vcx.debug_bounds("pr-diff-gutter-1").unwrap();
-        let fourth = vcx.debug_bounds("pr-diff-gutter-4").unwrap();
-        let band_h = vcx.debug_bounds("pr-diff-code-1").unwrap().size.height;
-        assert_eq!(
-            fourth.origin.y - first.origin.y,
-            band_h * 3.0,
-            "rows are one line tall"
-        );
-
-        // Hover the add row (rix 3, new side 2): the floating comment
-        // button appears ON the hovered row and moves nothing.
-        let below_before = vcx.debug_bounds("pr-diff-gutter-4").unwrap().origin.y;
-        assert!(
-            vcx.debug_bounds("pr-diff-comment-3").is_none(),
-            "no comment affordance before hover"
-        );
-        let hovered = vcx.debug_bounds("pr-diff-gutter-3").unwrap();
-        vcx.simulate_mouse_move(hovered.center(), None, gpui::Modifiers::default());
-        vcx.run_until_parked();
-        let button = vcx
-            .debug_bounds("pr-diff-comment-3")
-            .expect("the hovered add row arms its comment button");
-        let hovered_after = vcx.debug_bounds("pr-diff-gutter-3").unwrap();
-        assert_eq!(
-            hovered_after.size.height, hovered.size.height,
-            "hover must not grow the row"
-        );
-        assert_eq!(
-            vcx.debug_bounds("pr-diff-gutter-4").unwrap().origin.y,
-            below_before,
-            "rows below the pointer must not shift"
-        );
-        assert!(
-            (button.center().y - hovered.center().y).abs() < px(4.),
-            "the button floats on the hovered row's band"
-        );
-        let pane = vcx.debug_bounds("pr-diff-scroll-key").unwrap();
-        assert!(
-            button.right() <= pane.right(),
-            "the button stays inside the pane"
-        );
-    }
-
-    #[gpui::test]
-    fn diff_items_flatten_in_0030_order(cx: &mut gpui::TestAppContext) {
-        // docs/0041 §6: the flattened virtualized items follow the exact
-        // order the pre-list pane rendered — file-level threads, then per
-        // row [row, its thread cards, composer, drafts], then the fetch
-        // row and the stray bucket.
-        use crate::files::DiffItem;
+    fn sync_diff_noops_on_unchanged_patch_and_swaps_on_change(cx: &mut gpui::TestAppContext) {
+        // docs/0070 D4 (the docs/0041 §7 contract, re-probed on the new
+        // surface): the first sync swaps, a refresh with the same
+        // (file, patch) must not swap again — the Diff keeps selection,
+        // expansion and scroll — and a changed patch swaps exactly once.
+        use crate::files::SYNC_DIFF_SWAPS;
         cx.update(gpui_component::init);
         cx.update(|cx| cx.background_executor().allow_parking());
         let state = cx.update(|cx| {
@@ -7396,7 +6978,7 @@ mod tests {
                 key: "o/r#7".into(),
                 database_id: None,
                 number: 7,
-                title: "flatten probe".into(),
+                title: "sync probe".into(),
                 draft: false,
                 state: None,
                 author: None,
@@ -7408,123 +6990,43 @@ mod tests {
             };
             let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
             page.tab = PrTab::Files;
-            // The hunk header plus two added rows (+a at new line 1, +b
-            // at new line 2); one thread anchored at line 1, one
-            // file-level (no line), one stray (beyond the file).
             page.files = Fetch::ready(vec![PrFile {
                 filename: "src/main.rs".into(),
                 status: "modified".into(),
                 additions: 2,
                 deletions: 0,
                 changes: 2,
-                patch: Some("@@ -1,2 +1,2 @@\n+a\n+b".into()),
+                patch: Some("@@ -0,0 +1,2 @@\n+a\n+b".into()),
             }]);
-            let mut file_level = probe_thread(1, None, false, "file-level");
-            file_level.subject = gql::ThreadSubject::File;
-            page.threads = Fetch::ready(gql::PrThreads {
-                total_count: 3,
-                nodes: vec![
-                    probe_thread(0, Some(1), false, "anchored"),
-                    file_level,
-                    probe_thread(2, Some(999), true, "stray"),
-                ],
-            });
-            page.extend_threads_md();
             page.apply_files_payload(cx);
             page
         });
         vcx.update(|_, cx| {
-            page.update(cx, |p, _| {
-                p.sync_diff_list();
-                assert_eq!(
-                    p.diff_items.as_ref(),
-                    &vec![
-                        DiffItem::FileThread(1),
-                        DiffItem::Row(0),
-                        DiffItem::Row(1),
-                        DiffItem::ThreadCard(0),
-                        DiffItem::Row(2),
-                        DiffItem::StrayBucket,
-                    ],
-                    "flatten must mirror the 0030 order"
-                );
-                assert_eq!(p.diff_list.item_count(), 6, "list must track the items");
-            });
-        });
-    }
-
-    #[gpui::test]
-    fn composer_and_drafts_splice_the_item_list(cx: &mut gpui::TestAppContext) {
-        // docs/0041 §6: opening the composer adds an item, a queued draft
-        // adds one and removes the composer, cancel closes both — and the
-        // list's item count tracks through the page's own methods.
-        use crate::files::DiffItem;
-        use gql::DiffSide;
-        cx.update(gpui_component::init);
-        cx.update(|cx| cx.background_executor().allow_parking());
-        let state = cx.update(|cx| {
-            let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
-            let store: std::sync::Arc<dyn crate::auth::TokenStore> =
-                std::sync::Arc::new(ProbeStore);
-            cx.new(|_| {
-                GithubState::new(
-                    client,
-                    store,
-                    Default::default(),
-                    Default::default(),
-                    GithubCache::new(dashboard_core::paths::AppPaths::init()),
-                    DraftStore::at_tmp("pr-page-7"),
-                )
-            })
-        });
-        let (page, vcx) = cx.add_window_view(|window, cx| {
-            let summary = gql::PullRequest {
-                key: "o/r#7".into(),
-                database_id: None,
-                number: 7,
-                title: "splice probe".into(),
-                draft: false,
-                state: None,
-                author: None,
-                updated_at: None,
-                url: "https://probe".into(),
-                status: None,
-                labels: None,
-                review_requests: None,
-            };
-            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
-            page.tab = PrTab::Files;
-            page.files = Fetch::ready(vec![probe_file("src/main.rs")]);
-            page.apply_files_payload(cx);
-            page
-        });
-        // Open the composer on the +b row (new-side line 1).
-        vcx.update(|window, cx| {
             page.update(cx, |p, cx| {
-                p.open_line_composer("src/main.rs".into(), DiffSide::Right, 1, window, cx);
-                p.sync_diff_list();
-            });
-        });
-        vcx.update(|_, cx| {
-            page.update(cx, |p, _| {
-                assert!(p.diff_items.contains(&DiffItem::Composer(2)));
+                let swaps = || SYNC_DIFF_SWAPS.load(std::sync::atomic::Ordering::Relaxed);
+                // The construction frame's render already performed the
+                // first swap; an unchanged refresh — manual or through the
+                // render path — must not swap again (docs/0070 D4).
+                let after_first = swaps();
+                assert!(after_first >= 1, "the construction render swaps once");
+                p.sync_diff(cx);
                 assert_eq!(
-                    p.diff_list.item_count(),
-                    p.diff_items.len(),
-                    "list count must track the items after the splice"
+                    swaps(),
+                    after_first,
+                    "an unchanged refresh must be a no-op (docs/0070 D4)"
                 );
-            });
-        });
-        // Cancel: the composer item disappears on the next sync.
-        vcx.update(|window, cx| {
-            page.update(cx, |p, cx| {
-                p.cancel_line_composer(window, cx);
-                p.sync_diff_list();
-                assert!(
-                    !p.diff_items
-                        .iter()
-                        .any(|it| matches!(it, DiffItem::Composer(_)))
-                );
+                p.files = Fetch::ready(vec![PrFile {
+                    filename: "src/main.rs".into(),
+                    status: "modified".into(),
+                    additions: 3,
+                    deletions: 0,
+                    changes: 3,
+                    patch: Some("@@ -0,0 +1,3 @@\n+a\n+b\n+c".into()),
+                }]);
+                p.apply_files_payload(cx);
+                p.sync_diff(cx);
+                assert_eq!(swaps(), after_first + 1, "a changed patch swaps once");
+                assert_eq!(p.diff.read(cx).files().len(), 1);
             });
         });
     }
@@ -7591,7 +7093,7 @@ mod tests {
             "anchored thread card missing"
         );
         let card = vcx.debug_bounds("pr-thread-0-card").unwrap();
-        let diff = vcx.debug_bounds("pr-diff-scroll-key").unwrap();
+        let diff = vcx.debug_bounds("pr-diff-pane-key").unwrap();
         assert!(
             diff.contains(&card.origin),
             "thread card must sit inside the diff pane"

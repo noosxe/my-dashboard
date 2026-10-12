@@ -28,7 +28,6 @@ mod pickers;
 pub mod pr_page;
 pub mod service;
 pub mod settings;
-pub mod syntax;
 pub mod usage;
 
 use std::rc::Rc;

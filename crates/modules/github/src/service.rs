@@ -1544,7 +1544,20 @@ pub(crate) enum PatchLine {
 /// (docs/0030 D2). `old`/`new` are `None` on hunk headers, on any row
 /// before a parseable hunk header, and on the side a row does not touch
 /// (an Add has no old line, a Del no new line).
+/// FNV-1a over the patch text (docs/0040 D5): the diff-version key for
+/// refresh gating (docs/0070 D4) and memo invalidation. Relocated from the
+/// retired `syntax` module — the hash is model-level, not presentation.
+pub(crate) fn hash_patch(patch: &str) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in patch.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
+
 pub(crate) struct AnchoredLine {
     pub(crate) line: PatchLine,
     pub(crate) old: Option<u32>,

@@ -3,6 +3,12 @@
 Issue: #253. Related: #202/#252 (syntax-highlighted diffs, docs/0040), docs/0030
 (review threads), docs/0018 (files tab layout).
 
+> **Superseded (2026-10-12, docs/0070 / #516):** the upstream `Diff` is a
+> virtualized `list` with cached row geometry of its own — the flattened
+> `DiffItem` list, the splice bookkeeping, and the D3 height-resync
+> observers retire with it. The §7/§10 viewport contract survives as
+> docs/0070 D4's no-op refresh gate, re-probed in `pr_page.rs`.
+
 ## 1. Context & problem
 
 Post-#252 human check: scrolling a large diff (460 rows in `syntax.rs`) is

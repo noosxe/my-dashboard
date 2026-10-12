@@ -366,6 +366,11 @@ relative age. A muted caption when `commits.totalCount > nodes.len()`:
 
 ### D8 — Files changed tab
 
+> **Amended (2026-10-12, docs/0070):** the diff body now renders through
+> the gpui-kit `Diff` (docs/0070 D1) — the `parse_patch`/`diff_row`
+> mechanics below are historical; badge and +/− count semantics moved
+> into upstream header chrome.
+
 - **Summary line:** "23 files changed · +812 · −94" (additions success tone,
   deletions danger tone).
 - **Per-file collapsible cards** (`Collapsible`): header = path (mono, `text_xs`,

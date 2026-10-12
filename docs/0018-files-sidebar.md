@@ -27,6 +27,11 @@ The product owner wants GitHub-style master–detail instead:
   file; the diff pane is shared.
 - Keep the diff rendering itself (0016 D8: `parse_patch`, `diff_row`,
   semantic tints) unchanged.
+
+  > **Amended (2026-10-12, docs/0070):** the diff body now renders
+  > through the gpui-kit `Diff` (docs/0070 D1) — `parse_patch`/`diff_row`
+  > and the hand-rolled tints are historical; badges and +/- counts moved
+  > into upstream header chrome.
 - Keyboard/pointer parity with the repo list patterns already shipped;
   a11y per docs/0010 (`.id()` + role on every interactive element).
 
