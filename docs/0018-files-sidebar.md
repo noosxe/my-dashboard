@@ -57,6 +57,10 @@ The product owner wants GitHub-style master–detail instead:
 > wrapper stays proven — the probe passes on the new pin; 0.7.0's List
 > work (container `Role::List`, perf) doesn't touch the layout semantics
 > the workaround pins.
+>
+> **Re-verified at the v0.7.3 pin `67265a3` (2026-10-12):** `select.rs` is
+> byte-identical to the v0.7.1 pin — the `size_full` sites (:527/:858)
+> and the §8 wrapper-div workaround stand.
 
 All of this ships upstream today; no new dependencies:
 
