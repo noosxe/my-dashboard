@@ -63,8 +63,10 @@ fn run() -> i32 {
 
     // D10/D12/D13: the receipt verbs own their session resolution.
     // `screenshot` and `doctor` read the record directly (they must
-    // diagnose *broken* sessions — bind would refuse); `run` parses the
-    // script before binding so its `--session` line can bind the run.
+    // diagnose *broken* sessions — bind would refuse); `critique` and
+    // `golden` bind inside the verb (#531 — their bridge token lives in
+    // the session runtime dir); `run` parses the script before binding
+    // so its `--session` line can bind the run.
     match invocation.command {
         Command::Screenshot { name } => {
             return receipts::screenshot(session_name.as_deref(), &name);
