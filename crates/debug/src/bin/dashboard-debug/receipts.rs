@@ -641,12 +641,12 @@ fn run_step(conn: &mut Conn, session: Option<&str>, op: &StepOp) -> StepOutcome 
     match op {
         // Drive verbs reuse the verb implementations verbatim — the
         // runner is a scripting shell over them, not a parallel parser.
-        StepOp::Click(node) => verb(
+        StepOp::Click { node, wait_frame } => verb(
             conn,
             &Command::Click {
                 node: node.clone(),
                 window: None,
-                wait_frame: None,
+                wait_frame: *wait_frame,
             },
         ),
         StepOp::Focus(node) => verb(

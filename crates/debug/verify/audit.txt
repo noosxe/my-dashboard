@@ -4,8 +4,31 @@
 # owner checklist (0065 Appendix A, part 3) — triage them in the PR,
 # never silently.
 #
-# Prerequisites: dashboard-debug session start --name audit --size 1280x800
-# Run: dashboard-debug run crates/debug/verify/audit.txt
+# Every hop is a click on a stable accesskit id carrying the atomic
+# --wait-frame (the counter is sampled before the dispatch — a separate
+# wait-frame step loses that race to a fast page, #530), and each hop
+# asserts a page-unique label before its audit: navigation is part of
+# the receipt, so a broken hop is receipt-red, not a silent
+# wrong-surface pass. No frozen pixel coordinates — layout changes
+# cannot desync the walk. The notification bell is a popover trigger
+# and exposes no AT-SPI Click action (keyboard works; upstream gap), so
+# its hop rides the announced bounds-center fallback (docs/0055 D9) —
+# the transcript shows the synthesized click.
+#
+# Surfaces pending (blocked upstream, tracked in #530): settings and
+# the favicon generator navigate and assert fine, but their audits FAIL
+# on gpui-kit gaps — the Settings nav submenu carets are unlabeled
+# buttons (longbridge/gpui-kit#3467) and Slider has no label API at all
+# (longbridge/gpui-kit#3468). Both hops are staged, expected-red, in
+# verify/surfaces-pending.txt; move them here once the upstream fixes
+# land with a bump.
+#
+# Prerequisites: the containerized env (docs/0071), session named
+# `audit` at 1280x800:
+#   scripts/verify.sh sh -c 'cargo run -q -p dashboard-debug -- \
+#     session start --name audit --size 1280x800 \
+#     --binary /tmp/target/debug/my-dashboard'
+# Run (in-container): dashboard-debug run crates/debug/verify/audit.txt
 
 --session audit
 
@@ -16,24 +39,24 @@ audit
 # exits nonzero on traps or an unclosed cycle.
 tab-stops
 
-# Home → GitHub module page (card center — proven in usage-freeze.txt)
-mouse down 448 169
-mouse up 448 169
-wait-frame
+# Home → GitHub module page (the home card's stable id).
+click 409056323268249092 --wait-frame
+assert-label "API usage"
 audit
 
-# GitHub module page → usage analytics (tab center — proven in usage-freeze.txt)
-mouse down 1239 740
-mouse up 1239 740
-wait-frame
+# GitHub module page → usage analytics (the page tab's stable id).
+click 9739713411751986404 --wait-frame
+assert-label "as of"
 audit
 
-# Usage analytics → notification hub (status bell id — proven in 0059-notifications.txt)
-click status-notifications
-wait-frame
+# Usage analytics → notification hub. The status bell is a popover
+# trigger (no Click action): the click lands via the announced
+# bounds-center fallback.
+click 5211320293504918274 --wait-frame
+assert-label "Clear all"
 audit
 
-# Settings + favicon generator: LINUX-BOX TODO (first run) — the sidebar
-# items carry per-run numeric ids, so navigation needs coordinates from
-# the first `dashboard-debug tree` dump at 1280x800; add the two hops
-# here and audit each surface. Tracked in #440's PR checklist.
+# Back home — the receipt ends where every review starts.
+click 5961417643842590894 --wait-frame
+assert-label "Open GitHub module"
+audit
