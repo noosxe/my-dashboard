@@ -6,7 +6,7 @@ Enforce the AGENTS.md quality gates — `cargo fmt --all --check`,
 `cargo clippy --workspace --all-targets` at **zero warnings** (including the
 `clippy.toml` token-discipline lints), and `cargo test --workspace` — on every
 PR to `main` and every push to `main` that touches build-affecting paths
-(documentation-only changes skip the runners — D7).
+(documentation- and repo-meta-only changes skip the runners — D7).
 
 The CI is **nix-free** (owner decision, §4): the
 workflow installs its own toolchain (rustup, pinned) and everything
@@ -148,7 +148,10 @@ Both triggers (`pull_request` and `push` to `main`) carry a `paths-ignore`
 **denylist**: `docs/**` and every Markdown file (`**/*.md` plus `*.md` for
 the repo root — README, AGENTS.md), plus the agent-skill/tooling files
 `.agents/**` and `skills-lock.json` (added 2026-10-12 after a skills-only
-PR paid two full cold builds for shell/markdown changes). First added
+PR paid two full cold builds for shell/markdown changes), and the
+repo-meta files `.pi/**` (agent working artifacts, untracked by the
+same day's hygiene PR), `.gitignore` and `LICENSE*` (added 2026-10-12
+after a `.gitignore`-only hygiene PR paid a full run). First added
 2026-09-17 after a docs-only
 design PR paid two full cold builds (~25 min of runner time) for changes
 that cannot affect a build.

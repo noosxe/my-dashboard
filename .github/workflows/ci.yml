@@ -1,6 +1,6 @@
 # CI — the AGENTS.md gates, enforced on every PR to main and every push
-# to main that touches build-affecting paths (docs-only changes skip —
-# D7). Design: docs/0027-ci-workflows.md (D1–D7).
+# to main that touches build-affecting paths (docs- and repo-meta-only
+# changes skip — D7). Design: docs/0027-ci-workflows.md (D1–D7).
 #
 # Environment: GitHub-hosted ubuntu runners (`ubuntu-24.04`, both jobs;
 # docs/0027 §4): the hosted image ships the build baseline (gcc/make/
@@ -14,17 +14,23 @@ on:
   pull_request:
     branches: [main]
     # Path filtering (docs/0027 D7): changes that cannot affect a build
-    # don't burn runner time — documentation, and the agent-skill/tooling
-    # files under .agents/ plus skills-lock.json (added 2026-10-12 after a
-    # skills-only PR paid two cold builds for shell/markdown). A denylist
-    # on purpose — any future build-affecting path keeps CI by default; an
-    # allowlist would silently drop it until the filter is updated.
+    # Path filtering (docs/0027 D7): changes that cannot affect a build
+    # don't burn runner time — documentation, the agent-skill/tooling
+    # files under .agents/ plus skills-lock.json (added 2026-10-12 after
+    # a skills-only PR paid two cold builds), and the repo-meta files
+    # .pi/ agent artifacts, .gitignore and LICENSE (added 2026-10-12
+    # after a hygiene PR paid a full run). A denylist on purpose — any
+    # future build-affecting path keeps CI by default; an allowlist
+    # would silently drop it until the filter is updated.
     paths-ignore:
       - "docs/**"
       - "**/*.md"
       - "*.md"
       - ".agents/**"
       - "skills-lock.json"
+      - ".pi/**"
+      - ".gitignore"
+      - "LICENSE*"
   push:
     branches: [main]
     paths-ignore:
@@ -33,6 +39,9 @@ on:
       - "*.md"
       - ".agents/**"
       - "skills-lock.json"
+      - ".pi/**"
+      - ".gitignore"
+      - "LICENSE*"
 
 # One in-flight run per ref: superseded pushes cancel their queued run
 # and free the runners sooner.
