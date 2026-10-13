@@ -1,0 +1,314 @@
+{
+  "name": "settings",
+  "frame_number": 0,
+  "taken_at": 0,
+  "nodes": [
+    {
+      "accesskit_id": "0",
+      "role": "Window",
+      "label": "Dashboard",
+      "bounds": null,
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1067689940781285641",
+      "role": "Button",
+      "label": null,
+      "bounds": {
+        "x": 482.0,
+        "y": 185.0,
+        "w": 20.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1236962487082578453",
+      "role": "TextInput",
+      "label": "Search...",
+      "bounds": {
+        "x": 284.0,
+        "y": 65.0,
+        "w": 226.0,
+        "h": 32.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1580547561330196747",
+      "role": "Button",
+      "label": "Aurora Light",
+      "bounds": {
+        "x": 1120.0,
+        "y": 280.0,
+        "w": 123.0,
+        "h": 32.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1604365170848998340",
+      "role": "Button",
+      "label": "Back",
+      "bounds": {
+        "x": 312.0,
+        "y": 22.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1760914320161491535",
+      "role": "TreeItem",
+      "label": "Appearance",
+      "bounds": {
+        "x": 284.0,
+        "y": 109.0,
+        "w": 226.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4708591563532119033",
+      "role": "Button",
+      "label": "Forward",
+      "bounds": {
+        "x": 338.0,
+        "y": 22.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5211320293504918274",
+      "role": "Button",
+      "label": "Notifications, 0 unread",
+      "bounds": {
+        "x": 1227.0,
+        "y": 728.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5961417643842590894",
+      "role": "TreeItem",
+      "label": "Home",
+      "bounds": {
+        "x": 29.0,
+        "y": 89.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6580481900935945976",
+      "role": "TreeItem",
+      "label": "Favicon",
+      "bounds": {
+        "x": 29.0,
+        "y": 145.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "7909241199638381416",
+      "role": "TreeItem",
+      "label": "Notifications",
+      "bounds": {
+        "x": 284.0,
+        "y": 145.0,
+        "w": 226.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8593156504149649983",
+      "role": "TreeItem",
+      "label": "GitHub",
+      "bounds": {
+        "x": 29.0,
+        "y": 117.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8678533655181457759",
+      "role": "ListItem",
+      "label": "Settings",
+      "bounds": {
+        "x": 438.0,
+        "y": 23.0,
+        "w": 52.0,
+        "h": 23.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8854361293681930815",
+      "role": "Button",
+      "label": null,
+      "bounds": {
+        "x": 482.0,
+        "y": 221.0,
+        "w": 20.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9287361734341280224",
+      "role": "Group",
+      "label": null,
+      "bounds": {
+        "x": 0.0,
+        "y": 0.0,
+        "w": 1276.0,
+        "h": 773.0
+      },
+      "focusable": true,
+      "focused": true
+    },
+    {
+      "accesskit_id": "13775313359454188757",
+      "role": "Button",
+      "label": null,
+      "bounds": {
+        "x": 482.0,
+        "y": 149.0,
+        "w": 20.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14616134883353814736",
+      "role": "Button",
+      "label": "System",
+      "bounds": {
+        "x": 1150.0,
+        "y": 221.0,
+        "w": 93.0,
+        "h": 32.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15550795210854138450",
+      "role": "TreeItem",
+      "label": "Usage",
+      "bounds": {
+        "x": 29.0,
+        "y": 173.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16005549914207657148",
+      "role": "TreeItem",
+      "label": "GitHub",
+      "bounds": {
+        "x": 284.0,
+        "y": 217.0,
+        "w": 226.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16963919496256642517",
+      "role": "Button",
+      "label": "Toggle sidebar",
+      "bounds": {
+        "x": 280.0,
+        "y": 22.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17256077881518394034",
+      "role": "TreeItem",
+      "label": "About",
+      "bounds": {
+        "x": 284.0,
+        "y": 181.0,
+        "w": 226.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17900589767825635402",
+      "role": "Link",
+      "label": "Home",
+      "bounds": {
+        "x": 374.0,
+        "y": 23.0,
+        "w": 38.0,
+        "h": 23.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "18182534071161197539",
+      "role": "TreeItem",
+      "label": "Settings",
+      "bounds": {
+        "x": 29.0,
+        "y": 201.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "18223808048784352963",
+      "role": "Button",
+      "label": "Aurora Dark",
+      "bounds": {
+        "x": 1121.0,
+        "y": 339.0,
+        "w": 122.0,
+        "h": 32.0
+      },
+      "focusable": true,
+      "focused": false
+    }
+  ]
+}

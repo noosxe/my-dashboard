@@ -147,6 +147,14 @@ scripts/verify.sh sh -c '
 '
 ```
 
+The committed receipts run the same way — `cargo run -p
+dashboard-debug -- run crates/debug/verify/audit.txt` (the 0065 D3
+audit with the D5 structural-golden asserts after every stop; session
+`audit` at 1280x800). Golden refresh is this same container with a
+one-shot capture receipt that walks audit.txt's exact step order,
+running `baseline <surface> --update` at each stop — the committed
+receipts only ever assert, never write (0065 D5).
+
 Interactive inspection: `scripts/verify.sh bash`.
 
 Freshness caution: cargo tracks host edits by mtime, and macOS bind

@@ -62,7 +62,7 @@ impl Snapshot {
                         .as_str()
                         .unwrap_or("(no role)")
                         .to_string(),
-                    label: node["aria"]["label"].as_str().map(str::to_string),
+                    label: node["aria"]["label"].as_str().map(normalize_wall_clock),
                     bounds: parse_bounds(node.get("bounds")),
                     focusable: node["focusable"].as_bool().unwrap_or(false),
                     focused: node["focused"].as_bool().unwrap_or(false),
@@ -96,6 +96,58 @@ fn parse_bounds(value: Option<&Value>) -> Option<Bounds> {
         w: value["w"].as_f64()? as f32,
         h: value["h"].as_f64()? as f32,
     })
+}
+/// Wall-clock times in status labels churn every capture ("0 flights ·
+/// as of 23:15 · oldest retained —", the usage page's status line) and
+/// are never structural — normalize them to fixed tokens so goldens
+/// diff clean. Same class as the zeroed frame/timestamp fields: the
+/// diff must never read capture-local values. A time is `H:MM` or
+/// `HH:MM` (optionally `:SS`), not part of a longer digit run and not
+/// glued to alphanumerics on either side ("v1.2.3", "a1:23" and
+/// "123:45" are left alone).
+fn normalize_wall_clock(label: &str) -> String {
+    let b = label.as_bytes();
+    let digit = |i: usize| b.get(i).is_some_and(|c| c.is_ascii_digit());
+    let alnum = |i: usize| b.get(i).is_some_and(|c| c.is_ascii_alphanumeric());
+    let mut out = String::with_capacity(label.len());
+    let mut copied = 0;
+    let mut i = 1; // a time colon is never the first byte
+    while i < b.len() {
+        if b[i] == b':' && digit(i + 1) && digit(i + 2) && !alnum(i + 3) {
+            // Leading run of exactly one or two digits, bounded by a
+            // non-alphanumeric (or the string start) on its left.
+            let lead = if digit(i - 1) {
+                if i >= 2 && digit(i - 2) {
+                    if i >= 3 && alnum(i - 3) {
+                        None
+                    } else {
+                        Some(i - 2)
+                    }
+                } else if i >= 2 && alnum(i - 2) {
+                    None
+                } else {
+                    Some(i - 1)
+                }
+            } else {
+                None
+            };
+            if let Some(start) = lead {
+                out.push_str(&label[copied..start]);
+                out.push_str("HH:MM");
+                copied = i + 3;
+                i = copied;
+                if b.get(i) == Some(&b':') && digit(i + 1) && digit(i + 2) && !alnum(i + 3) {
+                    out.push_str(":SS");
+                    copied = i + 3;
+                    i = copied;
+                }
+                continue;
+            }
+        }
+        i += 1;
+    }
+    out.push_str(&label[copied..]);
+    out
 }
 
 /// Snapshot names become file names: `[A-Za-z0-9._-]{1,64}`, no leading
@@ -444,6 +496,43 @@ mod tests {
     #[test]
     fn from_dump_requires_frame_number() {
         assert!(Snapshot::from_dump("a", &json!({"nodes": {}})).is_err());
+    }
+
+    #[test]
+    fn wall_clock_labels_normalize_deterministically() {
+        // The real churner: the usage page status line (#351 dump).
+        assert_eq!(
+            normalize_wall_clock("0 flights · as of 23:15 · oldest retained —"),
+            "0 flights · as of HH:MM · oldest retained —"
+        );
+        assert_eq!(normalize_wall_clock("as of 9:05"), "as of HH:MM");
+        assert_eq!(normalize_wall_clock("9:05:59"), "HH:MM:SS");
+        // Lookalikes that must survive untouched.
+        assert_eq!(
+            normalize_wall_clock("v1.2.3, port 8080"),
+            "v1.2.3, port 8080"
+        );
+        assert_eq!(
+            normalize_wall_clock("123:45 is not a time"),
+            "123:45 is not a time"
+        );
+        assert_eq!(normalize_wall_clock("a1:23"), "a1:23");
+        assert_eq!(normalize_wall_clock("23:15x"), "23:15x");
+    }
+
+    #[test]
+    fn from_dump_normalizes_clock_labels() {
+        let dump = dump(
+            7,
+            json!({
+                "a": node("10", "Status", Some("0 flights · as of 23:15 · oldest retained —"), None),
+            }),
+        );
+        let snapshot = Snapshot::from_dump("usage", &dump).unwrap();
+        assert_eq!(
+            snapshot.nodes[0].label.as_deref(),
+            Some("0 flights · as of HH:MM · oldest retained —")
+        );
     }
 
     fn snap(frame: u64, nodes: Vec<SnapshotNode>) -> Snapshot {

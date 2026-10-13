@@ -828,7 +828,8 @@ fn baseline_verb(conn: &mut Conn, surface: &str, update: bool, window: &Option<u
             let path_text = path.display().to_string();
             eprintln!(
                 "no baseline for {surface} ({path_text}: {err}) — generate with \
-                 `baseline {surface} --update` on the Linux box and commit it"
+                 `baseline {surface} --update` in the verification \
+                 container (docs/0071) and commit it"
             );
             return 1;
         }

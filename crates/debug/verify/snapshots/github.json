@@ -1,0 +1,197 @@
+{
+  "name": "github",
+  "frame_number": 0,
+  "taken_at": 0,
+  "nodes": [
+    {
+      "accesskit_id": "0",
+      "role": "Window",
+      "label": "Dashboard",
+      "bounds": null,
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1604365170848998340",
+      "role": "Button",
+      "label": "Back",
+      "bounds": {
+        "x": 312.0,
+        "y": 22.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4708591563532119033",
+      "role": "Button",
+      "label": "Forward",
+      "bounds": {
+        "x": 338.0,
+        "y": 22.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5211320293504918274",
+      "role": "Button",
+      "label": "Notifications, 0 unread",
+      "bounds": {
+        "x": 1227.0,
+        "y": 728.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5453895943430105851",
+      "role": "ListItem",
+      "label": "GitHub",
+      "bounds": {
+        "x": 438.0,
+        "y": 23.0,
+        "w": 45.0,
+        "h": 23.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5961417643842590894",
+      "role": "TreeItem",
+      "label": "Home",
+      "bounds": {
+        "x": 29.0,
+        "y": 89.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5969884808462378291",
+      "role": "Label",
+      "label": "GitHub API usage pending; session: 0 requests (0 GraphQL, 0 REST, 0 auth)",
+      "bounds": {
+        "x": 1120.0,
+        "y": 730.0,
+        "w": 71.0,
+        "h": 19.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6580481900935945976",
+      "role": "TreeItem",
+      "label": "Favicon",
+      "bounds": {
+        "x": 29.0,
+        "y": 145.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8593156504149649983",
+      "role": "TreeItem",
+      "label": "GitHub",
+      "bounds": {
+        "x": 29.0,
+        "y": 117.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9287361734341280224",
+      "role": "Group",
+      "label": null,
+      "bounds": {
+        "x": 0.0,
+        "y": 0.0,
+        "w": 1276.0,
+        "h": 773.0
+      },
+      "focusable": true,
+      "focused": true
+    },
+    {
+      "accesskit_id": "9739713411751986404",
+      "role": "Button",
+      "label": "Usage analytics",
+      "bounds": {
+        "x": 1195.0,
+        "y": 728.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15550795210854138450",
+      "role": "TreeItem",
+      "label": "Usage",
+      "bounds": {
+        "x": 29.0,
+        "y": 173.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16963919496256642517",
+      "role": "Button",
+      "label": "Toggle sidebar",
+      "bounds": {
+        "x": 280.0,
+        "y": 22.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17900589767825635402",
+      "role": "Link",
+      "label": "Home",
+      "bounds": {
+        "x": 374.0,
+        "y": 23.0,
+        "w": 38.0,
+        "h": 23.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "18182534071161197539",
+      "role": "TreeItem",
+      "label": "Settings",
+      "bounds": {
+        "x": 29.0,
+        "y": 201.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    }
+  ]
+}
