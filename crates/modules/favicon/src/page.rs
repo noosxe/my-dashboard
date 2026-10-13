@@ -1064,7 +1064,7 @@ fn preview_frame(
     previews: &HashMap<u32, Arc<RenderImage>>,
     cx: &Context<FaviconPage>,
 ) -> Stateful<Div> {
-    let display = if size >= 512 { 208. } else { size as f32 };
+    let display = if size >= 512 { 192. } else { size as f32 };
     let mut frame = div()
         .id(format!("favicon-preview-{size}"))
         .role(accesskit::Role::Image)
@@ -1157,6 +1157,7 @@ impl Render for FaviconPage {
                 h_flex()
                     .flex_1()
                     .min_h_0()
+                    .items_start()
                     .gap_5()
                     // Left: design controls in titled sections (0064
                     // §10). Scrolls only if a tab's panel grows past the
@@ -1313,7 +1314,7 @@ impl Render for FaviconPage {
                         v_flex()
                             .flex_1()
                             .min_w_0()
-                            .gap_3()
+                            .gap_2()
                             .child(
                                 card(cx, CardVariant::Quiet)
                                     .id("favicon-hero")
