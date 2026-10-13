@@ -7,7 +7,10 @@
 # EXPECTED RED until both upstream fixes land with a bump. Run it to
 # re-check the blockers, then move both hops into audit.txt and delete
 # this file. Same environment contract as audit.txt (docs/0071,
-# session `audit` at 1280x800).
+# session `audit` at 1280x800). Goldens ride along (#535): each stop
+# asserts its baseline too — captured from this same walk. On the flip,
+# re-capture both baselines: the upstream fixes change these trees
+# (that is the point), and the diffs are the PR review artifact.
 
 --session audit
 
@@ -15,8 +18,10 @@
 click 18182534071161197539 --wait-frame
 assert-label "Appearance"
 audit
+assert-baseline settings
 
 # → favicon module (sidebar TreeItem id).
 click 6580481900935945976 --wait-frame
 assert-label "Emoji"
 audit
+assert-baseline favicon

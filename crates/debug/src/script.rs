@@ -679,6 +679,30 @@ mod tests {
                 .any(|s| matches!(s.op, StepOp::TabStops)),
             "tab-order coverage stays paired with the audit (0065 D3)"
         );
+        // #535: every audited stop also asserts its structural golden —
+        // the walk above ends home→github→usage-overview→usage-quota→
+        // hub→home-return, and each stop pins the tree shape.
+        let mut baselines: Vec<&str> = script
+            .steps
+            .iter()
+            .filter_map(|s| match &s.op {
+                StepOp::AssertBaseline(surface) => Some(surface.as_str()),
+                _ => None,
+            })
+            .collect();
+        baselines.sort_unstable();
+        assert_eq!(
+            baselines,
+            [
+                "github",
+                "home",
+                "home-return",
+                "hub",
+                "usage-overview",
+                "usage-quota"
+            ],
+            "every audit.txt stop asserts its committed golden (0065 D5)"
+        );
     }
 
     #[test]
@@ -709,5 +733,21 @@ mod tests {
         assert_eq!(hops, 2, "settings + favicon");
         assert_eq!(asserts, 2, "each hop asserts its landing");
         assert_eq!(audits, 2, "each surface audits");
+        // #535: goldens ride along — captured from this same walk, so
+        // the flip must carry the baselines (re-captured) into audit.txt.
+        let mut baselines: Vec<&str> = script
+            .steps
+            .iter()
+            .filter_map(|s| match &s.op {
+                StepOp::AssertBaseline(surface) => Some(surface.as_str()),
+                _ => None,
+            })
+            .collect();
+        baselines.sort_unstable();
+        assert_eq!(
+            baselines,
+            ["favicon", "settings"],
+            "both staged stops assert their goldens too"
+        );
     }
 }

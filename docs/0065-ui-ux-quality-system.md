@@ -140,14 +140,29 @@ covers text pairs only, and the non-text slots live on the documented
 exemption list. Promoting any of them to gating is an owner decision
 made in a PR, never a test.
 
-### D5 — Structural goldens (cross-platform, works on macOS today)
+### D5 — Structural goldens (same-environment, gated in the container)
 
-Per-surface `tree --snapshot` outputs committed under
-`crates/debug/verify/snapshots/<surface>.json`; receipt scripts run
-`tree --diff` against them. Structural drift (a missing section, a
-renamed control, a changed role) gates on every platform — including
-macOS, where pixel capture cannot run yet. Baseline updates go through
-PRs like code; the diff in the PR body is the review.
+Per-surface tree snapshots committed under
+`crates/debug/verify/snapshots/<surface>.json`; the committed receipts
+`assert-baseline` them after each stop's audit (D3). Structural drift —
+a missing section, a renamed control, a changed role or label — fails
+the receipt. Baseline updates go through PRs like code; the diff in the
+PR body is the review.
+
+First capture round shipped 2026-10-13 (#535): `home`, `home-return`,
+`github`, `usage-overview`, `usage-quota`, `hub`, plus `settings` and
+`favicon` staged with their expected-red hops (#530). Three notes
+tighten the original sketch: (1) the diff includes window-relative
+bounds and the `focused` flag, so the same-environment rule (D6)
+applies to structure too — goldens are captured and asserted in the
+docs/0071 container at 1280×800, not across platforms; (2)
+capture-local values never reach the file — frame number and timestamp
+are zeroed on write, and wall-clock times in labels ("as of 23:15", the
+usage status line) are normalized to fixed tokens; (3) the write path
+is `baseline <surface> --update` only, and the one-shot capture walks
+the exact audit.txt step order (focus moves matter). The usage goldens
+pin the empty-ledger shape; a seeded-ledger re-capture is tracked
+separately (#536).
 
 ### D6 — Pixel goldens (Linux, Playwright semantics)
 

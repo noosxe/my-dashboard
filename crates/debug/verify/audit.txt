@@ -23,6 +23,14 @@
 # verify/surfaces-pending.txt; move them here once the upstream fixes
 # land with a bump.
 #
+# Structural goldens (0065 D5, #535): every stop also asserts a
+# committed baseline — crates/debug/verify/snapshots/<surface>.json
+# pins the tree shape (roles, labels, bounds, focusable/focused) at
+# 1280x800. Goldens are captured in this same container — the
+# same-environment rule covers structure too, since bounds are
+# window-relative pixels — and wall-clock labels ("as of HH:MM") are
+# normalized at capture. Refresh only in a reviewed PR: drift after
+# that is red — fix the UI or refresh the baseline, never mid-receipt.
 # Prerequisites: the containerized env (docs/0071), session named
 # `audit` at 1280x800:
 #   scripts/verify.sh sh -c 'cargo run -q -p dashboard-debug -- \
@@ -38,16 +46,30 @@ audit
 # Tab-order coverage pairs with the audit (0065 D3): the walk itself
 # exits nonzero on traps or an unclosed cycle.
 tab-stops
+assert-baseline home
 
-# Home → GitHub module page (the home card's stable id).
-click 409056323268249092 --wait-frame
-assert-label "API usage"
-audit
+# Walk order is load-bearing (#535): arriving at usage through the
+# github page's top-bar button re-keys the tab strip's accesskit ids
+# (navigation history changes the derivation), while the sidebar-first
+# route from a fresh boot keeps them stable. So usage is visited via
+# its sidebar TreeItem BEFORE any github detour, and github — whose
+# page is history-insensitive in the assertions it makes — walks last.
+# Reordering this walk invalidates the goldens: re-capture in the same
+# PR (0065 D5).
 
-# GitHub module page → usage analytics (the page tab's stable id).
-click 9739713411751986404 --wait-frame
+# Home → usage analytics via the sidebar TreeItem (chrome on every
+# page; its id is stable across boots and walk orders).
+click 15550795210854138450 --wait-frame
 assert-label "as of"
 audit
+assert-baseline usage-overview
+
+# The quota tab is the usage surface's other half (#535); its golden
+# pins the empty-ledger shape (a seeded-ledger re-capture is tracked
+# separately).
+click 10331718283301957339 --wait-frame
+assert-label "Group by dimension"
+assert-baseline usage-quota
 
 # Usage analytics → notification hub. The status bell is a popover
 # trigger (no Click action): the click lands via the announced
@@ -55,8 +77,16 @@ audit
 click 5211320293504918274 --wait-frame
 assert-label "Clear all"
 audit
+assert-baseline hub
 
-# Back home — the receipt ends where every review starts.
+# Back home — the review's home state, re-visited after navigation.
 click 5961417643842590894 --wait-frame
 assert-label "Open GitHub module"
 audit
+assert-baseline home-return
+
+# Home → GitHub module page last (the home card's stable id).
+click 409056323268249092 --wait-frame
+assert-label "API usage"
+audit
+assert-baseline github

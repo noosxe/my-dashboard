@@ -447,8 +447,15 @@ audited tree itself — every id held identical (the toggle, cards,
 sidebar items, bell). Ids derive from element paths, so an app change
 *can* renumber one; that failure is loud (`4005 UNKNOWN_NODE`), and
 the id updates in the same PR as the layout change — the same
-maintenance contract as a golden. The committed scripts' headers name
-their required size.
+maintenance contract as a golden. One refinement (#535): ids are
+history-independent for chrome and most page content, but a subtree's
+derivation can re-key when the *navigation history* differs — the
+usage tab strip gets fresh ids when reached after a github-page detour,
+and keeps its fresh-boot ids on the sidebar-first route. Walks
+therefore fix their navigation order (audit.txt's order is
+load-bearing; its goldens pin these ids), and a re-key surfaces loudly
+as `4005 UNKNOWN_NODE` or a golden diff. The committed scripts' headers
+name their required size.
 Arguments may be double-quoted (assert substrings and `type` texts with
 spaces). Transcripts land beside the snapshots (`state/transcripts/`),
 auto-incrementing per script stem; the runner reuses the verb
