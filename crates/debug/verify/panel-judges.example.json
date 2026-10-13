@@ -1,0 +1,22 @@
+{
+  "judges": [
+    {
+      "name": "qwen3-vl-8b",
+      "model": "/Users/you/Models/qwen3vl-8b/Qwen3VL-8B-Instruct-Q4_K_M.gguf",
+      "mmproj": "/Users/you/Models/qwen3vl-8b/mmproj-Qwen3VL-8B-Instruct-Q8_0.gguf",
+      "max_tokens": 2000
+    },
+    {
+      "name": "uitars-7b",
+      "model": "/Users/you/Models/uitars-7b/UI-TARS-7B-DPO-Q4_K_M.gguf",
+      "mmproj": "/Users/you/Models/uitars-7b/mmproj-UI-TARS-7B-DPO-f16.gguf"
+    },
+    {
+      "name": "minicpm-v",
+      "model": "/Users/you/Models/minicpm-v/MiniCPM-V-4_5-Q4_K_M.gguf",
+      "mmproj": "/Users/you/Models/minicpm-v/mmproj-model-f16.gguf",
+      "overrides": { "chat_template_kwargs": { "enable_thinking": false } }
+    }
+  ],
+  "server": { "port": 8081, "context": 8192 }
+}

@@ -74,6 +74,23 @@ fn run() -> i32 {
         Command::Critique { surface } => {
             return receipts::critique_verb(session_name.as_deref(), &surface);
         }
+        Command::CritiquePanel {
+            surface,
+            image,
+            name,
+            judges,
+            brief,
+            out,
+        } => {
+            return receipts::critique_panel_verb(
+                surface.as_deref(),
+                image.as_deref(),
+                name.as_deref(),
+                judges.as_deref(),
+                brief.as_deref(),
+                out.as_deref(),
+            );
+        }
         Command::Golden {
             surface,
             theme,
@@ -459,6 +476,7 @@ pub(crate) fn run_command(conn: &mut Conn, command: &Command) -> i32 {
         // reach the connected dispatch (see run()).
         Command::Screenshot { .. }
         | Command::Critique { .. }
+        | Command::CritiquePanel { .. }
         | Command::Golden { .. }
         | Command::Run { .. }
         | Command::Doctor => {

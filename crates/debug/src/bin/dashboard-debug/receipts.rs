@@ -923,24 +923,25 @@ fn session_record(session: Option<&str>) -> Option<(SessionRecord, std::path::Pa
 /// layout-recall weakness: never critique pixels alone). One counter,
 /// one stem, two files: `<surface>-<n>.png` + `<surface>-<n>.tree.json`
 /// under the session's `critique/` dir.
-pub fn critique_verb(session: Option<&str>, surface: &str) -> i32 {
+pub fn critique_capture(
+    session: Option<&str>,
+    surface: &str,
+) -> Result<(std::path::PathBuf, std::path::PathBuf, usize), i32> {
     let Some((record, root)) = session_record(session) else {
-        return 1;
+        return Err(1);
     };
     let Some(grim) = grim_path() else {
         eprintln!(
             "grim is not on PATH — screenshots need it (the dev shell ships it: nix develop)"
         );
-        return 1;
+        return Err(1);
     };
     // #531: the capture targets the session's bridge — bind redirects this
     // process's roots so connect_quiet reads the session's token/socket
     // (bind's failures all print; connect_quiet's never do). Idempotent in
     // script flows, where `run` already bound.
     if let Some(name) = session {
-        if let Err(code) = crate::session::bind(name) {
-            return code;
-        }
+        crate::session::bind(name)?;
     }
     let mut conn = match connect_quiet() {
         Ok(conn) => conn,
@@ -948,14 +949,11 @@ pub fn critique_verb(session: Option<&str>, surface: &str) -> i32 {
             eprintln!(
                 "critique {surface}: bridge connect failed — the app may have exited mid-capture"
             );
-            return code;
+            return Err(code);
         }
     };
     // D6 determinism applies to critiques too: capture settled frames.
-    let first = match tree_dump(&mut conn, &None) {
-        Ok(result) => result,
-        Err(code) => return code,
-    };
+    let first = tree_dump(&mut conn, &None)?;
     if let Err(last) = wait_for_frame(&mut conn, &None, frame_number(&first), 2000) {
         // A quiet surface never repaints: frame-stable across the whole
         // budget IS the settled state D6 wants, not a failure. Liveness
@@ -964,21 +962,18 @@ pub fn critique_verb(session: Option<&str>, surface: &str) -> i32 {
             "critique {surface}: frame stable at {last} — quiet surface, capturing the settled frame"
         );
     }
-    let dump = match tree_dump(&mut conn, &None) {
-        Ok(result) => result,
-        Err(code) => return code,
-    };
+    let dump = tree_dump(&mut conn, &None)?;
     let snapshot = match dashboard_debug::snapshot::Snapshot::from_dump(surface, &dump) {
         Ok(snap) => snap,
         Err(err) => {
             eprintln!("cannot snapshot: {err}");
-            return 1;
+            return Err(1);
         }
     };
     let dir = root.join("critique");
     if let Err(err) = std::fs::create_dir_all(&dir) {
         eprintln!("cannot create {}: {err}", dir.display());
-        return 1;
+        return Err(1);
     }
     let png = dashboard_debug::script::allocate_path(&dir, surface, "png");
     let stem = png.file_stem().unwrap().to_string_lossy().into_owned();
@@ -995,25 +990,76 @@ pub fn critique_verb(session: Option<&str>, surface: &str) -> i32 {
         Ok(output) => output,
         Err(err) => {
             eprintln!("cannot run grim: {err}");
-            return 1;
+            return Err(1);
         }
     };
     if !output.status.success() {
         eprintln!("grim failed for critique {surface}");
-        return 1;
+        return Err(1);
     }
     let body = serde_json::to_string_pretty(&snapshot).expect("serialize snapshot");
     if let Err(err) = std::fs::write(&tree, body) {
         eprintln!("cannot write {}: {err}", tree.display());
-        return 1;
+        return Err(1);
     }
-    println!(
-        "critique {surface}: {} nodes · {} + {}",
-        snapshot.nodes.len(),
-        png.display(),
-        tree.display()
-    );
-    0
+    Ok((png, tree, snapshot.nodes.len()))
+}
+
+/// The printed half of `critique <surface>` (0065 D7): capture + human
+/// line. `critique --panel` reuses the capture half directly.
+pub fn critique_verb(session: Option<&str>, surface: &str) -> i32 {
+    match critique_capture(session, surface) {
+        Ok((png, tree, nodes)) => {
+            println!(
+                "critique {surface}: {nodes} nodes · {} + {}",
+                png.display(),
+                tree.display()
+            );
+            0
+        }
+        Err(code) => code,
+    }
+}
+
+/// `critique --panel` (#539 §2): the D7 judge step as a tool. Surface mode
+/// captures a settled frame first (session-bound, Linux-only); image mode
+/// judges any frame on disk, wherever the judges live.
+pub fn critique_panel_verb(
+    surface: Option<&str>,
+    image: Option<&std::path::Path>,
+    name: Option<&str>,
+    judges: Option<&std::path::Path>,
+    brief: Option<&std::path::Path>,
+    out: Option<&std::path::Path>,
+) -> i32 {
+    let (frame, default_label) = match (surface, image) {
+        (Some(surface), None) => match critique_capture(None, surface) {
+            Ok((png, _, _)) => (png, surface.to_string()),
+            Err(code) => return code,
+        },
+        (None, Some(image)) => {
+            let stem = image
+                .file_stem()
+                .map(|stem| stem.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "frame".into());
+            (image.to_path_buf(), stem)
+        }
+        _ => unreachable!("cli enforces exactly one frame source"),
+    };
+    let label = name.map(str::to_string).unwrap_or(default_label);
+    let out_dir = out
+        .map(|path| path.to_path_buf())
+        .unwrap_or_else(|| std::path::PathBuf::from(".pi/panel").join(&label));
+    let invocation = dashboard_debug::panel::PanelInvocation {
+        image: frame,
+        label,
+        out_dir,
+        judges_path: judges
+            .map(|path| path.to_path_buf())
+            .unwrap_or_else(dashboard_debug::panel::default_judges_path),
+        brief_path: brief.map(|path| path.to_path_buf()),
+    };
+    dashboard_debug::panel::run(&invocation)
 }
 
 /// Committed pixel-golden root: `crates/debug/verify/pixels/` — same

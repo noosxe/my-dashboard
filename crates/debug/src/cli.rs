@@ -82,6 +82,22 @@ pub enum Command {
     /// pixels-only), paired as `critique/<surface>-<n>.png` +
     /// `.tree.json`. Session-bound, Linux-only (grim + a11y).
     Critique { surface: String },
+    /// `critique --panel (<surface> | --image <path>) [--name <label>]
+    /// [--judges <file>] [--brief <file>] [--out <dir>]` — the 0065 D7
+    /// judge step as a tool (#539 §2): run the local multi-judge vision
+    /// panel against a frame. With `<surface>`: capture a settled frame
+    /// first (session-bound, Linux-only). With `--image`: judge any
+    /// PNG/JPEG on disk, no session needed — runs wherever the judges
+    /// live. Verdicts + `run.json` manifest land in `--out`
+    /// (default `.pi/panel/<label>`).
+    CritiquePanel {
+        surface: Option<String>,
+        image: Option<std::path::PathBuf>,
+        name: Option<String>,
+        judges: Option<std::path::PathBuf>,
+        brief: Option<std::path::PathBuf>,
+        out: Option<std::path::PathBuf>,
+    },
     /// `golden <surface> --theme <dark|light> [--update]` — pixel
     /// golden vs committed `verify/pixels/<surface>-<WxH>-<theme>.png`
     /// (0065 D6). `--update` is the only deliberate refresh path;
@@ -165,6 +181,8 @@ pub const USAGE: &str = "usage: dashboard-debug [--session <name>] <verb> [args]
   wait-frame [--above N] [--timeout ms]  block until the app drew again (D6)
   screenshot [--name stem]         grim capture of the session compositor (D10)
   critique <surface>               D7 ritual input: screenshot + tree snapshot, paired
+  critique --panel (<surface>|--image p) [--name l] [--judges f] [--brief f] [--out d]
+                                   D7 judge step (#539 §2): local multi-judge vision panel on a frame
   golden <surface> --theme <t> [--update]  pixel golden vs committed PNG (0065 D6)
   run <script>                     replay a committed receipt script (D12)
   doctor                           nine session health checks (D13)
@@ -283,6 +301,9 @@ pub fn parse_args(args: &[String]) -> Result<Command, String> {
             }
             Ok(Command::Screenshot { name })
         }
+        "critique" if rest.first().map(String::as_str) == Some("--panel") => {
+            parse_critique_panel(&rest[1..])
+        }
         "critique" => {
             let [surface] = rest else {
                 return Err("critique takes exactly one surface name".into());
@@ -399,6 +420,68 @@ pub fn parse_args(args: &[String]) -> Result<Command, String> {
         "shell" if rest.is_empty() => Ok(Command::Shell),
         _ => Err(USAGE.to_string()),
     }
+}
+/// `critique --panel` arguments (#539 §2): exactly one frame source — a
+/// surface name or `--image <path>` — plus optional lineup, brief and
+/// output overrides.
+fn parse_critique_panel(rest: &[String]) -> Result<Command, String> {
+    let mut surface: Option<String> = None;
+    let mut image: Option<std::path::PathBuf> = None;
+    let mut name: Option<String> = None;
+    let mut judges: Option<std::path::PathBuf> = None;
+    let mut brief: Option<std::path::PathBuf> = None;
+    let mut out: Option<std::path::PathBuf> = None;
+    let mut args = rest.iter();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--image" => {
+                image = Some(std::path::PathBuf::from(
+                    args.next().ok_or("--image needs a path")?,
+                ));
+            }
+            "--name" => name = Some(args.next().ok_or("--name needs a label")?.clone()),
+            "--judges" => {
+                judges = Some(std::path::PathBuf::from(
+                    args.next().ok_or("--judges needs a file")?,
+                ));
+            }
+            "--brief" => {
+                brief = Some(std::path::PathBuf::from(
+                    args.next().ok_or("--brief needs a file")?,
+                ));
+            }
+            "--out" => {
+                out = Some(std::path::PathBuf::from(
+                    args.next().ok_or("--out needs a dir")?,
+                ));
+            }
+            other if other.starts_with('-') => {
+                return Err(format!("unknown critique --panel argument {other:?}"));
+            }
+            other => {
+                if surface.is_some() {
+                    return Err("critique --panel takes one frame source".into());
+                }
+                if !crate::snapshot::valid_name(other) {
+                    return Err(format!("bad surface name {other:?}"));
+                }
+                surface = Some(other.to_string());
+            }
+        }
+    }
+    if surface.is_some() == image.is_some() {
+        return Err(
+            "critique --panel needs exactly one frame source: <surface> or --image <path>".into(),
+        );
+    }
+    Ok(Command::CritiquePanel {
+        surface,
+        image,
+        name,
+        judges,
+        brief,
+        out,
+    })
 }
 
 fn parse_session(rest: &[String]) -> Result<Command, String> {
@@ -761,6 +844,59 @@ mod tests {
         list.iter().map(|s| s.to_string()).collect()
     }
 
+    #[test]
+    fn critique_panel_parse_matrix() {
+        // surface mode
+        assert_eq!(
+            parse_args(&args(&["critique", "--panel", "home"])).unwrap(),
+            Command::CritiquePanel {
+                surface: Some("home".into()),
+                image: None,
+                name: None,
+                judges: None,
+                brief: None,
+                out: None,
+            }
+        );
+        // image mode with overrides
+        assert_eq!(
+            parse_args(&args(&[
+                "critique",
+                "--panel",
+                "--image",
+                "/tmp/f.png",
+                "--name",
+                "probe",
+                "--judges",
+                "/tmp/j.json",
+            ]))
+            .unwrap(),
+            Command::CritiquePanel {
+                surface: None,
+                image: Some("/tmp/f.png".into()),
+                name: Some("probe".into()),
+                judges: Some("/tmp/j.json".into()),
+                brief: None,
+                out: None,
+            }
+        );
+        // exactly one frame source
+        assert!(parse_args(&args(&["critique", "--panel"])).is_err());
+        assert!(
+            parse_args(&args(&[
+                "critique",
+                "--panel",
+                "home",
+                "--image",
+                "/tmp/f.png"
+            ]))
+            .is_err()
+        );
+        // unknown flag
+        assert!(parse_args(&args(&["critique", "--panel", "--wat"])).is_err());
+        // surface names still validated
+        assert!(parse_args(&args(&["critique", "--panel", "not a surface!"])).is_err());
+    }
     #[test]
     fn verb_table() {
         assert_eq!(

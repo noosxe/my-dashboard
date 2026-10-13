@@ -19,6 +19,7 @@ mod handlers;
 mod jobs;
 pub mod logs;
 mod merge;
+pub mod panel;
 pub mod pixels;
 pub mod protocol;
 pub mod script;
