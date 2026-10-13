@@ -931,8 +931,13 @@ impl FaviconPage {
                 )
                 .child(field_row(
                     "Glyph size",
-                    div().id("favicon-scale").child(
-                        Slider::new(scale).horizontal().w(px(SCALE_SLIDER_W)),
+                    slider_control(
+                        "favicon-scale",
+                        scale,
+                        SCALE_SLIDER_W,
+                        false,
+                        scale.read(cx).value().end(),
+                        cx,
                     ),
                 ))
                 .into_any_element(),
@@ -965,8 +970,13 @@ impl FaviconPage {
                 )
                 .child(field_row(
                     "Glyph size",
-                    div().id("favicon-scale").child(
-                        Slider::new(scale).horizontal().w(px(SCALE_SLIDER_W)),
+                    slider_control(
+                        "favicon-scale",
+                        scale,
+                        SCALE_SLIDER_W,
+                        false,
+                        scale.read(cx).value().end(),
+                        cx,
                     ),
                 ))
                 .into_any_element(),
@@ -1054,6 +1064,43 @@ fn field_row(label: &str, control: impl IntoElement) -> AnyElement {
         )
         .child(control)
         .into_any_element()
+}
+
+/// Slider plus a right-aligned percent readout on the field-row spine.
+/// Slider values are fractions; the readout is the percent. The row is
+/// pixels-only by receipt: the tree dump folds it (60 nodes unchanged,
+/// golden clean) — the accessible "Glyph size — 60%" belongs on the
+/// upstream slider node, which exposes `Role::Slider` with numeric
+/// values but no label support yet (see the audit FAILs this page
+/// carries until then).
+fn slider_control(
+    id: &'static str,
+    slider: &Entity<SliderState>,
+    width: f32,
+    disabled: bool,
+    value: f32,
+    cx: &App,
+) -> Stateful<Div> {
+    let percent = format!("{}%", (value * 100.0).round());
+    h_flex()
+        .id(id)
+        .gap_2()
+        .items_center()
+        .child(
+            Slider::new(slider)
+                .horizontal()
+                .disabled(disabled)
+                .w(px(width)),
+        )
+        .child(
+            div()
+                .w(px(34.0))
+                .flex_shrink_0()
+                .text_sm()
+                .text_color(cx.theme().foreground)
+                .text_right()
+                .child(percent),
+        )
 }
 
 /// One preview frame: the raster of the exact emitted SVG (D2), or an
@@ -1247,11 +1294,13 @@ impl Render for FaviconPage {
                                     )
                                     .child(field_row(
                                         "Corner radius",
-                                        div().id("favicon-shape-radius").child(
-                                            Slider::new(&radius)
-                                                .horizontal()
-                                                .disabled(shape_circle)
-                                                .w(px(RADIUS_SLIDER_W)),
+                                        slider_control(
+                                            "favicon-shape-radius",
+                                            &radius,
+                                            RADIUS_SLIDER_W,
+                                            shape_circle,
+                                            radius.read(cx).value().end(),
+                                            cx,
                                         ),
                                     )),
                             )
