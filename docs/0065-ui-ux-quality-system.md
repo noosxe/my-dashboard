@@ -198,6 +198,14 @@ frame on disk, wherever the judges live. The lineup lives in
 `crates/debug/verify/panel-judges.example.json` — with per-judge request
 `overrides` (e.g. MiniCPM's `{"enable_thinking": false}`: the model
 card's fast mode is the documented default; thinking is opt-in).
+Sampling is card-faithful, not one-knob-fits-all: Qwen3-VL per its
+card's VL generation hyperparameters (`temperature 0.7, top_p 0.8,
+top_k 20`), MiniCPM-V 4.5 per its llama.cpp cookbook recipe
+(`temperature 0.7, top_p 0.8, top_k 100, repeat_penalty 1.05`) — both
+carried in the example lineup. UI-TARS publishes no critique-relevant
+sampling guidance (its deploy guide runs greedy at `temperature 0.0`
+for action prediction; the org later moved `bytedance-research` →
+`ByteDance-Seed`, and the repo to `bytedance/UI-TARS`).
 Reconciliation stays agent/human-side, and single verdicts are noise:
 cluster across judges and runs before acting on a finding — the panel's
 own shakedown showed a judge flipping its "best element" between
