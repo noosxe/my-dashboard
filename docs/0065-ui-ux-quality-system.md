@@ -208,11 +208,11 @@ needs `extra_args: ["--image-min-tokens", "1024"]` since llama.cpp
 0.6.0, without which desktop frames encode below the model's minimum
 image-token budget and refusal is deterministic. MiniCPM-V 4.5 runs
 its llama.cpp cookbook recipe verbatim (`temperature 0.7, top_p 0.8,
-top_k 100, repeat_penalty 1.05`). UI-TARS publishes no
-critique-relevant sampling guidance (its deploy guide runs greedy at
-`temperature 0.0` for action prediction; the org later moved
-`bytedance-research` → `ByteDance-Seed`, and the repo to
-`bytedance/UI-TARS`).
+top_k 100, repeat_penalty 1.05`). UI-TARS runs greedy
+(`temperature 0.0`) per its deploy guide — the deterministic anchor
+judge: identical verdicts for an identical frame, so a verdict change
+means the frame changed (its models moved `bytedance-research` →
+`ByteDance-Seed`, and the repo to `bytedance/UI-TARS`).
 Reconciliation stays agent/human-side, and single verdicts are noise:
 cluster across judges and runs before acting on a finding — the panel's
 own shakedown showed a judge flipping its "best element" between

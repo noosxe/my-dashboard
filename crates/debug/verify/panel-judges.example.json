@@ -18,7 +18,8 @@
     {
       "name": "uitars-7b",
       "model": "/Users/you/Models/uitars-7b/UI-TARS-7B-DPO-Q4_K_M.gguf",
-      "mmproj": "/Users/you/Models/uitars-7b/mmproj-UI-TARS-7B-DPO-f16.gguf"
+      "mmproj": "/Users/you/Models/uitars-7b/mmproj-UI-TARS-7B-DPO-f16.gguf",
+      "overrides": { "temperature": 0.0 }
     },
     {
       "name": "minicpm-v",
