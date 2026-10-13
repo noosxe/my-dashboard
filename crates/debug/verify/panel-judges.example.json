@@ -4,7 +4,8 @@
       "name": "qwen3-vl-8b",
       "model": "/Users/you/Models/qwen3vl-8b/Qwen3VL-8B-Instruct-Q4_K_M.gguf",
       "mmproj": "/Users/you/Models/qwen3vl-8b/mmproj-Qwen3VL-8B-Instruct-Q8_0.gguf",
-      "max_tokens": 2000
+      "max_tokens": 2000,
+      "overrides": { "temperature": 0.7, "top_p": 0.8, "top_k": 20 }
     },
     {
       "name": "uitars-7b",
@@ -15,7 +16,10 @@
       "name": "minicpm-v",
       "model": "/Users/you/Models/minicpm-v/MiniCPM-V-4_5-Q4_K_M.gguf",
       "mmproj": "/Users/you/Models/minicpm-v/mmproj-model-f16.gguf",
-      "overrides": { "chat_template_kwargs": { "enable_thinking": false } }
+      "overrides": {
+        "chat_template_kwargs": { "enable_thinking": false },
+        "temperature": 0.7, "top_p": 0.8, "top_k": 100, "repeat_penalty": 1.05
+      }
     }
   ],
   "server": { "port": 8081, "context": 8192 }
