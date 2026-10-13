@@ -99,17 +99,26 @@ state** — runs failing on missing `cc`/`xvfb-run` until the self-hosted
 images reached parity — is history: the hosted `ubuntu-24.04` image ships
 the baseline by construction, §4.)
 
-### D2 — Ephemeral runners: cold by design, caching deferred
+### D2 — Ephemeral runners: cold by design, caching deferred (#158 landed it)
 
-`CARGO_TARGET_DIR=$HOME/.cache/my-dashboard/target` is still exported, but on
-the ephemeral platform this is a **no-op perf-wise** (fresh VM per run);
-it is kept because it is harmless and a future persistent host gets warm
-builds for free — and because an out-of-workspace target dir never interacts
-badly with `actions/checkout`'s `git clean -ffdx`. Every run pays the full
-cold build (cargo fetch + full workspace compile incl. the gpui git deps,
-~10–15 min/job observed). Build-artifact caching (`rust-cache`/`sccache`,
-quota/eviction questions included) is deliberately out of scope: follow-up
-#158.
+*(original decision, superseded below)* On the ephemeral platform, the
+out-of-workspace `CARGO_TARGET_DIR=$HOME/.cache/my-dashboard/target`
+export was a **no-op perf-wise** (fresh VM per run), kept only as
+future-proofing; every run paid the full cold build (~10–15 min/job
+observed). Build-artifact caching was deliberately deferred to #158.
+
+*(landed, #158)* **`Swatinem/rust-cache` v2** now caches `~/.cargo`
+(registry + git deps) and `./target` on both jobs — keyed automatically
+by job id (separate lint/test caches), rustc version, and the
+Cargo.lock/Toml hashes; placed *after* the toolchain bootstrap so the
+rustc hash is correct; `cache-on-failure: true` so a red first run on a
+branch still warms the cache. The out-of-workspace target dir export was
+**removed**: rust-cache's default `workspaces` mapping is `. -> target`,
+and a custom target dir outside the workspace would silently miss
+target-artifact caching (upstream-verified) while offering nothing the
+action does not already handle. Quota/eviction stays GitHub-side (10 GB
+repo cache cap, LRU eviction; the action prunes non-dependency and
+week-old artifacts before save).
 
 ### D3 — Two jobs: `lint`, `test`
 
