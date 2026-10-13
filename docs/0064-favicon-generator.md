@@ -298,6 +298,35 @@ The revision:
 4. **Copy.** The header paragraph (0065 Appendix A item 8's
    anti-exemplar) is gone; weights read Light/Regular/Semibold/Bold,
    not raw numbers; "embedded as a data URI" → "embedded into the SVG".
+
+## 11. The spacing ladder (2026-10-13) — rhythm expresses grouping
+
+The 0065 §1 loop's panel verdicts (every judge, baseline through
+experiment 2) and the owner both read the controls column the same
+way: cramped, no breathing room, hard to tell what relates to what.
+The cause was structural: the column ran a single `gap_2` (8 px)
+almost everywhere, and the guides are explicit — "equal gaps imply
+equal relationships". The layout encoded "everything is equally
+related".
+
+The fix applies the guides' spacing ladder (docs/gpui-kit design
+guides §Radius, spacing, and density) to the controls column,
+corroborated by shadcn's Field primitive (gpui-component's upstream
+idiom: `gap-3` fields, `gap-3` sibling sets, `gap-6` section content):
+
+| boundary | before | after | rationale |
+| --- | --- | --- | --- |
+| section ↔ section (controls column) | 16 px | **24 px `gap_6`** | "separate sections" — the breathing room |
+| section title ↔ content; rows within a section | 8 px | **12 px `gap_3`** | the section is one group |
+| field row ↔ field row (a tab's panel stack) | 8 px | **16 px `gap_4`** | "separate groups in one section" |
+| label lane ↔ control (inside `field_row`) | 8 px | **12 px `gap_3`** | "compact form rows" |
+| font chips / emoji glyphs (sibling sets) | 4 px | **12 px `gap_3`** | one content group |
+| chips ↔ their fallback note | 4 px | **6 px `gap_1p5`** | label/description stack (shadcn `FieldContent`) |
+
+Spacing-only by design — one variable per experiment (#539 §1, exp 3).
+Title/label *typography* stays untouched (the hierarchy ramp remains
+its own experiment), and the right column is unchanged. All values sit
+on the theme's spacing scale; no ad-hoc pixel values.
 5. **Empty state.** A frame whose raster is still in flight shows an
    honest muted "Rendering…" placeholder (A18: the blank preview was a
    named violation).
