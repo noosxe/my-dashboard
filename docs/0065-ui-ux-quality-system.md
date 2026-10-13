@@ -186,6 +186,23 @@ the PR, not as silent debt. The PR body carries the before/after pair
 plus the findings list; the owner's final human pass remains the merge
 gate.
 
+The judge step is a tool (#539 §2): `dashboard-debug critique --panel
+(<surface> | --image <path>) [--name l] [--judges f] [--brief f]
+[--out d]` runs the local multi-judge vision panel against one frame —
+one llama-server at a time, bounded context (the default provisions the
+model's full KV cache and OOMs Metal), verdicts + a `run.json` manifest
+into `--out` (default `.pi/panel/<label>`). Surface mode captures the
+settled frame first (session-bound, Linux-only); image mode judges any
+frame on disk, wherever the judges live. The lineup lives in
+`$HOME/.config/dashboard/panel-judges.json` — template:
+`crates/debug/verify/panel-judges.example.json` — with per-judge request
+`overrides` (e.g. MiniCPM's `{"enable_thinking": false}`: the model
+card's fast mode is the documented default; thinking is opt-in).
+Reconciliation stays agent/human-side, and single verdicts are noise:
+cluster across judges and runs before acting on a finding — the panel's
+own shakedown showed a judge flipping its "best element" between
+identical runs.
+
 ### D8 — Reference anchors (taste by selection)
 
 The owner cannot articulate fixes but **can pick what looks right**.

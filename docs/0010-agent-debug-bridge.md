@@ -349,7 +349,9 @@ docs/0055 extends this surface with the session + receipt verbs
 (`session start|status|stop|env`, `wait-frame`, `tree
 --snapshot/--diff/--tab-stops`, `--wait-frame` on drive verbs,
 `screenshot`, `run <script>`, `doctor`) — same hand-rolled parser, same
-exit-code contract.
+exit-code contract. docs/0065 D7 adds the UI-quality verbs (`critique
+<surface>`, `critique --panel` — the multi-judge vision panel,
+`golden`/`baseline`) under the same contract.
 
 No clap (hand parsing keeps the new-dep surface at zero: serde/serde_json,
 atspi/zbus, futures, flexi_logger and libc were all already in the
