@@ -51,6 +51,10 @@
           rustToolchain
           rust-analyzer
           pkg-config
+          # scripts/install-catppuccin-theme.sh — render + gate the
+          # Catppuccin ThemeSets outside the nix package (docs/0025).
+          catppuccin-whiskers
+          jq
         ];
 
         # Dynamic libraries gpui links/loads on Linux — mirrors upstream's flake.
