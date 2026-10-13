@@ -12,7 +12,7 @@ use dashboard_core::ui::{CardVariant, card, page_canvas, page_title, section_hea
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::{
-    ActiveTheme, Disableable as _, Sizable as _,
+    ActiveTheme, Disableable as _, Selectable as _, Sizable as _,
     button::{Button, ButtonVariants},
     checkbox::Checkbox,
     color_picker::{ColorPicker, ColorPickerEvent, ColorPickerState},
@@ -866,6 +866,13 @@ impl FaviconPage {
             scale,
             ..
         } = widgets;
+        // The chips must show which family is live — the panel reads an
+        // unmarked field of options as "no visual hierarchy" (#539 §1,
+        // experiment 2). Selected styling comes from the component.
+        let current_family: &str = match &self.model.read(cx).spec().source {
+            Source::Text { family, .. } => family,
+            _ => "",
+        };
         match source_index {
             0 => v_flex()
                 .gap_2()
@@ -913,6 +920,7 @@ impl FaviconPage {
                                         .label(family)
                                         .ghost()
                                         .xsmall()
+                                        .selected(family == current_family)
                                         .on_click(cx.listener(move |this, _, window, cx| {
                                             this.model.update(cx, |m, cx| {
                                                 m.set_font_family(family, window, cx)
