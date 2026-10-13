@@ -875,7 +875,7 @@ impl FaviconPage {
         };
         match source_index {
             0 => v_flex()
-                .gap_2()
+                .gap_4()
                 .child(field_row(
                     "Characters",
                     div()
@@ -904,7 +904,7 @@ impl FaviconPage {
                 ))
                 .child(
                     v_flex()
-                        .gap_1()
+                        .gap_1p5()
                         .child(
                             // A width-bounded wrapping row — the chips were
                             // stacking one-per-row when the container's
@@ -913,7 +913,7 @@ impl FaviconPage {
                                 .id("favicon-font-chips")
                                 .w_full()
                                 .flex_wrap()
-                                .gap_1()
+                                .gap_3()
                                 .children(FONT_FAMILIES.iter().enumerate().map(|(i, f)| {
                                     let family = *f;
                                     Button::new(format!("favicon-font-chip-{i}"))
@@ -950,7 +950,7 @@ impl FaviconPage {
                 ))
                 .into_any_element(),
             1 => v_flex()
-                .gap_2()
+                .gap_4()
                 .child(field_row(
                     "Keyword",
                     div()
@@ -962,7 +962,7 @@ impl FaviconPage {
                         .id("favicon-emoji-grid")
                         .w_full()
                         .flex_wrap()
-                        .gap_1()
+                        .gap_3()
                         .children(EMOJI_GRID.iter().enumerate().map(|(i, e)| {
                             let glyph = (*e).to_string();
                             let label = glyph.clone();
@@ -989,7 +989,7 @@ impl FaviconPage {
                 ))
                 .into_any_element(),
             2 => v_flex()
-                .gap_2()
+                .gap_4()
                 .child(
                     Button::new("favicon-image-upload")
                         .label("Upload image…")
@@ -1006,7 +1006,7 @@ impl FaviconPage {
                 )
                 .into_any_element(),
             _ => v_flex()
-                .gap_2()
+                .gap_4()
                 .child(
                     Button::new("favicon-svg-upload")
                         .label("Upload SVG…")
@@ -1062,7 +1062,7 @@ fn image_status(spec: &DesignSpec) -> String {
 /// lane keeps inputs across rows on one spine (0064 §10).
 fn field_row(label: &str, control: impl IntoElement) -> AnyElement {
     h_flex()
-        .gap_2()
+        .gap_3()
         .items_center()
         .child(
             div()
@@ -1224,11 +1224,11 @@ impl Render for FaviconPage {
                             .min_h_0()
                             .flex_shrink_0()
                             .overflow_y_scroll()
-                            .gap_4()
+                            .gap_6()
                             // --- Source ---
                             .child(
                                 v_flex()
-                                    .gap_2()
+                                    .gap_3()
                                     .child(section_header("Source"))
                                     .child(
                                         TabBar::new("favicon-source-tabs")
@@ -1254,11 +1254,11 @@ impl Render for FaviconPage {
                             // --- Palette ---
                             .child(
                                 v_flex()
-                                    .gap_2()
+                                    .gap_3()
                                     .child(section_header("Palette"))
                                     .child(
                                         h_flex()
-                                            .gap_2()
+                                            .gap_3()
                                             .child(ColorPicker::new(&fg_l).label("Glyph"))
                                             .child(ColorPicker::new(&bg0_l).label("Gradient start"))
                                             .child(ColorPicker::new(&bg1_l).label("Gradient end")),
@@ -1290,7 +1290,7 @@ impl Render for FaviconPage {
                             // --- Shape ---
                             .child(
                                 v_flex()
-                                    .gap_2()
+                                    .gap_3()
                                     .child(section_header("Shape"))
                                     .child(
                                         Switch::new("favicon-shape-circle")
@@ -1315,7 +1315,7 @@ impl Render for FaviconPage {
                             // --- Platforms ---
                             .child(
                                 v_flex()
-                                    .gap_2()
+                                    .gap_3()
                                     .child(section_header("Platforms"))
                                     .child(
                                         h_flex()
