@@ -209,10 +209,12 @@ needs `extra_args: ["--image-min-tokens", "1024"]` since llama.cpp
 image-token budget and refusal is deterministic. MiniCPM-V 4.5 runs
 its llama.cpp cookbook recipe verbatim (`temperature 0.7, top_p 0.8,
 top_k 100, repeat_penalty 1.05`). UI-TARS runs greedy
-(`temperature 0.0`) per its deploy guide — the deterministic anchor
-judge: identical verdicts for an identical frame, so a verdict change
-means the frame changed (its models moved `bytedance-research` →
-`ByteDance-Seed`, and the repo to `bytedance/UI-TARS`).
+(`temperature 0.0`) per its deploy guide — that removes the sampling
+die, but not all variance: on Metal, near-tie logits still flip
+between runs (verified: two temp-0.0 runs on one frame produced
+different finding lists), so clustering stays mandatory for every
+judge. (Its models moved `bytedance-research` → `ByteDance-Seed`, and
+the repo to `bytedance/UI-TARS`.)
 Reconciliation stays agent/human-side, and single verdicts are noise:
 cluster across judges and runs before acting on a finding — the panel's
 own shakedown showed a judge flipping its "best element" between
