@@ -351,7 +351,11 @@ docs/0055 extends this surface with the session + receipt verbs
 `screenshot`, `run <script>`, `doctor`) — same hand-rolled parser, same
 exit-code contract. docs/0065 D7 adds the UI-quality verbs (`critique
 <surface>`, `critique --panel` — the multi-judge vision panel,
-`golden`/`baseline`) under the same contract.
+`golden`/`baseline`) under the same contract. The panel's refusal
+detection is part of that contract: a blind judge (verdict matching
+known refusal phrasings, or empty) is `ok: false, blind: true` in
+`run.json` with the refusal in the `.err` sidecar, never a silent
+zero-finding run (docs/0065 D7, #543).
 
 No clap (hand parsing keeps the new-dep surface at zero: serde/serde_json,
 atspi/zbus, futures, flexi_logger and libc were all already in the
