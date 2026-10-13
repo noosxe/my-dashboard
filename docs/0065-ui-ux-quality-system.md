@@ -201,7 +201,14 @@ card's fast mode is the documented default; thinking is opt-in).
 Reconciliation stays agent/human-side, and single verdicts are noise:
 cluster across judges and runs before acting on a finding — the panel's
 own shakedown showed a judge flipping its "best element" between
-identical runs.
+identical runs. Blind judges are detected, not trusted (#543): JPEG is
+the tested-everywhere frame format (MiniCPM's projector has gone blind
+on PNG data-URIs); the verb warns on non-JPEG frames, records
+`image_mime`/`blind_risk` in the manifest, and refusal-matches every
+verdict — a judge that answers without seeing is marked `ok: false,
+blind: true` with the refusal quoted in its `.err` sidecar, so an
+absence-of-findings from a model that never saw the frame can never
+masquerade as a fixed finding.
 
 ### D8 — Reference anchors (taste by selection)
 

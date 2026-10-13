@@ -84,6 +84,44 @@ fn curl(args: &[&str]) -> Result<String, String> {
 }
 
 /// One judge, one llama-server, one request. Returns (verdict bytes, duration).
+/// Mime for the frame as sent to the judges. JPEG is the tested-everywhere
+/// path; MiniCPM's projector has been observed blind on PNG data-URIs
+/// (#543) — guarded by [`blind_refusal`] and a manifest note.
+fn mime_for(image: &Path) -> &'static str {
+    match image.extension().and_then(|e| e.to_str()) {
+        Some("png") => "image/png",
+        _ => "image/jpeg",
+    }
+}
+
+/// Blind-refusal markers: phrases a vision judge emits when it never
+/// received the frame. Case-insensitive, matched against the verdict —
+/// a judge that answered without seeing must not count as a
+/// finding-free run, because a silent blind judge poisons cluster
+/// counts (0065 D7, #543).
+fn blind_refusal(verdict: &str) -> Option<&'static str> {
+    const MARKERS: [&str; 13] = [
+        "cannot see an image",
+        "can't see an image",
+        "could not see an image",
+        "could not see the image",
+        "unable to see an image",
+        "unable to see the image",
+        "no image attached",
+        "no image was provided",
+        "no image provided",
+        "please provide an image",
+        "please provide the image",
+        "don't see any image",
+        "do not see any image",
+    ];
+    if verdict.trim().is_empty() {
+        return Some("empty verdict");
+    }
+    let lower = verdict.to_lowercase();
+    MARKERS.into_iter().find(|marker| lower.contains(marker))
+}
+
 fn run_judge(
     judge: &JudgeConfig,
     server: &ServerConfig,
@@ -209,10 +247,7 @@ fn drive_judge(
         out
     };
 
-    let mime = match image.extension().and_then(|ext| ext.to_str()) {
-        Some("png") => "image/png",
-        _ => "image/jpeg",
-    };
+    let mime = mime_for(image);
     let payload = serde_json::json!({
         "messages": [{
             "role": "user",
@@ -282,6 +317,13 @@ pub fn run(invocation: &PanelInvocation) -> i32 {
         eprintln!("critique --panel: no such image: {}", image.display());
         return 1;
     }
+    let mime = mime_for(image);
+    if mime != "image/jpeg" {
+        eprintln!(
+            "panel: note: {} is {mime}, not JPEG — MiniCPM-class projectors have gone blind on PNG frames; verdicts are refusal-checked (#543)",
+            image.display()
+        );
+    }
     let config_text = match std::fs::read_to_string(&invocation.judges_path) {
         Ok(text) => text,
         Err(err) => {
@@ -332,6 +374,8 @@ pub fn run(invocation: &PanelInvocation) -> i32 {
         "label": invocation.label,
         "image": image.display().to_string(),
         "image_bytes": image.metadata().map(|m| m.len()).unwrap_or(0),
+        "image_mime": mime,
+        "blind_risk": mime != "image/jpeg",
         "brief_source": invocation
             .brief_path
             .as_deref()
@@ -347,6 +391,25 @@ pub fn run(invocation: &PanelInvocation) -> i32 {
         let err_path = out_dir.join(format!("{}.err", judge.name));
         match run_judge(judge, &config.server, image, &brief, &invocation.out_dir) {
             Ok((text, duration)) => {
+                if let Some(marker) = blind_refusal(&text) {
+                    let _ = std::fs::write(&verdict, &text); // evidence stays
+                    let err = format!(
+                        "blind refusal — verdict matched {marker:?}; the judge likely never saw the frame (JPEG is the tested path, #543)"
+                    );
+                    let _ = std::fs::write(&err_path, format!("{err}\n"));
+                    eprintln!("panel: {} BLIND: {err}", judge.name);
+                    manifest["judges"]
+                        .as_array_mut()
+                        .expect("array")
+                        .push(serde_json::json!({
+                            "name": judge.name,
+                            "ok": false,
+                            "blind": true,
+                            "marker": marker,
+                            "duration_ms": duration.as_millis() as u64,
+                        }));
+                    continue;
+                }
                 any = true;
                 if let Err(err) = std::fs::write(&verdict, &text) {
                     eprintln!("cannot write {}: {err}", verdict.display());
@@ -414,5 +477,34 @@ mod tests {
         assert!(brief.contains("the \"home\" surface"));
         assert!(brief.contains("If you cannot see an image"));
         assert!(BRIEF_TEMPLATE.contains("{label}")); // placeholder pre-substitution
+    }
+    #[test]
+    fn blind_refusal_flags_the_minicpm_png_reply() {
+        // Verbatim from the exp2 run that motivated #543.
+        let verdict = "I cannot see an image.\n\nIf you provide an image, I can \
+                       critique it as requested.";
+        assert_eq!(blind_refusal(verdict), Some("cannot see an image"));
+        assert_eq!(blind_refusal("   \n\t"), Some("empty verdict"));
+        assert_eq!(
+            blind_refusal("Please provide the image again."),
+            Some("please provide the image")
+        );
+    }
+
+    #[test]
+    fn blind_refusal_spares_real_critiques() {
+        let verdict = "1. WHERE: The palette swatches lack affordance. \
+                       The image shows Gradient start and Gradient end as \
+                       identical squares — give each swatch a hairline border. \
+                       The single best element is the size ladder.";
+        assert_eq!(blind_refusal(verdict), None);
+    }
+
+    #[test]
+    fn mime_follows_the_frame_extension() {
+        assert_eq!(mime_for(Path::new("frames/a.png")), "image/png");
+        assert_eq!(mime_for(Path::new("frames/a.jpg")), "image/jpeg");
+        assert_eq!(mime_for(Path::new("frames/a.jpeg")), "image/jpeg");
+        assert_eq!(mime_for(Path::new("frames/noext")), "image/jpeg");
     }
 }
