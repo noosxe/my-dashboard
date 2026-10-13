@@ -262,3 +262,51 @@ favicon.json still opens.
 ## 9. Review resolutions (owner)
 
 _Filled during review of this PR._
+
+## 10. Layout revision (2026-10-13) — the icon is the hero
+
+The 0065 critique ritual (screenshot + tree, Appendix A) found the page
+structurally broken, not merely unstyled:
+
+- **The export flow was clipped out of the window.** `page_canvas` owns
+  no scroll region and the shell `overflow_hidden`s; at the canonical
+  1280×800 the platform checkboxes, export dir, app name, and the Export
+  button rendered at y ≥ 748 — unreachable.
+- **Two wrap bugs.** The font-chip row and the preview ladder carried
+  `.flex_wrap()` on width/height-unconstrained containers: the 15
+  families stacked one-per-row, and the ladder (`v_flex().flex_wrap()`
+  — wraps along the *cross* axis only) stacked all five frames into one
+  column that itself overflowed. The emoji grid shared the same bug
+  (~100 glyph buttons stacked vertically).
+
+The revision:
+
+1. **Right column = the object.** One large hero frame — the live 512
+   raster in a `Quiet` card ("Every exported size is this exact SVG.",
+   the D2 promise) — above a single horizontal ladder row (16·32·96·180)
+   and the Export section: Directory + Browse, App name, the primary
+   Export button with a "Writes N files" count. The commit action lives
+   directly beneath the object it commits.
+2. **Left column = titled sections.** Source / Palette / Shape /
+   Platforms under `section_header`s; every input gets a real `Label`
+   on a shared 92 px label lane (placeholders are not labels — they
+   vanish on input). The column owns an `overflow_y_scroll` region: it
+   scrolls only when a tab's panel genuinely overflows (SVG paste).
+3. **Wrap fixes.** Chips and emoji grid are `h_flex().w_full().flex_wrap()`
+   rows; the ladder is one `h_flex` row — no unconstrained wrap
+   containers anywhere.
+4. **Copy.** The header paragraph (0065 Appendix A item 8's
+   anti-exemplar) is gone; weights read Light/Regular/Semibold/Bold,
+   not raw numbers; "embedded as a data URI" → "embedded into the SVG".
+5. **Empty state.** A frame whose raster is still in flight shows an
+   honest muted "Rendering…" placeholder (A18: the blank preview was a
+   named violation).
+
+Bridge ids: every `favicon-*` id from D10 is preserved (additions:
+`favicon-controls`, `favicon-hero`); the weight tabs' accessible labels
+change (`300` → `Light`, …), which is why the favicon structural golden
+is re-captured **in the same PR** through the surfaces-pending hop order
+(Settings → Favicon) — the committed `assert-baseline favicon` then
+replays against identical id-derivation (docs/0055). The staged-surface
+audit stays red on the caret fails only (#530); nothing in this
+revision adds an audit finding.

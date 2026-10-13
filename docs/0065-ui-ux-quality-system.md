@@ -325,7 +325,8 @@ Mark each: pass / fail / n/a. A *fail* names what and where.
 7. **Shortcuts for frequent paths** — the main flow is ≤3 interactions;
    anything repeated per-use has a faster path or a default.
 8. **Minimalist** — no information the surface can survive without;
-   the favicon header-paragraph is the anti-exemplar.
+   the favicon header-paragraph was the anti-exemplar (removed in the
+   0064 §10 revision).
 9. **Recovery from mistakes** — undo/confirm where mistakes are likely;
    destructive buttons visually distinct from safe ones.
 10. **Help affordance** — anything non-obvious has one line of context

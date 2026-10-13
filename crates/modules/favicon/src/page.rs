@@ -1,13 +1,14 @@
-//! The generator page (docs/0064 §4): source tabs + styling on the
-//! left, the raster preview ladder on the right, the export flow at
-//! the bottom. Every interactive element carries a `favicon-*` bridge
-//! id + role (D10, docs/0010 D10).
+//! The generator page (docs/0064 §4 + §10): design controls in titled
+//! sections on the left (Source / Palette / Shape / Platforms), and the
+//! icon as the hero on the right — the live 512 raster, the size ladder,
+//! and the export flow directly beneath it. Every interactive element
+//! carries a `favicon-*` bridge id + role (D10, docs/0010 D10).
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use dashboard_core::ui::{page_canvas, page_title};
+use dashboard_core::ui::{CardVariant, card, page_canvas, page_title, section_header};
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::{
@@ -17,6 +18,7 @@ use gpui_component::{
     color_picker::{ColorPicker, ColorPickerEvent, ColorPickerState},
     h_flex,
     input::{Input, InputEvent, InputState, Textarea, TextareaState},
+    label::Label,
     slider::{Slider, SliderEvent, SliderState},
     switch::Switch,
     tab::{Tab, TabBar},
@@ -50,6 +52,9 @@ const SOURCE_TABS: [&str; 4] = ["Text", "Emoji", "Image", "SVG"];
 
 const WEIGHTS: [u32; 4] = [300, 400, 600, 700];
 
+/// Weight segmented-control labels (0064 §10): named tiers, not raw
+/// numbers — the number stays in the spec, the label reads as a choice.
+const WEIGHT_LABELS: [&str; 4] = ["Light", "Regular", "Semibold", "Bold"];
 /// The single state entity (docs/0003 §4.1): the spec, its widget
 /// mirrors, and the preview frames. The card and the page both observe
 /// it.
@@ -110,8 +115,7 @@ impl FaviconModel {
         let dir_input = cx.new(|cx| {
             InputState::new(window, cx).placeholder("Export directory — type a path or Browse")
         });
-        let app_name_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("My App (manifest name)"));
+        let app_name_input = cx.new(|cx| InputState::new(window, cx).placeholder("My App"));
 
         let scale = source_scale(&spec).unwrap_or(0.6);
         let shape_radius = spec.shape.radius_frac;
@@ -646,8 +650,6 @@ impl FaviconModel {
                     );
                     // One usage record per export run (D9) — Local
                     // transport, never a quota cost.
-                    // One usage record per export run (D9) — Local
-                    // transport, never a quota cost.
                     let mut draft = RecordDraft::new(
                         Transport::Local,
                         SharedString::from("export"),
@@ -833,6 +835,10 @@ fn decode_b64(data: &str) -> Option<String> {
 
 // ---- the page ----
 
+/// Field-label lane (0002 D10): every labeled control row shares one
+/// label column so the inputs form a single vertical spine (0064 §10).
+const LABEL_W: f32 = 92.0;
+
 pub struct FaviconPage {
     model: Entity<FaviconModel>,
 }
@@ -863,81 +869,85 @@ impl FaviconPage {
         match source_index {
             0 => v_flex()
                 .gap_2()
-                .child(
-                    h_flex().gap_2().child(
-                        div().id("favicon-text-input").child(Input::new(chars).w(px(TEXT_CHARS_INPUT_W))),
-                    ),
-                )
-                .child(
-                    h_flex()
-                        .gap_2()
-                        .child(
-                            div()
-                                .id("favicon-font-family")
-                                .child(Input::new(family).w(px(FAMILY_INPUT_W))),
-                        )
-                        .child(
-                            TabBar::new("favicon-font-weight")
-                                .segmented()
-                                .selected_index(weight_index)
-                                .on_click(cx.listener(|this, ix: &usize, _, cx| {
-                                    if let Some(w) = WEIGHTS.get(*ix) {
-                                        this.model.update(cx, |m, cx| m.set_weight(*w, cx));
-                                    }
-                                }))
-                                .children(WEIGHTS.map(|w| Tab::new().label(w.to_string()))),
-                        ),
-                )
+                .child(field_row(
+                    "Characters",
+                    div()
+                        .id("favicon-text-input")
+                        .child(Input::new(chars).w(px(TEXT_CHARS_INPUT_W))),
+                ))
+                .child(field_row(
+                    "Family",
+                    div()
+                        .id("favicon-font-family")
+                        .child(Input::new(family).w(px(FAMILY_INPUT_W))),
+                ))
+                .child(field_row(
+                    "Weight",
+                    TabBar::new("favicon-font-weight")
+                        .segmented()
+                        .selected_index(weight_index)
+                        .on_click(cx.listener(|this, ix: &usize, _, cx| {
+                            if let Some(w) = WEIGHTS.get(*ix) {
+                                this.model.update(cx, |m, cx| m.set_weight(*w, cx));
+                            }
+                        }))
+                        .children(WEIGHTS.iter().zip(WEIGHT_LABELS).map(|(_, label)| {
+                            Tab::new().label(label)
+                        })),
+                ))
                 .child(
                     v_flex()
                         .gap_1()
                         .child(
-                            div()
+                            // A width-bounded wrapping row — the chips were
+                            // stacking one-per-row when the container's
+                            // width stayed content-sized (0064 §10).
+                            h_flex()
                                 .id("favicon-font-chips")
+                                .w_full()
                                 .flex_wrap()
                                 .gap_1()
-                        .children(FONT_FAMILIES.iter().enumerate().map(|(i, f)| {
-                            let family = *f;
-                            Button::new(format!("favicon-font-chip-{i}"))
-                                .label(family)
-                                .ghost()
-                                .xsmall()
-                                .on_click(cx.listener(move |this, _, window, cx| {
-                                    this.model.update(cx, |m, cx| {
-                                        m.set_font_family(family, window, cx)
-                                    });
-                                }))
-                        })),
+                                .children(FONT_FAMILIES.iter().enumerate().map(|(i, f)| {
+                                    let family = *f;
+                                    Button::new(format!("favicon-font-chip-{i}"))
+                                        .label(family)
+                                        .ghost()
+                                        .xsmall()
+                                        .on_click(cx.listener(move |this, _, window, cx| {
+                                            this.model.update(cx, |m, cx| {
+                                                m.set_font_family(family, window, cx)
+                                            });
+                                        }))
+                                })),
                         )
                         .child(
                             div()
                                 .text_xs()
                                 .text_color(cx.theme().muted_foreground)
-                                .child("Families resolve from your installed fonts; the SVG keeps the name — machines without it fall back."),
+                                .child(
+                                    "Resolves from your installed fonts — machines without the family fall back.",
+                                ),
                         ),
                 )
-                .child(
-                    h_flex()
-                        .gap_2()
-                        .child(div().id("favicon-scale").child(Slider::new(scale).horizontal().w(px(SCALE_SLIDER_W))))
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(cx.theme().muted_foreground)
-                                .child("Glyph size"),
-                        ),
-                )
+                .child(field_row(
+                    "Glyph size",
+                    div().id("favicon-scale").child(
+                        Slider::new(scale).horizontal().w(px(SCALE_SLIDER_W)),
+                    ),
+                ))
                 .into_any_element(),
             1 => v_flex()
                 .gap_2()
-                .child(
-                    h_flex().gap_2().child(
-                        div().id("favicon-emoji-input").child(Input::new(emoji).w(px(EMOJI_INPUT_W))),
-                    ),
-                )
-                .child(
+                .child(field_row(
+                    "Keyword",
                     div()
+                        .id("favicon-emoji-input")
+                        .child(Input::new(emoji).w(px(EMOJI_INPUT_W))),
+                ))
+                .child(
+                    h_flex()
                         .id("favicon-emoji-grid")
+                        .w_full()
                         .flex_wrap()
                         .gap_1()
                         .children(EMOJI_GRID.iter().enumerate().map(|(i, e)| {
@@ -953,11 +963,12 @@ impl FaviconPage {
                                 }))
                         })),
                 )
-                .child(
-                    h_flex()
-                        .gap_2()
-                        .child(div().id("favicon-scale").child(Slider::new(scale).horizontal().w(px(SCALE_SLIDER_W)))),
-                )
+                .child(field_row(
+                    "Glyph size",
+                    div().id("favicon-scale").child(
+                        Slider::new(scale).horizontal().w(px(SCALE_SLIDER_W)),
+                    ),
+                ))
                 .into_any_element(),
             2 => v_flex()
                 .gap_2()
@@ -973,9 +984,7 @@ impl FaviconPage {
                     div()
                         .text_xs()
                         .text_color(cx.theme().muted_foreground)
-                        .child(format!(
-                            "PNG/JPEG — embedded as a data URI. {image_note}",
-                        )),
+                        .child(format!("PNG or JPEG — embedded into the SVG. {image_note}",)),
                 )
                 .into_any_element(),
             _ => v_flex()
@@ -1031,6 +1040,61 @@ fn image_status(spec: &DesignSpec) -> String {
     }
 }
 
+/// Labeled control row: a fixed label lane, then the control. The
+/// lane keeps inputs across rows on one spine (0064 §10).
+fn field_row(label: &str, control: impl IntoElement) -> AnyElement {
+    h_flex()
+        .gap_2()
+        .items_center()
+        .child(
+            div()
+                .w(px(LABEL_W))
+                .flex_shrink_0()
+                .child(Label::new(label.to_string()).text_sm()),
+        )
+        .child(control)
+        .into_any_element()
+}
+
+/// One preview frame: the raster of the exact emitted SVG (D2), or an
+/// honest "Rendering…" placeholder while the off-thread rebuild is in
+/// flight — a blank frame is a designed-against state (0065 A18).
+fn preview_frame(
+    size: u32,
+    previews: &HashMap<u32, Arc<RenderImage>>,
+    cx: &Context<FaviconPage>,
+) -> Stateful<Div> {
+    let display = if size >= 512 { 208. } else { size as f32 };
+    let mut frame = div()
+        .id(format!("favicon-preview-{size}"))
+        .role(accesskit::Role::Image)
+        .aria_label(format!("favicon preview {size}×{size}"));
+    match previews.get(&size) {
+        Some(image) => {
+            frame = frame.child(img(image.clone()).size(px(display)).rounded_sm());
+        }
+        None => {
+            let mut placeholder = div()
+                .size(px(display))
+                .rounded_sm()
+                .bg(cx.theme().muted)
+                .flex()
+                .items_center()
+                .justify_center();
+            if display >= 48. {
+                placeholder = placeholder.child(
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child("Rendering…"),
+                );
+            }
+            frame = frame.child(placeholder);
+        }
+    }
+    frame
+}
+
 impl Render for FaviconPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // Browse-picked dir (D7): the picker updates the spec off-band;
@@ -1080,55 +1144,62 @@ impl Render for FaviconPage {
             bg1_dark: bg1_d,
             ..
         } = widgets.clone();
+
+        // The right column's own copy of the ladder handles, unshared
+        // with `source_panel`'s destructuring above.
+        let scale_widgets = model.read(cx).widget_refs();
+
         page_canvas()
             .id("favicon-page")
             .size_full()
+            .child(page_title("Favicon generator"))
             .child(
                 h_flex()
-                    .items_center()
-                    .gap_3()
-                    .child(page_title("Favicon generator"))
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child("One design → every platform icon. Files land exactly as the preview shows."),
-                    ),
-            )
-            .child(
-                h_flex()
-                    .gap_4()
-                    .items_start()
-                    // Left: controls.
+                    .flex_1()
+                    .min_h_0()
+                    .gap_5()
+                    // Left: design controls in titled sections (0064
+                    // §10). Scrolls only if a tab's panel grows past the
+                    // viewport (the SVG paste tab can).
                     .child(
                         v_flex()
-                            .gap_3()
+                            .id("favicon-controls")
                             .w(px(CONTROLS_COL_W))
+                            .min_h_0()
                             .flex_shrink_0()
-                            .child(
-                                TabBar::new("favicon-source-tabs")
-                                    .segmented()
-                                    .selected_index(source_index)
-                                    .on_click(cx.listener(|this, ix: &usize, _, cx| {
-                                        this.model.update(cx, |m, cx| m.select_source(*ix, cx));
-                                    }))
-                                    .children(
-                                        SOURCE_TABS.iter().map(|t| Tab::new().label(*t)),
-                                    ),
-                            )
-                            .child(
-                                self.source_panel(
-                                    source_index,
-                                    weight_index,
-                                    svg_error,
-                                    image_note,
-                                    &widgets,
-                                    cx,
-                                ),
-                            )
+                            .overflow_y_scroll()
+                            .gap_4()
+                            // --- Source ---
                             .child(
                                 v_flex()
                                     .gap_2()
+                                    .child(section_header("Source"))
+                                    .child(
+                                        TabBar::new("favicon-source-tabs")
+                                            .segmented()
+                                            .selected_index(source_index)
+                                            .on_click(cx.listener(|this, ix: &usize, _, cx| {
+                                                this.model
+                                                    .update(cx, |m, cx| m.select_source(*ix, cx));
+                                            }))
+                                            .children(
+                                                SOURCE_TABS.iter().map(|t| Tab::new().label(*t)),
+                                            ),
+                                    )
+                                    .child(self.source_panel(
+                                        source_index,
+                                        weight_index,
+                                        svg_error,
+                                        image_note,
+                                        &scale_widgets,
+                                        cx,
+                                    )),
+                            )
+                            // --- Palette ---
+                            .child(
+                                v_flex()
+                                    .gap_2()
+                                    .child(section_header("Palette"))
                                     .child(
                                         h_flex()
                                             .gap_2()
@@ -1137,54 +1208,57 @@ impl Render for FaviconPage {
                                             .child(ColorPicker::new(&bg1_l).label("Gradient end")),
                                     )
                                     .child(
-                                        h_flex()
-                                            .gap_2()
-                                            .child(
-                                                Switch::new("favicon-theme-toggle")
-                                                    .checked(dark_on)
-                                                    .label("Dark palette")
-                                                    .on_click(cx.listener(|this, _, _, cx| {
-                                                        this.model
-                                                            .update(cx, |m, cx| m.toggle_dark(cx));
-                                                    })),
-                                            ),
+                                        Switch::new("favicon-theme-toggle")
+                                            .checked(dark_on)
+                                            .label("Dark palette")
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.model.update(cx, |m, cx| m.toggle_dark(cx));
+                                            })),
                                     )
                                     .when(dark_on, |el| {
                                         el.child(
-                                            h_flex().gap_2().child(
-                                                ColorPicker::new(&fg_d).label("Glyph (dark)"),
-                                            )
-                                            .child(ColorPicker::new(&bg0_d).label("Start (dark)"))
-                                            .child(ColorPicker::new(&bg1_d).label("End (dark)")),
+                                            h_flex()
+                                                .gap_2()
+                                                .child(
+                                                    ColorPicker::new(&fg_d).label("Glyph (dark)"),
+                                                )
+                                                .child(
+                                                    ColorPicker::new(&bg0_d).label("Start (dark)"),
+                                                )
+                                                .child(
+                                                    ColorPicker::new(&bg1_d).label("End (dark)"),
+                                                ),
                                         )
                                     }),
                             )
+                            // --- Shape ---
                             .child(
-                                h_flex()
+                                v_flex()
                                     .gap_2()
+                                    .child(section_header("Shape"))
                                     .child(
                                         Switch::new("favicon-shape-circle")
                                             .checked(shape_circle)
                                             .label("Circle")
                                             .on_click(cx.listener(|this, _, _, cx| {
-                                                this.model
-                                                    .update(cx, |m, cx| m.toggle_circle(cx));
+                                                this.model.update(cx, |m, cx| m.toggle_circle(cx));
                                             })),
                                     )
-                                    .child(
-                                        div()
-                                            .id("favicon-shape-radius")
-                                            .child(
-                                                Slider::new(&radius)
-                                                    .horizontal()
-                                                    .disabled(shape_circle)
-                                                    .w(px(RADIUS_SLIDER_W)),
-                                            ),
-                                    ),
+                                    .child(field_row(
+                                        "Corner radius",
+                                        div().id("favicon-shape-radius").child(
+                                            Slider::new(&radius)
+                                                .horizontal()
+                                                .disabled(shape_circle)
+                                                .w(px(RADIUS_SLIDER_W)),
+                                        ),
+                                    )),
                             )
+                            // --- Platforms ---
                             .child(
                                 v_flex()
                                     .gap_2()
+                                    .child(section_header("Platforms"))
                                     .child(
                                         h_flex()
                                             .gap_3()
@@ -1225,17 +1299,60 @@ impl Render for FaviconPage {
                                                 .checked(platforms.ios_1024)
                                                 .label("Include 1024×1024 marketing icon")
                                                 .on_click(cx.listener(|this, _, _, cx| {
-                                                    this.model.update(cx, |m, cx| {
-                                                        m.toggle_ios_1024(cx)
-                                                    });
+                                                    this.model
+                                                        .update(cx, |m, cx| m.toggle_ios_1024(cx));
                                                 })),
                                         )
                                     }),
+                            ),
+                    )
+                    // Right: the icon is the hero (0064 §10) — the live
+                    // 512 raster, the size ladder, and the export commit
+                    // directly beneath the object they act on.
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .gap_3()
+                            .child(
+                                card(cx, CardVariant::Quiet)
+                                    .id("favicon-hero")
+                                    .self_start()
+                                    .max_w(px(320.))
+                                    .child(
+                                        v_flex()
+                                            .gap_2()
+                                            .items_center()
+                                            .child(preview_frame(512, &previews, cx))
+                                            .child(
+                                                div()
+                                                    .text_xs()
+                                                    .text_color(cx.theme().muted_foreground)
+                                                    .child(
+                                                        "Every exported size is this exact SVG.",
+                                                    ),
+                                            ),
+                                    ),
                             )
+                            .child(h_flex().items_end().gap_3().children(
+                                [16, 32, 96, 180].iter().map(|size| {
+                                    v_flex()
+                                        .gap_1()
+                                        .child(preview_frame(*size, &previews, cx))
+                                        .child(
+                                            div()
+                                                .text_xs()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .child(format!("{size}×{size}")),
+                                        )
+                                }),
+                            ))
                             .child(
                                 v_flex()
                                     .gap_2()
-                                    .child(
+                                    .child(section_header("Export"))
+                                    .child(field_row(
+                                        "Directory",
                                         h_flex()
                                             .gap_2()
                                             .child(
@@ -1253,35 +1370,45 @@ impl Render for FaviconPage {
                                                         });
                                                     })),
                                             ),
-                                    )
+                                    ))
+                                    .child(field_row(
+                                        "App name",
+                                        div()
+                                            .id("favicon-app-name")
+                                            .child(Input::new(&app_name).w(px(APP_NAME_INPUT_W))),
+                                    ))
                                     .child(
                                         h_flex()
-                                            .gap_2()
+                                            .gap_3()
+                                            .items_center()
                                             .child(
-                                                div().id("favicon-app-name").child(
-                                                    Input::new(&app_name).w(px(APP_NAME_INPUT_W)),
-                                                ),
+                                                Button::new("favicon-export")
+                                                    .label(if exporting {
+                                                        "Exporting…".to_string()
+                                                    } else {
+                                                        "Export".to_string()
+                                                    })
+                                                    .primary()
+                                                    .disabled(exporting)
+                                                    .on_click(cx.listener(|this, _, _, cx| {
+                                                        this.model.update(cx, |m, cx| {
+                                                            m.begin_export(false, cx)
+                                                        });
+                                                    })),
                                             )
                                             .child(
                                                 div()
                                                     .text_xs()
                                                     .text_color(cx.theme().muted_foreground)
-                                                    .child(format!("{plan_count} files")),
+                                                    .child(format!(
+                                                        "Writes {plan_count} {}",
+                                                        if plan_count == 1 {
+                                                            "file"
+                                                        } else {
+                                                            "files"
+                                                        }
+                                                    )),
                                             ),
-                                    )
-                                    .child(
-                                        Button::new("favicon-export")
-                                            .label(if exporting {
-                                                "Exporting…".to_string()
-                                            } else {
-                                                "Export".to_string()
-                                            })
-                                            .primary()
-                                            .disabled(exporting)
-                                            .on_click(cx.listener(|this, _, _, cx| {
-                                                this.model
-                                                    .update(cx, |m, cx| m.begin_export(false, cx));
-                                            })),
                                     )
                                     .when_some(collisions, |el, hit| {
                                         el.child(
@@ -1292,87 +1419,58 @@ impl Render for FaviconPage {
                                                 .rounded_md()
                                                 .border_1()
                                                 .border_color(cx.theme().border)
-                                                .child(
-                                                    div().text_sm().child(format!(
-                                                        "Overwrite {} existing file(s)?",
-                                                        hit.len()
-                                                    )),
-                                                )
+                                                .child(div().text_sm().child(format!(
+                                                    "Overwrite {} existing file(s)?",
+                                                    hit.len()
+                                                )))
                                                 .child(
                                                     div()
                                                         .text_xs()
-                                                        .text_color(
-                                                            cx.theme().muted_foreground,
-                                                        )
+                                                        .text_color(cx.theme().muted_foreground)
                                                         .child(hit.join(", ")),
                                                 )
                                                 .child(
-                                                    h_flex().gap_2().child(
-                                                        Button::new("favicon-overwrite-confirm")
+                                                    h_flex()
+                                                        .gap_2()
+                                                        .child(
+                                                            Button::new(
+                                                                "favicon-overwrite-confirm",
+                                                            )
                                                             .label("Overwrite")
                                                             .primary()
                                                             .on_click(cx.listener(
                                                                 |this, _, _, cx| {
-                                                                    this.model.update(cx, |m, cx| {
-                                                                        m.begin_export(true, cx)
-                                                                    });
+                                                                    this.model.update(
+                                                                        cx,
+                                                                        |m, cx| {
+                                                                            m.begin_export(true, cx)
+                                                                        },
+                                                                    );
                                                                 },
                                                             )),
-                                                    )
-                                                    .child(
-                                                        Button::new("favicon-overwrite-cancel")
-                                                            .label("Cancel")
-                                                            .ghost()
-                                                            .on_click(cx.listener(
-                                                                |this, _, _, cx| {
-                                                                    this.model.update(cx, |m, cx| {
-                                                                        m.cancel_overwrite(cx)
-                                                                    });
-                                                                },
-                                                            )),
-                                                    ),
+                                                        )
+                                                        .child(
+                                                            Button::new("favicon-overwrite-cancel")
+                                                                .label("Cancel")
+                                                                .ghost()
+                                                                .on_click(cx.listener(
+                                                                    |this, _, _, cx| {
+                                                                        this.model.update(
+                                                                            cx,
+                                                                            |m, cx| {
+                                                                                m.cancel_overwrite(
+                                                                                    cx,
+                                                                                )
+                                                                            },
+                                                                        );
+                                                                    },
+                                                                )),
+                                                        ),
                                                 ),
                                         )
                                     }),
                             ),
-                    )
-                    // Right: preview ladder (D2/D10).
-                    .child(
-                        v_flex()
-                            .id("favicon-preview")
-                            .gap_3()
-                            .flex_wrap()
-                            .children(
-                                PREVIEW_SIZES
-                                    .iter()
-                                    .map(|size| preview_run(*size, &previews, cx)),
-                            ),
                     ),
             )
     }
-}
-
-fn preview_run(
-    size: u32,
-    previews: &HashMap<u32, Arc<RenderImage>>,
-    cx: &Context<FaviconPage>,
-) -> AnyElement {
-    let display = if size >= 512 { 256. } else { size as f32 };
-    let mut frame_div = div()
-        .id(format!("favicon-preview-{size}"))
-        .role(accesskit::Role::Image)
-        .aria_label(format!("favicon preview {size}×{size}"));
-    if let Some(frame) = previews.get(&size) {
-        frame_div = frame_div.child(img(frame.clone()).size(px(display)).rounded_sm());
-    }
-    v_flex()
-        .gap_1()
-        .child(frame_div)
-        .child(
-            div()
-                .text_xs()
-                .text_color(cx.theme().muted_foreground)
-                .child(format!("{size}×{size}")),
-        )
-        .into_any_element()
 }
