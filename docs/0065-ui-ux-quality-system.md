@@ -198,14 +198,21 @@ frame on disk, wherever the judges live. The lineup lives in
 `crates/debug/verify/panel-judges.example.json` — with per-judge request
 `overrides` (e.g. MiniCPM's `{"enable_thinking": false}`: the model
 card's fast mode is the documented default; thinking is opt-in).
-Sampling is card-faithful, not one-knob-fits-all: Qwen3-VL per its
-card's VL generation hyperparameters (`temperature 0.7, top_p 0.8,
-top_k 20`), MiniCPM-V 4.5 per its llama.cpp cookbook recipe
-(`temperature 0.7, top_p 0.8, top_k 100, repeat_penalty 1.05`) — both
-carried in the example lineup. UI-TARS publishes no critique-relevant
-sampling guidance (its deploy guide runs greedy at `temperature 0.0`
-for action prediction; the org later moved `bytedance-research` →
-`ByteDance-Seed`, and the repo to `bytedance/UI-TARS`).
+Sampling is card-faithful where the card transfers to our llama.cpp
+runtime, empirical where it does not (recorded per judge in the
+example lineup): Qwen3-VL keeps the card's concentration (`top_p 0.8,
+top_k 20`) but not its `temperature 0.7` — on llama.cpp that samples a
+spurious "I cannot see an image" refusal in roughly a third of runs
+regardless of image-token budget, while `0.3` never has; it also
+needs `extra_args: ["--image-min-tokens", "1024"]` since llama.cpp
+0.6.0, without which desktop frames encode below the model's minimum
+image-token budget and refusal is deterministic. MiniCPM-V 4.5 runs
+its llama.cpp cookbook recipe verbatim (`temperature 0.7, top_p 0.8,
+top_k 100, repeat_penalty 1.05`). UI-TARS publishes no
+critique-relevant sampling guidance (its deploy guide runs greedy at
+`temperature 0.0` for action prediction; the org later moved
+`bytedance-research` → `ByteDance-Seed`, and the repo to
+`bytedance/UI-TARS`).
 Reconciliation stays agent/human-side, and single verdicts are noise:
 cluster across judges and runs before acting on a finding — the panel's
 own shakedown showed a judge flipping its "best element" between

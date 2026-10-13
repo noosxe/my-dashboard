@@ -32,6 +32,14 @@ pub struct JudgeConfig {
     /// documented default; thinking is opt-in for complex tasks).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub overrides: Option<serde_json::Value>,
+    /// Extra llama-server args for this judge's model — model-specific
+    /// server-side tuning that has no request-body equivalent. E.g.
+    /// Qwen3-VL needs `["--image-min-tokens", "1024"]` on llama.cpp
+    /// 0.6.0+: below that budget the projector encodes desktop frames
+    /// to too few tokens and the model answers "I cannot see an image"
+    /// (upstream drift found while verifying card-faithful sampling).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extra_args: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, Default)]
@@ -168,6 +176,9 @@ fn run_judge(
     if let Some(mmproj) = &judge.mmproj {
         server_args.push("--mmproj".into());
         server_args.push(mmproj.display().to_string());
+        if let Some(extra) = &judge.extra_args {
+            server_args.extend(extra.iter().cloned());
+        }
     }
     let mut child: Child = Command::new("llama-server")
         .args(&server_args)
@@ -460,7 +471,8 @@ mod tests {
             r#"{"judges": [
                 {"name": "text-only", "model": "/tmp/a.gguf", "max_tokens": 900},
                 {"name": "vision", "model": "/tmp/b.gguf", "mmproj": "/tmp/b.mmproj",
-                 "overrides": {"chat_template_kwargs": {"enable_thinking": false}}}
+                 "overrides": {"chat_template_kwargs": {"enable_thinking": false}},
+                 "extra_args": ["--image-min-tokens", "1024"]}
             ]}"#,
         )
         .expect("parse lineup");
@@ -469,6 +481,11 @@ mod tests {
         assert_eq!(config.judges[0].max_tokens, Some(900));
         assert!(config.judges[1].overrides.is_some());
         assert_eq!(config.server.port, None);
+        assert_eq!(
+            config.judges[1].extra_args,
+            Some(vec!["--image-min-tokens".to_string(), "1024".to_string()])
+        );
+        assert!(config.judges[0].extra_args.is_none());
     }
 
     #[test]
