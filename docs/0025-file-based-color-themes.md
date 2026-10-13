@@ -15,6 +15,15 @@ Mocha is removed (dark mode visibly changes; accepted). Catppuccin flavors
 return later as generated output via Whiskers (#143), not hand-maintained
 files.
 
+On a machine where the app runs from a dev checkout (no Home Manager),
+`scripts/install-catppuccin-theme.sh [flavors…]` does the same
+installation by hand: it renders `nix/catppuccin.tera` with Whiskers
+(available in the dev shell), applies the same gates the nix package
+applies, and writes the files into the platform's user themes dir —
+`~/Library/Application Support/my-dashboard/themes/` on macOS,
+`~/.config/my-dashboard/themes/` under XDG. The watcher picks the
+files up live; no restart.
+
 ## 2. Upstream facts (live introspection 2026-09-07, pin `0c746df`, `crates/ui/src/theme/`)
 
 - `ThemeRegistry.themes: HashMap<SharedString, Rc<ThemeConfig>>` — **keyed
