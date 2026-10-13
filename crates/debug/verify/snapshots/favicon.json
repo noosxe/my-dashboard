@@ -12,14 +12,14 @@
       "focused": false
     },
     {
-      "accesskit_id": "677885446704253147",
-      "role": "Tab",
-      "label": "400",
+      "accesskit_id": "679795879962978116",
+      "role": "Image",
+      "label": "favicon preview 512×512",
       "bounds": {
-        "x": 572.0,
-        "y": 194.0,
-        "w": 50.0,
-        "h": 32.0
+        "x": 741.0,
+        "y": 106.0,
+        "w": 208.0,
+        "h": 208.0
       },
       "focusable": false,
       "focused": false
@@ -38,12 +38,38 @@
       "focused": false
     },
     {
-      "accesskit_id": "1793790877280664622",
+      "accesskit_id": "2515884239099179398",
       "role": "Button",
       "label": "Arial Black",
       "bounds": {
+        "x": 343.0,
+        "y": 355.0,
+        "w": 66.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2587309002926650746",
+      "role": "Image",
+      "label": "favicon preview 16×16",
+      "bounds": {
+        "x": 728.0,
+        "y": 530.0,
+        "w": 36.0,
+        "h": 16.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2676570903108194020",
+      "role": "Switch",
+      "label": "Dark palette",
+      "bounds": {
         "x": 288.0,
-        "y": 514.0,
+        "y": 517.0,
         "w": 420.0,
         "h": 20.0
       },
@@ -51,79 +77,66 @@
       "focused": false
     },
     {
-      "accesskit_id": "2471795911605169838",
-      "role": "CheckBox",
-      "label": "Android / PWA",
-      "bounds": {
-        "x": 411.0,
-        "y": 748.0,
-        "w": 116.0,
-        "h": 18.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "2559871985637859647",
-      "role": "Button",
-      "label": "System UI",
-      "bounds": {
-        "x": 288.0,
-        "y": 234.0,
-        "w": 420.0,
-        "h": 20.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "3640316424658653908",
+      "accesskit_id": "2719182383846454276",
       "role": "Tab",
-      "label": "Emoji",
+      "label": "SVG",
       "bounds": {
-        "x": 345.0,
-        "y": 110.0,
-        "w": 60.0,
+        "x": 474.0,
+        "y": 147.0,
+        "w": 51.0,
         "h": 32.0
       },
       "focusable": false,
       "focused": false
     },
     {
-      "accesskit_id": "4222029463830211208",
+      "accesskit_id": "3010285589292072465",
+      "role": "Image",
+      "label": "favicon preview 180×180",
+      "bounds": {
+        "x": 932.0,
+        "y": 366.0,
+        "w": 180.0,
+        "h": 180.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3138967173487948353",
+      "role": "Tab",
+      "label": "Text",
+      "bounds": {
+        "x": 292.0,
+        "y": 147.0,
+        "w": 51.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3281965347389265559",
       "role": "Button",
-      "label": "Roboto",
+      "label": "System UI",
       "bounds": {
         "x": 288.0,
-        "y": 354.0,
-        "w": 420.0,
+        "y": 307.0,
+        "w": 64.0,
         "h": 20.0
       },
       "focusable": true,
       "focused": false
     },
     {
-      "accesskit_id": "4308403415400479305",
-      "role": "Button",
-      "label": "Helvetica",
+      "accesskit_id": "4047443348453481118",
+      "role": "TextInput",
+      "label": "Helvetica — any installed family",
       "bounds": {
-        "x": 288.0,
-        "y": 254.0,
-        "w": 420.0,
-        "h": 20.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "4530665113691237422",
-      "role": "Button",
-      "label": "Impact",
-      "bounds": {
-        "x": 288.0,
-        "y": 534.0,
-        "w": 420.0,
-        "h": 20.0
+        "x": 388.0,
+        "y": 227.0,
+        "w": 220.0,
+        "h": 32.0
       },
       "focusable": true,
       "focused": false
@@ -142,6 +155,45 @@
       "focused": false
     },
     {
+      "accesskit_id": "4944122825581617120",
+      "role": "Button",
+      "label": "Roboto",
+      "bounds": {
+        "x": 636.0,
+        "y": 307.0,
+        "w": 47.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5030496777218994081",
+      "role": "Button",
+      "label": "Helvetica",
+      "bounds": {
+        "x": 356.0,
+        "y": 307.0,
+        "w": 59.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5203363857633247428",
+      "role": "Tab",
+      "label": "Bold",
+      "bounds": {
+        "x": 610.0,
+        "y": 267.0,
+        "w": 53.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
       "accesskit_id": "5211320293504918274",
       "role": "Button",
       "label": "Notifications, 0 unread",
@@ -150,6 +202,19 @@
         "y": 728.0,
         "w": 24.0,
         "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5252758475509752198",
+      "role": "Button",
+      "label": "Impact",
+      "bounds": {
+        "x": 413.0,
+        "y": 355.0,
+        "w": 47.0,
+        "h": 20.0
       },
       "focusable": true,
       "focused": false
@@ -168,14 +233,27 @@
       "focused": false
     },
     {
-      "accesskit_id": "5857485589282769674",
-      "role": "Button",
-      "label": "Gradient start",
+      "accesskit_id": "5623148647207632641",
+      "role": "Tab",
+      "label": "Light",
       "bounds": {
-        "x": 378.0,
-        "y": 640.0,
-        "w": 140.0,
+        "x": 392.0,
+        "y": 267.0,
+        "w": 55.0,
         "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5920465091629491183",
+      "role": "Switch",
+      "label": "Circle",
+      "bounds": {
+        "x": 288.0,
+        "y": 584.0,
+        "w": 420.0,
+        "h": 20.0
       },
       "focusable": true,
       "focused": false
@@ -194,29 +272,16 @@
       "focused": false
     },
     {
-      "accesskit_id": "6440615939357166376",
+      "accesskit_id": "6443597541507064418",
       "role": "Button",
-      "label": "SF Pro",
+      "label": "Glyph",
       "bounds": {
         "x": 288.0,
-        "y": 314.0,
-        "w": 420.0,
-        "h": 20.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "6546943611513107634",
-      "role": "Tab",
-      "label": "700",
-      "bounds": {
-        "x": 676.0,
-        "y": 194.0,
-        "w": 50.0,
+        "y": 477.0,
+        "w": 82.0,
         "h": 32.0
       },
-      "focusable": false,
+      "focusable": true,
       "focused": false
     },
     {
@@ -233,52 +298,26 @@
       "focused": false
     },
     {
-      "accesskit_id": "6966728401154601711",
-      "role": "Tab",
-      "label": "300",
-      "bounds": {
-        "x": 520.0,
-        "y": 194.0,
-        "w": 50.0,
-        "h": 32.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "7173712948451687765",
+      "accesskit_id": "7162709301175681152",
       "role": "Button",
-      "label": "Times New Roman",
+      "label": "SF Pro",
       "bounds": {
-        "x": 288.0,
-        "y": 434.0,
-        "w": 420.0,
+        "x": 550.0,
+        "y": 307.0,
+        "w": 43.0,
         "h": 20.0
       },
       "focusable": true,
       "focused": false
     },
     {
-      "accesskit_id": "7296680737782822820",
-      "role": "Slider",
-      "label": null,
-      "bounds": {
-        "x": 288.0,
-        "y": 604.0,
-        "w": 180.0,
-        "h": 24.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "7907967549652481503",
+      "accesskit_id": "7895806310270202541",
       "role": "Button",
-      "label": "Helvetica Neue",
+      "label": "Times New Roman",
       "bounds": {
-        "x": 288.0,
-        "y": 274.0,
-        "w": 420.0,
+        "x": 454.0,
+        "y": 331.0,
+        "w": 109.0,
         "h": 20.0
       },
       "focusable": true,
@@ -289,8 +328,8 @@
       "role": "TextInput",
       "label": "Export directory — type a path or Browse",
       "bounds": {
-        "x": 288.0,
-        "y": 778.0,
+        "x": 828.0,
+        "y": 612.0,
         "w": 280.0,
         "h": 32.0
       },
@@ -298,14 +337,14 @@
       "focused": false
     },
     {
-      "accesskit_id": "8462121007145228499",
-      "role": "Switch",
-      "label": "Dark palette",
+      "accesskit_id": "8310712910755615705",
+      "role": "CheckBox",
+      "label": "iOS",
       "bounds": {
-        "x": 288.0,
-        "y": 680.0,
-        "w": 122.0,
-        "h": 20.0
+        "x": 353.0,
+        "y": 683.0,
+        "w": 46.0,
+        "h": 18.0
       },
       "focusable": true,
       "focused": false
@@ -324,16 +363,42 @@
       "focused": false
     },
     {
-      "accesskit_id": "9265323890543825003",
-      "role": "Image",
-      "label": "favicon preview 512×512",
+      "accesskit_id": "8630060911470996279",
+      "role": "Button",
+      "label": "Helvetica Neue",
       "bounds": {
-        "x": 724.0,
-        "y": 574.0,
-        "w": 256.0,
-        "h": 256.0
+        "x": 419.0,
+        "y": 307.0,
+        "w": 90.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9008025338296802840",
+      "role": "Tab",
+      "label": "Image",
+      "bounds": {
+        "x": 407.0,
+        "y": 147.0,
+        "w": 65.0,
+        "h": 32.0
       },
       "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9265960095954575841",
+      "role": "CheckBox",
+      "label": "Web",
+      "bounds": {
+        "x": 288.0,
+        "y": 683.0,
+        "w": 53.0,
+        "h": 18.0
+      },
+      "focusable": true,
       "focused": false
     },
     {
@@ -350,77 +415,12 @@
       "focused": true
     },
     {
-      "accesskit_id": "9333309417358635305",
-      "role": "TextInput",
-      "label": "Helvetica — any installed family",
-      "bounds": {
-        "x": 288.0,
-        "y": 194.0,
-        "w": 220.0,
-        "h": 32.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "9446460196625449341",
-      "role": "Button",
-      "label": "Verdana",
-      "bounds": {
-        "x": 288.0,
-        "y": 374.0,
-        "w": 420.0,
-        "h": 20.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "9509374589467508395",
-      "role": "Tab",
-      "label": "SVG",
-      "bounds": {
-        "x": 474.0,
-        "y": 110.0,
-        "w": 51.0,
-        "h": 32.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "9726958169210750990",
-      "role": "Button",
-      "label": "Inter",
-      "bounds": {
-        "x": 288.0,
-        "y": 334.0,
-        "w": 420.0,
-        "h": 20.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "9929159379109002472",
-      "role": "Tab",
-      "label": "Text",
-      "bounds": {
-        "x": 292.0,
-        "y": 110.0,
-        "w": 51.0,
-        "h": 32.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
       "accesskit_id": "10159978895509958078",
       "role": "Button",
       "label": "Browse…",
       "bounds": {
-        "x": 576.0,
-        "y": 778.0,
+        "x": 1116.0,
+        "y": 612.0,
         "w": 79.0,
         "h": 32.0
       },
@@ -428,65 +428,52 @@
       "focused": false
     },
     {
-      "accesskit_id": "10367836393794201116",
+      "accesskit_id": "10168553558443964117",
       "role": "Button",
-      "label": "Tahoma",
+      "label": "Verdana",
       "bounds": {
         "x": 288.0,
-        "y": 394.0,
-        "w": 420.0,
+        "y": 331.0,
+        "w": 53.0,
         "h": 20.0
       },
       "focusable": true,
       "focused": false
     },
     {
-      "accesskit_id": "10397033429478781141",
-      "role": "TabList",
-      "label": null,
-      "bounds": {
-        "x": 516.0,
-        "y": 194.0,
-        "w": 214.0,
-        "h": 32.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "10531881678171806859",
-      "role": "Image",
-      "label": "favicon preview 96×96",
-      "bounds": {
-        "x": 724.0,
-        "y": 228.0,
-        "w": 256.0,
-        "h": 96.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "10609800572598396622",
-      "role": "TabList",
-      "label": null,
-      "bounds": {
-        "x": 288.0,
-        "y": 110.0,
-        "w": 420.0,
-        "h": 32.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "11083531784008744221",
+      "accesskit_id": "10449051531029265766",
       "role": "Button",
-      "label": "Arial",
+      "label": "Inter",
       "bounds": {
-        "x": 288.0,
-        "y": 294.0,
-        "w": 420.0,
+        "x": 597.0,
+        "y": 307.0,
+        "w": 35.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10633516547817051461",
+      "role": "Button",
+      "label": "Gradient end",
+      "bounds": {
+        "x": 526.0,
+        "y": 477.0,
+        "w": 134.0,
+        "h": 32.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11089929755612715892",
+      "role": "Button",
+      "label": "Tahoma",
+      "bounds": {
+        "x": 345.0,
+        "y": 331.0,
+        "w": 51.0,
         "h": 20.0
       },
       "focusable": true,
@@ -497,116 +484,116 @@
       "role": "Button",
       "label": "Export",
       "bounds": {
-        "x": 288.0,
-        "y": 858.0,
-        "w": 420.0,
+        "x": 728.0,
+        "y": 692.0,
+        "w": 62.0,
         "h": 32.0
       },
       "focusable": true,
       "focused": false
     },
     {
-      "accesskit_id": "11659623912737069085",
-      "role": "Button",
-      "label": "Monaco",
+      "accesskit_id": "11368586042460001133",
+      "role": "TextInput",
+      "label": "A",
       "bounds": {
-        "x": 288.0,
-        "y": 494.0,
-        "w": 420.0,
-        "h": 20.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "11706015195666525662",
-      "role": "Switch",
-      "label": "Circle",
-      "bounds": {
-        "x": 288.0,
-        "y": 714.0,
+        "x": 388.0,
+        "y": 187.0,
         "w": 80.0,
-        "h": 20.0
+        "h": 32.0
       },
       "focusable": true,
       "focused": false
     },
     {
-      "accesskit_id": "12835786565963456198",
+      "accesskit_id": "11492206812083595992",
       "role": "Tab",
-      "label": "600",
+      "label": "Semibold",
       "bounds": {
-        "x": 624.0,
-        "y": 194.0,
-        "w": 50.0,
+        "x": 524.0,
+        "y": 267.0,
+        "w": 84.0,
         "h": 32.0
       },
       "focusable": false,
       "focused": false
     },
     {
-      "accesskit_id": "12985898123016106392",
+      "accesskit_id": "11805625145760150133",
       "role": "Button",
-      "label": "Glyph",
+      "label": "Arial",
       "bounds": {
-        "x": 288.0,
-        "y": 640.0,
-        "w": 82.0,
-        "h": 32.0
+        "x": 513.0,
+        "y": 307.0,
+        "w": 33.0,
+        "h": 20.0
       },
       "focusable": true,
       "focused": false
     },
     {
-      "accesskit_id": "13099205331118078881",
+      "accesskit_id": "12381717274555583861",
+      "role": "Button",
+      "label": "Monaco",
+      "bounds": {
+        "x": 288.0,
+        "y": 355.0,
+        "w": 51.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14201952265890906083",
+      "role": "Image",
+      "label": "favicon preview 96×96",
+      "bounds": {
+        "x": 824.0,
+        "y": 450.0,
+        "w": 96.0,
+        "h": 96.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15115703442805945467",
       "role": "Slider",
       "label": null,
       "bounds": {
-        "x": 376.0,
-        "y": 712.0,
-        "w": 160.0,
+        "x": 388.0,
+        "y": 406.0,
+        "w": 180.0,
         "h": 24.0
       },
       "focusable": false,
       "focused": false
     },
     {
-      "accesskit_id": "13132308183642160996",
-      "role": "Image",
-      "label": "favicon preview 32×32",
+      "accesskit_id": "15132989881277686974",
+      "role": "CheckBox",
+      "label": "Android / PWA",
       "bounds": {
-        "x": 724.0,
-        "y": 161.0,
-        "w": 256.0,
+        "x": 411.0,
+        "y": 683.0,
+        "w": 116.0,
+        "h": 18.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15296868292747151404",
+      "role": "Tab",
+      "label": "Emoji",
+      "bounds": {
+        "x": 345.0,
+        "y": 147.0,
+        "w": 60.0,
         "h": 32.0
       },
       "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "14096263014792650184",
-      "role": "CheckBox",
-      "label": "iOS",
-      "bounds": {
-        "x": 353.0,
-        "y": 748.0,
-        "w": 46.0,
-        "h": 18.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "15051510200058719184",
-      "role": "CheckBox",
-      "label": "Web",
-      "bounds": {
-        "x": 288.0,
-        "y": 748.0,
-        "w": 53.0,
-        "h": 18.0
-      },
-      "focusable": true,
       "focused": false
     },
     {
@@ -623,25 +610,12 @@
       "focused": false
     },
     {
-      "accesskit_id": "15798217543917856959",
-      "role": "Tab",
-      "label": "Image",
-      "bounds": {
-        "x": 407.0,
-        "y": 110.0,
-        "w": 65.0,
-        "h": 32.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
       "accesskit_id": "15968077461302059527",
       "role": "TextInput",
-      "label": "My App (manifest name)",
+      "label": "My App",
       "bounds": {
-        "x": 288.0,
-        "y": 818.0,
+        "x": 828.0,
+        "y": 652.0,
         "w": 200.0,
         "h": 32.0
       },
@@ -649,29 +623,29 @@
       "focused": false
     },
     {
-      "accesskit_id": "16654452111365155320",
-      "role": "TextInput",
-      "label": "A",
+      "accesskit_id": "16578200647074550840",
+      "role": "Slider",
+      "label": null,
       "bounds": {
-        "x": 288.0,
-        "y": 154.0,
-        "w": 80.0,
-        "h": 32.0
+        "x": 388.0,
+        "y": 612.0,
+        "w": 160.0,
+        "h": 24.0
       },
-      "focusable": true,
+      "focusable": false,
       "focused": false
     },
     {
-      "accesskit_id": "16671335887442535918",
-      "role": "Button",
-      "label": "Courier New",
+      "accesskit_id": "16802378771361260220",
+      "role": "Image",
+      "label": "favicon preview 32×32",
       "bounds": {
-        "x": 288.0,
-        "y": 454.0,
-        "w": 420.0,
-        "h": 20.0
+        "x": 776.0,
+        "y": 514.0,
+        "w": 36.0,
+        "h": 32.0
       },
-      "focusable": true,
+      "focusable": false,
       "focused": false
     },
     {
@@ -688,66 +662,40 @@
       "focused": false
     },
     {
-      "accesskit_id": "17175817129258984571",
+      "accesskit_id": "17393429249193941830",
       "role": "Button",
-      "label": "Gradient end",
+      "label": "Courier New",
       "bounds": {
-        "x": 526.0,
-        "y": 640.0,
-        "w": 134.0,
+        "x": 567.0,
+        "y": 331.0,
+        "w": 75.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17761929081550388179",
+      "role": "Button",
+      "label": "Gradient start",
+      "bounds": {
+        "x": 378.0,
+        "y": 477.0,
+        "w": 140.0,
         "h": 32.0
       },
       "focusable": true,
       "focused": false
     },
     {
-      "accesskit_id": "17209484178808064705",
-      "role": "Button",
-      "label": "Menlo",
+      "accesskit_id": "17781049766533944556",
+      "role": "Tab",
+      "label": "Regular",
       "bounds": {
-        "x": 288.0,
-        "y": 474.0,
-        "w": 420.0,
-        "h": 20.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "17300950458691897075",
-      "role": "Button",
-      "label": "Georgia",
-      "bounds": {
-        "x": 288.0,
-        "y": 414.0,
-        "w": 420.0,
-        "h": 20.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "17363982488849994273",
-      "role": "Image",
-      "label": "favicon preview 16×16",
-      "bounds": {
-        "x": 724.0,
-        "y": 110.0,
-        "w": 256.0,
-        "h": 16.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "17786959075215415992",
-      "role": "Image",
-      "label": "favicon preview 180×180",
-      "bounds": {
-        "x": 724.0,
-        "y": 359.0,
-        "w": 256.0,
-        "h": 180.0
+        "x": 449.0,
+        "y": 267.0,
+        "w": 73.0,
+        "h": 32.0
       },
       "focusable": false,
       "focused": false
@@ -766,6 +714,45 @@
       "focused": false
     },
     {
+      "accesskit_id": "17931577540626579481",
+      "role": "Button",
+      "label": "Menlo",
+      "bounds": {
+        "x": 646.0,
+        "y": 331.0,
+        "w": 42.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "18023043820443302987",
+      "role": "Button",
+      "label": "Georgia",
+      "bounds": {
+        "x": 400.0,
+        "y": 331.0,
+        "w": 50.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "18144800205650131264",
+      "role": "TabList",
+      "label": null,
+      "bounds": {
+        "x": 388.0,
+        "y": 267.0,
+        "w": 279.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
       "accesskit_id": "18182534071161197539",
       "role": "TreeItem",
       "label": "Settings",
@@ -774,6 +761,19 @@
         "y": 201.0,
         "w": 230.0,
         "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "18357567348769746745",
+      "role": "TabList",
+      "label": null,
+      "bounds": {
+        "x": 288.0,
+        "y": 147.0,
+        "w": 420.0,
+        "h": 32.0
       },
       "focusable": false,
       "focused": false
