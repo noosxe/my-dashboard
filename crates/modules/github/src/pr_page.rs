@@ -608,7 +608,15 @@ impl PrDetailPage {
         // docs/0053 D2: the construction fetch is the page's view-shown.
         // docs/0072 D2: the page subscribes to the store — document
         // landings (home-lane summary refreshes, optimistic ops) repaint it.
-        cx.observe(&page.state, |_, _, cx| cx.notify()).detach();
+        cx.observe(&page.state, |page, _, cx| {
+            // docs/0072 D3: a summary landing moved the rollup under the
+            // cached detail — the row shows the fresh layer already; the
+            // page catches up in the background so both surfaces report
+            // the same status.
+            page.catch_up(cx);
+            cx.notify();
+        })
+        .detach();
         // docs/0072 D3: stale-while-revalidate — a document inside the
         // TTL window paints from the store and skips the dispatch.
         let fresh = page
@@ -3278,6 +3286,21 @@ impl PrDetailPage {
         }
         cx.notify();
     }
+    /// docs/0072 D3 — a summary landing moved the rollup under the
+    /// cached detail: revalidate once (the landing arms `rollup_dirty`;
+    /// the read's landing clears it). No-op when a read is already
+    /// flying, the session is down, or nothing drifted.
+    fn catch_up(&mut self, cx: &mut Context<Self>) {
+        let drift = self
+            .state
+            .read(cx)
+            .pr_entry(&self.repo, self.number)
+            .is_some_and(|e| e.rollup_dirty && !e.books.in_flight);
+        if drift && self.state.read(cx).auth.connected() {
+            self.fetch_detail(Origin::new(Surface::PrPage, Trigger::Drift), cx);
+        }
+    }
+
     /// The optimistic write in flight on this document, if any (D4).
     fn store_pending(&self, cx: &Context<Self>) -> Option<PendingKind> {
         self.state.read(cx).pr_pending(&self.repo, self.number)

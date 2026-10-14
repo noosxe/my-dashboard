@@ -135,6 +135,19 @@ their own behavior (docs/0016 stage 4/5: Files REST walk, checks pane) —
 they render from the landed detail as today, just out of the store instead
 of out of the page.
 
+**The rollup is a shared fact (shipped hardening, after a field report):**
+both layers carry `statusCheckRollup.state`, and the two lanes refresh at
+different cadences (summary: the 60 s home lane; detail: this TTL) — which
+let a row show checks passing while its page still showed them running.
+The layers now propagate in both directions: `land_detail` writes the
+fresh rollup into the summary layer on the spot (the row's glyph never
+waits for the next home tick; a degraded `None` never blanks a good
+glyph), and `land_summary` that *moves* the rollup marks the entry
+`rollup_dirty` — which voids the SWR skip (reopen revalidates) and makes
+the open page revalidate in the background via its store subscription
+(`Trigger::Drift`). Unchanged landings never mark, so the common tick
+case keeps the full TTL; only the catch-up landing clears the mark.
+
 ### D4 — Optimistic, store-scoped mutations
 
 Merge click: server-truth gates checked as today (`mergeable`, `draft`,

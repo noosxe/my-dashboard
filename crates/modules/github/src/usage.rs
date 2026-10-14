@@ -487,6 +487,10 @@ pub(crate) enum Trigger {
     Manual,
     Expand,
     MutationRefetch,
+    /// docs/0072 D3: document drift — a summary-layer landing moved the
+    /// checks rollup under a cached detail; the page revalidates so both
+    /// surfaces report the same status.
+    Drift,
     Probe,
     Auth,
 }
@@ -500,6 +504,7 @@ impl Trigger {
             Trigger::Manual => "manual",
             Trigger::Expand => "expand",
             Trigger::MutationRefetch => "mutation-refetch",
+            Trigger::Drift => "drift",
             Trigger::Probe => "probe",
             Trigger::Auth => "auth",
         }
