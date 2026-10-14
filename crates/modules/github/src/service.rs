@@ -1716,6 +1716,152 @@ pub struct CardTotals {
     pub landed: Instant,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ErrorScope {
+    /// The conversation column — above the comment box.
+    Timeline,
+    /// The merge/close rail panel.
+    Panel,
+    /// The issue page's state panel (docs/0020 D5) — the PR page never
+    /// produces it, the issue page never produces Panel.
+    Rail,
+    /// The diff pane (docs/0030 D7) — above the diff body; only the
+    /// Files-tab review writes produce it.
+    Files,
+}
+
+/// The last mutation failure — kept until the next attempt or success, so
+/// it survives the post-mutation refetch that repaints everything else.
+#[derive(Clone, Debug)]
+pub(crate) struct MutationError {
+    pub(crate) scope: ErrorScope,
+    pub(crate) message: String,
+}
+
+// ---------------------------------------------------------------------------
+// PR document store (docs/0072 D1) — one shared cache keyed `(repo, number)`:
+// every list lane lands summaries, the PR page's query lands details, and
+// optimistic mutations (D4) stage on the entry they belong to.
+// ---------------------------------------------------------------------------
+
+/// docs/0072 D9 — a detail older than this revalidates in the background
+/// on reopen (stale-while-revalidate); younger paints as-is.
+pub(crate) const PR_DETAIL_TTL: Duration = Duration::from_secs(5 * 60);
+
+/// docs/0072 D9 — detail bodies are the heavy part: details evict
+/// oldest-landed past this many documents. Summaries track the home list
+/// and are naturally bounded by it.
+pub(crate) const PR_STORE_DETAIL_CAP: usize = 64;
+
+/// docs/0072 D1 — identity of a stored PR document. The key *is* the
+/// identity the async guides demand: results can only ever land on their
+/// own document (D6).
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct PrKey {
+    pub(crate) repo: String,
+    pub(crate) number: i64,
+}
+
+impl PrKey {
+    pub(crate) fn new(repo: impl Into<String>, number: i64) -> Self {
+        Self {
+            repo: repo.into(),
+            number,
+        }
+    }
+}
+
+/// docs/0072 D1/D4 — the optimistic writes stages 1–2 cover; stage 3
+/// (issue #554) widens the machinery to every PR-page write.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PendingKind {
+    Merge,
+    Close,
+    UpdateBranch,
+}
+
+impl PendingKind {
+    /// The muted pill / header label while the op flies (D4).
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            PendingKind::Merge => "merging…",
+            PendingKind::Close => "closing…",
+            PendingKind::UpdateBranch => "updating branch…",
+        }
+    }
+
+    /// The completion toast's verb (D7): "Merged #482 · owner/repo".
+    pub(crate) fn toast_verb(self) -> &'static str {
+        match self {
+            PendingKind::Merge => "Merged",
+            PendingKind::Close => "Closed",
+            PendingKind::UpdateBranch => "Updated branch for",
+        }
+    }
+
+    /// The failure toast's noun (D7): "Merge failed · #482 owner/repo".
+    pub(crate) fn toast_noun(self) -> &'static str {
+        match self {
+            PendingKind::Merge => "Merge",
+            PendingKind::Close => "Close",
+            PendingKind::UpdateBranch => "Branch update",
+        }
+    }
+
+    /// The toast dedupe key's slug (D7).
+    fn toast_slug(self) -> &'static str {
+        match self {
+            PendingKind::Merge => "merged",
+            PendingKind::Close => "closed",
+            PendingKind::UpdateBranch => "branch-updated",
+        }
+    }
+
+    /// Where a failure renders inline — docs/0016 D5 placement, kept.
+    pub(crate) fn error_scope(self) -> ErrorScope {
+        match self {
+            PendingKind::Merge | PendingKind::Close | PendingKind::UpdateBranch => {
+                ErrorScope::Panel
+            }
+        }
+    }
+}
+
+/// docs/0072 D1/D6 — a store-scoped optimistic write in flight. `token`
+/// is store-issued; a confirmation applies only on token match.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PendingOp {
+    pub(crate) kind: PendingKind,
+    pub(crate) token: u64,
+    pub(crate) started_at: Instant,
+}
+
+/// The detail read's books (docs/0072 D2) — the page-local `Fetch`
+/// record's failure/flight shape, store-owned so the page stays a reader.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct DetailBooks {
+    pub(crate) in_flight: bool,
+    pub(crate) last_error: Option<String>,
+    pub(crate) attempted_at: Option<Instant>,
+    pub(crate) fail_streak: u32,
+}
+
+/// docs/0072 D1 — one PR document: the summary layer (list lanes land
+/// it) plus the detail layer (the PR page's query lands it), freshness
+/// stamps on both, and the pending state between them. Session-only —
+/// never persisted (D8).
+#[derive(Clone, Debug)]
+pub(crate) struct PrEntry {
+    pub(crate) summary: gql::PullRequest,
+    pub(crate) detail: Option<gql::PrDetail>,
+    pub(crate) summary_at: Instant,
+    pub(crate) detail_at: Option<Instant>,
+    pub(crate) books: DetailBooks,
+    pub(crate) pending: Option<PendingOp>,
+    /// The last optimistic-write failure, rendered inline in its scope
+    /// (docs/0016 D5 placement — docs/0072 D4).
+    pub(crate) error: Option<MutationError>,
+}
 pub struct GithubState {
     pub auth: AuthStatus,
     pub user: Option<User>,
@@ -1792,6 +1938,15 @@ pub struct GithubState {
     /// error + Retry when neither snapshot nor union has rows to show;
     /// cleared on the next landing.
     pub(crate) home_error: Option<String>,
+    /// docs/0072 D1 — the PR document store: one entry per `(repo,
+    /// number)`; every list lane lands summaries, the PR page's query
+    /// lands details, optimistic mutations stage on the entry.
+    /// Session-only — never persisted (D8); details evict past
+    /// [`PR_STORE_DETAIL_CAP`] (D9); sign-out clears it.
+    pub(crate) pulls: BTreeMap<PrKey, PrEntry>,
+    /// docs/0072 D6 — store-issued pending-op tokens; the identity a
+    /// late confirmation must carry to apply.
+    pub(crate) next_pending_token: u64,
     /// docs/0058 §13 adoption: alerts staged by the cx-free result
     /// sinks (`apply`, `apply_refresh`), drained and raised on the
     /// main thread by the tick loop / refresh lead. Bounded by
@@ -1930,6 +2085,8 @@ impl GithubState {
             home_fail_streak: 0,
             home_attempted_at: None,
             home_error: None,
+            pulls: BTreeMap::new(),
+            next_pending_token: 0,
             client,
             usage: crate::usage::new_ledger(),
             store,
@@ -2391,6 +2548,256 @@ impl GithubState {
         std::mem::take(&mut self.pending_alerts)
     }
 
+    // --- PR document store (docs/0072) -----------------------------------
+
+    /// The stored document for a PR, if any (docs/0072 D1).
+    pub(crate) fn pr_entry(&self, repo: &str, number: i64) -> Option<&PrEntry> {
+        self.pulls.get(&PrKey::new(repo, number))
+    }
+
+    /// The kind of optimistic write in flight on a document, if any
+    /// (docs/0072 D4).
+    pub(crate) fn pr_pending(&self, repo: &str, number: i64) -> Option<PendingKind> {
+        self.pulls
+            .get(&PrKey::new(repo, number))
+            .and_then(|e| e.pending.as_ref().map(|op| op.kind))
+    }
+
+    /// Land one summary row into its document (docs/0072 D2): stamped
+    /// once, here. An existing document keeps its detail, books and
+    /// pending state — a summary refresh never resets them.
+    pub(crate) fn land_summary(&mut self, repo: &str, row: &gql::PullRequest) {
+        let key = PrKey::new(repo, row.number);
+        if let Some(entry) = self.pulls.get_mut(&key) {
+            entry.summary = row.clone();
+            entry.summary_at = Instant::now();
+            return;
+        }
+        self.pulls.insert(
+            key,
+            PrEntry {
+                summary: row.clone(),
+                detail: None,
+                summary_at: Instant::now(),
+                detail_at: None,
+                books: DetailBooks::default(),
+                pending: None,
+                error: None,
+            },
+        );
+    }
+
+    /// Land a parsed detail into its document (docs/0072 D2/D3): the
+    /// detail layer stamps, the read books close (any land resets the
+    /// failure streak), and the cap prunes (D9). The open flow always
+    /// lands the summary first, so a document-less landing is a late
+    /// result after sign-out or eviction — dropped.
+    pub(crate) fn land_detail(&mut self, repo: &str, number: i64, detail: gql::PrDetail) {
+        let key = PrKey::new(repo, number);
+        let Some(entry) = self.pulls.get_mut(&key) else {
+            log::debug!(
+                "pr-store: detail for unknown document {}#{n}, dropped",
+                repo,
+                n = number
+            );
+            return;
+        };
+        entry.detail = Some(detail);
+        entry.detail_at = Some(Instant::now());
+        entry.books.in_flight = false;
+        entry.books.last_error = None;
+        entry.books.fail_streak = 0;
+        self.evict_details();
+    }
+
+    /// Arm the detail read on a document (docs/0072 D2): the dispatch
+    /// dedup stays the shared `in_flight` guard; this is the entry's
+    /// own flight record, which the page renders.
+    pub(crate) fn begin_detail_read(&mut self, repo: &str, number: i64) {
+        if let Some(entry) = self.pulls.get_mut(&PrKey::new(repo, number)) {
+            entry.books.in_flight = true;
+            entry.books.attempted_at = Some(Instant::now());
+        }
+    }
+
+    /// Fail the detail read (docs/0072 D3): the entry keeps any previous
+    /// detail — stale-while-revalidate — so the error surface only shows
+    /// when there is nothing to paint.
+    pub(crate) fn fail_detail_read(&mut self, repo: &str, number: i64, error: String) {
+        if let Some(entry) = self.pulls.get_mut(&PrKey::new(repo, number)) {
+            entry.books.in_flight = false;
+            entry.books.last_error = Some(error);
+            entry.books.fail_streak += 1;
+        }
+    }
+
+    /// Arm a document's optimistic write (docs/0072 D4/D5/D6): the
+    /// pending op lives on the entry, so every surface rendering it —
+    /// home row pill, header — repaints from the store. One write per
+    /// document (D5); the returned token must ride the confirmation
+    /// (D6). `None` when there is no document or one is already in
+    /// flight.
+    pub(crate) fn begin_pending(
+        &mut self,
+        repo: &str,
+        number: i64,
+        kind: PendingKind,
+    ) -> Option<u64> {
+        let entry = self.pulls.get_mut(&PrKey::new(repo, number))?;
+        if entry.pending.is_some() {
+            return None;
+        }
+        self.next_pending_token += 1;
+        let token = self.next_pending_token;
+        entry.pending = Some(PendingOp {
+            kind,
+            token,
+            started_at: Instant::now(),
+        });
+        // A fresh attempt clears the last failure (docs/0016 D4).
+        entry.error = None;
+        Some(token)
+    }
+
+    /// Confirm a pending op (docs/0072 D4/D6): apply the confirmed
+    /// fields to both layers, raise the completion toast, clear the
+    /// pending state. A token mismatch is refused — stale work never
+    /// applies (D6). Returns whether it applied.
+    pub(crate) fn resolve_pending(&mut self, repo: &str, number: i64, token: u64) -> bool {
+        let key = PrKey::new(repo, number);
+        let Some(entry) = self.pulls.get_mut(&key) else {
+            return false;
+        };
+        let Some(op) = &entry.pending else {
+            return false;
+        };
+        if op.token != token {
+            log::warn!("pr-store: stale confirmation {repo}#{number} (token {token})");
+            return false;
+        }
+        let kind = op.kind;
+        entry.pending = None;
+        let confirmed = match kind {
+            PendingKind::Merge => Some("MERGED"),
+            PendingKind::Close => Some("CLOSED"),
+            // The new head OID is unknown until the revalidate lands —
+            // nothing honest to patch (docs/0072 D4).
+            PendingKind::UpdateBranch => None,
+        };
+        if let Some(state) = confirmed {
+            entry.summary.state = Some(state.to_string());
+            if let Some(detail) = &mut entry.detail {
+                detail.state = Some(state.to_string());
+            }
+        }
+        self.pending_alerts.push(
+            dashboard_core::toasts::Toast::new(
+                dashboard_core::toasts::Level::Success,
+                format!("{} #{number} · {repo}", kind.toast_verb()),
+            )
+            .source("github")
+            .dedupe_key(format!("pr-{}:{repo}#{number}", kind.toast_slug())),
+        );
+        true
+    }
+
+    /// Fail a pending op (docs/0072 D4/D6/D7): the document keeps its
+    /// prior state (nothing beyond the pending flag was optimistically
+    /// mutated — rollback is clearing the flag), the failure records on
+    /// the entry in its inline scope (docs/0016 D5 placement), and a
+    /// warning toast raises.
+    pub(crate) fn fail_pending(
+        &mut self,
+        repo: &str,
+        number: i64,
+        token: u64,
+        message: String,
+    ) -> bool {
+        let key = PrKey::new(repo, number);
+        let Some(entry) = self.pulls.get_mut(&key) else {
+            return false;
+        };
+        let Some(op) = &entry.pending else {
+            return false;
+        };
+        if op.token != token {
+            log::warn!("pr-store: stale failure {repo}#{number} (token {token})");
+            return false;
+        }
+        let kind = op.kind;
+        entry.pending = None;
+        entry.error = Some(MutationError {
+            scope: kind.error_scope(),
+            message: message.clone(),
+        });
+        self.pending_alerts.push(
+            dashboard_core::toasts::Toast::new(
+                dashboard_core::toasts::Level::Warning,
+                format!(
+                    "{noun} failed · #{number} {repo} — {message}",
+                    noun = kind.toast_noun()
+                ),
+            )
+            .source("github")
+            .dedupe_key(format!("pr-{}-failed:{repo}#{number}", kind.toast_slug())),
+        );
+        true
+    }
+
+    /// docs/0072 D9 — cap the detail layer: evict oldest-landed details
+    /// past [`PR_STORE_DETAIL_CAP`]. Pending entries never evict (D6);
+    /// details landed inside the TTL window are skipped in the first
+    /// pass (a page the user is actively reading). When everything is
+    /// protected, the fallback evicts past protection anyway — a
+    /// bounded map beats unbounded memory.
+    fn evict_details(&mut self) {
+        let mut by_age: Vec<PrKey> = self
+            .pulls
+            .iter()
+            .filter(|(_, e)| e.detail.is_some())
+            .map(|(k, _)| k.clone())
+            .collect();
+        if by_age.len() <= PR_STORE_DETAIL_CAP {
+            return;
+        }
+        by_age.sort_by_key(|k| self.pulls[k].detail_at);
+        let now = Instant::now();
+        let mut excess = by_age.len() - PR_STORE_DETAIL_CAP;
+        for key in &by_age {
+            if excess == 0 {
+                break;
+            }
+            let entry = &self.pulls[key];
+            if entry.pending.is_some()
+                || now.duration_since(entry.detail_at.expect("filtered: detail present"))
+                    < PR_DETAIL_TTL
+            {
+                continue;
+            }
+            self.drop_detail(key);
+            excess -= 1;
+        }
+        for key in &by_age {
+            if excess == 0 {
+                break;
+            }
+            let entry = &self.pulls[key];
+            if entry.pending.is_some() || entry.detail.is_none() {
+                continue;
+            }
+            self.drop_detail(key);
+            excess -= 1;
+        }
+    }
+
+    fn drop_detail(&mut self, key: &PrKey) {
+        if let Some(entry) = self.pulls.get_mut(key) {
+            entry.detail = None;
+            entry.detail_at = None;
+            entry.books = DetailBooks::default();
+        }
+    }
+
     pub fn apply(&mut self, result: SpecResult) {
         // Inactive-session guard (#168): fetches launched before a
         // sign-out (or before any session exists) keep flying; their
@@ -2700,6 +3107,15 @@ impl GithubState {
                         };
                         let page = gql::home_prs_page(&search);
                         let key = (login.to_string(), scope);
+
+                        // docs/0072 D2: home rows are the summary layer —
+                        // every landed page lands its rows into the
+                        // document store too (documents keep their
+                        // detail/pending books across refreshes).
+                        for row in &page.nodes {
+                            let repo = row.key.split('#').next().unwrap_or_default();
+                            self.land_summary(repo, row);
+                        }
                         let appending = result.cursor.is_some();
                         let entry = self
                             .home_prs
@@ -2941,6 +3357,10 @@ impl GithubState {
         self.repos.clear();
         self.notifications.clear();
         self.repo_notifications.clear();
+        // The document store is session state (docs/0072 D1) — it goes
+        // with the account, like every other session book above.
+        self.pulls.clear();
+        self.next_pending_token = 0;
         self.etags.clear();
         self.selected = None;
         self.rate_limited_until = None;
@@ -6052,6 +6472,8 @@ mod tests {
         state.repos = vec![repo("o/r")];
         state.access_expires_at = Some(1_799_999_999);
         state.pending_refresh = true;
+        // docs/0072 D1: the document store is session state too.
+        state.land_summary("o/r", &store_row(482));
 
         state.sign_out();
         assert_eq!(state.auth, AuthStatus::Disconnected);
@@ -6063,6 +6485,151 @@ mod tests {
         assert!(!state.pending_refresh);
         // docs/0028: the gate spends the credential until the next connect.
         assert!(state.gate.exhausted());
+        assert!(state.pulls.is_empty());
+        assert_eq!(state.next_pending_token, 0);
+    }
+
+    // --- PR document store (docs/0072) --------------------------------
+
+    fn store_row(number: i64) -> gql::PullRequest {
+        serde_json::from_value(serde_json::json!({
+            "key": format!("acme/one#{number}"),
+            "database_id": null,
+            "number": number,
+            "title": format!("PR {number}"),
+            "draft": false,
+            "state": "OPEN",
+            "author": null,
+            "updated_at": null,
+            "url": format!("https://github.com/acme/one/pull/{number}"),
+            "status": null,
+        }))
+        .expect("row parses")
+    }
+
+    fn store_detail(number: i64) -> gql::PrDetail {
+        let value = serde_json::json!({
+            "pullRequest": {
+                "id": format!("PR_{number}"),
+                "number": number,
+                "title": format!("PR {number}"),
+                "url": "u",
+                "state": "OPEN",
+                "isDraft": false,
+                "createdAt": "2026-09-01T00:00:00Z",
+            }
+        });
+        gql::pr_detail_from_value(&value).expect("detail parses")
+    }
+
+    #[test]
+    fn pr_store_summary_refresh_keeps_detail_books() {
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.land_summary("acme/one", &store_row(482));
+        state.land_detail("acme/one", 482, store_detail(482));
+        let before = state.pr_entry("acme/one", 482).unwrap().detail_at;
+
+        // A later home refresh lands the same document again: the summary
+        // layer updates, the detail layer and its books survive (D2).
+        state.land_summary("acme/one", &store_row(482));
+        let entry = state.pr_entry("acme/one", 482).unwrap();
+        assert!(entry.detail.is_some());
+        assert_eq!(entry.detail_at, before);
+        assert!(entry.books.last_error.is_none());
+    }
+
+    #[test]
+    fn pr_store_pending_round_trip_patches_both_layers() {
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.land_summary("acme/one", &store_row(482));
+        state.land_detail("acme/one", 482, store_detail(482));
+
+        // D5: one optimistic write per document.
+        let token = state.begin_pending("acme/one", 482, PendingKind::Merge);
+        assert!(token.is_some());
+        assert!(
+            state
+                .begin_pending("acme/one", 482, PendingKind::Close)
+                .is_none()
+        );
+
+        // D6: a stale token never applies.
+        assert!(!state.resolve_pending("acme/one", 482, token.unwrap() + 1));
+        assert!(state.pr_entry("acme/one", 482).unwrap().pending.is_some());
+
+        assert!(state.resolve_pending("acme/one", 482, token.unwrap()));
+        let entry = state.pr_entry("acme/one", 482).unwrap();
+        assert!(entry.pending.is_none());
+        assert_eq!(entry.summary.state.as_deref(), Some("MERGED"));
+        assert_eq!(
+            entry.detail.as_ref().unwrap().state.as_deref(),
+            Some("MERGED")
+        );
+        // D7: the completion toast stages with its dedupe key + source.
+        let alerts = state.take_pending_alerts();
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(
+            alerts[0].dedupe_key.as_deref(),
+            Some("pr-merged:acme/one#482")
+        );
+    }
+
+    #[test]
+    fn pr_store_fail_pending_keeps_state_and_records_inline() {
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.land_summary("acme/one", &store_row(482));
+        let token = state
+            .begin_pending("acme/one", 482, PendingKind::Merge)
+            .unwrap();
+
+        assert!(state.fail_pending("acme/one", 482, token, "not mergeable".into()));
+        let entry = state.pr_entry("acme/one", 482).unwrap();
+        // D4: rollback is the prior document; the failure records in its
+        // inline scope (docs/0016 D5 placement).
+        assert_eq!(entry.summary.state.as_deref(), Some("OPEN"));
+        assert!(entry.pending.is_none());
+        let error = entry.error.as_ref().unwrap();
+        assert_eq!(error.scope, ErrorScope::Panel);
+        assert_eq!(error.message, "not mergeable");
+        // D7: the warning toast stages.
+        assert_eq!(state.take_pending_alerts().len(), 1);
+    }
+
+    #[test]
+    fn pr_store_eviction_caps_details_and_pins() {
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        let old = Instant::now() - Duration::from_secs(3_600);
+        for n in 0..PR_STORE_DETAIL_CAP as i64 {
+            state.land_summary("acme/one", &store_row(n));
+            state.land_detail("acme/one", n, store_detail(n));
+            state
+                .pulls
+                .get_mut(&PrKey::new("acme/one", n))
+                .unwrap()
+                .detail_at = Some(old);
+        }
+        // Arm the pending op before the overflow lands: a pending entry
+        // pins its detail against eviction (D6).
+        assert!(
+            state
+                .begin_pending("acme/one", 3, PendingKind::Close)
+                .is_some()
+        );
+        state.land_summary("acme/one", &store_row(9_001));
+        state.land_detail("acme/one", 9_001, store_detail(9_001));
+        state.land_summary("acme/one", &store_row(9_002));
+        state.land_detail("acme/one", 9_002, store_detail(9_002));
+
+        // Two documents overflowed the cap; both evictions take the
+        // oldest-landed unpinned candidates (#0 and #1 — equal stamps
+        // sort stably in key order), never the pinned #3, never the
+        // just-landed fresh documents.
+        assert!(state.pr_entry("acme/one", 0).unwrap().detail.is_none());
+        assert!(state.pr_entry("acme/one", 1).unwrap().detail.is_none());
+        assert!(state.pr_entry("acme/one", 3).unwrap().detail.is_some());
+        assert!(state.pr_entry("acme/one", 9_002).unwrap().detail.is_some());
+        let with_detail = state.pulls.values().filter(|e| e.detail.is_some()).count();
+        assert!(with_detail <= PR_STORE_DETAIL_CAP, "cap holds");
     }
 
     // --- Token refresh (docs/0011 §6) ---------------------------------
