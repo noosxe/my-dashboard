@@ -106,7 +106,9 @@ in the user's `home.nix` — same option name.
 Whiskers-generated Catppuccin palettes (Latte, Frappé, Macchiato, Mocha),
 built by the flake and linked into the app's user themes dir — the running
 app hot-reloads them, no restart needed. Themes land in the Appearance
-pickers (Latte is a light palette, the rest are dark).
+pickers (Latte is a light palette, the rest are dark). All four flavors
+also ship built-in (docs/0074); these user copies shadow the built-ins
+by name, so a Whiskers install always wins.
 
 ```nix
 programs.my-dashboard.catppuccin.enable = true;
@@ -230,7 +232,8 @@ $ whiskers nix/catppuccin.tera        # renders catppuccin-{latte,frappe,macchia
 $ cp themes/catppuccin-mocha.json ~/.config/my-dashboard/themes/
 ```
 
-They appear in the Appearance pickers immediately (hot reload).
+They appear in the Appearance pickers immediately (hot reload), shadowing
+the built-in Catppuccin presets by name (docs/0074).
 
 ## License
 

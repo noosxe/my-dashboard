@@ -80,12 +80,15 @@ themes outrank presets by name.** The kit's vendored Aurora is a stale
 subset of ours (one theme vs our pair) — shipping it would rely on
 load-order luck to keep our factory pair winning. So the preset bundle
 is the kit gallery **minus `aurora.json`** (20 files / 35 themes), and
-the replay order becomes: factory pair (`BUNDLED_DEFAULTS`) → presets →
-user dir. Insert-only semantics then guarantee, without any ordering
-subtlety: the factory pair always registers first; a user file with a
-preset's name (e.g. a Whiskers-rendered Catppuccin flavor) wins over
-the built-in — the docs/0025 user-authority rule extends to presets for
-free. Both orderings get a test (D-test list below).
+the replay order is: factory pair (`BUNDLED_DEFAULTS`) → user dir →
+presets. Insert-only semantics then make the order the authority rule
+with no extra machinery: the factory pair always registers first, and —
+since `load_themes_from_str` *skips* names already present — a user
+file with a preset's name (e.g. a Whiskers-rendered Catppuccin flavor)
+must load **before** the presets to win. (The implementation PR
+corrected an earlier draft of this paragraph, which put presets before
+the user dir; the registry tests caught that order handing preset names
+to the built-ins.) A test pins the shadowing.
 
 **D3 — `is_default` is stripped from presets at load.** No preset
 carries the flag today (§2), but the strip is one line and makes the
@@ -186,5 +189,25 @@ between bumps.
 
 ## 7 — Shipped record
 
-— (filled by the implementation PR: stage marks, test names, receipt
-pointers)
+Shipped in one PR (issue #568):
+
+- D1/D2: 20 files vendored under `crates/core/assets/themes/presets/`;
+  `theme_presets::load` replayed from `rebuild_themes` after the user
+  dir. **D2's replay order was corrected during implementation** — the
+  original draft (factory → presets → user) handed preset names to the
+  built-ins; `user_dir_preset_names_win` caught it, and this doc's D2
+  now states factory → user dir → presets.
+- D3: `theme_presets::sanitize` strips `is_default` before the registry
+  ever sees a preset.
+- D4: `presets_parse_and_carry_highlight` (35 themes, mode/colors/
+  highlight, no `is_default`, names unique) + `contrast_gate.rs`
+  untouched.
+- Tests: the §4 list, all green (`presets_parse_and_carry_highlight`,
+  `preset_defaults_cannot_hijack_slots`,
+  `rebuild_replays_the_bundled_defaults_and_all_presets` — factory pair
+  pinned to our values, 37 names —, `user_dir_preset_names_win`).
+- D6: 0025 D2-note/D3/D10 amended; README row + both Whiskers sections
+  marked as the override path; this §7.
+- D8: Cargo.toml bump checklist gained the re-sync line.
+- Receipts: see the PR body (settings golden recaptured in the
+  containerized env; audit chain + tab-stops re-run).
