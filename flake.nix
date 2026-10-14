@@ -24,7 +24,14 @@
       flake-utils,
       home-manager,
     }:
-    flake-utils.lib.eachDefaultSystem (
+    # x86_64-darwin is deliberately out: the pinned nixpkgs branch has
+    # dropped it (26.05 darwin release notes) and no Intel Mac builds
+    # this repo. Everything else that flake check inventories passes.
+    flake-utils.lib.eachSystem [
+      "aarch64-darwin"
+      "aarch64-linux"
+      "x86_64-linux"
+    ] (
       system:
       let
         overlays = [ (import rust-overlay) ];
@@ -100,11 +107,13 @@
           src = lib.cleanSource ./.;
           cargoLock = {
             lockFile = ./Cargo.lock;
+            # 0.7.3 = gpui-component git rev 67265a36 in Cargo.lock (the
+            # #530-era bump); hashes below are the vendored-tarball FODs.
             outputHashes = {
-              "gpui-base-0.7.0" = "sha256-Ii3wGy0gLfT2PiSkrqNWPCT2SdSAz5CruC46UrW/55M=";
-              "gpui-component-0.7.0" = "sha256-Ii3wGy0gLfT2PiSkrqNWPCT2SdSAz5CruC46UrW/55M=";
-              "gpui-component-macros-0.7.0" = "sha256-Ii3wGy0gLfT2PiSkrqNWPCT2SdSAz5CruC46UrW/55M=";
-              "gpui-kit-assets-0.7.0" = "sha256-Ii3wGy0gLfT2PiSkrqNWPCT2SdSAz5CruC46UrW/55M=";
+              "gpui-base-0.7.3" = "sha256-cbiG1o9ruLl9nGt8J4yT88l3QVhBN61hCxnkB3jdbG4=";
+              "gpui-component-0.7.3" = "sha256-cbiG1o9ruLl9nGt8J4yT88l3QVhBN61hCxnkB3jdbG4=";
+              "gpui-component-macros-0.7.3" = "sha256-cbiG1o9ruLl9nGt8J4yT88l3QVhBN61hCxnkB3jdbG4=";
+              "gpui-kit-assets-0.7.3" = "sha256-cbiG1o9ruLl9nGt8J4yT88l3QVhBN61hCxnkB3jdbG4=";
             };
           };
 
@@ -123,7 +132,11 @@
             description = "Universal personal dashboard (Rust + gpui-component)";
             license = licenses.mit;
             mainProgram = "my-dashboard";
-            platforms = platforms.linux;
+            # Buildable on both backends (Linux: the dynamicLibraries set
+            # below; darwin: Cocoa/Metal need nothing extra). Exposure is
+            # scoped to Linux above — the darwin access path is
+            # legacyPackages (hash refresh) and the dev checkout.
+            platforms = platforms.all;
           };
         };
 
@@ -160,17 +173,41 @@
             '';
       in
       {
-        packages.default = my-dashboard;
-        packages.my-dashboard = my-dashboard;
-        packages.my-dashboard-catppuccin-themes = my-dashboard-catppuccin-themes;
-
-        apps.default = {
-          type = "app";
-          program = "${my-dashboard}/bin/my-dashboard";
-          meta = my-dashboard.meta;
+        # The installable nix surface is the Linux/NixOS story (the
+        # hm/nixos modules; packaging targets Linux). On darwin the app
+        # runs from a dev checkout and themes install by hand
+        # (scripts/install-catppuccin-theme.sh) — exposing linux-only
+        # derivations there only makes `nix flake check` refuse them.
+        # The dev shell stays on every system: direnv + the darwin
+        # Metal-toolchain hook are part of the dev flow.
+        packages = lib.optionalAttrs isLinux {
+          default = my-dashboard;
+          my-dashboard = my-dashboard;
+          my-dashboard-catppuccin-themes = my-dashboard-catppuccin-themes;
         };
 
-        checks.my-dashboard-catppuccin-themes = my-dashboard-catppuccin-themes;
+        apps = lib.optionalAttrs isLinux {
+          default = {
+            type = "app";
+            program = "${my-dashboard}/bin/my-dashboard";
+            meta = my-dashboard.meta;
+          };
+        };
+
+        checks = lib.optionalAttrs isLinux {
+          my-dashboard-catppuccin-themes = my-dashboard-catppuccin-themes;
+        };
+
+        # Maintenance target, not an installable: lets a darwin dev
+        # machine build this derivation (and refresh the cargoLock
+        # outputHashes when the gpui deps move) without claiming darwin
+        # packaging. `nix flake check` deliberately skips legacyPackages.
+        # Boundary (verified 2026-10-14): the cargo fetch/vendor FODs
+        # build on darwin — that is what a hash refresh needs — but the
+        # full build stops at gpui-pre-apple Metal shader compilation,
+        # which cannot see the host xcrun from inside the sandbox. Darwins
+        # build the app via the dev shell, not nix (owner decision).
+        legacyPackages.my-dashboard = my-dashboard;
 
         devShells.default =
           with pkgs;
@@ -235,9 +272,14 @@
     )
     // {
       # final.system: nixpkgs package sets expose the host system.
-      overlays.default = final: _: {
-        my-dashboard = self.packages.${final.system}.default;
-      };
+      overlays.default = final: _:
+        let
+          # Nothing to add on systems where the packages are scoped out.
+          pkgs' = self.packages.${final.system} or { };
+        in
+        nixpkgs.lib.optionalAttrs (pkgs' ? default) {
+          my-dashboard = pkgs'.default;
+        };
 
       nixosModules.default = import ./nix/nixos-module.nix self;
       homeManagerModules.default = import ./nix/hm-module.nix self;
