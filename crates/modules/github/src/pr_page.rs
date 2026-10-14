@@ -5531,27 +5531,9 @@ impl BusyOp {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ErrorScope {
-    /// The conversation column — above the comment box.
-    Timeline,
-    /// The merge/close rail panel.
-    Panel,
-    /// The issue page's state panel (docs/0020 D5) — the PR page never
-    /// produces it, the issue page never produces Panel.
-    Rail,
-    /// The diff pane (docs/0030 D7) — above the diff body; only the
-    /// Files-tab review writes produce it.
-    Files,
-}
-
-/// The last mutation failure — kept until the next attempt or success, so
-/// it survives the post-mutation refetch that repaints everything else.
-#[derive(Clone, Debug)]
-pub(crate) struct MutationError {
-    pub(crate) scope: ErrorScope,
-    pub(crate) message: String,
-}
+// docs/0072 D4: the store records optimistic-write failures, so the error
+// types live beside the store (service.rs) — re-exported for the pages.
+pub(crate) use crate::service::{ErrorScope, MutationError};
 
 /// One armed diff row's composer (docs/0030 D4): the row it anchors to
 /// plus its editor.
