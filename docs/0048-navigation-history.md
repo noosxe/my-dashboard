@@ -297,6 +297,11 @@ final shapes now authoritative:
   needed (`select_repo_inner`, no trail write: the ancestor activation
   is part of the deep restore, never its own visit). A foreign payload
   is ignored, never a panic.
+- **Repo-place restore closes sub-pages**: Back to the repo place — a
+  deep leaf's usual trail ancestor — lands on the repo view: the restore's
+  repo arm closes the takeover slots (`pr`/`issue`/notification; creators
+  hidden, drafts retained) exactly as a live click-out would. Without it
+  the open issue/PR page stayed mounted and Back appeared dead.
 - **D4 confirmed**: dismissal paths (Esc/`close_pr`/`close_issue`) and
   the notification page itself record nothing; the notification page's
   hand-off to an issue/PR records through the normal `open_*` path.

@@ -1088,6 +1088,18 @@ impl GithubPage {
         }
         match place {
             GithubPlace::Repo(name) => {
+                // Back to the repo place (docs/0048 D5) lands ON the repo
+                // view, so no sub-page can outlive the landing beneath it.
+                // A live repo click never arrives through an open sub-page
+                // (full takeover unmounts the repo list), so the restore
+                // closes the takeover slots itself — Esc's close semantics,
+                // selection surviving, drafts retained (docs/0024 D7,
+                // docs/0044 D7).
+                self.close_pr(cx);
+                self.close_issue(cx);
+                self.close_notification(cx);
+                self.creator_open = false;
+                self.creator_pr_open = false;
                 let name = SharedString::from(name.clone());
                 self.select_repo(name, window, cx);
             }
@@ -5810,6 +5822,117 @@ mod tests {
             let foreign: Arc<dyn std::any::Any + Send + Sync> = Arc::new(7i32);
             history.restore(&foreign, window, cx);
             assert!(page.read(cx).pr.is_some(), "state untouched");
+        });
+    }
+
+    /// Back to the repo place (docs/0048 D5) lands ON the repo view: the
+    /// open issue/PR sub-page closes with the restore (owner report — the
+    /// sub-page stayed mounted, so Back appeared dead). The restore's
+    /// re-select still dedups against the landed trail head.
+    #[gpui::test]
+    fn back_to_the_repo_place_closes_the_open_sub_page(cx: &mut TestAppContext) {
+        use std::sync::Arc;
+
+        use crate::auth::MockTokenStore;
+        use crate::http::mock::MockHttp;
+        use crate::http::{Http, SharedToken};
+        use crate::service::{GithubCache, GithubState};
+        use dashboard_core::module::ModuleNav;
+        use dashboard_core::nav::Navigator;
+        use dashboard_core::paths::AppPaths;
+
+        cx.update(gpui_component::init);
+        cx.update(dashboard_core::status::init);
+        let cx = cx.add_empty_window();
+        cx.update(|window, cx| {
+            // Scripted failures: select_repo's specs on each activation and
+            // the sub-pages' eager detail fetches. The probe never depends
+            // on results.
+            let client: Arc<dyn Http> = Arc::new(MockHttp::new(vec![
+                Err(crate::http::HttpError("probe".into())),
+                Err(crate::http::HttpError("probe".into())),
+                Err(crate::http::HttpError("probe".into())),
+                Err(crate::http::HttpError("probe".into())),
+                Err(crate::http::HttpError("probe".into())),
+                Err(crate::http::HttpError("probe".into())),
+                Err(crate::http::HttpError("probe".into())),
+                Err(crate::http::HttpError("probe".into())),
+                Err(crate::http::HttpError("probe".into())),
+                Err(crate::http::HttpError("probe".into())),
+                Err(crate::http::HttpError("probe".into())),
+                Err(crate::http::HttpError("probe".into())),
+            ]));
+            let shared: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let refresh: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let state = cx.new(|_| {
+                GithubState::new(
+                    client,
+                    Arc::new(MockTokenStore::with("t0k".into())),
+                    shared,
+                    refresh,
+                    GithubCache::new(AppPaths::init()),
+                    DraftStore::at_tmp("page-back-restore"),
+                )
+            });
+            let nav = cx.new(|_| Navigator::default());
+            let page = cx.new(|cx| GithubPage::new(state.clone(), nav.clone(), window, cx));
+            let history = crate::page::GithubNav {
+                page: page.downgrade(),
+            };
+            let issue = gql::Issue {
+                key: "acme/one#9".into(),
+                database_id: None,
+                number: 9,
+                title: "probe".into(),
+                author: Some(gql::Author {
+                    login: "you".into(),
+                    avatar_url: String::new(),
+                }),
+                updated_at: None,
+                url: "https://probe".into(),
+                labels: None,
+            };
+            let summary = pr(7, "probe", None);
+
+            // repo → issue → Back: the restore lands on the repo place and
+            // the issue page closes with it.
+            page.update(cx, |p, cx| {
+                p.select_repo("acme/one".into(), window, cx);
+            });
+            page.update(cx, |p, cx| {
+                p.open_issue("acme/one", &issue, None, window, cx)
+            });
+            assert!(page.read(cx).issue.is_some());
+            let route = nav.update(cx, |nav, cx| nav.back(cx)).unwrap();
+            assert_eq!(route.key(), "github:repo:acme/one");
+            history.restore(route.payload(), window, cx);
+            let landed = page.read(cx);
+            assert!(landed.issue.is_none(), "Back closed the issue page");
+            assert!(landed.pr.is_none());
+            assert_eq!(
+                state.read(cx).selected.as_deref(),
+                Some("acme/one"),
+                "the repo selection survives the restore"
+            );
+            nav.read_with(cx, |nav, _| {
+                assert_eq!(
+                    nav.history_entries_last_key(),
+                    "github:repo:acme/one",
+                    "the restore's re-select dedups against the landed head"
+                );
+            });
+
+            // The same round trip from the PR page.
+            page.update(cx, |p, cx| {
+                p.open_pr("acme/one", &summary, None, window, cx)
+            });
+            assert!(page.read(cx).pr.is_some());
+            let route = nav.update(cx, |nav, cx| nav.back(cx)).unwrap();
+            assert_eq!(route.key(), "github:repo:acme/one");
+            history.restore(route.payload(), window, cx);
+            let landed = page.read(cx);
+            assert!(landed.pr.is_none(), "Back closed the PR page");
+            assert!(landed.issue.is_none());
         });
     }
 }
