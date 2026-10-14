@@ -2795,6 +2795,19 @@ impl GithubState {
             if let Some(detail) = &mut entry.detail {
                 detail.state = Some(state.to_string());
             }
+            // docs/0072 D4 — a confirmed state is a shared fact across
+            // every store surface: the home lane carries the same row,
+            // so patch it there too. The open-PRs list reflects the
+            // merge/close the moment it confirms — not when the next
+            // lane landing arrives (the view filter then drops it).
+            let doc_key = format!("{repo}#{number}");
+            for lane in self.home_prs.values_mut() {
+                for node in &mut lane.nodes {
+                    if node.key == doc_key {
+                        node.state = Some(state.to_string());
+                    }
+                }
+            }
         }
         self.pending_alerts.push(
             dashboard_core::toasts::Toast::new(
@@ -7007,6 +7020,68 @@ mod tests {
         assert!(!entry.rollup_dirty);
         assert!(entry.detail_fresh());
         assert_eq!(entry.summary.status.as_deref(), Some("PENDING"));
+    }
+
+    /// docs/0072 D4: a confirmed merge/close is a shared fact across the
+    /// store's surfaces — the lane row carries the state too, so the
+    /// open-PRs view (which filters on it, matching its `is:open`
+    /// search) drops the row the moment the op confirms, not at the
+    /// next lane landing.
+    #[test]
+    fn confirmed_mutation_patches_the_lane_row() {
+        for kind in [PendingKind::Merge, PendingKind::Close] {
+            let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+            state.land_summary("acme/one", &store_row(7));
+            let mut d = store_detail(7);
+            d.state = Some("OPEN".into());
+            state.land_detail("acme/one", 7, d);
+            state.home_prs.insert(
+                ("acme".to_string(), HomeScope::User),
+                HomePullRequests {
+                    nodes: vec![store_row(7), store_row(8)],
+                    total_count: 2,
+                    complete: true,
+                    cursor: None,
+                },
+            );
+
+            let token = state
+                .begin_pending("acme/one", 7, kind)
+                .expect("arms a pending op");
+            let ok = SpecResult {
+                kind: Kind::PrMutation(Mutation::Merge),
+                ident: None,
+                status: 200,
+                etag: None,
+                rate: None,
+                body: Some("{}".into()),
+                network: None,
+                cursor: None,
+            };
+            let confirmed = state.apply_store_mutation_result("acme/one", 7, kind, token, ok);
+            assert!(confirmed);
+
+            let expected = if kind == PendingKind::Merge {
+                "MERGED"
+            } else {
+                "CLOSED"
+            };
+            let entry = state.pr_entry("acme/one", 7).unwrap();
+            assert_eq!(entry.summary.state.as_deref(), Some(expected));
+
+            // The lane row carries the confirmed state…
+            let lane = &state.home_prs[&("acme".to_string(), HomeScope::User)];
+            assert_eq!(lane.nodes[0].state.as_deref(), Some(expected));
+            // …so the view's open filter drops it and keeps the
+            // untouched row.
+            let open: Vec<&gql::PullRequest> = lane
+                .nodes
+                .iter()
+                .filter(|r| r.state.as_deref() == Some("OPEN"))
+                .collect();
+            assert_eq!(open.len(), 1);
+            assert_eq!(open[0].number, 8);
+        }
     }
 
     // --- Token refresh (docs/0011 §6) ---------------------------------
