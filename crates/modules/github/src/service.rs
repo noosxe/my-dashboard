@@ -1748,6 +1748,40 @@ pub(crate) struct MutationError {
 /// on reopen (stale-while-revalidate); younger paints as-is.
 pub(crate) const PR_DETAIL_TTL: Duration = Duration::from_secs(5 * 60);
 
+/// docs/0072 D4 — how long a pending op may wait for its confirmation
+/// before the store unblocks the document. Generous: real merges land in
+/// seconds; this catches dead pages and silent transports, not slow ones.
+pub(crate) const PR_PENDING_MAX_AGE: Duration = Duration::from_secs(120);
+
+/// Branch-update failure copy (docs/0067 D6): stable-fragment match
+/// with the generic fallback carrying the upstream message — never raw
+/// prose in the panel, never guessed data in the message. Lives beside
+/// the store since docs/0072: the session-scoped resolver maps it.
+pub(crate) fn update_branch_error_copy(message: &str) -> String {
+    let m = message.to_ascii_lowercase();
+    if m.contains("expectedheadoid")
+        || (m.contains("head") && m.contains("match"))
+        || (m.contains("branch") && m.contains("moved"))
+        || (m.contains("branch") && m.contains("changed"))
+    {
+        "The branch moved while you were viewing it — refreshing.".into()
+    } else if m.contains("conflict") {
+        "GitHub can't update this branch — the merge/rebase conflicts must be resolved first."
+            .into()
+    } else if m.contains("permission")
+        || m.contains("authorized")
+        || m.contains("not allowed")
+        || m.contains("protected")
+        || m.contains("protection")
+        || m.contains("forbidden")
+    {
+        "GitHub refused: your token can't update this branch (repository permissions or branch protection)."
+            .into()
+    } else {
+        format!("GitHub couldn't update the branch: {message}")
+    }
+}
+
 /// docs/0072 D9 — detail bodies are the heavy part: details evict
 /// oldest-landed past this many documents. Summaries track the home list
 /// and are naturally bounded by it.
@@ -2787,6 +2821,94 @@ impl GithubState {
             .dedupe_key(format!("pr-{}-failed:{repo}#{number}", kind.toast_slug())),
         );
         true
+    }
+
+    /// The store op came back (docs/0072 D4/D6) — **session-scoped**: the
+    /// resolver runs against the state entity, never the page that armed
+    /// the op, so closing or navigating away mid-flight cannot orphan a
+    /// pending document. Classification is the standard one: transport
+    /// failures, non-200 statuses (which still forward to [`Self::apply`]
+    /// — the shared 401 gate and rate-limit pause run exactly as for
+    /// every other fetch) and GraphQL `errors` all fail the op; a clean
+    /// 200 confirms. Returns whether the op **confirmed** — not whether
+    /// the resolution applied (a refused token or a recorded failure
+    /// both return false; only a clean success returns true).
+    pub(crate) fn apply_store_mutation_result(
+        &mut self,
+        repo: &str,
+        number: i64,
+        kind: PendingKind,
+        token: u64,
+        result: SpecResult,
+    ) -> bool {
+        let mut failed: Option<String> = None;
+        if let Some(m) = &result.network {
+            failed = Some(format!("Network error: {m}"));
+        } else if result.status != 200 {
+            let status = result.status;
+            self.apply(result);
+            failed = Some(format!("GitHub answered HTTP {status}"));
+        } else if let Some(message) = result.body.as_deref().and_then(|body| {
+            serde_json::from_str::<gql::Envelope<serde_json::Value>>(body)
+                .ok()
+                .and_then(|env| env.errors.first().map(|e| e.message.clone()))
+        }) {
+            log::warn!("pr-mutation {repo}#{number} {kind:?}: {message}");
+            failed = Some(message);
+        }
+        match failed {
+            Some(message) => {
+                // docs/0067 D6: branch-update failures get the mapped
+                // copy — the raw upstream prose stays in the log above.
+                let message = if kind == PendingKind::UpdateBranch {
+                    update_branch_error_copy(&message)
+                } else {
+                    message
+                };
+                self.fail_pending(repo, number, token, message);
+                false
+            }
+            None => self.resolve_pending(repo, number, token),
+        }
+    }
+
+    /// docs/0072 D4 — unblock documents whose confirmation never landed:
+    /// the arming page died mid-flight, or GitHub went silent. The
+    /// document returns to its prior state and the inline surface
+    /// explains on next visit; **no toast** — an expiry does not know
+    /// that the op failed upstream, and a "failed" toast would lie. A
+    /// late confirmation is refused by its gone token (D6). Returns how
+    /// many documents were unblocked (the tick loop notifies on >0).
+    pub(crate) fn expire_stale_pending(&mut self) -> usize {
+        let now = Instant::now();
+        let mut stale: Vec<(PrKey, PendingKind, u64)> = Vec::new();
+        for (key, entry) in &self.pulls {
+            if let Some(op) = &entry.pending {
+                if now.duration_since(op.started_at) > PR_PENDING_MAX_AGE {
+                    stale.push((key.clone(), op.kind, op.token));
+                }
+            }
+        }
+        for (key, kind, token) in &stale {
+            let Some(entry) = self.pulls.get_mut(key) else {
+                continue;
+            };
+            let armed = entry.pending.as_ref().is_some_and(|op| op.token == *token);
+            if !armed {
+                continue;
+            }
+            entry.pending = None;
+            entry.error = Some(MutationError {
+                scope: kind.error_scope(),
+                message: "Still in flight upstream — check the PR on github.com".into(),
+            });
+            log::warn!(
+                "pr-store: pending {kind:?} on {}#{} expired unconfirmed",
+                key.repo,
+                key.number
+            );
+        }
+        stale.len()
     }
 
     /// docs/0072 D9 — cap the detail layer: evict oldest-landed details
@@ -4196,12 +4318,21 @@ pub fn spawn_tick_loop(state: Entity<GithubState>, window: AnyWindowHandle, cx: 
             // TICK sleep. Subsequent beats land on the 60s cadence.
             tick += 1;
 
-            let (mut specs, pending) = cx.update(|cx| {
+            let (mut specs, pending, expired) = cx.update(|cx| {
                 state.update(cx, |s, _| {
+                    // docs/0072 D4: unblock documents whose confirmation
+                    // never landed before planning the beat.
+                    let expired = s.expire_stale_pending();
                     let specs = s.plan_tick(tick);
-                    (specs, std::mem::take(&mut s.pending_refresh))
+                    (specs, std::mem::take(&mut s.pending_refresh), expired)
                 })
             });
+            // docs/0072 D4: an expiry mutated documents — observers
+            // repaint (the pill leaves, the header unblocks).
+            if expired > 0 {
+                log::info!("tick {tick}: {expired} stale pending op(s) expired");
+                cx.update(|cx| state.update(cx, |_, cx| cx.notify()));
+            }
             // Proactive drain (docs/0028 §3.4): planning armed the flag —
             // refresh through the gate now; on success re-plan in this
             // same tick so the bootstrap it arms runs immediately (the
@@ -6675,6 +6806,134 @@ mod tests {
         assert!(state.pr_entry("acme/one", 9_002).unwrap().detail.is_some());
         let with_detail = state.pulls.values().filter(|e| e.detail.is_some()).count();
         assert!(with_detail <= PR_STORE_DETAIL_CAP, "cap holds");
+    }
+
+    /// The session-scoped resolver (docs/0072 D4): clean 200s confirm,
+    /// GraphQL `errors` fail with the upstream message, and non-200s
+    /// fail **after** forwarding to `apply` — the shared 401 gate runs
+    /// exactly as for every other fetch.
+    #[test]
+    fn store_resolver_classifies_and_resolves() {
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.land_summary("acme/one", &store_row(482));
+        let token = state
+            .begin_pending("acme/one", 482, PendingKind::Merge)
+            .unwrap();
+
+        // Clean 200: confirmed, completion toast staged.
+        let ok = SpecResult {
+            kind: Kind::PrMutation(Mutation::Merge),
+            ident: None,
+            status: 200,
+            etag: None,
+            rate: None,
+            body: Some("{}".into()),
+            network: None,
+            cursor: None,
+        };
+        assert!(state.apply_store_mutation_result("acme/one", 482, PendingKind::Merge, token, ok));
+        let entry = state.pr_entry("acme/one", 482).unwrap();
+        assert_eq!(entry.summary.state.as_deref(), Some("MERGED"));
+        assert!(entry.pending.is_none());
+        assert_eq!(state.take_pending_alerts().len(), 1);
+
+        // 200 carrying GraphQL errors: refused, upstream message kept.
+        let token = state
+            .begin_pending("acme/one", 482, PendingKind::Merge)
+            .unwrap();
+        let gql_err = SpecResult {
+            kind: Kind::PrMutation(Mutation::Merge),
+            ident: None,
+            status: 200,
+            etag: None,
+            rate: None,
+            body: Some(
+                r#"{"data":null,"errors":[{"message":"Pull request is not mergeable"}]}"#.into(),
+            ),
+            network: None,
+            cursor: None,
+        };
+        assert!(!state.apply_store_mutation_result(
+            "acme/one",
+            482,
+            PendingKind::Merge,
+            token,
+            gql_err
+        ));
+        let entry = state.pr_entry("acme/one", 482).unwrap();
+        assert_eq!(
+            entry.error.as_ref().unwrap().message,
+            "Pull request is not mergeable"
+        );
+
+        // 401: forwarded to `apply` first (the session flips to
+        // TokenRejected), then the op fails on the mapped status copy.
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.land_summary("acme/one", &store_row(482));
+        state.auth = AuthStatus::Connected;
+        let token = state
+            .begin_pending("acme/one", 482, PendingKind::Close)
+            .unwrap();
+        let rejected = SpecResult {
+            kind: Kind::PrMutation(Mutation::Close),
+            ident: None,
+            status: 401,
+            etag: None,
+            rate: None,
+            body: None,
+            network: None,
+            cursor: None,
+        };
+        assert!(!state.apply_store_mutation_result(
+            "acme/one",
+            482,
+            PendingKind::Close,
+            token,
+            rejected
+        ));
+        assert_eq!(state.auth, AuthStatus::TokenRejected);
+        let entry = state.pr_entry("acme/one", 482).unwrap();
+        assert_eq!(entry.summary.state.as_deref(), Some("OPEN"));
+        assert_eq!(
+            entry.error.as_ref().unwrap().message,
+            "GitHub answered HTTP 401"
+        );
+    }
+
+    /// docs/0072 D4: a pending op whose confirmation never landed
+    /// unblocks after the max age — prior state kept, the inline surface
+    /// explains, no "failed" toast (the expiry does not know the op
+    /// failed), and a late confirmation is refused by its gone token.
+    #[test]
+    fn stale_pending_expires_without_a_lying_toast() {
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.land_summary("acme/one", &store_row(482));
+        let token = state
+            .begin_pending("acme/one", 482, PendingKind::Merge)
+            .unwrap();
+        state
+            .pulls
+            .get_mut(&PrKey::new("acme/one", 482))
+            .unwrap()
+            .pending
+            .as_mut()
+            .unwrap()
+            .started_at = Instant::now() - PR_PENDING_MAX_AGE - Duration::from_secs(1);
+
+        assert_eq!(state.expire_stale_pending(), 1);
+        // A second beat finds nothing left to expire.
+        assert_eq!(state.expire_stale_pending(), 0);
+
+        let entry = state.pr_entry("acme/one", 482).unwrap();
+        assert!(entry.pending.is_none());
+        assert_eq!(entry.summary.state.as_deref(), Some("OPEN"));
+        assert_eq!(entry.error.as_ref().unwrap().scope, ErrorScope::Panel);
+        assert!(entry.error.as_ref().unwrap().message.contains("github.com"));
+        assert!(state.take_pending_alerts().is_empty(), "no lying toast");
+
+        // The late confirmation arrives into a document that moved on:
+        // refused, not applied (D6).
+        assert!(!state.resolve_pending("acme/one", 482, token));
     }
 
     // --- Token refresh (docs/0011 §6) ---------------------------------
