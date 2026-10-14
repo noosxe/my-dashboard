@@ -3302,10 +3302,12 @@ impl PrDetailPage {
         };
         cx.notify();
         let state = self.state.clone();
+        let repo = self.repo.clone();
+        let number = self.number;
         let ident = format!("{}#{} {kind:?}", self.repo, self.number);
         cx.spawn(async move |this, cx| {
             let result = run_mutation(
-                state,
+                state.clone(),
                 mutation,
                 variables,
                 ident,
@@ -3313,74 +3315,28 @@ impl PrDetailPage {
                 cx,
             )
             .await;
+            // docs/0072 D4: the resolver is session-scoped — it runs
+            // against the state entity, never the page that armed the
+            // op. A page closed or navigated away mid-flight must not
+            // orphan a pending document (the field report that found
+            // this: a merge armed, the page left, "merging…" forever).
+            let confirmed = cx.update(|cx| {
+                state.update(cx, |s, _| {
+                    s.apply_store_mutation_result(&repo, number, kind, token, result)
+                })
+            });
+            // The page repaints via its store subscription; the success
+            // revalidate only flies while the page is still alive — the
+            // next open of a dead page's document revalidates on its own
+            // freshness gates (docs/0072 D3).
             let _ = this.update(cx, |page, cx| {
-                page.apply_store_mutation_result(kind, token, result, cx)
+                if confirmed {
+                    page.fetch_detail(Origin::new(Surface::PrPage, Trigger::MutationRefetch), cx);
+                }
+                cx.notify();
             });
         })
         .detach();
-    }
-
-    /// The store op came back (docs/0072 D4/D6): the shared status lanes
-    /// run exactly as for every other fetch (401 gate, rate-limit
-    /// pause), then the store resolves — success patches the document,
-    /// stages the completion toast (D7) and revalidates in the
-    /// background; failure keeps the prior document, records the
-    /// inline-scope error (docs/0016 D5 placement) and stages a warning
-    /// toast. The page never blocks on any of it.
-    fn apply_store_mutation_result(
-        &mut self,
-        kind: PendingKind,
-        token: u64,
-        result: crate::service::SpecResult,
-        cx: &mut Context<Self>,
-    ) {
-        let mut failed: Option<String> = None;
-        if let Some(m) = &result.network {
-            failed = Some(format!("Network error: {m}"));
-        } else if result.status != 200 {
-            let status = result.status;
-            self.state.update(cx, |s, cx| {
-                s.apply(result);
-                cx.notify();
-            });
-            failed = Some(format!("GitHub answered HTTP {status}"));
-        } else if let Some(message) = result.body.as_deref().and_then(|body| {
-            serde_json::from_str::<gql::Envelope<serde_json::Value>>(body)
-                .ok()
-                .and_then(|env| env.errors.first().map(|e| e.message.clone()))
-        }) {
-            log::warn!(
-                "pr-mutation {}#{} {kind:?}: {message}",
-                self.repo,
-                self.number
-            );
-            failed = Some(message);
-        }
-        match failed {
-            Some(message) => {
-                // docs/0067 D6: branch-update failures get the mapped
-                // copy — the raw upstream prose stays in the log above.
-                let message = if kind == PendingKind::UpdateBranch {
-                    update_branch_error_copy(&message)
-                } else {
-                    message
-                };
-                self.state.update(cx, |s, _| {
-                    s.fail_pending(&self.repo, self.number, token, message);
-                });
-            }
-            None => {
-                self.state.update(cx, |s, _| {
-                    s.resolve_pending(&self.repo, self.number, token);
-                });
-                // The header and home row repaint from the patched
-                // document; the background revalidate brings the
-                // timeline and checks back (docs/0016 D4's refetch —
-                // now non-blocking, docs/0072 D4).
-                self.fetch_detail(Origin::new(Surface::PrPage, Trigger::MutationRefetch), cx);
-            }
-        }
-        cx.notify();
     }
 
     /// The Panel-scope inline error (docs/0016 D5 placement): store ops
@@ -6019,34 +5975,6 @@ pub(crate) fn update_branch_enabled(state: Option<&str>, gate: bool, busy: bool)
     state == Some("OPEN") && gate && !busy
 }
 
-/// Branch-update failure copy (docs/0067 D6): stable-fragment match
-/// with the generic fallback carrying the upstream message — never raw
-/// prose in the panel, never guessed data in the message.
-pub(crate) fn update_branch_error_copy(message: &str) -> String {
-    let m = message.to_ascii_lowercase();
-    if m.contains("expectedheadoid")
-        || (m.contains("head") && m.contains("match"))
-        || (m.contains("branch") && m.contains("moved"))
-        || (m.contains("branch") && m.contains("changed"))
-    {
-        "The branch moved while you were viewing it — refreshing.".into()
-    } else if m.contains("conflict") {
-        "GitHub can't update this branch — the merge/rebase conflicts must be resolved first."
-            .into()
-    } else if m.contains("permission")
-        || m.contains("authorized")
-        || m.contains("not allowed")
-        || m.contains("protected")
-        || m.contains("protection")
-        || m.contains("forbidden")
-    {
-        "GitHub refused: your token can't update this branch (repository permissions or branch protection)."
-            .into()
-    } else {
-        format!("GitHub couldn't update the branch: {message}")
-    }
-}
-
 /// Comment-box gating (D4): a plain comment and a Request-changes
 /// review need a body — GitHub rejects both empty server-side (REST
 /// docs: `body` is required for `REQUEST_CHANGES`/`COMMENT`; only
@@ -6609,9 +6537,9 @@ mod tests {
         composer_body_allowed, default_method, gate_error_copy, merge_enabled, merge_state_line,
         pr_assignees_arming, pr_labels_arming, pr_milestone_arming, pr_reviewers_arming,
         pr_state_tone, review_batch_allowed, review_event, review_state_label, rollup_summary,
-        short_sha, split_repo, timeline_order, update_branch_enabled, update_branch_error_copy,
+        short_sha, split_repo, timeline_order, update_branch_enabled,
     };
-    use crate::service::{GithubCache, GithubState};
+    use crate::service::{GithubCache, GithubState, update_branch_error_copy};
     use crate::usage::Origin;
     use gpui::AppContext as _;
     use gpui::{Size, px};
@@ -6973,7 +6901,7 @@ mod tests {
         let error = error.expect("the failure records on the entry");
         assert_eq!(error.scope, ErrorScope::Panel);
         assert_eq!(error.message, "Network error: probe");
-        assert_eq!(mock.recorded().len(), 2);
+        assert_eq!(mock.recorded().len(), 2, "failures do not revalidate");
         vcx.update(|_, cx| {
             state.update(cx, |s, _| {
                 let alerts = s.take_pending_alerts();

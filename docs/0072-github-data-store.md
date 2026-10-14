@@ -142,8 +142,11 @@ state), then `begin_pending(entry, Merge)` — and the UI *everywhere* that
 renders that entry repaints from the store: the home row grows a muted
 "merging…" pill, the PR header button reads "working…" (the docs/0066 D5
 wording) with a spinner. The GraphQL call proceeds through the existing
-`spawn_mutation` continuation, but the continuation now resolves through the
-store, not the page:
+`spawn_mutation` continuation, and the continuation resolves **against the
+state entity, never the page that armed the op** — the resolver is
+session-scoped, so closing the PR page or navigating away mid-flight
+cannot orphan a pending document (the resolution is exactly what dies
+when a page-routed continuation loses its entity):
 
 - **success** → apply the confirmed fields to the document (`state = MERGED`,
   merged timestamp, …), clear `pending`, raise `toasts::success` with
@@ -157,6 +160,19 @@ presentation). Because pending lives on the *entry*, not the page, the user
 can navigate anywhere the instant they click — exactly the owner's scenario:
 merge, jump home, see the row flip when the confirmation lands, with no
 home refetch in between.
+
+**Hardening (shipped with the implementation, after a field report):** a
+pending op whose confirmation never lands — the arming page dropped
+mid-flight, or GitHub went silent — unblocks itself: the tick loop runs
+`expire_stale_pending` each beat, and a document pending longer than
+`PR_PENDING_MAX_AGE` (120 s) returns to its prior state with the inline
+surface explaining on next visit. **No toast** — an expiry does not know
+that the op failed upstream, and a "failed" toast would lie; a late
+confirmation is refused by its gone token (D6), so a slow-but-alive
+GitHub merge can never apply into an expired document uninvited. The
+success path's background revalidate (below) only flies while the arming
+page is still alive; a dead page's document revalidates on its own
+freshness gates at next open (D3).
 
 ### D5 — Concurrency: one pending op per entry, many entries in flight
 
