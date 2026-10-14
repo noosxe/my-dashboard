@@ -290,8 +290,10 @@ impl GithubAgentOps {
         };
         let (nodes, total_count, kind) = match which {
             Rows::Prs => (
-                repo.prs
-                    .nodes
+                // docs/0073 D3 (stage 2): derived rows — snapshot ⊗
+                // documents, the entry wins, OPEN-filtered (held open
+                // rows, §6).
+                s.repo_pr_rows(repo)
                     .iter()
                     .map(|n| serde_json::to_value(n).unwrap_or_default())
                     .collect::<Vec<_>>(),
@@ -608,7 +610,7 @@ mod tests {
             number: n,
             title: format!("PR {n}"),
             draft: false,
-            state: None,
+            state: Some("OPEN".into()),
             author: Some(Author {
                 login: "someone".into(),
                 avatar_url: String::new(),

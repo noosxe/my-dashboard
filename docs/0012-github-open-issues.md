@@ -122,7 +122,9 @@ The section is `GroupBox::new().id("issues-box")`, mirroring `prs-box`.
 
 ### D4 — Issue rows: the PR row treatment minus the draft badge
 
-`render_issue_row()` mirrors `render_pr_row()`:
+`render_issue_row()` mirrors `render_pr_row()` (whose rows, since
+docs/0073 D3 stage 2, derive from the repo snapshot ⊗ the PR document
+store — the entry wins, OPEN-filtered):
 
 - element id `issue-{key}` (`key` = `owner/name#number`, the 0007 D3 fallback
   identity) **plus a role** — `.role(accesskit::Role::ListItem)` (docs/0010

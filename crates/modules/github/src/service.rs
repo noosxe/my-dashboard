@@ -1816,6 +1816,12 @@ impl PrKey {
             number,
         }
     }
+
+    /// `"owner/name#123"` → key; `None` when the row key is malformed.
+    pub(crate) fn from_row_key(key: &str) -> Option<Self> {
+        let (repo, number) = key.split_once('#')?;
+        Some(PrKey::new(repo, number.parse().ok()?))
+    }
 }
 
 /// docs/0072 D1/D4 — the optimistic writes stages 1–2 cover; stage 3
@@ -2686,6 +2692,30 @@ impl GithubState {
         })
     }
 
+    /// docs/0073 D3 (stage 2) — the repo view's derived PR rows: the
+    /// snapshot's held rows ⊗ the documents (the entry wins — it
+    /// carries confirmations and fresher landings), filtered to OPEN.
+    /// The snapshot itself is the repo domain's persisted cache
+    /// (docs/0007 D6); the overlay makes the entry authoritative at
+    /// read time, so a confirmed merge/close leaves the list the
+    /// moment it confirms — the #561 semantics, repo-view edition.
+    /// Restored-from-disk snapshots (empty `pulls`) fall back to the
+    /// snapshot row — stale-by-cache honesty.
+    pub(crate) fn repo_pr_rows(&self, repo: &gql::Repo) -> Vec<gql::PullRequest> {
+        repo.prs
+            .nodes
+            .iter()
+            .map(|row| {
+                // Unparseable key or no document → the snapshot row
+                // itself (restored-from-disk honesty, docs/0007 D6).
+                PrKey::from_row_key(&row.key)
+                    .and_then(|key| self.pulls.get(&key))
+                    .map_or_else(|| row.clone(), |entry| entry.summary.clone())
+            })
+            .filter(|row| row.state.as_deref() == Some("OPEN"))
+            .collect()
+    }
+
     /// Land one summary row into its document (docs/0072 D2): stamped
     /// once, here. An existing document keeps its detail, books and
     /// pending state — a summary refresh never resets them.
@@ -3283,6 +3313,14 @@ impl GithubState {
                             Some(value) => match gql::repo_from_value(&value) {
                                 Some(repo) => {
                                     let prs = repo.prs.total_count;
+                                    // docs/0073 D4 (stage 2): snapshot rows
+                                    // are PR facts — land them into the
+                                    // document store so every surface (the
+                                    // PR page, the overlays) reads one copy.
+                                    let full_name = repo.full_name.clone();
+                                    for row in &repo.prs.nodes {
+                                        self.land_summary(&full_name, row);
+                                    }
                                     let ident = result.ident.clone().unwrap_or_default();
                                     self.merge_repos(vec![repo], false);
                                     self.persist_snapshot();
@@ -7146,6 +7184,130 @@ mod tests {
         assert_eq!(numbers, vec![9, 7]);
         assert_eq!(view.total_count, 4);
         assert!(view.complete && !view.has_cursor);
+    }
+
+    /// docs/0073 D4 (stage 2) — the repo snapshot lands its PR rows
+    /// into the document store, and the repo view's derived list
+    /// overlays entries onto the snapshot: the entry wins, OPEN-
+    /// filtered — a confirmed merge leaves the repo list on confirm.
+    #[test]
+    fn repo_snapshot_lands_rows_and_the_view_overlays_entries() {
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        let body = r#"{"data":{"repository":{"databaseId":7,"id":"R_1","hasIssuesEnabled":true,
+            "name":"r","nameWithOwner":"o/r","description":null,"isPrivate":false,
+            "pushedAt":"2026-09-01T00:00:00Z","owner":{"login":"o"},
+            "pullRequests":{"totalCount":2,"nodes":[
+                {"databaseId":11,"number":123,"title":"feat: x","isDraft":false,
+                 "state":"OPEN","author":null,"updatedAt":"u","url":"u1",
+                 "statusCheckRollup":{"state":"SUCCESS"}},
+                {"databaseId":12,"number":124,"title":"feat: y","isDraft":false,
+                 "state":"OPEN","author":null,"updatedAt":"u","url":"u2"}]}},
+            "issues":{"totalCount":0,"nodes":[]}}}"#;
+        state.apply(SpecResult {
+            kind: Kind::RepoSnapshot,
+            ident: Some("repo:o/r".into()),
+            status: 200,
+            etag: None,
+            rate: None,
+            body: Some(body.into()),
+            network: None,
+            cursor: None,
+        });
+
+        // The landing enriched the document store: both rows are
+        // documents now.
+        assert!(state.pr_entry("o/r", 123).is_some());
+        assert!(state.pr_entry("o/r", 124).is_some());
+
+        let view = {
+            let repo = state.repos.iter().find(|r| r.key == "o/r").unwrap();
+            state.repo_pr_rows(repo)
+        };
+        assert_eq!(view.len(), 2, "both open before the merge");
+
+        // Confirm a merge on #123: the entry wins, the OPEN filter
+        // drops it — no snapshot landing involved.
+        let token = state
+            .begin_pending("o/r", 123, PendingKind::Merge)
+            .expect("arms a pending op");
+        let ok = SpecResult {
+            kind: Kind::PrMutation(Mutation::Merge),
+            ident: None,
+            status: 200,
+            etag: None,
+            rate: None,
+            body: Some("{}".into()),
+            network: None,
+            cursor: None,
+        };
+        assert!(state.apply_store_mutation_result("o/r", 123, PendingKind::Merge, token, ok));
+        let view = {
+            let repo = state.repos.iter().find(|r| r.key == "o/r").unwrap();
+            state.repo_pr_rows(repo)
+        };
+        assert_eq!(view.len(), 1);
+        assert_eq!(view[0].number, 124, "the survivor keeps snapshot order");
+
+        // The entry also wins on fresher facts: a landed rollup shows
+        // through the overlay even though the snapshot row predates it.
+        let mut d = store_detail(124);
+        d.rollup_state = Some("FAILURE".into());
+        state.land_detail("o/r", 124, d);
+        let view = {
+            let repo = state.repos.iter().find(|r| r.key == "o/r").unwrap();
+            state.repo_pr_rows(repo)
+        };
+        assert_eq!(view[0].status.as_deref(), Some("FAILURE"));
+    }
+
+    /// docs/0073 D1 — the fact-copy audit: no struct field outside the
+    /// store may hold a PR fact. Handoff params and event payloads
+    /// (`open_pr`'s row, the creator's `Created` event) are messages,
+    /// not holders; the repo snapshot (service.rs) is the repo
+    /// domain's persisted cache (docs/0007 D6) and is reviewed by hand.
+    #[test]
+    fn no_pr_fact_fields_outside_the_store() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        // An owned PR-fact field: `name: gql::X`, optionally behind
+        // `Option<` / `Vec<` / `Box<` (nested allowed). Borrowed shapes
+        // (`&gql::…` params, `-> …` returns) are views, not holders.
+        fn is_pr_fact_field(line: &str) -> bool {
+            let t = line.trim_start();
+            let Some((_, rest)) = t.split_once(": ") else {
+                return false;
+            };
+            let mut rest = rest;
+            while let Some(inner) = rest
+                .strip_prefix("Option<")
+                .or_else(|| rest.strip_prefix("Vec<"))
+                .or_else(|| rest.strip_prefix("Box<"))
+            {
+                rest = inner;
+            }
+            rest.starts_with("gql::PullRequest") || rest.starts_with("gql::PrDetail")
+        }
+        let mut offenders = Vec::new();
+        for entry in std::fs::read_dir(&dir).unwrap().flatten() {
+            let path = entry.path();
+            if path.extension().is_none_or(|e| e != "rs") {
+                continue;
+            }
+            if path.file_name().is_some_and(|n| n == "service.rs") {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).unwrap();
+            let code = text.split("#[cfg(test)]").next().unwrap_or("");
+            for (ix, line) in code.lines().enumerate() {
+                if is_pr_fact_field(line) {
+                    offenders.push(format!("{}:{}: {}", path.display(), ix + 1, line.trim()));
+                }
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "PR-fact fields outside the store:\n{}",
+            offenders.join("\n")
+        );
     }
 
     // --- Token refresh (docs/0011 §6) ---------------------------------
