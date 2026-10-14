@@ -134,10 +134,12 @@ store.
 
 ## 4 — Staged implementation
 
-1. **Stage 1 — the lane loses its copies.** `HomeLane` index (D2),
-   `lane_rows` selector + Open PRs view switch (D3), `PrDetailPage.summary`
-   removal (D4), delete #561's lane-row patch and local `retain` filter
-   (D6). Journey test (D8) lands here.
+1. **Stage 1 — the lane loses its copies.** ✅ Shipped: `HomeLane` index
+   (D2), the `lane_view` selector + Open PRs view switch (D3),
+   `PrDetailPage.summary` removal (D4 — the page reads the store's
+   entry; `open_pr` lands the row before the page exists), #561's
+   lane-row patch and local `retain` filter deleted (D6), and the
+   journey test (D8) pinning the merge→open-list seam.
 2. **Stage 2 — the audit.** Enumerate every remaining holder of PR facts
    (repo-view lane rows, agent-read projections, test fixtures excluded)
    and fold each into the store: index or delete. The D1 test enforces.

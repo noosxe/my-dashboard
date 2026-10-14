@@ -447,7 +447,7 @@ pub enum Kind {
     /// docs/0047 D2 — the home lane: one GraphQL search page of the
     /// selected account's open PRs (`org:`/`user:` scope in the query,
     /// ident `"scope:login"`). State-stamped like the snapshot lanes:
-    /// results land on [`GithubState::home_prs`] keyed by account, so a
+    /// results land on [`GithubState::home_lanes`] keyed by account, so a
     /// switch shows the cached snapshot immediately and refetches. No
     /// etag — GraphQL has no conditional path; refreshes are full
     /// first-page fetches deduped by the docs/0031 guard. "Load more"
@@ -502,7 +502,7 @@ pub enum Kind {
 /// docs/0047 D2 — which account qualifier a home snapshot was fetched
 /// with: `user:` scopes to repos owned by the personal account, `org:`
 /// to an organization's. Rides the FetchSpec ident (`"scope:login"`) and
-/// keys [`GithubState::home_prs`].
+/// keys [`GithubState::home_lanes`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) enum HomeScope {
     User,
@@ -531,12 +531,15 @@ impl HomeScope {
     }
 }
 
-/// docs/0047 D2 — one account's landed home snapshot: the search pages
-/// landed so far (page 1 + any "Load more" appends), the honest match
-/// count, and the paging state.
+/// docs/0047 D2 + docs/0073 D2 — one account's landed home lane: what
+/// is *not* PR data. `order` is the server's key order (which
+/// documents the lane shows, in order); the rows themselves live only
+/// in `pulls` and the view derives them (`GithubState::lane_view`,
+/// docs/0073 D3) — a stored row copy here is what let a confirmed
+/// merge go unnoticed until the next landing (#561).
 #[derive(Clone)]
-pub(crate) struct HomePullRequests {
-    pub nodes: Vec<gql::PullRequest>,
+pub(crate) struct HomeLane {
+    pub order: Vec<PrKey>,
     /// `issueCount` — the full match count, cap or no cap.
     pub total_count: i64,
     /// `!hasNextPage` from the last landing — also true at the search
@@ -545,6 +548,16 @@ pub(crate) struct HomePullRequests {
     /// The cursor the next "Load more" page resumes from; `None` when
     /// complete or when the last page carried no cursor.
     pub cursor: Option<String>,
+}
+
+/// docs/0073 D3 — the Open PRs view's per-frame derivation: server key
+/// order ⊗ documents, filtered to OPEN. A transient view
+/// materialization, never stored — the fact lives only in the entry.
+pub(crate) struct LaneView {
+    pub rows: Vec<gql::PullRequest>,
+    pub total_count: i64,
+    pub complete: bool,
+    pub has_cursor: bool,
 }
 
 /// The five PR-page mutations (docs/0016 §6.2), each mapping to one
@@ -2015,7 +2028,7 @@ pub struct GithubState {
     /// while the refetch flies. Session-only — never persisted, never
     /// seeded; docs/0034 disk-seeding stays a snapshot/notifications
     /// affair.
-    pub(crate) home_prs: BTreeMap<(String, HomeScope), HomePullRequests>,
+    pub(crate) home_lanes: BTreeMap<(String, HomeScope), HomeLane>,
     /// The home lane's landed clock (the notifications-lane pattern,
     /// docs/0038 D7): the age gate reads it; backoff books sit beside it.
     pub(crate) home_landed: Option<Instant>,
@@ -2167,7 +2180,7 @@ impl GithubState {
             notifications_landed: None,
             notifications_fail_streak: 0,
             notifications_attempted_at: None,
-            home_prs: BTreeMap::new(),
+            home_lanes: BTreeMap::new(),
             home_landed: None,
             home_fail_streak: 0,
             home_attempted_at: None,
@@ -2650,6 +2663,29 @@ impl GithubState {
             .and_then(|e| e.pending.as_ref().map(|op| op.kind))
     }
 
+    /// docs/0073 D3 — the Open PRs selector: the lane's server key
+    /// order ⊗ the documents, filtered to OPEN at read time. Missing
+    /// entries (evicted, signed out) are skipped; `None` = the lane
+    /// never landed (the view owns skeletons). The rows are a per-frame
+    /// view materialization — they cannot go stale between frames,
+    /// because they are rebuilt from the store every single time.
+    pub(crate) fn lane_view(&self, login: &str, scope: HomeScope) -> Option<LaneView> {
+        let lane = self.home_lanes.get(&(login.to_string(), scope))?;
+        let rows = lane
+            .order
+            .iter()
+            .filter_map(|key| self.pulls.get(key))
+            .filter(|e| e.summary.state.as_deref() == Some("OPEN"))
+            .map(|e| e.summary.clone())
+            .collect();
+        Some(LaneView {
+            rows,
+            total_count: lane.total_count,
+            complete: lane.complete,
+            has_cursor: lane.cursor.is_some(),
+        })
+    }
+
     /// Land one summary row into its document (docs/0072 D2): stamped
     /// once, here. An existing document keeps its detail, books and
     /// pending state — a summary refresh never resets them.
@@ -2795,19 +2831,13 @@ impl GithubState {
             if let Some(detail) = &mut entry.detail {
                 detail.state = Some(state.to_string());
             }
-            // docs/0072 D4 — a confirmed state is a shared fact across
-            // every store surface: the home lane carries the same row,
-            // so patch it there too. The open-PRs list reflects the
-            // merge/close the moment it confirms — not when the next
-            // lane landing arrives (the view filter then drops it).
-            let doc_key = format!("{repo}#{number}");
-            for lane in self.home_prs.values_mut() {
-                for node in &mut lane.nodes {
-                    if node.key == doc_key {
-                        node.state = Some(state.to_string());
-                    }
-                }
-            }
+            // docs/0072 D4 + docs/0073 D6 — the confirmed state is a
+            // shared fact: it lives once, on the entry, and every
+            // surface reading the entry (open list, page header, merge
+            // rail) is correct by construction — the open list derives
+            // from this entry at read time, so the merge/close shows up
+            // the moment it confirms. No lane patch needed: lanes hold
+            // no rows (docs/0073 D2).
         }
         self.pending_alerts.push(
             dashboard_core::toasts::Toast::new(
@@ -3317,26 +3347,36 @@ impl GithubState {
 
                         // docs/0072 D2: home rows are the summary layer —
                         // every landed page lands its rows into the
-                        // document store too (documents keep their
+                        // document store (documents keep their
                         // detail/pending books across refreshes).
                         for row in &page.nodes {
                             let repo = row.key.split('#').next().unwrap_or_default();
                             self.land_summary(repo, row);
                         }
+                        // docs/0073 D2: the lane records only the server
+                        // key order — never the rows themselves.
+                        let order = page
+                            .nodes
+                            .iter()
+                            .map(|row| {
+                                let repo = row.key.split('#').next().unwrap_or_default();
+                                PrKey::new(repo, row.number)
+                            })
+                            .collect();
                         let appending = result.cursor.is_some();
                         let entry = self
-                            .home_prs
+                            .home_lanes
                             .entry(key)
-                            .or_insert_with(|| HomePullRequests {
-                                nodes: Vec::new(),
+                            .or_insert_with(|| HomeLane {
+                                order: Vec::new(),
                                 total_count: 0,
                                 complete: true,
                                 cursor: None,
                             });
                         if appending {
-                            entry.nodes.extend(page.nodes);
+                            entry.order.extend(order);
                         } else {
-                            entry.nodes = page.nodes;
+                            entry.order = order;
                         }
                         entry.total_count = page.total_count;
                         entry.complete = !page.has_next_page;
@@ -3347,7 +3387,7 @@ impl GithubState {
                             "home-prs applied: {}:{}, {} of {} open PRs{}",
                             scope.qualifier(),
                             login,
-                            entry.nodes.len(),
+                            entry.order.len(),
                             entry.total_count,
                             suffix
                         );
@@ -5486,8 +5526,8 @@ mod tests {
     #[test]
     fn apply_home_prs_lands_and_appends() {
         let mut state = make_state(Arc::new(MockHttp::new(vec![])));
-        let page1 = r#"{"data":{"search":{"issueCount":5,"pageInfo":{"hasNextPage":true,"endCursor":"c1"},"nodes":[{"number":1,"title":"a","repository":{"nameWithOwner":"acme/one"}}]}}}"#;
-        let page2 = r#"{"data":{"search":{"issueCount":5,"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[{"number":2,"title":"b","repository":{"nameWithOwner":"acme/two"}}]}}}"#;
+        let page1 = r#"{"data":{"search":{"issueCount":5,"pageInfo":{"hasNextPage":true,"endCursor":"c1"},"nodes":[{"state":"OPEN","number":1,"title":"a","repository":{"nameWithOwner":"acme/one"}}]}}}"#;
+        let page2 = r#"{"data":{"search":{"issueCount":5,"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[{"state":"OPEN","number":2,"title":"b","repository":{"nameWithOwner":"acme/two"}}]}}}"#;
 
         // Page 1 replaces.
         state.apply(SpecResult {
@@ -5501,10 +5541,10 @@ mod tests {
             cursor: None,
         });
         let entry = state
-            .home_prs
+            .home_lanes
             .get(&("acme".into(), HomeScope::Org))
             .unwrap();
-        assert_eq!(entry.nodes.len(), 1);
+        assert_eq!(entry.order.len(), 1);
         assert_eq!(entry.total_count, 5);
         assert!(!entry.complete && entry.cursor.as_deref() == Some("c1"));
         assert!(state.home_error.is_none() && state.home_landed.is_some());
@@ -5521,13 +5561,17 @@ mod tests {
             cursor: Some("c1".into()),
         });
         let entry = state
-            .home_prs
+            .home_lanes
             .get(&("acme".into(), HomeScope::Org))
             .unwrap();
-        assert_eq!(entry.nodes.len(), 2, "appended");
-        assert_eq!(entry.nodes[0].key, "acme/one#1");
-        assert_eq!(entry.nodes[1].key, "acme/two#2");
+        assert_eq!(entry.order.len(), 2, "appended");
         assert!(entry.complete);
+        // docs/0073 D3 — the derived list serves the rows in server
+        // order from the documents.
+        let view = state.lane_view("acme", HomeScope::Org).unwrap();
+        assert_eq!(view.rows.len(), 2);
+        assert_eq!(view.rows[0].key, "acme/one#1");
+        assert_eq!(view.rows[1].key, "acme/two#2");
 
         // A failure books the lane: stale snapshot stays, error recorded,
         // backoff armed — the docs/0047 D3 retry state.
@@ -5543,10 +5587,10 @@ mod tests {
         });
         assert_eq!(
             state
-                .home_prs
+                .home_lanes
                 .get(&("acme".into(), HomeScope::Org))
                 .unwrap()
-                .nodes
+                .order
                 .len(),
             2
         );
@@ -7022,66 +7066,86 @@ mod tests {
         assert_eq!(entry.summary.status.as_deref(), Some("PENDING"));
     }
 
-    /// docs/0072 D4: a confirmed merge/close is a shared fact across the
-    /// store's surfaces — the lane row carries the state too, so the
-    /// open-PRs view (which filters on it, matching its `is:open`
-    /// search) drops the row the moment the op confirms, not at the
-    /// next lane landing.
+    /// docs/0073 D8 — the journey test: land a lane, derive the open
+    /// list, confirm a merge — the derived list drops the row and the
+    /// document shows MERGED, with no lane landing in between. This is
+    /// the seam behind the #561 field report, pinned permanently.
     #[test]
-    fn confirmed_mutation_patches_the_lane_row() {
-        for kind in [PendingKind::Merge, PendingKind::Close] {
-            let mut state = make_state(Arc::new(MockHttp::new(vec![])));
-            state.land_summary("acme/one", &store_row(7));
-            let mut d = store_detail(7);
-            d.state = Some("OPEN".into());
-            state.land_detail("acme/one", 7, d);
-            state.home_prs.insert(
-                ("acme".to_string(), HomeScope::User),
-                HomePullRequests {
-                    nodes: vec![store_row(7), store_row(8)],
-                    total_count: 2,
-                    complete: true,
-                    cursor: None,
-                },
-            );
-
-            let token = state
-                .begin_pending("acme/one", 7, kind)
-                .expect("arms a pending op");
-            let ok = SpecResult {
-                kind: Kind::PrMutation(Mutation::Merge),
-                ident: None,
-                status: 200,
-                etag: None,
-                rate: None,
-                body: Some("{}".into()),
-                network: None,
+    fn confirmed_merge_drops_the_row_in_the_derived_open_list() {
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.land_summary("acme/one", &store_row(7));
+        state.land_summary("acme/one", &store_row(8));
+        state.home_lanes.insert(
+            ("acme".to_string(), HomeScope::User),
+            HomeLane {
+                order: vec![PrKey::new("acme/one", 7), PrKey::new("acme/one", 8)],
+                total_count: 2,
+                complete: true,
                 cursor: None,
-            };
-            let confirmed = state.apply_store_mutation_result("acme/one", 7, kind, token, ok);
-            assert!(confirmed);
+            },
+        );
+        let view = state.lane_view("acme", HomeScope::User).unwrap();
+        assert_eq!(view.rows.len(), 2, "both open before the merge");
 
-            let expected = if kind == PendingKind::Merge {
-                "MERGED"
-            } else {
-                "CLOSED"
-            };
-            let entry = state.pr_entry("acme/one", 7).unwrap();
-            assert_eq!(entry.summary.state.as_deref(), Some(expected));
+        let token = state
+            .begin_pending("acme/one", 7, PendingKind::Merge)
+            .expect("arms a pending op");
+        let ok = SpecResult {
+            kind: Kind::PrMutation(Mutation::Merge),
+            ident: None,
+            status: 200,
+            etag: None,
+            rate: None,
+            body: Some("{}".into()),
+            network: None,
+            cursor: None,
+        };
+        assert!(state.apply_store_mutation_result("acme/one", 7, PendingKind::Merge, token, ok));
 
-            // The lane row carries the confirmed state…
-            let lane = &state.home_prs[&("acme".to_string(), HomeScope::User)];
-            assert_eq!(lane.nodes[0].state.as_deref(), Some(expected));
-            // …so the view's open filter drops it and keeps the
-            // untouched row.
-            let open: Vec<&gql::PullRequest> = lane
-                .nodes
-                .iter()
-                .filter(|r| r.state.as_deref() == Some("OPEN"))
-                .collect();
-            assert_eq!(open.len(), 1);
-            assert_eq!(open[0].number, 8);
-        }
+        // The document is MERGED and the derived open list has dropped
+        // the row — no landing involved.
+        let entry = state.pr_entry("acme/one", 7).unwrap();
+        assert_eq!(entry.summary.state.as_deref(), Some("MERGED"));
+        let view = state.lane_view("acme", HomeScope::User).unwrap();
+        assert_eq!(view.rows.len(), 1);
+        assert_eq!(view.rows[0].number, 8, "server order kept for the rest");
+    }
+
+    /// docs/0073 D3 — the selector: server key order ⊗ documents,
+    /// filtered to OPEN; missing entries skipped; `None` when the lane
+    /// never landed.
+    #[test]
+    fn lane_view_derives_from_index_and_documents() {
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        assert!(state.lane_view("acme", HomeScope::User).is_none());
+
+        state.land_summary("acme/one", &store_row(7));
+        let mut closed = store_row(8);
+        closed.state = Some("CLOSED".into());
+        state.land_summary("acme/one", &closed);
+        state.land_summary("acme/two", &store_row(9));
+        state.home_lanes.insert(
+            ("acme".to_string(), HomeScope::User),
+            HomeLane {
+                order: vec![
+                    PrKey::new("acme/two", 9),
+                    PrKey::new("acme/one", 8),
+                    PrKey::new("acme/one", 7),
+                    PrKey::new("acme/one", 99),
+                ],
+                total_count: 4,
+                complete: true,
+                cursor: None,
+            },
+        );
+
+        let view = state.lane_view("acme", HomeScope::User).unwrap();
+        // Server order; the CLOSED document is filtered; the entry-less
+        // key (never landed / evicted) is skipped.
+        let numbers: Vec<i64> = view.rows.iter().map(|r| r.number).collect();
+        assert_eq!(numbers, vec![9, 7]);
+        assert_eq!(view.total_count, 4);
+        assert!(view.complete && !view.has_cursor);
     }
 
     // --- Token refresh (docs/0011 §6) ---------------------------------

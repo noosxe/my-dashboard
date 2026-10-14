@@ -135,6 +135,15 @@ their own behavior (docs/0016 stage 4/5: Files REST walk, checks pane) —
 they render from the landed detail as today, just out of the store instead
 of out of the page.
 
+**The lane holds an index, not rows (docs/0073):** the home lane's row
+copies (`HomePullRequests::nodes`) were the third surface holding PR
+facts — the one that let a confirmed merge go unnoticed until the next
+landing (#561). Superseded: lanes record server key order + pagination
+books (`HomeLane`), and the open list *derives* from the documents
+(docs/0073 D3). D4's "confirmed state is a shared fact" is structural
+now: the confirmation writes the entry, and every surface reading the
+entry — including the derived list — is correct by construction.
+
 **The rollup is a shared fact (shipped hardening, after a field report):**
 both layers carry `statusCheckRollup.state`, and the two lanes refresh at
 different cadences (summary: the 60 s home lane; detail: this TTL) — which

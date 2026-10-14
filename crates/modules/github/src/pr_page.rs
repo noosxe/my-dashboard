@@ -204,9 +204,6 @@ pub(crate) struct PrDetailPage {
     /// `owner/repo` of the PR's repository.
     repo: String,
     pub(crate) number: i64,
-    /// The snapshot row that opened the page — instant header paint while
-    /// the detail query is in flight.
-    summary: gql::PullRequest,
     tab: PrTab,
     focus_handle: FocusHandle,
     /// Comment box (D4): draft textarea + action select.
@@ -398,7 +395,7 @@ impl PrDetailPage {
     pub(crate) fn new(
         state: Entity<GithubState>,
         repo: String,
-        summary: gql::PullRequest,
+        number: i64,
         anchor: Option<i64>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -452,7 +449,6 @@ impl PrDetailPage {
             .unwrap_or(dashboard_core::panes::FILES_SIDEBAR_DEFAULT);
         let files_split = cx.new(|_| ResizableState::default());
         let files_handle_focus = cx.focus_handle();
-        let number = summary.number;
         // 0045 D4: restore the comment draft. `set_value` suppresses
         // events, so the prefill cannot schedule the save it came from.
         let draft = state
@@ -476,7 +472,6 @@ impl PrDetailPage {
             state,
             repo,
             number,
-            summary,
             tab: PrTab::Conversation,
             focus_handle: cx.focus_handle(),
             comment,
@@ -601,10 +596,6 @@ impl PrDetailPage {
         // change (selection, expand, collapse) and the diff pane reads
         // `selected_entry()` at render time.
         cx.observe(&file_tree, |_, _, cx| cx.notify()).detach();
-        // docs/0072 D2: the clicked row is the document's summary
-        // layer — land it so the store holds every open document.
-        page.state
-            .update(cx, |s, _| s.land_summary(&page.repo, &page.summary));
         // docs/0053 D2: the construction fetch is the page's view-shown.
         // docs/0072 D2: the page subscribes to the store — document
         // landings (home-lane summary refreshes, optimistic ops) repaint it.
@@ -647,6 +638,17 @@ impl PrDetailPage {
             .read(cx)
             .pr_entry(&self.repo, self.number)
             .and_then(|e| e.detail.as_ref())
+    }
+
+    /// The document's summary layer, read from the store (docs/0073
+    /// D4) — `open_pr` lands it before this page exists, so the header
+    /// always paints from the entry. `None` = signed out mid-view
+    /// (defensive skeleton).
+    fn summary<'a>(&self, cx: &'a App) -> Option<&'a gql::PullRequest> {
+        self.state
+            .read(cx)
+            .pr_entry(&self.repo, self.number)
+            .map(|e| &e.summary)
     }
 
     /// The detail read's last failure, from the store (docs/0072 D3) —
@@ -3543,22 +3545,37 @@ impl PrDetailPage {
                 d.created_at.clone(),
                 d.url.clone(),
             ),
-            None => (
-                self.summary.title.clone(),
-                self.summary.number,
-                // The snapshot only lists OPEN PRs; a draft stays a draft
-                // until the detail payload says otherwise.
-                if self.summary.draft {
-                    PrStateTone::Draft
-                } else {
-                    PrStateTone::Open
-                },
-                self.summary.author.clone(),
-                None,
-                None,
-                self.summary.updated_at.clone(),
-                self.summary.url.clone(),
-            ),
+            None => match self.summary(cx) {
+                // docs/0073 D4 — no page-local snapshot: the header
+                // paints from the store's entry (the lane landed it
+                // before the page existed). The snapshot only lists
+                // OPEN PRs; a draft stays a draft until the detail
+                // payload says otherwise.
+                Some(s) => (
+                    s.title.clone(),
+                    s.number,
+                    if s.draft {
+                        PrStateTone::Draft
+                    } else {
+                        PrStateTone::Open
+                    },
+                    s.author.clone(),
+                    None,
+                    None,
+                    s.updated_at.clone(),
+                    s.url.clone(),
+                ),
+                None => (
+                    format!("#{}", self.number),
+                    self.number,
+                    PrStateTone::Open,
+                    None,
+                    None,
+                    None,
+                    None,
+                    String::new(),
+                ),
+            },
         };
         let commits = detail.as_ref().map(|d| d.commits.total_count);
         let branch_meta = match (&base, &head) {
@@ -6674,14 +6691,7 @@ mod tests {
 
         // Cold open: the eager view-shown dispatch fires (and fails).
         let _cold = cx.add_window_view(|window, cx| {
-            PrDetailPage::new(
-                state.clone(),
-                "o/r".into(),
-                summary("cold"),
-                None,
-                window,
-                cx,
-            )
+            PrDetailPage::new(state.clone(), "o/r".into(), 7, None, window, cx)
         });
         cx.run_until_parked();
         assert_eq!(mock.recorded().len(), 1, "cold open fetches");
@@ -6699,14 +6709,7 @@ mod tests {
         // Warm open: the young document paints from the store — no
         // dispatch, and the render caches build from the cached payload.
         cx.add_window_view(|window, cx| {
-            PrDetailPage::new(
-                state.clone(),
-                "o/r".into(),
-                summary("warm"),
-                None,
-                window,
-                cx,
-            )
+            PrDetailPage::new(state.clone(), "o/r".into(), 7, None, window, cx)
         });
         cx.run_until_parked();
         assert_eq!(
@@ -6787,8 +6790,9 @@ mod tests {
             labels: None,
             review_requests: None,
         };
+        state.update(cx, |s, _| s.land_summary("o/r", &summary));
         let (page, vcx) = cx.add_window_view(|window, cx| {
-            PrDetailPage::new(state.clone(), "o/r".into(), summary, None, window, cx)
+            PrDetailPage::new(state.clone(), "o/r".into(), 7, None, window, cx)
         });
         vcx.run_until_parked();
         assert_eq!(mock.recorded().len(), 1, "the eager construction fetch");
@@ -6896,8 +6900,9 @@ mod tests {
             labels: None,
             review_requests: None,
         };
+        state.update(cx, |s, _| s.land_summary("o/r", &summary));
         let (page, vcx) = cx.add_window_view(|window, cx| {
-            PrDetailPage::new(state.clone(), "o/r".into(), summary, None, window, cx)
+            PrDetailPage::new(state.clone(), "o/r".into(), 7, None, window, cx)
         });
         vcx.run_until_parked();
         vcx.update(|_, cx| {
@@ -6999,7 +7004,8 @@ mod tests {
                 labels: None,
                 review_requests: None,
             };
-            PrDetailPage::new(state.clone(), "o/r".into(), summary, None, window, cx)
+            state.update(cx, |s, _| s.land_summary("o/r", &summary));
+            PrDetailPage::new(state.clone(), "o/r".into(), 7, None, window, cx)
         });
         cx.run_until_parked();
         assert_eq!(mock.recorded().len(), 1, "the eager detail fetch only");
@@ -7123,7 +7129,8 @@ mod tests {
                 labels: None,
                 review_requests: None,
             };
-            PrDetailPage::new(state, "o/r".into(), summary, None, window, cx)
+            state.update(cx, |s, _| s.land_summary("o/r", &summary));
+            PrDetailPage::new(state, "o/r".into(), 7, None, window, cx)
         });
         vcx.run_until_parked();
         assert!(
@@ -7186,8 +7193,9 @@ mod tests {
                 labels: None,
                 review_requests: None,
             };
+            state.update(cx, |s, _| s.land_summary("o/r", &summary));
             // `new` dispatches the first fetch — the transport errors.
-            PrDetailPage::new(state.clone(), "o/r".into(), summary, None, window, cx)
+            PrDetailPage::new(state.clone(), "o/r".into(), 7, None, window, cx)
         });
 
         cx.run_until_parked();
@@ -7254,7 +7262,8 @@ mod tests {
                 labels: None,
                 review_requests: None,
             };
-            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
+            state.update(cx, |s, _| s.land_summary("o/r", &summary));
+            let mut page = PrDetailPage::new(state, "o/r".into(), 7, None, window, cx);
             page.tab = PrTab::Files;
             page.files = Fetch::ready(vec![
                 probe_file("src/main.rs"),
@@ -7414,7 +7423,8 @@ mod tests {
                 labels: None,
                 review_requests: None,
             };
-            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
+            state.update(cx, |s, _| s.land_summary("o/r", &summary));
+            let mut page = PrDetailPage::new(state, "o/r".into(), 7, None, window, cx);
             page.tab = PrTab::Files;
             page.files = Fetch::ready(vec![PrFile {
                 filename: "src/main.rs".into(),
@@ -7497,7 +7507,8 @@ mod tests {
                 labels: None,
                 review_requests: None,
             };
-            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
+            state.update(cx, |s, _| s.land_summary("o/r", &summary));
+            let mut page = PrDetailPage::new(state, "o/r".into(), 7, None, window, cx);
             page.tab = PrTab::Files;
             // probe_file's patch anchors +b at new-side line 1.
             page.files = Fetch::ready(vec![probe_file("src/main.rs")]);
@@ -7586,7 +7597,8 @@ mod tests {
                 labels: None,
                 review_requests: None,
             };
-            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
+            state.update(cx, |s, _| s.land_summary("o/r", &summary));
+            let mut page = PrDetailPage::new(state, "o/r".into(), 7, None, window, cx);
             page.tab = PrTab::Files;
             page.files = Fetch::ready(vec![probe_file("src/main.rs")]);
             page.threads = Fetch::ready(gql::PrThreads {
@@ -7648,7 +7660,8 @@ mod tests {
                 labels: None,
                 review_requests: None,
             };
-            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
+            state.update(cx, |s, _| s.land_summary("o/r", &summary));
+            let mut page = PrDetailPage::new(state, "o/r".into(), 7, None, window, cx);
             let mut d = probe_detail();
             // Arm the label picker: the fixture's second label is the
             // degraded node — give it an id so the tables below toggle
@@ -7806,7 +7819,8 @@ mod tests {
                 labels: None,
                 review_requests: None,
             };
-            let mut page = PrDetailPage::new(state, "o/r".into(), summary, anchor, window, cx);
+            state.update(cx, |s, _| s.land_summary("o/r", &summary));
+            let mut page = PrDetailPage::new(state, "o/r".into(), 7, anchor, window, cx);
             page.state.update(cx, |s, _| {
                 s.land_detail(&page.repo, page.number, probe_detail())
             });
@@ -8153,7 +8167,8 @@ mod tests {
                 labels: None,
                 review_requests: None,
             };
-            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
+            state.update(cx, |s, _| s.land_summary("o/r", &summary));
+            let mut page = PrDetailPage::new(state, "o/r".into(), 7, None, window, cx);
             page.state.update(cx, |s, _| {
                 s.land_detail(&page.repo, page.number, probe_detail())
             });
@@ -8272,7 +8287,8 @@ mod tests {
                 labels: None,
                 review_requests: None,
             };
-            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
+            state.update(cx, |s, _| s.land_summary("o/r", &summary));
+            let mut page = PrDetailPage::new(state, "o/r".into(), 7, None, window, cx);
             page.state.update(cx, |s, _| {
                 s.land_detail(&page.repo, page.number, probe_detail())
             });
@@ -8383,7 +8399,8 @@ mod tests {
                 labels: None,
                 review_requests: None,
             };
-            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
+            state.update(cx, |s, _| s.land_summary("o/r", &summary));
+            let mut page = PrDetailPage::new(state, "o/r".into(), 7, None, window, cx);
             page.state.update(cx, |s, _| {
                 s.land_detail(&page.repo, page.number, probe_detail())
             });
@@ -8452,7 +8469,8 @@ mod tests {
                 labels: None,
                 review_requests: None,
             };
-            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
+            state.update(cx, |s, _| s.land_summary("o/r", &summary));
+            let mut page = PrDetailPage::new(state, "o/r".into(), 7, None, window, cx);
             page.state.update(cx, |s, _| {
                 s.land_detail(&page.repo, page.number, probe_detail())
             });
@@ -8680,14 +8698,10 @@ mod tests {
                  "conclusion":"FAILURE","checkSuite":{"app":{"slug":"github-actions"}}}
             ]}}}}}}"#;
         let (page, vcx) = cx.add_window_view(|window, cx| {
-            PrDetailPage::new(
-                state,
-                "o/r".into(),
-                probe_summary("o/r#7", 7),
-                None,
-                window,
-                cx,
-            )
+            // docs/0073 D4 — the summary lands first: `land_detail` only
+            // fills an existing document.
+            state.update(cx, |s, _| s.land_summary("o/r", &probe_summary("o/r#7", 7)));
+            PrDetailPage::new(state, "o/r".into(), 7, None, window, cx)
         });
         vcx.simulate_resize(gpui::Size {
             width: px(1024.),
@@ -8812,7 +8826,10 @@ mod tests {
         });
         let (page, _vcx) = cx.add_window_view(|window, cx| {
             let summary = probe_summary("o/r#7", 7);
-            let page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
+            // docs/0073 D4 — the summary lands first: `land_detail` only
+            // fills an existing document.
+            state.update(cx, |s, _| s.land_summary("o/r", &summary));
+            let page = PrDetailPage::new(state, "o/r".into(), 7, None, window, cx);
             let value = serde_json::json!({ "pullRequest": {
                 "id": "PR_1", "number": 7, "title": "t", "url": "u",
                 "state": "OPEN", "isDraft": false, "headRefOid": "abc123",
@@ -8880,7 +8897,10 @@ mod tests {
             ]}}}}}}"#;
         let (page, vcx) = cx.add_window_view(|window, cx| {
             let summary = probe_summary("o/r#7", 7);
-            PrDetailPage::new(state, "o/r".into(), summary, None, window, cx)
+            // docs/0073 D4 — the summary lands first: `land_detail` only
+            // fills an existing document.
+            state.update(cx, |s, _| s.land_summary("o/r", &summary));
+            PrDetailPage::new(state, "o/r".into(), 7, None, window, cx)
         });
         vcx.simulate_resize(gpui::Size {
             width: px(1024.),
@@ -9715,7 +9735,8 @@ mod tests {
                 labels: None,
                 review_requests: None,
             };
-            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
+            state.update(cx, |s, _| s.land_summary("o/r", &summary));
+            let mut page = PrDetailPage::new(state, "o/r".into(), 7, None, window, cx);
             page.tab = PrTab::Files;
             page.files = Fetch::ready(vec![probe_file("src/main.rs")]);
             page.threads = Fetch::ready(gql::PrThreads::default());
@@ -9803,7 +9824,8 @@ mod tests {
                 labels: None,
                 review_requests: None,
             };
-            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
+            state.update(cx, |s, _| s.land_summary("o/r", &summary));
+            let mut page = PrDetailPage::new(state, "o/r".into(), 7, None, window, cx);
             page.tab = PrTab::Files;
             page.files = Fetch::ready(vec![probe_file("src/main.rs")]);
             page.threads = Fetch::ready(gql::PrThreads::default());
@@ -9884,7 +9906,8 @@ mod tests {
                 labels: None,
                 review_requests: None,
             };
-            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
+            state.update(cx, |s, _| s.land_summary("o/r", &summary));
+            let mut page = PrDetailPage::new(state, "o/r".into(), 7, None, window, cx);
             page.tab = PrTab::Files;
             page.files = Fetch::ready(vec![probe_file("src/main.rs")]);
             let mut thread = probe_thread(0, Some(1), false, "please fix");
@@ -9953,7 +9976,8 @@ mod tests {
                 labels: None,
                 review_requests: None,
             };
-            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
+            state.update(cx, |s, _| s.land_summary("o/r", &summary));
+            let mut page = PrDetailPage::new(state, "o/r".into(), 7, None, window, cx);
             page.tab = PrTab::Files;
             page.files = Fetch::ready(vec![probe_file("src/main.rs")]);
             let mut thread = probe_thread(0, Some(1), false, "please fix");
@@ -10066,7 +10090,8 @@ mod tests {
                 labels: None,
                 review_requests: None,
             };
-            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
+            state.update(cx, |s, _| s.land_summary("o/r", &summary));
+            let mut page = PrDetailPage::new(state, "o/r".into(), 7, None, window, cx);
             page.tab = PrTab::Files;
             page.files = Fetch::ready(vec![PrFile {
                 filename: "src/main.rs".into(),
@@ -10173,7 +10198,8 @@ mod tests {
                 labels: None,
                 review_requests: None,
             };
-            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
+            state.update(cx, |s, _| s.land_summary("o/r", &summary));
+            let mut page = PrDetailPage::new(state, "o/r".into(), 7, None, window, cx);
             let mut d = probe_detail();
             // Keep the comment area un-muted: an armed editor state.
             d.labels[1].id = Some("L2".into());
@@ -10282,7 +10308,8 @@ mod tests {
                 labels: None,
                 review_requests: None,
             };
-            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
+            state.update(cx, |s, _| s.land_summary("o/r", &summary));
+            let mut page = PrDetailPage::new(state, "o/r".into(), 7, None, window, cx);
             let mut d = probe_detail();
             // Arm the label picker (both applied labels need ids).
             d.labels[1].id = Some("L2".into());
