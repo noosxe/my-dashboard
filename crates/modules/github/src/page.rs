@@ -155,7 +155,9 @@ pub(crate) struct GithubPage {
 #[derive(Clone)]
 pub(crate) enum GithubPlace {
     Repo(String),
-    Pr(String, gql::PullRequest),
+    /// Identity only — the row copy lives in the store (docs/0073
+    /// D4); restore re-opens from the entry.
+    Pr(String, i64),
     Issue(String, gql::Issue),
     NewIssue(gql::Repo),
     NewPr(gql::Repo),
@@ -165,7 +167,7 @@ impl GithubPlace {
     fn key(&self) -> String {
         match self {
             Self::Repo(name) => format!("repo:{name}"),
-            Self::Pr(repo, pr) => format!("pr:{repo}#{}", pr.number),
+            Self::Pr(repo, number) => format!("pr:{repo}#{number}"),
             Self::Issue(repo, issue) => format!("issue:{repo}#{}", issue.number),
             Self::NewIssue(repo) => format!("new-issue:{}", repo.full_name),
             Self::NewPr(repo) => format!("new-pr:{}", repo.full_name),
@@ -1089,7 +1091,19 @@ impl GithubPage {
                 let name = SharedString::from(name.clone());
                 self.select_repo(name, window, cx);
             }
-            GithubPlace::Pr(repo, pr) => self.open_pr(repo, pr, None, window, cx),
+            GithubPlace::Pr(repo, number) => {
+                // docs/0073 D4 (stage 2): the place carries identity —
+                // the store still holds the document (summaries persist
+                // for the session); restore re-opens from the entry.
+                let row = self
+                    .state
+                    .read(cx)
+                    .pr_entry(repo, *number)
+                    .map(|e| e.summary.clone());
+                if let Some(row) = &row {
+                    self.open_pr(repo, row, None, window, cx);
+                }
+            }
             GithubPlace::Issue(repo, issue) => self.open_issue(repo, issue, None, window, cx),
             GithubPlace::NewIssue(repo) => self.open_creator(repo, window, cx),
             GithubPlace::NewPr(repo) => self.open_creator_pr(repo, window, cx),
@@ -1199,7 +1213,7 @@ impl GithubPage {
         self.notification = None;
         self.pr = Some(page.clone());
         self.sync_repo_crumb(cx);
-        self.record_place(GithubPlace::Pr(repo.to_string(), pr.clone()), cx);
+        self.record_place(GithubPlace::Pr(repo.to_string(), pr.number), cx);
         let focus = page.read(cx).focus_handle(cx).clone();
         window.focus(&focus, cx);
         cx.notify();
@@ -2575,21 +2589,31 @@ impl GithubPage {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         // docs/0042 D1/D8: filters/sort apply at render over the held
-        // snapshot nodes — no fetch, no snapshot mutation.
-        let (pr_rows, issue_rows, notif_rows, pr_filtered, issue_filtered, notif_filtered) = {
-            let viewer = self.state.read(cx).user.as_ref().map(|u| u.login.clone());
+        // snapshot nodes — no fetch, no snapshot mutation. docs/0073
+        // D3 (stage 2): the PR rows derive first — snapshot ⊗
+        // documents, the entry wins, OPEN-filtered.
+        let (pr_rows, issue_rows, notif_rows, pr_filtered, issue_filtered, notif_filtered, pr_held) = {
+            let state = self.state.read(cx);
+            let viewer = state.user.as_ref().map(|u| u.login.clone());
             let search = self.filters.search.clone();
             let notifs = filters::apply_notifs(&self.filters.notifs, repo_notifs, &search);
             let notif_filtered = self.filters.notifs.is_filtered() || !search.is_empty();
+            // Bound outside the match: `apply_prs` filters by
+            // reference, so the derived rows must outlive `pr_rows`.
+            let derived = match selected_repo {
+                Some(repo) => state.repo_pr_rows(repo),
+                None => Vec::new(),
+            };
+            let pr_held = derived.len();
             let (pr_rows, issue_rows) = match selected_repo {
                 None => (Vec::new(), Vec::new()),
                 Some(repo) => (
-                    filters::apply_prs(
-                        &self.filters.prs,
-                        &repo.prs.nodes,
-                        viewer.as_deref(),
-                        &search,
-                    ),
+                    // Owned: the block's value must outlive `derived`
+                    // (the filter returns references into its input).
+                    filters::apply_prs(&self.filters.prs, &derived, viewer.as_deref(), &search)
+                        .into_iter()
+                        .cloned()
+                        .collect::<Vec<_>>(),
                     filters::apply_issues(
                         &self.filters.issues,
                         &repo.issues.nodes,
@@ -2607,6 +2631,7 @@ impl GithubPage {
                 pr_filtered,
                 issue_filtered,
                 notif_filtered,
+                pr_held,
             )
         };
         // Filter-menu options derive from the data present (docs/0042
@@ -2618,7 +2643,9 @@ impl GithubPage {
                 None => Default::default(),
                 Some(repo) => {
                     let mut pr_labels: std::collections::BTreeSet<String> = Default::default();
-                    for p in &repo.prs.nodes {
+                    // docs/0073 D3 (stage 2): options derive from the
+                    // derived rows — the rows the list actually shows.
+                    for p in self.state.read(cx).repo_pr_rows(repo) {
                         for n in filters::label_names(p.labels.as_ref()) {
                             pr_labels.insert(n.to_string());
                         }
@@ -2801,7 +2828,7 @@ impl GithubPage {
                                 .gap_0p5()
                                 .child(self.pr_filter_toolbar(&pr_label_options, cx))
                                 .child(if pr_rows.is_empty() {
-                                    if repo.prs.nodes.is_empty() {
+                                    if pr_held == 0 {
                                         if self.repo_rows_landed(cx) {
                                             muted_cell("No open PRs", cx)
                                         } else {
@@ -2824,11 +2851,8 @@ impl GithubPage {
                                         // unfiltered-only.
                                         .when(!pr_filtered, |col| {
                                             col.children(
-                                                more_hint_count(
-                                                    repo.prs.total_count,
-                                                    repo.prs.nodes.len(),
-                                                )
-                                                .map(|n| more_cell(n, "repo-prs-more", cx)),
+                                                more_hint_count(repo.prs.total_count, pr_held)
+                                                    .map(|n| more_cell(n, "repo-prs-more", cx)),
                                             )
                                         })
                                         .into_any_element()
@@ -3509,7 +3533,7 @@ mod tests {
             number,
             title: title.to_string(),
             draft: false,
-            state: None,
+            state: Some("OPEN".into()),
             author: author.map(|login| gql::Author {
                 login: login.to_string(),
                 avatar_url: String::new(),
@@ -4016,7 +4040,7 @@ mod tests {
                 number: 0,
                 title: "checked".into(),
                 draft: false,
-                state: None,
+                state: Some("OPEN".into()),
                 author: None,
                 updated_at: None,
                 url: "https://probe".into(),
@@ -4030,7 +4054,7 @@ mod tests {
                 number: 1,
                 title: "unchecked".into(),
                 draft: false,
-                state: None,
+                state: Some("OPEN".into()),
                 author: None,
                 updated_at: None,
                 url: "https://probe".into(),
@@ -4109,7 +4133,7 @@ mod tests {
                 number: i,
                 title: "p".into(),
                 draft: false,
-                state: None,
+                state: Some("OPEN".into()),
                 author: None,
                 updated_at: None,
                 url: "https://probe".into(),

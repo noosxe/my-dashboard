@@ -140,9 +140,21 @@ store.
    entry; `open_pr` lands the row before the page exists), #561's
    lane-row patch and local `retain` filter deleted (D6), and the
    journey test (D8) pinning the merge→open-list seam.
-2. **Stage 2 — the audit.** Enumerate every remaining holder of PR facts
-   (repo-view lane rows, agent-read projections, test fixtures excluded)
-   and fold each into the store: index or delete. The D1 test enforces.
+2. **Stage 2 — the audit.** ✅ Shipped. Every holder enumerated, each
+   folded into the store or dispositioned:
+
+   | Holder | Disposition |
+   |--------|-------------|
+   | repo snapshot `prs.nodes` (`gql::Repo`) | **cache exception, documented** — the snapshot is the repo domain's persisted cache (docs/0007 D6); every landing now also lands its rows into `pulls` (D4), and the repo view + the agent `repo_prs` op read the **derived overlay** (`GithubState::repo_pr_rows`): entry wins, OPEN-filtered — a confirmed merge leaves the repo list on confirm |
+   | `GithubPlace::Pr(String, PullRequest)` | **slimmed to `(String, i64)`** — the place carries identity; restore re-opens from the entry (summaries persist for the session) |
+   | `open_pr`'s `pr: &gql::PullRequest` param | **kept** — an enrichment handoff (D4): the notification-subject path synthesizes a minimal row and lands it; messages are not holders |
+   | `new_pr_page::Created(Box<PullRequest>)` event payload | **kept** — same rationale; landed by the handler |
+   | agent `repo_prs` op | reads the derived overlay now (was raw snapshot rows) |
+
+   The D1 enforcement test (`no_pr_fact_fields_outside_the_store`) fails
+   the build when an owned `gql::PullRequest`/`gql::PrDetail` field
+   appears outside the store's module — the regression this family
+   shipped three times cannot re-enter silently.
 3. **Stage 3 — selective follow-ons** (each judged on its own merits):
    derived-snapshot sugar if a hot path appears; extending the pattern to
    other domains via their own docs.
