@@ -1895,6 +1895,11 @@ pub(crate) struct PrEntry {
     /// The last optimistic-write failure, rendered inline in its scope
     /// (docs/0016 D5 placement — docs/0072 D4).
     pub(crate) error: Option<MutationError>,
+    /// docs/0072 D3 — a summary landing moved the rollup under the
+    /// cached detail (the checks signal is a shared fact): the cached
+    /// detail is behind the fresher layer until the next read lands.
+    /// Set by `land_summary`, cleared by `land_detail`.
+    pub(crate) rollup_dirty: bool,
 }
 
 impl PrEntry {
@@ -1902,8 +1907,11 @@ impl PrEntry {
     /// already-landed detail need not revalidate. Never-landed and
     /// in-flight lanes always (re)fetch; a failed lane refetches too —
     /// its `detail_at` stayed `None`, so the young-detail rule misses.
+    /// A drift mark (the summary layer moved the rollup) also voids the
+    /// skip: the two layers must never report different check states.
     pub(crate) fn detail_fresh(&self) -> bool {
         !self.books.in_flight
+            && !self.rollup_dirty
             && self
                 .detail_at
                 .is_some_and(|at| at.elapsed() < PR_DETAIL_TTL)
@@ -2648,6 +2656,14 @@ impl GithubState {
     pub(crate) fn land_summary(&mut self, repo: &str, row: &gql::PullRequest) {
         let key = PrKey::new(repo, row.number);
         if let Some(entry) = self.pulls.get_mut(&key) {
+            // docs/0072 D3 — the rollup is a shared fact: a landing that
+            // moves it marks the cached detail behind the fresher layer
+            // (the page revalidates; the row shows the fresh layer now).
+            // Unchanged landings — the common tick case — never mark,
+            // and only `land_detail` clears the mark.
+            if entry.summary.status != row.status && entry.detail.is_some() {
+                entry.rollup_dirty = true;
+            }
             entry.summary = row.clone();
             entry.summary_at = Instant::now();
             return;
@@ -2662,6 +2678,7 @@ impl GithubState {
                 books: DetailBooks::default(),
                 pending: None,
                 error: None,
+                rollup_dirty: false,
             },
         );
     }
@@ -2681,6 +2698,16 @@ impl GithubState {
             );
             return;
         };
+        // docs/0072 D3 — the rollup is a shared fact, propagated both
+        // ways: the fresh detail's rollup updates the summary layer on
+        // the spot (the home row's CI glyph reads it — no 60 s wait for
+        // the next home tick), and the catch-up clears any drift mark a
+        // summary landing left. A degraded detail rollup (None) never
+        // blanks a good row glyph — the next home landing settles it.
+        if let Some(rollup) = &detail.rollup_state {
+            entry.summary.status = Some(rollup.clone());
+        }
+        entry.rollup_dirty = false;
         entry.detail = Some(detail);
         entry.detail_at = Some(Instant::now());
         entry.books.in_flight = false;
@@ -6934,6 +6961,52 @@ mod tests {
         // The late confirmation arrives into a document that moved on:
         // refused, not applied (D6).
         assert!(!state.resolve_pending("acme/one", 482, token));
+    }
+
+    /// docs/0072 D3: the checks rollup is a shared fact between the two
+    /// layers — detail→summary on landing (the row's glyph is fresh
+    /// immediately), summary→drift mark→stale detail (the page
+    /// revalidates so both surfaces report the same status).
+    #[test]
+    fn rollup_is_a_shared_fact_both_ways() {
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        // Home lane lands the row; the page opens and a detail lands
+        // with the checks finished.
+        state.land_summary("acme/one", &store_row(482));
+        let mut d = store_detail(482);
+        d.rollup_state = Some("SUCCESS".into());
+        state.land_detail("acme/one", 482, d);
+
+        // detail → summary: the row's glyph reads the fresh layer
+        // immediately, not at the next home tick.
+        let entry = state.pr_entry("acme/one", 482).unwrap();
+        assert_eq!(entry.summary.status.as_deref(), Some("SUCCESS"));
+        assert!(!entry.rollup_dirty);
+        assert!(entry.detail_fresh());
+
+        // The home lane lands a moved rollup: the row shows it and the
+        // cached detail is behind — drift.
+        let mut row = store_row(482);
+        row.status = Some("PENDING".into());
+        state.land_summary("acme/one", &row);
+        let entry = state.pr_entry("acme/one", 482).unwrap();
+        assert_eq!(entry.summary.status.as_deref(), Some("PENDING"));
+        assert!(entry.rollup_dirty);
+        assert!(!entry.detail_fresh(), "drift voids the SWR skip");
+
+        // An unchanged landing never clears the mark...
+        state.land_summary("acme/one", &row);
+        assert!(state.pr_entry("acme/one", 482).unwrap().rollup_dirty);
+
+        // ...only the catch-up landing does — and it follows the
+        // summary down as well.
+        let mut d2 = store_detail(482);
+        d2.rollup_state = Some("PENDING".into());
+        state.land_detail("acme/one", 482, d2);
+        let entry = state.pr_entry("acme/one", 482).unwrap();
+        assert!(!entry.rollup_dirty);
+        assert!(entry.detail_fresh());
+        assert_eq!(entry.summary.status.as_deref(), Some("PENDING"));
     }
 
     // --- Token refresh (docs/0011 §6) ---------------------------------
