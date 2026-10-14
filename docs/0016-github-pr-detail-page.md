@@ -205,6 +205,14 @@ pub struct GithubPage {
 
 ### D2 — Data: one detail query, one lazy patch fetch, no cache
 
+
+> **Superseded in part (2026-10-14, docs/0072):** the no-cache clause
+> above is overturned — a shared PR document store now holds landed
+> details, warm opens paint stale-while-revalidate (the one-query shape
+> stays; the revalidate is the background refetch), and merge/close/
+> update-branch confirmations patch the document instead of blocking on
+> a refetch. Rationale trail: docs/0072 §8. Everything else in this
+> decision (one query, lazy files, 0013 tracking) stands.
 - **`PR_DETAIL_QUERY`** (gql.rs): `repository(owner, name) { pullRequest(
   number) { …full §3 field set… } }` — one query, ~1–2 points, fetched **once
   on open** (paint skeleton immediately), on header refresh, and after every
