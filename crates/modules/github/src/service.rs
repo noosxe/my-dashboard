@@ -1862,6 +1862,51 @@ pub(crate) struct PrEntry {
     /// (docs/0016 D5 placement — docs/0072 D4).
     pub(crate) error: Option<MutationError>,
 }
+
+impl PrEntry {
+    /// docs/0072 D3 — the stale-while-revalidate skip: a young,
+    /// already-landed detail need not revalidate. Never-landed and
+    /// in-flight lanes always (re)fetch; a failed lane refetches too —
+    /// its `detail_at` stayed `None`, so the young-detail rule misses.
+    pub(crate) fn detail_fresh(&self) -> bool {
+        !self.books.in_flight
+            && self
+                .detail_at
+                .is_some_and(|at| at.elapsed() < PR_DETAIL_TTL)
+    }
+}
+
+/// docs/0072 D2 — a document's detail-layer freshness view: the
+/// `Freshness` contract (docs/0037 D2) over the store's own stamps, so
+/// the page's freshness row and refresh gates read the store like any
+/// other lane. `None` entry = never-landed (the `LandedClock` rule:
+/// refreshable, no age label).
+pub(crate) struct DetailClock<'a>(pub(crate) Option<&'a PrEntry>);
+
+impl Freshness for DetailClock<'_> {
+    fn age(&self) -> Option<Duration> {
+        self.0.and_then(|e| e.detail_at).map(|at| at.elapsed())
+    }
+
+    fn is_loading(&self) -> bool {
+        self.0.is_some_and(|e| e.books.in_flight)
+    }
+
+    fn wants_refresh(&self, min_age: Duration) -> bool {
+        let Some(entry) = self.0 else {
+            return true;
+        };
+        dashboard_core::freshness::standard_needs_refresh(
+            entry.detail_at.map(|at| at.elapsed()),
+            entry.books.in_flight,
+            entry.books.last_error.is_some(),
+            min_age,
+        ) && dashboard_core::freshness::standard_backoff_elapsed(
+            entry.books.fail_streak,
+            entry.books.attempted_at,
+        )
+    }
+}
 pub struct GithubState {
     pub auth: AuthStatus,
     pub user: Option<User>,

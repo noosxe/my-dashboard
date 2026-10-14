@@ -207,7 +207,6 @@ pub(crate) struct PrDetailPage {
     /// The snapshot row that opened the page — instant header paint while
     /// the detail query is in flight.
     summary: gql::PullRequest,
-    detail: Fetch<gql::PrDetail>,
     tab: PrTab,
     focus_handle: FocusHandle,
     /// Comment box (D4): draft textarea + action select.
@@ -478,7 +477,6 @@ impl PrDetailPage {
             repo,
             number,
             summary,
-            detail: Fetch::new(),
             tab: PrTab::Conversation,
             focus_handle: cx.focus_handle(),
             comment,
@@ -603,9 +601,53 @@ impl PrDetailPage {
         // change (selection, expand, collapse) and the diff pane reads
         // `selected_entry()` at render time.
         cx.observe(&file_tree, |_, _, cx| cx.notify()).detach();
+        // docs/0072 D2: the clicked row is the document's summary
+        // layer — land it so the store holds every open document.
+        page.state
+            .update(cx, |s, _| s.land_summary(&page.repo, &page.summary));
         // docs/0053 D2: the construction fetch is the page's view-shown.
-        page.fetch_detail(Origin::new(Surface::PrPage, Trigger::ViewShown), cx);
+        // docs/0072 D2: the page subscribes to the store — document
+        // landings (home-lane summary refreshes, optimistic ops) repaint it.
+        cx.observe(&page.state, |_, _, cx| cx.notify()).detach();
+        // docs/0072 D3: stale-while-revalidate — a document inside the
+        // TTL window paints from the store and skips the dispatch.
+        let fresh = page
+            .state
+            .read(cx)
+            .pr_entry(&page.repo, page.number)
+            .is_some_and(crate::service::PrEntry::detail_fresh);
+        if fresh {
+            // docs/0072 D3: the cached document paints from the store —
+            // build the page's render caches against it exactly as a
+            // landing would (markdown, thread folds, pending anchor,
+            // the gated-runs sweep), then skip the dispatch.
+            let detail = page.detail(cx).expect("detail_fresh implies landed");
+            page.md = build_md_cache(&page.repo, detail);
+            page.extend_threads_md();
+            page.resolve_comment_anchor(cx);
+            page.fetch_gated(cx);
+        } else {
+            page.fetch_detail(Origin::new(Surface::PrPage, Trigger::ViewShown), cx);
+        }
         page
+    }
+
+    /// The document's detail layer, read from the store (docs/0072
+    /// D2/D3) — the page renders the store; it keeps no copy.
+    fn detail<'a>(&self, cx: &'a App) -> Option<&'a gql::PrDetail> {
+        self.state
+            .read(cx)
+            .pr_entry(&self.repo, self.number)
+            .and_then(|e| e.detail.as_ref())
+    }
+
+    /// The detail read's last failure, from the store (docs/0072 D3) —
+    /// rendered only when there is nothing to paint.
+    fn detail_load_error<'a>(&self, cx: &'a App) -> Option<&'a str> {
+        self.state
+            .read(cx)
+            .pr_entry(&self.repo, self.number)
+            .and_then(|e| e.books.last_error.as_deref())
     }
 
     /// The detail spec: one query, `owner/repo#number` identity, no ETag
@@ -629,6 +671,22 @@ impl PrDetailPage {
             return; // the page is about to be torn down by the auth gate
         }
         let state = self.state.clone();
+        // docs/0072 D3: stale-while-revalidate — background opens skip
+        // when the document's detail is inside the TTL window and its
+        // read lane is healthy; manual refreshes and mutation refetches
+        // always run.
+        let forced = matches!(origin.trigger, Trigger::Manual | Trigger::MutationRefetch);
+        if !forced {
+            let fresh = self
+                .state
+                .read(cx)
+                .pr_entry(&self.repo, self.number)
+                .is_some_and(crate::service::PrEntry::detail_fresh);
+            if fresh {
+                log::debug!("pr-detail: fresh in store — revalidate skipped");
+                return;
+            }
+        }
         let spec = Self::detail_spec(&self.repo, self.number, origin);
         log::debug!(
             "pr-detail: fetching {}",
@@ -646,7 +704,8 @@ impl PrDetailPage {
             log::debug!("pr-detail: skipped — an identical read is in flight");
             return;
         }
-        self.detail.begin();
+        self.state
+            .update(cx, |s, _| s.begin_detail_read(&self.repo, self.number));
         cx.notify();
         cx.spawn(async move |this, cx| {
             let result = run_spec_tracked(state.clone(), spec, cx).await;
@@ -658,7 +717,10 @@ impl PrDetailPage {
 
     fn apply_detail_result(&mut self, result: crate::service::SpecResult, cx: &mut Context<Self>) {
         if let Some(m) = &result.network {
-            self.detail.fail(format!("Network error: {m}"));
+            let message = format!("Network error: {m}");
+            self.state.update(cx, |s, _| {
+                s.fail_detail_read(&self.repo, self.number, message)
+            });
         } else if result.status != 200 {
             // Forward failures to the state entity so the shared 401
             // (reactive refresh / TokenRejected) and 403 (rate-limit pause)
@@ -669,7 +731,10 @@ impl PrDetailPage {
                 s.apply(result);
                 cx.notify();
             });
-            self.detail.fail(format!("GitHub answered HTTP {status}"));
+            let message = format!("GitHub answered HTTP {status}");
+            self.state.update(cx, |s, _| {
+                s.fail_detail_read(&self.repo, self.number, message)
+            });
         } else if let Some(body) = result.body {
             match serde_json::from_str::<gql::Envelope<gql::PrDetailData>>(body.as_str()) {
                 Ok(env) => {
@@ -712,7 +777,8 @@ impl PrDetailPage {
                                     self.delete_confirm = None;
                                 }
                             }
-                            self.detail.land(detail);
+                            self.state
+                                .update(cx, |s, _| s.land_detail(&self.repo, self.number, detail));
                             // docs/0043 D5: a picker open across the
                             // refetch realigns to the new payload
                             // (0022 §11 — choices preserved by id).
@@ -727,21 +793,28 @@ impl PrDetailPage {
                             }
                             // docs/0026 D9: the payload is in — try to arm
                             // the notification jump against it.
-                            self.resolve_comment_anchor();
+                            self.resolve_comment_anchor(cx);
                             // docs/0066 D2: the detail landed — arm the
                             // gated-runs sweep for the (possibly new) head.
                             self.fetch_gated(cx);
                         }
                         None => {
                             log::warn!("pr-detail: repository/pullRequest null — keeping header");
-                            self.detail
-                                .fail("PR not found (removed, or access lost)".into());
+                            self.state.update(cx, |s, _| {
+                                s.fail_detail_read(
+                                    &self.repo,
+                                    self.number,
+                                    "PR not found (removed, or access lost)".into(),
+                                )
+                            });
                         }
                     }
                 }
                 Err(e) => {
                     log::warn!("pr-detail payload: {e}");
-                    self.detail.fail("Malformed payload".into());
+                    self.state.update(cx, |s, _| {
+                        s.fail_detail_read(&self.repo, self.number, "Malformed payload".into())
+                    });
                 }
             }
         }
@@ -756,7 +829,7 @@ impl PrDetailPage {
         if !self.state.read(cx).auth.connected() {
             return; // the page is about to be torn down by the auth gate
         }
-        let Some(d) = self.detail.data() else {
+        let Some(d) = self.detail(cx) else {
             return;
         };
         let (Some(head_ref), Some(head_oid)) = (&d.head_ref, &d.head_oid) else {
@@ -814,12 +887,12 @@ impl PrDetailPage {
         if self.gate_fallback_done {
             return;
         }
-        let checks_empty = self.detail.data().is_none_or(|d| d.checks.nodes.is_empty());
+        let checks_empty = self.detail(cx).is_none_or(|d| d.checks.nodes.is_empty());
         let sweep_empty = self.gated.data().is_none_or(|rows| rows.is_empty());
         if !checks_empty || !sweep_empty || self.gated.in_flight {
             return;
         }
-        let Some(d) = self.detail.data() else {
+        let Some(d) = self.detail(cx) else {
             return;
         };
         let Some(head_oid) = d.head_oid.clone() else {
@@ -1329,13 +1402,12 @@ impl PrDetailPage {
 
     /// docs/0026 D9: resolve the pending REST-id anchor against the landed
     /// detail — the matching comment node arms the jump; a miss gives up.
-    fn resolve_comment_anchor(&mut self) {
+    fn resolve_comment_anchor(&mut self, cx: &Context<Self>) {
         let CommentAnchor::Pending(target) = self.anchor else {
             return;
         };
         self.anchor = self
-            .detail
-            .data()
+            .detail(cx)
             .and_then(|d| {
                 d.comments
                     .nodes
@@ -1434,7 +1506,7 @@ impl PrDetailPage {
         if !self.state.read(cx).auth.connected() {
             return; // the page is about to be torn down by the auth gate
         }
-        let Some(head_oid) = self.detail.data().and_then(|d| d.head_oid.clone()) else {
+        let Some(head_oid) = self.detail(cx).and_then(|d| d.head_oid.clone()) else {
             self.check_logs.insert(
                 name.to_string(),
                 CheckLogState::Failed("No head commit on this pull request".into()),
@@ -1712,7 +1784,12 @@ impl PrDetailPage {
         // (docs/0052 D3 — the transport classes only priced the deleted
         // cadences).
         let origin = Origin::new(Surface::PrPage, Trigger::Refocus);
-        if self.detail.wants_refresh(min_age) {
+        let detail_stale = self
+            .state
+            .read(cx)
+            .pr_entry(&self.repo, self.number)
+            .is_none_or(|e| crate::service::DetailClock(Some(e)).wants_refresh(min_age));
+        if detail_stale {
             self.fetch_detail(origin, cx);
         }
         if self.files.wants_refresh(min_age) {
@@ -1852,7 +1929,7 @@ impl PrDetailPage {
     }
 
     fn submit_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(d) = self.detail.data().cloned() else {
+        let Some(d) = self.detail(cx).cloned() else {
             return;
         };
         if self.busy.is_some() || d.id.is_empty() {
@@ -1899,8 +1976,7 @@ impl PrDetailPage {
         self.delete_confirm = None;
         self.meta_edit = None;
         let body = self
-            .detail
-            .data()
+            .detail(cx)
             .and_then(|d| d.body.clone())
             .unwrap_or_default();
         let editor = cx.new(|cx| {
@@ -2030,7 +2106,7 @@ impl PrDetailPage {
     /// open picker): rebuild the frozen draft, preserving choices by id
     /// (0022 §11 open-immediately).
     fn realign_open_picker(&mut self, source: PickerSource, cx: &mut Context<Self>) {
-        let Some(d) = self.detail.data().cloned() else {
+        let Some(d) = self.detail(cx).cloned() else {
             return;
         };
         let rebuilding = match (&self.meta_edit, source) {
@@ -2106,7 +2182,7 @@ impl PrDetailPage {
     }
 
     fn start_reviewers_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(d) = self.detail.data().cloned() else {
+        let Some(d) = self.detail(cx).cloned() else {
             return;
         };
         let viewer = self.viewer_login(cx);
@@ -2151,7 +2227,7 @@ impl PrDetailPage {
     }
 
     fn start_labels_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(d) = self.detail.data().cloned() else {
+        let Some(d) = self.detail(cx).cloned() else {
             return;
         };
         if self.busy.is_some() || self.meta_edit.is_some() || !pr_labels_arming(&d) {
@@ -2187,7 +2263,7 @@ impl PrDetailPage {
     }
 
     fn start_assignees_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(d) = self.detail.data().cloned() else {
+        let Some(d) = self.detail(cx).cloned() else {
             return;
         };
         if self.busy.is_some() || self.meta_edit.is_some() || !pr_assignees_arming(&d) {
@@ -2225,7 +2301,7 @@ impl PrDetailPage {
     // No filter on the milestone picker (#197 scope): tiny lists, and
     // the window param only exists for on_edit signature uniformity.
     fn start_milestone_picker(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        let Some(d) = self.detail.data().cloned() else {
+        let Some(d) = self.detail(cx).cloned() else {
             return;
         };
         if self.busy.is_some() || self.meta_edit.is_some() || !pr_milestone_arming(&d) {
@@ -2333,7 +2409,7 @@ impl PrDetailPage {
     /// Save the edited description (`updateIssue`, D4) — the PR node id is
     /// the issue id; empty bodies never get here (Save renders disabled).
     fn save_description(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (Some(d), Some(editor)) = (self.detail.data(), self.description_edit.as_ref()) else {
+        let (Some(d), Some(editor)) = (self.detail(cx), self.description_edit.as_ref()) else {
             return;
         };
         if self.busy.is_some() || d.id.is_empty() {
@@ -2397,7 +2473,7 @@ impl PrDetailPage {
     /// and its input shape. Empty bodies never get here (Save renders
     /// disabled and the guard re-checks).
     fn save_edit_row(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(d) = self.detail.data() else {
+        let Some(d) = self.detail(cx) else {
             return;
         };
         let Some((node_id, editor)) = self.timeline_edit.as_ref() else {
@@ -2446,7 +2522,7 @@ impl PrDetailPage {
     /// while the op is in flight — it shows which row is being deleted —
     /// and the success arm clears it.
     fn confirm_delete_row(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(d) = self.detail.data() else {
+        let Some(d) = self.detail(cx) else {
             return;
         };
         let Some(node_id) = self.delete_confirm.clone() else {
@@ -2468,7 +2544,7 @@ impl PrDetailPage {
     }
     /// Merge the PR (D5) with the selected (or only) method.
     fn merge_pr(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(d) = self.detail.data().cloned() else {
+        let Some(d) = self.detail(cx).cloned() else {
             return;
         };
         if !merge_enabled(
@@ -2491,7 +2567,7 @@ impl PrDetailPage {
 
     /// Close the PR (D5).
     fn close_pr(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(d) = self.detail.data().cloned() else {
+        let Some(d) = self.detail(cx).cloned() else {
             return;
         };
         if self.busy.is_some() || d.id.is_empty() || d.state.as_deref() != Some("OPEN") {
@@ -2516,7 +2592,7 @@ impl PrDetailPage {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(d) = self.detail.data().cloned() else {
+        let Some(d) = self.detail(cx).cloned() else {
             return;
         };
         if !update_branch_enabled(
@@ -2629,7 +2705,7 @@ impl PrDetailPage {
     /// with its text until success closes it (draft retained on failure,
     /// the 0019 pattern).
     pub(crate) fn add_single_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(d) = self.detail.data().cloned() else {
+        let Some(d) = self.detail(cx).cloned() else {
             return;
         };
         let Some(composer) = self.line_composer.as_ref() else {
@@ -2951,7 +3027,7 @@ impl PrDetailPage {
     /// server-PENDING review ever exists. The summary body is omitted
     /// when empty.
     pub(crate) fn submit_review(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(d) = self.detail.data().cloned() else {
+        let Some(d) = self.detail(cx).cloned() else {
             return;
         };
         if !review_batch_allowed(self.drafts.len(), self.busy.is_some()) || d.id.is_empty() {
@@ -3481,19 +3557,24 @@ impl PrDetailPage {
                             .child(relative_age(age.as_deref())),
                     ),
             )
-            .child(freshness_row("pr", &self.detail, cx, |this, _, cx| {
-                let origin = Origin::new(Surface::PrPage, Trigger::Manual);
-                this.fetch_detail(origin, cx);
-                // A refresh with files/threads already loaded refetches
-                // those lists too (0030 D8) — collapse states reset with
-                // the new payload.
-                if this.files.is_ready() {
-                    this.fetch_files(origin, cx);
-                }
-                if this.threads.is_ready() {
-                    this.fetch_threads(origin, cx);
-                }
-            }))
+            .child(freshness_row(
+                "pr",
+                &crate::service::DetailClock(self.state.read(cx).pr_entry(&self.repo, self.number)),
+                cx,
+                |this, _, cx| {
+                    let origin = Origin::new(Surface::PrPage, Trigger::Manual);
+                    this.fetch_detail(origin, cx);
+                    // A refresh with files/threads already loaded refetches
+                    // those lists too (0030 D8) — collapse states reset with
+                    // the new payload.
+                    if this.files.is_ready() {
+                        this.fetch_files(origin, cx);
+                    }
+                    if this.threads.is_ready() {
+                        this.fetch_threads(origin, cx);
+                    }
+                },
+            ))
             .child(
                 Button::new("pr-open-external")
                     .ghost()
@@ -3575,7 +3656,7 @@ impl PrDetailPage {
     /// connection holds more than the `first: 100` page.
     fn render_commits(&self, detail: Option<&gql::PrDetail>, cx: &Context<Self>) -> AnyElement {
         let Some(d) = detail else {
-            if let Some(err) = self.detail.load_error() {
+            if let Some(err) = self.detail_load_error(cx) {
                 return error_cell(err, cx);
             }
             return skeleton_list();
@@ -3668,7 +3749,7 @@ impl PrDetailPage {
     /// details-link button when the union member carries a URL.
     fn render_checks(&self, detail: Option<&gql::PrDetail>, cx: &Context<Self>) -> AnyElement {
         let Some(d) = detail else {
-            if let Some(err) = self.detail.load_error() {
+            if let Some(err) = self.detail_load_error(cx) {
                 return error_cell(err, cx);
             }
             return skeleton_list();
@@ -3948,7 +4029,7 @@ impl PrDetailPage {
         cx: &Context<Self>,
     ) -> AnyElement {
         let Some(d) = detail else {
-            if let Some(err) = self.detail.load_error() {
+            if let Some(err) = self.detail_load_error(cx) {
                 return error_cell(err, cx);
             }
             return skeleton_list();
@@ -4733,7 +4814,7 @@ impl PrDetailPage {
     /// upstream. The milestone's unchanged choice closes without a
     /// pointless write (0022 §11).
     fn save_meta(&mut self, op: BusyOp, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(d) = self.detail.data().cloned() else {
+        let Some(d) = self.detail(cx).cloned() else {
             return;
         };
         if self.busy.is_some() || d.id.is_empty() {
@@ -5164,7 +5245,7 @@ impl Render for PrDetailPage {
         // on the first render that has a detail payload — once per page
         // (a repo's allowed methods can't change while the page is open).
         if self.method_select.is_none() {
-            if let Some(d) = self.detail.data() {
+            if let Some(d) = self.detail(cx) {
                 let methods = allowed_methods(&d.merge_methods);
                 if !methods.is_empty() {
                     let labels: Vec<SharedString> = methods
@@ -5184,7 +5265,7 @@ impl Render for PrDetailPage {
                 }
             }
         }
-        let detail = self.detail.data();
+        let detail = self.detail(cx);
         page_canvas()
             .id("pr-detail")
             .key_context("GithubPrPage")
@@ -6501,6 +6582,104 @@ mod tests {
 
     // --- fetch_detail through the guard (docs/0031 §5, #222 regression) -
 
+    // --- the document store's SWR open (docs/0072 D3) ------------------
+
+    /// A young cached document paints from the store and skips the
+    /// construction dispatch; a cold document still fetches (the eager
+    /// view-shown, docs/0053 D2). MockHttp records every request.
+    #[gpui::test]
+    fn warm_open_paints_from_the_store_and_skips_the_dispatch(cx: &mut gpui::TestAppContext) {
+        use std::sync::Arc;
+
+        use crate::auth::MockTokenStore;
+        use crate::http::{Http, SharedToken, mock::MockHttp};
+        use crate::service::{GithubCache, GithubState};
+
+        cx.update(dashboard_core::status::init);
+        cx.update(gpui_component::init);
+        // The page schedules background tokenization (docs/0040 D5) —
+        // let the deterministic test executor park instead of spinning.
+        cx.update(|cx| cx.background_executor().allow_parking());
+        // One scripted response for the cold page's eager fetch only —
+        // a warm page must not consume it.
+        let mock = Arc::new(MockHttp::new(vec![Err(crate::http::HttpError(
+            "probe".into(),
+        ))]));
+        let state: gpui::Entity<GithubState> = cx.update(|cx| {
+            let shared: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let refresh: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            cx.new(|_| {
+                GithubState::new(
+                    mock.clone() as Arc<dyn Http>,
+                    Arc::new(MockTokenStore::with("t0k".into())),
+                    shared,
+                    refresh,
+                    GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    DraftStore::at_tmp("pr-page-store"),
+                )
+            })
+        });
+        cx.update(|cx| state.update(cx, |s, _| s.auth = crate::service::AuthStatus::Connected));
+
+        let summary = |title: &'static str| gql::PullRequest {
+            key: "o/r#7".into(),
+            database_id: None,
+            number: 7,
+            title: title.into(),
+            draft: false,
+            state: None,
+            author: None,
+            updated_at: None,
+            url: "https://probe".into(),
+            status: None,
+            labels: None,
+            review_requests: None,
+        };
+
+        // Cold open: the eager view-shown dispatch fires (and fails).
+        let _cold = cx.add_window_view(|window, cx| {
+            PrDetailPage::new(
+                state.clone(),
+                "o/r".into(),
+                summary("cold"),
+                None,
+                window,
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        assert_eq!(mock.recorded().len(), 1, "cold open fetches");
+
+        // The document lands (the home-lane landing shape): summary +
+        // detail — the read books reset with the land (D2).
+        cx.update(|cx| {
+            state.update(cx, |s, _| {
+                let row = summary("landed");
+                s.land_summary("o/r", &row);
+                s.land_detail("o/r", 7, probe_detail());
+            })
+        });
+
+        // Warm open: the young document paints from the store — no
+        // dispatch, and the render caches build from the cached payload.
+        cx.add_window_view(|window, cx| {
+            PrDetailPage::new(
+                state.clone(),
+                "o/r".into(),
+                summary("warm"),
+                None,
+                window,
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        assert_eq!(
+            mock.recorded().len(),
+            1,
+            "a young cached document skips the revalidate"
+        );
+    }
+
     // --- refresh_if_stale policy (docs/0052 D3) ----------------------------
 
     /// One page, the whole policy table over real dispatches: stale and
@@ -6600,9 +6779,16 @@ mod tests {
         // failed lanes still self-heal at any age (docs/0032 D2), now
         // paced by the backoff (docs/0036 D2).
         cx.update(|cx| {
-            page.update(cx, |p, _| {
+            page.update(cx, |p, cx| {
                 let back = Some(std::time::Instant::now() - Duration::from_secs(61));
-                p.detail.attempted_at = back;
+                p.state.update(cx, |s, _| {
+                    if let Some(e) = s
+                        .pulls
+                        .get_mut(&crate::service::PrKey::new(&p.repo, p.number))
+                    {
+                        e.books.attempted_at = back;
+                    }
+                });
                 p.files.attempted_at = back;
             });
             page.update(cx, |p, cx| {
@@ -6689,7 +6875,8 @@ mod tests {
         );
         vcx.update(|_, cx| {
             page.update(cx, |p, cx| {
-                p.detail = Fetch::ready(probe_detail());
+                p.state
+                    .update(cx, |s, _| s.land_detail(&p.repo, p.number, probe_detail()));
                 cx.notify();
             });
         });
@@ -6749,7 +6936,7 @@ mod tests {
         cx.run_until_parked();
         let (landed, clear) = cx.update(|cx| {
             (
-                page.read(cx).detail.load_error().is_some(),
+                page.update(cx, |p, cx| p.detail_load_error(cx).is_some()),
                 state.read(cx).in_flight.is_empty(),
             )
         });
@@ -6765,7 +6952,7 @@ mod tests {
         cx.run_until_parked();
         let (landed, clear) = cx.update(|cx| {
             (
-                page.read(cx).detail.load_error().is_some(),
+                page.update(cx, |p, cx| p.detail_load_error(cx).is_some()),
                 state.read(cx).in_flight.is_empty(),
             )
         });
@@ -7210,8 +7397,9 @@ mod tests {
             // degraded node — give it an id so the tables below toggle
             // one condition at a time.
             d.labels[1].id = Some("L2".into());
-            page.detail = Fetch::ready(d);
-            page.md = build_md_cache(&page.repo, page.detail.data().unwrap());
+            page.state
+                .update(cx, |s, _| s.land_detail(&page.repo, page.number, d));
+            page.md = build_md_cache(&page.repo, page.detail(cx).unwrap());
             page
         });
         // Display states: the milestone cell renders (armed + applied);
@@ -7289,12 +7477,13 @@ mod tests {
         // the Edit affordance disappears and the picker cannot open.
         vcx.update(|_, cx| {
             page.update(cx, |p, cx| {
-                let mut d = p.detail.data().unwrap().clone();
+                let mut d = p.detail(cx).unwrap().clone();
                 d.review_requests.push(gql::PrReviewRequest {
                     id: None,
                     login: String::new(),
                 });
-                p.detail = Fetch::ready(d);
+                p.state
+                    .update(cx, |s, _| s.land_detail(&p.repo, p.number, d));
                 cx.notify();
             });
         });
@@ -7361,8 +7550,10 @@ mod tests {
                 review_requests: None,
             };
             let mut page = PrDetailPage::new(state, "o/r".into(), summary, anchor, window, cx);
-            page.detail = Fetch::ready(probe_detail());
-            page.md = build_md_cache(&page.repo, page.detail.data().unwrap());
+            page.state.update(cx, |s, _| {
+                s.land_detail(&page.repo, page.number, probe_detail())
+            });
+            page.md = build_md_cache(&page.repo, page.detail(cx).unwrap());
             page
         })
     }
@@ -7378,7 +7569,7 @@ mod tests {
         });
         vcx.update(|_, cx| {
             page.update(cx, |p, cx| {
-                p.resolve_comment_anchor();
+                p.resolve_comment_anchor(cx);
                 cx.notify();
             });
         });
@@ -7412,7 +7603,7 @@ mod tests {
         let (page, vcx) = probe_pr_anchored(cx, Some(111_222));
         vcx.update(|_, cx| {
             page.update(cx, |p, cx| {
-                p.resolve_comment_anchor();
+                p.resolve_comment_anchor(cx);
                 cx.notify();
             });
         });
@@ -7706,8 +7897,10 @@ mod tests {
                 review_requests: None,
             };
             let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
-            page.detail = Fetch::ready(probe_detail());
-            page.md = build_md_cache(&page.repo, page.detail.data().unwrap());
+            page.state.update(cx, |s, _| {
+                s.land_detail(&page.repo, page.number, probe_detail())
+            });
+            page.md = build_md_cache(&page.repo, page.detail(cx).unwrap());
             page
         });
         for sel in [
@@ -7823,8 +8016,10 @@ mod tests {
                 review_requests: None,
             };
             let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
-            page.detail = Fetch::ready(probe_detail());
-            page.md = build_md_cache(&page.repo, page.detail.data().unwrap());
+            page.state.update(cx, |s, _| {
+                s.land_detail(&page.repo, page.number, probe_detail())
+            });
+            page.md = build_md_cache(&page.repo, page.detail(cx).unwrap());
             page
         });
         // The body row renders: the armed chip plus the + affordance; the
@@ -7876,7 +8071,7 @@ mod tests {
         // same toggle.
         vcx.update(|window, cx| {
             page.update(cx, |page, cx| {
-                let groups = &page.detail.data().unwrap().reaction_groups;
+                let groups = &page.detail(cx).unwrap().reaction_groups;
                 assert!(reaction_direction(groups, gql::ReactionContent::ThumbsUp));
                 assert!(!reaction_direction(groups, gql::ReactionContent::Heart));
                 page.toggle_reaction(
@@ -7932,8 +8127,10 @@ mod tests {
                 review_requests: None,
             };
             let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
-            page.detail = Fetch::ready(probe_detail());
-            page.md = build_md_cache(&page.repo, page.detail.data().unwrap());
+            page.state.update(cx, |s, _| {
+                s.land_detail(&page.repo, page.number, probe_detail())
+            });
+            page.md = build_md_cache(&page.repo, page.detail(cx).unwrap());
             page
         });
         // probe_detail() carries every node it counts — nothing hidden.
@@ -7999,7 +8196,9 @@ mod tests {
                 review_requests: None,
             };
             let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
-            page.detail = Fetch::ready(probe_detail());
+            page.state.update(cx, |s, _| {
+                s.land_detail(&page.repo, page.number, probe_detail())
+            });
             page.timeline_edit = Some((
                 "IC_1".into(),
                 cx.new(|cx| gpui_component::input::TextareaState::new(window, cx)),
@@ -8361,7 +8560,13 @@ mod tests {
                 "id": "PR_1", "number": 7, "title": "t", "url": "u",
                 "state": "OPEN", "isDraft": false, "headRefOid": "abc123",
             }});
-            page.detail = Fetch::ready(gql::pr_detail_from_value(&value).unwrap());
+            page.state.update(cx, |s, _| {
+                s.land_detail(
+                    &page.repo,
+                    page.number,
+                    gql::pr_detail_from_value(&value).unwrap(),
+                )
+            });
             page
         });
         cx.update(|cx| {
@@ -8453,8 +8658,8 @@ mod tests {
         let (ready, nchecks, tab) = vcx.read(|cx| {
             let p = page.read(cx);
             (
-                p.detail.is_ready(),
-                p.detail.data().map(|d| d.checks.nodes.len()),
+                p.detail(cx).is_some(),
+                p.detail(cx).map(|d| d.checks.nodes.len()),
                 p.tab.index(),
             )
         });
@@ -9097,11 +9302,12 @@ mod tests {
         );
         vcx.update(|_, cx| {
             page.update(cx, |p, cx| {
-                let mut d = p.detail.data().unwrap().clone();
+                let mut d = p.detail(cx).unwrap().clone();
                 d.state = Some("OPEN".into());
                 d.head_oid = Some("abc123".into());
                 d.viewer_can_update_branch = true;
-                p.detail = Fetch::ready(d);
+                p.state
+                    .update(cx, |s, _| s.land_detail(&p.repo, p.number, d));
                 cx.notify();
             });
         });
@@ -9704,8 +9910,9 @@ mod tests {
             let mut d = probe_detail();
             // Keep the comment area un-muted: an armed editor state.
             d.labels[1].id = Some("L2".into());
-            page.detail = Fetch::ready(d);
-            page.md = build_md_cache(&page.repo, page.detail.data().unwrap());
+            page.state
+                .update(cx, |s, _| s.land_detail(&page.repo, page.number, d));
+            page.md = build_md_cache(&page.repo, page.detail(cx).unwrap());
             page
         });
         (page, vcx, drafts)
@@ -9812,8 +10019,9 @@ mod tests {
             let mut d = probe_detail();
             // Arm the label picker (both applied labels need ids).
             d.labels[1].id = Some("L2".into());
-            page.detail = Fetch::ready(d);
-            page.md = build_md_cache(&page.repo, page.detail.data().unwrap());
+            page.state
+                .update(cx, |s, _| s.land_detail(&page.repo, page.number, d));
+            page.md = build_md_cache(&page.repo, page.detail(cx).unwrap());
             page
         });
         // A 3-row source page; the applied "bug" row merges in order and
