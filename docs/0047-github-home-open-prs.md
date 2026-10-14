@@ -59,25 +59,30 @@ placeholder string disappears from the module. Repo selection keeps
 taking the column over (existing behavior, untouched); deselection
 returns home. Left column (org select + repo list) unchanged.
 
-### D2 — One account-scoped lane, snapshot on the state
+### D2 — One account-scoped lane, index on the state
 
 New `Kind::AccountPullRequests`: a GraphQL POST search lane, `ident`
 = account login, variables `{ login, scope: "org" | "user" }`.
-Results land on `GithubState` as a snapshot keyed by
-`(login, scope)` — the repo-list pattern (0009 D6):
+Results land on `GithubState` keyed by `(login, scope)`. **Since
+docs/0073 D2 the lane holds no rows**: every landed row lands into the
+PR document store (`pulls`, docs/0072 D2) and the lane records only
+the server key order + pagination books:
 
 ```text
-home_prs: Option<HomePullRequests {
-    login, scope,
-    nodes: Vec<gql::PullRequest>,   // search order (updated desc)
+home_lanes: Option<HomeLane {
+    order: Vec<PrKey>,              // search order (updated desc)
     total_count: i64,               // issueCount — full match count
     complete: bool,                 // no further pages (cap or end)
+    cursor: Option<String>,         // "Load more" resume point
 }>
 ```
 
-with an `updated_ms` stamp for the freshness cluster (0033/0037).
-The home view shows its own cluster when active — one cluster per
-page rule holds; the repo view keeps its own.
+with a landed stamp for the freshness cluster (0033/0037). The home
+view shows its own cluster when active — one cluster per page rule
+holds; the repo view keeps its own. The view derives its rows
+(docs/0073 D3): key order ⊗ documents, filtered to OPEN at read
+time — a confirmed merge/close leaves the list the moment it
+confirms, with no landing in between.
 
 ### D3 — Fetch policy
 
@@ -113,7 +118,8 @@ verified end-of-pages behavior, §2).
 ### D5 — Rows and filters reuse
 
 Rows render through the existing `render_pr_row` and filter through
-`filters::apply_prs` (0042 engine) over the held snapshot nodes — no
+`filters::apply_prs` (0042 engine) over the derived rows (docs/0073
+D3) — no
 new row type, no new filter plumbing. One render difference: repo-view
 rows omit the repository (it's the page's context); home rows span
 repos and must show an `owner/name` prefix chip parsed from the node

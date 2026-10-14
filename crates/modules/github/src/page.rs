@@ -47,8 +47,8 @@ use crate::new_pr_page::{NewPrPage, NewPrPageEvent};
 use crate::notification_page::{self, NotificationPageEvent};
 use crate::pr_page;
 use crate::service::{
-    AuthStatus, ConnectPhase, FetchSpec, GithubState, HomePullRequests, HomeScope, Kind,
-    LandedClock, ThreadOp, run_read_deduped, run_spec_tracked, start_connect,
+    AuthStatus, ConnectPhase, FetchSpec, GithubState, HomeScope, Kind, LandedClock, LaneView,
+    ThreadOp, run_read_deduped, run_spec_tracked, start_connect,
 };
 use crate::usage::{Origin, Surface, Trigger};
 
@@ -85,7 +85,9 @@ fn home_prs_hint(shown: usize, total: i64) -> Option<String> {
 /// the lane's last failure for the Retry state. Owned values — the state
 /// borrow drops before the element tree builds.
 struct HomeSource {
-    snapshot: Option<HomePullRequests>,
+    /// docs/0073 D3 — the derived open list + lane books; `None` = the
+    /// lane never landed (the view owns skeletons).
+    view: Option<LaneView>,
     clock: LandedClock,
     error: Option<String>,
 }
@@ -593,7 +595,7 @@ impl GithubPage {
         };
         let specs = self.state.update(cx, |s, _| {
             let cursor = s
-                .home_prs
+                .home_lanes
                 .get(&(login.to_string(), scope))
                 .and_then(|e| e.cursor.clone());
             cursor.map(|c| vec![s.home_more_spec(&login, scope, &c)])
@@ -605,15 +607,11 @@ impl GithubPage {
 
     /// Everything the home view renders from (docs/0047 D2/D6), owned so
     /// the state borrow can drop before the element tree builds:
-    /// - `snapshot`: the account's landed search pages — the source of
-    ///   truth for rows, totals, paging and the hint;
-    /// - `union`: the D6 degraded source — the repo snapshot's PR nodes
-    ///   for the account's repos, re-sorted by update — used only while
-    ///   the lane has never landed; `partial` marks its honesty (a
-    ///   repo's PR nodes truncated, or the repo list itself capped);
-    /// - `clock`: the freshness cluster's clock — the lane's own when a
-    ///   snapshot exists, the union's repo-snapshot age otherwise
-    ///   (provenance stays honest, D6);
+    /// - `view`: the derived open list + lane books (docs/0073 D3) —
+    ///   the lane's server key order ⊗ the store's documents, filtered
+    ///   to OPEN at read time; `None` = never landed;
+    /// - `clock`: the freshness cluster's clock — the lane's own when
+    ///   landed (provenance stays honest, D6);
     /// - `error`: the lane's last failure, shown with Retry only when
     ///   nothing else has rows (D3).
     fn home_source(&self, cx: &Context<Self>) -> HomeSource {
@@ -622,23 +620,14 @@ impl GithubPage {
             Some(it) => it,
             None => {
                 return HomeSource {
-                    snapshot: None,
+                    view: None,
                     clock: LandedClock(None),
                     error: state.home_error.clone(),
                 };
             }
         };
-        let mut snapshot = state.home_prs.get(&(login.to_string(), scope)).cloned();
-        // docs/0072 D4 — a confirmed merge/close lands its state into
-        // the lane rows; the open list drops them the moment it
-        // confirms, mirroring the lane's own `is:open` search. The
-        // store-side rows stay put — "Load more" appends against the
-        // unfiltered chain.
-        if let Some(lane) = &mut snapshot {
-            lane.nodes
-                .retain(|row| row.state.as_deref() == Some("OPEN"));
-        }
-        let clock = if snapshot.is_some() {
+        let view = state.lane_view(&login, scope);
+        let clock = if view.is_some() {
             LandedClock(state.home_landed)
         } else {
             // Never landed yet — no provenance to show (docs/0051 D5
@@ -646,7 +635,7 @@ impl GithubPage {
             LandedClock(None)
         };
         HomeSource {
-            snapshot,
+            view,
             clock,
             error: state.home_error.clone(),
         }
@@ -657,35 +646,29 @@ impl GithubPage {
     /// rows, and the paging affordances (D4). Replaces the old
     /// "Select a repository" placeholder.
     fn render_home_view(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let HomeSource {
-            snapshot,
-            clock,
-            error,
-        } = self.home_source(cx);
+        let HomeSource { view, clock, error } = self.home_source(cx);
+        let landed = view.is_some();
         let account = self.home_account(cx);
         let viewer = self.state.read(cx).user.as_ref().map(|u| u.login.clone());
         let search = self.filters.search.clone();
         let filtered = self.filters.prs.is_filtered() || !search.is_empty();
 
-        // Rows via the 0042 engine over the landed lane (D5); no lane yet
-        // → skeleton rows (docs/0051 D5 — the D6 union is gone).
-        let source: Vec<gql::PullRequest> = snapshot
-            .as_ref()
-            .map(|e| e.nodes.clone())
-            .unwrap_or_default();
+        // Rows via the 0042 engine over the derived lane (docs/0073
+        // D3); no lane yet → skeleton rows (docs/0051 D5 — the D6
+        // union is gone).
+        let (source, total_count, complete, has_cursor) = match view {
+            Some(v) => (v.rows, v.total_count, v.complete, v.has_cursor),
+            None => (Vec::new(), 0, true, false),
+        };
         let pr_rows = filters::apply_prs(&self.filters.prs, &source, viewer.as_deref(), &search);
         #[cfg(test)]
         eprintln!(
-            "PROBE home: snapshot={} filtered={} rows={}",
-            snapshot.is_some(),
+            "PROBE home: landed={} filtered={} rows={}",
+            landed,
             filtered,
             pr_rows.len()
         );
         let source_len = source.len();
-        let total_count = snapshot
-            .as_ref()
-            .map(|e| e.total_count)
-            .unwrap_or(source_len as i64);
 
         // Label options derive from the present nodes (docs/0042 D3).
         let pr_labels: Vec<String> = {
@@ -790,7 +773,7 @@ impl GithubPage {
                                                     )),
                                             )
                                             .into_any_element()
-                                    } else if snapshot.is_none() {
+                                    } else if !landed {
                                         // docs/0051 D5 — skeleton-first:
                                         // the lane (or the orgs it scopes
                                         // to) has not landed yet.
@@ -822,15 +805,14 @@ impl GithubPage {
                                     // by choice, not by cap; the repo
                                     // view's #87 precedent).
                                     .when(!filtered, |col| {
-                                        let load_more = snapshot
-                                            .as_ref()
-                                            .is_some_and(|e| !e.complete && e.cursor.is_some());
-                                        let hint = match &snapshot {
+                                        let load_more = !complete && has_cursor;
+                                        let hint = if landed {
                                             // The three truthful states (D4).
-                                            Some(_) => home_prs_hint(source_len, total_count),
+                                            home_prs_hint(source_len, total_count)
+                                        } else {
                                             // No lane yet: skeletons own
                                             // the row area (docs/0051 D5).
-                                            None => None,
+                                            None
                                         };
                                         col.when(load_more, |col| {
                                             col.child(
@@ -1187,11 +1169,16 @@ impl GithubPage {
         cx: &mut Context<Self>,
     ) {
         log::debug!("pr page opened: {}#{}", repo, pr.number);
+        // docs/0073 D4: the clicked row is the document's summary
+        // layer — land it so the store holds the document before the
+        // page exists (the page paints from the store; it keeps no
+        // snapshot of its own).
+        self.state.update(cx, |s, _| s.land_summary(repo, pr));
         let page = cx.new(|cx| {
             pr_page::PrDetailPage::new(
                 self.state.clone(),
                 repo.to_string(),
-                pr.clone(),
+                pr.number,
                 anchor,
                 window,
                 cx,
@@ -4233,11 +4220,14 @@ mod tests {
                     labels: None,
                     review_requests: None,
                 };
+                // docs/0073 D4: the ctor no longer lands — land the
+                // row so the store holds the document first.
+                state.update(cx, |s, _| s.land_summary("acme/one", &summary));
                 p.pr = Some(cx.new(|cx| {
                     pr_page::PrDetailPage::new(
                         state.clone(),
                         "acme/one".into(),
-                        summary,
+                        summary.number,
                         None,
                         window,
                         cx,
@@ -4697,11 +4687,14 @@ mod tests {
                     labels: None,
                     review_requests: None,
                 };
+                // docs/0073 D4: the ctor no longer lands — land the
+                // row so the store holds the document first.
+                state.update(cx, |s, _| s.land_summary("acme/one", &summary));
                 p.pr = Some(cx.new(|cx| {
                     pr_page::PrDetailPage::new(
                         state.clone(),
                         "acme/one".into(),
-                        summary,
+                        summary.number,
                         None,
                         window,
                         cx,
