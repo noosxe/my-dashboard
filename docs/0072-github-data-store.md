@@ -219,8 +219,8 @@ the existing fetch pipeline, not a new pipeline.
   navigation all stay live — pending never blocks leaving.
 - **Inline errors** — unchanged placement and copy (docs/0016 D5); the
   failure toast carries a one-line summary and points back at the surface.
-- **Toast copy** — success: "Merged #482 · owner/repo" (method rides the
-  message when known); failure: "Merge failed · #482 owner/repo — {error}".
+- **Toast copy** — success: "Merged #482 · owner/repo"; failure:
+  "Merge failed · #482 owner/repo — {error}".
 
 ## 5. Verification
 

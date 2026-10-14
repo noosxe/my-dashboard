@@ -1768,6 +1768,9 @@ impl GithubPage {
             // ever drifts, trim the `#number` off the row's composite key.
             pr.key.split('#').next().unwrap_or_default().to_string()
         });
+        // docs/0072 D4: the document's optimistic write, from the store
+        // (computed before the row-click closure moves `repo`).
+        let pending = self.state.read(cx).pr_pending(&repo, pr.number);
         // docs/0049 D1: accessible names are explicit — text children do
         // not become the row's name. Reading order mirrors the row:
         // number+title, repo, author, state, CI signal.
@@ -1784,6 +1787,9 @@ impl GithubPage {
             label.push_str(" · draft");
         } else if let Some(state) = pr.state.as_deref() {
             label.push_str(&format!(" · {state}"));
+        }
+        if let Some(kind) = pending {
+            label.push_str(&format!(" · {}", kind.label()));
         }
         if let Some(rollup) = gql::rollup_state(pr.status.as_deref()) {
             label.push_str(&format!(" · {}", Self::ci_row_glyph(rollup, cx).2));
@@ -1882,6 +1888,19 @@ impl GithubPage {
                         h_flex()
                             .gap_2()
                             .items_center()
+                            .when_some(pending, |row, kind: crate::service::PendingKind| {
+                                row.child(
+                                    div()
+                                        .id(SharedString::from(format!("pr-pending-{}", pr.key)))
+                                        .debug_selector({
+                                            let probe = format!("pr-pending-{}", pr.key);
+                                            move || probe.clone()
+                                        })
+                                        .text_xs()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child(kind.label()),
+                                )
+                            })
                             .when_some(pr.author.as_ref(), |row, author| {
                                 row.child(
                                     h_flex()
