@@ -84,11 +84,15 @@ fn load_themes_dir(dir: &std::path::Path, cx: &mut App) {
 }
 
 /// Fresh-global rebuild (docs/0025 D5): replay the bundled defaults,
-/// then the user dir. The registry only ever *adds* —
-/// `load_themes_from_str` skips known names and nothing evicts — so a
-/// fresh global is the only way to reflect edits/removals of user files
-/// on the fly. The library's registry observer re-resolves the active
-/// slot configs by name and refreshes windows as the mutations land.
+/// then the user dir, then the vendored presets (docs/0074 D2). The
+/// registry only ever *adds* — `load_themes_from_str` skips known
+/// names and nothing evicts — so the replay order *is* the authority
+/// rule: the factory pair outranks everything, a user file shadows a
+/// preset by name (the Whiskers override path), and a preset fills
+/// every name nobody claimed. A fresh global is the only way to
+/// reflect edits/removals of user files on the fly. The library's
+/// registry observer re-resolves the active slot configs by name and
+/// refreshes windows as the mutations land.
 fn rebuild_themes(dir: Option<&std::path::Path>, cx: &mut App) {
     cx.set_global(ThemeRegistry::default());
     if let Err(err) = ThemeRegistry::global_mut(cx).load_themes_from_str(BUNDLED_DEFAULTS) {
@@ -97,6 +101,7 @@ fn rebuild_themes(dir: Option<&std::path::Path>, cx: &mut App) {
     if let Some(dir) = dir {
         load_themes_dir(dir, cx);
     }
+    crate::theme_presets::load(cx);
 }
 // ---------------------------------------------------------------------------
 // Values + persistence
@@ -911,11 +916,67 @@ mod tests {
     }
 
     #[gpui::test]
-    fn rebuild_replays_the_bundled_defaults(cx: &mut gpui::TestAppContext) {
+    fn rebuild_replays_the_bundled_defaults_and_all_presets(cx: &mut gpui::TestAppContext) {
         // Fresh-global rebuild (as after any watcher event) must bring
-        // the factory pair back — nothing else ships (docs/0056 D1).
+        // the factory pair back with OUR values — the kit's vendored
+        // aurora.json is a stale copy and is excluded from the preset
+        // bundle (docs/0074 D2) — plus every preset (docs/0074 D2).
         let names = boot_and_names(cx, None);
-        assert_eq!(names, ["Aurora Dark", "Aurora Light"]);
+        assert!(names.contains(&"Aurora Dark".to_string()));
+        assert!(names.contains(&"Aurora Light".to_string()));
+        for (file, _) in crate::theme_presets::PRESETS {
+            let set: ThemeSet = serde_json::from_str(file_src(file)).unwrap();
+            for theme in set.themes {
+                assert!(
+                    names.contains(&theme.name.to_string()),
+                    "preset missing from the registry: {file}: {}",
+                    theme.name
+                );
+            }
+        }
+        assert_eq!(names.len(), 37, "factory pair + 35 presets");
+        // The factory pair kept our values, not the kit's stale copy.
+        cx.update(|cx| {
+            let themes = ThemeRegistry::global(cx).themes();
+            assert_eq!(
+                themes["Aurora Light"].colors.background.as_deref(),
+                Some("#f8f9fc")
+            );
+        });
+    }
+
+    #[gpui::test]
+    fn user_dir_preset_names_win(cx: &mut gpui::TestAppContext) {
+        // docs/0074 D2: a user file naming a preset shadows it (the
+        // Whiskers Catppuccin override path, docs/0025 §9) — the user
+        // dir replays before the presets.
+        let dir = scratch_dir("preset-shadow");
+        std::fs::write(
+            dir.join("mocha.json"),
+            r##"{"themes":[{"name":"Catppuccin Mocha","mode":"dark",
+                  "colors":{"background":"#1e1e2e"}}]}"##,
+        )
+        .unwrap();
+        let names = boot_and_names(cx, Some(&dir));
+        assert!(names.contains(&"Catppuccin Mocha".to_string()));
+        cx.update(|cx| {
+            let themes = ThemeRegistry::global(cx).themes();
+            assert_eq!(
+                themes["Catppuccin Mocha"].colors.background.as_deref(),
+                Some("#1e1e2e"),
+                "the user copy must win over the vendored preset"
+            );
+        });
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Raw source of a vendored preset file, for registry-level tests.
+    fn file_src(file: &str) -> &'static str {
+        crate::theme_presets::PRESETS
+            .iter()
+            .find(|(name, _)| *name == file)
+            .map(|(_, src)| *src)
+            .unwrap_or_else(|| panic!("unknown preset file: {file}"))
     }
 
     #[gpui::test]
@@ -934,8 +995,10 @@ mod tests {
         .unwrap();
         let names = boot_and_names(cx, Some(&dir));
         // Valid file in; invalid file out; the default-name collision
-        // skipped (D6) — one "Default Light", no duplicates (D7).
-        assert_eq!(names, ["Aurora Dark", "Aurora Light", "Test Light"]);
+        // skipped (D6) — one "Aurora Light", no duplicates (D7). The
+        // presets fill the remaining names (docs/0074 D2).
+        assert!(names.contains(&"Test Light".to_string()));
+        assert_eq!(names.len(), 38, "factory pair + user file + 35 presets");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -972,7 +1035,8 @@ mod tests {
         cx.update(|cx| {
             let names = boot_shape_names(cx);
             assert!(!names.contains(&"Mine".to_string()));
-            assert_eq!(names.len(), 2); // the defaults are back, untouched
+            // The defaults are back, untouched, plus the presets.
+            assert_eq!(names.len(), 37);
         });
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -992,13 +1056,15 @@ mod tests {
         cx.update(gpui_component::init);
         cx.update(|cx| {
             rebuild_themes(None, cx);
-            // Pre-0025 install: settings.json still names the removed
-            // Mocha (D8). Boot restore must warn + land on the default,
-            // and leave the persisted value alone.
+            // Pre-0056 install: settings.json still names the removed
+            // upstream pair (D8). Boot restore must warn + land on the
+            // default, and leave the persisted value alone. ("Catppuccin
+            // Mocha" resolves again since docs/0074 — the sentinel must
+            // be a name nothing registers.)
             cx.set_global(AppSettings {
                 theme_mode: Some("dark".into()),
                 theme_name_light: None,
-                theme_name_dark: Some("Catppuccin Mocha".into()),
+                theme_name_dark: Some("Default Dark".into()),
                 notifications: None,
                 agent_bridge: None,
             });
@@ -1008,7 +1074,7 @@ mod tests {
             assert_eq!(cx.theme().dark_theme.name, "Aurora Dark");
             assert_eq!(
                 cx.global::<AppSettings>().theme_name_dark.as_deref(),
-                Some("Catppuccin Mocha")
+                Some("Default Dark")
             );
         });
     }

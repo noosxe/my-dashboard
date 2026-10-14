@@ -46,7 +46,9 @@ anyhow = "1"
 # Cargo.toml at v0.7.3) and now pins the exact snapshot per release
 # (gpui-kit #3163). Bumps are deliberate PRs: flip all three to the same new
 # =x.y.z together, run the full gates, the #125 upstream-quirk
-# re-verification checklist, and an app smoke.
+# re-verification checklist, an app smoke, and re-sync the vendored
+# theme presets (cp themes/*.json minus aurora.json →
+# crates/core/assets/themes/presets/, docs/0074 D8).
 gpui = { package = "gpui-pre", version = "=0.3.9" }
 gpui_platform = { package = "gpui-pre-platform", version = "=0.3.9", features = [
     "font-kit", "x11", "wayland",

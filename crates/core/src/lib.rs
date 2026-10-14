@@ -14,6 +14,7 @@ pub mod settings;
 pub mod shell;
 pub mod status;
 pub mod store;
+pub(crate) mod theme_presets;
 pub mod toasts;
 pub mod ui;
 pub mod usage_analytics;

@@ -74,8 +74,9 @@ recursive loading.
 **D2 — Format: `ThemeSet` JSON** (same shape as the removed Mocha file,
 docs/0006 §3.6). Color keys optional; upstream publishes
 `.theme-schema.json` for editor validation — linked from this doc and the
-Appearance description, not bundled. `highlight` sections parse but are
-unused (no code editor in-app). `is_default` in user files is
+Appearance description, not bundled. `highlight` sections parse; since
+docs/0070 they are consumed — the Diff/highlighter resolves syntax
+tokens through them. `is_default` in user files is
 unsupported: it would silently swap the library's fallback pair. Say so
 in the docs; do not special-case it.
 
@@ -90,6 +91,10 @@ two bundled themes cannot literally both be called "default" — the
 upstream names `Default Light` / `Default Dark` are kept verbatim; each
 slot picker is mode-filtered, so only one default is ever offered per
 slot.
+
+Amended by docs/0074: the bundled set grows — the factory Aurora pair
+plus the vendored gpui-component presets (the library's upstream
+defaults stay unshipped); replay order factory → user dir → presets.
 
 **D4 — Boot order (synchronous first load).** `settings::init` (runs
 after `gpui_component::init`, before any window exists): load persisted
@@ -145,6 +150,11 @@ or shipped with this design; the `.tera` template, the four generated
 flavor files, and the drop-in workflow land via #143. The removed Mocha
 JSON is kept in git history as the semantic-key → Catppuccin-role
 reference for that work.
+
+Amended by docs/0074: the four flavors ship built-in (vendored kit
+presets). The Whiskers flow stays as the **override** path — user-dir
+files load before the presets, so a Whiskers install shadows the
+built-in flavors by name, unchanged.
 
 ## 4. Implementation plan (one PR, after this doc merges)
 
