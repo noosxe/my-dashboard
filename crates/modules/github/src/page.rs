@@ -628,7 +628,16 @@ impl GithubPage {
                 };
             }
         };
-        let snapshot = state.home_prs.get(&(login.to_string(), scope)).cloned();
+        let mut snapshot = state.home_prs.get(&(login.to_string(), scope)).cloned();
+        // docs/0072 D4 — a confirmed merge/close lands its state into
+        // the lane rows; the open list drops them the moment it
+        // confirms, mirroring the lane's own `is:open` search. The
+        // store-side rows stay put — "Load more" appends against the
+        // unfiltered chain.
+        if let Some(lane) = &mut snapshot {
+            lane.nodes
+                .retain(|row| row.state.as_deref() == Some("OPEN"));
+        }
         let clock = if snapshot.is_some() {
             LandedClock(state.home_landed)
         } else {

@@ -174,6 +174,16 @@ can navigate anywhere the instant they click — exactly the owner's scenario:
 merge, jump home, see the row flip when the confirmation lands, with no
 home refetch in between.
 
+**Confirmed state is a shared fact (shipped hardening, after a field
+report):** the confirmation lands its deterministic post-state into
+*both* store surfaces — the document (summary + detail) and the home
+lane row (`home_prs`) — so the open-PRs list reflects the merge/close
+the moment it confirms, not when the next lane landing arrives. The open
+list filters non-`OPEN` rows locally, mirroring its own `is:open`
+search; store-side lane rows stay put so "Load more" keeps appending
+against the unfiltered chain. The next lane landing reconciles the rest
+with server truth (merged metadata, ordering, total counts).
+
 **Hardening (shipped with the implementation, after a field report):** a
 pending op whose confirmation never lands — the arming page dropped
 mid-flight, or GitHub went silent — unblocks itself: the tick loop runs
