@@ -67,7 +67,7 @@ use crate::pickers::{
     label_rows, milestone_rows, picker_row_matches, reviewer_rows,
 };
 use crate::service::{
-    Fetch, FetchSpec, GithubState, Kind, Mutation, run_check_log_chain, run_mutation,
+    Fetch, FetchSpec, GithubState, Kind, Mutation, PendingKind, run_check_log_chain, run_mutation,
     run_spec_tracked,
 };
 use crate::usage::{Origin, Surface, Trigger};
@@ -2543,7 +2543,10 @@ impl PrDetailPage {
         self.spawn_mutation(op, mutation, variables, window, cx);
     }
     /// Merge the PR (D5) with the selected (or only) method.
-    fn merge_pr(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// docs/0072 D4: the write arms optimistically — the pending state
+    /// lands in the store, every rendering surface repaints, and the
+    /// confirmation resolves through the store with a toast.
+    fn merge_pr(&mut self, cx: &mut Context<Self>) {
         let Some(d) = self.detail(cx).cloned() else {
             return;
         };
@@ -2551,7 +2554,7 @@ impl PrDetailPage {
             d.state.as_deref(),
             d.draft,
             d.mergeable.as_deref(),
-            self.busy.is_some(),
+            self.busy.is_some() || self.store_pending(cx).is_some(),
             self.methods.is_empty(),
         ) {
             return;
@@ -2559,25 +2562,23 @@ impl PrDetailPage {
         let method = self.selected_method(cx).unwrap_or(MergeMethod::Merge);
         let variables =
             json!({ "input": { "pullRequestId": d.id, "mergeMethod": method.as_str() } });
-        self.mutation_error = None;
-        self.busy = Some(BusyOp::Merge);
-        cx.notify();
-        self.spawn_mutation(BusyOp::Merge, Mutation::Merge, variables, window, cx);
+        self.begin_store_mutation(PendingKind::Merge, Mutation::Merge, variables, cx);
     }
 
-    /// Close the PR (D5).
-    fn close_pr(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Close the PR (D5) — optimistic through the store (docs/0072 D4).
+    fn close_pr(&mut self, cx: &mut Context<Self>) {
         let Some(d) = self.detail(cx).cloned() else {
             return;
         };
-        if self.busy.is_some() || d.id.is_empty() || d.state.as_deref() != Some("OPEN") {
+        if self.busy.is_some()
+            || self.store_pending(cx).is_some()
+            || d.id.is_empty()
+            || d.state.as_deref() != Some("OPEN")
+        {
             return;
         }
         let variables = json!({ "input": { "pullRequestId": d.id } });
-        self.mutation_error = None;
-        self.busy = Some(BusyOp::Close);
-        cx.notify();
-        self.spawn_mutation(BusyOp::Close, Mutation::Close, variables, window, cx);
+        self.begin_store_mutation(PendingKind::Close, Mutation::Close, variables, cx);
     }
 
     // --- branch update (docs/0067 D1-D5) ---------------------------------
@@ -2586,19 +2587,14 @@ impl PrDetailPage {
     /// (`viewer_can_update_branch`, D2), the input rides the rendered
     /// envelope's head OID as the staleness guard, and the method is
     /// always explicit (MERGE | REBASE).
-    fn update_branch_pr(
-        &mut self,
-        method: UpdateBranchMethod,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn update_branch_pr(&mut self, method: UpdateBranchMethod, cx: &mut Context<Self>) {
         let Some(d) = self.detail(cx).cloned() else {
             return;
         };
         if !update_branch_enabled(
             d.state.as_deref(),
             d.viewer_can_update_branch,
-            self.busy.is_some(),
+            self.busy.is_some() || self.store_pending(cx).is_some(),
         ) || d.id.is_empty()
             || d.head_oid.as_deref().is_none_or(str::is_empty)
         {
@@ -2612,14 +2608,10 @@ impl PrDetailPage {
                 "updateMethod": method.as_str(),
             }
         });
-        self.mutation_error = None;
-        self.busy = Some(BusyOp::UpdateBranch);
-        cx.notify();
-        self.spawn_mutation(
-            BusyOp::UpdateBranch,
+        self.begin_store_mutation(
+            PendingKind::UpdateBranch,
             Mutation::UpdateBranch,
             variables,
-            window,
             cx,
         );
     }
@@ -2627,7 +2619,7 @@ impl PrDetailPage {
     /// Arm the rebase confirm (D4): merge-commit updates are one-click;
     /// rebase rewrites the branch and force-pushes — it confirms first.
     fn arm_update_rebase(&mut self, cx: &mut Context<Self>) {
-        if self.busy.is_some() {
+        if self.busy.is_some() || self.store_pending(cx).is_some() {
             return;
         }
         self.update_rebase_confirm = true;
@@ -3182,11 +3174,6 @@ impl PrDetailPage {
         cx: &mut Context<Self>,
     ) {
         self.busy = None;
-        // docs/0067 D4: any branch-update outcome closes the confirm —
-        // success repaints from the refetch, a retry re-arms it.
-        if op == BusyOp::UpdateBranch {
-            self.update_rebase_confirm = false;
-        }
         let scope = op.error_scope();
         let mut failed: Option<String> = None;
         if let Some(m) = &result.network {
@@ -3216,13 +3203,6 @@ impl PrDetailPage {
             }
         }
         if let Some(message) = failed {
-            // docs/0067 D6: branch-update failures get the mapped copy —
-            // the raw upstream prose stays in the log line above.
-            let message = if op == BusyOp::UpdateBranch {
-                update_branch_error_copy(&message)
-            } else {
-                message
-            };
             self.mutation_error = Some(MutationError { scope, message });
         } else {
             self.mutation_error = None;
@@ -3249,10 +3229,6 @@ impl PrDetailPage {
                 BusyOp::CommentDelete | BusyOp::ReviewDelete => {
                     self.delete_confirm = None;
                 }
-                BusyOp::Merge | BusyOp::Close => {}
-                // docs/0067 D5: no surface to close — the refetch below
-                // repaints the state line from the fresh envelope.
-                BusyOp::UpdateBranch => {}
                 // 0030 D7: Files-tab successes close the surface they
                 // came from; the threads refetch below repaints the pane.
                 BusyOp::LineComment => {
@@ -3302,6 +3278,122 @@ impl PrDetailPage {
         }
         cx.notify();
     }
+    /// The optimistic write in flight on this document, if any (D4).
+    fn store_pending(&self, cx: &Context<Self>) -> Option<PendingKind> {
+        self.state.read(cx).pr_pending(&self.repo, self.number)
+    }
+
+    /// docs/0072 D4 — arm an optimistic write on this document: the
+    /// pending state lands in the store (`begin_pending` refuses a
+    /// second one — D5), and the GraphQL flight resolves through the
+    /// store, token in hand (D6).
+    fn begin_store_mutation(
+        &mut self,
+        kind: PendingKind,
+        mutation: Mutation,
+        variables: serde_json::Value,
+        cx: &mut Context<Self>,
+    ) {
+        let token = self
+            .state
+            .update(cx, |s, _| s.begin_pending(&self.repo, self.number, kind));
+        let Some(token) = token else {
+            return; // no document, or one already in flight (D5)
+        };
+        cx.notify();
+        let state = self.state.clone();
+        let ident = format!("{}#{} {kind:?}", self.repo, self.number);
+        cx.spawn(async move |this, cx| {
+            let result = run_mutation(
+                state,
+                mutation,
+                variables,
+                ident,
+                Origin::new(Surface::PrPage, Trigger::MutationRefetch),
+                cx,
+            )
+            .await;
+            let _ = this.update(cx, |page, cx| {
+                page.apply_store_mutation_result(kind, token, result, cx)
+            });
+        })
+        .detach();
+    }
+
+    /// The store op came back (docs/0072 D4/D6): the shared status lanes
+    /// run exactly as for every other fetch (401 gate, rate-limit
+    /// pause), then the store resolves — success patches the document,
+    /// stages the completion toast (D7) and revalidates in the
+    /// background; failure keeps the prior document, records the
+    /// inline-scope error (docs/0016 D5 placement) and stages a warning
+    /// toast. The page never blocks on any of it.
+    fn apply_store_mutation_result(
+        &mut self,
+        kind: PendingKind,
+        token: u64,
+        result: crate::service::SpecResult,
+        cx: &mut Context<Self>,
+    ) {
+        let mut failed: Option<String> = None;
+        if let Some(m) = &result.network {
+            failed = Some(format!("Network error: {m}"));
+        } else if result.status != 200 {
+            let status = result.status;
+            self.state.update(cx, |s, cx| {
+                s.apply(result);
+                cx.notify();
+            });
+            failed = Some(format!("GitHub answered HTTP {status}"));
+        } else if let Some(message) = result.body.as_deref().and_then(|body| {
+            serde_json::from_str::<gql::Envelope<serde_json::Value>>(body)
+                .ok()
+                .and_then(|env| env.errors.first().map(|e| e.message.clone()))
+        }) {
+            log::warn!(
+                "pr-mutation {}#{} {kind:?}: {message}",
+                self.repo,
+                self.number
+            );
+            failed = Some(message);
+        }
+        match failed {
+            Some(message) => {
+                // docs/0067 D6: branch-update failures get the mapped
+                // copy — the raw upstream prose stays in the log above.
+                let message = if kind == PendingKind::UpdateBranch {
+                    update_branch_error_copy(&message)
+                } else {
+                    message
+                };
+                self.state.update(cx, |s, _| {
+                    s.fail_pending(&self.repo, self.number, token, message);
+                });
+            }
+            None => {
+                self.state.update(cx, |s, _| {
+                    s.resolve_pending(&self.repo, self.number, token);
+                });
+                // The header and home row repaint from the patched
+                // document; the background revalidate brings the
+                // timeline and checks back (docs/0016 D4's refetch —
+                // now non-blocking, docs/0072 D4).
+                self.fetch_detail(Origin::new(Surface::PrPage, Trigger::MutationRefetch), cx);
+            }
+        }
+        cx.notify();
+    }
+
+    /// The Panel-scope inline error (docs/0016 D5 placement): store ops
+    /// record it on the entry (docs/0072 D4); the page-modal ops never
+    /// produce Panel errors.
+    fn panel_error<'a>(&self, cx: &'a Context<Self>) -> Option<&'a MutationError> {
+        self.state
+            .read(cx)
+            .pr_entry(&self.repo, self.number)
+            .and_then(|e| e.error.as_ref())
+            .filter(|e| e.scope == ErrorScope::Panel)
+    }
+
     // --- reactions (docs/0023 D3 ported to the PR surfaces, #196) ----------
 
     /// Chip click (docs/0023 D3): armed removes, otherwise adds.
@@ -4864,6 +4956,9 @@ impl PrDetailPage {
     fn render_merge_panel(&self, d: &gql::PrDetail, cx: &Context<Self>) -> AnyElement {
         let tone = pr_state_tone(d.state.as_deref(), d.draft);
         let busy = self.busy.is_some();
+        // docs/0072 D4: the document's optimistic write, from the store.
+        let pending = self.store_pending(cx);
+        let any_busy = busy || pending.is_some();
         // Terminal states (D5): the refetch after merge/close repaints the
         // panel as a note — no actions on a PR that is already done.
         if tone == PrStateTone::Merged || tone == PrStateTone::Closed {
@@ -4908,13 +5003,13 @@ impl PrDetailPage {
             d.state.as_deref(),
             d.draft,
             d.mergeable.as_deref(),
-            busy,
+            any_busy,
             self.methods.is_empty(),
         );
         // docs/0067 D1/D2: the update-branch split button — hidden
         // unless the server gate is open, never disabled-guessed.
         let can_update =
-            update_branch_enabled(d.state.as_deref(), d.viewer_can_update_branch, busy)
+            update_branch_enabled(d.state.as_deref(), d.viewer_can_update_branch, any_busy)
                 && !d.id.is_empty()
                 && d.head_oid.as_deref().is_some_and(|oid| !oid.is_empty());
         // Method selector (D5): shown only when the repo allows a real
@@ -4923,7 +5018,9 @@ impl PrDetailPage {
             (Some(select), n) if n > 1 => Select::new(select).small().w_full().into_any_element(),
             _ => div().into_any_element(),
         };
-        let merge_label: SharedString = if self.methods.len() == 1 {
+        let merge_label: SharedString = if pending == Some(PendingKind::Merge) {
+            "working…".into()
+        } else if self.methods.len() == 1 {
             self.methods[0].verb().into()
         } else {
             "Merge pull request".into()
@@ -4937,31 +5034,26 @@ impl PrDetailPage {
                     .py_1()
                     .child(div().text_sm().text_color(line_color).child(line))
                     .when(can_update && !self.update_rebase_confirm, |col| {
-                        col.child(self.render_update_branch_row(busy, cx))
+                        col.child(self.render_update_branch_row(any_busy, cx))
                     })
                     .when(self.update_rebase_confirm, |col| {
                         col.child(self.render_update_rebase_confirm(d, cx))
                     })
                     .child(method_row)
-                    .when_some(
-                        self.mutation_error
-                            .as_ref()
-                            .filter(|e| e.scope == ErrorScope::Panel),
-                        |col, e| {
-                            col.child(
-                                div()
-                                    .text_sm()
-                                    .text_color(cx.theme().danger)
-                                    .child(e.message.clone()),
-                            )
-                        },
-                    )
+                    .when_some(self.panel_error(cx), |col, e| {
+                        col.child(
+                            div()
+                                .text_sm()
+                                .text_color(cx.theme().danger)
+                                .child(e.message.clone()),
+                        )
+                    })
                     .child(
                         h_flex()
                             .gap_2()
                             .items_center()
                             .when(
-                                matches!(self.busy, Some(BusyOp::Merge | BusyOp::Close)),
+                                matches!(pending, Some(PendingKind::Merge | PendingKind::Close)),
                                 |row| row.child(Spinner::new().small()),
                             )
                             .child(
@@ -4970,12 +5062,12 @@ impl PrDetailPage {
                                     .primary()
                                     .small()
                                     .disabled(!can_merge)
-                                    .tooltip(merge_disabled_reason(can_merge, line))
-                                    .on_click(
-                                        cx.listener(|this, _, window, cx| {
-                                            this.merge_pr(window, cx)
-                                        }),
-                                    ),
+                                    .tooltip(if pending.is_some() {
+                                        SharedString::from("Working")
+                                    } else {
+                                        merge_disabled_reason(can_merge, line)
+                                    })
+                                    .on_click(cx.listener(|this, _, _, cx| this.merge_pr(cx))),
                             )
                             .child(
                                 Button::new("pr-close")
@@ -4983,12 +5075,8 @@ impl PrDetailPage {
                                     .danger()
                                     .ghost()
                                     .small()
-                                    .disabled(busy || d.state.as_deref() != Some("OPEN"))
-                                    .on_click(
-                                        cx.listener(|this, _, window, cx| {
-                                            this.close_pr(window, cx)
-                                        }),
-                                    ),
+                                    .disabled(any_busy || d.state.as_deref() != Some("OPEN"))
+                                    .on_click(cx.listener(|this, _, _, cx| this.close_pr(cx))),
                             ),
                     ),
             )
@@ -5005,9 +5093,10 @@ impl PrDetailPage {
             .debug_selector(|| "pr-update-branch-row".to_string())
             .gap_2()
             .items_center()
-            .when(matches!(self.busy, Some(BusyOp::UpdateBranch)), |row| {
-                row.child(Spinner::new().small())
-            })
+            .when(
+                self.store_pending(cx) == Some(PendingKind::UpdateBranch),
+                |row| row.child(Spinner::new().small()),
+            )
             .child(
                 Button::new("pr-update-branch")
                     .debug_selector(|| "pr-update-branch".to_string())
@@ -5037,10 +5126,10 @@ impl PrDetailPage {
                                     // cycle, then post from the live context
                                     // (the reaction picker's pattern).
                                     let item_weak = item_weak.clone();
-                                    window.defer(cx, move |window, cx| {
+                                    window.defer(cx, move |_, cx| {
                                         let _ = item_weak.update(cx, |page, cx| match method {
                                             UpdateBranchMethod::MergeCommit => {
-                                                page.update_branch_pr(method, window, cx)
+                                                page.update_branch_pr(method, cx)
                                             }
                                             UpdateBranchMethod::Rebase => {
                                                 page.arm_update_rebase(cx)
@@ -5083,8 +5172,8 @@ impl PrDetailPage {
                             .label("Rebase branch")
                             .danger()
                             .small()
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.update_branch_pr(UpdateBranchMethod::Rebase, window, cx)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.update_branch_pr(UpdateBranchMethod::Rebase, cx)
                             })),
                     )
                     .child(
@@ -5545,11 +5634,8 @@ pub(crate) enum BusyOp {
     Comment,
     Review,
     Description,
-    Merge,
-    Close,
-    // docs/0067 D3: the branch update — one op, MERGE | REBASE ride
-    // the input; Panel scope like merge/close.
-    UpdateBranch,
+    // docs/0072 D4: merge/close/update-branch left the page-modal enum —
+    // they are store ops now (PendingKind), optimistic and entry-scoped.
     // 0019 D5: timeline-row writes — the op names the surface (and the
     // log line) honestly; all of them error into the timeline scope.
     CommentEdit,
@@ -5593,7 +5679,6 @@ impl BusyOp {
             | BusyOp::ReviewEdit
             | BusyOp::ReviewDelete
             | BusyOp::Reaction => ErrorScope::Timeline,
-            BusyOp::Merge | BusyOp::Close | BusyOp::UpdateBranch => ErrorScope::Panel,
             // 0030 D7: Files-tab failures render in the diff pane —
             // inline, never modal (the composer stays open with its draft).
             BusyOp::LineComment
@@ -6680,6 +6765,227 @@ mod tests {
         );
     }
 
+    // --- optimistic merge through the store (docs/0072 D4-D7) ------------
+
+    fn merge_probe() -> gql::PrDetail {
+        let mut d = probe_detail();
+        d.mergeable = Some("MERGEABLE".into());
+        d
+    }
+
+    fn mutation_ok_200() -> Result<crate::http::HttpResult, crate::http::HttpError> {
+        Ok(crate::http::HttpResult {
+            status: 200,
+            etag: None,
+            rate: None,
+            body: Some("{}".into()),
+        })
+    }
+
+    /// The whole optimistic arc over real dispatches: arming flips the
+    /// document to pending synchronously; the 200 resolves through the
+    /// store (both layers patch, the completion toast stages, the
+    /// revalidate flies in the background); a failed mutation keeps the
+    /// prior document and records the inline Panel error.
+    #[gpui::test]
+    fn merge_arms_pending_and_confirms_through_the_store(cx: &mut gpui::TestAppContext) {
+        use std::sync::Arc;
+
+        use crate::auth::MockTokenStore;
+        use crate::http::{Http, SharedToken, mock::MockHttp};
+        use crate::service::{GithubCache, GithubState};
+
+        cx.update(dashboard_core::status::init);
+        cx.update(gpui_component::init);
+        cx.update(|cx| cx.background_executor().allow_parking());
+        use crate::service::PendingKind;
+        // 1: the eager construction fetch (fails); 2: the merge mutation
+        // (200); 3: the post-confirm revalidate (fails — proves it flew).
+        let mock = Arc::new(MockHttp::new(vec![
+            Err(crate::http::HttpError("probe".into())),
+            mutation_ok_200(),
+            Err(crate::http::HttpError("probe".into())),
+        ]));
+        let state: gpui::Entity<GithubState> = cx.update(|cx| {
+            let shared: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let refresh: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            cx.new(|_| {
+                GithubState::new(
+                    mock.clone() as Arc<dyn Http>,
+                    Arc::new(MockTokenStore::with("t0k".into())),
+                    shared,
+                    refresh,
+                    GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    DraftStore::at_tmp("pr-page-merge"),
+                )
+            })
+        });
+        cx.update(|cx| state.update(cx, |s, _| s.auth = crate::service::AuthStatus::Connected));
+
+        let summary = gql::PullRequest {
+            key: "o/r#7".into(),
+            database_id: None,
+            number: 7,
+            title: "merge probe".into(),
+            draft: false,
+            state: Some("OPEN".into()),
+            author: None,
+            updated_at: None,
+            url: "https://probe".into(),
+            status: None,
+            labels: None,
+            review_requests: None,
+        };
+        let (page, vcx) = cx.add_window_view(|window, cx| {
+            PrDetailPage::new(state.clone(), "o/r".into(), summary, None, window, cx)
+        });
+        vcx.run_until_parked();
+        assert_eq!(mock.recorded().len(), 1, "the eager construction fetch");
+
+        // Land the document, then arm the merge.
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.state
+                    .update(cx, |s, _| s.land_detail(&p.repo, p.number, merge_probe()));
+                p.methods = vec![MergeMethod::Merge];
+            });
+        });
+
+        // Arming is synchronous: the document is pending before any
+        // dispatch could land (docs/0072 D4).
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.merge_pr(cx);
+                assert!(
+                    p.store_pending(cx) == Some(PendingKind::Merge),
+                    "the document arms pending synchronously"
+                );
+            });
+        });
+        vcx.run_until_parked();
+
+        // Confirmed: both layers patch, pending clears, the completion
+        // toast stages (D7), and the background revalidate flew (its
+        // scripted failure landed in the store's read books).
+        let (summary_state, detail_state, pending, revalidated) = vcx.read(|cx| {
+            let p = page.read(cx);
+            let entry = p.state.read(cx).pr_entry(&p.repo, p.number).unwrap();
+            (
+                entry.summary.state.clone(),
+                entry.detail.as_ref().unwrap().state.clone(),
+                entry.pending.is_some(),
+                entry.books.last_error.is_some(),
+            )
+        });
+        assert_eq!(summary_state.as_deref(), Some("MERGED"));
+        assert_eq!(detail_state.as_deref(), Some("MERGED"));
+        assert!(!pending, "the confirmation clears the pending state");
+        assert!(revalidated, "the background revalidate flew and landed");
+        assert_eq!(
+            mock.recorded().len(),
+            3,
+            "merge + revalidate, nothing modal"
+        );
+        vcx.update(|_, cx| {
+            state.update(cx, |s, _| {
+                let alerts = s.take_pending_alerts();
+                assert_eq!(alerts.len(), 1, "the completion toast stages");
+                assert_eq!(alerts[0].dedupe_key.as_deref(), Some("pr-merged:o/r#7"));
+            });
+        });
+    }
+
+    /// A failed mutation rolls back by keeping the prior document: no
+    /// patch, pending clears, the Panel-scope error records on the entry
+    /// (docs/0016 D5 placement), and the warning toast stages (D7).
+    #[gpui::test]
+    fn merge_failure_keeps_the_prior_document(cx: &mut gpui::TestAppContext) {
+        use std::sync::Arc;
+
+        use crate::auth::MockTokenStore;
+        use crate::http::{Http, SharedToken, mock::MockHttp};
+        use crate::service::{GithubCache, GithubState};
+
+        cx.update(dashboard_core::status::init);
+        cx.update(gpui_component::init);
+        cx.update(|cx| cx.background_executor().allow_parking());
+        // 1: the eager construction fetch (fails); 2: the merge mutation
+        // (fails — network error). No revalidate: failures don't refetch.
+        let mock = Arc::new(MockHttp::new(vec![
+            Err(crate::http::HttpError("probe".into())),
+            Err(crate::http::HttpError("probe".into())),
+        ]));
+        let state: gpui::Entity<GithubState> = cx.update(|cx| {
+            let shared: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let refresh: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            cx.new(|_| {
+                GithubState::new(
+                    mock.clone() as Arc<dyn Http>,
+                    Arc::new(MockTokenStore::with("t0k".into())),
+                    shared,
+                    refresh,
+                    GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    DraftStore::at_tmp("pr-page-merge-fail"),
+                )
+            })
+        });
+        cx.update(|cx| state.update(cx, |s, _| s.auth = crate::service::AuthStatus::Connected));
+
+        let summary = gql::PullRequest {
+            key: "o/r#7".into(),
+            database_id: None,
+            number: 7,
+            title: "merge probe".into(),
+            draft: false,
+            state: Some("OPEN".into()),
+            author: None,
+            updated_at: None,
+            url: "https://probe".into(),
+            status: None,
+            labels: None,
+            review_requests: None,
+        };
+        let (page, vcx) = cx.add_window_view(|window, cx| {
+            PrDetailPage::new(state.clone(), "o/r".into(), summary, None, window, cx)
+        });
+        vcx.run_until_parked();
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.state
+                    .update(cx, |s, _| s.land_detail(&p.repo, p.number, merge_probe()));
+                p.methods = vec![MergeMethod::Merge];
+                p.merge_pr(cx);
+            });
+        });
+        vcx.run_until_parked();
+
+        let (summary_state, pending, error) = vcx.read(|cx| {
+            let p = page.read(cx);
+            let entry = p.state.read(cx).pr_entry(&p.repo, p.number).unwrap();
+            (
+                entry.summary.state.clone(),
+                entry.pending.is_some(),
+                entry.error.clone(),
+            )
+        });
+        assert_eq!(summary_state.as_deref(), Some("OPEN"), "prior state kept");
+        assert!(!pending);
+        let error = error.expect("the failure records on the entry");
+        assert_eq!(error.scope, ErrorScope::Panel);
+        assert_eq!(error.message, "Network error: probe");
+        assert_eq!(mock.recorded().len(), 2);
+        vcx.update(|_, cx| {
+            state.update(cx, |s, _| {
+                let alerts = s.take_pending_alerts();
+                assert_eq!(alerts.len(), 1, "the warning toast stages");
+                assert_eq!(
+                    alerts[0].dedupe_key.as_deref(),
+                    Some("pr-merged-failed:o/r#7")
+                );
+            });
+        });
+    }
+
     // --- refresh_if_stale policy (docs/0052 D3) ----------------------------
 
     /// One page, the whole policy table over real dispatches: stale and
@@ -7445,7 +7751,7 @@ mod tests {
         vcx.update(|window, cx| {
             page.update(cx, |p, cx| {
                 p.cancel_meta_editor(cx);
-                p.busy = Some(BusyOp::Merge);
+                p.busy = Some(BusyOp::Comment);
                 p.start_labels_picker(window, cx);
             });
         });
@@ -8555,7 +8861,7 @@ mod tests {
         });
         let (page, _vcx) = cx.add_window_view(|window, cx| {
             let summary = probe_summary("o/r#7", 7);
-            let mut page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
+            let page = PrDetailPage::new(state, "o/r".into(), summary, None, window, cx);
             let value = serde_json::json!({ "pullRequest": {
                 "id": "PR_1", "number": 7, "title": "t", "url": "u",
                 "state": "OPEN", "isDraft": false, "headRefOid": "abc123",
@@ -9367,9 +9673,19 @@ mod tests {
         assert_eq!(BusyOp::Comment.error_scope(), ErrorScope::Timeline);
         assert_eq!(BusyOp::Review.error_scope(), ErrorScope::Timeline);
         assert_eq!(BusyOp::Description.error_scope(), ErrorScope::Timeline);
-        assert_eq!(BusyOp::Merge.error_scope(), ErrorScope::Panel);
-        assert_eq!(BusyOp::Close.error_scope(), ErrorScope::Panel);
-        assert_eq!(BusyOp::UpdateBranch.error_scope(), ErrorScope::Panel);
+        // docs/0072 D4: the optimistic ops' scopes live on PendingKind.
+        assert_eq!(
+            crate::service::PendingKind::Merge.error_scope(),
+            ErrorScope::Panel
+        );
+        assert_eq!(
+            crate::service::PendingKind::Close.error_scope(),
+            ErrorScope::Panel
+        );
+        assert_eq!(
+            crate::service::PendingKind::UpdateBranch.error_scope(),
+            ErrorScope::Panel
+        );
     }
 
     #[test]
