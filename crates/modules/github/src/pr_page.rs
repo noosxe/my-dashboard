@@ -348,6 +348,12 @@ pub(crate) struct PrDetailPage {
     /// / reply textareas; the subscriptions live while the editor does.
     composer_sub: Option<gpui::Subscription>,
     reply_sub: Option<gpui::Subscription>,
+    /// Mention Change/Blur subscriptions for the transient composers
+    /// (#578) — they live while their editor does, like the height
+    /// resyncs above.
+    line_mention_sub: Option<gpui::Subscription>,
+    reply_mention_sub: Option<gpui::Subscription>,
+    thread_mention_sub: Option<gpui::Subscription>,
     /// The accordion: at most one expanded check at a time (D4).
     expanded_check: Option<String>,
     /// Review-threads fetch lifecycle (docs/0030 D1): lazy like the
@@ -487,7 +493,7 @@ impl PrDetailPage {
                 // dismisses (the caret must leave the composer).
                 InputEvent::Change => {
                     this.comment_changed(cx);
-                    this.sync_mention(cx);
+                    this.sync_mention_for(crate::mentions::MentionComposer::Comment, cx);
                 }
                 InputEvent::Blur => this.mention_dismiss(cx),
                 _ => {}
@@ -542,6 +548,9 @@ impl PrDetailPage {
             thread_edit: None,
             thread_delete_confirm: None,
             finish_summary: None,
+            line_mention_sub: None,
+            reply_mention_sub: None,
+            thread_mention_sub: None,
             finish_event: FinishEvent::default(),
             outdated_open: BTreeMap::new(),
             files_view: FilesView::default(),
@@ -1971,38 +1980,39 @@ impl PrDetailPage {
     /// refresh, or dismiss the popup. Same token+query keeps the selection
     /// stable (typing mid-filter must not reset it); an empty candidate
     /// list dismisses quietly.
-    fn sync_mention(&mut self, cx: &mut Context<Self>) {
-        let value = self.comment.read(cx).value().to_string();
-        let chars: Vec<char> = value.chars().collect();
-        let cursor = self.comment.read(cx).cursor().min(chars.len());
-        let next = match crate::mentions::scan_token(&chars, cursor) {
-            Some((token_start, query)) => {
-                let same = self
-                    .mention
-                    .as_ref()
-                    .is_some_and(|m| m.token_start == token_start && m.query == query);
-                if same {
-                    return;
-                }
-                let candidates = self
-                    .detail(cx)
-                    .map(|d| {
-                        crate::mentions::filter_candidates(
-                            &crate::mentions::ranked_candidates(d),
-                            &query,
-                        )
-                    })
-                    .unwrap_or_default();
-                (!candidates.is_empty()).then_some(crate::mentions::MentionState {
-                    token_start,
-                    query,
-                    candidates,
-                    selected: 0,
-                })
+    /// The textarea handle a composer tag routes to (#578). `None` when
+    /// the composer is closed — sync/accept then no-op.
+    fn mention_textarea(
+        &self,
+        composer: crate::mentions::MentionComposer,
+    ) -> Option<&Entity<TextareaState>> {
+        match composer {
+            crate::mentions::MentionComposer::Comment => Some(&self.comment),
+            crate::mentions::MentionComposer::LineComposer => {
+                self.line_composer.as_ref().map(|c| &c.editor)
             }
-            None => None,
+            crate::mentions::MentionComposer::Reply => self.reply_composer.as_ref().map(|(_, e)| e),
+            crate::mentions::MentionComposer::ThreadEdit => {
+                self.thread_edit.as_ref().map(|(_, e)| e)
+            }
+            crate::mentions::MentionComposer::IssueComment => None,
+        }
+    }
+
+    fn sync_mention_for(
+        &mut self,
+        composer: crate::mentions::MentionComposer,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(ta) = self.mention_textarea(composer).cloned() else {
+            return;
         };
-        let changed = next.as_ref() != self.mention.as_ref();
+        let pool = self
+            .detail(cx)
+            .map(crate::mentions::ranked_candidates)
+            .unwrap_or_default();
+        let next = crate::mentions::rescan(&self.mention, &ta, composer, &pool, cx);
+        let changed = next != self.mention;
         self.mention = next;
         if changed {
             cx.notify();
@@ -2036,12 +2046,79 @@ impl PrDetailPage {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let end = self.comment.read(cx).cursor().max(token_start);
+        let composer = self.mention.as_ref().map(|m| m.composer);
         self.mention = None;
-        self.comment.update(cx, |state, cx| {
+        let Some(ta) = composer.and_then(|c| self.mention_textarea(c)).cloned() else {
+            return;
+        };
+        let end = ta.read(cx).cursor().max(token_start);
+        ta.update(cx, |state, cx| {
             crate::mentions::replace_token_range(state, token_start, end, &login, window, cx);
         });
         cx.notify();
+    }
+
+    /// D4 seam shared by every composer site (#578): exactly while this
+    /// composer's popup is open, wrap the host in the `Mention` key
+    /// context + the four action handlers (the wrapper must contain the
+    /// focused textarea for the module's bindings to outrank its own)
+    /// and add the deferred popup. Weak-handle closures so the files-tab
+    /// render sites (App context) can use the same chrome.
+    pub(crate) fn mention_wrap(
+        page: &Self,
+        page_h: &Entity<Self>,
+        composer: crate::mentions::MentionComposer,
+        textarea: &Entity<TextareaState>,
+        host: Div,
+    ) -> Div {
+        let open = page
+            .mention
+            .as_ref()
+            .is_some_and(|m| m.composer == composer);
+        let weak = page_h.downgrade();
+        host.when(open, |field| {
+            let sel = weak.clone();
+            let prev = weak.clone();
+            let accept = weak.clone();
+            let dismiss = weak.clone();
+            field
+                .key_context("Mention")
+                .on_action(move |_: &MentionSelectNext, _, cx: &mut App| {
+                    let Some(page) = sel.upgrade() else {
+                        return;
+                    };
+                    page.update(cx, |this, cx| this.mention_select(1, cx));
+                })
+                .on_action(move |_: &MentionSelectPrev, _, cx: &mut App| {
+                    let Some(page) = prev.upgrade() else {
+                        return;
+                    };
+                    page.update(cx, |this, cx| this.mention_select(-1, cx));
+                })
+                .on_action(move |_: &MentionAccept, window, cx: &mut App| {
+                    let Some(page) = accept.upgrade() else {
+                        return;
+                    };
+                    page.update(cx, |this, cx| {
+                        let Some(m) = this.mention.as_ref() else {
+                            return;
+                        };
+                        let cand = &m.candidates[m.selected % m.candidates.len()];
+                        let login = cand.login.clone();
+                        this.accept_mention(m.token_start, login.clone(), window, cx);
+                    });
+                })
+                .on_action(move |_: &MentionDismiss, _, cx: &mut App| {
+                    let Some(page) = dismiss.upgrade() else {
+                        return;
+                    };
+                    page.update(cx, |this, cx| this.mention_dismiss(cx));
+                })
+                .child(gpui::deferred(crate::mentions::pr_popup(
+                    weak.clone(),
+                    textarea.downgrade(),
+                )))
+        })
     }
 
     fn submit_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -2786,12 +2863,26 @@ impl PrDetailPage {
         });
         self.reply_composer = None;
         self.reply_sub = None;
+        self.reply_mention_sub = None;
+        self.mention_dismiss(cx);
         // The composer is pane-level now (docs/0070 D5) — outside the
         // Diff's list, so its textarea growth flows naturally; this just
         // keeps the send buttons' disabled state fresh.
         self.composer_sub = Some(cx.observe(&editor, |_, _, cx| {
             cx.notify();
         }));
+        // docs/0075 D3 on the line composer (#578): changes re-scan,
+        // blur dismisses.
+        self.line_mention_sub =
+            Some(
+                cx.subscribe_in(&editor, window, |this, _, event, _, cx| match event {
+                    InputEvent::Change => {
+                        this.sync_mention_for(crate::mentions::MentionComposer::LineComposer, cx)
+                    }
+                    InputEvent::Blur => this.mention_dismiss(cx),
+                    _ => {}
+                }),
+            );
         self.line_composer = Some(LineComposer {
             path,
             side,
@@ -2805,6 +2896,8 @@ impl PrDetailPage {
     pub(crate) fn cancel_line_composer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.line_composer = None;
         self.composer_sub = None;
+        self.line_mention_sub = None;
+        self.mention_dismiss(cx);
         self.refocus_page(window, cx);
         cx.notify();
     }
@@ -2899,6 +2992,8 @@ impl PrDetailPage {
         }
         self.line_composer = None;
         self.composer_sub = None;
+        self.line_mention_sub = None;
+        self.mention_dismiss(cx);
         let editor = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(1, 8)
@@ -2912,6 +3007,18 @@ impl PrDetailPage {
                 cx.notify();
             }
         }));
+        // docs/0075 D3 on the reply composer (#578) — same contract as
+        // the line composer's, one tag over.
+        self.reply_mention_sub =
+            Some(
+                cx.subscribe_in(&editor, window, |this, _, event, _, cx| match event {
+                    InputEvent::Change => {
+                        this.sync_mention_for(crate::mentions::MentionComposer::Reply, cx)
+                    }
+                    InputEvent::Blur => this.mention_dismiss(cx),
+                    _ => {}
+                }),
+            );
         self.reply_composer = Some((thread_id.clone(), editor));
         self.bump_diff_annotations(cx);
         cx.notify();
@@ -2920,6 +3027,8 @@ impl PrDetailPage {
     pub(crate) fn cancel_reply(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.reply_composer.take().is_some() {
             self.reply_sub = None;
+            self.reply_mention_sub = None;
+            self.mention_dismiss(cx);
             self.bump_diff_annotations(cx);
         }
         self.refocus_page(window, cx);
@@ -3022,12 +3131,27 @@ impl PrDetailPage {
             state.set_value(body, window, cx);
             state
         });
+        // docs/0075 D3 on the thread edit (#578) — same contract, one
+        // tag over. The prefilled body carries no popup until a real
+        // edit re-scans.
+        self.thread_mention_sub =
+            Some(
+                cx.subscribe_in(&editor, window, |this, _, event, _, cx| match event {
+                    InputEvent::Change => {
+                        this.sync_mention_for(crate::mentions::MentionComposer::ThreadEdit, cx)
+                    }
+                    InputEvent::Blur => this.mention_dismiss(cx),
+                    _ => {}
+                }),
+            );
         self.thread_edit = Some((node_id, editor));
         cx.notify();
     }
 
     pub(crate) fn cancel_thread_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.thread_edit = None;
+        self.thread_mention_sub = None;
+        self.mention_dismiss(cx);
         self.refocus_page(window, cx);
         cx.notify();
     }
@@ -5390,39 +5514,13 @@ impl PrDetailPage {
                         .child("Draft restored — clearing the box discards it."),
                 )
             })
-            .child(
-                div()
-                    .when(self.mention.is_some(), |field| {
-                        // D4: the conditional key context turns the module's
-                        // mention bindings on exactly while the popup shows.
-                        field
-                            .key_context("Mention")
-                            .on_action(cx.listener(|this, _: &MentionSelectNext, _, cx| {
-                                this.mention_select(1, cx);
-                            }))
-                            .on_action(cx.listener(|this, _: &MentionSelectPrev, _, cx| {
-                                this.mention_select(-1, cx);
-                            }))
-                            .on_action(cx.listener(|this, _: &MentionAccept, window, cx| {
-                                let Some(m) = this.mention.as_ref() else {
-                                    return;
-                                };
-                                let cand = &m.candidates[m.selected % m.candidates.len()];
-                                let login = cand.login.clone();
-                                this.accept_mention(m.token_start, login, window, cx);
-                            }))
-                            .on_action(cx.listener(|this, _: &MentionDismiss, _, cx| {
-                                this.mention_dismiss(cx)
-                            }))
-                    })
-                    .child(Textarea::new(&self.comment).w_full())
-                    .when(self.mention.is_some(), |field| {
-                        field.child(gpui::deferred(crate::mentions::MentionPopup::new(
-                            cx.entity().downgrade(),
-                            self.comment.downgrade(),
-                        )))
-                    }),
-            )
+            .child(Self::mention_wrap(
+                self,
+                &cx.entity(),
+                crate::mentions::MentionComposer::Comment,
+                &self.comment,
+                div().child(Textarea::new(&self.comment).w_full()),
+            ))
             .child(
                 h_flex()
                     .gap_2()
@@ -6722,6 +6820,7 @@ mod tests {
     use crate::usage::Origin;
     use gpui::AppContext as _;
     use gpui::{Size, px};
+    use gpui_component::input::TextareaState;
 
     // --- Files sidebar layout probe (0018 §8 follow-up) ---------------
     // The views collapsed to zero height on the live build; this renders
@@ -10365,7 +10464,7 @@ mod tests {
                     let len = st.value().chars().count();
                     st.set_selected_range(len..len, cx);
                 });
-                page.sync_mention(cx);
+                page.sync_mention_for(crate::mentions::MentionComposer::Comment, cx);
                 let m = page.mention.as_ref().expect("bare @ opens the popup");
                 let ranked = crate::mentions::ranked_candidates(&probe_detail());
                 assert_eq!(
@@ -10383,7 +10482,7 @@ mod tests {
                     let len = st.value().chars().count();
                     st.set_selected_range(len..len, cx);
                 });
-                page.sync_mention(cx);
+                page.sync_mention_for(crate::mentions::MentionComposer::Comment, cx);
                 let m = page.mention.as_ref().expect("query keeps the popup");
                 assert_eq!(m.query, "bo");
                 assert_eq!(m.candidates.len(), 1);
@@ -10404,7 +10503,7 @@ mod tests {
                     let len = st.value().chars().count();
                     st.set_selected_range(len..len, cx);
                 });
-                page.sync_mention(cx);
+                page.sync_mention_for(crate::mentions::MentionComposer::Comment, cx);
                 let (token_start, login) = {
                     let m = page.mention.as_ref().expect("popup open");
                     (m.token_start, m.candidates[0].login.clone())
@@ -10415,7 +10514,85 @@ mod tests {
                 assert!(page.mention.is_none(), "accept closes the popup");
                 // D3: the resulting text has no open token — a re-sync
                 // (the Change event's handler) keeps it closed.
-                page.sync_mention(cx);
+                page.sync_mention_for(crate::mentions::MentionComposer::Comment, cx);
+                assert!(page.mention.is_none());
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn mention_reply_composer_routes_sync_and_accept(cx: &mut gpui::TestAppContext) {
+        let (page, vcx, _drafts) = probe_pr_drafts(cx, None);
+        vcx.update(|window, cx| {
+            page.update(cx, |page, cx| {
+                // A reply composer open on a thread; the mention state
+                // must tag and route to IT, not the main comment box.
+                let editor = cx.new(|cx| TextareaState::new(window, cx));
+                page.reply_composer = Some(("t1".into(), editor.clone()));
+                editor.update(cx, |st, cx| {
+                    st.set_value("hi @bo", window, cx);
+                    // set_value resets the selection to 0 — park the
+                    // caret where a real keystroke would have left it.
+                    let len = st.value().chars().count();
+                    st.set_selected_range(len..len, cx);
+                });
+                page.sync_mention_for(crate::mentions::MentionComposer::Reply, cx);
+                let m = page.mention.as_ref().expect("reply composer opens");
+                assert_eq!(m.composer, crate::mentions::MentionComposer::Reply);
+                assert_eq!(m.candidates.len(), 1);
+                assert_eq!(m.candidates[0].login, "bob");
+                let token_start = m.token_start;
+
+                // D5: the insert lands in the reply box; the main box is
+                // untouched and the popup closes.
+                page.accept_mention(token_start, "bob".into(), window, cx);
+                assert_eq!(editor.read(cx).value(), "hi @bob ");
+                assert_eq!(page.comment.read(cx).value(), "");
+                assert!(page.mention.is_none());
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn mention_single_slot_moves_between_composers(cx: &mut gpui::TestAppContext) {
+        let (page, vcx, _drafts) = probe_pr_drafts(cx, None);
+        vcx.update(|window, cx| {
+            page.update(cx, |page, cx| {
+                // The main box opens first.
+                page.comment.update(cx, |st, cx| {
+                    st.set_value("hi @", window, cx);
+                    let len = st.value().chars().count();
+                    st.set_selected_range(len..len, cx);
+                });
+                page.sync_mention_for(crate::mentions::MentionComposer::Comment, cx);
+                assert_eq!(
+                    page.mention.as_ref().expect("comment box opens").composer,
+                    crate::mentions::MentionComposer::Comment
+                );
+
+                // Typing into a reply replaces the slot — one popup per
+                // page, owned by whoever typed last.
+                let editor = cx.new(|cx| TextareaState::new(window, cx));
+                page.reply_composer = Some(("t1".into(), editor.clone()));
+                editor.update(cx, |st, cx| {
+                    st.set_value("hey @", window, cx);
+                    let len = st.value().chars().count();
+                    st.set_selected_range(len..len, cx);
+                });
+                page.sync_mention_for(crate::mentions::MentionComposer::Reply, cx);
+                assert_eq!(
+                    page.mention.as_ref().expect("reply replaces").composer,
+                    crate::mentions::MentionComposer::Reply
+                );
+
+                // A closed composer's sync is a no-op (no handle to scan).
+                page.sync_mention_for(crate::mentions::MentionComposer::LineComposer, cx);
+                assert_eq!(
+                    page.mention.as_ref().expect("still open").composer,
+                    crate::mentions::MentionComposer::Reply
+                );
+
+                page.mention_dismiss(cx);
                 assert!(page.mention.is_none());
             });
         });
@@ -10434,7 +10611,7 @@ mod tests {
                     let len = st.value().chars().count();
                     st.set_selected_range(len..len, cx);
                 });
-                page.sync_mention(cx);
+                page.sync_mention_for(crate::mentions::MentionComposer::Comment, cx);
                 assert!(page.mention.is_none());
 
                 // D3: zero matches dismiss quietly instead of an empty box.
@@ -10445,7 +10622,7 @@ mod tests {
                     let len = st.value().chars().count();
                     st.set_selected_range(len..len, cx);
                 });
-                page.sync_mention(cx);
+                page.sync_mention_for(crate::mentions::MentionComposer::Comment, cx);
                 assert!(page.mention.is_none());
 
                 // D4: Esc-path dismiss (the handler behind MentionDismiss).
@@ -10456,7 +10633,7 @@ mod tests {
                     let len = st.value().chars().count();
                     st.set_selected_range(len..len, cx);
                 });
-                page.sync_mention(cx);
+                page.sync_mention_for(crate::mentions::MentionComposer::Comment, cx);
                 assert!(page.mention.is_some());
                 page.mention_dismiss(cx);
                 assert!(page.mention.is_none());

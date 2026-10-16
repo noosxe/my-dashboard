@@ -507,7 +507,7 @@ fn diff_pane(
         // Pane-level review chrome (docs/0070 D5): the composer lives
         // outside the Diff's list — its textarea grows while typing, and a
         // growing inline annotation has no re-measure trigger.
-        .children(line_composer_card(page, cx))
+        .children(line_composer_card(page_h, page, cx))
         .children(threads_fetch_row(page, cx))
         // 0030 D4: the Finish-review bar — sticky under the diff while
         // drafts exist (outside the scroll).
@@ -927,7 +927,11 @@ const TREE_CHEVRON_SPACER_W: f32 = 16.0;
 /// The row composer (docs/0030 D4), pane-level under the diff while open:
 /// **Add single comment** publishes an immediate thread, **Start a review**
 /// queues a local draft for the Finish-review bar.
-fn line_composer_card(page: &PrDetailPage, cx: &Context<PrDetailPage>) -> Option<AnyElement> {
+fn line_composer_card(
+    page_h: &Entity<PrDetailPage>,
+    page: &PrDetailPage,
+    cx: &Context<PrDetailPage>,
+) -> Option<AnyElement> {
     let composer = page.line_composer.as_ref()?;
     let busy = page.busy.is_some();
     Some(
@@ -953,7 +957,13 @@ fn line_composer_card(page: &PrDetailPage, cx: &Context<PrDetailPage>) -> Option
                         )),
                 )
             })
-            .child(Textarea::new(&composer.editor))
+            .child(PrDetailPage::mention_wrap(
+                page,
+                page_h,
+                crate::mentions::MentionComposer::LineComposer,
+                &composer.editor,
+                div().child(Textarea::new(&composer.editor)),
+            ))
             .child(
                 h_flex()
                     .gap_2()
@@ -1352,14 +1362,24 @@ fn thread_card(
                 .filter(|(tid, _)| tid == &t.id)
                 .map(|(_, editor)| editor.clone()),
             |card, editor| {
-                card.child(reply_box(
+                // docs/0075 D4 (#578): the mention chrome wraps the whole
+                // reply box — the context must merely CONTAIN the focused
+                // textarea for the bindings to outrank its own.
+                let chrome = PrDetailPage::mention_wrap(
+                    page,
+                    page_h,
+                    crate::mentions::MentionComposer::Reply,
+                    &editor,
+                    div(),
+                );
+                card.child(chrome.child(reply_box(
                     page_h,
                     window,
                     page.busy.is_some(),
                     ix,
                     editor,
                     cx,
-                ))
+                )))
             },
         )
         .into_any_element()
@@ -1686,18 +1706,26 @@ fn thread_comment(
                 .filter(|(nid, _)| nid == &c.id)
                 .map(|(_, e)| e.clone()),
             |row, editor| {
-                row.child(inline_edit_card(
-                    &format!("{key}-edit"),
-                    "Editing comment",
+                // Same seam as the reply box (#578): the chrome wraps the
+                // card; the focused textarea stays inside it.
+                row.child(PrDetailPage::mention_wrap(
+                    page,
+                    page_h,
+                    crate::mentions::MentionComposer::ThreadEdit,
                     &editor,
-                    page.busy.is_some(),
-                    window.listener_for(page_h, |this, _, window, cx| {
-                        this.save_thread_edit(window, cx)
-                    }),
-                    window.listener_for(page_h, |this, _, window, cx| {
-                        this.cancel_thread_edit(window, cx)
-                    }),
-                    cx,
+                    div().child(inline_edit_card(
+                        &format!("{key}-edit"),
+                        "Editing comment",
+                        &editor,
+                        page.busy.is_some(),
+                        window.listener_for(page_h, |this, _, window, cx| {
+                            this.save_thread_edit(window, cx)
+                        }),
+                        window.listener_for(page_h, |this, _, window, cx| {
+                            this.cancel_thread_edit(window, cx)
+                        }),
+                        cx,
+                    )),
                 ))
             },
         )
