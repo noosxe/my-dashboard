@@ -118,6 +118,11 @@ fn main() {
             // shell's pump surfaces it once the window exists. A startup
             // fallback raises before this attach and is latched (D7).
             usage_store.attach_toast_spill(dashboard_core::toasts::spill(cx));
+            // docs/0072 D8 (#556): publish the handle for module inits
+            // that persist through the app DB (the github document
+            // store's write-through + restore). Before module init, so
+            // the store seeds with the state it builds.
+            dashboard_core::app_db::set_global(cx, usage_store.clone());
             dashboard_core::usage_records::init_with(cx, usage_store.clone());
             // Notification log persistence (docs/0063 D5/D10): the hub
             // attaches the app DB's `NotificationLog` impl and restores

@@ -572,6 +572,8 @@ mod tests {
                 crate::service::GithubCache::at_tmp("agent-ops"),
                 DraftStore::at_tmp("agent-ops"),
                 Recorder::new("github", sink.clone()),
+                // No app DB in unit tests — session-scoped store.
+                None,
             )
         });
         (GithubAgentOps::new(entity), http, sink)

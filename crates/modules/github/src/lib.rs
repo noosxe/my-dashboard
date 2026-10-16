@@ -173,6 +173,10 @@ impl Module for GithubModule {
         let drafts = drafts::DraftStore::new(dashboard_core::paths::AppPaths::init());
         // docs/0053 D3: the app-wide sink from `usage_records::init`.
         let recorder = Recorder::new("github", dashboard_core::usage_records::sink(cx));
+        // docs/0072 D8 (#556): the app DB handle — write-through sink +
+        // restore source. Read before the state entity owns the
+        // context; unpublished (tests, degraded) runs session-scoped.
+        let doc_db = dashboard_core::app_db::global(cx);
         let state = cx.new(move |_| {
             GithubState::with_recorder(
                 client,
@@ -184,6 +188,7 @@ impl Module for GithubModule {
                 // docs/0053 D3: the module-global sink from
                 // `usage_records::init` (app `main`).
                 recorder,
+                doc_db,
             )
         });
         // Swap the constructor's fresh book for the wrapper's (docs/

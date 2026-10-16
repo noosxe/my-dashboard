@@ -32,6 +32,7 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use dashboard_core::AppPaths;
+use dashboard_core::app_db::{SQLiteStore, StoredDocument};
 use dashboard_core::freshness::Freshness;
 use dashboard_core::status;
 use dashboard_core::store;
@@ -347,6 +348,55 @@ impl GithubCache {
     /// Sign-out wipes everything under the module's cache root (Q5).
     pub fn clear(&self) {
         let _ = std::fs::remove_dir_all(&self.root);
+    }
+}
+
+/// Wall-clock UTC epoch ms — the persisted stamp form (docs/0072 D8).
+fn now_epoch_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Wall-clock ms for a landed stamp (docs/0072 D8) — the persisted
+/// form of an `Instant`, reconstructable only as an age.
+fn epoch_ms_of(at: Instant) -> u64 {
+    let age = at.elapsed();
+    now_epoch_ms().saturating_sub(age.as_millis() as u64)
+}
+
+/// The restore-side inverse: a wall-clock age becomes an `Instant` on
+/// this boot's clock. `checked_sub` fails when the age predates the
+/// process (only reachable inside the restore window) — clamping to
+/// now is the intended reading there ("worth showing fresh").
+fn instant_from_epoch(landed_ms: u64) -> Instant {
+    let age = Duration::from_millis(now_epoch_ms().saturating_sub(landed_ms));
+    Instant::now().checked_sub(age).unwrap_or_else(Instant::now)
+}
+
+/// Parse a row's detail layer for restore: a missing stamp (the void
+/// case), an over-TTL age, or an unparseable body all restore
+/// summary-only — a detail is shown only when it can be honestly
+/// stamped.
+fn restore_layers<T: serde::de::DeserializeOwned>(
+    doc: &StoredDocument,
+    detail_young: bool,
+    repo: &str,
+    number: i64,
+) -> (Option<T>, Option<Instant>) {
+    let (Some(json), Some(at_ms)) = (&doc.detail_json, doc.detail_at_ms) else {
+        return (None, None);
+    };
+    if !detail_young {
+        return (None, None);
+    }
+    match serde_json::from_str::<T>(json) {
+        Ok(detail) => (Some(detail), Some(instant_from_epoch(at_ms))),
+        Err(e) => {
+            log::warn!("doc-store: {repo}#{number} detail failed to parse, summary-only ({e})");
+            (None, None)
+        }
     }
 }
 
@@ -1796,9 +1846,17 @@ pub(crate) fn update_branch_error_copy(message: &str) -> String {
 }
 
 /// docs/0072 D9 — detail bodies are the heavy part: details evict
-/// oldest-landed past this many documents. Summaries track the home list
-/// and are naturally bounded by it.
-pub(crate) const PR_STORE_DETAIL_CAP: usize = 64;
+/// oldest-landed past this many documents (owner-set for #556: 1024 —
+/// the working set, mirrored by the persisted table's prune). Summaries
+/// track the home list and are naturally bounded by it.
+pub(crate) const PR_STORE_DETAIL_CAP: usize = 1024;
+
+/// docs/0072 D8 (#556) — the restore staleness bar: a detail whose age
+/// at boot is past this is not restored (the row still restores its
+/// summary). The in-session gates keep their own TTLs — this only
+/// decides whether the disk copy is worth showing at all. Owner-tuned;
+/// revisit if it feels wrong.
+pub(crate) const RESTORE_DETAIL_TTL: Duration = Duration::from_secs(60 * 60);
 
 /// docs/0072 D1 — identity of a stored PR document. The key *is* the
 /// identity the async guides demand: results can only ever land on their
@@ -2288,16 +2346,22 @@ pub struct GithubState {
     /// docs/0072 D1 — the PR document store: one entry per `(repo,
     /// number)`; every list lane lands summaries, the PR page's query
     /// lands details, optimistic mutations stage on the entry.
-    /// Session-only — never persisted (D8); details evict past
-    /// [`PR_STORE_DETAIL_CAP`] (D9); sign-out clears it.
+    /// Persisted write-through to `app_db` (D8, #556); details evict
+    /// past [`PR_STORE_DETAIL_CAP`] (D9); sign-out clears it.
     pub(crate) pulls: BTreeMap<PrKey, PrEntry>,
     /// docs/0072 §6 stage 4 (#555) — issue documents, the same
     /// `(repo, number)` identity in its own map (the payload types
-    /// differ; the machinery is the same shape).
+    /// differ; the machinery is the same shape). Persisted like
+    /// `pulls` (D8, #556).
     pub(crate) issues: BTreeMap<PrKey, IssueEntry>,
     /// docs/0072 D6 — store-issued pending-op tokens; the identity a
     /// late confirmation must carry to apply.
     pub(crate) next_pending_token: u64,
+    /// docs/0072 D8 (#556) — the document store's write-through sink.
+    /// `None` (tests, or a degraded/unpublished DB) runs the store
+    /// session-scoped, exactly pre-#556; pending ops, books, and
+    /// mutation errors stay memory-only regardless (D8).
+    pub(crate) db: Option<Arc<SQLiteStore>>,
     /// docs/0058 §13 adoption: alerts staged by the cx-free result
     /// sinks (`apply`, `apply_refresh`), drained and raised on the
     /// main thread by the tick loop / refresh lead. Bounded by
@@ -2359,11 +2423,17 @@ impl GithubState {
             cache,
             drafts,
             Recorder::new(MODULE_ID, Arc::new(MemorySink::new(RECORD_CAP))),
+            None,
         )
     }
 
     /// `new` with an injected records recorder (docs/0053 D3) — the
-    /// app's `lib.rs` passes the global-sink recorder.
+    /// app's `lib.rs` passes the global-sink recorder — and the
+    /// document store's write-through sink (docs/0072 D8, #556): the
+    /// app passes `app_db::global(cx)`; `None` runs session-scoped.
+    /// The sink doubles as the restore source: documents seed here,
+    /// the one blocking read on this path (the docs/0054 §8 precedent
+    /// the notification restore already sets).
     #[allow(clippy::too_many_arguments)]
     pub fn with_recorder(
         client: Arc<dyn Http>,
@@ -2373,6 +2443,7 @@ impl GithubState {
         cache: GithubCache,
         drafts: crate::drafts::DraftStore,
         recorder: Recorder,
+        db: Option<Arc<SQLiteStore>>,
     ) -> Self {
         let etags = cache.etags();
         let (auth, access_expires_at) = match store.load() {
@@ -2397,7 +2468,7 @@ impl GithubState {
         let snapshot: Option<gql::SnapshotCache> = seeded
             .then(|| cache.load(gql::SNAPSHOT_CACHE_KEY))
             .flatten();
-        Self {
+        let mut state = Self {
             user: snapshot.as_ref().and_then(|s| s.user.clone()),
             orgs: snapshot
                 .as_ref()
@@ -2439,6 +2510,7 @@ impl GithubState {
             pulls: BTreeMap::new(),
             issues: BTreeMap::new(),
             next_pending_token: 0,
+            db,
             client,
             usage: crate::usage::new_ledger(),
             store,
@@ -2449,7 +2521,13 @@ impl GithubState {
             pending_alerts: Vec::new(),
             net_down: false,
             auth_alert_open: false,
-        }
+        };
+        // docs/0072 D8 (#556): seed the store from the persisted
+        // documents. A sign-out-then-connect cycle within one process
+        // re-seeds through the same path (the new connect rebuilds the
+        // state); a degraded or missing sink seeds nothing.
+        state.seed_documents();
+        state
     }
 
     /// Arm the guard for a read dispatch — `false` = an identical read
@@ -2962,9 +3040,194 @@ impl GithubState {
             .collect()
     }
 
+    // ---- docs/0072 D8 (#556): persistence — write-through + restore ----
+    //
+    // Every store mutation that changes a document's *content* (summary
+    // land, detail land, patch confirmation, freshness void) writes the
+    // row through; books/pending/errors stay session-only. The sink is
+    // buffered (the writer thread commits), so none of this ever blocks
+    // the caller.
+
     /// Land one summary row into its document (docs/0072 D2): stamped
     /// once, here. An existing document keeps its detail, books and
     /// pending state — a summary refresh never resets them.
+    /// Serialize one PR document's current layers into a row upsert.
+    fn persist_pull(&self, repo: &str, number: i64) {
+        let Some(db) = &self.db else { return };
+        let Some(entry) = self.pulls.get(&PrKey::new(repo, number)) else {
+            return;
+        };
+        self.put_document(
+            db,
+            "pr",
+            repo,
+            number,
+            &entry.summary,
+            entry.summary_at,
+            entry.detail.as_ref(),
+            entry.detail_at,
+        );
+    }
+
+    /// The issue twin.
+    fn persist_issue(&self, repo: &str, number: i64) {
+        let Some(db) = &self.db else { return };
+        let Some(entry) = self.issues.get(&PrKey::new(repo, number)) else {
+            return;
+        };
+        self.put_document(
+            db,
+            "issue",
+            repo,
+            number,
+            &entry.summary,
+            entry.summary_at,
+            entry.detail.as_ref(),
+            entry.detail_at,
+        );
+    }
+
+    // One row per call needs both layers plus their stamps — the shape
+    // is the persisted row, not an accident of growth.
+    #[allow(clippy::too_many_arguments)]
+    fn put_document<S: serde::Serialize, D: serde::Serialize>(
+        &self,
+        db: &Arc<SQLiteStore>,
+        kind: &str,
+        repo: &str,
+        number: i64,
+        summary: &S,
+        summary_at: Instant,
+        detail: Option<&D>,
+        detail_at: Option<Instant>,
+    ) {
+        let summary_json = match serde_json::to_string(summary) {
+            Ok(json) => json,
+            Err(e) => {
+                log::warn!("doc-store: {kind} {repo}#{number} summary serialize failed ({e})");
+                return;
+            }
+        };
+        // The persisted detail layer exists iff it carries a live
+        // stamp: a voided (stamp-less) body must not read as fresh on
+        // restore (docs/0072 D8), so it persists summary-only.
+        let (detail_json, detail_at_ms) = match (detail, detail_at) {
+            (Some(d), Some(at)) => match serde_json::to_string(d) {
+                Ok(json) => (Some(json), Some(epoch_ms_of(at))),
+                Err(e) => {
+                    // A layer that cannot serialize is a bug, not a
+                    // state to persist: land the summary alone.
+                    log::warn!("doc-store: {kind} {repo}#{number} detail serialize failed ({e})");
+                    (None, None)
+                }
+            },
+            _ => (None, None),
+        };
+        db.put_document(StoredDocument {
+            kind: kind.to_string(),
+            repo: repo.to_string(),
+            number,
+            summary_at_ms: epoch_ms_of(summary_at),
+            detail_at_ms,
+            summary_json,
+            detail_json,
+        });
+    }
+
+    /// Boot restore (docs/0072 D8): parse each row with the live
+    /// parser — a schema skew reads as a skipped row, never a panic —
+    /// and reconstruct the freshness stamps from wall-clock ages. A
+    /// detail older than [`RESTORE_DETAIL_TTL`] is not worth showing:
+    /// the row restores summary-only. Books/pending/error start
+    /// clean (session state); `rollup_dirty` starts false (the
+    /// session relearns it on the first summary landing).
+    fn seed_documents(&mut self) {
+        let Some(docs) = self.db.as_ref().map(|db| db.load_documents()) else {
+            return;
+        };
+        if docs.is_empty() {
+            return;
+        }
+        let now_ms = now_epoch_ms();
+        let mut seeded = 0usize;
+        for doc in docs {
+            let detail_young = doc.detail_at_ms.is_some_and(|at| {
+                now_ms.saturating_sub(at) < RESTORE_DETAIL_TTL.as_millis() as u64
+            });
+            let ok = match doc.kind.as_str() {
+                "pr" => self.seed_pull(&doc, detail_young),
+                "issue" => self.seed_issue(&doc, detail_young),
+                other => {
+                    log::warn!(
+                        "doc-store: unknown kind {other:?} for {repo}#{n}, skipped",
+                        repo = doc.repo,
+                        n = doc.number
+                    );
+                    false
+                }
+            };
+            seeded += usize::from(ok);
+        }
+        if seeded > 0 {
+            log::info!("doc-store: restored {seeded} document(s) from app_db");
+        }
+    }
+
+    fn seed_pull(&mut self, doc: &StoredDocument, detail_young: bool) -> bool {
+        let Ok(summary) = serde_json::from_str::<gql::PullRequest>(&doc.summary_json) else {
+            log::warn!(
+                "doc-store: pr {repo}#{n} failed to parse, skipped",
+                repo = doc.repo,
+                n = doc.number
+            );
+            return false;
+        };
+        let (detail, detail_at) =
+            restore_layers::<gql::PrDetail>(doc, detail_young, doc.repo.as_str(), doc.number);
+        let key = PrKey::new(doc.repo.clone(), doc.number);
+        self.pulls.insert(
+            key,
+            PrEntry {
+                summary,
+                detail,
+                summary_at: instant_from_epoch(doc.summary_at_ms),
+                detail_at,
+                books: DetailBooks::default(),
+                pending: None,
+                error: None,
+                rollup_dirty: false,
+            },
+        );
+        true
+    }
+
+    fn seed_issue(&mut self, doc: &StoredDocument, detail_young: bool) -> bool {
+        let Ok(summary) = serde_json::from_str::<gql::Issue>(&doc.summary_json) else {
+            log::warn!(
+                "doc-store: issue {repo}#{n} failed to parse, skipped",
+                repo = doc.repo,
+                n = doc.number
+            );
+            return false;
+        };
+        let (detail, detail_at) =
+            restore_layers::<gql::IssueDetail>(doc, detail_young, doc.repo.as_str(), doc.number);
+        let key = PrKey::new(doc.repo.clone(), doc.number);
+        self.issues.insert(
+            key,
+            IssueEntry {
+                summary,
+                detail,
+                summary_at: instant_from_epoch(doc.summary_at_ms),
+                detail_at,
+                books: DetailBooks::default(),
+                pending: None,
+                error: None,
+            },
+        );
+        true
+    }
+
     pub(crate) fn land_summary(&mut self, repo: &str, row: &gql::PullRequest) {
         let key = PrKey::new(repo, row.number);
         if let Some(entry) = self.pulls.get_mut(&key) {
@@ -2978,6 +3241,7 @@ impl GithubState {
             }
             entry.summary = row.clone();
             entry.summary_at = Instant::now();
+            self.persist_pull(repo, row.number);
             return;
         }
         self.pulls.insert(
@@ -2993,6 +3257,7 @@ impl GithubState {
                 rollup_dirty: false,
             },
         );
+        self.persist_pull(repo, row.number);
     }
 
     /// Land a parsed detail into its document (docs/0072 D2/D3): the
@@ -3026,6 +3291,7 @@ impl GithubState {
         entry.books.last_error = None;
         entry.books.fail_streak = 0;
         self.evict_details();
+        self.persist_pull(repo, number);
     }
 
     /// Arm the detail read on a document (docs/0072 D2): the dispatch
@@ -3133,8 +3399,12 @@ impl GithubState {
             // SWR skip keys on a young `detail_at`). An open page
             // refetches through its arming hook; this covers the page
             // that died mid-flight (D4's session-scoped resolver).
+            // Persisted (D8): the row keeps the stale detail body but
+            // loses its stamp, so a restore cannot claim freshness the
+            // confirmed write invalidated.
             entry.detail_at = None;
         }
+        let patched = confirmed.is_some();
         self.pending_alerts.push(
             dashboard_core::toasts::Toast::new(
                 dashboard_core::toasts::Level::Success,
@@ -3143,6 +3413,8 @@ impl GithubState {
             .source("github")
             .dedupe_key(format!("pr-{}:{repo}#{number}", kind.toast_slug())),
         );
+        self.persist_pull(repo, number);
+        let _ = patched;
         true
     }
 
@@ -3302,20 +3574,21 @@ impl GithubState {
             entry.summary = row.clone();
             entry.summary.state = state.or(row.state.clone());
             entry.summary_at = Instant::now();
-            return;
+        } else {
+            self.issues.insert(
+                key,
+                IssueEntry {
+                    summary: row.clone(),
+                    detail: None,
+                    summary_at: Instant::now(),
+                    detail_at: None,
+                    books: DetailBooks::default(),
+                    pending: None,
+                    error: None,
+                },
+            );
         }
-        self.issues.insert(
-            key,
-            IssueEntry {
-                summary: row.clone(),
-                detail: None,
-                summary_at: Instant::now(),
-                detail_at: None,
-                books: DetailBooks::default(),
-                pending: None,
-                error: None,
-            },
-        );
+        self.persist_issue(repo, row.number);
     }
 
     /// Land a parsed issue detail into its document (docs/0072 D2/D3,
@@ -3342,6 +3615,7 @@ impl GithubState {
         entry.books.last_error = None;
         entry.books.fail_streak = 0;
         self.evict_details();
+        self.persist_issue(repo, number);
     }
 
     /// The user acknowledged a failure (the page-modal era cleared the
@@ -3437,6 +3711,8 @@ impl GithubState {
             // The unpatchable confirmation changed facts the cached
             // detail cannot know: void the freshness so the next open
             // revalidates (the SWR skip keys on a young `detail_at`).
+            // Persisted (D8): stale body kept, stamp lost, so a
+            // restore cannot claim freshness the write invalidated.
             entry.detail_at = None;
         }
         self.pending_alerts.push(
@@ -3447,6 +3723,7 @@ impl GithubState {
             .source("github")
             .dedupe_key(format!("issue-{}:{repo}#{number}", kind.toast_slug())),
         );
+        self.persist_issue(repo, number);
         true
     }
 
@@ -4210,8 +4487,17 @@ impl GithubState {
         self.notifications.clear();
         self.repo_notifications.clear();
         // The document store is session state (docs/0072 D1) — it goes
-        // with the account, like every other session book above.
+        // with the account, like every other session book above. The
+        // persisted rows too (D8): sign-out wipes them the way it wipes
+        // the JSON cache lanes.
+        if let Some(db) = &self.db {
+            db.delete_documents();
+        }
         self.pulls.clear();
+        // #555 follow-up, caught by the #556 sign-out test: the issue
+        // map cleared with its twin or an account switch leaked the
+        // previous account's issue documents.
+        self.issues.clear();
         self.next_pending_token = 0;
         self.etags.clear();
         self.selected = None;
@@ -7588,6 +7874,151 @@ mod tests {
             state.take_pending_alerts()[0].dedupe_key.as_deref(),
             Some("issue-commented:acme/one#12")
         );
+    }
+
+    /// make_state with a real `app_db` sink (docs/0072 D8 tests): a
+    /// temp-path store, explicit so each test owns its file.
+    fn make_state_db(db: Arc<SQLiteStore>) -> GithubState {
+        let shared: SharedToken = Arc::new(std::sync::RwLock::new(Some("t0k".into())));
+        let refresh: SharedToken = Arc::new(std::sync::RwLock::new(None));
+        let client: Arc<dyn Http> = Arc::new(MockHttp::new(vec![]));
+        GithubState::with_recorder(
+            client,
+            Arc::new(MockTokenStore::with("t0k".into())),
+            shared,
+            refresh,
+            GithubCache::at_tmp("doc-store"),
+            DraftStore::at_tmp("doc-store"),
+            Recorder::new(MODULE_ID, Arc::new(MemorySink::new(RECORD_CAP))),
+            Some(db),
+        )
+    }
+
+    fn doc_db(tag: &str) -> Arc<SQLiteStore> {
+        let n = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        SQLiteStore::open_at(
+            std::env::temp_dir().join(format!("dash-doc-store-{tag}-{}-{n}", std::process::id())),
+        )
+    }
+
+    /// docs/0072 D8 (#556): landings and confirmations write through;
+    /// a state rebuilt over the same DB restores the documents with
+    /// honest stamps (summary always, detail while young).
+    #[test]
+    fn doc_store_persists_and_a_new_state_restores() {
+        let db = doc_db("roundtrip");
+        let mut state = make_state_db(db.clone());
+        state.land_summary("acme/one", &store_row(7));
+        state.land_issue_summary("acme/one", &store_issue(12));
+        state.land_issue_detail("acme/one", 12, store_issue_detail());
+        // One flush per store lifetime: the quit-flush is the only
+        // deterministic drain (the writer parks 1 s between wakes).
+        db.flush_blocking();
+        assert_eq!(db.load_documents().len(), 2, "pr + issue rows");
+
+        let state2 = make_state_db(db.clone());
+        let pr = state2.pr_entry("acme/one", 7).expect("pr restored");
+        assert_eq!(pr.summary.title, "PR 7");
+        assert!(pr.detail.is_none(), "no detail was ever landed");
+        assert!(pr.summary_at.elapsed() < std::time::Duration::from_secs(60));
+        let issue = state2.issue_entry("acme/one", 12).expect("issue restored");
+        assert!(issue.detail.is_some(), "young detail restores");
+        assert!(issue.detail_at.is_some());
+        assert!(issue.books.last_error.is_none(), "books start clean");
+        assert!(issue.pending.is_none(), "pending is memory-only");
+    }
+
+    #[test]
+    fn doc_store_confirmed_close_persists_and_void_persists_summary_only() {
+        let db = doc_db("mutations");
+        let mut state = make_state_db(db.clone());
+        state.land_issue_summary("acme/one", &store_issue(12));
+        state.land_issue_detail("acme/one", 12, store_issue_detail());
+        // Close patches both layers — and the persisted row.
+        let token = state
+            .begin_issue_pending("acme/one", 12, IssuePendingKind::Close)
+            .unwrap();
+        assert!(state.resolve_issue_pending("acme/one", 12, token));
+        // A comment confirmation voids the detail stamp — the
+        // persisted row drops the layer so a restore cannot claim
+        // freshness the write invalidated.
+        let token = state
+            .begin_issue_pending("acme/one", 12, IssuePendingKind::Comment)
+            .unwrap();
+        assert!(state.resolve_issue_pending("acme/one", 12, token));
+        db.flush_blocking();
+
+        let rows = db.load_documents();
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].detail_json.is_none(), "voided layer not persisted");
+        assert!(rows[0].detail_at_ms.is_none());
+
+        let state2 = make_state_db(db);
+        let issue = state2.issue_entry("acme/one", 12).unwrap();
+        assert_eq!(
+            issue.summary.state.as_deref(),
+            Some("CLOSED"),
+            "the confirmed close survived the restart"
+        );
+        assert!(
+            issue.detail.is_none() && issue.detail_at.is_none(),
+            "stamp-less detail restores summary-only"
+        );
+    }
+
+    #[test]
+    fn doc_store_restore_drops_details_past_the_ttl() {
+        let db = doc_db("ttl");
+        let now = now_epoch_ms();
+        let hour = RESTORE_DETAIL_TTL.as_millis() as u64;
+        // A detail landed 2h ago: not worth showing on the next boot.
+        db.put_document(StoredDocument {
+            kind: "issue".into(),
+            repo: "acme/one".into(),
+            number: 12,
+            summary_at_ms: now - hour - 3_600_000,
+            detail_at_ms: Some(now - 2 * hour),
+            summary_json: serde_json::to_string(&store_issue(12)).unwrap(),
+            detail_json: Some(serde_json::to_string(&store_issue_detail()).unwrap()),
+        });
+        db.flush_blocking();
+        let state = make_state_db(db);
+        let issue = state.issue_entry("acme/one", 12).expect("summary restores");
+        assert!(issue.detail.is_none(), "over-TTL detail dropped");
+        assert!(issue.detail_at.is_none());
+    }
+
+    #[test]
+    fn doc_store_unparseable_rows_are_skipped_not_fatal() {
+        let db = doc_db("garbage");
+        db.put_document(StoredDocument {
+            kind: "pr".into(),
+            repo: "acme/one".into(),
+            number: 7,
+            summary_at_ms: now_epoch_ms(),
+            detail_at_ms: None,
+            summary_json: "{not json".into(),
+            detail_json: None,
+        });
+        db.flush_blocking();
+        let state = make_state_db(db);
+        assert!(state.pr_entry("acme/one", 7).is_none(), "skipped, no panic");
+    }
+
+    #[test]
+    fn doc_store_sign_out_wipes_the_persisted_documents() {
+        let db = doc_db("signout");
+        let mut state = make_state_db(db.clone());
+        state.land_issue_summary("acme/one", &store_issue(12));
+        state.sign_out();
+        // Drain order: the put lands, then the sign-out's all-delete
+        // clears it — one flush covers the whole arc.
+        db.flush_blocking();
+        assert!(db.load_documents().is_empty());
+        assert!(state.issue_entry("acme/one", 12).is_none());
     }
 
     #[test]
