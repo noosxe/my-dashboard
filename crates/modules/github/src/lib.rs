@@ -118,6 +118,35 @@ impl Module for GithubModule {
                 pr_page::MentionDismiss,
                 Some("GithubPrPage && Mention && Input"),
             ),
+            // Same five keys on the issue page (#578): its own root
+            // context means its own binding set; depth still wins over
+            // the textarea's "Input" bindings, and the "Mention" context
+            // renders only while the popup is open.
+            KeyBinding::new(
+                "down",
+                pr_page::MentionSelectNext,
+                Some("GithubIssuePage && Mention && Input"),
+            ),
+            KeyBinding::new(
+                "up",
+                pr_page::MentionSelectPrev,
+                Some("GithubIssuePage && Mention && Input"),
+            ),
+            KeyBinding::new(
+                "enter",
+                pr_page::MentionAccept,
+                Some("GithubIssuePage && Mention && Input"),
+            ),
+            KeyBinding::new(
+                "tab",
+                pr_page::MentionAccept,
+                Some("GithubIssuePage && Mention && Input"),
+            ),
+            KeyBinding::new(
+                "escape",
+                pr_page::MentionDismiss,
+                Some("GithubIssuePage && Mention && Input"),
+            ),
         ]);
         // Notification source label (docs/0062 D2): every github raise
         // attributes here; the settings page mutes by this id.

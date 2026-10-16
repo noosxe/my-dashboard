@@ -52,8 +52,9 @@ use std::sync::Arc;
 use crate::gql;
 use crate::markdown;
 use crate::pr_page::{
-    ANCHOR_FADE, CommentAnchor, ErrorScope, MutationError, body_card, cap_row, delete_confirm_card,
-    inline_edit_card, split_repo,
+    ANCHOR_FADE, CommentAnchor, ErrorScope, MentionAccept, MentionDismiss, MentionSelectNext,
+    MentionSelectPrev, MutationError, body_card, cap_row, delete_confirm_card, inline_edit_card,
+    split_repo,
 };
 use crate::service::{
     Fetch, FetchSpec, GithubState, Kind, Mutation, run_mutation, run_spec_tracked,
@@ -80,6 +81,9 @@ pub(crate) struct IssueDetailPage {
     focus_handle: FocusHandle,
     /// Comment box draft textarea (0020 D4).
     comment: Entity<TextareaState>,
+    /// Open mention popup state (docs/0075 D3, #578) — the issue box's
+    /// slot; the tag routes accept back to this textarea.
+    pub(crate) mention: Option<crate::mentions::MentionState>,
     /// Comment-box draft persistence (docs/0045 D4/D8): keyed
     /// `comment@<repo>#<number>`; the handle owns the debounced save.
     draft: DraftHandle,
@@ -255,11 +259,20 @@ impl IssueDetailPage {
         }
         // 0045 D3/D4: comment keystrokes debounce-save the draft and
         // retire the restore hint (the first real edit is the user's).
-        cx.subscribe_in(&comment, window, |this, _, event: &InputEvent, _, cx| {
-            if matches!(event, InputEvent::Change) {
-                this.comment_changed(cx);
-            }
-        })
+        // docs/0075 D3 (#578): text changes re-scan the @-token; blur
+        // dismisses (the caret must leave the composer).
+        cx.subscribe_in(
+            &comment,
+            window,
+            |this, _, event: &InputEvent, _, cx| match event {
+                InputEvent::Change => {
+                    this.comment_changed(cx);
+                    this.sync_mention(cx);
+                }
+                InputEvent::Blur => this.mention_dismiss(cx),
+                _ => {}
+            },
+        )
         .detach();
         let mut page = Self {
             state,
@@ -273,6 +286,7 @@ impl IssueDetailPage {
             draft_restored,
             close_reason,
             busy: None,
+            mention: None,
             mutation_error: None,
             description_edit: None,
             title_edit: None,
@@ -536,6 +550,7 @@ impl IssueDetailPage {
             return;
         }
         let variables = json!({ "input": { "subjectId": d.id, "body": body } });
+        self.mention = None;
         self.mutation_error = None;
         self.busy = Some(IssueBusyOp::Comment);
         cx.notify();
@@ -546,6 +561,91 @@ impl IssueDetailPage {
             window,
             cx,
         );
+    }
+
+    // --- @-mention completion (docs/0075, #578) ---
+
+    /// D3 rescan for the issue comment box. Same contracts as the PR
+    /// page's per-composer sync; the pool ranks issue participants
+    /// (assignees → author → comment authors).
+    fn sync_mention(&mut self, cx: &mut Context<Self>) {
+        let pool = self
+            .detail
+            .data()
+            .map(crate::mentions::ranked_issue_candidates)
+            .unwrap_or_default();
+        let composer = crate::mentions::MentionComposer::IssueComment;
+        let next = crate::mentions::rescan(&self.mention, &self.comment, composer, &pool, cx);
+        let changed = next != self.mention;
+        self.mention = next;
+        if changed {
+            cx.notify();
+        }
+    }
+
+    /// D4: wrap-around selection move.
+    fn mention_select(&mut self, delta: isize, cx: &mut Context<Self>) {
+        if let Some(m) = &mut self.mention {
+            let len = m.candidates.len();
+            m.selected = crate::mentions::step_selection(m.selected, len, delta);
+            cx.notify();
+        }
+    }
+
+    /// D3/D4: dismiss (Esc, blur, submit). No-op when closed.
+    fn mention_dismiss(&mut self, cx: &mut Context<Self>) {
+        if self.mention.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    /// D5: replace the `@token` ending at the caret with `@login ` in
+    /// one atomic edit; the Change that comes back re-syncs (and finds
+    /// no token). Crate-visible: the popup's row closures route here.
+    pub(crate) fn accept_mention(
+        &mut self,
+        token_start: usize,
+        login: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.mention = None;
+        let end = self.comment.read(cx).cursor().max(token_start);
+        self.comment.update(cx, |state, cx| {
+            crate::mentions::replace_token_range(state, token_start, end, &login, window, cx);
+        });
+        cx.notify();
+    }
+
+    /// D4 seam (see `PrDetailPage::mention_wrap`): key context + action
+    /// handlers + the deferred popup, exactly while the popup is open.
+    fn mention_wrap(&self, cx: &Context<Self>, host: Div) -> Div {
+        let open = self.mention.is_some();
+        host.when(open, |field| {
+            field
+                .key_context("Mention")
+                .on_action(cx.listener(|this, _: &MentionSelectNext, _, cx| {
+                    this.mention_select(1, cx);
+                }))
+                .on_action(cx.listener(|this, _: &MentionSelectPrev, _, cx| {
+                    this.mention_select(-1, cx);
+                }))
+                .on_action(cx.listener(|this, _: &MentionAccept, window, cx| {
+                    let Some(m) = this.mention.as_ref() else {
+                        return;
+                    };
+                    let cand = &m.candidates[m.selected % m.candidates.len()];
+                    let login = cand.login.clone();
+                    this.accept_mention(m.token_start, login, window, cx);
+                }))
+                .on_action(cx.listener(|this, _: &MentionDismiss, _, cx| this.mention_dismiss(cx)))
+        })
+        .when(open, |field| {
+            field.child(gpui::deferred(crate::mentions::issue_popup(
+                cx.entity().downgrade(),
+                self.comment.downgrade(),
+            )))
+        })
     }
 
     /// Open the description editor (0020 D4), prefilled with the body.
@@ -2774,7 +2874,7 @@ impl IssueDetailPage {
                         .child("Draft restored — clearing the box discards it."),
                 )
             })
-            .child(Textarea::new(&self.comment).w_full())
+            .child(self.mention_wrap(cx, div().child(Textarea::new(&self.comment).w_full())))
             .child(
                 h_flex()
                     .gap_2()
@@ -3354,6 +3454,73 @@ mod tests {
         fn delete(&self) -> Result<(), String> {
             Err("probe".into())
         }
+    }
+
+    /// D6 for issues (#578): assignees lead, then the issue author, then
+    /// comment authors by recency — deduped like the PR ranking. (The
+    /// fixture lives here: a json! fixture in mentions.rs SIGBUSes
+    /// rustc — see the note in its tests module.)
+    #[test]
+    fn issue_mention_ranking_prefers_assignees_then_recent_comments() {
+        let value = serde_json::json!({
+            "viewerPermission": "WRITE",
+            "issue": {
+                "id": "I_1", "number": 1, "title": "t", "url": "u",
+                "state": "OPEN", "stateReason": null,
+                "createdAt": "2026-09-01T00:00:00Z",
+                "viewerCanUpdate": true, "viewerCanClose": true, "viewerCanReopen": false,
+                "viewerCanLabel": false, "viewerCanAssign": false,
+                "viewerCanSetMilestone": false,
+                "viewerCanReact": false, "locked": false, "activeLockReason": null,
+                "reactionGroups": [],
+                "labels": {"totalCount": 0, "nodes": []},
+                "assignees": {"totalCount": 1, "nodes": [
+                    {"id": "U_1", "login": "bob", "avatarUrl": "b"}
+                ]},
+                "milestone": null,
+                "comments": {"totalCount": 3, "nodes": [
+                    {"author": {"login": "dave"}, "body": "older",
+                     "createdAt": "2026-09-03T01:00:00Z"},
+                    {"author": {"login": "erin"}, "body": "newer",
+                     "createdAt": "2026-09-04T01:00:00Z"},
+                    {"author": {"login": "bob"}, "body": "dup",
+                     "createdAt": "2026-09-05T01:00:00Z"}
+                ]},
+                "timelineItems": {"totalCount": 0, "filteredCount": 0, "nodes": []}
+            }
+        });
+        let issue = gql::issue_detail_from_value(&value).expect("probe issue parses");
+        let ranked = crate::mentions::ranked_issue_candidates(&issue);
+        let logins: Vec<&str> = ranked.iter().map(|c| c.login.as_str()).collect();
+        assert_eq!(logins, ["bob", "erin", "dave"], "assignee, then recency");
+        assert_eq!(ranked.iter().filter(|c| c.login == "bob").count(), 1);
+    }
+
+    #[gpui::test]
+    fn mention_issue_comment_box_ranks_and_accepts(cx: &mut gpui::TestAppContext) {
+        let (page, vcx) = probe_page(cx);
+        vcx.update(|window, cx| {
+            page.update(cx, |page, cx| {
+                // D3 on the issue box (#578): a bare `@` opens the full
+                // issue pool — assignee first, then comment recency.
+                page.comment.update(cx, |st, cx| {
+                    st.set_value("hey @", window, cx);
+                    let len = st.value().chars().count();
+                    st.set_selected_range(len..len, cx);
+                });
+                page.sync_mention(cx);
+                let m = page.mention.as_ref().expect("issue box opens");
+                assert_eq!(m.composer, crate::mentions::MentionComposer::IssueComment);
+                let logins: Vec<&str> = m.candidates.iter().map(|c| c.login.as_str()).collect();
+                assert_eq!(logins, ["bob", "erin", "dave"]);
+
+                // D5: accept replaces the token in THIS box.
+                let token_start = m.token_start;
+                page.accept_mention(token_start, "bob".into(), window, cx);
+                assert_eq!(page.comment.read(cx).value(), "hey @bob ");
+                assert!(page.mention.is_none());
+            });
+        });
     }
 
     fn probe_summary() -> gql::Issue {

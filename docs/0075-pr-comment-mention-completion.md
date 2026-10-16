@@ -89,6 +89,18 @@ a candidate closure); wiring the reply composer, line composers, the
 review-thread editor, and the issue-page box is a fast-follow issue reusing
 D3–D6 verbatim. Not in this feature's PR.
 
+**D11 — Composer rollout (#578).** The four deferred composers shipped on
+the same contracts: one mention slot per page, tagged with a
+`MentionComposer` (comment box, line composer, reply, thread edit, issue
+box) that routes sync/accept to the owning textarea and lets each render
+site gate the shared `mention_wrap` chrome on its own tag — so at most one
+popup exists per page and typing into another composer replaces it, which
+matches blur-dismiss semantics. The issue page ranks `assignees → author →
+comment authors` (no review requests or reviews exist there); still zero
+new GraphQL. The issue page's five key bindings are a mirror set scoped to
+`GithubIssuePage && Mention && Input`. The PR-side description/timeline
+editors and the finish-review summary remain unwired (Non-goals).
+
 **D9 — Verification plan.** The 0065 receipt for the composer grows a
 mention drive: focus the box, type `@`, assert popup rows by id/label,
 accept one, assert the inserted text; a structural golden of the open-popup
@@ -101,8 +113,11 @@ the whole matching story in v1; no fuzzy-match crate.
 
 ## Non-goals
 
-- Wiring the remaining composers (reply, line, review-thread, issue-page
-  box) — fast-follow issue, D8.
+- ~~Wiring the remaining composers (reply, line, review-thread, issue-page
+  box) — fast-follow issue, D8.~~ Shipped by #578 (D11).
+- The PR-side description/timeline body editors and the finish-review
+  summary textarea (markdown bodies, not chat-style comments — same
+  reasoning as the original D8 cut).
 - Org-wide / `assignableUsers` lookup beyond the loaded document.
 - Emoji picker, `/` commands, `#` issue references — separate features.
 - The upstream public textarea-completion API (contribution filed from the

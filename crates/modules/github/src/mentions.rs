@@ -1,4 +1,4 @@
-//! @-mention completion for the PR comment composer (docs/0075).
+//! @-mention completion for the GitHub composers (docs/0075, #578).
 //!
 //! The pinned stack has no public completion path for plain textareas
 //! (docs/0075 Background): the kit's completion machinery is `pub(crate)`
@@ -25,7 +25,10 @@ use gpui_component::{
     v_flex,
 };
 
-use crate::gql::PrDetail;
+use std::rc::Rc;
+
+use crate::gql::{IssueDetail, PrDetail};
+use crate::issue_page::IssueDetailPage;
 use crate::pr_page::PrDetailPage;
 
 /// D6: filtered results cap — 10 rows fits the ~240px popup budget.
@@ -48,6 +51,25 @@ pub(crate) struct MentionCandidate {
     pub avatar_url: String,
 }
 
+/// Which composer an open popup belongs to (#578). One page-level state
+/// slot serves every composer: the tag routes sync/accept to the right
+/// textarea handle, and each render site gates on its own tag — so at
+/// most one popup exists per page, and typing in another composer
+/// replaces (or closes) the old one, matching blur-dismiss semantics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MentionComposer {
+    /// PR detail — the main comment box (docs/0075 D8).
+    Comment,
+    /// Files tab — the single-line review comment composer (0030 D4).
+    LineComposer,
+    /// Review thread — the reply composer (0030).
+    Reply,
+    /// Review thread — the prefilled comment edit (0030).
+    ThreadEdit,
+    /// Issue detail — the comment box (0020 D4).
+    IssueComment,
+}
+
 /// Open-popup state, held by the page (D3 lifecycle). Offsets are char
 /// offsets — the units `TextareaState::cursor()` and
 /// `set_selected_range()` speak (ropey slice semantics).
@@ -55,6 +77,8 @@ pub(crate) struct MentionCandidate {
 pub(crate) struct MentionState {
     /// Char offset of the `@` that opened the popup.
     pub token_start: usize,
+    /// Which composer owns this popup.
+    pub composer: MentionComposer,
     /// Query text between `@` and the caret (no `@`).
     pub query: String,
     /// Filtered + ranked rows (D6), ≤ [`MAX_ROWS`].
@@ -124,6 +148,67 @@ pub(crate) fn ranked_candidates(d: &PrDetail) -> Vec<MentionCandidate> {
     out
 }
 
+/// D6 for issues (#578): no review requests or reviews exist, so the
+/// ranking degrades to assignees → issue author → comment authors by
+/// recency — same dedup, same cap, zero new GraphQL.
+pub(crate) fn ranked_issue_candidates(d: &IssueDetail) -> Vec<MentionCandidate> {
+    let mut out: Vec<MentionCandidate> = Vec::new();
+    let push = |out: &mut Vec<MentionCandidate>, login: &str, avatar: &str| {
+        if login.is_empty() || out.iter().any(|c| c.login == login) {
+            return;
+        }
+        out.push(MentionCandidate {
+            login: login.to_string(),
+            name: String::new(),
+            avatar_url: avatar.to_string(),
+        });
+    };
+    for a in &d.assignees {
+        push(&mut out, &a.login, &a.avatar_url);
+    }
+    if let Some(a) = &d.author {
+        push(&mut out, &a.login, &a.avatar_url);
+    }
+    for c in d.comments.nodes.iter().rev() {
+        if let Some(a) = &c.author {
+            push(&mut out, &a.login, &a.avatar_url);
+        }
+    }
+    out
+}
+
+/// One D3 rescan for any composer (#578): scan the textarea under the
+/// caret, filter the ranked pool, and build the next state — `None`
+/// means closed. Same token+query on the same composer keeps the state
+/// untouched (stable selection); a tag change always rebuilds, so
+/// typing into another composer replaces the popup.
+pub(crate) fn rescan(
+    current: &Option<MentionState>,
+    textarea: &Entity<TextareaState>,
+    composer: MentionComposer,
+    pool: &[MentionCandidate],
+    cx: &App,
+) -> Option<MentionState> {
+    let value = textarea.read(cx).value().to_string();
+    let chars: Vec<char> = value.chars().collect();
+    let cursor = textarea.read(cx).cursor().min(chars.len());
+    let (token_start, query) = scan_token(&chars, cursor)?;
+    let same = current.as_ref().is_some_and(|m| {
+        m.composer == composer && m.token_start == token_start && m.query == query
+    });
+    if same {
+        return current.clone();
+    }
+    let candidates = filter_candidates(pool, &query);
+    (!candidates.is_empty()).then_some(MentionState {
+        token_start,
+        composer,
+        query,
+        candidates,
+        selected: 0,
+    })
+}
+
 /// D6 filtering: case-insensitive substring against login, then name;
 /// ranked order preserved, capped at [`MAX_ROWS`].
 pub(crate) fn filter_candidates(pool: &[MentionCandidate], query: &str) -> Vec<MentionCandidate> {
@@ -166,20 +251,74 @@ fn popup_anchor(geo: &PrepaintCaretGeometry, rows: usize, viewport: Size<Pixels>
 /// input's fresh caret geometry, builds the row list from the page's
 /// mention state, and paints it at the anchor — outside every scroll
 /// container's clip.
+/// Fresh popup state each prepaint — pages hold the one mention slot,
+/// the closure just reads it through whatever page owns it.
+pub(crate) type MentionSnapshot = Rc<dyn Fn(&App) -> Option<MentionState>>;
+/// Row-click accept, routed by the owning page to the composer the open
+/// state is tagged with (#578).
+pub(crate) type MentionPick = Rc<dyn Fn(usize, String, &mut Window, &mut App)>;
+
 pub(crate) struct MentionPopup {
-    page: WeakEntity<PrDetailPage>,
     comment: WeakEntity<TextareaState>,
+    mention: MentionSnapshot,
+    pick: MentionPick,
     content: Option<AnyElement>,
 }
 
 impl MentionPopup {
-    pub(crate) fn new(page: WeakEntity<PrDetailPage>, comment: WeakEntity<TextareaState>) -> Self {
+    pub(crate) fn new(
+        comment: WeakEntity<TextareaState>,
+        mention: MentionSnapshot,
+        pick: MentionPick,
+    ) -> Self {
         Self {
-            page,
             comment,
+            mention,
+            pick,
             content: None,
         }
     }
+}
+
+/// The PR detail page's popup wiring: state read + accept routed
+/// through [`PrDetailPage`], anchored at `textarea`.
+pub(crate) fn pr_popup(
+    page: WeakEntity<PrDetailPage>,
+    textarea: WeakEntity<TextareaState>,
+) -> MentionPopup {
+    let pick_page = page.clone();
+    MentionPopup::new(
+        textarea,
+        Rc::new(move |cx| page.upgrade().and_then(|p| p.read(cx).mention.clone())),
+        Rc::new(move |token_start, login, window, cx| {
+            let Some(page) = pick_page.upgrade() else {
+                return;
+            };
+            page.update(cx, |page, cx| {
+                page.accept_mention(token_start, login, window, cx)
+            });
+        }),
+    )
+}
+
+/// The issue detail page's popup wiring (#578) — same shape, issue page.
+pub(crate) fn issue_popup(
+    page: WeakEntity<IssueDetailPage>,
+    textarea: WeakEntity<TextareaState>,
+) -> MentionPopup {
+    let pick_page = page.clone();
+    MentionPopup::new(
+        textarea,
+        Rc::new(move |cx| page.upgrade().and_then(|p| p.read(cx).mention.clone())),
+        Rc::new(move |token_start, login, window, cx| {
+            let Some(page) = pick_page.upgrade() else {
+                return;
+            };
+            page.update(cx, |page, cx| {
+                page.accept_mention(token_start, login, window, cx)
+            });
+        }),
+    )
 }
 
 impl Element for MentionPopup {
@@ -213,13 +352,13 @@ impl Element for MentionPopup {
         window: &mut Window,
         cx: &mut App,
     ) {
-        let (Some(page), Some(comment)) = (self.page.upgrade(), self.comment.upgrade()) else {
+        let Some(comment) = self.comment.upgrade() else {
             return;
         };
         let Some(geo) = comment.read(cx).prepaint_caret_geometry() else {
             return;
         };
-        let Some(mention) = page.read(cx).mention.clone() else {
+        let Some(mention) = (self.mention)(cx) else {
             return;
         };
         let rows = mention.candidates.len().min(MAX_ROWS);
@@ -227,7 +366,7 @@ impl Element for MentionPopup {
             return;
         }
         let anchor = popup_anchor(&geo, rows, window.viewport_size());
-        let mut content = render_rows(&page, &mention, window, cx);
+        let mut content = render_rows(&self.pick, &mention, window, cx);
         let viewport = window.viewport_size();
         content.layout_as_root(
             Size {
@@ -271,12 +410,12 @@ impl IntoElement for MentionPopup {
 /// login at build time, so it stays correct even if a blur cleared the
 /// page's mention state mid-dispatch.
 fn render_rows(
-    page: &Entity<PrDetailPage>,
+    pick: &MentionPick,
     mention: &MentionState,
     _window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
-    let weak = page.downgrade();
+    let pick = pick.clone();
     let token_start = mention.token_start;
     let selected = mention.selected;
     v_flex()
@@ -288,7 +427,7 @@ fn render_rows(
         .role(accesskit::Role::Group)
         .aria_label("Mention suggestions")
         .children(mention.candidates.iter().enumerate().map(|(ix, cand)| {
-            let row_page = weak.clone();
+            let row_pick = pick.clone();
             let login = cand.login.clone();
             h_flex()
                 .id(ix)
@@ -307,12 +446,7 @@ fn render_rows(
                 })
                 .hover(|row| row.bg(cx.theme().accent.opacity(0.5)))
                 .on_mouse_down(MouseButton::Left, move |_, window, cx: &mut App| {
-                    let Some(page) = row_page.upgrade() else {
-                        return;
-                    };
-                    page.update(cx, |page, cx| {
-                        page.accept_mention(token_start, login.clone(), window, cx)
-                    });
+                    row_pick(token_start, login.clone(), window, cx);
                     cx.stop_propagation();
                 })
                 .child(Avatar::new().src(cand.avatar_url.clone()).xsmall())
@@ -352,6 +486,10 @@ mod tests {
     use crate::mentions::{
         MentionCandidate, filter_candidates, ranked_candidates, scan_token, step_selection,
     };
+    // NOTE: this module's tests must stay free of `serde_json::json!` /
+    // parser fixtures — a fixture here SIGBUSes rustc deterministically
+    // (same expansion hazard page.rs documents for `use super::*`). The
+    // `ranked_issue_candidates` fixture lives in issue_page.rs tests.
 
     fn cand(login: &str) -> MentionCandidate {
         MentionCandidate {
