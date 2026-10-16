@@ -206,6 +206,28 @@ success path's background revalidate (below) only flies while the arming
 page is still alive; a dead page's document revalidates on its own
 freshness gates at next open (D3).
 
+**Stage 3 (#554) — the conversation writes ride the same machinery.**
+Comment/review submit, description edit, the docs/0019-D5 timeline-row
+writes, and the docs/0030-D7 Files-tab writes arm through
+`begin_pending` like the header ops; `PendingKind` carries their pending
+labels (the home-row pill reads "commenting…" the same way it reads
+"merging…"), their toast copy, and the inline scopes they had as
+page-modal ops (Timeline / Files — the docs/0016 D5 placement is kept,
+so store failures render exactly where page-modal failures did). Only
+merge/close patch a post-state into the document; every other
+confirmation patches nothing (a new comment row or an edited body is
+only learnable by refetch), so it **voids the cached detail's
+freshness** (`detail_at = None`): an open page refetches through its
+arming hook (threads refetch for the Files-tab writes), and a page that
+died mid-flight revalidates on next open instead of serving a document
+that predates the confirmed write. Write surfaces disable while the
+entry has any op in flight (D5), the submitting surface shows its own
+spinner, and confirmation runs the surface-closing the page-modal path
+did (draft cleared, composer closed — a failure keeps the draft). The
+page-modal ops outside this stage (#212 thread-comment edit/delete,
+resolve toggles, reactions, rail metadata) keep their old path and old
+guards; migrating them later is mechanical.
+
 ### D5 — Concurrency: one pending op per entry, many entries in flight
 
 The single-flight constraint narrows from "the whole page" to "the one
@@ -298,6 +320,7 @@ the existing fetch pipeline, not a new pipeline.
 3. **Remaining mutations** — comment, review submit, description edit,
    timeline row writes, line comments/replies onto the same machinery
    (append-style confirmations land via the detail refetch as today).
+   Shipped: #554, D4's stage-3 paragraph.
 4. **Issues** — `Kind::Issue` documents for issue_page/new_issue_page.
 
 Stages 1–2 are the design's core; 3–4 are mechanical follow-ons on the

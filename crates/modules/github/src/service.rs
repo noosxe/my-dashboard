@@ -1824,13 +1824,31 @@ impl PrKey {
     }
 }
 
-/// docs/0072 D1/D4 — the optimistic writes stages 1–2 cover; stage 3
-/// (issue #554) widens the machinery to every PR-page write.
+/// docs/0072 D1/D4 — the optimistic writes. Stages 1–2 shipped the
+/// header ops; stage 3 (#554) moved the conversation writes onto the
+/// same machinery: comment/review submit, description edit, the
+/// 0019-D5 timeline-row writes, and the 0030-D7 Files-tab writes.
+/// Only merge/close patch their post-state into the document; every
+/// other kind's confirmation patches nothing (the new or edited row's
+/// payload is only learnable by refetch), so it voids the cached
+/// detail layer instead — the refetch lands the row.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PendingKind {
     Merge,
     Close,
     UpdateBranch,
+    Comment,
+    Review,
+    Description,
+    // 0019 D5: timeline-row writes.
+    CommentEdit,
+    CommentDelete,
+    ReviewEdit,
+    ReviewDelete,
+    // 0030 D7: Files-tab writes.
+    LineComment,
+    ReviewReply,
+    ReviewBatch,
 }
 
 impl PendingKind {
@@ -1840,6 +1858,16 @@ impl PendingKind {
             PendingKind::Merge => "merging…",
             PendingKind::Close => "closing…",
             PendingKind::UpdateBranch => "updating branch…",
+            PendingKind::Comment => "commenting…",
+            PendingKind::Review => "submitting review…",
+            PendingKind::Description => "saving description…",
+            PendingKind::CommentEdit => "editing comment…",
+            PendingKind::CommentDelete => "deleting comment…",
+            PendingKind::ReviewEdit => "editing review…",
+            PendingKind::ReviewDelete => "deleting review…",
+            PendingKind::LineComment => "adding line comment…",
+            PendingKind::ReviewReply => "replying…",
+            PendingKind::ReviewBatch => "adding to review…",
         }
     }
 
@@ -1849,6 +1877,16 @@ impl PendingKind {
             PendingKind::Merge => "Merged",
             PendingKind::Close => "Closed",
             PendingKind::UpdateBranch => "Updated branch for",
+            PendingKind::Comment => "Comment added",
+            PendingKind::Review => "Review submitted",
+            PendingKind::Description => "Description updated",
+            PendingKind::CommentEdit => "Comment updated",
+            PendingKind::CommentDelete => "Comment deleted",
+            PendingKind::ReviewEdit => "Review updated",
+            PendingKind::ReviewDelete => "Review deleted",
+            PendingKind::LineComment => "Line comment added",
+            PendingKind::ReviewReply => "Reply added",
+            PendingKind::ReviewBatch => "Added to review",
         }
     }
 
@@ -1858,6 +1896,16 @@ impl PendingKind {
             PendingKind::Merge => "Merge",
             PendingKind::Close => "Close",
             PendingKind::UpdateBranch => "Branch update",
+            PendingKind::Comment => "Comment",
+            PendingKind::Review => "Review",
+            PendingKind::Description => "Description update",
+            PendingKind::CommentEdit => "Comment edit",
+            PendingKind::CommentDelete => "Comment delete",
+            PendingKind::ReviewEdit => "Review edit",
+            PendingKind::ReviewDelete => "Review delete",
+            PendingKind::LineComment => "Line comment",
+            PendingKind::ReviewReply => "Reply",
+            PendingKind::ReviewBatch => "Review batch",
         }
     }
 
@@ -1867,14 +1915,36 @@ impl PendingKind {
             PendingKind::Merge => "merged",
             PendingKind::Close => "closed",
             PendingKind::UpdateBranch => "branch-updated",
+            PendingKind::Comment => "commented",
+            PendingKind::Review => "review-submitted",
+            PendingKind::Description => "description-updated",
+            PendingKind::CommentEdit => "comment-edited",
+            PendingKind::CommentDelete => "comment-deleted",
+            PendingKind::ReviewEdit => "review-edited",
+            PendingKind::ReviewDelete => "review-deleted",
+            PendingKind::LineComment => "line-commented",
+            PendingKind::ReviewReply => "replied",
+            PendingKind::ReviewBatch => "review-batched",
         }
     }
 
-    /// Where a failure renders inline — docs/0016 D5 placement, kept.
+    /// Where a failure renders inline — the documented placement each
+    /// op already had as a page-modal op (docs/0016 D5, 0019 D5, 0030
+    /// D7), kept through the migration.
     pub(crate) fn error_scope(self) -> ErrorScope {
         match self {
             PendingKind::Merge | PendingKind::Close | PendingKind::UpdateBranch => {
                 ErrorScope::Panel
+            }
+            PendingKind::Comment
+            | PendingKind::Review
+            | PendingKind::Description
+            | PendingKind::CommentEdit
+            | PendingKind::CommentDelete
+            | PendingKind::ReviewEdit
+            | PendingKind::ReviewDelete => ErrorScope::Timeline,
+            PendingKind::LineComment | PendingKind::ReviewReply | PendingKind::ReviewBatch => {
+                ErrorScope::Files
             }
         }
     }
@@ -2852,9 +2922,20 @@ impl GithubState {
         let confirmed = match kind {
             PendingKind::Merge => Some("MERGED"),
             PendingKind::Close => Some("CLOSED"),
-            // The new head OID is unknown until the revalidate lands —
-            // nothing honest to patch (docs/0072 D4).
-            PendingKind::UpdateBranch => None,
+            // Everything else: nothing honest to patch — the post-state
+            // (a new comment row, an edited body, the new head OID) is
+            // only learnable by refetch (docs/0072 D4).
+            PendingKind::UpdateBranch
+            | PendingKind::Comment
+            | PendingKind::Review
+            | PendingKind::Description
+            | PendingKind::CommentEdit
+            | PendingKind::CommentDelete
+            | PendingKind::ReviewEdit
+            | PendingKind::ReviewDelete
+            | PendingKind::LineComment
+            | PendingKind::ReviewReply
+            | PendingKind::ReviewBatch => None,
         };
         if let Some(state) = confirmed {
             entry.summary.state = Some(state.to_string());
@@ -2868,6 +2949,15 @@ impl GithubState {
             // from this entry at read time, so the merge/close shows up
             // the moment it confirms. No lane patch needed: lanes hold
             // no rows (docs/0073 D2).
+        } else {
+            // Stage 3 (#554): an unpatchable confirmation changed facts
+            // the cached detail cannot know. Void the layer's freshness
+            // so the next open revalidates immediately instead of
+            // serving a document that predates the confirmed write (the
+            // SWR skip keys on a young `detail_at`). An open page
+            // refetches through its arming hook; this covers the page
+            // that died mid-flight (D4's session-scoped resolver).
+            entry.detail_at = None;
         }
         self.pending_alerts.push(
             dashboard_core::toasts::Toast::new(
@@ -6890,6 +6980,55 @@ mod tests {
         assert_eq!(error.scope, ErrorScope::Panel);
         assert_eq!(error.message, "not mergeable");
         // D7: the warning toast stages.
+        assert_eq!(state.take_pending_alerts().len(), 1);
+    }
+
+    // Stage 3 (#554): an append-style confirmation patches no document
+    // field — the toast stages, pending clears, and the cached detail's
+    // freshness VOIDS so a dead page's document revalidates instead of
+    // serving a pre-write doc (the SWR skip keys on a young detail_at).
+    #[test]
+    fn pr_store_append_confirm_patches_nothing_and_voids_detail() {
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.land_summary("acme/one", &store_row(482));
+        state.land_detail("acme/one", 482, store_detail(482));
+        assert!(state.pr_entry("acme/one", 482).unwrap().detail_at.is_some());
+
+        let token = state
+            .begin_pending("acme/one", 482, PendingKind::Comment)
+            .unwrap();
+        assert!(state.resolve_pending("acme/one", 482, token));
+
+        let entry = state.pr_entry("acme/one", 482).unwrap();
+        assert!(entry.pending.is_none());
+        assert_eq!(entry.summary.state.as_deref(), Some("OPEN"), "no patch");
+        assert!(entry.detail_at.is_none(), "the cached detail voided");
+        let alerts = state.take_pending_alerts();
+        assert_eq!(alerts.len(), 1, "the completion toast stages (D7)");
+        assert_eq!(
+            alerts[0].dedupe_key.as_deref(),
+            Some("pr-commented:acme/one#482")
+        );
+    }
+
+    // Stage 3 (#554): append-style failures record on the entry in the
+    // scope the op had as a page-modal op — Files for the 0030-D7
+    // writes (docs/0016 D5 placement, kept).
+    #[test]
+    fn pr_store_append_failure_records_its_documented_scope() {
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.land_summary("acme/one", &store_row(482));
+        state.land_detail("acme/one", 482, store_detail(482));
+
+        let token = state
+            .begin_pending("acme/one", 482, PendingKind::LineComment)
+            .unwrap();
+        assert!(state.fail_pending("acme/one", 482, token, "nope".into()));
+        let entry = state.pr_entry("acme/one", 482).unwrap();
+        assert!(entry.pending.is_none());
+        let error = entry.error.as_ref().unwrap();
+        assert_eq!(error.scope, ErrorScope::Files);
+        assert_eq!(error.message, "nope");
         assert_eq!(state.take_pending_alerts().len(), 1);
     }
 

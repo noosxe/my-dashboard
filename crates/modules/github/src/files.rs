@@ -933,7 +933,10 @@ fn line_composer_card(
     cx: &Context<PrDetailPage>,
 ) -> Option<AnyElement> {
     let composer = page.line_composer.as_ref()?;
-    let busy = page.busy.is_some();
+    // docs/0072 D5 (#554): the write buttons block on any entry write —
+    // a store op pending refuses the second write (begin_pending), and
+    // the guard keeps the refusal visible.
+    let busy = page.writes_busy(cx);
     Some(
         v_flex()
             .debug_selector(|| "pr-line-composer-key".into())
@@ -1375,7 +1378,7 @@ fn thread_card(
                 card.child(chrome.child(reply_box(
                     page_h,
                     window,
-                    page.busy.is_some(),
+                    page.writes_busy(cx),
                     ix,
                     editor,
                     cx,
