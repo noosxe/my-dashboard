@@ -352,7 +352,7 @@ impl GithubCache {
 }
 
 /// Wall-clock UTC epoch ms — the persisted stamp form (docs/0072 D8).
-fn now_epoch_ms() -> u64 {
+pub(crate) fn now_epoch_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
@@ -4662,21 +4662,29 @@ pub(crate) async fn run_read_deduped(
     Some(result)
 }
 
-/// The docs/0039 D1 resolution chain — four documented GETs from the
-/// expanded check's (head SHA, name) to its log text. Runs on the
-/// page's spawn; the caller arms one `(Kind::JobLog, ident)` dedup key
-/// for the whole chain and clears it after. Each hop's non-200 forwards
-/// through [`GithubState::apply`] for the shared auth/rate-limit
-/// handling before the chain fails; network errors surface without the
-/// forward (the files-walk convention, docs/0016 §3 D8).
-pub(crate) async fn run_check_log_chain(
+/// One resolved Actions job for the expanded check (docs/0076 D2):
+/// the resolution chain's outcome — the run id the live watch polls and
+/// the name-matched job's full node (live status + steps, additive
+/// parse). `job.status` decides completed-path vs live watch.
+pub(crate) struct ResolvedCheckJob {
+    pub run_id: u64,
+    pub job: api::JobNode,
+}
+
+/// The docs/0039 D1 resolution chain, steps 1–3 (docs/0076 D7 split):
+/// from the expanded check's (head SHA, name) to its matched job. Each
+/// hop's non-200 forwards through [`GithubState::apply`] for the shared
+/// auth/rate-limit handling before the chain fails; network errors
+/// surface without the forward (the files-walk convention, docs/0016
+/// §3 D8).
+pub(crate) async fn resolve_check_job(
     state: Entity<GithubState>,
     repo: &str,
     number: i64,
     head_oid: &str,
     check_name: &str,
     cx: &mut AsyncApp,
-) -> Result<(String, bool), String> {
+) -> Result<ResolvedCheckJob, String> {
     let Some((owner, name)) = repo.split_once('/') else {
         return Err("Malformed repository id".into());
     };
@@ -4768,28 +4776,147 @@ pub(crate) async fn run_check_log_chain(
     }
     let page: api::JobsPage = serde_json::from_str(result.body.as_deref().unwrap_or_default())
         .map_err(|e| format!("Malformed jobs payload ({e})"))?;
-    let job_id = page
+    let job = page
         .jobs
-        .iter()
+        .into_iter()
         .find(|j| j.name == check_name)
-        .map(|j| j.id)
         .ok_or("No job with this name in the workflow run — it may have been renamed")?;
+    Ok(ResolvedCheckJob { run_id, job })
+}
 
-    // Step 4 — the log text itself (302 followed by the transport).
+/// Why a live-watch log fetch failed (docs/0076 D3): the 404 is
+/// *materialization pending* — the blob can lag job completion by
+/// seconds — and must not surface as an error while retries remain.
+#[derive(Debug)]
+pub(crate) enum JobLogsError {
+    NotFound,
+    Http(u16),
+    Network(String),
+    Malformed(String),
+}
+
+/// [`fetch_job_logs`] core with the 404 policy as a flag (docs/0076
+/// D3/D7): the live watch treats the 404 as *materialization pending*
+/// (no `apply` forward — the tick retries); the completed path
+/// forwards every non-200 like the old monolithic chain did. Other
+/// non-200s always forward for the shared auth/rate-limit handling;
+/// network errors surface without the forward (the files-walk
+/// convention).
+pub(crate) async fn fetch_job_logs_typed(
+    state: Entity<GithubState>,
+    repo: &str,
+    job_id: u64,
+    ident: &str,
+    forward_not_found: bool,
+    cx: &mut AsyncApp,
+) -> Result<(String, bool), JobLogsError> {
+    let Some((owner, name)) = repo.split_once('/') else {
+        return Err(JobLogsError::Malformed("repository id".into()));
+    };
+    let spec_for = |url: String| FetchSpec {
+        // docs/0039 D4: check-run logs fetch on expand (docs/0076 D3:
+        // the watch's landing fetch).
+        origin: Origin::new(Surface::PrPage, Trigger::Expand),
+        kind: Kind::JobLog,
+        url,
+        etag: None,
+        ident: Some(ident.to_string()),
+        max_pages: 1,
+        variables: None,
+    };
     let url = api::job_logs_url(owner, name, job_id);
-    let result = fetch(state.clone(), &spec_for, url, cx).await;
+    let result = run_spec_tracked(state.clone(), spec_for(url), cx).await;
     if let Some(m) = result.network {
-        return Err(format!("Network error: {m}"));
+        return Err(JobLogsError::Network(m));
+    }
+    if result.status == 404 && !forward_not_found {
+        return Err(JobLogsError::NotFound);
     }
     if result.status != 200 {
         let status = result.status;
-        forward_non_200(result, &state, cx).await;
-        return Err(http_err(status));
+        cx.update(|cx| {
+            state.update(cx, |s, cx| {
+                s.apply(result);
+                cx.notify();
+            })
+        });
+        return Err(JobLogsError::Http(status));
     }
     Ok(crate::pr_page::prepare_log_body(
         result.body.as_deref().unwrap_or_default(),
         crate::pr_page::LOG_TAIL_CAP,
     ))
+}
+
+/// Step 4 for the completed path (docs/0076 D7): the resolved job was
+/// already `completed` at resolve time, so the old chain semantics hold
+/// byte-for-byte — every non-200 (the 404 included) forwards through
+/// `apply()` and fails the pane into its Retry path.
+pub(crate) async fn fetch_job_logs(
+    state: Entity<GithubState>,
+    repo: &str,
+    job_id: u64,
+    ident: &str,
+    cx: &mut AsyncApp,
+) -> Result<(String, bool), String> {
+    match fetch_job_logs_typed(state, repo, job_id, ident, true, cx).await {
+        Ok(landed) => Ok(landed),
+        Err(JobLogsError::NotFound) => Err("GitHub answered HTTP 404".into()),
+        Err(JobLogsError::Http(status)) => Err(format!("GitHub answered HTTP {status}")),
+        Err(JobLogsError::Network(m)) => Err(format!("Network error: {m}")),
+        Err(JobLogsError::Malformed(e)) => Err(format!("Malformed log payload ({e})")),
+    }
+}
+
+/// Why a live-watch jobs tick failed (docs/0076 D2): non-200s have
+/// already forwarded through `apply()`; the tick decides fatal vs
+/// retryable.
+#[derive(Debug)]
+pub(crate) enum JobsTickError {
+    Network(String),
+    Http(u16),
+    Malformed(String),
+}
+
+/// One live-watch tick (docs/0076 D2): the run's jobs page — one GET
+/// carrying every job's embedded, live `steps[]`. Same forwarding
+/// discipline as the resolution chain.
+pub(crate) async fn fetch_run_jobs(
+    state: Entity<GithubState>,
+    repo: &str,
+    run_id: u64,
+    ident: &str,
+    cx: &mut AsyncApp,
+) -> Result<api::JobsPage, JobsTickError> {
+    let Some((owner, name)) = repo.split_once('/') else {
+        return Err(JobsTickError::Malformed("repository id".into()));
+    };
+    let spec_for = |url: String| FetchSpec {
+        origin: Origin::new(Surface::PrPage, Trigger::Expand),
+        kind: Kind::JobLog,
+        url,
+        etag: None,
+        ident: Some(ident.to_string()),
+        max_pages: 1,
+        variables: None,
+    };
+    let url = api::run_jobs_url(owner, name, run_id);
+    let result = run_spec_tracked(state.clone(), spec_for(url), cx).await;
+    if let Some(m) = result.network {
+        return Err(JobsTickError::Network(m));
+    }
+    if result.status != 200 {
+        let status = result.status;
+        cx.update(|cx| {
+            state.update(cx, |s, cx| {
+                s.apply(result);
+                cx.notify();
+            })
+        });
+        return Err(JobsTickError::Http(status));
+    }
+    serde_json::from_str(result.body.as_deref().unwrap_or_default())
+        .map_err(|e| JobsTickError::Malformed(format!("{e}")))
 }
 
 // ---------------------------------------------------------------------------
@@ -4846,7 +4973,7 @@ pub(crate) struct GateActionFailure {
 /// One plain GET on the gated lane (docs/0066 D2/D4): dispatches through
 /// the tracked lane (usage record + 401 gate), forwards non-200s through
 /// [`GithubState::apply`] for the shared auth/rate-limit handling before
-/// failing — the [`run_check_log_chain`] convention.
+/// failing — the [`resolve_check_job`] convention.
 async fn gated_get(
     state: &Entity<GithubState>,
     kind: Kind,

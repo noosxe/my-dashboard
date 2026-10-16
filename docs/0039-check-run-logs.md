@@ -118,11 +118,13 @@ comments applies):
   CheckRun rows with D5's graceful not-a-job error — behavior stays correct,
   one extra row shows a dead expansion. Record which shape landed in §Shipped.
 
-Every other row (in-progress, statuses, external checks) renders exactly as
-today — `details_url` external link remains the affordance. **Live-following
-an in-progress job's growing log is out of scope** (the endpoint's contract
-targets completed jobs; watching CI live stays a browser task). Recorded in
-§Deferred for the issue to keep.
+Every other row (statuses, external checks) renders exactly as today —
+`details_url` external link remains the affordance. **Amended by
+docs/0076 D1 (#585, 2026-10-16)**: in-progress Actions-origin rows now
+expand too — the live watch owns them (official APIs still serve no
+growing log; the watch shows live step status and lands the whole tail
+when the job completes). docs/0066 `Waiting` rows stay non-expandable,
+with the gated-run flow.
 
 ### D4 — The pane: inline accordion, monospace, tail-truncated
 
@@ -196,8 +198,10 @@ row, `check-log-pane-{idx}` on the pane.
 
 ## 6 Non-goals / Deferred
 
-- **Live log following** for in-progress jobs (D3) — issue #201 keeps it as a
-  potential follow-up.
+- **Live log following** for in-progress jobs (D3) — superseded by
+  docs/0076's progressive per-job availability (#585): no streaming
+  exists officially, but the live watch covers the need. Issue #201's
+  tailing idea stays parked.
 - Log **search/filtering** within the pane (nice-to-have; unprompted scope).
 - Step-level logs (cli/cli#11157's ask) — the API offers only whole-job logs.
 - Re-run / cancel job actions — mutation scope, separate issue if wanted.

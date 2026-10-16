@@ -412,6 +412,35 @@ pub struct JobsPage {
 pub struct JobNode {
     pub id: u64,
     pub name: String,
+    /// Live-watch fields (docs/0076 D7): additive parse — minimal
+    /// payloads (older fixtures, third-party summaries) still parse.
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub conclusion: Option<String>,
+    #[serde(default)]
+    pub started_at: Option<String>,
+    #[serde(default)]
+    pub completed_at: Option<String>,
+    #[serde(default)]
+    pub steps: Vec<StepNode>,
+}
+
+/// One step of a workflow job (docs/0076 D2): the live tick payload's
+/// per-step row. Same additive-parse convention as [`JobNode`].
+#[derive(Debug, Clone, Deserialize)]
+pub struct StepNode {
+    pub name: String,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub conclusion: Option<String>,
+    #[serde(default)]
+    pub number: i64,
+    #[serde(default)]
+    pub started_at: Option<String>,
+    #[serde(default)]
+    pub completed_at: Option<String>,
 }
 
 #[cfg(test)]
@@ -432,6 +461,29 @@ mod tests {
         assert!(n.unread);
     }
 
+    #[test]
+    fn parses_job_steps_and_survives_minimal_payloads() {
+        let full: JobNode = serde_json::from_str(
+            r#"{"id":9,"name":"build","status":"in_progress",
+            "conclusion":null,
+            "started_at":"2020-01-20T17:42:40Z",
+            "completed_at":null,
+            "steps":[{"name":"Set up job","status":"completed","conclusion":"success",
+                      "number":1,"started_at":"2020-01-20T09:42:40.000-08:00",
+                      "completed_at":"2020-01-20T09:42:41.000-08:00"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(full.status.as_deref(), Some("in_progress"));
+        assert_eq!(full.steps.len(), 1);
+        assert_eq!(full.steps[0].conclusion.as_deref(), Some("success"));
+
+        // Additive parse (docs/0076 D7): the chain's older fixtures carry
+        // only id+name and must keep parsing.
+        let minimal: JobNode =
+            serde_json::from_str(r#"{"id":1,"name":"use-existing-src"}"#).unwrap();
+        assert!(minimal.status.is_none());
+        assert!(minimal.steps.is_empty());
+    }
     #[test]
     fn log_chain_urls_are_well_formed_and_encoded() {
         // docs/0039 D1: the four documented endpoints. The check name is

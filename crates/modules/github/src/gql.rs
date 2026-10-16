@@ -937,6 +937,31 @@ pub fn check_run_state(status: Option<&str>, conclusion: Option<&str>) -> CheckS
     }
 }
 
+/// REST Actions job/step `status` + `conclusion` (lowercase verbs) →
+/// unified tone (docs/0076 D2). Same semantics as [`check_run_state`],
+/// different wire case: `completed` delegates to the conclusion;
+/// everything else (queued / in_progress / waiting / null) is still
+/// running — Pending.
+pub fn rest_check_state(status: Option<&str>, conclusion: Option<&str>) -> CheckState {
+    match status {
+        Some("completed") => match conclusion {
+            Some("success") => CheckState::Success,
+            Some("failure")
+            | Some("timed_out")
+            | Some("action_required")
+            | Some("startup_failure") => CheckState::Failure,
+            Some("skipped") | Some("neutral") | Some("cancelled") | Some("stale") => {
+                CheckState::Neutral
+            }
+            // Terminal with an unknown conclusion — treat like the
+            // GraphQL mapper's completed-unknown arm.
+            Some(_) => CheckState::Failure,
+            None => CheckState::Failure,
+        },
+        _ => CheckState::Pending,
+    }
+}
+
 /// REST sweep row → unified state (docs/0066 D2): the sweep is
 /// server-filtered to `status=action_required`, so `action_required`
 /// maps to [`CheckState::Waiting`]. Anything else on this endpoint is
@@ -3652,6 +3677,42 @@ mod tests {
         // Completed but conclusion missing/null: treat as failed.
         assert_eq!(
             check_run_state(Some("COMPLETED"), None),
+            CheckState::Failure
+        );
+    }
+
+    #[test]
+    fn rest_check_state_maps_lowercase_pairs() {
+        use super::{CheckState, rest_check_state};
+        assert_eq!(
+            rest_check_state(Some("completed"), Some("success")),
+            CheckState::Success
+        );
+        for conclusion in ["failure", "timed_out", "action_required", "startup_failure"] {
+            assert_eq!(
+                rest_check_state(Some("completed"), Some(conclusion)),
+                CheckState::Failure,
+                "conclusion {conclusion}"
+            );
+        }
+        for conclusion in ["skipped", "neutral", "cancelled", "stale"] {
+            assert_eq!(
+                rest_check_state(Some("completed"), Some(conclusion)),
+                CheckState::Neutral,
+                "conclusion {conclusion}"
+            );
+        }
+        // docs/0076 D2: live phases (and unknown terminals) — Pending is
+        // the watch's spinner; unknown-terminal mirrors the GraphQL arm.
+        for status in [Some("queued"), Some("in_progress"), Some("waiting"), None] {
+            assert_eq!(
+                rest_check_state(status, None),
+                CheckState::Pending,
+                "status {status:?}"
+            );
+        }
+        assert_eq!(
+            rest_check_state(Some("completed"), None),
             CheckState::Failure
         );
     }

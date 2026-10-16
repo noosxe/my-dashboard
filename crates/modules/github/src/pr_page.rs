@@ -67,7 +67,8 @@ use crate::pickers::{
     label_rows, milestone_rows, picker_row_matches, reviewer_rows,
 };
 use crate::service::{
-    Fetch, FetchSpec, GithubState, Kind, Mutation, PendingKind, run_check_log_chain, run_mutation,
+    Fetch, FetchSpec, GithubState, JobLogsError, JobsTickError, Kind, Mutation, PendingKind,
+    fetch_job_logs, fetch_job_logs_typed, fetch_run_jobs, resolve_check_job, run_mutation,
     run_spec_tracked,
 };
 use crate::usage::{Origin, Surface, Trigger};
@@ -100,7 +101,9 @@ pub(crate) enum PrPageEvent {
 
 /// One check row's log-pane lifecycle (docs/0039 D4/D5). Content is the
 /// pane-ready tail (already escape-stripped and \r-folded), so a render
-/// clone is an Arc bump, not a 512 KiB copy.
+/// clone is an Arc bump, not a 512 KiB copy. `Live` is the docs/0076
+/// carve-out — mutable watch state until the first `Ready`, after which
+/// immutability resumes (a completed job's log never changes).
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum CheckLogState {
     /// The resolution chain is running.
@@ -110,6 +113,13 @@ pub(crate) enum CheckLogState {
         truncated: bool,
     },
     Failed(String),
+    /// The matched job is still running (docs/0076 D2): step rows
+    /// repainted by each watch tick, stamped for the "updated Xs ago"
+    /// header.
+    Live {
+        steps: Vec<CheckStepRow>,
+        updated_at: std::time::Instant,
+    },
 }
 
 /// The pane's tail cap (docs/0039 D4): CI conclusions — the failure —
@@ -183,6 +193,287 @@ fn strip_escapes(segment: &str) -> String {
     out
 }
 
+// --- live check watch (docs/0076) -------------------------------------------
+
+/// D6 knobs, owner-tunable: the tick cadence and the caps that keep a
+/// watch honest. Tests drive the loop with immediate mocks, so under
+/// `cfg!(test)` the tick is a 1 ms no-op while the caps stay real (the
+/// hard-cap test walks all 90).
+const CHECK_WATCH_TICK: std::time::Duration = std::time::Duration::from_secs(10);
+const CHECK_LOG_404_RETRIES: u32 = 5;
+const CHECK_WATCH_NET_FAILS: u32 = 3;
+const CHECK_WATCH_MAX_TICKS: u32 = 90;
+
+fn check_watch_tick() -> std::time::Duration {
+    if cfg!(test) {
+        // Long enough that real test wall-time can never fire it (the
+        // mock executor's parked threads make short timers run on real
+        // time); each tick advances only via `advance_clock`, which
+        // makes every watch step deterministic.
+        std::time::Duration::from_secs(60)
+    } else {
+        CHECK_WATCH_TICK
+    }
+}
+
+/// How the watch arc ended (docs/0076 D2/D5): `Landed` mutates the pane
+/// (Ready or the inline error); `Disarmed` touches nothing — a collapse,
+/// a newer expand, a dropped page or sign-out owns the pane now.
+enum CheckWatchOutcome {
+    Landed(Result<(String, bool), String>),
+    Disarmed,
+}
+
+/// One live step row (docs/0076 D4): the tick payload's step, pane-ready.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct CheckStepRow {
+    name: String,
+    state: gql::CheckState,
+    elapsed: Option<SharedString>,
+}
+
+/// GitHub REST timestamps (`2020-01-20T17:42:40Z`,
+/// `2020-01-20T17:42:40.123-08:00`) → epoch ms (docs/0076 D4, elapsed
+/// labels). `None` on anything else — the display is best-effort.
+fn iso_to_epoch_ms(s: &str) -> Option<i64> {
+    let b = s.as_bytes();
+    if b.len() < 19 {
+        return None;
+    }
+    let num = |r: std::ops::Range<usize>| s.get(r)?.parse::<i64>().ok();
+    let (y, mo, d) = (num(0..4)?, num(5..7)?, num(8..10)?);
+    let (h, mi, se) = (num(11..13)?, num(14..16)?, num(17..19)?);
+    if b[4] != b'-'
+        || b[7] != b'-'
+        || (b[10] != b'T' && b[10] != b't')
+        || b[13] != b':'
+        || b[16] != b':'
+    {
+        return None;
+    }
+    // Optional fraction: the first three digits are milliseconds.
+    let mut ms = 0i64;
+    let mut i = 19;
+    if b.get(19) == Some(&b'.') {
+        let digits_end = (20..b.len()).find(|&k| !b[k].is_ascii_digit())?;
+        let frac: String = s[20..digits_end].chars().take(3).collect();
+        if frac.is_empty() {
+            return None;
+        }
+        ms = frac.parse::<i64>().ok()? * 10i64.pow(3 - frac.len() as u32);
+        i = digits_end;
+    }
+    // Offset: Z, z, +HH:MM, -HH:MM.
+    let offset_min = match b.get(i)? {
+        b'Z' | b'z' => 0,
+        sign @ (b'+' | b'-') => {
+            let sh: i64 = s.get(i + 1..i + 3)?.parse().ok()?;
+            let sm: i64 = s.get(i + 4..i + 6)?.parse().ok()?;
+            let mag = sh * 60 + sm;
+            if *sign == b'-' { -mag } else { mag }
+        }
+        _ => return None,
+    };
+    let days = days_from_civil(y, mo, d);
+    Some(((days * 24 + h) * 60 + mi - offset_min) * 60_000 + se * 1000 + ms)
+}
+
+/// Days since 1970-01-01 for a civil date (Howard Hinnant's
+/// `days_from_civil`) — the whole calendar math the ISO parse needs,
+/// no chrono dependency.
+fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let mp = (m + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
+}
+
+/// `1h 02m` / `12m 05s` / `42s` from the step's stamps; an in-progress
+/// step counts to `now_ms` — the poll tick is the clock (docs/0076 D4).
+fn elapsed_label(
+    started: Option<&str>,
+    completed: Option<&str>,
+    now_ms: i64,
+) -> Option<SharedString> {
+    let start = iso_to_epoch_ms(started?)?;
+    let end = completed.and_then(iso_to_epoch_ms).unwrap_or(now_ms);
+    let secs = ((end - start).max(0) / 1000) as u64;
+    let label = if secs >= 3600 {
+        format!("{}h {:02}m", secs / 3600, (secs % 3600) / 60)
+    } else if secs >= 60 {
+        format!("{}m {:02}s", secs / 60, secs % 60)
+    } else {
+        format!("{secs}s")
+    };
+    Some(SharedString::from(label))
+}
+
+/// The tick payload's job → the pane's step rows (docs/0076 D2).
+fn check_step_rows(job: &crate::api::JobNode) -> Vec<CheckStepRow> {
+    let now = crate::service::now_epoch_ms() as i64;
+    job.steps
+        .iter()
+        .map(|s| CheckStepRow {
+            name: s.name.clone(),
+            state: gql::rest_check_state(s.status.as_deref(), s.conclusion.as_deref()),
+            elapsed: elapsed_label(s.started_at.as_deref(), s.completed_at.as_deref(), now),
+        })
+        .collect()
+}
+
+/// The live check watch (docs/0076 D1–D3): resolve, then — only when
+/// the matched job is still running — poll the run's jobs endpoint on
+/// the page's spawn until the job completes, repainting step rows each
+/// tick and landing the log tail the moment the blob materializes.
+/// Every exit is `Landed` (the pane mutates) or `Disarmed` (a collapse,
+/// a newer expand, a dropped page or sign-out — touch nothing). The
+/// signature is the watch's whole state: identity, target, and the
+/// generation that arms it.
+#[allow(clippy::too_many_arguments)]
+async fn run_check_log_watch(
+    this: gpui::WeakEntity<PrDetailPage>,
+    state: Entity<GithubState>,
+    repo: String,
+    number: i64,
+    head_oid: String,
+    name: String,
+    watch_gen: u64,
+    cx: &mut AsyncApp,
+) -> CheckWatchOutcome {
+    let ident = format!("{repo}#{number}#{name}");
+    let resolved = match resolve_check_job(state.clone(), &repo, number, &head_oid, &name, cx).await
+    {
+        Ok(resolved) => resolved,
+        Err(e) => return CheckWatchOutcome::Landed(Err(e)),
+    };
+    // Completed at resolve time: the old chain's path, byte-for-byte.
+    if resolved.job.status.as_deref() == Some("completed") {
+        return CheckWatchOutcome::Landed(
+            fetch_job_logs(state, &repo, resolved.job.id, &ident, cx).await,
+        );
+    }
+    // Live: initial paint from the resolve payload (docs/0076 D2).
+    if !paint_live(&this, watch_gen, &name, &resolved.job, cx) {
+        return CheckWatchOutcome::Disarmed;
+    }
+    let mut ticks = 0u32;
+    let mut materialization_misses = 0u32;
+    let mut net_misses = 0u32;
+    loop {
+        cx.background_executor().timer(check_watch_tick()).await;
+        // Gate before every fetch: watch_gen + auth. A dropped page fails the
+        // update and disarms; sign-out tears the page down separately.
+        let alive = this.update(cx, |page, cx| {
+            page.watch_alive(watch_gen) && page.state.read(cx).auth.connected()
+        });
+        if !alive.unwrap_or(false) {
+            return CheckWatchOutcome::Disarmed;
+        }
+        ticks += 1;
+        if ticks > CHECK_WATCH_MAX_TICKS {
+            return CheckWatchOutcome::Landed(Err(
+                "Still running — reopen the check for a live view".into(),
+            ));
+        }
+        match fetch_run_jobs(state.clone(), &repo, resolved.run_id, &ident, cx).await {
+            Ok(jobs) => match jobs.jobs.iter().find(|j| j.name == name) {
+                Some(job) if job.status.as_deref() == Some("completed") => {
+                    match fetch_job_logs_typed(state.clone(), &repo, job.id, &ident, false, cx)
+                        .await
+                    {
+                        Ok(landed) => return CheckWatchOutcome::Landed(Ok(landed)),
+                        // docs/0076 D3: the blob can lag completion by
+                        // seconds — pending, never an error, until the
+                        // retries run out.
+                        Err(JobLogsError::NotFound) => {
+                            materialization_misses += 1;
+                            if materialization_misses >= CHECK_LOG_404_RETRIES {
+                                return CheckWatchOutcome::Landed(Err(
+                                    "The job finished but its log is not available yet — retry in a moment"
+                                        .into(),
+                                ));
+                            }
+                        }
+                        Err(JobLogsError::Http(status)) => {
+                            return CheckWatchOutcome::Landed(Err(format!(
+                                "GitHub answered HTTP {status}"
+                            )));
+                        }
+                        Err(JobLogsError::Network(m)) => {
+                            net_misses += 1;
+                            if net_misses >= CHECK_WATCH_NET_FAILS {
+                                return CheckWatchOutcome::Landed(Err(format!(
+                                    "Network error: {m}"
+                                )));
+                            }
+                        }
+                        Err(JobLogsError::Malformed(e)) => {
+                            return CheckWatchOutcome::Landed(Err(format!(
+                                "Malformed log payload ({e})"
+                            )));
+                        }
+                    }
+                }
+                // Still running: repaint the step rows and reset the
+                // transient-failure counters — the job made progress.
+                Some(job) => {
+                    materialization_misses = 0;
+                    net_misses = 0;
+                    if !paint_live(&this, watch_gen, &name, job, cx) {
+                        return CheckWatchOutcome::Disarmed;
+                    }
+                }
+                None => {
+                    return CheckWatchOutcome::Landed(Err(
+                        "No job with this name in the workflow run — it may have been renamed or re-run"
+                            .into(),
+                    ));
+                }
+            },
+            Err(JobsTickError::Network(m)) => {
+                net_misses += 1;
+                if net_misses >= CHECK_WATCH_NET_FAILS {
+                    return CheckWatchOutcome::Landed(Err(format!("Network error: {m}")));
+                }
+            }
+            Err(JobsTickError::Http(status)) => {
+                return CheckWatchOutcome::Landed(Err(format!("GitHub answered HTTP {status}")));
+            }
+            Err(JobsTickError::Malformed(e)) => {
+                return CheckWatchOutcome::Landed(Err(format!("Malformed jobs payload ({e})")));
+            }
+        }
+    }
+}
+
+/// One live paint (docs/0076 D4): rebuild the pane's step rows from the
+/// job node. Returns false only when the page is gone (the watch then
+/// disarms at its next gate).
+fn paint_live(
+    this: &gpui::WeakEntity<PrDetailPage>,
+    watch_gen: u64,
+    name: &str,
+    job: &crate::api::JobNode,
+    cx: &mut AsyncApp,
+) -> bool {
+    this.update(cx, |page, cx| {
+        if !page.watch_alive(watch_gen) {
+            return;
+        }
+        page.check_logs.insert(
+            name.to_string(),
+            CheckLogState::Live {
+                steps: check_step_rows(job),
+                updated_at: std::time::Instant::now(),
+            },
+        );
+        cx.notify();
+    })
+    .is_ok()
+}
 /// The four tabs (docs/0016 D3). Stage 1 renders Conversation; the other
 /// three carry counts now and their content lands with stages 3–4 (#93/#94).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -316,6 +607,10 @@ pub(crate) struct PrDetailPage {
     /// driven to the bottom on every expand/land so the failure is on
     /// screen first.
     check_log_scroll: ScrollHandle,
+    /// The live watch generation (docs/0076 D1): bumped on every
+    /// accordion toggle; a gen mismatch disarms the watch at its next
+    /// gate, so exactly the currently-expanded pane can be live.
+    check_watch_gen: u64,
     /// The upstream Diff (docs/0070 D1/D4): one `DiffState` holding the
     /// selected file's parse; `diff_key` is the (file, patch) hash it was
     /// built from — an unchanged refresh is a no-op (docs/0052, 0041 §7).
@@ -529,6 +824,7 @@ impl PrDetailPage {
             check_logs: BTreeMap::new(),
             expanded_check: None,
             check_log_scroll: ScrollHandle::new(),
+            check_watch_gen: 0,
             diff: cx.new(|cx| DiffState::new(Vec::new(), cx).with_inline_unit(None)),
             diff_key: None,
             reply_rev: 0,
@@ -1526,10 +1822,19 @@ impl PrDetailPage {
     /// re-expands instantly (immutable, D5); everything else chains.
     fn toggle_check_log(&mut self, name: &str, cx: &mut Context<Self>) {
         if self.expanded_check.as_deref() == Some(name) {
+            // Disarm the live watch (docs/0076 D1): the gen bump makes
+            // the loop's next gate exit without touching the page, and
+            // clearing the arm lets a re-expand start a fresh chain.
+            self.check_watch_gen += 1;
+            let ident = format!("{}#{}#{}", self.repo, self.number, name);
+            self.state
+                .update(cx, |s, _| s.in_flight_clear(&(Kind::JobLog, Some(ident))));
             self.expanded_check = None;
             cx.notify();
             return;
         }
+        // Any new expand invalidates the previous watch's generation.
+        self.check_watch_gen += 1;
         self.expanded_check = Some(name.to_string());
         if !matches!(self.check_logs.get(name), Some(CheckLogState::Ready { .. })) {
             self.start_check_log_chain(name, cx);
@@ -1546,6 +1851,11 @@ impl PrDetailPage {
     fn retry_check_log(&mut self, name: &str, cx: &mut Context<Self>) {
         self.check_logs.remove(name);
         self.start_check_log_chain(name, cx);
+    }
+
+    /// docs/0076 D1: is this generation the currently-armed watch?
+    fn watch_alive(&self, watch_gen: u64) -> bool {
+        self.check_watch_gen == watch_gen
     }
 
     fn start_check_log_chain(&mut self, name: &str, cx: &mut Context<Self>) {
@@ -1574,23 +1884,44 @@ impl PrDetailPage {
         let repo = self.repo.clone();
         let number = self.number;
         let name = name.to_string();
+        let watch_gen = self.check_watch_gen;
         cx.spawn(async move |this, cx| {
-            let outcome =
-                run_check_log_chain(state.clone(), &repo, number, &head_oid, &name, cx).await;
+            let outcome = run_check_log_watch(
+                this.clone(),
+                state.clone(),
+                repo,
+                number,
+                head_oid,
+                name.clone(),
+                watch_gen,
+                cx,
+            )
+            .await;
             cx.update(|cx| state.update(cx, |s, _| s.in_flight_clear(&key)));
             let _ = this.update(cx, |page, cx| {
-                page.check_logs.insert(
-                    name.clone(),
-                    match outcome {
-                        Ok((text, truncated)) => CheckLogState::Ready {
-                            text: SharedString::from(text),
-                            truncated,
-                        },
-                        Err(e) => CheckLogState::Failed(e),
-                    },
-                );
-                page.check_log_scroll.scroll_to_bottom();
-                cx.notify();
+                // A collapse or newer expand disarmed this watch
+                // (docs/0076 D1) — its pane no longer exists.
+                if !page.watch_alive(watch_gen) {
+                    return;
+                }
+                match outcome {
+                    CheckWatchOutcome::Landed(res) => {
+                        page.check_logs.insert(
+                            name.clone(),
+                            match res {
+                                Ok((text, truncated)) => CheckLogState::Ready {
+                                    text: SharedString::from(text),
+                                    truncated,
+                                },
+                                Err(e) => CheckLogState::Failed(e),
+                            },
+                        );
+                        page.check_log_scroll.scroll_to_bottom();
+                        cx.notify();
+                    }
+                    // Disarmed: nothing to land.
+                    CheckWatchOutcome::Disarmed => {}
+                }
             });
         })
         .detach();
@@ -4182,11 +4513,13 @@ impl PrDetailPage {
         rows.extend(d.checks.nodes.iter().enumerate().map(|(i, check)| {
             let (icon, color) = check_visual(check.state, cx);
             let expanded = self.expanded_check.as_deref() == Some(check.name.as_str());
-            // docs/0039 D3: only completed Actions-origin check runs
-            // have job logs — statuses, third-party checks and
-            // in-progress rows keep the external-link affordance.
+            // docs/0039 D3 as amended by docs/0076 D1: Actions-origin
+            // rows expand in every running state — the live watch owns
+            // in-progress ones. Status contexts and third-party checks
+            // keep the external-link affordance; docs/0066 Waiting rows
+            // stay with the gated-run flow.
             let loggable = check.origin == gql::CheckOrigin::Actions
-                && check.state != gql::CheckState::Pending;
+                && check.state != gql::CheckState::Waiting;
             let row = h_flex()
                 .id(SharedString::from(format!("pr-check-{i}")))
                 .gap_2()
@@ -4359,6 +4692,45 @@ impl PrDetailPage {
                     )
                     .children(open_full)
                     .into_any_element()
+            }
+            Some(CheckLogState::Live { steps, updated_at }) => {
+                // docs/0076 D4: the live pane — the header line, then
+                // the matched job's steps with the poll tick as clock.
+                let ago = updated_at.elapsed().as_secs();
+                let mut live = v_flex().gap_1().child(
+                    div()
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(format!(
+                            "Run in progress — logs appear when the job finishes · updated {ago}s ago"
+                        )),
+                );
+                for (si, step) in steps.iter().enumerate() {
+                    let (icon, color) = check_visual(step.state, cx);
+                    live =
+                        live.child(
+                            div()
+                                .id(SharedString::from(format!("check-step-{si}")))
+                                .flex()
+                                .items_center()
+                                .gap_2()
+                                .font_family(cx.theme().mono_font_family.clone())
+                                .text_xs()
+                                .child(if step.state == gql::CheckState::Pending {
+                                    Spinner::new().icon(icon).color(color).into_any_element()
+                                } else {
+                                    Icon::new(icon)
+                                        .size_4()
+                                        .text_color(color)
+                                        .into_any_element()
+                                })
+                                .child(step.name.clone())
+                                .children(step.elapsed.clone().map(|e| {
+                                    div().text_color(cx.theme().muted_foreground).child(e)
+                                })),
+                        );
+                }
+                live.into_any_element()
             }
         };
         div()
@@ -8972,7 +9344,7 @@ mod tests {
                 etag: None,
                 rate: None,
                 body: Some(
-                    r#"{"total_count":2,"jobs":[{"id":1,"name":"use-existing-src"},{"id":9,"name":"build"}]}"#.into(),
+                    r#"{"total_count":2,"jobs":[{"id":1,"name":"use-existing-src","status":"completed"},{"id":9,"name":"build","status":"completed"}]}"#.into(),
                 ),
             }),
             Ok(HttpResult {
@@ -9174,6 +9546,511 @@ mod tests {
     }
 
     #[gpui::test]
+    fn timer_probe(cx: &mut gpui::TestAppContext) {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let fired = Arc::new(AtomicBool::new(false));
+        let flag = fired.clone();
+        cx.spawn(async move |cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_secs(60))
+                .await;
+            flag.store(true, Ordering::SeqCst);
+        })
+        .detach();
+        cx.run_until_parked();
+        assert!(!fired.load(Ordering::SeqCst), "must not fire early");
+        cx.background_executor
+            .advance_clock(std::time::Duration::from_secs(60));
+        cx.run_until_parked();
+        assert!(
+            fired.load(Ordering::SeqCst),
+            "background advance_clock must fire the background timer"
+        );
+    }
+
+    #[test]
+    fn iso_parse_and_elapsed_labels() {
+        use crate::pr_page::{elapsed_label, iso_to_epoch_ms};
+        // GitHub's Z form.
+        assert_eq!(
+            iso_to_epoch_ms("2020-01-20T17:42:40Z"),
+            Some(1_579_542_160_000)
+        );
+        // Fraction + numeric offset — the same instant as above.
+        assert_eq!(
+            iso_to_epoch_ms("2020-01-20T09:42:40.000-08:00"),
+            Some(1_579_542_160_000)
+        );
+        // A sub-second fraction folds to milliseconds.
+        assert_eq!(
+            iso_to_epoch_ms("2020-01-20T17:42:40.5Z"),
+            Some(1_579_542_160_500)
+        );
+        // Best-effort by design: garbage is None, never a panic.
+        assert_eq!(iso_to_epoch_ms("not a date"), None);
+        assert_eq!(iso_to_epoch_ms(""), None);
+
+        // Elapsed: completed stamps; in-progress counts to now.
+        let start = "2020-01-20T17:42:40Z";
+        assert_eq!(
+            elapsed_label(Some(start), Some("2020-01-20T17:44:39Z"), 0).as_deref(),
+            Some("1m 59s")
+        );
+        assert_eq!(
+            elapsed_label(Some(start), None, 1_579_542_160_000 + 95_000).as_deref(),
+            Some("1m 35s")
+        );
+        assert_eq!(
+            elapsed_label(Some(start), Some("2020-01-20T19:44:39Z"), 0).as_deref(),
+            Some("2h 01m")
+        );
+        assert_eq!(elapsed_label(Some("junk"), None, 0), None);
+    }
+
+    #[gpui::test]
+    fn live_check_watch_paints_steps_then_lands(cx: &mut gpui::TestAppContext) {
+        use crate::http::HttpResult;
+        use crate::http::mock::MockHttp;
+        use crate::service::{AuthStatus, GithubCache};
+        use std::sync::Arc;
+        use std::sync::RwLock;
+
+        cx.update(gpui_component::init);
+        cx.update(dashboard_core::status::init);
+        let jobs_running = r#"{"total_count":1,"jobs":[{"id":9,"name":"build","status":"in_progress","started_at":"2020-01-20T17:42:40Z","steps":[{"name":"Set up job","status":"completed","conclusion":"success"},{"name":"Build","status":"in_progress","started_at":"2020-01-20T17:42:45Z"}]}]}"#;
+        let jobs_done = r#"{"total_count":1,"jobs":[{"id":9,"name":"build","status":"completed","conclusion":"success"}]}"#;
+        let mock = Arc::new(MockHttp::new(vec![
+            // The page's own detail fetch fires first — fail it benignly.
+            Err(crate::http::HttpError("probe: detail fetch ignored".into())),
+            Ok(HttpResult {
+                status: 200,
+                etag: None,
+                rate: None,
+                body: Some(
+                    r#"{"check_runs":[{"name":"build","status":"IN_PROGRESS","conclusion":null,"check_suite":{"id":5},"app":{"slug":"github-actions"}}]}"#.into(),
+                ),
+            }),
+            Ok(HttpResult {
+                status: 200,
+                etag: None,
+                rate: None,
+                body: Some(r#"{"total_count":1,"workflow_runs":[{"id":7}]}"#.into()),
+            }),
+            Ok(HttpResult {
+                status: 200,
+                etag: None,
+                rate: None,
+                body: Some(jobs_running.into()),
+            }),
+            Ok(HttpResult {
+                status: 200,
+                etag: None,
+                rate: None,
+                body: Some(jobs_running.into()),
+            }),
+            Ok(HttpResult {
+                status: 200,
+                etag: None,
+                rate: None,
+                body: Some(jobs_done.into()),
+            }),
+            Ok(HttpResult {
+                status: 200,
+                etag: None,
+                rate: None,
+                body: Some("build ok".into()),
+            }),
+        ]));
+        let state = cx.update(|cx| {
+            let shared: crate::http::SharedToken = Arc::new(RwLock::new(None));
+            let refresh: crate::http::SharedToken = Arc::new(RwLock::new(None));
+            let state = cx.new(|_| {
+                GithubState::new(
+                    mock.clone() as Arc<dyn crate::http::Http>,
+                    Arc::new(crate::auth::MockTokenStore::with("t0k".into())),
+                    shared,
+                    refresh,
+                    GithubCache::at_tmp("live-watch-land"),
+                    DraftStore::at_tmp("live-watch-land"),
+                )
+            });
+            state.update(cx, |s, _| s.auth = AuthStatus::Connected);
+            state
+        });
+        let bg = cx.background_executor.clone();
+        let (page, vcx) = cx.add_window_view(|window, cx| {
+            let summary = probe_summary("o/r#7", 7);
+            state.update(cx, |s, _| s.land_summary("o/r", &summary));
+            let page = PrDetailPage::new(state, "o/r".into(), 7, None, window, cx);
+            let value = serde_json::json!({ "pullRequest": {
+                "id": "PR_1", "number": 7, "title": "t", "url": "u",
+                "state": "OPEN", "isDraft": false, "headRefOid": "abc123",
+            }});
+            page.state.update(cx, |s, _| {
+                s.land_detail(
+                    &page.repo,
+                    page.number,
+                    gql::pr_detail_from_value(&value).unwrap(),
+                )
+            });
+            page
+        });
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| p.toggle_check_log("build", cx));
+        });
+        vcx.run_until_parked();
+        // docs/0076 D2: the resolve payload paints the Live pane —
+        // steps mapped, no log yet, no failure.
+        vcx.read(|cx| {
+            let p = page.read(cx);
+            match p.check_logs.get("build") {
+                Some(CheckLogState::Live { steps, .. }) => {
+                    assert_eq!(steps.len(), 2);
+                    assert_eq!(steps[0].name, "Set up job");
+                    assert_eq!(steps[0].state, gql::CheckState::Success);
+                    assert_eq!(steps[1].state, gql::CheckState::Pending);
+                }
+                other => panic!("expected Live, got {other:?}"),
+            }
+        });
+        // Tick one: still running — Live repaints, nothing lands.
+        bg.advance_clock(crate::pr_page::check_watch_tick());
+        vcx.run_until_parked();
+        vcx.read(|cx| {
+            let p = page.read(cx);
+            assert!(matches!(
+                p.check_logs.get("build"),
+                Some(CheckLogState::Live { .. })
+            ));
+        });
+        // Tick two: the job completed — logs land into the old pane.
+        bg.advance_clock(crate::pr_page::check_watch_tick());
+        vcx.run_until_parked();
+        vcx.read(|cx| {
+            let p = page.read(cx);
+            match p.check_logs.get("build") {
+                Some(CheckLogState::Ready { text, truncated }) => {
+                    assert!(!truncated);
+                    assert_eq!(text.as_ref(), "build ok");
+                }
+                other => panic!("expected Ready, got {other:?}"),
+            }
+        });
+    }
+
+    #[gpui::test]
+    fn live_watch_disarms_on_collapse(cx: &mut gpui::TestAppContext) {
+        use crate::http::HttpResult;
+        use crate::http::mock::MockHttp;
+        use crate::service::{AuthStatus, GithubCache};
+        use std::sync::Arc;
+        use std::sync::RwLock;
+
+        cx.update(gpui_component::init);
+        cx.update(dashboard_core::status::init);
+        let jobs_running =
+            r#"{"total_count":1,"jobs":[{"id":9,"name":"build","status":"in_progress"}]}"#;
+        // Exactly the resolve fetches — a tick after the collapse would
+        // exhaust this queue and panic the mock.
+        let mock = Arc::new(MockHttp::new(vec![
+            Err(crate::http::HttpError("probe: detail fetch ignored".into())),
+            Ok(HttpResult {
+                status: 200,
+                etag: None,
+                rate: None,
+                body: Some(
+                    r#"{"check_runs":[{"name":"build","status":"IN_PROGRESS","conclusion":null,"check_suite":{"id":5},"app":{"slug":"github-actions"}}]}"#.into(),
+                ),
+            }),
+            Ok(HttpResult {
+                status: 200,
+                etag: None,
+                rate: None,
+                body: Some(r#"{"total_count":1,"workflow_runs":[{"id":7}]}"#.into()),
+            }),
+            Ok(HttpResult {
+                status: 200,
+                etag: None,
+                rate: None,
+                body: Some(jobs_running.into()),
+            }),
+        ]));
+        let state = cx.update(|cx| {
+            let shared: crate::http::SharedToken = Arc::new(RwLock::new(None));
+            let refresh: crate::http::SharedToken = Arc::new(RwLock::new(None));
+            let state = cx.new(|_| {
+                GithubState::new(
+                    mock.clone() as Arc<dyn crate::http::Http>,
+                    Arc::new(crate::auth::MockTokenStore::with("t0k".into())),
+                    shared,
+                    refresh,
+                    GithubCache::at_tmp("live-watch-disarm"),
+                    DraftStore::at_tmp("live-watch-disarm"),
+                )
+            });
+            state.update(cx, |s, _| s.auth = AuthStatus::Connected);
+            state
+        });
+        let bg = cx.background_executor.clone();
+        let (page, vcx) = cx.add_window_view(|window, cx| {
+            let summary = probe_summary("o/r#7", 7);
+            state.update(cx, |s, _| s.land_summary("o/r", &summary));
+            let page = PrDetailPage::new(state, "o/r".into(), 7, None, window, cx);
+            let value = serde_json::json!({ "pullRequest": {
+                "id": "PR_1", "number": 7, "title": "t", "url": "u",
+                "state": "OPEN", "isDraft": false, "headRefOid": "abc123",
+            }});
+            page.state.update(cx, |s, _| {
+                s.land_detail(
+                    &page.repo,
+                    page.number,
+                    gql::pr_detail_from_value(&value).unwrap(),
+                )
+            });
+            page
+        });
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| p.toggle_check_log("build", cx));
+        });
+        vcx.run_until_parked();
+        let recorded_before = mock.recorded().len();
+        // Collapse: the gen bump disarms the watch — the parked tick
+        // exits at its gate without touching the network or the pane.
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| p.toggle_check_log("build", cx));
+        });
+        bg.advance_clock(crate::pr_page::check_watch_tick());
+        vcx.run_until_parked();
+        assert_eq!(
+            mock.recorded().len(),
+            recorded_before,
+            "no tick fetch may fire after the collapse"
+        );
+        vcx.read(|cx| {
+            let p = page.read(cx);
+            assert!(p.expanded_check.is_none());
+            assert!(
+                matches!(p.check_logs.get("build"), Some(CheckLogState::Live { .. })),
+                "disarm leaves the pane state alone"
+            );
+        });
+    }
+
+    #[gpui::test]
+    fn live_watch_retries_log_404_then_lands(cx: &mut gpui::TestAppContext) {
+        use crate::http::HttpResult;
+        use crate::http::mock::MockHttp;
+        use crate::service::{AuthStatus, GithubCache};
+        use std::sync::Arc;
+        use std::sync::RwLock;
+
+        cx.update(gpui_component::init);
+        cx.update(dashboard_core::status::init);
+        let jobs_done = r#"{"total_count":1,"jobs":[{"id":9,"name":"build","status":"completed","conclusion":"success"}]}"#;
+        let mock = Arc::new(MockHttp::new(vec![
+            Err(crate::http::HttpError("probe: detail fetch ignored".into())),
+            Ok(HttpResult {
+                status: 200,
+                etag: None,
+                rate: None,
+                body: Some(
+                    r#"{"check_runs":[{"name":"build","status":"IN_PROGRESS","conclusion":null,"check_suite":{"id":5},"app":{"slug":"github-actions"}}]}"#.into(),
+                ),
+            }),
+            Ok(HttpResult {
+                status: 200,
+                etag: None,
+                rate: None,
+                body: Some(r#"{"total_count":1,"workflow_runs":[{"id":7}]}"#.into()),
+            }),
+            Ok(HttpResult {
+                status: 200,
+                etag: None,
+                rate: None,
+                body: Some(
+                    r#"{"total_count":1,"jobs":[{"id":9,"name":"build","status":"in_progress"}]}"#.into(),
+                ),
+            }),
+            Ok(HttpResult {
+                status: 200,
+                etag: None,
+                rate: None,
+                body: Some(jobs_done.into()),
+            }),
+            Ok(HttpResult {
+                status: 404,
+                etag: None,
+                rate: None,
+                body: None,
+            }),
+            Ok(HttpResult {
+                status: 200,
+                etag: None,
+                rate: None,
+                body: Some(jobs_done.into()),
+            }),
+            Ok(HttpResult {
+                status: 200,
+                etag: None,
+                rate: None,
+                body: Some("landed after the blob caught up".into()),
+            }),
+        ]));
+        let state = cx.update(|cx| {
+            let shared: crate::http::SharedToken = Arc::new(RwLock::new(None));
+            let refresh: crate::http::SharedToken = Arc::new(RwLock::new(None));
+            let state = cx.new(|_| {
+                GithubState::new(
+                    mock.clone() as Arc<dyn crate::http::Http>,
+                    Arc::new(crate::auth::MockTokenStore::with("t0k".into())),
+                    shared,
+                    refresh,
+                    GithubCache::at_tmp("live-watch-404"),
+                    DraftStore::at_tmp("live-watch-404"),
+                )
+            });
+            state.update(cx, |s, _| s.auth = AuthStatus::Connected);
+            state
+        });
+        let bg = cx.background_executor.clone();
+        let (page, vcx) = cx.add_window_view(|window, cx| {
+            let summary = probe_summary("o/r#7", 7);
+            state.update(cx, |s, _| s.land_summary("o/r", &summary));
+            let page = PrDetailPage::new(state, "o/r".into(), 7, None, window, cx);
+            let value = serde_json::json!({ "pullRequest": {
+                "id": "PR_1", "number": 7, "title": "t", "url": "u",
+                "state": "OPEN", "isDraft": false, "headRefOid": "abc123",
+            }});
+            page.state.update(cx, |s, _| {
+                s.land_detail(
+                    &page.repo,
+                    page.number,
+                    gql::pr_detail_from_value(&value).unwrap(),
+                )
+            });
+            page
+        });
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| p.toggle_check_log("build", cx));
+        });
+        vcx.run_until_parked();
+        // Tick one: job completed but the blob lags — docs/0076 D3 says
+        // pending, not error. The pane stays Live.
+        bg.advance_clock(crate::pr_page::check_watch_tick());
+        vcx.run_until_parked();
+        vcx.read(|cx| {
+            let p = page.read(cx);
+            assert!(matches!(
+                p.check_logs.get("build"),
+                Some(CheckLogState::Live { .. })
+            ));
+        });
+        // Tick two: the blob materialized — the logs land.
+        bg.advance_clock(crate::pr_page::check_watch_tick());
+        vcx.run_until_parked();
+        vcx.read(|cx| {
+            let p = page.read(cx);
+            match p.check_logs.get("build") {
+                Some(CheckLogState::Ready { text, .. }) => {
+                    assert_eq!(text.as_ref(), "landed after the blob caught up");
+                }
+                other => panic!("expected Ready, got {other:?}"),
+            }
+        });
+    }
+
+    #[gpui::test]
+    fn live_watch_hard_cap_fails_inline(cx: &mut gpui::TestAppContext) {
+        use crate::http::HttpResult;
+        use crate::http::mock::MockHttp;
+        use crate::service::{AuthStatus, GithubCache};
+        use std::sync::Arc;
+        use std::sync::RwLock;
+
+        cx.update(gpui_component::init);
+        cx.update(dashboard_core::status::init);
+        let jobs_running =
+            r#"{"total_count":1,"jobs":[{"id":9,"name":"build","status":"in_progress"}]}"#;
+        // The resolve fetch plus every tick fetch; the 91st tick trips
+        // the cap before fetching (D6), so one spare stays unconsumed.
+        let mut script = vec![Err(crate::http::HttpError(
+            "probe: detail fetch ignored".into(),
+        ))];
+        for body in [
+            r#"{"check_runs":[{"name":"build","status":"IN_PROGRESS","conclusion":null,"check_suite":{"id":5},"app":{"slug":"github-actions"}}]}"#,
+            r#"{"total_count":1,"workflow_runs":[{"id":7}]}"#,
+        ] {
+            script.push(Ok(HttpResult {
+                status: 200,
+                etag: None,
+                rate: None,
+                body: Some(body.into()),
+            }));
+        }
+        for _ in 0..=crate::pr_page::CHECK_WATCH_MAX_TICKS {
+            script.push(Ok(HttpResult {
+                status: 200,
+                etag: None,
+                rate: None,
+                body: Some(jobs_running.into()),
+            }));
+        }
+        let mock = Arc::new(MockHttp::new(script));
+        let state = cx.update(|cx| {
+            let shared: crate::http::SharedToken = Arc::new(RwLock::new(None));
+            let refresh: crate::http::SharedToken = Arc::new(RwLock::new(None));
+            let state = cx.new(|_| {
+                GithubState::new(
+                    mock.clone() as Arc<dyn crate::http::Http>,
+                    Arc::new(crate::auth::MockTokenStore::with("t0k".into())),
+                    shared,
+                    refresh,
+                    GithubCache::at_tmp("live-watch-cap"),
+                    DraftStore::at_tmp("live-watch-cap"),
+                )
+            });
+            state.update(cx, |s, _| s.auth = AuthStatus::Connected);
+            state
+        });
+        let bg = cx.background_executor.clone();
+        let (page, vcx) = cx.add_window_view(|window, cx| {
+            let summary = probe_summary("o/r#7", 7);
+            state.update(cx, |s, _| s.land_summary("o/r", &summary));
+            let page = PrDetailPage::new(state, "o/r".into(), 7, None, window, cx);
+            let value = serde_json::json!({ "pullRequest": {
+                "id": "PR_1", "number": 7, "title": "t", "url": "u",
+                "state": "OPEN", "isDraft": false, "headRefOid": "abc123",
+            }});
+            page.state.update(cx, |s, _| {
+                s.land_detail(
+                    &page.repo,
+                    page.number,
+                    gql::pr_detail_from_value(&value).unwrap(),
+                )
+            });
+            page
+        });
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| p.toggle_check_log("build", cx));
+        });
+        vcx.run_until_parked();
+        for _ in 0..=crate::pr_page::CHECK_WATCH_MAX_TICKS {
+            bg.advance_clock(crate::pr_page::check_watch_tick());
+            vcx.run_until_parked();
+        }
+        vcx.read(|cx| {
+            let p = page.read(cx);
+            match p.check_logs.get("build") {
+                Some(CheckLogState::Failed(message)) => {
+                    assert!(message.contains("Still running"), "{message}");
+                }
+                other => panic!("expected Failed at the cap, got {other:?}"),
+            }
+        });
+    }
+
+    #[gpui::test]
     fn check_log_expander_gates_on_origin_and_completion(cx: &mut gpui::TestAppContext) {
         use crate::service::{AuthStatus, GithubCache};
         use std::sync::Arc;
@@ -9263,8 +10140,10 @@ mod tests {
             "completed Actions row gets the expander (ready={ready}, nchecks={nchecks:?}, tab={tab})"
         );
         assert!(
-            vcx.debug_bounds("check-log-toggle-1").is_none(),
-            "in-progress row: no expander (D3)"
+            vcx.debug_bounds("check-log-toggle-1").is_some(),
+            // docs/0076 D1: the in-progress Actions row expands into the
+            // live watch — the D3 no-expander rule is amended away.
+            "in-progress Actions row gets the expander (ready={ready}, nchecks={nchecks:?}, tab={tab})"
         );
         assert!(
             vcx.debug_bounds("check-log-toggle-2").is_none(),

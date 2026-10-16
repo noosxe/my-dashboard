@@ -191,7 +191,9 @@ persistence. The on-demand-only scope (D1) is already owner-set (#585).
 
 ## 5. Implementation plan
 
-Issue #585, one PR after this doc merges:
+Issue #585, one PR after this doc merges. **Shipped: #585** (the
+resolve/fetch split, the `Live` pane state and watch loop, the docs/0039
+D3 amendment, and the docs/0039 §6 deferred-note supersession):
 
 1. api.rs `JobNode` fields + fixtures; service.rs resolve/fetch split with
    the chain's completed-path behavior byte-identical to today.
