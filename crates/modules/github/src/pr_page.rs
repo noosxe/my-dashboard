@@ -2125,7 +2125,7 @@ impl PrDetailPage {
         let Some(d) = self.detail(cx).cloned() else {
             return;
         };
-        if self.busy.is_some() || d.id.is_empty() {
+        if self.writes_busy(cx) || d.id.is_empty() {
             return;
         }
         let action = self.current_action(cx);
@@ -2133,10 +2133,10 @@ impl PrDetailPage {
         if !comment_action_allowed(action.as_ref(), body.is_empty()) {
             return;
         }
-        let op = if action.as_ref() == "Comment" {
-            BusyOp::Comment
+        let kind = if action.as_ref() == "Comment" {
+            PendingKind::Comment
         } else {
-            BusyOp::Review
+            PendingKind::Review
         };
         let (mutation, variables) = if action.as_ref() == "Comment" {
             (
@@ -2152,11 +2152,29 @@ impl PrDetailPage {
             }
             (Mutation::Review, input)
         };
+        // docs/0072 D4 (#554): the popup closes at arm time (submit is an
+        // intent); the draft clears only on CONFIRMATION — a failure keeps
+        // the text (the 0019 pattern).
         self.mutation_error = None;
         self.mention = None;
-        self.busy = Some(op);
         cx.notify();
-        self.spawn_mutation(op, mutation, variables, window, cx);
+        self.begin_store_mutation(
+            window,
+            kind,
+            mutation,
+            variables,
+            |page, window, cx| {
+                // Clear the draft — `set_value` needs the window the
+                // spawn kept alive for exactly this.
+                page.comment
+                    .update(cx, |state, cx| state.set_value("", window, cx));
+                // 0045 D5: the posted comment/review leaves no on-disk
+                // draft (cancel first — no pre-submit write lands now).
+                page.draft.discard();
+                page.revalidate_after_store_mutation(window, cx);
+            },
+            cx,
+        );
     }
 
     /// Open the description editor (D4), prefilled with the current body.
@@ -2606,7 +2624,7 @@ impl PrDetailPage {
         let (Some(d), Some(editor)) = (self.detail(cx), self.description_edit.as_ref()) else {
             return;
         };
-        if self.busy.is_some() || d.id.is_empty() {
+        if self.writes_busy(cx) || d.id.is_empty() {
             return;
         }
         let body = editor.read(cx).value().trim().to_string();
@@ -2615,13 +2633,17 @@ impl PrDetailPage {
         }
         let variables = json!({ "input": { "id": d.id, "body": body } });
         self.mutation_error = None;
-        self.busy = Some(BusyOp::Description);
         cx.notify();
-        self.spawn_mutation(
-            BusyOp::Description,
+        self.begin_store_mutation(
+            window,
+            PendingKind::Description,
             Mutation::UpdateDescription,
             variables,
-            window,
+            |page, window, cx| {
+                page.description_edit = None;
+                page.refocus_page(window, cx);
+                page.revalidate_after_store_mutation(window, cx);
+            },
             cx,
         );
     }
@@ -2673,7 +2695,7 @@ impl PrDetailPage {
         let Some((node_id, editor)) = self.timeline_edit.as_ref() else {
             return;
         };
-        if self.busy.is_some() {
+        if self.writes_busy(cx) {
             return;
         }
         let body = editor.read(cx).value().trim().to_string();
@@ -2686,11 +2708,23 @@ impl PrDetailPage {
             cx.notify();
             return;
         };
-        let (op, mutation, variables) = edit_row(kind, node_id, &body);
+        let (kind, mutation, variables) = edit_row(kind, node_id, &body);
         self.mutation_error = None;
-        self.busy = Some(op);
         cx.notify();
-        self.spawn_mutation(op, mutation, variables, window, cx);
+        self.begin_store_mutation(
+            window,
+            kind,
+            mutation,
+            variables,
+            // 0019 D4: success closes the row surface it came from —
+            // the refetch repaints the row from fresh data.
+            |page, window, cx| {
+                page.timeline_edit = None;
+                page.refocus_page(window, cx);
+                page.revalidate_after_store_mutation(window, cx);
+            },
+            cx,
+        );
     }
 
     /// Arm the inline delete confirm on a row (0019 D4). Editors yield.
@@ -2722,7 +2756,7 @@ impl PrDetailPage {
         let Some(node_id) = self.delete_confirm.clone() else {
             return;
         };
-        if self.busy.is_some() {
+        if self.writes_busy(cx) {
             return;
         }
         let Some(kind) = node_kind(&d.comments.nodes, &d.reviews.nodes, &node_id) else {
@@ -2730,17 +2764,26 @@ impl PrDetailPage {
             cx.notify();
             return;
         };
-        let (op, mutation, variables) = delete_row(kind, &node_id);
+        let (kind, mutation, variables) = delete_row(kind, &node_id);
         self.mutation_error = None;
-        self.busy = Some(op);
         cx.notify();
-        self.spawn_mutation(op, mutation, variables, window, cx);
+        self.begin_store_mutation(
+            window,
+            kind,
+            mutation,
+            variables,
+            |page, window, cx| {
+                page.delete_confirm = None;
+                page.revalidate_after_store_mutation(window, cx);
+            },
+            cx,
+        );
     }
     /// Merge the PR (D5) with the selected (or only) method.
     /// docs/0072 D4: the write arms optimistically — the pending state
     /// lands in the store, every rendering surface repaints, and the
     /// confirmation resolves through the store with a toast.
-    fn merge_pr(&mut self, cx: &mut Context<Self>) {
+    fn merge_pr(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(d) = self.detail(cx).cloned() else {
             return;
         };
@@ -2756,11 +2799,18 @@ impl PrDetailPage {
         let method = self.selected_method(cx).unwrap_or(MergeMethod::Merge);
         let variables =
             json!({ "input": { "pullRequestId": d.id, "mergeMethod": method.as_str() } });
-        self.begin_store_mutation(PendingKind::Merge, Mutation::Merge, variables, cx);
+        self.begin_store_mutation(
+            window,
+            PendingKind::Merge,
+            Mutation::Merge,
+            variables,
+            Self::revalidate_after_store_mutation,
+            cx,
+        );
     }
 
     /// Close the PR (D5) — optimistic through the store (docs/0072 D4).
-    fn close_pr(&mut self, cx: &mut Context<Self>) {
+    fn close_pr(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(d) = self.detail(cx).cloned() else {
             return;
         };
@@ -2772,7 +2822,14 @@ impl PrDetailPage {
             return;
         }
         let variables = json!({ "input": { "pullRequestId": d.id } });
-        self.begin_store_mutation(PendingKind::Close, Mutation::Close, variables, cx);
+        self.begin_store_mutation(
+            window,
+            PendingKind::Close,
+            Mutation::Close,
+            variables,
+            Self::revalidate_after_store_mutation,
+            cx,
+        );
     }
 
     // --- branch update (docs/0067 D1-D5) ---------------------------------
@@ -2781,7 +2838,12 @@ impl PrDetailPage {
     /// (`viewer_can_update_branch`, D2), the input rides the rendered
     /// envelope's head OID as the staleness guard, and the method is
     /// always explicit (MERGE | REBASE).
-    fn update_branch_pr(&mut self, method: UpdateBranchMethod, cx: &mut Context<Self>) {
+    fn update_branch_pr(
+        &mut self,
+        method: UpdateBranchMethod,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(d) = self.detail(cx).cloned() else {
             return;
         };
@@ -2803,9 +2865,11 @@ impl PrDetailPage {
             }
         });
         self.begin_store_mutation(
+            window,
             PendingKind::UpdateBranch,
             Mutation::UpdateBranch,
             variables,
+            Self::revalidate_after_store_mutation,
             cx,
         );
     }
@@ -2913,7 +2977,7 @@ impl PrDetailPage {
         let Some(composer) = self.line_composer.as_ref() else {
             return;
         };
-        if self.busy.is_some() || d.id.is_empty() {
+        if self.writes_busy(cx) || d.id.is_empty() {
             return;
         }
         let body = composer.editor.read(cx).value().trim().to_string();
@@ -2936,13 +3000,19 @@ impl PrDetailPage {
         }
         let variables = json!({ "input": input });
         self.mutation_error = None;
-        self.busy = Some(BusyOp::LineComment);
         cx.notify();
-        self.spawn_mutation(
-            BusyOp::LineComment,
+        self.begin_store_mutation(
+            window,
+            PendingKind::LineComment,
             Mutation::ReviewThread,
             variables,
-            window,
+            // 0030 D7: successes close the surface they came from; the
+            // THREADS refetch repaints the pane (patches don't change).
+            |page, window, cx| {
+                page.line_composer = None;
+                page.refocus_page(window, cx);
+                page.fetch_threads(Origin::new(Surface::PrPage, Trigger::MutationRefetch), cx);
+            },
             cx,
         );
     }
@@ -3042,7 +3112,7 @@ impl PrDetailPage {
         let Some((thread_id, editor)) = self.reply_composer.as_ref() else {
             return;
         };
-        if self.busy.is_some() {
+        if self.writes_busy(cx) {
             return;
         }
         let body = editor.read(cx).value().trim().to_string();
@@ -3069,13 +3139,17 @@ impl PrDetailPage {
         }
         let variables = json!({ "input": { "body": body, "inReplyTo": in_reply_to } });
         self.mutation_error = None;
-        self.busy = Some(BusyOp::ReviewReply);
         cx.notify();
-        self.spawn_mutation(
-            BusyOp::ReviewReply,
+        self.begin_store_mutation(
+            window,
+            PendingKind::ReviewReply,
             Mutation::ReviewThreadReply,
             variables,
-            window,
+            |page, window, cx| {
+                page.reply_composer = None;
+                page.refocus_page(window, cx);
+                page.fetch_threads(Origin::new(Surface::PrPage, Trigger::MutationRefetch), cx);
+            },
             cx,
         );
     }
@@ -3263,7 +3337,7 @@ impl PrDetailPage {
         let Some(d) = self.detail(cx).cloned() else {
             return;
         };
-        if !review_batch_allowed(self.drafts.len(), self.busy.is_some()) || d.id.is_empty() {
+        if !review_batch_allowed(self.drafts.len(), self.writes_busy(cx)) || d.id.is_empty() {
             return;
         }
         let threads: Vec<serde_json::Value> = self
@@ -3295,13 +3369,18 @@ impl PrDetailPage {
         }
         let variables = json!({ "input": input });
         self.mutation_error = None;
-        self.busy = Some(BusyOp::ReviewBatch);
         cx.notify();
-        self.spawn_mutation(
-            BusyOp::ReviewBatch,
+        self.begin_store_mutation(
+            window,
+            PendingKind::ReviewBatch,
             Mutation::ReviewBatch,
             variables,
-            window,
+            |page, _window, cx| {
+                page.drafts.clear();
+                page.finish_summary = None;
+                page.finish_event = FinishEvent::default();
+                page.fetch_threads(Origin::new(Surface::PrPage, Trigger::MutationRefetch), cx);
+            },
             cx,
         );
     }
@@ -3401,12 +3480,14 @@ impl PrDetailPage {
         .detach();
     }
 
-    /// A mutation came back (D4/D5): success clears the draft/edits, any
-    /// failure lands as a scoped inline error — then the detail refetches
-    /// in every case (docs/0016 §6.2), so the page never disagrees with
-    /// GitHub about what just happened. A 200 with GraphQL `errors`
-    /// (server-side rejections — approving your own PR, merging a draft)
-    /// is a failure here.
+    /// A page-modal mutation came back (D4/D5): success closes the
+    /// surface it came from, any failure lands as a scoped inline
+    /// error — then the detail refetches in every case (docs/0016
+    /// §6.2), so the page never disagrees with GitHub about what just
+    /// happened. A 200 with GraphQL `errors` (server-side rejections —
+    /// approving your own PR, merging a draft) is a failure here. The
+    /// store-scoped ops resolve through `begin_store_mutation` instead
+    /// (docs/0072 D4).
     fn apply_mutation_result(
         &mut self,
         op: BusyOp,
@@ -3448,43 +3529,6 @@ impl PrDetailPage {
         } else {
             self.mutation_error = None;
             match op {
-                BusyOp::Comment | BusyOp::Review => {
-                    // Clear the draft — `set_value` needs the window the
-                    // spawn kept alive for exactly this.
-                    self.comment
-                        .update(cx, |state, cx| state.set_value("", window, cx));
-                    // 0045 D5: the posted comment/review leaves no on-disk
-                    // draft (cancel first — no pre-submit write lands now).
-                    self.draft.discard();
-                }
-                BusyOp::Description => {
-                    self.description_edit = None;
-                    self.refocus_page(window, cx);
-                }
-                // 0019 D4: success closes the row surface it came from —
-                // the refetch below repaints the row from fresh data.
-                BusyOp::CommentEdit | BusyOp::ReviewEdit => {
-                    self.timeline_edit = None;
-                    self.refocus_page(window, cx);
-                }
-                BusyOp::CommentDelete | BusyOp::ReviewDelete => {
-                    self.delete_confirm = None;
-                }
-                // 0030 D7: Files-tab successes close the surface they
-                // came from; the threads refetch below repaints the pane.
-                BusyOp::LineComment => {
-                    self.line_composer = None;
-                    self.refocus_page(window, cx);
-                }
-                BusyOp::ReviewReply => {
-                    self.reply_composer = None;
-                    self.refocus_page(window, cx);
-                }
-                BusyOp::ReviewBatch => {
-                    self.drafts.clear();
-                    self.finish_summary = None;
-                    self.finish_event = FinishEvent::default();
-                }
                 BusyOp::ThreadResolve | BusyOp::ThreadUnresolve => {}
                 // #212: success closes the surface it came from; the
                 // threads refetch below repaints the pane (a deleted
@@ -3535,19 +3579,52 @@ impl PrDetailPage {
     }
 
     /// The optimistic write in flight on this document, if any (D4).
-    fn store_pending(&self, cx: &Context<Self>) -> Option<PendingKind> {
+    /// Takes `&App` so render sites holding either context can ask.
+    pub(crate) fn store_pending(&self, cx: &App) -> Option<PendingKind> {
         self.state.read(cx).pr_pending(&self.repo, self.number)
+    }
+
+    /// docs/0072 D5 (#554) — a write surface is blocked while a
+    /// page-modal op flies OR the document has a store op pending:
+    /// `begin_pending` refuses the second write; the guard is what
+    /// makes the refusal visible instead of a silent no-op click.
+    pub(crate) fn writes_busy(&self, cx: &App) -> bool {
+        self.busy.is_some() || self.store_pending(cx).is_some()
+    }
+
+    /// The store-recorded failure for one inline scope (docs/0072 D4):
+    /// optimistic-write errors live on the entry; page-modal ops keep
+    /// their page-local slot. The store error wins when both exist.
+    fn scoped_store_error<'a>(
+        &'a self,
+        scope: ErrorScope,
+        cx: &'a Context<Self>,
+    ) -> Option<&'a MutationError> {
+        self.state
+            .read(cx)
+            .pr_entry(&self.repo, self.number)
+            .and_then(|e| e.error.as_ref())
+            .filter(|e| e.scope == scope)
+            .or_else(|| self.mutation_error.as_ref().filter(|e| e.scope == scope))
     }
 
     /// docs/0072 D4 — arm an optimistic write on this document: the
     /// pending state lands in the store (`begin_pending` refuses a
     /// second one — D5), and the GraphQL flight resolves through the
-    /// store, token in hand (D6).
+    /// store, token in hand (D6). `on_confirmed` is the arming
+    /// surface's success body (stage 3, #554): close the composer the
+    /// write came from, clear the draft, refetch the lane the write
+    /// changed (detail for conversation writes, threads for the
+    /// Files-tab ones). It runs only while this page is still alive —
+    /// the store resolution itself is session-scoped, and the doc it
+    /// left behind revalidates on its voided freshness (service.rs).
     fn begin_store_mutation(
         &mut self,
+        window: &Window,
         kind: PendingKind,
         mutation: Mutation,
         variables: serde_json::Value,
+        on_confirmed: impl FnOnce(&mut Self, &mut Window, &mut Context<Self>) + 'static,
         cx: &mut Context<Self>,
     ) {
         let token = self
@@ -3561,7 +3638,7 @@ impl PrDetailPage {
         let repo = self.repo.clone();
         let number = self.number;
         let ident = format!("{}#{} {kind:?}", self.repo, self.number);
-        cx.spawn(async move |this, cx| {
+        cx.spawn_in(window, async move |this, cx| {
             let result = run_mutation(
                 state.clone(),
                 mutation,
@@ -3576,23 +3653,32 @@ impl PrDetailPage {
             // op. A page closed or navigated away mid-flight must not
             // orphan a pending document (the field report that found
             // this: a merge armed, the page left, "merging…" forever).
-            let confirmed = cx.update(|cx| {
-                state.update(cx, |s, _| {
-                    s.apply_store_mutation_result(&repo, number, kind, token, result)
+            let confirmed = cx
+                .update(|_, cx| {
+                    state.update(cx, |s, _| {
+                        s.apply_store_mutation_result(&repo, number, kind, token, result)
+                    })
                 })
-            });
+                .unwrap_or(false);
             // The page repaints via its store subscription; the success
-            // revalidate only flies while the page is still alive — the
-            // next open of a dead page's document revalidates on its own
-            // freshness gates (docs/0072 D3).
-            let _ = this.update(cx, |page, cx| {
+            // refetch (and the surface it closes) only fly while the
+            // page is still alive — the next open of a dead page's
+            // document revalidates through its voided freshness gate
+            // (docs/0072 D3/D4).
+            let _ = this.update_in(cx, |page, window, cx| {
                 if confirmed {
-                    page.fetch_detail(Origin::new(Surface::PrPage, Trigger::MutationRefetch), cx);
+                    on_confirmed(page, window, cx);
                 }
                 cx.notify();
             });
         })
         .detach();
+    }
+
+    /// docs/0072 D4 — the merge/close/update-branch confirmation body:
+    /// the revalidate that was the whole story before stage 3.
+    fn revalidate_after_store_mutation(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.fetch_detail(Origin::new(Surface::PrPage, Trigger::MutationRefetch), cx);
     }
 
     /// The Panel-scope inline error (docs/0016 D5 placement): store ops
@@ -4367,7 +4453,7 @@ impl PrDetailPage {
                 "pr-description",
                 "Editing description",
                 editor,
-                self.busy.is_some(),
+                self.writes_busy(cx),
                 cx.listener(|this, _, window, cx| this.save_description(window, cx)),
                 cx.listener(|this, _, window, cx| this.cancel_edit_description(window, cx)),
                 cx,
@@ -4380,7 +4466,7 @@ impl PrDetailPage {
                             .ghost()
                             .small()
                             .label("Edit")
-                            .disabled(self.busy.is_some())
+                            .disabled(self.writes_busy(cx))
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.start_edit_description(window, cx)
                             }))
@@ -4420,7 +4506,7 @@ impl PrDetailPage {
                             &key,
                             "Editing comment",
                             &editor.1,
-                            self.busy.is_some(),
+                            self.writes_busy(cx),
                             cx.listener(|this, _, window, cx| this.save_edit_row(window, cx)),
                             cx.listener(|this, _, window, cx| this.cancel_edit_row(window, cx)),
                             cx,
@@ -4431,7 +4517,7 @@ impl PrDetailPage {
                         children.push(delete_confirm_card(
                             &key,
                             "Delete this comment?",
-                            self.busy.is_some(),
+                            self.writes_busy(cx),
                             cx.listener(|this, _, window, cx| this.confirm_delete_row(window, cx)),
                             cx.listener(|this, _, _, cx| this.cancel_delete_confirm(cx)),
                             cx,
@@ -4494,7 +4580,7 @@ impl PrDetailPage {
                             &key,
                             "Editing review",
                             &editor.1,
-                            self.busy.is_some(),
+                            self.writes_busy(cx),
                             cx.listener(|this, _, window, cx| this.save_edit_row(window, cx)),
                             cx.listener(|this, _, window, cx| this.cancel_edit_row(window, cx)),
                             cx,
@@ -4506,7 +4592,7 @@ impl PrDetailPage {
                             &key,
                             // 0019 D1: the review goes wholesale — say so.
                             "Delete this review? Its approval or request-changes state goes with it.",
-                            self.busy.is_some(),
+                            self.writes_busy(cx),
                             cx.listener(|this, _, window, cx| this.confirm_delete_row(window, cx)),
                             cx.listener(|this, _, _, cx| this.cancel_delete_confirm(cx)),
                             cx,
@@ -5294,7 +5380,11 @@ impl PrDetailPage {
                                     } else {
                                         merge_disabled_reason(can_merge, line)
                                     })
-                                    .on_click(cx.listener(|this, _, _, cx| this.merge_pr(cx))),
+                                    .on_click(
+                                        cx.listener(|this, _, window, cx| {
+                                            this.merge_pr(window, cx)
+                                        }),
+                                    ),
                             )
                             .child(
                                 Button::new("pr-close")
@@ -5303,7 +5393,11 @@ impl PrDetailPage {
                                     .ghost()
                                     .small()
                                     .disabled(any_busy || d.state.as_deref() != Some("OPEN"))
-                                    .on_click(cx.listener(|this, _, _, cx| this.close_pr(cx))),
+                                    .on_click(
+                                        cx.listener(|this, _, window, cx| {
+                                            this.close_pr(window, cx)
+                                        }),
+                                    ),
                             ),
                     ),
             )
@@ -5353,10 +5447,10 @@ impl PrDetailPage {
                                     // cycle, then post from the live context
                                     // (the reaction picker's pattern).
                                     let item_weak = item_weak.clone();
-                                    window.defer(cx, move |_, cx| {
+                                    window.defer(cx, move |window, cx| {
                                         let _ = item_weak.update(cx, |page, cx| match method {
                                             UpdateBranchMethod::MergeCommit => {
-                                                page.update_branch_pr(method, cx)
+                                                page.update_branch_pr(method, window, cx)
                                             }
                                             UpdateBranchMethod::Rebase => {
                                                 page.arm_update_rebase(cx)
@@ -5399,8 +5493,8 @@ impl PrDetailPage {
                             .label("Rebase branch")
                             .danger()
                             .small()
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.update_branch_pr(UpdateBranchMethod::Rebase, cx)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.update_branch_pr(UpdateBranchMethod::Rebase, window, cx)
                             })),
                     )
                     .child(
@@ -5475,8 +5569,13 @@ impl PrDetailPage {
         let action = self.current_action(cx);
         let body_empty = self.comment.read(cx).value().trim().is_empty();
         let allowed = comment_action_allowed(action.as_ref(), body_empty);
-        let busy = self.busy.is_some();
-        let sending = matches!(self.busy, Some(BusyOp::Comment) | Some(BusyOp::Review));
+        // docs/0072 D4/D5 (#554): the box disables while any entry
+        // write flies; the spinner is the submit's own pending state.
+        let busy = self.writes_busy(cx);
+        let sending = matches!(
+            self.store_pending(cx),
+            Some(PendingKind::Comment) | Some(PendingKind::Review)
+        );
         let tooltip = if !allowed {
             "Write a comment first"
         } else if busy {
@@ -5492,12 +5591,11 @@ impl PrDetailPage {
             .border_color(cx.theme().border)
             .p_3()
             .when_some(
-                self.mutation_error
-                    .as_ref()
-                    .filter(|e| e.scope == ErrorScope::Timeline),
+                self.scoped_store_error(ErrorScope::Timeline, cx),
                 |col, e| {
                     col.child(
                         div()
+                            .debug_selector(|| "pr-comment-box-error".into())
                             .text_sm()
                             .text_color(cx.theme().danger)
                             .child(e.message.clone()),
@@ -5777,15 +5875,15 @@ pub(crate) fn edit_row(
     kind: TimelineKind,
     node_id: &str,
     body: &str,
-) -> (BusyOp, Mutation, serde_json::Value) {
+) -> (PendingKind, Mutation, serde_json::Value) {
     match kind {
         TimelineKind::Comment => (
-            BusyOp::CommentEdit,
+            PendingKind::CommentEdit,
             Mutation::UpdateComment,
             json!({ "input": { "id": node_id, "body": body } }),
         ),
         TimelineKind::Review => (
-            BusyOp::ReviewEdit,
+            PendingKind::ReviewEdit,
             Mutation::UpdateReview,
             json!({ "input": { "pullRequestReviewId": node_id, "body": body } }),
         ),
@@ -5796,15 +5894,15 @@ pub(crate) fn edit_row(
 pub(crate) fn delete_row(
     kind: TimelineKind,
     node_id: &str,
-) -> (BusyOp, Mutation, serde_json::Value) {
+) -> (PendingKind, Mutation, serde_json::Value) {
     match kind {
         TimelineKind::Comment => (
-            BusyOp::CommentDelete,
+            PendingKind::CommentDelete,
             Mutation::DeleteComment,
             json!({ "input": { "id": node_id } }),
         ),
         TimelineKind::Review => (
-            BusyOp::ReviewDelete,
+            PendingKind::ReviewDelete,
             Mutation::DeleteReview,
             json!({ "input": { "pullRequestReviewId": node_id } }),
         ),
@@ -5864,23 +5962,12 @@ pub(crate) struct GateReview {
 /// The write operation in flight (D4/D5) — one at a time.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BusyOp {
-    Comment,
-    Review,
-    Description,
-    // docs/0072 D4: merge/close/update-branch left the page-modal enum —
-    // they are store ops now (PendingKind), optimistic and entry-scoped.
-    // 0019 D5: timeline-row writes — the op names the surface (and the
-    // log line) honestly; all of them error into the timeline scope.
-    CommentEdit,
-    CommentDelete,
-    ReviewEdit,
-    ReviewDelete,
-    // 0030 D7: the Files-tab review writes — errors land in the diff
-    // pane (ErrorScope::Files), and success refetches threads (not the
-    // detail — patches don't change).
-    LineComment,
-    ReviewReply,
-    ReviewBatch,
+    // docs/0072 D4: merge/close/update-branch left the page-modal enum
+    // in stage 2, and stage 3 (#554) moved the conversation writes off
+    // it too — comment/review submit, description edit, the 0019-D5
+    // timeline-row writes and the 0030-D7 Files-tab writes are store
+    // ops now (PendingKind), optimistic and entry-scoped. What remains
+    // here are the quick page-modal writes not in #554's scope.
     ThreadResolve,
     ThreadUnresolve,
     // #212: review-thread comment writes — Files scope like the rest of
@@ -5904,20 +5991,10 @@ impl BusyOp {
     /// Where a failure of this op renders inline (D4/D5).
     fn error_scope(self) -> ErrorScope {
         match self {
-            BusyOp::Comment
-            | BusyOp::Review
-            | BusyOp::Description
-            | BusyOp::CommentEdit
-            | BusyOp::CommentDelete
-            | BusyOp::ReviewEdit
-            | BusyOp::ReviewDelete
-            | BusyOp::Reaction => ErrorScope::Timeline,
+            BusyOp::Reaction => ErrorScope::Timeline,
             // 0030 D7: Files-tab failures render in the diff pane —
             // inline, never modal (the composer stays open with its draft).
-            BusyOp::LineComment
-            | BusyOp::ReviewReply
-            | BusyOp::ReviewBatch
-            | BusyOp::ThreadResolve
+            BusyOp::ThreadResolve
             | BusyOp::ThreadUnresolve
             | BusyOp::ReviewCommentEdit
             | BusyOp::ReviewCommentDelete => ErrorScope::Files,
@@ -6808,15 +6885,16 @@ mod tests {
     use crate::issue_page::reaction_direction;
     use crate::pickers::PickerFetch;
     use crate::pr_page::{
-        BusyOp, ChecksCounts, ChecksTone, ErrorScope, FinishEvent, MergeLineTone, MergeMethod,
-        PrDetailPage, PrMetaEditor, PrStateTone, PrTab, ReviewTone, TimelineKind, allowed_methods,
-        checks_counts, checks_header_line, checks_summary_line, comment_action_allowed,
-        composer_body_allowed, default_method, gate_error_copy, merge_enabled, merge_state_line,
-        pr_assignees_arming, pr_labels_arming, pr_milestone_arming, pr_reviewers_arming,
-        pr_state_tone, review_batch_allowed, review_event, review_state_label, rollup_summary,
-        short_sha, split_repo, timeline_order, update_branch_enabled,
+        BusyOp, ChecksCounts, ChecksTone, ErrorScope, FinishEvent, LineComposer, MergeLineTone,
+        MergeMethod, PrDetailPage, PrMetaEditor, PrStateTone, PrTab, ReviewTone, TimelineKind,
+        allowed_methods, checks_counts, checks_header_line, checks_summary_line,
+        comment_action_allowed, composer_body_allowed, default_method, gate_error_copy,
+        merge_enabled, merge_state_line, pr_assignees_arming, pr_labels_arming,
+        pr_milestone_arming, pr_reviewers_arming, pr_state_tone, review_batch_allowed,
+        review_event, review_state_label, rollup_summary, short_sha, split_repo, timeline_order,
+        update_branch_enabled,
     };
-    use crate::service::{GithubCache, GithubState, update_branch_error_copy};
+    use crate::service::{GithubCache, GithubState, PendingKind, update_branch_error_copy};
     use crate::usage::Origin;
     use gpui::AppContext as _;
     use gpui::{Size, px};
@@ -7046,9 +7124,9 @@ mod tests {
 
         // Arming is synchronous: the document is pending before any
         // dispatch could land (docs/0072 D4).
-        vcx.update(|_, cx| {
+        vcx.update(|window, cx| {
             page.update(cx, |p, cx| {
-                p.merge_pr(cx);
+                p.merge_pr(window, cx);
                 assert!(
                     p.store_pending(cx) == Some(PendingKind::Merge),
                     "the document arms pending synchronously"
@@ -7143,12 +7221,12 @@ mod tests {
             PrDetailPage::new(state.clone(), "o/r".into(), 7, None, window, cx)
         });
         vcx.run_until_parked();
-        vcx.update(|_, cx| {
+        vcx.update(|window, cx| {
             page.update(cx, |p, cx| {
                 p.state
                     .update(cx, |s, _| s.land_detail(&p.repo, p.number, merge_probe()));
                 p.methods = vec![MergeMethod::Merge];
-                p.merge_pr(cx);
+                p.merge_pr(window, cx);
             });
         });
         vcx.run_until_parked();
@@ -7953,7 +8031,7 @@ mod tests {
         vcx.update(|window, cx| {
             page.update(cx, |p, cx| {
                 p.cancel_meta_editor(cx);
-                p.busy = Some(BusyOp::Comment);
+                p.busy = Some(BusyOp::Reaction);
                 p.start_labels_picker(window, cx);
             });
         });
@@ -8205,17 +8283,17 @@ mod tests {
         assert_eq!(node_kind(&comments, &reviews, "gone"), None);
 
         let (op, m, vars) = edit_row(TimelineKind::Comment, "IC_1", "edited");
-        assert_eq!(op, BusyOp::CommentEdit);
+        assert_eq!(op, PendingKind::CommentEdit);
         assert_eq!(m, Mutation::UpdateComment);
         assert_eq!(vars["input"]["id"], "IC_1");
         assert_eq!(vars["input"]["body"], "edited");
         let (op, m, vars) = edit_row(TimelineKind::Review, "PRR_1", "revised");
-        assert_eq!(op, BusyOp::ReviewEdit);
+        assert_eq!(op, PendingKind::ReviewEdit);
         assert_eq!(m, Mutation::UpdateReview);
         assert_eq!(vars["input"]["pullRequestReviewId"], "PRR_1");
 
         let (op, m, vars) = delete_row(TimelineKind::Comment, "IC_1");
-        assert_eq!(op, BusyOp::CommentDelete);
+        assert_eq!(op, PendingKind::CommentDelete);
         assert_eq!(m, Mutation::DeleteComment);
         assert_eq!(vars["input"]["id"], "IC_1");
         assert!(
@@ -8223,7 +8301,7 @@ mod tests {
             "delete carries no body"
         );
         let (op, m, vars) = delete_row(TimelineKind::Review, "PRR_1");
-        assert_eq!(op, BusyOp::ReviewDelete);
+        assert_eq!(op, PendingKind::ReviewDelete);
         assert_eq!(m, Mutation::DeleteReview);
         assert_eq!(vars["input"]["pullRequestReviewId"], "PRR_1");
     }
@@ -8463,7 +8541,7 @@ mod tests {
         vcx.update(|window, cx| {
             page.update(cx, |page, cx| {
                 page.cancel_delete_confirm(cx);
-                page.busy = Some(BusyOp::Comment);
+                page.busy = Some(BusyOp::Reaction);
                 page.start_delete_confirm("PRR_1".into(), cx);
                 assert!(
                     page.delete_confirm.is_none(),
@@ -9879,10 +9957,23 @@ mod tests {
 
     #[test]
     fn busy_op_error_scopes() {
-        assert_eq!(BusyOp::Comment.error_scope(), ErrorScope::Timeline);
-        assert_eq!(BusyOp::Review.error_scope(), ErrorScope::Timeline);
-        assert_eq!(BusyOp::Description.error_scope(), ErrorScope::Timeline);
-        // docs/0072 D4: the optimistic ops' scopes live on PendingKind.
+        // docs/0072 D4: the optimistic ops' scopes live on PendingKind —
+        // the conversation writes keep their documented placement
+        // (stage 3, #554): Timeline for the conversation writes.
+        assert_eq!(PendingKind::Comment.error_scope(), ErrorScope::Timeline);
+        assert_eq!(PendingKind::Review.error_scope(), ErrorScope::Timeline);
+        assert_eq!(PendingKind::Description.error_scope(), ErrorScope::Timeline);
+        assert_eq!(PendingKind::CommentEdit.error_scope(), ErrorScope::Timeline);
+        assert_eq!(
+            PendingKind::CommentDelete.error_scope(),
+            ErrorScope::Timeline
+        );
+        assert_eq!(PendingKind::ReviewEdit.error_scope(), ErrorScope::Timeline);
+        assert_eq!(
+            PendingKind::ReviewDelete.error_scope(),
+            ErrorScope::Timeline
+        );
+        assert_eq!(BusyOp::Reaction.error_scope(), ErrorScope::Timeline);
         assert_eq!(
             crate::service::PendingKind::Merge.error_scope(),
             ErrorScope::Panel
@@ -9902,9 +9993,11 @@ mod tests {
         // docs/0030 D7: every Files-tab write errors into the diff pane;
         // D4: the event choice maps to PullRequestReviewEvent wire values;
         // DISMISS is never offered.
-        assert_eq!(BusyOp::LineComment.error_scope(), ErrorScope::Files);
-        assert_eq!(BusyOp::ReviewReply.error_scope(), ErrorScope::Files);
-        assert_eq!(BusyOp::ReviewBatch.error_scope(), ErrorScope::Files);
+        // Stage 3 (#554): the Files-tab writes keep ErrorScope::Files
+        // through the store migration.
+        assert_eq!(PendingKind::LineComment.error_scope(), ErrorScope::Files);
+        assert_eq!(PendingKind::ReviewReply.error_scope(), ErrorScope::Files);
+        assert_eq!(PendingKind::ReviewBatch.error_scope(), ErrorScope::Files);
         assert_eq!(BusyOp::ThreadResolve.error_scope(), ErrorScope::Files);
         assert_eq!(BusyOp::ThreadUnresolve.error_scope(), ErrorScope::Files);
         assert_eq!(BusyOp::ReviewCommentEdit.error_scope(), ErrorScope::Files);
@@ -10641,19 +10734,6 @@ mod tests {
         });
     }
 
-    fn pr_comment_ok() -> SpecResult {
-        SpecResult {
-            kind: Kind::PrMutation(Mutation::Comment),
-            ident: Some("o/r#7".into()),
-            status: 200,
-            etag: None,
-            rate: None,
-            body: Some(r#"{"data":{"addComment":{"clientMutationId":"x"}}}"#.into()),
-            network: None,
-            cursor: None,
-        }
-    }
-
     // docs/0045 D4/D5 — the PR comment box's draft: seeded file restores
     // with the hint; typing re-parks; a posted comment clears the file.
     #[gpui::test]
@@ -10687,15 +10767,342 @@ mod tests {
             dashboard_core::store::load_json(&path).ok().flatten();
         assert_eq!(on_disk.expect("draft parked").body, "pr typed");
 
-        vcx.update(|window, cx| {
-            page.update(cx, |page, cx| {
-                page.apply_mutation_result(BusyOp::Comment, pr_comment_ok(), window, cx);
-                assert!(page.comment.read(cx).value().trim().is_empty());
+        // The submit arc — draft cleared on CONFIRMATION, no on-disk
+        // draft left — is store-driven now; see
+        // `comment_submit_arms_confirms_and_clears_the_draft` below.
+        let _ = &path;
+    }
+
+    // docs/0072 stage 3 (#554) — the comment submit rides the store:
+    // arming is synchronous (D4), a second submit on the pending entry
+    // is refused (D5), the confirmation clears the draft and voids the
+    // cached detail (the refetch lands the row), and the completion
+    // toast stages (D7).
+    #[gpui::test]
+    fn comment_submit_arms_confirms_and_clears_the_draft(cx: &mut gpui::TestAppContext) {
+        use std::sync::Arc;
+
+        use crate::auth::MockTokenStore;
+        use crate::http::{Http, SharedToken, mock::MockHttp};
+        use crate::service::{GithubCache, GithubState};
+
+        cx.update(dashboard_core::status::init);
+        cx.update(gpui_component::init);
+        cx.update(|cx| cx.background_executor().allow_parking());
+        // 1: the eager construction fetch (fails); 2: the comment
+        // mutation (200); 3: the post-confirm revalidate (fails —
+        // proves it flew).
+        let mock = Arc::new(MockHttp::new(vec![
+            Err(crate::http::HttpError("probe".into())),
+            mutation_ok_200(),
+            Err(crate::http::HttpError("probe".into())),
+        ]));
+        let drafts = DraftStore::at_tmp("pr-store-comment");
+        let state: gpui::Entity<GithubState> = cx.update(|cx| {
+            let shared: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let refresh: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            cx.new(|_| {
+                GithubState::new(
+                    mock.clone() as Arc<dyn Http>,
+                    Arc::new(MockTokenStore::with("t0k".into())),
+                    shared,
+                    refresh,
+                    GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    drafts.clone(),
+                )
+            })
+        });
+        cx.update(|cx| state.update(cx, |s, _| s.auth = crate::service::AuthStatus::Connected));
+
+        let (page, vcx) = cx.add_window_view(|window, cx| {
+            let summary = gql::PullRequest {
+                key: "o/r#7".into(),
+                database_id: None,
+                number: 7,
+                title: "store comment probe".into(),
+                draft: false,
+                state: Some("OPEN".into()),
+                author: None,
+                updated_at: None,
+                url: "https://probe".into(),
+                status: None,
+                labels: None,
+                review_requests: None,
+            };
+            state.update(cx, |s, _| s.land_summary("o/r", &summary));
+            PrDetailPage::new(state.clone(), "o/r".into(), 7, None, window, cx)
+        });
+        vcx.run_until_parked();
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.state
+                    .update(cx, |s, _| s.land_detail(&p.repo, p.number, merge_probe()));
             });
         });
+
+        // Type the draft; it parks on disk (0045 D4).
+        vcx.update(|window, cx| {
+            page.update(cx, |p, cx| {
+                p.comment
+                    .update(cx, |s, cx| s.set_value("pr typed", window, cx));
+                p.comment_changed(cx);
+            });
+        });
+        vcx.run_until_parked();
+        let path = drafts.path_for(&drafts::comment_key("o/r", 7));
+        assert!(path.exists(), "draft parked");
+
+        // Submit arms the store op synchronously; the draft survives
+        // until the CONFIRMATION (a failure must keep the text); the
+        // second submit on the pending entry is refused (D5).
+        vcx.update(|window, cx| {
+            page.update(cx, |p, cx| {
+                p.submit_comment(window, cx);
+                assert!(p.store_pending(cx) == Some(PendingKind::Comment));
+                assert_eq!(p.comment.read(cx).value(), "pr typed");
+                p.submit_comment(window, cx);
+            });
+        });
+        vcx.run_until_parked();
+
+        let (box_cleared, pending, detail_voided, revalidated) = vcx.read(|cx| {
+            let p = page.read(cx);
+            let entry = p.state.read(cx).pr_entry(&p.repo, p.number).unwrap();
+            (
+                p.comment.read(cx).value().trim().is_empty(),
+                entry.pending.is_some(),
+                entry.detail_at.is_none(),
+                entry.books.last_error.is_some(),
+            )
+        });
+        assert!(box_cleared, "confirmation cleared the draft");
+        assert!(!pending);
+        assert!(detail_voided, "the cached detail voided for the refetch");
+        assert!(revalidated, "the post-confirm revalidate flew");
+        assert_eq!(
+            mock.recorded().len(),
+            3,
+            "comment + revalidate; the second submit was refused"
+        );
+        assert!(
+            !path.exists(),
+            "0045 D5: the posted comment leaves no draft"
+        );
         vcx.update(|_, cx| {
-            page.update(cx, |_page, _cx| {
-                assert!(!path.exists(), "posted comment leaves no on-disk draft");
+            state.update(cx, |s, _| {
+                let alerts = s.take_pending_alerts();
+                assert_eq!(alerts.len(), 1, "the completion toast stages");
+                assert_eq!(alerts[0].dedupe_key.as_deref(), Some("pr-commented:o/r#7"));
+            });
+        });
+    }
+
+    // A failed submit keeps the draft and the box text, records the
+    // inline Timeline error on the entry (docs/0016 D5 placement), and
+    // stages the warning toast (D7). No refetch flies on failure.
+    #[gpui::test]
+    fn comment_failure_keeps_the_draft_and_records_inline(cx: &mut gpui::TestAppContext) {
+        use std::sync::Arc;
+
+        use crate::auth::MockTokenStore;
+        use crate::http::{Http, SharedToken, mock::MockHttp};
+        use crate::service::{GithubCache, GithubState};
+
+        cx.update(dashboard_core::status::init);
+        cx.update(gpui_component::init);
+        cx.update(|cx| cx.background_executor().allow_parking());
+        // 1: the eager construction fetch; 2: the comment mutation —
+        // both fail. No refetch: failures don't revalidate.
+        let mock = Arc::new(MockHttp::new(vec![
+            Err(crate::http::HttpError("probe".into())),
+            Err(crate::http::HttpError("probe".into())),
+        ]));
+        let drafts = DraftStore::at_tmp("pr-store-comment-fail");
+        let state: gpui::Entity<GithubState> = cx.update(|cx| {
+            let shared: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let refresh: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            cx.new(|_| {
+                GithubState::new(
+                    mock.clone() as Arc<dyn Http>,
+                    Arc::new(MockTokenStore::with("t0k".into())),
+                    shared,
+                    refresh,
+                    GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    drafts.clone(),
+                )
+            })
+        });
+        cx.update(|cx| state.update(cx, |s, _| s.auth = crate::service::AuthStatus::Connected));
+
+        let (page, vcx) = cx.add_window_view(|window, cx| {
+            let summary = gql::PullRequest {
+                key: "o/r#7".into(),
+                database_id: None,
+                number: 7,
+                title: "store comment probe".into(),
+                draft: false,
+                state: Some("OPEN".into()),
+                author: None,
+                updated_at: None,
+                url: "https://probe".into(),
+                status: None,
+                labels: None,
+                review_requests: None,
+            };
+            state.update(cx, |s, _| s.land_summary("o/r", &summary));
+            PrDetailPage::new(state.clone(), "o/r".into(), 7, None, window, cx)
+        });
+        vcx.run_until_parked();
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.state
+                    .update(cx, |s, _| s.land_detail(&p.repo, p.number, merge_probe()));
+            });
+        });
+        vcx.update(|window, cx| {
+            page.update(cx, |p, cx| {
+                p.comment
+                    .update(cx, |s, cx| s.set_value("pr typed", window, cx));
+                p.comment_changed(cx);
+            });
+        });
+        vcx.run_until_parked();
+        let path = drafts.path_for(&drafts::comment_key("o/r", 7));
+
+        vcx.update(|window, cx| {
+            page.update(cx, |p, cx| p.submit_comment(window, cx));
+        });
+        vcx.run_until_parked();
+
+        let (box_text, pending, error, detail_voided) = vcx.read(|cx| {
+            let p = page.read(cx);
+            let entry = p.state.read(cx).pr_entry(&p.repo, p.number).unwrap();
+            (
+                p.comment.read(cx).value().to_string(),
+                entry.pending.is_some(),
+                entry.error.clone(),
+                entry.detail_at.is_none(),
+            )
+        });
+        assert_eq!(box_text, "pr typed", "failure keeps the draft");
+        assert!(!pending);
+        let error = error.expect("the inline failure recorded");
+        assert_eq!(error.scope, ErrorScope::Timeline);
+        assert!(!detail_voided, "a failure changes no knowledge");
+        assert_eq!(mock.recorded().len(), 2, "no refetch on failure");
+        assert!(path.exists(), "the on-disk draft survives");
+        assert!(
+            vcx.debug_bounds("pr-comment-box-error").is_some(),
+            "the inline Timeline error renders above the box"
+        );
+        vcx.update(|_, cx| {
+            state.update(cx, |s, _| {
+                let alerts = s.take_pending_alerts();
+                assert_eq!(alerts.len(), 1, "the warning toast stages (D7)");
+                assert_eq!(
+                    alerts[0].dedupe_key.as_deref(),
+                    Some("pr-commented-failed:o/r#7")
+                );
+            });
+        });
+    }
+
+    // The Files-tab line comment rides the same machinery; its
+    // confirmation closes the composer and refetches THREADS (0030 D7:
+    // patches don't change), not the detail.
+    #[gpui::test]
+    fn line_comment_confirms_through_the_store(cx: &mut gpui::TestAppContext) {
+        use std::sync::Arc;
+
+        use crate::auth::MockTokenStore;
+        use crate::http::{Http, SharedToken, mock::MockHttp};
+        use crate::service::{GithubCache, GithubState};
+
+        cx.update(dashboard_core::status::init);
+        cx.update(gpui_component::init);
+        cx.update(|cx| cx.background_executor().allow_parking());
+        // 1: eager construction fetch; 2: the line-comment mutation
+        // (200); 3: the threads refetch (fails — proves it flew).
+        let mock = Arc::new(MockHttp::new(vec![
+            Err(crate::http::HttpError("probe".into())),
+            mutation_ok_200(),
+            Err(crate::http::HttpError("probe".into())),
+        ]));
+        let state: gpui::Entity<GithubState> = cx.update(|cx| {
+            let shared: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let refresh: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            cx.new(|_| {
+                GithubState::new(
+                    mock.clone() as Arc<dyn Http>,
+                    Arc::new(MockTokenStore::with("t0k".into())),
+                    shared,
+                    refresh,
+                    GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    DraftStore::at_tmp("pr-store-line-comment"),
+                )
+            })
+        });
+        cx.update(|cx| state.update(cx, |s, _| s.auth = crate::service::AuthStatus::Connected));
+
+        let (page, vcx) = cx.add_window_view(|window, cx| {
+            let summary = gql::PullRequest {
+                key: "o/r#7".into(),
+                database_id: None,
+                number: 7,
+                title: "line comment probe".into(),
+                draft: false,
+                state: Some("OPEN".into()),
+                author: None,
+                updated_at: None,
+                url: "https://probe".into(),
+                status: None,
+                labels: None,
+                review_requests: None,
+            };
+            state.update(cx, |s, _| s.land_summary("o/r", &summary));
+            PrDetailPage::new(state.clone(), "o/r".into(), 7, None, window, cx)
+        });
+        vcx.run_until_parked();
+        vcx.update(|window, cx| {
+            page.update(cx, |p, cx| {
+                p.state
+                    .update(cx, |s, _| s.land_detail(&p.repo, p.number, merge_probe()));
+                let editor = cx.new(|cx| TextareaState::new(window, cx));
+                editor.update(cx, |st, cx| st.set_value("line note", window, cx));
+                p.line_composer = Some(LineComposer {
+                    path: "a.rs".into(),
+                    side: gql::DiffSide::Right,
+                    line: 3,
+                    start: None,
+                    editor,
+                });
+                p.add_single_comment(window, cx);
+                assert!(p.store_pending(cx) == Some(PendingKind::LineComment));
+            });
+        });
+        vcx.run_until_parked();
+
+        let (composer_open, pending, detail_voided) = vcx.read(|cx| {
+            let p = page.read(cx);
+            let entry = p.state.read(cx).pr_entry(&p.repo, p.number).unwrap();
+            (
+                p.line_composer.is_some(),
+                entry.pending.is_some(),
+                entry.detail_at.is_none(),
+            )
+        });
+        assert!(!composer_open, "confirmation closed the composer");
+        assert!(!pending);
+        assert!(detail_voided, "the cached detail voided for the refetch");
+        assert_eq!(mock.recorded().len(), 3, "line comment + threads refetch");
+        vcx.update(|_, cx| {
+            state.update(cx, |s, _| {
+                let alerts = s.take_pending_alerts();
+                assert_eq!(alerts.len(), 1);
+                assert_eq!(
+                    alerts[0].dedupe_key.as_deref(),
+                    Some("pr-line-commented:o/r#7")
+                );
             });
         });
     }
