@@ -78,6 +78,21 @@ const CHECK_LOG_MAX_H: f32 = 384.0;
 
 actions!(github, [DismissPrPage]);
 
+// Mention popup keys (docs/0075 D4): bound in the module init against
+// "GithubPrPage && Mention && Input" — three matched context segments
+// outrank the textarea's own "Input" bindings (gpui keymap depth wins),
+// so the popup owns up/down/enter/tab/esc while open and the composer
+// keeps focus throughout.
+actions!(
+    github,
+    [
+        MentionSelectNext,
+        MentionSelectPrev,
+        MentionAccept,
+        MentionDismiss
+    ]
+);
+
 /// Ask the hosting `GithubPage` to close the PR sub-page (docs/0016 D1).
 pub(crate) enum PrPageEvent {
     CloseRequested,
@@ -215,6 +230,10 @@ pub(crate) struct PrDetailPage {
     /// A draft was restored at construction — one muted hint row under
     /// the composer until the first real edit (0045 D4).
     draft_restored: bool,
+    /// @-mention popup state (docs/0075 D3/D6): None while closed. Token
+    /// offsets are char offsets — the textarea's native units. Crate-visible
+    /// for the popup element's prepaint (same seam as line_composer).
+    pub(crate) mention: Option<crate::mentions::MentionState>,
     action_select: Entity<SelectState<SearchableVec<SharedString>>>,
     /// The write path in flight (D4/D5) — one at a time; every write
     /// surface disables while set.
@@ -463,8 +482,15 @@ impl PrDetailPage {
         // 0045 D3/D4: comment keystrokes debounce-save the draft and
         // retire the restore hint (the first real edit is the user's).
         cx.subscribe_in(&comment, window, |this, _, event: &InputEvent, _, cx| {
-            if matches!(event, InputEvent::Change) {
-                this.comment_changed(cx);
+            match event {
+                // docs/0075 D3: text changes re-scan the @-token; blur
+                // dismisses (the caret must leave the composer).
+                InputEvent::Change => {
+                    this.comment_changed(cx);
+                    this.sync_mention(cx);
+                }
+                InputEvent::Blur => this.mention_dismiss(cx),
+                _ => {}
             }
         })
         .detach();
@@ -477,6 +503,7 @@ impl PrDetailPage {
             comment,
             draft,
             draft_restored,
+            mention: None,
             action_select,
             busy: None,
             mutation_error: None,
@@ -1938,6 +1965,85 @@ impl PrDetailPage {
         self.draft.schedule(None, body, cx);
     }
 
+    // --- @-mention completion (docs/0075) ---
+
+    /// D3: rescan the composer for an `@token` under the caret and open,
+    /// refresh, or dismiss the popup. Same token+query keeps the selection
+    /// stable (typing mid-filter must not reset it); an empty candidate
+    /// list dismisses quietly.
+    fn sync_mention(&mut self, cx: &mut Context<Self>) {
+        let value = self.comment.read(cx).value().to_string();
+        let chars: Vec<char> = value.chars().collect();
+        let cursor = self.comment.read(cx).cursor().min(chars.len());
+        let next = match crate::mentions::scan_token(&chars, cursor) {
+            Some((token_start, query)) => {
+                let same = self
+                    .mention
+                    .as_ref()
+                    .is_some_and(|m| m.token_start == token_start && m.query == query);
+                if same {
+                    return;
+                }
+                let candidates = self
+                    .detail(cx)
+                    .map(|d| {
+                        crate::mentions::filter_candidates(
+                            &crate::mentions::ranked_candidates(d),
+                            &query,
+                        )
+                    })
+                    .unwrap_or_default();
+                (!candidates.is_empty()).then_some(crate::mentions::MentionState {
+                    token_start,
+                    query,
+                    candidates,
+                    selected: 0,
+                })
+            }
+            None => None,
+        };
+        let changed = next.as_ref() != self.mention.as_ref();
+        self.mention = next;
+        if changed {
+            cx.notify();
+        }
+    }
+
+    /// D4: wrap-around selection move.
+    fn mention_select(&mut self, delta: isize, cx: &mut Context<Self>) {
+        if let Some(m) = &mut self.mention {
+            let len = m.candidates.len();
+            m.selected = crate::mentions::step_selection(m.selected, len, delta);
+            cx.notify();
+        }
+    }
+
+    /// D3/D4: dismiss (Esc, blur, submit). No-op when closed.
+    fn mention_dismiss(&mut self, cx: &mut Context<Self>) {
+        if self.mention.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    /// D5: replace the `@token` ending at the caret with `@login ` in one
+    /// atomic edit; the Change event that comes back re-syncs (and finds
+    /// no token). Public for the popup's row-click closures, which capture
+    /// the token and login at build time.
+    pub(crate) fn accept_mention(
+        &mut self,
+        token_start: usize,
+        login: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let end = self.comment.read(cx).cursor().max(token_start);
+        self.mention = None;
+        self.comment.update(cx, |state, cx| {
+            crate::mentions::replace_token_range(state, token_start, end, &login, window, cx);
+        });
+        cx.notify();
+    }
+
     fn submit_comment(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(d) = self.detail(cx).cloned() else {
             return;
@@ -1970,6 +2076,7 @@ impl PrDetailPage {
             (Mutation::Review, input)
         };
         self.mutation_error = None;
+        self.mention = None;
         self.busy = Some(op);
         cx.notify();
         self.spawn_mutation(op, mutation, variables, window, cx);
@@ -5283,7 +5390,39 @@ impl PrDetailPage {
                         .child("Draft restored — clearing the box discards it."),
                 )
             })
-            .child(Textarea::new(&self.comment).w_full())
+            .child(
+                div()
+                    .when(self.mention.is_some(), |field| {
+                        // D4: the conditional key context turns the module's
+                        // mention bindings on exactly while the popup shows.
+                        field
+                            .key_context("Mention")
+                            .on_action(cx.listener(|this, _: &MentionSelectNext, _, cx| {
+                                this.mention_select(1, cx);
+                            }))
+                            .on_action(cx.listener(|this, _: &MentionSelectPrev, _, cx| {
+                                this.mention_select(-1, cx);
+                            }))
+                            .on_action(cx.listener(|this, _: &MentionAccept, window, cx| {
+                                let Some(m) = this.mention.as_ref() else {
+                                    return;
+                                };
+                                let cand = &m.candidates[m.selected % m.candidates.len()];
+                                let login = cand.login.clone();
+                                this.accept_mention(m.token_start, login, window, cx);
+                            }))
+                            .on_action(cx.listener(|this, _: &MentionDismiss, _, cx| {
+                                this.mention_dismiss(cx)
+                            }))
+                    })
+                    .child(Textarea::new(&self.comment).w_full())
+                    .when(self.mention.is_some(), |field| {
+                        field.child(gpui::deferred(crate::mentions::MentionPopup::new(
+                            cx.entity().downgrade(),
+                            self.comment.downgrade(),
+                        )))
+                    }),
+            )
             .child(
                 h_flex()
                     .gap_2()
@@ -10209,6 +10348,120 @@ mod tests {
             page
         });
         (page, vcx, drafts)
+    }
+
+    // --- @-mention completion (docs/0075) --------------------------------
+
+    #[gpui::test]
+    fn mention_sync_opens_ranked_and_filters(cx: &mut gpui::TestAppContext) {
+        let (page, vcx, _drafts) = probe_pr_drafts(cx, None);
+        vcx.update(|window, cx| {
+            page.update(cx, |page, cx| {
+                // D3: a bare `@` after whitespace opens the unfiltered list.
+                page.comment.update(cx, |st, cx| {
+                    st.set_value("hi @", window, cx);
+                    // set_value resets the selection to 0 — park the
+                    // caret where a real keystroke would have left it.
+                    let len = st.value().chars().count();
+                    st.set_selected_range(len..len, cx);
+                });
+                page.sync_mention(cx);
+                let m = page.mention.as_ref().expect("bare @ opens the popup");
+                let ranked = crate::mentions::ranked_candidates(&probe_detail());
+                assert_eq!(
+                    m.candidates,
+                    crate::mentions::filter_candidates(&ranked, "")
+                );
+                assert_eq!(m.candidates[0].login, "carol", "review-requested first");
+                assert_eq!(m.token_start, 3);
+
+                // Typing narrows to the assignee.
+                page.comment.update(cx, |st, cx| {
+                    st.set_value("hi @bo", window, cx);
+                    // set_value resets the selection to 0 — park the
+                    // caret where a real keystroke would have left it.
+                    let len = st.value().chars().count();
+                    st.set_selected_range(len..len, cx);
+                });
+                page.sync_mention(cx);
+                let m = page.mention.as_ref().expect("query keeps the popup");
+                assert_eq!(m.query, "bo");
+                assert_eq!(m.candidates.len(), 1);
+                assert_eq!(m.candidates[0].login, "bob");
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn mention_accept_replaces_token_and_closes(cx: &mut gpui::TestAppContext) {
+        let (page, vcx, _drafts) = probe_pr_drafts(cx, None);
+        vcx.update(|window, cx| {
+            page.update(cx, |page, cx| {
+                page.comment.update(cx, |st, cx| {
+                    st.set_value("hi @bo", window, cx);
+                    // set_value resets the selection to 0 — park the
+                    // caret where a real keystroke would have left it.
+                    let len = st.value().chars().count();
+                    st.set_selected_range(len..len, cx);
+                });
+                page.sync_mention(cx);
+                let (token_start, login) = {
+                    let m = page.mention.as_ref().expect("popup open");
+                    (m.token_start, m.candidates[0].login.clone())
+                };
+                // D5: the token is replaced by `@login ` in one step.
+                page.accept_mention(token_start, login, window, cx);
+                assert_eq!(page.comment.read(cx).value(), "hi @bob ");
+                assert!(page.mention.is_none(), "accept closes the popup");
+                // D3: the resulting text has no open token — a re-sync
+                // (the Change event's handler) keeps it closed.
+                page.sync_mention(cx);
+                assert!(page.mention.is_none());
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn mention_stays_closed_for_midword_at_and_empty_matches(cx: &mut gpui::TestAppContext) {
+        let (page, vcx, _drafts) = probe_pr_drafts(cx, None);
+        vcx.update(|window, cx| {
+            page.update(cx, |page, cx| {
+                // D3: mid-word `@` (email shape) never opens.
+                page.comment.update(cx, |st, cx| {
+                    st.set_value("a@b", window, cx);
+                    // set_value resets the selection to 0 — park the
+                    // caret where a real keystroke would have left it.
+                    let len = st.value().chars().count();
+                    st.set_selected_range(len..len, cx);
+                });
+                page.sync_mention(cx);
+                assert!(page.mention.is_none());
+
+                // D3: zero matches dismiss quietly instead of an empty box.
+                page.comment.update(cx, |st, cx| {
+                    st.set_value("hi @zzz", window, cx);
+                    // set_value resets the selection to 0 — park the
+                    // caret where a real keystroke would have left it.
+                    let len = st.value().chars().count();
+                    st.set_selected_range(len..len, cx);
+                });
+                page.sync_mention(cx);
+                assert!(page.mention.is_none());
+
+                // D4: Esc-path dismiss (the handler behind MentionDismiss).
+                page.comment.update(cx, |st, cx| {
+                    st.set_value("hi @", window, cx);
+                    // set_value resets the selection to 0 — park the
+                    // caret where a real keystroke would have left it.
+                    let len = st.value().chars().count();
+                    st.set_selected_range(len..len, cx);
+                });
+                page.sync_mention(cx);
+                assert!(page.mention.is_some());
+                page.mention_dismiss(cx);
+                assert!(page.mention.is_none());
+            });
+        });
     }
 
     fn pr_comment_ok() -> SpecResult {
