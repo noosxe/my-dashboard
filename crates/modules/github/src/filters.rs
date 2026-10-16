@@ -325,6 +325,7 @@ mod tests {
             database_id: None,
             number,
             title: title.to_string(),
+            state: None,
             author: author.and_then(author_of),
             updated_at: updated_at.map(str::to_string),
             url: "https://probe".into(),

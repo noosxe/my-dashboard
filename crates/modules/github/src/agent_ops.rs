@@ -629,6 +629,7 @@ mod tests {
             database_id: None,
             number: n,
             title: format!("Issue {n}"),
+            state: None,
             author: None,
             updated_at: None,
             url: String::new(),

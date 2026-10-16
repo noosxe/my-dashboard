@@ -1403,6 +1403,7 @@ impl GithubPage {
                             key,
                             database_id: None,
                             number: *number,
+                            state: None,
                             title: title.clone(),
                             author: None,
                             updated_at: None,
@@ -1471,6 +1472,7 @@ impl GithubPage {
             |this, _, event: &NewIssuePageEvent, window, cx| match event {
                 NewIssuePageEvent::CloseRequested => this.close_creator(cx),
                 NewIssuePageEvent::Created(issue) => {
+                    let issue = issue.as_ref();
                     let repo = this.creator.take().map(|c| c.read(cx).repo.clone());
                     this.creator_open = false;
                     if let Some(repo) = repo {
@@ -1990,6 +1992,9 @@ impl GithubPage {
             .selected
             .clone()
             .unwrap_or_else(|| issue.key.split('#').next().unwrap_or_default().to_string());
+        // docs/0072 stage 4 (#555): the document's optimistic write,
+        // from the store — the pill the PR row grew in stage 2.
+        let pending = self.state.read(cx).issue_pending(&repo, issue.number);
         // docs/0049 D1: explicit accessible name (PR-row pattern).
         let mut label = format!("Issue #{}: {}", issue.number, issue.title);
         if let Some(repo_name) = issue.key.split('#').next() {
@@ -1999,6 +2004,9 @@ impl GithubPage {
         }
         if let Some(author) = issue.author.as_ref() {
             label.push_str(&format!(" · {}", author.login));
+        }
+        if let Some(kind) = pending {
+            label.push_str(&format!(" · {}", kind.label()));
         }
         let label: SharedString = label.into();
         let row = issue.clone();
@@ -2054,6 +2062,22 @@ impl GithubPage {
                         h_flex()
                             .gap_2()
                             .items_center()
+                            .when_some(pending, |row, kind: crate::service::IssuePendingKind| {
+                                row.child(
+                                    div()
+                                        .id(SharedString::from(format!(
+                                            "issue-pending-{}",
+                                            issue.key
+                                        )))
+                                        .debug_selector({
+                                            let probe = format!("issue-pending-{}", issue.key);
+                                            move || probe.clone()
+                                        })
+                                        .text_xs()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child(kind.label()),
+                                )
+                            })
                             .when_some(issue.author.as_ref(), |row, author| {
                                 row.child(
                                     h_flex()
@@ -2617,9 +2641,16 @@ impl GithubPage {
                 None => Vec::new(),
             };
             let pr_held = derived.len();
+            // docs/0072 stage 4 (#555): issue rows derive the same way —
+            // the snapshot's held rows ⊗ the documents, filtered to
+            // not-closed at read time.
+            let issue_derived = match selected_repo {
+                Some(repo) => state.repo_issue_rows(repo),
+                None => Vec::new(),
+            };
             let (pr_rows, issue_rows) = match selected_repo {
                 None => (Vec::new(), Vec::new()),
-                Some(repo) => (
+                Some(_repo) => (
                     // Owned: the block's value must outlive `derived`
                     // (the filter returns references into its input).
                     filters::apply_prs(&self.filters.prs, &derived, viewer.as_deref(), &search)
@@ -2628,10 +2659,13 @@ impl GithubPage {
                         .collect::<Vec<_>>(),
                     filters::apply_issues(
                         &self.filters.issues,
-                        &repo.issues.nodes,
+                        &issue_derived,
                         viewer.as_deref(),
                         &search,
-                    ),
+                    )
+                    .into_iter()
+                    .cloned()
+                    .collect::<Vec<_>>(),
                 ),
             };
             let pr_filtered = self.filters.prs.is_filtered() || !search.is_empty();
@@ -2663,7 +2697,7 @@ impl GithubPage {
                         }
                     }
                     let mut issue_labels: std::collections::BTreeSet<String> = Default::default();
-                    for i in &repo.issues.nodes {
+                    for i in self.state.read(cx).repo_issue_rows(repo) {
                         for n in filters::label_names(i.labels.as_ref()) {
                             issue_labels.insert(n.to_string());
                         }
@@ -2886,7 +2920,7 @@ impl GithubPage {
                                 .gap_0p5()
                                 .child(self.issue_filter_toolbar(&issue_label_options, cx))
                                 .child(if issue_rows.is_empty() {
-                                    if repo.issues.nodes.is_empty() {
+                                    if self.state.read(cx).repo_issue_rows(repo).is_empty() {
                                         if self.repo_rows_landed(cx) {
                                             muted_cell("No open issues", cx)
                                         } else {
@@ -2909,7 +2943,7 @@ impl GithubPage {
                                             col.children(
                                                 more_hint_count(
                                                     repo.issues.total_count,
-                                                    repo.issues.nodes.len(),
+                                                    self.state.read(cx).repo_issue_rows(repo).len(),
                                                 )
                                                 .map(|n| more_cell(n, "repo-issues-more", cx)),
                                             )
@@ -3638,6 +3672,7 @@ mod tests {
             key: "acme/one#9".into(),
             database_id: None,
             number: 9,
+            state: None,
             title: "some issue".into(),
             author: Some(gql::Author {
                 login: "you".into(),
@@ -4160,6 +4195,7 @@ mod tests {
                 key: format!("acme/one#{i}"),
                 database_id: None,
                 number: i,
+                state: None,
                 title: "i".into(),
                 author: None,
                 updated_at: None,
@@ -5883,6 +5919,7 @@ mod tests {
                 key: "acme/one#9".into(),
                 database_id: None,
                 number: 9,
+                state: None,
                 title: "probe".into(),
                 author: Some(gql::Author {
                     login: "you".into(),
