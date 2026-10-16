@@ -540,6 +540,12 @@ pub struct Issue {
     pub database_id: Option<i64>,
     pub number: i64,
     pub title: String,
+    /// docs/0072 stage 4 (#555): `OPEN` / `CLOSED` when known. The
+    /// snapshot query lists open-only rows without selecting `state`,
+    /// so row summaries degrade to `None` (= shown; the store's
+    /// confirmed patches and detail landings fill it in).
+    #[serde(default)]
+    pub state: Option<String>,
     pub author: Option<Author>,
     pub updated_at: Option<String>,
     /// Row click → browser (UI layer).
@@ -2413,6 +2419,7 @@ pub fn created_issue_from_body(body: &str, repo_full: &str) -> Option<Issue> {
         author: None,
         updated_at: issue.updated_at,
         url: issue.url,
+        state: Some("OPEN".into()),
         // A just-created issue carries no labels (docs/0042 D4).
         labels: None,
     })
@@ -2856,6 +2863,11 @@ pub fn repo_from_value(value: &serde_json::Value) -> Option<Repo> {
                     database_id: issue.database_id,
                     number: issue.number,
                     title: issue.title,
+                    // The snapshot query lists open-only rows without
+                    // selecting `state` — the field degrades to None
+                    // (docs/0072 stage 4: patches and detail landings
+                    // fill it in).
+                    state: None,
                     author: issue.author,
                     updated_at: issue.updated_at,
                     url: issue.url,

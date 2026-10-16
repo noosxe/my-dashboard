@@ -47,7 +47,9 @@ pub(crate) enum NewIssuePageEvent {
     CloseRequested,
     /// The mutation landed: the host drops the creator, opens the issue
     /// page for this row, and refetches the repo list (D6).
-    Created(gql::Issue),
+    // Boxed: the two-variant size gap crosses the lint's threshold now
+    // that `gql::Issue` carries the store's `state` field (#555).
+    Created(Box<gql::Issue>),
 }
 
 pub(crate) struct NewIssuePage {
@@ -464,7 +466,7 @@ impl NewIssuePage {
                 // 0045 D5: the created issue leaves no draft behind
                 // (cancel first — no pre-submit write lands after this).
                 self.draft.discard();
-                cx.emit(NewIssuePageEvent::Created(issue));
+                cx.emit(NewIssuePageEvent::Created(Box::new(issue)));
             }
             None => {
                 log::warn!("issue-create {}: malformed payload", self.repo);

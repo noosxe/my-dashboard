@@ -1950,11 +1950,152 @@ impl PendingKind {
     }
 }
 
+/// docs/0072 §6 stage 4 (#555) — the issue page's optimistic writes,
+/// the [`PendingKind`] mirror: every [`crate::issue_page::IssueBusyOp`]
+/// this store replaced, one variant each. Copy, scopes and toasts are
+/// the page-modal ops' own (docs/0020 D5, 0022 D2, 0023 D3/D5), kept
+/// through the migration.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum IssuePendingKind {
+    Comment,
+    Description,
+    CommentEdit,
+    CommentDelete,
+    Close,
+    Reopen,
+    SetTitle,
+    SetLabels,
+    SetAssignees,
+    SetMilestone,
+    ToggleReaction,
+    ToggleLock,
+}
+
+impl IssuePendingKind {
+    /// The muted pill / header label while the op flies (D4).
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            IssuePendingKind::Comment => "commenting…",
+            IssuePendingKind::Description => "saving description…",
+            IssuePendingKind::CommentEdit => "editing comment…",
+            IssuePendingKind::CommentDelete => "deleting comment…",
+            IssuePendingKind::Close => "closing…",
+            IssuePendingKind::Reopen => "reopening…",
+            IssuePendingKind::SetTitle => "saving title…",
+            IssuePendingKind::SetLabels => "saving labels…",
+            IssuePendingKind::SetAssignees => "saving assignees…",
+            IssuePendingKind::SetMilestone => "saving milestone…",
+            IssuePendingKind::ToggleReaction => "updating reaction…",
+            IssuePendingKind::ToggleLock => "updating lock…",
+        }
+    }
+
+    /// The completion toast's verb (D7): "Closed #12 · owner/repo".
+    pub(crate) fn toast_verb(self) -> &'static str {
+        match self {
+            IssuePendingKind::Comment => "Comment added",
+            IssuePendingKind::Description => "Description updated",
+            IssuePendingKind::CommentEdit => "Comment updated",
+            IssuePendingKind::CommentDelete => "Comment deleted",
+            IssuePendingKind::Close => "Closed",
+            IssuePendingKind::Reopen => "Reopened",
+            IssuePendingKind::SetTitle => "Title updated",
+            IssuePendingKind::SetLabels => "Labels updated",
+            IssuePendingKind::SetAssignees => "Assignees updated",
+            IssuePendingKind::SetMilestone => "Milestone updated",
+            IssuePendingKind::ToggleReaction => "Reaction updated",
+            IssuePendingKind::ToggleLock => "Lock updated",
+        }
+    }
+
+    /// The failure toast's noun (D7).
+    pub(crate) fn toast_noun(self) -> &'static str {
+        match self {
+            IssuePendingKind::Comment => "Comment",
+            IssuePendingKind::Description => "Description update",
+            IssuePendingKind::CommentEdit => "Comment edit",
+            IssuePendingKind::CommentDelete => "Comment delete",
+            IssuePendingKind::Close => "Close",
+            IssuePendingKind::Reopen => "Reopen",
+            IssuePendingKind::SetTitle => "Title update",
+            IssuePendingKind::SetLabels => "Labels update",
+            IssuePendingKind::SetAssignees => "Assignees update",
+            IssuePendingKind::SetMilestone => "Milestone update",
+            IssuePendingKind::ToggleReaction => "Reaction toggle",
+            IssuePendingKind::ToggleLock => "Lock toggle",
+        }
+    }
+
+    /// The toast dedupe key's slug (D7).
+    fn toast_slug(self) -> &'static str {
+        match self {
+            IssuePendingKind::Comment => "commented",
+            IssuePendingKind::Description => "description-updated",
+            IssuePendingKind::CommentEdit => "comment-edited",
+            IssuePendingKind::CommentDelete => "comment-deleted",
+            IssuePendingKind::Close => "closed",
+            IssuePendingKind::Reopen => "reopened",
+            IssuePendingKind::SetTitle => "title-updated",
+            IssuePendingKind::SetLabels => "labels-updated",
+            IssuePendingKind::SetAssignees => "assignees-updated",
+            IssuePendingKind::SetMilestone => "milestone-updated",
+            IssuePendingKind::ToggleReaction => "reaction-updated",
+            IssuePendingKind::ToggleLock => "lock-updated",
+        }
+    }
+
+    /// Where a failure renders inline — the issue page's own two
+    /// scopes (docs/0020 D5): the conversation column, the rail panel.
+    pub(crate) fn error_scope(self) -> ErrorScope {
+        match self {
+            IssuePendingKind::Comment
+            | IssuePendingKind::Description
+            | IssuePendingKind::CommentEdit
+            | IssuePendingKind::CommentDelete
+            | IssuePendingKind::ToggleReaction => ErrorScope::Timeline,
+            IssuePendingKind::Close
+            | IssuePendingKind::Reopen
+            | IssuePendingKind::ToggleLock
+            | IssuePendingKind::SetTitle
+            | IssuePendingKind::SetLabels
+            | IssuePendingKind::SetAssignees
+            | IssuePendingKind::SetMilestone => ErrorScope::Rail,
+        }
+    }
+}
+
+/// docs/0072 D1 (stage 4, #555) — one issue document: the summary
+/// layer (the repo snapshot's open-issue rows land it) plus the detail
+/// layer (the issue page's query lands it), the same freshness
+/// machinery as a [`PrEntry`] minus the PR-only bits (no rollup —
+/// issues carry no checks signal). Session-only — never persisted (D8).
+#[derive(Clone, Debug)]
+pub(crate) struct IssueEntry {
+    pub(crate) summary: gql::Issue,
+    pub(crate) detail: Option<gql::IssueDetail>,
+    pub(crate) summary_at: Instant,
+    pub(crate) detail_at: Option<Instant>,
+    pub(crate) books: DetailBooks,
+    pub(crate) pending: Option<PendingOp<IssuePendingKind>>,
+    /// The last optimistic-write failure, rendered inline in its scope.
+    pub(crate) error: Option<MutationError>,
+}
+
+impl IssueEntry {
+    /// The same SWR gate as a [`PrEntry`] minus the rollup mark.
+    pub(crate) fn detail_fresh(&self) -> bool {
+        !self.books.in_flight
+            && self
+                .detail_at
+                .is_some_and(|at| at.elapsed() < PR_DETAIL_TTL)
+    }
+}
+
 /// docs/0072 D1/D6 — a store-scoped optimistic write in flight. `token`
 /// is store-issued; a confirmation applies only on token match.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct PendingOp {
-    pub(crate) kind: PendingKind,
+pub(crate) struct PendingOp<K> {
+    pub(crate) kind: K,
     pub(crate) token: u64,
     pub(crate) started_at: Instant,
 }
@@ -1980,7 +2121,7 @@ pub(crate) struct PrEntry {
     pub(crate) summary_at: Instant,
     pub(crate) detail_at: Option<Instant>,
     pub(crate) books: DetailBooks,
-    pub(crate) pending: Option<PendingOp>,
+    pub(crate) pending: Option<PendingOp<PendingKind>>,
     /// The last optimistic-write failure, rendered inline in its scope
     /// (docs/0016 D5 placement — docs/0072 D4).
     pub(crate) error: Option<MutationError>,
@@ -2013,6 +2154,36 @@ impl PrEntry {
 /// other lane. `None` entry = never-landed (the `LandedClock` rule:
 /// refreshable, no age label).
 pub(crate) struct DetailClock<'a>(pub(crate) Option<&'a PrEntry>);
+
+/// docs/0072 stage 4 (#555) — the issue document's detail-layer
+/// freshness view: the [`DetailClock`] contract over an
+/// [`IssueEntry`] (no rollup mark to honor).
+pub(crate) struct IssueDetailClock<'a>(pub(crate) Option<&'a IssueEntry>);
+
+impl Freshness for IssueDetailClock<'_> {
+    fn age(&self) -> Option<Duration> {
+        self.0.and_then(|e| e.detail_at).map(|at| at.elapsed())
+    }
+
+    fn is_loading(&self) -> bool {
+        self.0.is_some_and(|e| e.books.in_flight)
+    }
+
+    fn wants_refresh(&self, min_age: Duration) -> bool {
+        let Some(entry) = self.0 else {
+            return true;
+        };
+        dashboard_core::freshness::standard_needs_refresh(
+            entry.detail_at.map(|at| at.elapsed()),
+            entry.books.in_flight,
+            entry.books.last_error.is_some(),
+            min_age,
+        ) && dashboard_core::freshness::standard_backoff_elapsed(
+            entry.books.fail_streak,
+            entry.books.attempted_at,
+        )
+    }
+}
 
 impl Freshness for DetailClock<'_> {
     fn age(&self) -> Option<Duration> {
@@ -2120,6 +2291,10 @@ pub struct GithubState {
     /// Session-only — never persisted (D8); details evict past
     /// [`PR_STORE_DETAIL_CAP`] (D9); sign-out clears it.
     pub(crate) pulls: BTreeMap<PrKey, PrEntry>,
+    /// docs/0072 §6 stage 4 (#555) — issue documents, the same
+    /// `(repo, number)` identity in its own map (the payload types
+    /// differ; the machinery is the same shape).
+    pub(crate) issues: BTreeMap<PrKey, IssueEntry>,
     /// docs/0072 D6 — store-issued pending-op tokens; the identity a
     /// late confirmation must carry to apply.
     pub(crate) next_pending_token: u64,
@@ -2262,6 +2437,7 @@ impl GithubState {
             home_attempted_at: None,
             home_error: None,
             pulls: BTreeMap::new(),
+            issues: BTreeMap::new(),
             next_pending_token: 0,
             client,
             usage: crate::usage::new_ledger(),
@@ -3102,56 +3278,357 @@ impl GithubState {
     }
 
     /// docs/0072 D9 — cap the detail layer: evict oldest-landed details
+    /// The issue document, read-side (docs/0072 stage 4).
+    pub(crate) fn issue_entry(&self, repo: &str, number: i64) -> Option<&IssueEntry> {
+        self.issues.get(&PrKey::new(repo, number))
+    }
+
+    /// The issue document's optimistic write in flight, if any (D4).
+    pub(crate) fn issue_pending(&self, repo: &str, number: i64) -> Option<IssuePendingKind> {
+        self.issues
+            .get(&PrKey::new(repo, number))
+            .and_then(|e| e.pending.as_ref().map(|op| op.kind))
+    }
+
+    /// Land one issue summary row into its document (docs/0072 D2,
+    /// stage 4): the repo snapshot's open-issue rows seed the layer.
+    /// Snapshot rows carry no `state` (the query asks for open-only),
+    /// so a landing never moves a patched or detail-landed state —
+    /// state changes come from confirmations and detail landings only.
+    pub(crate) fn land_issue_summary(&mut self, repo: &str, row: &gql::Issue) {
+        let key = PrKey::new(repo, row.number);
+        if let Some(entry) = self.issues.get_mut(&key) {
+            let state = entry.summary.state.clone();
+            entry.summary = row.clone();
+            entry.summary.state = state.or(row.state.clone());
+            entry.summary_at = Instant::now();
+            return;
+        }
+        self.issues.insert(
+            key,
+            IssueEntry {
+                summary: row.clone(),
+                detail: None,
+                summary_at: Instant::now(),
+                detail_at: None,
+                books: DetailBooks::default(),
+                pending: None,
+                error: None,
+            },
+        );
+    }
+
+    /// Land a parsed issue detail into its document (docs/0072 D2/D3,
+    /// stage 4): the detail layer stamps, the read books close, the
+    /// cap prunes. The document-less landing (late result after
+    /// sign-out or eviction) is dropped, like the PR side. The state
+    /// is a shared fact: the fresh detail's state updates the summary
+    /// layer on the spot (a reopen/close is visible in the repo view
+    /// without waiting for the next snapshot).
+    pub(crate) fn land_issue_detail(&mut self, repo: &str, number: i64, detail: gql::IssueDetail) {
+        let key = PrKey::new(repo, number);
+        let Some(entry) = self.issues.get_mut(&key) else {
+            log::debug!(
+                "issue-store: detail for unknown document {}#{n}, dropped",
+                repo,
+                n = number
+            );
+            return;
+        };
+        entry.summary.state = detail.state.clone();
+        entry.detail = Some(detail);
+        entry.detail_at = Some(Instant::now());
+        entry.books.in_flight = false;
+        entry.books.last_error = None;
+        entry.books.fail_streak = 0;
+        self.evict_details();
+    }
+
+    /// The user acknowledged a failure (the page-modal era cleared the
+    /// page slot on cancel): the entry's inline error goes.
+    pub(crate) fn clear_issue_error(&mut self, repo: &str, number: i64) {
+        if let Some(entry) = self.issues.get_mut(&PrKey::new(repo, number)) {
+            entry.error = None;
+        }
+    }
+
+    /// Arm the issue detail read on a document (docs/0072 D2).
+    pub(crate) fn begin_issue_detail_read(&mut self, repo: &str, number: i64) {
+        if let Some(entry) = self.issues.get_mut(&PrKey::new(repo, number)) {
+            entry.books.in_flight = true;
+            entry.books.attempted_at = Some(Instant::now());
+        }
+    }
+
+    /// Fail the issue detail read (docs/0072 D3): the entry keeps any
+    /// previous detail — stale-while-revalidate.
+    pub(crate) fn fail_issue_detail_read(&mut self, repo: &str, number: i64, error: String) {
+        if let Some(entry) = self.issues.get_mut(&PrKey::new(repo, number)) {
+            entry.books.in_flight = false;
+            entry.books.last_error = Some(error);
+            entry.books.fail_streak += 1;
+        }
+    }
+
+    /// Arm an issue document's optimistic write (docs/0072 D4/D5/D6):
+    /// one write per document; the token must ride the confirmation.
+    pub(crate) fn begin_issue_pending(
+        &mut self,
+        repo: &str,
+        number: i64,
+        kind: IssuePendingKind,
+    ) -> Option<u64> {
+        let entry = self.issues.get_mut(&PrKey::new(repo, number))?;
+        if entry.pending.is_some() {
+            return None;
+        }
+        self.next_pending_token += 1;
+        let token = self.next_pending_token;
+        entry.pending = Some(PendingOp {
+            kind,
+            token,
+            started_at: Instant::now(),
+        });
+        // A fresh attempt clears the last failure (docs/0016 D4).
+        entry.error = None;
+        Some(token)
+    }
+
+    /// Confirm an issue pending op (docs/0072 D4/D6, stage 4): close
+    /// and reopen patch their post-state into both layers — the one
+    /// field the payload speaks verbatim; everything else voids the
+    /// cached detail's freshness exactly like the PR side (a new
+    /// comment row or an edited body is only learnable by refetch).
+    pub(crate) fn resolve_issue_pending(&mut self, repo: &str, number: i64, token: u64) -> bool {
+        let key = PrKey::new(repo, number);
+        let Some(entry) = self.issues.get_mut(&key) else {
+            return false;
+        };
+        let Some(op) = &entry.pending else {
+            return false;
+        };
+        if op.token != token {
+            log::warn!("issue-store: stale confirmation {repo}#{number} (token {token})");
+            return false;
+        }
+        let kind = op.kind;
+        entry.pending = None;
+        let confirmed = match kind {
+            IssuePendingKind::Close => Some("CLOSED"),
+            IssuePendingKind::Reopen => Some("OPEN"),
+            // Nothing honest to patch — refetch decides (docs/0072 D4).
+            IssuePendingKind::Comment
+            | IssuePendingKind::Description
+            | IssuePendingKind::CommentEdit
+            | IssuePendingKind::CommentDelete
+            | IssuePendingKind::SetTitle
+            | IssuePendingKind::SetLabels
+            | IssuePendingKind::SetAssignees
+            | IssuePendingKind::SetMilestone
+            | IssuePendingKind::ToggleReaction
+            | IssuePendingKind::ToggleLock => None,
+        };
+        if let Some(state) = confirmed {
+            entry.summary.state = Some(state.to_string());
+            if let Some(detail) = &mut entry.detail {
+                detail.state = Some(state.to_string());
+            }
+        } else {
+            // The unpatchable confirmation changed facts the cached
+            // detail cannot know: void the freshness so the next open
+            // revalidates (the SWR skip keys on a young `detail_at`).
+            entry.detail_at = None;
+        }
+        self.pending_alerts.push(
+            dashboard_core::toasts::Toast::new(
+                dashboard_core::toasts::Level::Success,
+                format!("{} #{number} · {repo}", kind.toast_verb()),
+            )
+            .source("github")
+            .dedupe_key(format!("issue-{}:{repo}#{number}", kind.toast_slug())),
+        );
+        true
+    }
+
+    /// Fail an issue pending op (docs/0072 D4/D6/D7): prior document,
+    /// inline error in the op's scope, warning toast.
+    pub(crate) fn fail_issue_pending(
+        &mut self,
+        repo: &str,
+        number: i64,
+        token: u64,
+        message: String,
+    ) -> bool {
+        let key = PrKey::new(repo, number);
+        let Some(entry) = self.issues.get_mut(&key) else {
+            return false;
+        };
+        let Some(op) = &entry.pending else {
+            return false;
+        };
+        if op.token != token {
+            log::warn!("issue-store: stale failure {repo}#{number} (token {token})");
+            return false;
+        }
+        let kind = op.kind;
+        entry.pending = None;
+        entry.error = Some(MutationError {
+            scope: kind.error_scope(),
+            message: message.clone(),
+        });
+        self.pending_alerts.push(
+            dashboard_core::toasts::Toast::new(
+                dashboard_core::toasts::Level::Warning,
+                format!(
+                    "{noun} failed · #{number} {repo} — {message}",
+                    noun = kind.toast_noun()
+                ),
+            )
+            .source("github")
+            .dedupe_key(format!(
+                "issue-{}-failed:{repo}#{number}",
+                kind.toast_slug()
+            )),
+        );
+        true
+    }
+
+    /// The issue store op came back (docs/0072 D4/D6, stage 4) — the
+    /// same session-scoped resolution and classification as the PR
+    /// side; see [`Self::apply_store_mutation_result`].
+    pub(crate) fn apply_issue_mutation_result(
+        &mut self,
+        repo: &str,
+        number: i64,
+        kind: IssuePendingKind,
+        token: u64,
+        result: SpecResult,
+    ) -> bool {
+        let mut failed: Option<String> = None;
+        if let Some(m) = &result.network {
+            failed = Some(format!("Network error: {m}"));
+        } else if result.status != 200 {
+            let status = result.status;
+            self.apply(result);
+            failed = Some(format!("GitHub answered HTTP {status}"));
+        } else if let Some(message) = result.body.as_deref().and_then(|body| {
+            serde_json::from_str::<gql::Envelope<serde_json::Value>>(body)
+                .ok()
+                .and_then(|env| env.errors.first().map(|e| e.message.clone()))
+        }) {
+            log::warn!("issue-mutation {repo}#{number} {kind:?}: {message}");
+            failed = Some(message);
+        }
+        match failed {
+            // The failure recorded (false = the op did not confirm —
+            // the PR side's contract, kept verbatim).
+            Some(message) => {
+                self.fail_issue_pending(repo, number, token, message);
+                false
+            }
+            None => self.resolve_issue_pending(repo, number, token),
+        }
+    }
+
+    /// The repo view's derived issue rows (docs/0073 D3, stage 4): the
+    /// snapshot's held rows ⊗ the documents (the entry wins), filtered
+    /// to not-closed. Snapshot rows carry no state, so the filter is
+    /// `!= CLOSED` — a stateless row shows; only a confirmed close (or
+    /// a closed detail landing) drops it.
+    pub(crate) fn repo_issue_rows(&self, repo: &gql::Repo) -> Vec<gql::Issue> {
+        repo.issues
+            .nodes
+            .iter()
+            .map(|row| {
+                PrKey::from_row_key(&row.key)
+                    .and_then(|key| self.issues.get(&key))
+                    .map_or_else(|| row.clone(), |entry| entry.summary.clone())
+            })
+            .filter(|row| row.state.as_deref() != Some("CLOSED"))
+            .collect()
+    }
+
     /// past [`PR_STORE_DETAIL_CAP`]. Pending entries never evict (D6);
     /// details landed inside the TTL window are skipped in the first
     /// pass (a page the user is actively reading). When everything is
     /// protected, the fallback evicts past protection anyway — a
     /// bounded map beats unbounded memory.
     fn evict_details(&mut self) {
-        let mut by_age: Vec<PrKey> = self
-            .pulls
-            .iter()
-            .filter(|(_, e)| e.detail.is_some())
-            .map(|(k, _)| k.clone())
-            .collect();
+        // Stage 4 (#555): one store-wide cap across both domains —
+        // candidates are `(key, is_issue)` pairs; the rest is the
+        // original two-pass shape (TTL-protected first, oldest last).
+        let mut by_age: Vec<(PrKey, bool)> = Vec::new();
+        for (k, e) in &self.pulls {
+            if e.detail.is_some() {
+                by_age.push((k.clone(), false));
+            }
+        }
+        for (k, e) in &self.issues {
+            if e.detail.is_some() {
+                by_age.push((k.clone(), true));
+            }
+        }
         if by_age.len() <= PR_STORE_DETAIL_CAP {
             return;
         }
-        by_age.sort_by_key(|k| self.pulls[k].detail_at);
+        by_age.sort_by_key(|(k, is_issue)| {
+            if *is_issue {
+                self.issues[k].detail_at
+            } else {
+                self.pulls[k].detail_at
+            }
+        });
         let now = Instant::now();
         let mut excess = by_age.len() - PR_STORE_DETAIL_CAP;
-        for key in &by_age {
+        for (key, is_issue) in &by_age {
             if excess == 0 {
                 break;
             }
-            let entry = &self.pulls[key];
-            if entry.pending.is_some()
-                || now.duration_since(entry.detail_at.expect("filtered: detail present"))
-                    < PR_DETAIL_TTL
-            {
+            let (pending, at) = if *is_issue {
+                let e = &self.issues[key];
+                (e.pending.is_some(), e.detail_at)
+            } else {
+                let e = &self.pulls[key];
+                (e.pending.is_some(), e.detail_at)
+            };
+            if pending || at.is_some_and(|a| now.duration_since(a) < PR_DETAIL_TTL) {
                 continue;
             }
-            self.drop_detail(key);
+            self.drop_detail(key, *is_issue);
             excess -= 1;
         }
-        for key in &by_age {
+        for (key, is_issue) in &by_age {
             if excess == 0 {
                 break;
             }
-            let entry = &self.pulls[key];
-            if entry.pending.is_some() || entry.detail.is_none() {
+            let (pending, has_detail) = if *is_issue {
+                let e = &self.issues[key];
+                (e.pending.is_some(), e.detail.is_some())
+            } else {
+                let e = &self.pulls[key];
+                (e.pending.is_some(), e.detail.is_some())
+            };
+            if pending || !has_detail {
                 continue;
             }
-            self.drop_detail(key);
+            self.drop_detail(key, *is_issue);
             excess -= 1;
         }
     }
 
-    fn drop_detail(&mut self, key: &PrKey) {
-        if let Some(entry) = self.pulls.get_mut(key) {
-            entry.detail = None;
-            entry.detail_at = None;
-            entry.books = DetailBooks::default();
+    fn drop_detail(&mut self, key: &PrKey, is_issue: bool) {
+        if is_issue {
+            if let Some(e) = self.issues.get_mut(key) {
+                e.detail = None;
+                e.detail_at = None;
+                e.books = DetailBooks::default();
+            }
+            return;
+        }
+        if let Some(e) = self.pulls.get_mut(key) {
+            e.detail = None;
+            e.detail_at = None;
+            e.books = DetailBooks::default();
         }
     }
 
@@ -6895,6 +7372,37 @@ mod tests {
         .expect("row parses")
     }
 
+    fn store_issue(number: i64) -> gql::Issue {
+        serde_json::from_value(serde_json::json!({
+            "key": format!("acme/one#{number}"),
+            "database_id": null,
+            "number": number,
+            "title": format!("Issue {number}"),
+            "state": null,
+            "author": null,
+            "updated_at": null,
+            "url": format!("https://github.com/acme/one/issues/{number}"),
+            "labels": null,
+        }))
+        .expect("issue row parses")
+    }
+
+    fn store_issue_detail() -> gql::IssueDetail {
+        let value = serde_json::json!({
+            "issue": {
+                "id": "I_12",
+                "number": 12,
+                "title": "Issue 12",
+                "url": "u",
+                "state": "OPEN",
+                "createdAt": "2026-09-01T00:00:00Z",
+                "comments": { "totalCount": 0, "nodes": [] },
+                "timelineItems": { "totalCount": 0, "filteredCount": 0, "nodes": [] },
+            }
+        });
+        gql::issue_detail_from_value(&value).expect("issue detail parses")
+    }
+
     fn store_detail(number: i64) -> gql::PrDetail {
         let value = serde_json::json!({
             "pullRequest": {
@@ -7030,6 +7538,92 @@ mod tests {
         assert_eq!(error.scope, ErrorScope::Files);
         assert_eq!(error.message, "nope");
         assert_eq!(state.take_pending_alerts().len(), 1);
+    }
+
+    // Stage 4 (#555): the issue twins — close patches its post-state
+    // into both layers (the one field the payload speaks verbatim),
+    // an append-style confirmation voids the cached detail, and a
+    // snapshot row landing never moves a patched state (rows carry
+    // no state).
+    #[test]
+    fn issue_store_close_patches_both_layers_and_comment_voids() {
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.land_issue_summary("acme/one", &store_issue(12));
+        state.land_issue_detail("acme/one", 12, store_issue_detail());
+        assert!(
+            state
+                .issue_entry("acme/one", 12)
+                .unwrap()
+                .detail_at
+                .is_some()
+        );
+
+        // Close patches both layers and stages the completion toast.
+        let token = state
+            .begin_issue_pending("acme/one", 12, IssuePendingKind::Close)
+            .unwrap();
+        assert!(state.resolve_issue_pending("acme/one", 12, token));
+        let entry = state.issue_entry("acme/one", 12).unwrap();
+        assert_eq!(entry.summary.state.as_deref(), Some("CLOSED"));
+        assert_eq!(
+            entry.detail.as_ref().unwrap().state.as_deref(),
+            Some("CLOSED")
+        );
+        let alerts = state.take_pending_alerts();
+        assert_eq!(
+            alerts[0].dedupe_key.as_deref(),
+            Some("issue-closed:acme/one#12")
+        );
+
+        // A comment confirmation patches nothing — the freshness voids
+        // so the next open revalidates through the new row.
+        let token = state
+            .begin_issue_pending("acme/one", 12, IssuePendingKind::Comment)
+            .unwrap();
+        assert!(state.resolve_issue_pending("acme/one", 12, token));
+        let entry = state.issue_entry("acme/one", 12).unwrap();
+        assert!(entry.pending.is_none());
+        assert!(entry.detail_at.is_none(), "the cached detail voided");
+        assert_eq!(
+            state.take_pending_alerts()[0].dedupe_key.as_deref(),
+            Some("issue-commented:acme/one#12")
+        );
+    }
+
+    #[test]
+    fn issue_store_summary_landing_preserves_state_and_rows_drop_closed() {
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.land_issue_summary("acme/one", &store_issue(12));
+        state.land_issue_detail("acme/one", 12, store_issue_detail());
+
+        // Confirm a close, then land a fresh snapshot row (stateless —
+        // the query asks for open-only): the patched state survives.
+        let token = state
+            .begin_issue_pending("acme/one", 12, IssuePendingKind::Close)
+            .unwrap();
+        assert!(state.resolve_issue_pending("acme/one", 12, token));
+        state.land_issue_summary("acme/one", &store_issue(12));
+        let entry = state.issue_entry("acme/one", 12).unwrap();
+        assert_eq!(
+            entry.summary.state.as_deref(),
+            Some("CLOSED"),
+            "a stateless row never moves the patched state"
+        );
+
+        // The repo view's derived rows drop the closed document (the
+        // #561 semantics, issue edition).
+        let mut repo = repo("acme/one");
+        repo.issues = gql::IssueSummary {
+            total_count: 1,
+            nodes: vec![store_issue(12)],
+        };
+        assert!(state.repo_issue_rows(&repo).is_empty());
+        // Reopen brings it back through the same overlay.
+        let token = state
+            .begin_issue_pending("acme/one", 12, IssuePendingKind::Reopen)
+            .unwrap();
+        assert!(state.resolve_issue_pending("acme/one", 12, token));
+        assert_eq!(state.repo_issue_rows(&repo).len(), 1);
     }
 
     #[test]

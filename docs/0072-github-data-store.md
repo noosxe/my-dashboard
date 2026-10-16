@@ -225,8 +225,31 @@ entry has any op in flight (D5), the submitting surface shows its own
 spinner, and confirmation runs the surface-closing the page-modal path
 did (draft cleared, composer closed — a failure keeps the draft). The
 page-modal ops outside this stage (#212 thread-comment edit/delete,
-resolve toggles, reactions, rail metadata) keep their old path and old
-guards; migrating them later is mechanical.
+resolve toggles, rail metadata) keep their old path and old guards;
+migrating them later is mechanical. The issue page's stage-4 pass
+(#555) moved ITS whole set — including the reaction/lock toggles — onto
+the same machinery.
+
+**Stage 4 (#555) — issue documents join the store.** Issues live in
+their own `(repo, number)` map (`IssueEntry`: the snapshot's open-issue
+rows as the summary layer, the issue page's query as the detail layer)
+with the same freshness books, SWR gates, eviction cap (one store-wide
+cap across both domains), and pending machinery as PRs. The repo
+snapshot's open-issue rows land as summaries — snapshot rows carry no
+`state` (the query asks for open-only), so a row landing never moves a
+patched or detail-landed state, and the state itself propagates from
+detail landings both ways. The repo view derives its issue rows from
+the snapshot ⊗ the documents (docs/0073 D3) and grows the pending pill
+("closing…" the way PR rows read "merging…"); only a confirmed close —
+or a closed detail landing — drops the row, and a confirmed reopen
+brings it back. Close/reopen patch their post-state into both layers
+(the one field the payload speaks verbatim) and revalidate in the
+background; every other issue write (comment/description/timeline-row
+writes, title, the three rail pickers, reaction/lock toggles) patches
+nothing and voids the cached detail's freshness, refetching through
+its arming hook — exactly the stage-3 rule. Failures keep the prior
+document, record inline in the op's documented scope (Timeline /
+Rail — docs/0020 D5 placement kept), and stage the warning toast.
 
 ### D5 — Concurrency: one pending op per entry, many entries in flight
 
@@ -322,6 +345,7 @@ the existing fetch pipeline, not a new pipeline.
    (append-style confirmations land via the detail refetch as today).
    Shipped: #554, D4's stage-3 paragraph.
 4. **Issues** — `Kind::Issue` documents for issue_page/new_issue_page.
+   Shipped: #555, D1's stage-4 paragraph.
 
 Stages 1–2 are the design's core; 3–4 are mechanical follow-ons on the
 same rules and can split into their own issues.
