@@ -194,7 +194,7 @@ query AccountPullRequests($query: String!, $after: String) {
 "#;
 
 /// `search` root in the home-lane response (docs/0047 D2).
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchData {
     #[serde(default)]
@@ -202,7 +202,7 @@ pub struct SearchData {
     pub search: Option<SearchResult>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchResult {
     /// The full match count regardless of paging — the honest "M" in the
@@ -227,7 +227,7 @@ pub struct HomePrsPage {
 
 /// A search node's repository pointer — the key source (`owner/name`)
 /// that repo rows get from their enclosing snapshot for free.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SearchRepoRef {
     name_with_owner: String,
@@ -235,7 +235,7 @@ struct SearchRepoRef {
 
 /// A search `... on PullRequest` node: the repo PR shape plus the
 /// repository pointer (flattened so `PrNode` stays the single field list).
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SearchPrNode {
     #[serde(flatten)]
@@ -283,21 +283,21 @@ pub fn home_prs_page(search: &SearchResult) -> HomePrsPage {
 
 /// GraphQL response envelope: HTTP 200 with `errors[]` and possibly partial
 /// `data` (doc 0007 D5).
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Envelope<T> {
     pub data: Option<T>,
     #[serde(default)]
     pub errors: Vec<GqlError>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct GqlError {
     pub message: String,
 }
 
 /// `rateLimit` root field — the authoritative per-request cost for GraphQL
 /// (doc 0007 D5); `resetAt` is RFC-3339.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RateLimitField {
     pub remaining: i64,
@@ -316,7 +316,7 @@ pub struct RateLimitField {
 /// metadata. Legacy name — predates the global snapshot's removal;
 /// `Repo.prs`/`Repo.issues` parse to empty summaries because the
 /// inventory selects no nested connections.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SnapshotData {
     #[serde(default)]
@@ -324,7 +324,7 @@ pub struct SnapshotData {
     pub viewer: ViewerData,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ViewerData {
     pub login: String,
@@ -339,7 +339,7 @@ pub struct ViewerData {
 /// `CardTotals` response (docs/0051 D2): totals-only repos page — no
 /// metadata, no nodes. The card sums `totalCount` over the stitched
 /// `nodes` array (the paged runner concatenates pages, §run_paged_view).
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CardTotalsData {
     #[serde(default)]
@@ -347,21 +347,21 @@ pub struct CardTotalsData {
     pub viewer: CardTotalsViewer,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CardTotalsViewer {
     /// `null` when the subselection errored — keep last-known totals.
     pub repositories: Option<RepoPage>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrgConnection {
     #[serde(default)]
     pub nodes: Vec<serde_json::Value>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RepoPage {
     #[serde(default)]
@@ -372,7 +372,7 @@ pub struct RepoPage {
     pub nodes: Vec<serde_json::Value>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PageInfo {
     #[serde(default)]
@@ -381,7 +381,7 @@ pub struct PageInfo {
     pub end_cursor: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RepoSnapshotData {
     #[serde(default)]
@@ -755,7 +755,7 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
 /// Envelope data for the detail query — the repository node stays raw so
 /// the PR parses through [`pr_detail_from_value`] with the same per-node
 /// degradation rules as the snapshot (doc 0007 D3).
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct PrDetailData {
     pub repository: Option<serde_json::Value>,
 }
@@ -765,15 +765,16 @@ pub struct PrDetailData {
 /// can reproduce. `id: None` covers degraded users and the team/bot/
 /// mannequin members (`login` empty): display-only rows whose presence
 /// forces the reviewer picker's Edit hidden — D3's reviewer clause.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PrReviewRequest {
     pub id: Option<String>,
     pub login: String,
 }
 
-/// Everything the PR page renders (docs/0016 D2). Session-only — this
-/// never enters a cache.
-#[derive(Debug, Clone)]
+/// Everything the PR page renders (docs/0016 D2). Landed into the
+/// store's detail layer; persisted to `app_db` and restored through
+/// this derive (docs/0072 D8, #556).
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PrDetail {
     /// Node ID — the mutation target for the stage-2 write path.
     pub id: String,
@@ -837,13 +838,13 @@ pub struct PrDetail {
     pub comments: PrComments,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct PrCommits {
     pub total_count: i64,
     pub nodes: Vec<PrCommit>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PrCommit {
     pub oid: String,
     pub headline: String,
@@ -858,7 +859,7 @@ pub struct PrCommit {
 /// Checks connection from `statusCheckRollup.contexts` (docs/0016 D7).
 /// The union's two members unify into [`PrCheck`]; `total_count` is the
 /// server-side count (`first: 100` caps the rows).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct PrChecks {
     pub total_count: i64,
     pub nodes: Vec<PrCheck>,
@@ -872,14 +873,14 @@ pub struct PrChecks {
 /// keep the external-link affordance. Live-verified 2026-09-17: the
 /// CheckRun fragment fetches `checkSuite { app { slug } }` and Actions
 /// runs carry `slug: "github-actions"`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 pub enum CheckOrigin {
     Actions,
     OtherCheckRun,
     StatusContext,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct PrCheck {
     pub name: String,
     pub state: CheckState,
@@ -888,7 +889,7 @@ pub struct PrCheck {
 }
 
 /// Unified check outcome for tone/icon mapping (D7).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 pub enum CheckState {
     Success,
     Failure,
@@ -961,7 +962,7 @@ pub fn status_context_state(state: Option<&str>) -> CheckState {
 }
 /// The repository's enabled merge methods (docs/0016 D5) — ride along
 /// on the detail query's `repository` wrapper.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub struct MergeMethods {
     pub merge: bool,
     pub squash: bool,
@@ -1126,14 +1127,15 @@ query IssueDetail($owner: String!, $name: String!, $number: Int!) {
 /// Envelope data for the issue detail query — the repository node stays
 /// raw so the issue parses through [`issue_detail_from_value`] with the
 /// same per-node degradation rules as the PR detail (0007 D3).
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct IssueDetailData {
     pub repository: Option<serde_json::Value>,
 }
 
-/// Everything the issue page renders (docs/0020 D2). Session-only —
-/// this never enters a cache.
-#[derive(Debug, Clone)]
+/// Everything the issue page renders (docs/0020 D2). Landed into the
+/// store's detail layer; persisted to `app_db` and restored through
+/// this derive (docs/0072 D8, #556).
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct IssueDetail {
     /// Node ID — the mutation target (comment subject, body edit, close).
     pub id: String,
@@ -1202,7 +1204,7 @@ pub struct IssueDetail {
 /// replace-semantics save (0022 D3); `color` is user data — the
 /// data-colored chip tint (0022 Q2, #119), degraded to the muted pill
 /// when absent or garbled.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct IssueLabel {
     /// `None` = degraded node (id absent) — display works, the D3
     /// guard disarms the picker.
@@ -1214,7 +1216,7 @@ pub struct IssueLabel {
 /// `Assignee { id login avatarUrl }` — the applied-assignee row (0022
 /// D3). Replaces the bare [`Author`] rows the rail used to carry: the
 /// picker's replace-semantics save needs node ids.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct IssueAssignee {
     /// Same degrade story as [`IssueLabel::id`].
     pub id: Option<String>,
@@ -1224,7 +1226,7 @@ pub struct IssueAssignee {
 
 /// `Milestone { id title state }` — the applied milestone (0022 D8)
 /// and, with the same shape, the picker's source rows.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct IssueMilestone {
     pub id: String,
     pub title: String,
@@ -1236,7 +1238,7 @@ pub struct IssueMilestone {
 /// order the API returns groups in. The glyph mapping lives here (one
 /// place, D8); `label` is the picker's text fallback should the platform
 /// font lack emoji (D4 contingency).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 pub enum ReactionContent {
     ThumbsUp,
     ThumbsDown,
@@ -1322,7 +1324,7 @@ impl ReactionContent {
 
 /// docs/0023 D2 — one parsed reaction group, shared by the issue body
 /// and every comment (same `Reactable` shape upstream).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct ReactionGroup {
     pub content: ReactionContent,
     pub viewer_has_reacted: bool,
@@ -1359,7 +1361,7 @@ pub fn reaction_groups_from_value(value: Option<&serde_json::Value>) -> Vec<Reac
 /// docs/0021 D2 — one timeline event row. Hand-parsed from the
 /// `IssueTimelineItems` union per 0007 D3; unknown `__typename` values skip
 /// (defensive — the itemTypes filter should make them impossible).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct IssueEvent {
     /// Wire completeness: events are read-only decoration (0021 D4) —
     /// nothing keys on the node id today; interactive event rows (the
@@ -1374,7 +1376,7 @@ pub struct IssueEvent {
 
 /// docs/0021 D2 — the event kinds the page renders. Closed carries the
 /// state reason so the row copy matches the header badge vocabulary.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub enum IssueEventKind {
     Assigned { login: String },
     Unassigned { login: String },
@@ -1560,7 +1562,7 @@ pub fn issue_detail_from_value(value: &serde_json::Value) -> Option<IssueDetail>
 /// Shared envelope for the three picker queries — same shape as
 /// [`IssueDetailData`]: the repository node stays raw and parses through
 /// the per-source fn with the same degradation rules (0007 D3).
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct RepoPickerData {
     pub repository: Option<serde_json::Value>,
 }
@@ -1737,13 +1739,13 @@ fn assignee_login(node: &serde_json::Value) -> Option<String> {
         .map(str::to_string)
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct PrReviews {
     pub total_count: i64,
     pub nodes: Vec<PrReview>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PrReview {
     pub author: Option<Author>,
     /// `PullRequestReviewState` — APPROVED / CHANGES_REQUESTED / COMMENTED …
@@ -1764,13 +1766,13 @@ pub struct PrReview {
     pub reaction_groups: Vec<ReactionGroup>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct PrComments {
     pub total_count: i64,
     pub nodes: Vec<PrComment>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PrComment {
     pub author: Option<Author>,
     pub body: String,
@@ -2711,7 +2713,7 @@ pub struct SnapshotCache {
 // Node → domain mapping
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RepoNode {
     database_id: Option<i64>,
@@ -2745,7 +2747,7 @@ struct RepoNode {
     issues: IssuePageNode,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PrPageNode {
     #[serde(default)]
@@ -2754,7 +2756,7 @@ struct PrPageNode {
     nodes: Vec<serde_json::Value>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct IssuePageNode {
     #[serde(default)]
@@ -2763,7 +2765,7 @@ struct IssuePageNode {
     nodes: Vec<serde_json::Value>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PrNode {
     database_id: Option<i64>,
@@ -2784,12 +2786,12 @@ struct PrNode {
     review_requests: Option<ReviewRequestsSummary>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct StatusRollupNode {
     state: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct IssueNode {
     database_id: Option<i64>,
@@ -2966,7 +2968,7 @@ query PrThreads($owner: String!, $name: String!, $number: Int!) {
 /// Envelope data for the threads query — the repository node stays raw so
 /// the parse runs through [`pr_threads_from_value`] with the same per-node
 /// degradation rules as the detail (doc 0007 D3).
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct PrThreadsData {
     pub repository: Option<serde_json::Value>,
 }

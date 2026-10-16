@@ -275,15 +275,43 @@ story (docs/0016 D5 unchanged); the toast is cheap, dedupe-keyed, and
 consistent — "merge finished" should not depend on where you were standing.
 Level `success`/`warning` per D4.
 
-### D8 — Persistence is deferred, not forgotten
+### D8 — Persistence (phase 2, #556)
 
-Entries are session-scoped memory. The literal "local in-app DB" — an
-`app_db` table via the additive `user_version` chain, seeded at startup the
-way `GithubCache` seeds snapshots — is the phase-2 extension and gets its
-own issue. Deliberate: persistence drags in staleness-on-restore, pruning,
-and migration questions this design does not need solved to ship the UX
-win, and `GithubCache` already covers the cold-start lanes that matter
-today.
+The store writes through to `app_db` (docs/0063) as schema v3, table
+`github_documents` — one row per document, natural key
+`(kind, repo, number)` under UNIQUE (the `id` stays the engine-assigned
+rowid, §9's rule), each layer as opaque JSON with wall-clock epoch-ms
+stamps. Core is type-blind: `StoredDocument` carries JSON strings; the
+module owns serde. The plumbing reuses the app-DB shapes exactly — the
+buffered writer thread, best-effort commit (log-only failure; the
+in-memory store stays the session's source of truth), the lazy reader,
+degraded isolation (reads empty, writes drop — the store then runs
+session-scoped, exactly pre-#556), and the hourly prune.
+
+- **Write-through**: every store mutation that changes a document's
+  content persists the row — summary landings, detail landings, state
+  patches, freshness voids. Books, pending ops, and mutation errors
+  stay memory-only; **pending ops are memory-only by decision** (an
+  interrupted write must never replay — there is no way to know
+  server-side whether it landed). A persisted detail layer exists iff
+  it carries a live stamp: a voided body persists summary-only, so a
+  restore cannot claim freshness the confirmed write invalidated.
+- **Restore**: at state construction (the one blocking read on the
+  path — the docs/0054 §8 precedent), newest-touched first, bounded to
+  the table cap. Rows parse with the live parser; a schema-skew row is
+  skipped, never fatal. Summaries restore unconditionally (a stale
+  summary still beats a skeleton; the snapshot revalidates on its own
+  lanes). **Details restore only within a 1-hour TTL of their landing
+  (owner-tuned)** — beyond it the row restores summary-only. In-session
+  gates keep their own TTLs: a restored 30-minute detail paints stale
+  and refetches on open, which is the point.
+- **Bounds**: the in-memory cap and the table cap are the same number
+  (1024, owner-set). Memory evicts on write (D9's two-pass, pending
+  pinned); the table prunes drop-oldest-touched in the hourly pass,
+  arrival order breaking equal-touch ties.
+- **Sign-out** wipes the persisted rows with the memory maps (the
+  `GithubCache::clear` symmetry; it also caught a #555 leak — the issue
+  map had never been cleared on sign-out).
 
 ### D9 — Bounds, TTLs, eviction
 
@@ -346,13 +374,16 @@ the existing fetch pipeline, not a new pipeline.
    Shipped: #554, D4's stage-3 paragraph.
 4. **Issues** — `Kind::Issue` documents for issue_page/new_issue_page.
    Shipped: #555, D1's stage-4 paragraph.
+5. **Persistence** — the `app_db` write-through and boot restore (D8).
+   Shipped: #556, D8.
 
 Stages 1–2 are the design's core; 3–4 are mechanical follow-ons on the
 same rules and can split into their own issues.
 
 ## 7. Non-goals
 
-- **Persistence** to `app_db` (D8 — deferred with its own issue).
+- ~~**Persistence** to `app_db` (D8 — deferred with its own issue).~~
+  Shipped: #556 (D8).
 - Live updates of any kind — no websockets, no polling cadence changes
   (D10).
 - Full entity normalization (separate user/comment/timeline tables) —

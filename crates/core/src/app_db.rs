@@ -44,7 +44,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-use gpui::SharedString;
+use gpui::{App, Global, SharedString};
 use log::warn;
 use rusqlite::{Connection, params};
 
@@ -73,8 +73,9 @@ const DB_FILE: &str = "usage.db";
 /// The chain head (D4 + docs/0063 D2): one centrally-ordered,
 /// additive-only migration chain per database file — no concern bumps
 /// `user_version` alone. v1 = `usage_records` (docs/0057), v2 =
-/// `notification_log` (docs/0063).
-const SCHEMA_VERSION: i64 = 2;
+/// `notification_log` (docs/0063), v3 = `github_documents`
+/// (docs/0072 D8).
+const SCHEMA_VERSION: i64 = 3;
 
 /// Schema v1 (docs/0057 D4): column order mirrors [`UsageRecord`];
 /// Option fields are nullable columns, bools are 0/1. `trigger_kind` is
@@ -146,6 +147,29 @@ CREATE INDEX IF NOT EXISTS idx_notification_log_key
 PRAGMA user_version = 2;
 ";
 
+/// Schema v3 (docs/0072 D8): the PR/issue document store's table — one
+/// row per document, natural key `(kind, repo, number)` under UNIQUE
+/// (the §9 rule applies to the `id`: engine-assigned rowid, never
+/// caller-stamped; the natural key only enforces one row per
+/// document). Layers are opaque JSON — core has no github types —
+/// stamped with wall-clock epoch ms so a restore can reconstruct ages.
+/// `touched_ms` drives the drop-oldest prune.
+const SCHEMA_V3: &str = "
+CREATE TABLE IF NOT EXISTS github_documents (
+    id            INTEGER PRIMARY KEY,  -- rowid alias: engine-assigned (§9)
+    kind          TEXT NOT NULL,        -- 'pr' | 'issue'
+    repo          TEXT NOT NULL,        -- 'owner/name' (the store's key)
+    number        INTEGER NOT NULL,
+    summary_at_ms INTEGER NOT NULL,
+    detail_at_ms  INTEGER,              -- NULL = no cached detail
+    summary_json  TEXT NOT NULL,
+    detail_json   TEXT,                 -- NULL = no cached detail
+    touched_ms    INTEGER NOT NULL,
+    UNIQUE(kind, repo, number)
+);
+PRAGMA user_version = 3;
+";
+
 /// The notification statements (docs/0063 D3): insert on append,
 /// key-delete on mark-read, all-delete on panel open.
 const INSERT_NOTIF_SQL: &str = "INSERT INTO notification_log (\
@@ -163,6 +187,39 @@ const NOTIF_CAP: usize = 500;
 /// log with (`LOG_CAP` semantics on restore).
 const NOTIF_RESTORE_LIMIT: usize = 100;
 
+/// The document-store row (docs/0072 D8): one github PR/issue document,
+/// its two layers as opaque JSON plus wall-clock landing stamps. Core is
+/// type-blind (no github dependency) — the module owns parse/serialize.
+#[derive(Clone, Debug)]
+pub struct StoredDocument {
+    pub kind: String,
+    pub repo: String,
+    pub number: i64,
+    pub summary_at_ms: u64,
+    pub detail_at_ms: Option<u64>,
+    pub summary_json: String,
+    pub detail_json: Option<String>,
+}
+
+/// v3 statements (docs/0072 D8): upsert on the natural key, key/all
+/// deletes (sign-out), newest-first restore bounded to the table cap.
+const UPSERT_DOC_SQL: &str = "INSERT INTO github_documents (\
+     kind, repo, number, summary_at_ms, detail_at_ms, summary_json, detail_json, touched_ms) \
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) \
+     ON CONFLICT(kind, repo, number) DO UPDATE SET \
+     summary_at_ms = excluded.summary_at_ms, detail_at_ms = excluded.detail_at_ms, \
+     summary_json = excluded.summary_json, detail_json = excluded.detail_json, \
+     touched_ms = excluded.touched_ms";
+const DELETE_DOC_KEY_SQL: &str =
+    "DELETE FROM github_documents WHERE kind = ?1 AND repo = ?2 AND number = ?3";
+const DELETE_DOC_ALL_SQL: &str = "DELETE FROM github_documents";
+const SELECT_DOC_SQL: &str = "SELECT kind, repo, number, summary_at_ms, detail_at_ms, \
+     summary_json, detail_json FROM github_documents \
+     ORDER BY touched_ms DESC, id DESC LIMIT ?1";
+/// The persisted cap (docs/0072 D8): drop-oldest-touched in the hourly
+/// prune — the table is the store's working set, not an archive.
+pub const GITHUB_DOC_CAP: usize = 1024;
+
 /// One buffered write (docs/0063 D4): usage records and notification
 /// commands share the writer thread; each kind commits in its own
 /// transaction so a failure in one never strikes out the other.
@@ -173,6 +230,18 @@ enum WriteCmd {
     NotifDeleteKey(String),
     /// docs/0063 D3: panel open — everything acknowledges.
     NotifDeleteAll,
+    /// docs/0072 D8: document write-through (upsert on the natural key).
+    DocPut(StoredDocument),
+    /// docs/0072 D8: one document deleted (currently unused by callers;
+    /// the sign-out path is the all-delete below — kept for symmetry
+    /// with the notification pair and future lane deletes).
+    DocDeleteKey {
+        kind: String,
+        repo: String,
+        number: i64,
+    },
+    /// docs/0072 D8: sign-out wipes every persisted document.
+    DocDeleteAll,
 }
 
 /// Buffer state shared between callers and the writer thread.
@@ -209,6 +278,25 @@ fn degrade_toast() -> Toast {
     .dedupe_key("usage-store-degraded")
 }
 
+/// The app-wide DB handle (docs/0072 D8): `main` sets it right after
+/// opening the store; module inits that need persistence read it — the
+/// [`crate::usage_records::init_with`] precedent, without a trait
+/// object (the document paths are concrete `SQLiteStore` methods).
+struct DbGlobal(Arc<SQLiteStore>);
+
+impl Global for DbGlobal {}
+
+/// Publish the handle (called once from `main`, before module init).
+pub fn set_global(cx: &mut App, store: Arc<SQLiteStore>) {
+    cx.set_global(DbGlobal(store));
+}
+
+/// The handle, if published. `None` before `main` sets it (and in
+/// tests that never set it) — callers then run unpersisted.
+pub fn global(cx: &App) -> Option<Arc<SQLiteStore>> {
+    cx.try_global::<DbGlobal>().map(|g| g.0.clone())
+}
+
 /// The SQLite-backed usage store (docs/0057). Implements the same
 /// [`UsageStore`] seam as [`MemorySink`]; swapped in at `init_with` by
 /// `main` (D9). All fallible paths degrade to in-memory capture rather
@@ -241,10 +329,12 @@ impl SQLiteStore {
         Self::open_at(paths.data_dir().join(DB_FILE))
     }
 
-    /// Open (creating as needed) at an explicit path — the test seam.
-    /// Always returns a store; failures degrade to memory instead of
-    /// surfacing (docs/0057 D6, docs/0053 D3 boundary (c)).
-    pub(crate) fn open_at(db_path: PathBuf) -> Arc<Self> {
+    /// Open (creating as needed) at an explicit path — the test seam
+    /// (in-crate and module tests; production goes through
+    /// [`Self::open_or_fallback`]). Always returns a store; failures
+    /// degrade to memory instead of surfacing (docs/0057 D6,
+    /// docs/0053 D3 boundary (c)).
+    pub fn open_at(db_path: PathBuf) -> Arc<Self> {
         let store = Arc::new(Self {
             db_path: db_path.clone(),
             state: Mutex::new(WriterState {
@@ -480,15 +570,61 @@ impl SQLiteStore {
                     WriteCmd::NotifDeleteAll => {
                         tx.execute(DELETE_NOTIF_ALL_SQL, [])?;
                     }
-                    // Usage commands take the batch path; a mixed call
-                    // would only reorder usage rows, never destroy them.
-                    WriteCmd::Usage(_) => {}
+                    // Usage and document commands take their own batch
+                    // paths; a mixed call would only reorder rows
+                    // within a kind, never destroy them.
+                    WriteCmd::Usage(_)
+                    | WriteCmd::DocPut(_)
+                    | WriteCmd::DocDeleteKey { .. }
+                    | WriteCmd::DocDeleteAll => {}
                 }
             }
             tx.commit()
         })();
         if let Err(e) = res {
             warn!("app db: notification batch failed ({e}); best-effort, session state unaffected");
+        }
+    }
+}
+
+impl SQLiteStore {
+    /// docs/0072 D8: one wake's document commands, replayed in drain
+    /// order in a single transaction, same best-effort contract as the
+    /// notification path (log-only failure — the in-memory store stays
+    /// the session's source of truth; a lost write only costs warmth on
+    /// the next launch).
+    fn commit_documents(&self, conn: &Connection, cmds: Vec<WriteCmd>) {
+        let res = (|| -> rusqlite::Result<()> {
+            let tx = conn.unchecked_transaction()?;
+            for cmd in &cmds {
+                match cmd {
+                    WriteCmd::DocPut(doc) => {
+                        let mut stmt = tx.prepare_cached(UPSERT_DOC_SQL)?;
+                        stmt.execute(params![
+                            doc.kind,
+                            doc.repo,
+                            doc.number,
+                            enc_ms(doc.summary_at_ms),
+                            doc.detail_at_ms.map(enc_ms),
+                            doc.summary_json,
+                            doc.detail_json,
+                            enc_ms(now_epoch_ms()),
+                        ])?;
+                    }
+                    WriteCmd::DocDeleteKey { kind, repo, number } => {
+                        let mut stmt = tx.prepare_cached(DELETE_DOC_KEY_SQL)?;
+                        stmt.execute(params![kind, repo, number])?;
+                    }
+                    WriteCmd::DocDeleteAll => {
+                        tx.execute(DELETE_DOC_ALL_SQL, [])?;
+                    }
+                    _ => {}
+                }
+            }
+            tx.commit()
+        })();
+        if let Err(e) = res {
+            warn!("app db: document batch failed ({e}); best-effort, session state unaffected");
         }
     }
 }
@@ -551,6 +687,89 @@ impl UsageSource for SQLiteStore {
 }
 
 impl UsageStore for SQLiteStore {}
+
+impl SQLiteStore {
+    /// docs/0072 D8 write-through: buffer one document upsert (never
+    /// I/O — the writer thread commits it). Degraded stores drop the
+    /// command; the session's memory store is unaffected either way.
+    pub fn put_document(&self, doc: StoredDocument) {
+        self.push_cmd(WriteCmd::DocPut(doc));
+    }
+
+    /// docs/0072 D8: buffer one document delete (key-scoped lane
+    /// cleanup).
+    pub fn delete_document(&self, kind: &str, repo: &str, number: i64) {
+        self.push_cmd(WriteCmd::DocDeleteKey {
+            kind: kind.to_string(),
+            repo: repo.to_string(),
+            number,
+        });
+    }
+
+    /// docs/0072 D8: buffer the all-delete (sign-out wipes persisted
+    /// documents the way `GithubCache::clear` wipes the JSON lanes).
+    pub fn delete_documents(&self) {
+        self.push_cmd(WriteCmd::DocDeleteAll);
+    }
+
+    /// docs/0072 D8 boot restore: newest-first (by touch), bounded to
+    /// [`GITHUB_DOC_CAP`], on the lazy reader. Best-effort by the
+    /// notification contract — a failure reads as empty and must NOT
+    /// flip the store degraded; the module then runs session-scoped,
+    /// exactly pre-#556.
+    pub fn load_documents(&self) -> Vec<StoredDocument> {
+        if self.degraded.load(Ordering::Relaxed) {
+            return Vec::new();
+        }
+        let mut guard = lock(&self.reader);
+        let Some(conn) = self.reader_conn(&mut guard) else {
+            return Vec::new();
+        };
+        let read = (|| -> rusqlite::Result<Vec<StoredDocument>> {
+            let mut stmt = conn.prepare_cached(SELECT_DOC_SQL)?;
+            let rows = stmt.query_map(
+                params![i64::try_from(GITHUB_DOC_CAP).unwrap_or(i64::MAX)],
+                |r| {
+                    Ok(StoredDocument {
+                        kind: r.get(0)?,
+                        repo: r.get(1)?,
+                        number: r.get(2)?,
+                        summary_at_ms: dec_ms(r.get::<_, i64>(3)?),
+                        detail_at_ms: r.get::<_, Option<i64>>(4)?.map(dec_ms),
+                        summary_json: r.get(5)?,
+                        detail_json: r.get(6)?,
+                    })
+                },
+            )?;
+            rows.collect()
+        })();
+        match read {
+            Ok(rows) => rows,
+            Err(e) => {
+                warn!("app db: document read failed ({e})");
+                Vec::new()
+            }
+        }
+    }
+
+    /// The lazy read connection, shared by the reader paths (the
+    /// notification `load_unread` shape). `None` = degrade to empty.
+    fn reader_conn<'a>(&'a self, guard: &'a mut Option<Connection>) -> Option<&'a Connection> {
+        if guard.is_none() {
+            match Connection::open(&self.db_path).and_then(|c| {
+                configure(&c)?;
+                Ok(c)
+            }) {
+                Ok(conn) => *guard = Some(conn),
+                Err(e) => {
+                    warn!("app db: read connection failed ({e})");
+                    return None;
+                }
+            }
+        }
+        guard.as_ref()
+    }
+}
 
 impl NotificationLog for SQLiteStore {
     fn insert(&self, row: PendingNotification) {
@@ -640,9 +859,13 @@ fn writer_loop(store: Arc<SQLiteStore>, conn: Connection) {
                 // transaction, preserving drain order within each kind.
                 let mut usage: Vec<UsageRecord> = Vec::new();
                 let mut notifs: Vec<WriteCmd> = Vec::new();
+                let mut docs: Vec<WriteCmd> = Vec::new();
                 for cmd in cmds {
                     match cmd {
                         WriteCmd::Usage(rec) => usage.push(rec),
+                        WriteCmd::DocPut(_)
+                        | WriteCmd::DocDeleteKey { .. }
+                        | WriteCmd::DocDeleteAll => docs.push(cmd),
                         cmd => notifs.push(cmd),
                     }
                 }
@@ -651,6 +874,9 @@ fn writer_loop(store: Arc<SQLiteStore>, conn: Connection) {
                 }
                 if !notifs.is_empty() {
                     store.commit_notifications(&conn, notifs);
+                }
+                if !docs.is_empty() {
+                    store.commit_documents(&conn, docs);
                 }
             }
         }
@@ -674,6 +900,9 @@ fn writer_loop(store: Arc<SQLiteStore>, conn: Connection) {
             // contract is usage-scoped).
             if let Err(e) = prune_notifications(&conn) {
                 warn!("app db: notification prune failed ({e})");
+            }
+            if let Err(e) = prune_documents(&conn) {
+                warn!("app db: document prune failed ({e})");
             }
             last_prune = Some(Instant::now());
         }
@@ -717,6 +946,17 @@ fn prune_notifications(conn: &Connection) -> rusqlite::Result<usize> {
     )
 }
 
+/// docs/0072 D8: keep the newest [`GITHUB_DOC_CAP`] rows by touch —
+/// the table mirrors the store's working-set cap (docs/0072 D9), not
+/// an archive. Rides the hourly pass like the notification cap.
+fn prune_documents(conn: &Connection) -> rusqlite::Result<usize> {
+    conn.execute(
+        "DELETE FROM github_documents WHERE id NOT IN \
+         (SELECT id FROM github_documents ORDER BY touched_ms DESC, id DESC LIMIT ?1)",
+        params![i64::try_from(GITHUB_DOC_CAP).unwrap_or(i64::MAX)],
+    )
+}
+
 /// Writer connection setup: create the data dir (D2 — the one
 /// filesystem touch on the open path, a local mkdir), then pragmas
 /// (D5) and schema migration (D4) before the thread starts. Errors
@@ -752,7 +992,10 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     if v < 2 {
         conn.execute_batch(SCHEMA_V2)?;
     }
-    debug_assert_eq!(v.max(2), SCHEMA_VERSION);
+    if v < 3 {
+        conn.execute_batch(SCHEMA_V3)?;
+    }
+    debug_assert_eq!(v.max(3), SCHEMA_VERSION);
     Ok(())
 }
 
@@ -830,6 +1073,20 @@ mod tests {
     fn temp_db(tag: &str) -> PathBuf {
         let n = TEMP_SEQ.fetch_add(1, Ordering::Relaxed);
         std::env::temp_dir().join(format!("usage-sqlite-{}-{}-{n}", tag, std::process::id()))
+    }
+
+    /// A minimal document row: optional detail layer (`with_detail`)
+    /// carrying a recognizable marker.
+    fn doc(kind: &str, repo: &str, number: i64, with_detail: bool) -> StoredDocument {
+        StoredDocument {
+            kind: kind.into(),
+            repo: repo.into(),
+            number,
+            summary_at_ms: now_epoch_ms(),
+            detail_at_ms: with_detail.then(now_epoch_ms),
+            summary_json: format!("\"{kind}-{repo}#{number}\""),
+            detail_json: with_detail.then(|| format!("\"detail-{repo}#{number}\"")),
+        }
     }
 
     /// A minimal row (docs/0053 §9's helper shape): controlled
@@ -1052,6 +1309,105 @@ mod tests {
     }
 
     #[test]
+    fn v2_install_migrates_and_keeps_notification_rows() {
+        let path = temp_db("v2-migrate");
+        {
+            // A genuine v2 install: schemas 1+2, stamped v2.
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(SCHEMA_V1).unwrap();
+            conn.execute_batch(SCHEMA_V2).unwrap();
+            conn.execute(
+                INSERT_NOTIF_SQL,
+                params![
+                    enc_ms(now_epoch_ms()),
+                    "warning",
+                    "test",
+                    None::<&str>,
+                    "m",
+                    None::<&str>
+                ],
+            )
+            .unwrap();
+        }
+        let store = SQLiteStore::open_at(path.clone());
+        assert_eq!(user_version(&path), SCHEMA_VERSION);
+        // The new table is live. One flush per store lifetime (the
+        // quit-flush is the only deterministic drain) — every buffered
+        // command rides it, and reads after it are the durable truth.
+        store.put_document(doc("pr", "acme/one", 1, true));
+        store.flush_blocking();
+        assert_eq!(store.load_unread().len(), 1, "v2 row survives v3");
+        assert_eq!(store.load_documents().len(), 1);
+    }
+
+    #[test]
+    fn document_round_trip_upsert_and_layers() {
+        let store = SQLiteStore::open_at(temp_db("doc-roundtrip"));
+        // Drain order is commit order (D3): the upsert's second put
+        // lands after the first, so the final row is the stamp-less
+        // one — a re-land that voided the detail.
+        store.put_document(doc("pr", "acme/one", 7, true));
+        store.put_document(doc("issue", "acme/one", 12, true));
+        store.put_document(doc("pr", "acme/one", 7, false));
+        store.flush_blocking();
+        let rows = store.load_documents();
+        assert_eq!(rows.len(), 2);
+        let pr = rows.iter().find(|r| r.kind == "pr").unwrap();
+        assert_eq!(pr.repo, "acme/one");
+        assert_eq!(pr.number, 7);
+        assert_eq!(pr.summary_json, "\"pr-acme/one#7\"");
+        assert!(
+            pr.detail_json.is_none(),
+            "stamp-less detail persists summary-only"
+        );
+        assert!(pr.detail_at_ms.is_none());
+        let issue = rows.iter().find(|r| r.kind == "issue").unwrap();
+        assert_eq!(issue.number, 12);
+        assert!(issue.detail_json.is_some());
+        assert!(issue.detail_at_ms.is_some());
+    }
+
+    #[test]
+    fn document_deletes_key_then_all() {
+        let store = SQLiteStore::open_at(temp_db("doc-delete"));
+        store.put_document(doc("pr", "acme/one", 7, true));
+        store.put_document(doc("issue", "acme/one", 12, true));
+        store.delete_document("pr", "acme/one", 7);
+        store.delete_documents();
+        // All three commands replay in drain order: the puts insert,
+        // the key-delete removes one, the all-delete clears the rest.
+        store.flush_blocking();
+        assert!(store.load_documents().is_empty());
+    }
+
+    #[test]
+    fn document_table_prunes_to_the_cap_oldest_arrival_first() {
+        let store = SQLiteStore::open_at(temp_db("doc-prune"));
+        for n in 0..(GITHUB_DOC_CAP as i64 + 1) {
+            store.put_document(doc("issue", "acme/many", n, false));
+        }
+        // The quitting flush runs drain -> commit -> prune in one
+        // iteration, so the prune is deterministic on return.
+        store.flush_blocking();
+        let rows = store.load_documents();
+        assert_eq!(rows.len(), GITHUB_DOC_CAP);
+        // Arrival order breaks equal-touch ties: row 0 arrived first
+        // and is the one that went.
+        assert!(rows.iter().all(|r| r.number != 0));
+        assert!(rows.iter().any(|r| r.number == GITHUB_DOC_CAP as i64));
+    }
+
+    #[test]
+    fn document_reads_empty_when_degraded() {
+        let store = SQLiteStore::open_at(temp_db("doc-degraded"));
+        store.degrade();
+        assert!(store.load_documents().is_empty(), "degraded reads empty");
+        store.put_document(doc("pr", "acme/two", 8, true));
+        store.flush_blocking();
+        assert!(store.load_documents().is_empty(), "degraded writes drop");
+    }
+
+    #[test]
     fn open_failure_degrades_to_memory() {
         // A regular file where a directory must be created (D2's mkdir
         // is the failure point) → degrade, never surface.
@@ -1239,8 +1595,8 @@ mod tests {
     }
 
     #[test]
-    fn fresh_db_lands_at_v2_with_both_tables() {
-        let path = temp_db("fresh-v2");
+    fn fresh_db_lands_at_head_with_every_table() {
+        let path = temp_db("fresh-head");
         let store = SQLiteStore::open_at(path.clone());
         assert!(!store.is_degraded());
         store.flush_blocking();
@@ -1249,12 +1605,12 @@ mod tests {
             .unwrap()
             .query_row(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' \
-                 AND name IN ('usage_records','notification_log')",
+                 AND name IN ('usage_records','notification_log','github_documents')",
                 [],
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(tables, 2);
+        assert_eq!(tables, 3);
     }
 
     #[test]
@@ -1296,7 +1652,7 @@ mod tests {
         assert!(!store.is_degraded());
         store.insert(notif("migrated", None));
         store.flush_blocking();
-        assert_eq!(user_version(&path), 2);
+        assert_eq!(user_version(&path), SCHEMA_VERSION);
         assert_eq!(store.records_since(0).len(), 1, "v1 usage row survived");
         assert_eq!(store.load_unread().len(), 1);
     }

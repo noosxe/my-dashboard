@@ -4422,6 +4422,7 @@ mod tests {
                     GithubCache::new(AppPaths::init()),
                     DraftStore::at_tmp("page-ns-view"),
                     recorder,
+                    None,
                 )
             });
             state.update(cx, |s, _| {

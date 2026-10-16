@@ -67,8 +67,9 @@ Two problems, one PR's worth of work:
   this file — a pointer note says so.
 - **D2 — migrations: one ordered chain, additive-only.** `migrate()` walks
   centrally-registered steps: v1 (historical, `usage_records`), v2
-  (`notification_log`, this design). Each concern contributes its step;
-  no concern ever bumps `user_version` alone. A v1 install migrates to v2
+  (`notification_log`, this design), v3 (`github_documents`,
+  docs/0072 D8). Each concern contributes its step; no concern ever bumps
+  `user_version` alone. A v1 install migrates to v2
   in place — zero data movement, `usage_records` untouched.
 - **D3 — the `notification_log` table (v2): a pending-unread queue.**
   Columns: `id INTEGER PRIMARY KEY` (engine-assigned rowid, F3),
