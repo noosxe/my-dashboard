@@ -20,6 +20,7 @@ pub mod gql;
 pub mod http;
 pub mod issue_page;
 pub mod markdown;
+mod mentions;
 pub mod new_issue_page;
 pub mod new_pr_page;
 pub mod notification_page;
@@ -87,6 +88,35 @@ impl Module for GithubModule {
                 "esc",
                 new_pr_page::DismissNewPrPage,
                 Some("GithubNewPrPage"),
+            ),
+            // Mention popup keys (docs/0075 D4): the three-segment context
+            // outranks the textarea's own "Input" bindings (gpui keymap
+            // depth wins); the "Mention" context renders only while the
+            // popup is open, so these keys stay inert otherwise.
+            KeyBinding::new(
+                "down",
+                pr_page::MentionSelectNext,
+                Some("GithubPrPage && Mention && Input"),
+            ),
+            KeyBinding::new(
+                "up",
+                pr_page::MentionSelectPrev,
+                Some("GithubPrPage && Mention && Input"),
+            ),
+            KeyBinding::new(
+                "enter",
+                pr_page::MentionAccept,
+                Some("GithubPrPage && Mention && Input"),
+            ),
+            KeyBinding::new(
+                "tab",
+                pr_page::MentionAccept,
+                Some("GithubPrPage && Mention && Input"),
+            ),
+            KeyBinding::new(
+                "escape",
+                pr_page::MentionDismiss,
+                Some("GithubPrPage && Mention && Input"),
             ),
         ]);
         // Notification source label (docs/0062 D2): every github raise
