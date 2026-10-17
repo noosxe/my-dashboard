@@ -174,7 +174,9 @@ exactly as today.
 
 ## 7 Implementation plan
 
-One PR after this doc merges:
+One PR after this doc merges. **Shipped: #589** (the `RepoPulls`/
+`RepoIssues` split with lane-keyed clocks, the `RepoTab` strip, the
+per-lane render, and the docs/0035 D2 / docs/0007 D6 amendments):
 
 1. **service.rs / gql.rs**: `RepoPulls`/`RepoIssues` queries + kinds; split
    apply path; lane-keyed landed clocks; `repo_open_specs` →

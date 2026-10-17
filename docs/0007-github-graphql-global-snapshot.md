@@ -177,7 +177,7 @@ naturally.
 | bootstrap | snapshot + global notifications (REST, MAX_PAGES — same walk as every tick, #170) |
 | every tick | global notifications (REST, ETag, MAX_PAGES — unchanged) |
 | every 5th tick | snapshot |
-| repo view opened | repo-scoped snapshot (GraphQL) + repo-scoped notifications (REST, once) |
+| repo view opened | the active tab's lane only (docs/0077 D3: `RepoPulls` GraphQL by default; a tab switch fetches its lane) — the `RepoSnapshot` both-collections query is retired |
 
 - The snapshot cadence replaces `PR_WALK_EVERY` (5 ticks) **and**
   `REPO_LIST_EVERY` (10 ticks): repos/orgs now refresh at 5 min instead of
