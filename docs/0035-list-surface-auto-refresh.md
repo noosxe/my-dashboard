@@ -108,6 +108,9 @@ pub(crate) rows_landed: BTreeMap<String, Instant>,
   refreshable, which matches the existing eager-on-open behavior.
 
 **D2 — The heartbeat's else-branch refreshes the selected repo.**
+*(Amended by docs/0077 D3/D4: the beat refreshes only the **active
+tab's** lane via `repo_lane_refresh_specs` — lane-keyed clocks, per-repo
+backoff — no longer the whole pair.)*
 `refresh_open_page` gains the missing arm, *after* the detail slots
 (preserving docs/0020 D1 precedence — a detail page always wins):
 

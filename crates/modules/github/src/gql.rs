@@ -81,11 +81,16 @@ query SessionInventory($cursor: String) {
 }
 "#;
 
-/// Repo-scoped refresh on view open (doc 0007 D6): the lazy filler of
-/// a repo's rows once a view needs them (docs/0051 D3). `repository` is `null` on 404/permission
-/// (handled as per-repo degradation, §6).
-pub const REPO_SNAPSHOT_QUERY: &str = r#"
-query RepoSnapshot($owner: String!, $name: String!) {
+/// Repo-scoped lane queries (docs/0077 D2) — the lazy per-tab fillers
+/// (docs/0051 D3, docs/0007 D6). `repository` is `null` on
+/// 404/permission (handled as per-repo degradation, §6). The Open PRs
+/// tab's lane: the repository's scalar metadata plus its
+/// `pullRequests(states: OPEN, first: 100)` page. The issues collection
+/// is deliberately not selected (view-relevant fetching);
+/// [`RepoLaneData`]'s serde default absorbs the absent key, and the
+/// landing swaps only the PR side (docs/0077 D2).
+pub const REPO_PULLS_QUERY: &str = r#"
+query RepoPulls($owner: String!, $name: String!) {
   rateLimit { cost remaining resetAt limit }
   repository(owner: $owner, name: $name) {
     databaseId
@@ -126,6 +131,26 @@ query RepoSnapshot($owner: String!, $name: String!) {
         }
       }
     }
+  }
+}
+"#;
+
+/// docs/0077 D2 — the Open issues tab's lane, symmetric to
+/// [`REPO_PULLS_QUERY`]: scalar metadata plus the open-issue page only.
+pub const REPO_ISSUES_QUERY: &str = r#"
+query RepoIssues($owner: String!, $name: String!) {
+  rateLimit { cost remaining resetAt limit }
+  repository(owner: $owner, name: $name) {
+    databaseId
+    id
+    hasIssuesEnabled
+    name
+    nameWithOwner
+    description
+    isPrivate
+    isArchived
+    pushedAt
+    owner { login }
     issues(states: OPEN, first: 100,
            orderBy: {field: UPDATED_AT, direction: DESC}) {
       totalCount
@@ -383,7 +408,7 @@ pub struct PageInfo {
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RepoSnapshotData {
+pub struct RepoLaneData {
     #[serde(default)]
     pub rate_limit: Option<RateLimitField>,
     pub repository: Option<serde_json::Value>,
@@ -3341,11 +3366,17 @@ mod tests {
         // filter inputs — labels on PRs (and on issues where issue rows
         // ride the same document), review requests on PRs. The global
         // snapshot is gone (docs/0051); these are the survivors.
-        // REPO_SNAPSHOT: labels on PR and Issue nodes.
+        // docs/0077 D2: the split lanes carry labels where their rows do
+        // — PRs on the pulls lane, issues on the issues lane.
         assert_eq!(
-            REPO_SNAPSHOT_QUERY.matches("labels(first: 8)").count(),
-            2,
-            "REPO_SNAPSHOT_QUERY: labels selection on PR and Issue nodes"
+            REPO_PULLS_QUERY.matches("labels(first: 8)").count(),
+            1,
+            "REPO_PULLS_QUERY: labels selection on PR nodes"
+        );
+        assert_eq!(
+            REPO_ISSUES_QUERY.matches("labels(first: 8)").count(),
+            1,
+            "REPO_ISSUES_QUERY: labels selection on Issue nodes"
         );
         // ACCOUNT_PULL_REQUESTS: labels once — search nodes are PRs only.
         assert_eq!(
@@ -3357,7 +3388,7 @@ mod tests {
         );
         for (name, doc) in [
             ("ACCOUNT_PULL_REQUESTS_QUERY", ACCOUNT_PULL_REQUESTS_QUERY),
-            ("REPO_SNAPSHOT_QUERY", REPO_SNAPSHOT_QUERY),
+            ("REPO_PULLS_QUERY", REPO_PULLS_QUERY),
         ] {
             assert!(
                 doc.contains("reviewRequests(first: 20)"),
@@ -3373,10 +3404,15 @@ mod tests {
                 "{name}: __typename discriminant missing"
             );
         }
-        // #275 creation gates: isArchived rides the repo metadata.
+        // #275 creation gates: isArchived rides the repo metadata —
+        // both docs/0077 lanes carry it (each lands the scalars).
         assert!(
-            REPO_SNAPSHOT_QUERY.contains("isArchived"),
-            "REPO_SNAPSHOT_QUERY: isArchived selection missing (#275)"
+            REPO_PULLS_QUERY.contains("isArchived"),
+            "REPO_PULLS_QUERY: isArchived selection missing (#275)"
+        );
+        assert!(
+            REPO_ISSUES_QUERY.contains("isArchived"),
+            "REPO_ISSUES_QUERY: isArchived selection missing (#275)"
         );
         assert!(
             SESSION_INVENTORY_QUERY.contains("isArchived"),
@@ -4186,7 +4222,7 @@ mod tests {
         // The docs/0042 filter shape stays login-only.
         for (name, doc) in [
             ("ACCOUNT_PULL_REQUESTS_QUERY", ACCOUNT_PULL_REQUESTS_QUERY),
-            ("REPO_SNAPSHOT_QUERY", REPO_SNAPSHOT_QUERY),
+            ("REPO_PULLS_QUERY", REPO_PULLS_QUERY),
         ] {
             assert!(
                 doc.contains("... on User { login }"),

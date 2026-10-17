@@ -428,9 +428,14 @@ pub enum Kind {
     /// Global unread notifications (REST + ETag — the only GraphQL-less
     /// data left, docs/0007 §1).
     Notifications,
-    /// Repo-scoped snapshot on view open (docs/0007 D6).
-    RepoSnapshot,
-    /// Repo-scoped unread notifications — fetched once per open (D6).
+    /// Repo-scoped open-PR page on the repo view's Open PRs tab
+    /// (docs/0077 D2) — one collection per tab, view-relevant.
+    RepoPulls,
+    /// Repo-scoped open-issue page — the Open issues tab's lane
+    /// (docs/0077 D2).
+    RepoIssues,
+    /// Repo-scoped unread notifications — the Notifications tab's lane
+    /// (docs/0077 D5; was "fetched once per open", docs/0007 D6).
     RepoNotifications,
     /// One PR's detail payload (docs/0016 D2) — fetched by the PR page
     /// on open/refresh; the 200 body is parsed page-side, never by
@@ -892,6 +897,26 @@ impl<T> Freshness for Fetch<T> {
     }
 }
 
+/// Which repo-view tab a lane serves (docs/0077 D1/D4). `Ord` orders the
+/// `(repo, lane)` map keys; the order is arbitrary but stable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum RepoLane {
+    Pulls,
+    Issues,
+    Notifications,
+}
+
+impl RepoLane {
+    /// The log token for this lane.
+    pub(crate) fn slug(self) -> &'static str {
+        match self {
+            RepoLane::Pulls => "pulls",
+            RepoLane::Issues => "issues",
+            RepoLane::Notifications => "notifs",
+        }
+    }
+}
+
 /// docs/0037 D6: the list-surface clock — a `rows_landed` lookup
 /// wrapped up for the repo page's freshness cluster. `is_loading` is
 /// always false (rows land in bulk, no per-page spinner);
@@ -970,7 +995,8 @@ pub fn run_spec(
     match spec.kind {
         Kind::CardTotals => run_paged_view(&rec, spec, gql::CARD_TOTALS_QUERY),
         Kind::SessionInventory => run_paged_view(&rec, spec, gql::SESSION_INVENTORY_QUERY),
-        Kind::RepoSnapshot => run_repo_snapshot(&rec, spec),
+        Kind::RepoPulls => run_graphql_fetch(&rec, spec, gql::REPO_PULLS_QUERY, "repo-pulls"),
+        Kind::RepoIssues => run_graphql_fetch(&rec, spec, gql::REPO_ISSUES_QUERY, "repo-issues"),
         Kind::PrDetail => run_pr_detail(&rec, spec),
         Kind::PrMutation(m) => run_pr_mutation(&rec, spec, m),
         Kind::IssueDetail => run_issue_detail(&rec, spec),
@@ -1334,42 +1360,6 @@ fn stitch_pages(mut datas: Vec<Value>, errors: Vec<Value>, raw_first: Option<Str
 }
 
 /// Repo-scoped snapshot (docs/0007 D6): one GraphQL call, body passthrough.
-fn run_repo_snapshot(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
-    let mut status = 0u16;
-    let mut rate = None;
-    let mut network = None;
-    let mut body = None;
-    let (owner, name) = split_full_name(spec.ident.as_deref().unwrap_or_default());
-    let variables = serde_json::json!({ "owner": owner, "name": name });
-    log::debug!("fetch repo-snapshot: {}/{}", owner, name);
-    let sent_at = Instant::now();
-    match http.post_graphql(gql::REPO_SNAPSHOT_QUERY, &variables) {
-        Err(HttpError(m)) => network = Some(m),
-        Ok(result) => {
-            status = result.status;
-            rate = result.rate;
-            log::debug!(
-                "fetch repo-snapshot: → {} in {}ms",
-                status,
-                sent_at.elapsed().as_millis()
-            );
-            if status == 200 {
-                body = result.body;
-            }
-        }
-    }
-    SpecResult {
-        kind: spec.kind,
-        ident: spec.ident.clone(),
-        status,
-        etag: None,
-        rate,
-        body,
-        network,
-        cursor: None,
-    }
-}
-
 /// One detail query (docs/0016 D2, docs/0020 D2): a single GraphQL call,
 /// body passthrough — shared by the PR and issue detail pages, only the
 /// document differs. The page parses the 200 body itself; `ident`
@@ -1728,7 +1718,8 @@ impl Kind {
             Kind::CardTotals
                 | Kind::SessionInventory
                 | Kind::Notifications
-                | Kind::RepoSnapshot
+                | Kind::RepoPulls
+                | Kind::RepoIssues
                 | Kind::RepoNotifications
                 | Kind::AccountPullRequests
                 | Kind::RateLimit
@@ -1739,7 +1730,8 @@ impl Kind {
             Kind::CardTotals => "card-totals",
             Kind::SessionInventory => "session-inventory",
             Kind::Notifications => "notifications",
-            Kind::RepoSnapshot => "repo-snapshot",
+            Kind::RepoPulls => "repo-pulls",
+            Kind::RepoIssues => "repo-issues",
             Kind::PrDetail => "pr-detail",
             Kind::PrMutation(_) => "pr-mutation",
             Kind::IssueDetail => "issue-detail",
@@ -2314,7 +2306,7 @@ pub struct GithubState {
     /// snapshot (its ident) and the global snapshot (every repo it
     /// carries). In-session freshness only — never persisted, never
     /// seeded; a missing entry means "never landed this session".
-    pub(crate) rows_landed: BTreeMap<String, Instant>,
+    pub(crate) rows_landed: BTreeMap<(String, RepoLane), Instant>,
     /// docs/0036 D3: the repo-rows lane has no `Fetch` record (results
     /// land through `apply`), so its backoff lives here — bumped by the
     /// page's `run_specs` landing arm for the repo-lane kinds.
@@ -2695,44 +2687,56 @@ impl GithubState {
         }
     }
 
-    /// Work fired when a repo view opens (docs/0007 D6): the
-    /// edge-freshness repo-scoped snapshot plus the one-shot repo-scoped
-    /// notifications fetch. Later ticks update the GroupBox from the
-    /// global list instead.
-    pub(crate) fn repo_open_specs(&self, full_name: &str, origin: Origin) -> Vec<FetchSpec> {
+    /// One repo-view tab's fetch (docs/0077 D3): the lane's single
+    /// spec — `RepoPulls`/`RepoIssues` GraphQL for the row tabs, the
+    /// ident-keyed `RepoNotifications` REST call for the notifications
+    /// tab. A tab switch offers this spec; the freshness gate below
+    /// (and the docs/0031 dedup) decide whether it flies.
+    pub(crate) fn repo_lane_spec(
+        &self,
+        full_name: &str,
+        lane: RepoLane,
+        origin: Origin,
+    ) -> FetchSpec {
         let (owner, name) = split_full_name(full_name);
-        vec![
-            FetchSpec {
+        match lane {
+            RepoLane::Pulls | RepoLane::Issues => FetchSpec {
                 origin,
-                kind: Kind::RepoSnapshot,
+                kind: match lane {
+                    RepoLane::Pulls => Kind::RepoPulls,
+                    _ => Kind::RepoIssues,
+                },
                 url: gql::GRAPHQL_ENDPOINT.to_string(),
                 etag: None,
                 ident: Some(full_name.to_string()),
                 max_pages: 1,
                 variables: Some(serde_json::json!({ "owner": owner, "name": name })),
             },
-            self.spec_ident(
+            RepoLane::Notifications => self.spec_ident(
                 Kind::RepoNotifications,
                 Some(full_name),
                 api::repo_notifications_url(&owner, &name, 1),
                 Some(2),
                 origin,
             ),
-        ]
+        }
     }
 
-    /// Heartbeat refresh for the open repo page's rows (docs/0035 D2):
-    /// the [`Self::repo_open_specs`] pair when the repo's rows are at
-    /// least `min_age` old — the same stale-at-`>=` boundary as
-    /// `Fetch::needs_refresh` (docs/0032). `None` while fresh, so a
-    /// beat stays a no-op; the ident-keyed dispatch dedups against a
-    /// just-fired open (docs/0031).
-    pub(crate) fn repo_rows_refresh_specs(
+    /// Heartbeat/tab-entry refresh for one repo-view lane (docs/0077
+    /// D3, amending docs/0035 D2): the lane's spec when that lane's
+    /// landed clock is at least `min_age` old — the same stale-at-`>=`
+    /// boundary as `Fetch::needs_refresh` (docs/0032). `None` while
+    /// fresh, so a beat or a re-entry stays a no-op; the ident-keyed
+    /// dispatch dedups against a just-fired fetch (docs/0031). Backoff
+    /// stays per-repo across the three lanes (docs/0077 D4 — failures
+    /// are connectivity-shaped).
+    pub(crate) fn repo_lane_refresh_specs(
         &self,
         full_name: &str,
+        lane: RepoLane,
         min_age: Duration,
         origin: Origin,
-    ) -> Option<Vec<FetchSpec>> {
+    ) -> Option<FetchSpec> {
         if let Some(attempted_at) = self.rows_attempted_at {
             if self.rows_fail_streak > 0
                 && attempted_at.elapsed()
@@ -2743,12 +2747,32 @@ impl GithubState {
         }
         if self
             .rows_landed
-            .get(full_name)
+            .get(&(full_name.to_string(), lane))
             .is_some_and(|t| t.elapsed() < min_age)
         {
             return None;
         }
-        Some(self.repo_open_specs(full_name, origin))
+        Some(self.repo_lane_spec(full_name, lane, origin))
+    }
+
+    /// The agent surface's tab-agnostic view of "this repo's rows
+    /// landed" (docs/0077 D4): any lane's clock, aged by the newest —
+    /// the agent ops surface has no tab context.
+    pub(crate) fn repo_rows_landed_any(&self, full_name: &str) -> Option<Instant> {
+        [RepoLane::Pulls, RepoLane::Issues, RepoLane::Notifications]
+            .iter()
+            .filter_map(|lane| self.rows_landed.get(&(full_name.to_string(), *lane)))
+            .copied()
+            .max()
+    }
+
+    /// docs/0077 D3 — post-write invalidation: a settled repo-view
+    /// mutation drops all three lane clocks so the next view-shown or
+    /// beat refetches the active one (correctness over frugality).
+    pub(crate) fn invalidate_repo_lanes(&mut self, full_name: &str) {
+        for lane in [RepoLane::Pulls, RepoLane::Issues, RepoLane::Notifications] {
+            self.rows_landed.remove(&(full_name.to_string(), lane));
+        }
     }
 
     /// docs/0036 D3: the repo-rows backoff bookkeeping, called from the
@@ -2853,8 +2877,8 @@ impl GithubState {
     /// the selected repo's one-shot slice — the marked/done row leaves
     /// both once these land. Host-run on the notification page's
     /// `MarkSettled`/`DoneSettled` events and after a settled row-level
-    /// done (the `repo_open_specs` shape minus the repo snapshot, which
-    /// the writes do not touch).
+    /// done (the notifications lanes only — the row tabs' clocks are
+    /// [`Self::invalidate_repo_lanes`]'s job post-write, docs/0077 D3).
     pub(crate) fn mark_refetch_specs(&self, surface: Surface) -> Vec<FetchSpec> {
         let origin = Origin::new(surface, Trigger::MutationRefetch);
         let mut specs = vec![self.spec(
@@ -2946,6 +2970,10 @@ impl GithubState {
         let unread = items.iter().filter(|n| n.unread).count();
         log::debug!("repo-notifications applied: {id}, {unread} unread");
         self.repo_notifications.insert(id.to_string(), items);
+        // docs/0077 D4 — the Notifications tab's own lane clock (its
+        // skeleton, freshness label, and heartbeat gate read it).
+        self.rows_landed
+            .insert((id.to_string(), RepoLane::Notifications), Instant::now());
     }
 
     /// Apply a finished spec: parse, update state, store last-known + etag,
@@ -4147,42 +4175,12 @@ impl GithubState {
                     Err(e) => log::warn!("card-totals payload: {e}"),
                 }
             }
-            Kind::RepoSnapshot => {
-                match serde_json::from_str::<gql::Envelope<gql::RepoSnapshotData>>(body) {
-                    Ok(env) => {
-                        for e in &env.errors {
-                            log::warn!("repo-snapshot: {}", e.message);
-                        }
-                        match env.data.and_then(|d| d.repository) {
-                            Some(value) => match gql::repo_from_value(&value) {
-                                Some(repo) => {
-                                    let prs = repo.prs.total_count;
-                                    // docs/0073 D4 (stage 2): snapshot rows
-                                    // are PR facts — land them into the
-                                    // document store so every surface (the
-                                    // PR page, the overlays) reads one copy.
-                                    let full_name = repo.full_name.clone();
-                                    for row in &repo.prs.nodes {
-                                        self.land_summary(&full_name, row);
-                                    }
-                                    let ident = result.ident.clone().unwrap_or_default();
-                                    self.merge_repos(vec![repo], false);
-                                    self.persist_snapshot();
-                                    self.snapshot_age = None;
-                                    self.rows_landed.insert(ident.clone(), Instant::now());
-                                    log::info!("repo-snapshot applied: {ident}, {prs} open PRs");
-                                }
-                                None => {
-                                    log::warn!("repo-snapshot: malformed repository node");
-                                }
-                            },
-                            None => {
-                                log::warn!("repo-snapshot: repository null — keeping last-known")
-                            }
-                        }
-                    }
-                    Err(e) => log::warn!("repo-snapshot payload: {e}"),
-                }
+            Kind::RepoPulls | Kind::RepoIssues => {
+                let lane = match result.kind {
+                    Kind::RepoPulls => RepoLane::Pulls,
+                    _ => RepoLane::Issues,
+                };
+                self.apply_repo_lane(result.ident.as_deref(), body, lane);
             }
             Kind::Notifications => match serde_json::from_str::<Vec<Notification>>(body) {
                 Ok(items) => {
@@ -4332,6 +4330,81 @@ impl GithubState {
     /// comes back `PUSHED_AT DESC`, which ignores PR/issue activity, and
     /// a repo-open refresh must not move the row. Ties break by key so
     /// identical activity is a stable order.
+    /// One lane's landing (docs/0077 D2/D4): parse, land PR summaries
+    /// (docs/0073 D4 — only the pulls lane carries PR facts), swap only
+    /// the landed collection into the held repo entry, persist, stamp
+    /// the lane clock. The sibling collection is untouched — serde
+    /// defaults an absent key, and [`Self::merge_repo_lane`] ignores it.
+    fn apply_repo_lane(&mut self, ident: Option<&str>, body: &str, lane: RepoLane) {
+        let slug = lane.slug();
+        match serde_json::from_str::<gql::Envelope<gql::RepoLaneData>>(body) {
+            Ok(env) => {
+                for e in &env.errors {
+                    log::warn!("repo-{slug}: {}", e.message);
+                }
+                match env.data.and_then(|d| d.repository) {
+                    Some(value) => match gql::repo_from_value(&value) {
+                        Some(repo) => {
+                            let full_name = repo.full_name.clone();
+                            let total = match lane {
+                                RepoLane::Pulls => {
+                                    // docs/0073 D4 (stage 2): snapshot rows
+                                    // are PR facts — land them into the
+                                    // document store so every surface (the
+                                    // PR page, the overlays) reads one copy.
+                                    for row in &repo.prs.nodes {
+                                        self.land_summary(&full_name, row);
+                                    }
+                                    repo.prs.total_count
+                                }
+                                _ => repo.issues.total_count,
+                            };
+                            self.merge_repo_lane(repo, lane);
+                            self.persist_snapshot();
+                            self.snapshot_age = None;
+                            if let Some(id) = ident {
+                                self.rows_landed
+                                    .insert((id.to_string(), lane), Instant::now());
+                            }
+                            log::info!("repo-{slug} applied: {ident:?}, {total} open");
+                        }
+                        None => log::warn!("repo-{slug}: malformed repository node"),
+                    },
+                    None => log::warn!("repo-{slug}: repository null — keeping last-known"),
+                }
+            }
+            Err(e) => log::warn!("repo-{slug} payload: {e}"),
+        }
+    }
+
+    /// Lane-aware single-repo merge (docs/0077 D2): the held entry keeps
+    /// its other collection; fresh scalars (description, pushes,
+    /// creation gates) ride in with the payload. A repo the snapshot
+    /// hasn't seen yet is inserted whole.
+    fn merge_repo_lane(&mut self, incoming: Repo, lane: RepoLane) {
+        if let Some(held) = self.repos.iter_mut().find(|r| r.key == incoming.key) {
+            match lane {
+                RepoLane::Pulls => held.prs = incoming.prs,
+                RepoLane::Issues => held.issues = incoming.issues,
+                RepoLane::Notifications => {}
+            }
+            held.database_id = incoming.database_id;
+            held.description = incoming.description;
+            held.private = incoming.private;
+            held.is_archived = incoming.is_archived;
+            held.node_id = incoming.node_id;
+            held.has_issues_enabled = incoming.has_issues_enabled;
+            held.pushed_at = incoming.pushed_at;
+        } else {
+            self.repos.push(incoming);
+        }
+        self.repos.sort_by(|a, b| {
+            b.last_activity()
+                .cmp(&a.last_activity())
+                .then_with(|| a.key.cmp(&b.key))
+        });
+    }
+
     fn merge_repos(&mut self, incoming: Vec<Repo>, prune: bool) {
         if prune {
             self.repos = incoming;
@@ -6807,27 +6880,33 @@ mod tests {
         assert!(state.plan_tick(5).is_empty());
     }
 
-    // --- Repo-scoped snapshot -------------------------------------------
+    // --- Repo-scoped lanes (docs/0077) ---------------------------------
 
     #[test]
-    fn repo_open_specs_shape() {
+    fn repo_lane_spec_shape() {
         let state = make_state(Arc::new(MockHttp::new(vec![])));
-        let specs = state.repo_open_specs("o/r", Origin::BACKGROUND);
-        assert_eq!(specs.len(), 2);
-        assert_eq!(specs[0].kind, Kind::RepoSnapshot);
-        assert_eq!(specs[0].variables.as_ref().unwrap()["owner"], "o");
-        assert_eq!(specs[0].variables.as_ref().unwrap()["name"], "r");
-        assert_eq!(specs[1].kind, Kind::RepoNotifications);
-        assert!(specs[1].url.contains("/repos/o/r/notifications"));
+        // The pulls lane: one repo-scoped GraphQL spec.
+        let spec = state.repo_lane_spec("o/r", RepoLane::Pulls, Origin::BACKGROUND);
+        assert_eq!(spec.kind, Kind::RepoPulls);
+        assert_eq!(spec.variables.as_ref().unwrap()["owner"], "o");
+        assert_eq!(spec.variables.as_ref().unwrap()["name"], "r");
+        // The issues lane: same shape, its own kind.
+        let spec = state.repo_lane_spec("o/r", RepoLane::Issues, Origin::BACKGROUND);
+        assert_eq!(spec.kind, Kind::RepoIssues);
+        // The notifications lane: the ident-keyed REST call.
+        let spec = state.repo_lane_spec("o/r", RepoLane::Notifications, Origin::BACKGROUND);
+        assert_eq!(spec.kind, Kind::RepoNotifications);
+        assert_eq!(spec.ident.as_deref(), Some("o/r"));
+        assert!(spec.url.contains("/repos/o/r/notifications"));
     }
 
     #[test]
-    fn apply_repo_snapshot_merges_single_repo() {
+    fn repo_pulls_landing_replaces_only_prs() {
         let mut state = make_state(Arc::new(MockHttp::new(vec![])));
         state.repos = vec![repo("o/a"), repo("o/r")];
 
         let result = SpecResult {
-            kind: Kind::RepoSnapshot,
+            kind: Kind::RepoPulls,
             ident: Some("o/r".into()),
             status: 200,
             etag: None,
@@ -6845,6 +6924,59 @@ mod tests {
         let r = state.repos.iter().find(|r| r.full_name == "o/r").unwrap();
         assert_eq!(r.prs.total_count, 3);
         assert_eq!(r.prs.nodes[0].key, "o/r#7");
+        // docs/0077 D4: the lane clock stamps.
+        assert!(
+            state
+                .rows_landed
+                .contains_key(&("o/r".to_string(), RepoLane::Pulls))
+        );
+    }
+
+    #[test]
+    fn repo_issues_landing_replaces_only_issues() {
+        // docs/0077 D2: the issues lane lands its collection and leaves
+        // the held PR rows alone — serde defaults the absent key away.
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.repos = vec![repo("o/r")];
+        state.repos[0].prs.total_count = 5;
+
+        let body = r#"{"data":{"repository":{"databaseId":7,"name":"r","nameWithOwner":"o/r",
+            "owner":{"login":"o"},
+            "issues":{"totalCount":2,"nodes":[
+                {"databaseId":21,"number":9,"title":"bug: x","author":null,
+                 "updatedAt":"u","url":"u1"}]}}}}"#;
+        state.apply(SpecResult {
+            kind: Kind::RepoIssues,
+            ident: Some("o/r".into()),
+            status: 200,
+            etag: None,
+            rate: None,
+            body: Some(body.into()),
+            network: None,
+            cursor: None,
+        });
+
+        let r = state.repos.iter().find(|r| r.full_name == "o/r").unwrap();
+        assert_eq!(r.issues.total_count, 2);
+        assert_eq!(r.issues.nodes[0].key, "o/r#9");
+        assert_eq!(r.prs.total_count, 5, "held PR rows untouched");
+        assert!(
+            state
+                .rows_landed
+                .contains_key(&("o/r".to_string(), RepoLane::Issues))
+        );
+    }
+
+    #[test]
+    fn repo_notifications_landing_stamps_its_lane() {
+        // docs/0077 D4: the Notifications tab's own clock.
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.apply_repo_notifications("o/r", vec![]);
+        assert!(
+            state
+                .rows_landed
+                .contains_key(&("o/r".to_string(), RepoLane::Notifications))
+        );
     }
 
     #[test]
@@ -6908,14 +7040,14 @@ mod tests {
         let mut state = make_state(Arc::new(MockHttp::new(vec![])));
         state.auth = AuthStatus::Connected;
 
-        // A failed pair bumps the streak; a fresh attempt gates the
+        // A failed lane bumps the streak; a fresh attempt gates the
         // lane even though the rows never landed (never-landed would
         // otherwise always be refreshable).
         state.bump_rows_backoff(false);
         assert_eq!(state.rows_fail_streak, 1);
         assert!(
             state
-                .repo_rows_refresh_specs("o/r", Duration::ZERO, Origin::BACKGROUND)
+                .repo_lane_refresh_specs("o/r", RepoLane::Pulls, Duration::ZERO, Origin::BACKGROUND)
                 .is_none()
         );
 
@@ -6924,7 +7056,7 @@ mod tests {
         assert_eq!(state.rows_fail_streak, 0);
         assert!(
             state
-                .repo_rows_refresh_specs("o/r", Duration::ZERO, Origin::BACKGROUND)
+                .repo_lane_refresh_specs("o/r", RepoLane::Pulls, Duration::ZERO, Origin::BACKGROUND)
                 .is_some()
         );
 
@@ -6935,40 +7067,43 @@ mod tests {
         state.rows_attempted_at = Some(Instant::now() - Duration::from_secs(119));
         assert!(
             state
-                .repo_rows_refresh_specs("o/r", Duration::ZERO, Origin::BACKGROUND)
+                .repo_lane_refresh_specs("o/r", RepoLane::Pulls, Duration::ZERO, Origin::BACKGROUND)
                 .is_none()
         );
         state.rows_attempted_at = Some(Instant::now() - Duration::from_secs(120));
         assert!(
             state
-                .repo_rows_refresh_specs("o/r", Duration::ZERO, Origin::BACKGROUND)
+                .repo_lane_refresh_specs("o/r", RepoLane::Pulls, Duration::ZERO, Origin::BACKGROUND)
                 .is_some()
         );
     }
 
-    /// docs/0035 D1/D2: both lanes that write a repo's rows count as
-    /// freshness; `repo_rows_refresh_specs` gates on the landed age with
-    /// the stale-at-`>=` boundary (docs/0032).
+    /// docs/0077 D3/D4 (amending docs/0035 D1/D2): the lane's own clock
+    /// gates its refresh — `repo_lane_refresh_specs` returns the lane's
+    /// single spec on the stale-at-`>=` boundary (docs/0032), and a
+    /// landing on one lane never freshens a sibling.
     #[test]
-    fn repo_rows_refresh_specs_gate_on_landed_age() {
+    fn repo_lane_refresh_specs_gate_on_landed_age() {
         use std::time::Instant;
 
         let mut state = make_state(Arc::new(MockHttp::new(vec![])));
         state.auth = AuthStatus::Connected;
 
-        // Never landed this session → refreshable, and it is the full
-        // open pair (rows + repo-slice notifications).
-        let specs = state
-            .repo_rows_refresh_specs("o/r", Duration::from_secs(60), Origin::BACKGROUND)
+        // Never landed this session → refreshable, one spec.
+        let spec = state
+            .repo_lane_refresh_specs(
+                "o/r",
+                RepoLane::Pulls,
+                Duration::from_secs(60),
+                Origin::BACKGROUND,
+            )
             .expect("never-landed is refreshable");
-        assert_eq!(specs.len(), 2);
-        assert_eq!(specs[0].kind, Kind::RepoSnapshot);
-        assert_eq!(specs[1].kind, Kind::RepoNotifications);
+        assert_eq!(spec.kind, Kind::RepoPulls);
 
-        // A landed repo-snapshot makes the rows fresh — the beat is a
-        // no-op.
+        // A landed pulls lane freshens itself only — the beat on the
+        // pulls lane is a no-op; the issues lane stays refreshable.
         state.apply(SpecResult {
-            kind: Kind::RepoSnapshot,
+            kind: Kind::RepoPulls,
             ident: Some("o/r".into()),
             status: 200,
             etag: None,
@@ -6982,38 +7117,54 @@ mod tests {
         });
         assert!(
             state
-                .repo_rows_refresh_specs("o/r", Duration::from_secs(60), Origin::BACKGROUND)
+                .repo_lane_refresh_specs(
+                    "o/r",
+                    RepoLane::Pulls,
+                    Duration::from_secs(60),
+                    Origin::BACKGROUND
+                )
                 .is_none(),
-            "just-landed repo rows are fresh"
+            "just-landed pulls lane is fresh"
+        );
+        assert!(
+            state
+                .repo_lane_refresh_specs(
+                    "o/r",
+                    RepoLane::Issues,
+                    Duration::from_secs(60),
+                    Origin::BACKGROUND
+                )
+                .is_some(),
+            "the sibling lane never inherits the clock"
         );
 
-        // A global snapshot carrying the repo counts as fresh too
-        // (D1) — and only for the repos it carries.
-        state.apply(inventory_result(
-            &gql_page(false, "unused", &repo_node("o/r", 0, "")),
-            None,
-        ));
+        // A repo the snapshot didn't carry stays refreshable.
         assert!(
             state
-                .repo_rows_refresh_specs("o/r", Duration::from_secs(60), Origin::BACKGROUND)
-                .is_none(),
-            "the global tick freshens every repo it carries"
-        );
-        assert!(
-            state
-                .repo_rows_refresh_specs("o/other", Duration::from_secs(60), Origin::BACKGROUND)
+                .repo_lane_refresh_specs(
+                    "o/other",
+                    RepoLane::Pulls,
+                    Duration::from_secs(60),
+                    Origin::BACKGROUND
+                )
                 .is_some(),
             "a repo the page didn't carry stays refreshable"
         );
 
         // Backdated to exactly min_age → stale at the `>=` boundary
         // (docs/0032 semantics).
-        state
-            .rows_landed
-            .insert("o/r".into(), Instant::now() - Duration::from_secs(60));
+        state.rows_landed.insert(
+            ("o/r".to_string(), RepoLane::Pulls),
+            Instant::now() - Duration::from_secs(60),
+        );
         assert!(
             state
-                .repo_rows_refresh_specs("o/r", Duration::from_secs(60), Origin::BACKGROUND)
+                .repo_lane_refresh_specs(
+                    "o/r",
+                    RepoLane::Pulls,
+                    Duration::from_secs(60),
+                    Origin::BACKGROUND
+                )
                 .is_some(),
             "stale at >="
         );
@@ -7073,7 +7224,7 @@ mod tests {
 
         // Same activity as before: row must stay in place.
         let unchanged = SpecResult {
-            kind: Kind::RepoSnapshot,
+            kind: Kind::RepoPulls,
             ident: Some("o/r".into()),
             status: 200,
             etag: None,
@@ -7098,7 +7249,7 @@ mod tests {
 
         // A genuinely fresher PR moves the repo up.
         let fresher = SpecResult {
-            kind: Kind::RepoSnapshot,
+            kind: Kind::RepoPulls,
             ident: Some("o/r".into()),
             status: 200,
             etag: None,
@@ -7133,7 +7284,7 @@ mod tests {
         let mut state = make_state(Arc::new(MockHttp::new(vec![])));
         state.repos = vec![repo("o/r")];
         let result = SpecResult {
-            kind: Kind::RepoSnapshot,
+            kind: Kind::RepoPulls,
             ident: Some("o/r".into()),
             status: 200,
             etag: None,
@@ -8495,7 +8646,7 @@ mod tests {
                  "state":"OPEN","author":null,"updatedAt":"u","url":"u2"}]}},
             "issues":{"totalCount":0,"nodes":[]}}}"#;
         state.apply(SpecResult {
-            kind: Kind::RepoSnapshot,
+            kind: Kind::RepoPulls,
             ident: Some("repo:o/r".into()),
             status: 200,
             etag: None,

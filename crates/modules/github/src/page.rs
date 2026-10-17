@@ -29,11 +29,59 @@ use gpui_component::{
     select::{Select, SelectEvent, SelectState},
     skeleton::Skeleton,
     spinner::Spinner,
+    tab::{Tab, TabBar},
     tooltip::Tooltip,
     v_flex,
 };
 
 use dashboard_core::freshness::{freshness_row, relative_age, synced_label};
+
+/// The repo view's active tab (docs/0077 D1): session-local, resets to
+/// [`RepoTab::Pulls`] on every repo selection, survives detail-page
+/// round trips.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum RepoTab {
+    #[default]
+    Pulls,
+    Issues,
+    Notifications,
+}
+
+impl RepoTab {
+    /// The fetch lane this tab renders (docs/0077 D3).
+    fn lane(self) -> RepoLane {
+        match self {
+            RepoTab::Pulls => RepoLane::Pulls,
+            RepoTab::Issues => RepoLane::Issues,
+            RepoTab::Notifications => RepoLane::Notifications,
+        }
+    }
+
+    fn index(self) -> usize {
+        match self {
+            RepoTab::Pulls => 0,
+            RepoTab::Issues => 1,
+            RepoTab::Notifications => 2,
+        }
+    }
+
+    fn from_index(ix: usize) -> Option<Self> {
+        match ix {
+            0 => Some(RepoTab::Pulls),
+            1 => Some(RepoTab::Issues),
+            2 => Some(RepoTab::Notifications),
+            _ => None,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            RepoTab::Pulls => "Open PRs",
+            RepoTab::Issues => "Open issues",
+            RepoTab::Notifications => "Notifications",
+        }
+    }
+}
 use dashboard_core::module::ModuleNav;
 use dashboard_core::nav::{Crumb, NavEvent, Navigator, Page, Route};
 
@@ -48,7 +96,7 @@ use crate::notification_page::{self, NotificationPageEvent};
 use crate::pr_page;
 use crate::service::{
     AuthStatus, ConnectPhase, FetchSpec, GithubState, HomeScope, Kind, LandedClock, LaneView,
-    ThreadOp, run_read_deduped, run_spec_tracked, start_connect,
+    RepoLane, ThreadOp, run_read_deduped, run_spec_tracked, start_connect,
 };
 use crate::usage::{Origin, Surface, Trigger};
 
@@ -125,6 +173,9 @@ pub(crate) struct GithubPage {
     /// label choices reset on repo switch (names are repo-local), the
     /// rest survives switches but not app restarts.
     filters: filters::RepoViewFilters,
+    /// The active repo-view tab (docs/0077 D1): resets on repo
+    /// selection, survives detail-page round trips.
+    tab: RepoTab,
     /// The shared quick-filter input (docs/0042 D5) — one query narrows
     /// all three boxes at once.
     row_search: Entity<InputState>,
@@ -388,6 +439,7 @@ impl GithubPage {
             synced_repos: Vec::new(),
             row_done_inflight: std::collections::HashSet::new(),
             filters: filters::RepoViewFilters::default(),
+            tab: RepoTab::default(),
             row_search,
         };
         // Seed from whatever the state already holds (last-known
@@ -443,9 +495,11 @@ impl GithubPage {
             // so the dispatch hops through the stored window handle (the
             // connect-flow hop); the ident-keyed dedup absorbs a
             // collision with a just-fired open (docs/0031).
-            if let Some(specs) = self.state.update(cx, |s, _| {
-                s.repo_rows_refresh_specs(
+            let lane = self.tab.lane();
+            if let Some(spec) = self.state.update(cx, |s, _| {
+                s.repo_lane_refresh_specs(
                     &full,
+                    lane,
                     crate::service::FOCUS_MIN_AGE,
                     Origin::new(Surface::RepoView, Trigger::Refocus),
                 )
@@ -454,7 +508,7 @@ impl GithubPage {
                 let page = cx.entity();
                 cx.spawn(async move |_this, cx| {
                     let _ = window.update(cx, |_, window, cx| {
-                        page.update(cx, |this, cx| this.run_specs(specs, window, cx));
+                        page.update(cx, |this, cx| this.run_specs(vec![spec], window, cx));
                     });
                 })
                 .detach();
@@ -1168,16 +1222,53 @@ impl GithubPage {
         // another repo resets them; author/sort/search survive.
         self.filters.prs.label = None;
         self.filters.issues.label = None;
-        let specs = self.state.update(cx, |s, cx| {
+        // docs/0077 D1: opening a repo view lands on the Open PRs tab.
+        self.tab = RepoTab::Pulls;
+        let spec = self.state.update(cx, |s, cx| {
             s.selected = Some(full_name.to_string());
-            let specs = s.repo_open_specs(
+            let spec = s.repo_lane_spec(
                 &full_name,
+                RepoLane::Pulls,
                 Origin::new(Surface::RepoView, Trigger::ViewShown),
             );
             cx.notify();
-            specs
+            spec
         });
-        self.run_specs(specs, window, cx);
+        self.run_specs(vec![spec], window, cx);
+    }
+
+    /// Tab switch (docs/0077 D1/D3): state write + notify, then offer
+    /// the new lane's spec — the freshness gate (docs/0077 D4) and the
+    /// docs/0031 dedup decide whether it flies, so a first visit always
+    /// fetches and a rapid toggle back is absorbed.
+    fn switch_repo_tab(&mut self, tab: RepoTab, window: &mut Window, cx: &mut Context<Self>) {
+        if self.tab == tab {
+            return;
+        }
+        self.tab = tab;
+        cx.notify();
+        let (connected, gated, selected) = {
+            let s = self.state.read(cx);
+            (s.auth.connected(), s.gated(), s.selected.clone())
+        };
+        if !connected || gated {
+            return;
+        }
+        let Some(full) = selected else {
+            return;
+        };
+        let lane = tab.lane();
+        let Some(spec) = self.state.update(cx, |s, _| {
+            s.repo_lane_refresh_specs(
+                &full,
+                lane,
+                crate::service::FOCUS_MIN_AGE,
+                Origin::new(Surface::RepoView, Trigger::ViewShown),
+            )
+        }) else {
+            return;
+        };
+        self.run_specs(vec![spec], window, cx);
     }
 
     /// Open the in-app PR page for a snapshot row (docs/0016 D1): the
@@ -1476,16 +1567,17 @@ impl GithubPage {
                     let repo = this.creator.take().map(|c| c.read(cx).repo.clone());
                     this.creator_open = false;
                     if let Some(repo) = repo {
-                        // Refetch-on-create (D6): the repo-scoped
-                        // snapshot re-lands the list GroupBoxes — the
+                        // Refetch-on-create (D6, docs/0077 D3): the
+                        // created artifact's lane re-lands its tab — the
                         // house one-refetch path, no optimistic insertion.
-                        let specs = this.state.update(cx, |s, _| {
-                            s.repo_open_specs(
+                        let spec = this.state.update(cx, |s, _| {
+                            s.repo_lane_spec(
                                 &repo,
+                                RepoLane::Issues,
                                 Origin::new(Surface::RepoView, Trigger::ViewShown),
                             )
                         });
-                        this.run_specs(specs, window, cx);
+                        this.run_specs(vec![spec], window, cx);
                         // A synthesized minimal row (gql::created_issue_from_body)
                         // — initial paint only; the detail page re-fetches.
                         this.open_issue(&repo, issue, None, window, cx);
@@ -1567,15 +1659,17 @@ impl GithubPage {
                     let repo = this.creator_pr.take().map(|c| c.read(cx).repo.clone());
                     this.creator_pr_open = false;
                     if let Some(repo) = repo {
-                        // Refetch-on-create (D6): the house one-refetch
-                        // path, no optimistic insertion.
-                        let specs = this.state.update(cx, |s, _| {
-                            s.repo_open_specs(
+                        // Refetch-on-create (D6, docs/0077 D3): the
+                        // created artifact's lane re-lands its tab — the
+                        // house one-refetch path, no optimistic insertion.
+                        let spec = this.state.update(cx, |s, _| {
+                            s.repo_lane_spec(
                                 &repo,
+                                RepoLane::Pulls,
                                 Origin::new(Surface::RepoView, Trigger::ViewShown),
                             )
                         });
-                        this.run_specs(specs, window, cx);
+                        this.run_specs(vec![spec], window, cx);
                         // A synthesized minimal row (gql::created_pr_from_body)
                         // — initial paint only; the detail page re-fetches.
                         this.open_pr(&repo, pr, None, window, cx);
@@ -1657,6 +1751,13 @@ impl GithubPage {
                         let specs = this
                             .state
                             .update(cx, |s, _| s.mark_refetch_specs(Surface::RepoView));
+                        // docs/0077 D3: the write invalidates the repo's
+                        // row-lane clocks too; the next view-shown or beat
+                        // refetches the active lane.
+                        let full = this.state.read(cx).selected.clone();
+                        if let Some(full) = full {
+                            this.state.update(cx, |s, _| s.invalidate_repo_lanes(&full));
+                        }
                         this.run_specs(specs, window, cx);
                     });
                 });
@@ -1714,7 +1815,7 @@ impl GithubPage {
                 // stamp nothing.
                 let rows_ok = result.network.is_none() && (200..300).contains(&result.status);
                 match result.kind {
-                    Kind::RepoSnapshot | Kind::RepoNotifications => {
+                    Kind::RepoPulls | Kind::RepoIssues | Kind::RepoNotifications => {
                         state.update(cx, |s, _| s.bump_rows_backoff(rows_ok));
                     }
                     Kind::AccountPullRequests => {
@@ -1738,10 +1839,14 @@ impl GithubPage {
     /// session? `false` renders skeletons instead of a false "No open
     /// PRs" while the lazy repo-scope fetch flies.
     fn repo_rows_landed(&self, cx: &Context<Self>) -> bool {
-        self.state
-            .read(cx)
-            .rows_landed
-            .contains_key(self.state.read(cx).selected.as_deref().unwrap_or(""))
+        // Lane-keyed (docs/0077 D4): the active tab's own clock — each
+        // box's skeleton resolves on its lane's landing.
+        let state = self.state.read(cx);
+        state.selected.as_deref().is_some_and(|full| {
+            state
+                .rows_landed
+                .contains_key(&(full.to_string(), self.tab.lane()))
+        })
     }
 
     /// View-shown fetch (docs/0051 D4): the nav-observer's edge trigger —
@@ -2624,100 +2729,6 @@ impl GithubPage {
         repo_notifs: &[api::Notification],
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        // docs/0042 D1/D8: filters/sort apply at render over the held
-        // snapshot nodes — no fetch, no snapshot mutation. docs/0073
-        // D3 (stage 2): the PR rows derive first — snapshot ⊗
-        // documents, the entry wins, OPEN-filtered.
-        let (pr_rows, issue_rows, notif_rows, pr_filtered, issue_filtered, notif_filtered, pr_held) = {
-            let state = self.state.read(cx);
-            let viewer = state.user.as_ref().map(|u| u.login.clone());
-            let search = self.filters.search.clone();
-            let notifs = filters::apply_notifs(&self.filters.notifs, repo_notifs, &search);
-            let notif_filtered = self.filters.notifs.is_filtered() || !search.is_empty();
-            // Bound outside the match: `apply_prs` filters by
-            // reference, so the derived rows must outlive `pr_rows`.
-            let derived = match selected_repo {
-                Some(repo) => state.repo_pr_rows(repo),
-                None => Vec::new(),
-            };
-            let pr_held = derived.len();
-            // docs/0072 stage 4 (#555): issue rows derive the same way —
-            // the snapshot's held rows ⊗ the documents, filtered to
-            // not-closed at read time.
-            let issue_derived = match selected_repo {
-                Some(repo) => state.repo_issue_rows(repo),
-                None => Vec::new(),
-            };
-            let (pr_rows, issue_rows) = match selected_repo {
-                None => (Vec::new(), Vec::new()),
-                Some(_repo) => (
-                    // Owned: the block's value must outlive `derived`
-                    // (the filter returns references into its input).
-                    filters::apply_prs(&self.filters.prs, &derived, viewer.as_deref(), &search)
-                        .into_iter()
-                        .cloned()
-                        .collect::<Vec<_>>(),
-                    filters::apply_issues(
-                        &self.filters.issues,
-                        &issue_derived,
-                        viewer.as_deref(),
-                        &search,
-                    )
-                    .into_iter()
-                    .cloned()
-                    .collect::<Vec<_>>(),
-                ),
-            };
-            let pr_filtered = self.filters.prs.is_filtered() || !search.is_empty();
-            let issue_filtered = self.filters.issues.is_filtered() || !search.is_empty();
-            (
-                pr_rows,
-                issue_rows,
-                notifs,
-                pr_filtered,
-                issue_filtered,
-                notif_filtered,
-                pr_held,
-            )
-        };
-        // Filter-menu options derive from the data present (docs/0042
-        // D3): names/reasons/kinds among the held nodes — no extra
-        // fetches, and a truncation can't hide a filterable name the
-        // rows actually show.
-        let (pr_label_options, issue_label_options, notif_reasons, notif_kinds) =
-            match selected_repo {
-                None => Default::default(),
-                Some(repo) => {
-                    let mut pr_labels: std::collections::BTreeSet<String> = Default::default();
-                    // docs/0073 D3 (stage 2): options derive from the
-                    // derived rows — the rows the list actually shows.
-                    for p in self.state.read(cx).repo_pr_rows(repo) {
-                        for n in filters::label_names(p.labels.as_ref()) {
-                            pr_labels.insert(n.to_string());
-                        }
-                    }
-                    let mut issue_labels: std::collections::BTreeSet<String> = Default::default();
-                    for i in self.state.read(cx).repo_issue_rows(repo) {
-                        for n in filters::label_names(i.labels.as_ref()) {
-                            issue_labels.insert(n.to_string());
-                        }
-                    }
-                    let mut reasons: std::collections::BTreeSet<String> = Default::default();
-                    let mut kinds: std::collections::BTreeSet<String> = Default::default();
-                    for n in repo_notifs {
-                        if let Some(r) = n.reason.as_ref() {
-                            reasons.insert(r.clone());
-                        }
-                        kinds.insert(n.subject.kind.clone());
-                    }
-                    (
-                        pr_labels.into_iter().collect::<Vec<_>>(),
-                        issue_labels.into_iter().collect::<Vec<_>>(),
-                        reasons.into_iter().collect::<Vec<_>>(),
-                        kinds.into_iter().collect::<Vec<_>>(),
-                    )
-                }
-            };
         let detail: AnyElement = match selected_repo {
             // docs/0047 D1: the home view replaces the placeholder — the
             // module's landing surface is the account's open PRs.
@@ -2793,18 +2804,22 @@ impl GithubPage {
                                 self.state
                                     .read(cx)
                                     .rows_landed
-                                    .get(&repo.full_name)
+                                    .get(&(repo.full_name.clone(), self.tab.lane()))
                                     .copied(),
                             ),
                             cx,
                             {
                                 let full = repo.full_name.clone();
+                                let lane = self.tab.lane();
                                 move |this, window, cx| {
-                                    let specs = this.state.read(cx).repo_open_specs(
+                                    // User-invoked: the active lane's spec,
+                                    // ignoring age/backoff (docs/0077 D3).
+                                    let spec = this.state.read(cx).repo_lane_spec(
                                         &full,
+                                        lane,
                                         Origin::new(Surface::RepoView, Trigger::ViewShown),
                                     );
-                                    this.run_specs(specs, window, cx);
+                                    this.run_specs(vec![spec], window, cx);
                                 }
                             },
                         )),
@@ -2860,131 +2875,14 @@ impl GithubPage {
                             )
                         })
                 })
-                .child(
-                    GroupBox::new()
-                        .id("prs-box")
-                        .title(filters::box_title(
-                            "Open PRs",
-                            repo.prs.total_count.max(pr_rows.len() as i64) as usize,
-                            pr_rows.len(),
-                            pr_filtered,
-                        ))
-                        .child(
-                            v_flex()
-                                .gap_0p5()
-                                .child(self.pr_filter_toolbar(&pr_label_options, cx))
-                                .child(if pr_rows.is_empty() {
-                                    if pr_held == 0 {
-                                        if self.repo_rows_landed(cx) {
-                                            muted_cell("No open PRs", cx)
-                                        } else {
-                                            // docs/0051 D5 — the lazy
-                                            // repo-scope fetch is still
-                                            // in flight.
-                                            home_skeleton_rows()
-                                        }
-                                    } else {
-                                        muted_cell("No PRs match the current filters", cx)
-                                    }
-                                } else {
-                                    v_flex()
-                                        .gap_0p5()
-                                        .children(pr_rows.iter().map(|p| self.render_pr_row(p, cx)))
-                                        // #87: the tail cell says what the
-                                        // cap swallowed — while filtered the
-                                        // hidden rows are filtered, not
-                                        // capped, so the hint is
-                                        // unfiltered-only.
-                                        .when(!pr_filtered, |col| {
-                                            col.children(
-                                                more_hint_count(repo.prs.total_count, pr_held)
-                                                    .map(|n| more_cell(n, "repo-prs-more", cx)),
-                                            )
-                                        })
-                                        .into_any_element()
-                                })
-                                .into_any_element(),
-                        ),
-                )
-                .child(
-                    GroupBox::new()
-                        .id("issues-box")
-                        .title(filters::box_title(
-                            "Open Issues",
-                            repo.issues.total_count.max(issue_rows.len() as i64) as usize,
-                            issue_rows.len(),
-                            issue_filtered,
-                        ))
-                        .child(
-                            v_flex()
-                                .gap_0p5()
-                                .child(self.issue_filter_toolbar(&issue_label_options, cx))
-                                .child(if issue_rows.is_empty() {
-                                    if self.state.read(cx).repo_issue_rows(repo).is_empty() {
-                                        if self.repo_rows_landed(cx) {
-                                            muted_cell("No open issues", cx)
-                                        } else {
-                                            // docs/0051 D5 — same lazy
-                                            // gate as the PR box.
-                                            home_skeleton_rows()
-                                        }
-                                    } else {
-                                        muted_cell("No issues match the current filters", cx)
-                                    }
-                                } else {
-                                    v_flex()
-                                        .gap_0p5()
-                                        .children(
-                                            issue_rows.iter().map(|i| self.render_issue_row(i, cx)),
-                                        )
-                                        // #87, mirroring prs-box (filtered
-                                        // hides rows, the cap hint doesn't).
-                                        .when(!issue_filtered, |col| {
-                                            col.children(
-                                                more_hint_count(
-                                                    repo.issues.total_count,
-                                                    self.state.read(cx).repo_issue_rows(repo).len(),
-                                                )
-                                                .map(|n| more_cell(n, "repo-issues-more", cx)),
-                                            )
-                                        })
-                                        .into_any_element()
-                                })
-                                .into_any_element(),
-                        ),
-                )
-                .child(
-                    GroupBox::new()
-                        .id("notifs-box")
-                        .title(filters::box_title(
-                            "Notifications",
-                            repo_notifs.len(),
-                            notif_rows.len(),
-                            notif_filtered,
-                        ))
-                        .child(
-                            v_flex()
-                                .gap_0p5()
-                                .child(self.notif_filter_toolbar(&notif_reasons, &notif_kinds, cx))
-                                .child(if notif_rows.is_empty() {
-                                    if repo_notifs.is_empty() {
-                                        muted_cell("No unread notifications", cx)
-                                    } else {
-                                        muted_cell("No notifications match the current filters", cx)
-                                    }
-                                } else {
-                                    v_flex()
-                                        .gap_0p5()
-                                        .children(
-                                            notif_rows
-                                                .iter()
-                                                .map(|n| self.render_notification_row(n, cx)),
-                                        )
-                                        .into_any_element()
-                                })
-                                .into_any_element(),
-                        ),
-                )
+                // The tab strip (docs/0077 D6): one tab per lane; the
+                // active tab's GroupBox renders below, nothing else.
+                .child(self.repo_tab_strip(cx))
+                .child(match self.tab {
+                    RepoTab::Pulls => self.repo_pulls_box(repo, cx),
+                    RepoTab::Issues => self.repo_issues_box(repo, cx),
+                    RepoTab::Notifications => self.repo_notifs_box(repo_notifs, cx),
+                })
                 .into_any_element(),
         };
         div()
@@ -2993,6 +2891,237 @@ impl GithubPage {
             .h_full()
             .overflow_y_scroll()
             .child(detail)
+            .into_any_element()
+    }
+
+    /// The repo view's tab strip (docs/0077 D6): the usage-analytics
+    /// strip is the in-app precedent (underline variant). Labels carry
+    /// the accessible names; the pinned `Tab` primitive derives its
+    /// element ids from the bar + index (no per-tab debug id exists —
+    /// the docs/0077 D6 note). Switching routes through
+    /// `switch_repo_tab`, which offers the lane.
+    fn repo_tab_strip(&self, cx: &Context<Self>) -> AnyElement {
+        TabBar::new("repo-tabs")
+            .underline()
+            .selected_index(self.tab.index())
+            .on_click(cx.listener(|this, ix: &usize, window, cx| {
+                if let Some(tab) = RepoTab::from_index(*ix) {
+                    this.switch_repo_tab(tab, window, cx);
+                }
+            }))
+            .child(Tab::new().label(RepoTab::Pulls.label()))
+            .child(Tab::new().label(RepoTab::Issues.label()))
+            .child(Tab::new().label(RepoTab::Notifications.label()))
+            .into_any_element()
+    }
+
+    /// The Open PRs box (docs/0077 D6): rows and filter options derive
+    /// only while the tab is active — docs/0042 filters over docs/0073
+    /// derived rows, unchanged from the pre-tabs render.
+    fn repo_pulls_box(&self, repo: &gql::Repo, cx: &Context<Self>) -> AnyElement {
+        let (pr_rows, pr_held, pr_filtered, label_options) = {
+            let state = self.state.read(cx);
+            let viewer = state.user.as_ref().map(|u| u.login.clone());
+            let search = self.filters.search.clone();
+            let derived = state.repo_pr_rows(repo);
+            let pr_held = derived.len();
+            // docs/0073 D3 (stage 2): options derive from the derived
+            // rows — the rows the list actually shows.
+            let mut pr_labels: std::collections::BTreeSet<String> = Default::default();
+            for p in &derived {
+                for n in filters::label_names(p.labels.as_ref()) {
+                    pr_labels.insert(n.to_string());
+                }
+            }
+            // Owned: the filter returns references into `derived`, so
+            // the rows must outlive it.
+            let pr_rows =
+                filters::apply_prs(&self.filters.prs, &derived, viewer.as_deref(), &search)
+                    .into_iter()
+                    .cloned()
+                    .collect::<Vec<_>>();
+            let pr_filtered = self.filters.prs.is_filtered() || !search.is_empty();
+            (
+                pr_rows,
+                pr_held,
+                pr_filtered,
+                pr_labels.into_iter().collect::<Vec<_>>(),
+            )
+        };
+        GroupBox::new()
+            .id("prs-box")
+            .title(filters::box_title(
+                "Open PRs",
+                repo.prs.total_count.max(pr_rows.len() as i64) as usize,
+                pr_rows.len(),
+                pr_filtered,
+            ))
+            .child(
+                v_flex()
+                    .gap_0p5()
+                    .child(self.pr_filter_toolbar(&label_options, cx))
+                    .child(if pr_rows.is_empty() {
+                        if pr_held == 0 {
+                            if self.repo_rows_landed(cx) {
+                                muted_cell("No open PRs", cx)
+                            } else {
+                                // docs/0051 D5 — the lazy lane fetch is
+                                // still in flight.
+                                home_skeleton_rows()
+                            }
+                        } else {
+                            muted_cell("No PRs match the current filters", cx)
+                        }
+                    } else {
+                        v_flex()
+                            .gap_0p5()
+                            .children(pr_rows.iter().map(|p| self.render_pr_row(p, cx)))
+                            // #87: the tail cell says what the cap
+                            // swallowed — while filtered the hidden rows
+                            // are filtered, not capped, so the hint is
+                            // unfiltered-only.
+                            .when(!pr_filtered, |col| {
+                                col.children(
+                                    more_hint_count(repo.prs.total_count, pr_held)
+                                        .map(|n| more_cell(n, "repo-prs-more", cx)),
+                                )
+                            })
+                            .into_any_element()
+                    })
+                    .into_any_element(),
+            )
+            .into_any_element()
+    }
+
+    /// The Open issues box — symmetric to [`Self::repo_pulls_box`]
+    /// (docs/0077 D6).
+    fn repo_issues_box(&self, repo: &gql::Repo, cx: &Context<Self>) -> AnyElement {
+        let (issue_rows, issue_filtered, label_options) = {
+            let state = self.state.read(cx);
+            let viewer = state.user.as_ref().map(|u| u.login.clone());
+            let search = self.filters.search.clone();
+            // docs/0072 stage 4 (#555): issue rows derive — the
+            // snapshot's held rows ⊗ the documents, filtered to
+            // not-closed at read time.
+            let derived = state.repo_issue_rows(repo);
+            let mut issue_labels: std::collections::BTreeSet<String> = Default::default();
+            for i in &derived {
+                for n in filters::label_names(i.labels.as_ref()) {
+                    issue_labels.insert(n.to_string());
+                }
+            }
+            let issue_rows =
+                filters::apply_issues(&self.filters.issues, &derived, viewer.as_deref(), &search)
+                    .into_iter()
+                    .cloned()
+                    .collect::<Vec<_>>();
+            let issue_filtered = self.filters.issues.is_filtered() || !search.is_empty();
+            (
+                issue_rows,
+                issue_filtered,
+                issue_labels.into_iter().collect::<Vec<_>>(),
+            )
+        };
+        GroupBox::new()
+            .id("issues-box")
+            .title(filters::box_title(
+                "Open Issues",
+                repo.issues.total_count.max(issue_rows.len() as i64) as usize,
+                issue_rows.len(),
+                issue_filtered,
+            ))
+            .child(
+                v_flex()
+                    .gap_0p5()
+                    .child(self.issue_filter_toolbar(&label_options, cx))
+                    .child(if issue_rows.is_empty() {
+                        if self.state.read(cx).repo_issue_rows(repo).is_empty() {
+                            if self.repo_rows_landed(cx) {
+                                muted_cell("No open issues", cx)
+                            } else {
+                                // docs/0051 D5 — same lazy gate as the
+                                // PR box.
+                                home_skeleton_rows()
+                            }
+                        } else {
+                            muted_cell("No issues match the current filters", cx)
+                        }
+                    } else {
+                        v_flex()
+                            .gap_0p5()
+                            .children(issue_rows.iter().map(|i| self.render_issue_row(i, cx)))
+                            // #87, mirroring prs-box (filtered hides
+                            // rows, the cap hint doesn't).
+                            .when(!issue_filtered, |col| {
+                                col.children(
+                                    more_hint_count(
+                                        repo.issues.total_count,
+                                        self.state.read(cx).repo_issue_rows(repo).len(),
+                                    )
+                                    .map(|n| more_cell(n, "repo-issues-more", cx)),
+                                )
+                            })
+                            .into_any_element()
+                    })
+                    .into_any_element(),
+            )
+            .into_any_element()
+    }
+
+    /// The Notifications box (docs/0077 D5/D6): today's per-repo
+    /// behavior — ident-keyed fetch, the bell's re-derived slice,
+    /// docs/0042 notif filters — now gated by its own lane clock, so a
+    /// never-fetched tab skeletons instead of a false "No unread".
+    fn repo_notifs_box(&self, repo_notifs: &[api::Notification], cx: &Context<Self>) -> AnyElement {
+        let search = self.filters.search.clone();
+        let notif_rows = filters::apply_notifs(&self.filters.notifs, repo_notifs, &search);
+        let notif_filtered = self.filters.notifs.is_filtered() || !search.is_empty();
+        let mut reasons: std::collections::BTreeSet<String> = Default::default();
+        let mut kinds: std::collections::BTreeSet<String> = Default::default();
+        for n in repo_notifs {
+            if let Some(r) = n.reason.as_ref() {
+                reasons.insert(r.clone());
+            }
+            kinds.insert(n.subject.kind.clone());
+        }
+        GroupBox::new()
+            .id("notifs-box")
+            .title(filters::box_title(
+                "Notifications",
+                repo_notifs.len(),
+                notif_rows.len(),
+                notif_filtered,
+            ))
+            .child(
+                v_flex()
+                    .gap_0p5()
+                    .child(self.notif_filter_toolbar(
+                        &reasons.into_iter().collect::<Vec<_>>(),
+                        &kinds.into_iter().collect::<Vec<_>>(),
+                        cx,
+                    ))
+                    .child(if notif_rows.is_empty() {
+                        if repo_notifs.is_empty() {
+                            if self.repo_rows_landed(cx) {
+                                muted_cell("No unread notifications", cx)
+                            } else {
+                                home_skeleton_rows()
+                            }
+                        } else {
+                            muted_cell("No notifications match the current filters", cx)
+                        }
+                    } else {
+                        v_flex()
+                            .gap_0p5()
+                            .children(
+                                notif_rows
+                                    .iter()
+                                    .map(|n| self.render_notification_row(n, cx)),
+                            )
+                            .into_any_element()
+                    })
+                    .into_any_element(),
+            )
             .into_any_element()
     }
 
@@ -3557,8 +3686,8 @@ mod tests {
     // `test` re-export would shadow the builtin `#[test]` attribute and
     // blow the proc-macro stack (rustc SIGSEGV). Import selectively.
     use super::{
-        GithubPage, IndexPath, RepoListDelegate, create_allowed, create_pr_allowed, home_prs_hint,
-        more_hint_count, next_org_selection, notification_url, reconcile_repo_crumb,
+        GithubPage, IndexPath, RepoListDelegate, RepoTab, create_allowed, create_pr_allowed,
+        home_prs_hint, more_hint_count, next_org_selection, notification_url, reconcile_repo_crumb,
         repo_crumb_label,
     };
     use crate::api;
@@ -3723,10 +3852,8 @@ mod tests {
         vcx.run_until_parked();
         assert!(
             vcx.debug_bounds("pr-acme/one#1").is_some(),
-            "all rows render"
+            "the active tab's rows render"
         );
-        assert!(vcx.debug_bounds("issue-acme/one#9").is_some());
-        assert!(vcx.debug_bounds("notif-n1").is_some());
         assert!(
             vcx.debug_bounds("pr-filter-author").is_some(),
             "toolbar visible"
@@ -3760,12 +3887,11 @@ mod tests {
             });
         });
 
-        // Label=bug: only the labeled PR; issues box unaffected.
+        // Label=bug: only the labeled PR.
         vcx.update(|_, cx| {
             page.update(cx, |p, cx| p.set_pr_label(Some("bug".into()), cx));
         });
         assert!(vcx.debug_bounds("pr-acme/one#2").is_none());
-        assert!(vcx.debug_bounds("issue-acme/one#9").is_some());
 
         // Clear restores everything in the box.
         vcx.update(|window, cx| {
@@ -3773,6 +3899,25 @@ mod tests {
             let _ = window;
         });
         assert!(vcx.debug_bounds("pr-acme/one#2").is_some());
+
+        // The Issues tab renders its rows (docs/0077 D6: one box at a
+        // time); the PR filters don't ride along.
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.tab = RepoTab::Issues;
+                cx.notify();
+            });
+        });
+        assert!(vcx.debug_bounds("issue-acme/one#9").is_some());
+
+        // The Notifications tab likewise.
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.tab = RepoTab::Notifications;
+                cx.notify();
+            });
+        });
+        assert!(vcx.debug_bounds("notif-n1").is_some());
     }
 
     #[gpui::test]
@@ -3792,11 +3937,30 @@ mod tests {
             });
         });
         // "issue" matches the issue and the "Issue two" notification,
-        // not the PRs.
+        // not the PRs — asserted per tab (docs/0077 D6: one box at a
+        // time, one shared search).
         assert!(vcx.debug_bounds("pr-acme/one#1").is_none());
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.tab = RepoTab::Issues;
+                cx.notify();
+            });
+        });
         assert!(vcx.debug_bounds("issue-acme/one#9").is_some());
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.tab = RepoTab::Notifications;
+                cx.notify();
+            });
+        });
         assert!(vcx.debug_bounds("notif-n2").is_some());
         assert!(vcx.debug_bounds("notif-n1").is_none());
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.tab = RepoTab::Pulls;
+                cx.notify();
+            });
+        });
         vcx.update(|window, cx| {
             page.update(cx, |p, cx| {
                 p.row_search
@@ -3813,6 +3977,12 @@ mod tests {
         let (page, vcx) = filters_probe_page(cx);
         let _ = vcx.debug_bounds("flush"); // first-paint flush
         vcx.run_until_parked();
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.tab = RepoTab::Notifications;
+                cx.notify();
+            });
+        });
         vcx.update(|_, cx| {
             page.update(cx, |p, cx| {
                 p.set_notif_reason(Some("review_requested".into()), cx)
@@ -3865,7 +4035,7 @@ mod tests {
         // cluster (via the probe-visible chips container) — on labeled
         // PR and issue rows alike; a color-less label still names
         // itself through the muted pill.
-        let (_page, vcx) = filters_probe_page(cx);
+        let (page, vcx) = filters_probe_page(cx);
         let _ = vcx.debug_bounds("flush"); // first-paint flush
         vcx.run_until_parked();
         assert!(
@@ -3876,6 +4046,13 @@ mod tests {
             vcx.debug_bounds("pr-labels-acme/one#2").is_some(),
             "labeled PR #2 renders chips too"
         );
+        // The issue chip lives behind its tab.
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.tab = RepoTab::Issues;
+                cx.notify();
+            });
+        });
         assert!(
             vcx.debug_bounds("issue-labels-acme/one#9").is_some(),
             "the color-less issue label still renders as a named pill"
@@ -4212,13 +4389,20 @@ mod tests {
             });
         });
         let nav = cx.update(|cx| cx.new(|_| Navigator::default()));
-        let (_, vcx) = cx
+        let (page, vcx) = cx
             .add_window_view(|window, cx| GithubPage::new(state.clone(), nav.clone(), window, cx));
         let _ = vcx.debug_bounds("repo-prs-more"); // flush frames
         assert!(
             vcx.debug_bounds("repo-prs-more").is_none(),
             "PRs under the cap (2/2) carry no hint"
         );
+        // The issues hint lives behind its tab.
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.tab = RepoTab::Issues;
+                cx.notify();
+            });
+        });
         assert!(
             vcx.debug_bounds("repo-issues-more").is_some(),
             "issues 137/100 shows the +37 more cell under the rows"
@@ -4238,7 +4422,7 @@ mod tests {
         use crate::http::mock::MockHttp;
         use crate::http::{Http, SharedToken};
         use crate::pr_page;
-        use crate::service::{AuthStatus, GithubCache, GithubState};
+        use crate::service::{AuthStatus, GithubCache, GithubState, RepoLane};
         use dashboard_core::nav::{Navigator, Page};
         use dashboard_core::paths::AppPaths;
 
@@ -4274,6 +4458,10 @@ mod tests {
                 // fetch — an extra request this ledger must not count.
                 s.orgs.clear();
                 s.user = None;
+                // The docs/0052 D5 view-shown bell lane is likewise not
+                // under test here — seed its clock so the nav edge at
+                // the step below stays a no-op.
+                s.notifications_landed = Some(std::time::Instant::now());
             });
             let nav = cx.new(|_| Navigator::default());
             let page = cx.new(|cx| GithubPage::new(state.clone(), nav.clone(), window, cx));
@@ -4346,9 +4534,9 @@ mod tests {
         );
 
         // Pause lifted: the repo-rows arm fires — the module main page
-        // is the list surface and the rows were never landed this
-        // session → the open pair (repo snapshot + repo-slice
-        // notifications) dispatches (docs/0035 D2).
+        // is the list surface and the lane (the default Open PRs tab)
+        // was never landed this session → its single spec dispatches
+        // (docs/0035 D2, docs/0077 D3).
         cx.update(|_, cx| {
             state.update(cx, |s, _| s.rate_limited_until = None);
             page.update(cx, |p, cx| p.refresh_open_page(cx));
@@ -4356,21 +4544,179 @@ mod tests {
         cx.run_until_parked();
         assert_eq!(
             mock.recorded().len(),
-            3,
-            "selected repo: the row pair refreshes on the beat"
+            2,
+            "selected repo: the pulls lane refreshes on the beat"
         );
 
         // Landed rows make the refocus a no-op (docs/0035 D1): a
         // just-landed entry is younger than the 15 s floor.
         cx.update(|_, cx| {
             state.update(cx, |s, _| {
-                s.rows_landed
-                    .insert("acme/one".into(), std::time::Instant::now());
+                s.rows_landed.insert(
+                    ("acme/one".to_string(), RepoLane::Pulls),
+                    std::time::Instant::now(),
+                );
             });
             page.update(cx, |p, cx| p.refresh_open_page(cx));
         });
         cx.run_until_parked();
-        assert_eq!(mock.recorded().len(), 3, "fresh rows: beat is a no-op");
+        assert_eq!(mock.recorded().len(), 2, "fresh rows: beat is a no-op");
+    }
+
+    /// docs/0077 D3 — the lane map end to end: repo open fires the
+    /// pulls lane (the D1 default), a first tab switch fetches its
+    /// lane, a re-entry inside the freshness floor doesn't, and a repo
+    /// switch resets the tab to Pulls and fires the new repo's lane.
+    #[gpui::test]
+    fn repo_tabs_drive_the_lane_map(cx: &mut TestAppContext) {
+        use std::sync::Arc;
+
+        use crate::auth::MockTokenStore;
+        use crate::http::mock::MockHttp;
+        use crate::http::{Http, SharedToken};
+        use crate::service::{AuthStatus, GithubCache, GithubState};
+        use dashboard_core::nav::Navigator;
+        use dashboard_core::paths::AppPaths;
+
+        cx.update(gpui_component::init);
+        cx.update(dashboard_core::status::init);
+        let vcx = cx.add_empty_window();
+
+        // 1: the open's pulls lane; 2: the issues switch; 3: the
+        // notifications switch; 4: the second repo's pulls lane.
+        let pulls_body = r#"{"data":{"repository":{"name":"one","nameWithOwner":"acme/one",
+            "owner":{"login":"acme"},"pullRequests":{"totalCount":0,"nodes":[]}}}}"#;
+        let issues_body = r#"{"data":{"repository":{"name":"one","nameWithOwner":"acme/one",
+            "owner":{"login":"acme"},"issues":{"totalCount":0,"nodes":[]}}}}"#;
+        let pulls_two_body = r#"{"data":{"repository":{"name":"two","nameWithOwner":"acme/two",
+            "owner":{"login":"acme"},"pullRequests":{"totalCount":0,"nodes":[]}}}}"#;
+        let mock = Arc::new(MockHttp::new(vec![
+            Ok(crate::http::HttpResult {
+                status: 200,
+                etag: None,
+                rate: None,
+                body: Some(pulls_body.into()),
+            }),
+            Ok(crate::http::HttpResult {
+                status: 200,
+                etag: None,
+                rate: None,
+                body: Some(issues_body.into()),
+            }),
+            Ok(crate::http::HttpResult {
+                status: 200,
+                etag: None,
+                rate: None,
+                body: Some("[]".into()),
+            }),
+            Ok(crate::http::HttpResult {
+                status: 200,
+                etag: None,
+                rate: None,
+                body: Some(pulls_two_body.into()),
+            }),
+        ]));
+        let (state, page) = vcx.update(|window, cx| {
+            let shared: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let refresh: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let state = cx.new(|_| {
+                GithubState::new(
+                    mock.clone() as Arc<dyn Http>,
+                    Arc::new(MockTokenStore::with("t0k".into())),
+                    shared,
+                    refresh,
+                    GithubCache::new(AppPaths::init()),
+                    DraftStore::at_tmp("repo-tabs-lane-map"),
+                )
+            });
+            state.update(cx, |s, _| {
+                s.auth = AuthStatus::Connected;
+                s.orgs.clear();
+                s.user = None;
+            });
+            let nav = cx.new(|_| Navigator::default());
+            let page = cx.new(|cx| GithubPage::new(state.clone(), nav.clone(), window, cx));
+            (state, page)
+        });
+        let _ = state;
+
+        // Repo open: the pulls lane fires; the tab is the D1 default.
+        vcx.update(|window, cx| {
+            page.update(cx, |p, cx| p.select_repo("acme/one".into(), window, cx));
+        });
+        vcx.run_until_parked();
+        let recorded = mock.recorded();
+        assert_eq!(recorded.len(), 1, "open fires exactly the pulls lane");
+        assert!(
+            recorded[0]
+                .body
+                .as_deref()
+                .unwrap_or("")
+                .contains("query RepoPulls"),
+            "open fires RepoPulls, got {:?}",
+            recorded[0].body
+        );
+        vcx.update(|_, cx| {
+            page.update(cx, |p, _| assert_eq!(p.tab, RepoTab::Pulls));
+        });
+
+        // First switch to Issues: fetches. The pulls lane's clock was
+        // just stamped, so toggling back to Pulls must NOT re-fetch.
+        vcx.update(|window, cx| {
+            page.update(cx, |p, cx| p.switch_repo_tab(RepoTab::Issues, window, cx));
+        });
+        vcx.run_until_parked();
+        vcx.update(|window, cx| {
+            page.update(cx, |p, cx| p.switch_repo_tab(RepoTab::Pulls, window, cx));
+        });
+        vcx.run_until_parked();
+        let recorded = mock.recorded();
+        assert_eq!(recorded.len(), 2, "fresh-lane re-entry is a no-op");
+        assert!(
+            recorded[1]
+                .body
+                .as_deref()
+                .unwrap_or("")
+                .contains("query RepoIssues"),
+            "the Issues switch fires RepoIssues, got {:?}",
+            recorded[1].body
+        );
+
+        // Notifications switch: the REST lane (first visit fetches).
+        vcx.update(|window, cx| {
+            page.update(cx, |p, cx| {
+                p.switch_repo_tab(RepoTab::Notifications, window, cx)
+            });
+        });
+        vcx.run_until_parked();
+        let recorded = mock.recorded();
+        assert_eq!(recorded.len(), 3);
+        assert!(
+            recorded[2].url.contains("/notifications"),
+            "the notifications switch fires the REST lane, got {}",
+            recorded[2].url
+        );
+
+        // Repo switch: the tab resets to Pulls and the new repo's lane
+        // fires (docs/0077 D1/D3).
+        vcx.update(|window, cx| {
+            page.update(cx, |p, cx| p.select_repo("acme/two".into(), window, cx));
+        });
+        vcx.run_until_parked();
+        let recorded = mock.recorded();
+        assert_eq!(recorded.len(), 4);
+        assert!(
+            recorded[3]
+                .body
+                .as_deref()
+                .unwrap_or("")
+                .contains("\"name\":\"two\""),
+            "the new repo's pulls lane fires, got {:?}",
+            recorded[3].body
+        );
+        vcx.update(|_, cx| {
+            page.update(cx, |p, _| assert_eq!(p.tab, RepoTab::Pulls));
+        });
     }
 
     /// docs/0052 D5: the module view-shown notifications fire — the
@@ -4512,7 +4858,7 @@ mod tests {
         use crate::auth::MockTokenStore;
         use crate::http::mock::MockHttp;
         use crate::http::{Http, SharedToken};
-        use crate::service::{AuthStatus, GithubCache, GithubState};
+        use crate::service::{AuthStatus, GithubCache, GithubState, RepoLane};
         use dashboard_core::nav::Navigator;
 
         cx.update(gpui_component::init);
@@ -4568,8 +4914,10 @@ mod tests {
                 }))
                 .unwrap();
                 s.repos.push(repo);
-                s.rows_landed
-                    .insert("acme/one".into(), Instant::now() - Duration::from_secs(120));
+                s.rows_landed.insert(
+                    ("acme/one".to_string(), RepoLane::Pulls),
+                    Instant::now() - Duration::from_secs(120),
+                );
                 cx.notify();
             });
         });
@@ -5117,7 +5465,7 @@ mod tests {
     fn probe_repo_view(
         cx: &mut TestAppContext,
         mock: std::sync::Arc<InboxMock>,
-    ) -> &mut gpui::VisualTestContext {
+    ) -> (gpui::Entity<GithubPage>, &mut gpui::VisualTestContext) {
         use crate::auth::MockTokenStore;
         use crate::service::{AuthStatus, GithubCache, GithubState};
         use dashboard_core::nav::Navigator;
@@ -5157,8 +5505,17 @@ mod tests {
             entity
         });
         let nav = cx.update(|cx| cx.new(|_| Navigator::default()));
-        let (_, vcx) = cx.add_window_view(|window, cx| GithubPage::new(state, nav, window, cx));
-        vcx
+        let (page, vcx) = cx.add_window_view(|window, cx| GithubPage::new(state, nav, window, cx));
+        // The row-done surface lives on the Notifications tab
+        // (docs/0077 D6).
+        let _ = vcx.debug_bounds("flush");
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.tab = RepoTab::Notifications;
+                cx.notify();
+            });
+        });
+        (page, vcx)
     }
 
     // #275 — archived repo: both creation buttons are hidden even with
@@ -5239,7 +5596,7 @@ mod tests {
             delete_failures: std::sync::atomic::AtomicUsize::new(0),
             requests: std::sync::Mutex::new(Vec::new()),
         });
-        let vcx = probe_repo_view(cx, mock.clone());
+        let (_, vcx) = probe_repo_view(cx, mock.clone());
         vcx.run_until_parked();
         let _ = vcx.debug_bounds("notif-19"); // flush frames
         assert!(vcx.debug_bounds("notif-19").is_some(), "row renders");
@@ -5295,7 +5652,7 @@ mod tests {
             delete_failures: std::sync::atomic::AtomicUsize::new(1),
             requests: std::sync::Mutex::new(Vec::new()),
         });
-        let vcx = probe_repo_view(cx, mock.clone());
+        let (_, vcx) = probe_repo_view(cx, mock.clone());
         vcx.run_until_parked();
         let button = vcx
             .debug_bounds("notif-done-19")

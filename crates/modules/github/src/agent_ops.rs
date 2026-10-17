@@ -193,7 +193,7 @@ impl GithubAgentOps {
                     "open_issues": repo.issues.total_count,
                     // Rows held ≠ summaries present: the lazy scope may
                     // not have run for this repo yet (docs/0007 D6).
-                    "rows_held": s.rows_landed.contains_key(&repo.key),
+                    "rows_held": s.repo_rows_landed_any(&repo.key).is_some(),
                 })
             })
             .collect();
@@ -281,7 +281,7 @@ impl GithubAgentOps {
                  docs/0007 D6)",
             ));
         };
-        let Some(landed) = s.rows_landed.get(&repo.key) else {
+        let Some(landed) = s.repo_rows_landed_any(&repo.key) else {
             return Ok(not_held(
                 repo.full_name.as_str(),
                 "rows never landed this session — open the repo view, or use the phase-2 \
@@ -485,7 +485,7 @@ mod tests {
     use crate::drafts::DraftStore;
     use crate::gql::{Author, Issue, IssueSummary, Owner, PrSummary, PullRequest, Repo};
     use crate::http::SharedToken;
-    use crate::service::GithubState;
+    use crate::service::{GithubState, RepoLane};
     use dashboard_core::usage_records::{
         MemorySink, Recorder, UsageRecord, UsageSink as _, UsageSource as _,
     };
@@ -701,7 +701,8 @@ mod tests {
             provider.state.update(cx, |s, _| {
                 s.repos = vec![repo("o/r", "o")];
                 s.notifications = vec![notification("n1", "o/r")];
-                s.rows_landed.insert("o/r".into(), Instant::now());
+                s.rows_landed
+                    .insert(("o/r".into(), RepoLane::Pulls), Instant::now());
             });
         });
 
@@ -821,8 +822,10 @@ mod tests {
                     nodes: vec![],
                 };
                 s.repos = vec![held, quiet];
-                s.rows_landed.insert("o/r".into(), Instant::now());
-                s.rows_landed.insert("acme/quiet".into(), Instant::now());
+                s.rows_landed
+                    .insert(("o/r".into(), RepoLane::Pulls), Instant::now());
+                s.rows_landed
+                    .insert(("acme/quiet".into(), RepoLane::Pulls), Instant::now());
             });
         });
 
