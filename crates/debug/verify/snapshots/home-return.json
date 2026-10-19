@@ -25,6 +25,19 @@
       "focused": false
     },
     {
+      "accesskit_id": "1046671865314738724",
+      "role": "TreeItem",
+      "label": "Usage",
+      "bounds": {
+        "x": 29.0,
+        "y": 173.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
       "accesskit_id": "1604365170848998340",
       "role": "Button",
       "label": "Back",
@@ -77,33 +90,7 @@
       "focused": false
     },
     {
-      "accesskit_id": "5961417643842590894",
-      "role": "TreeItem",
-      "label": "Home",
-      "bounds": {
-        "x": 29.0,
-        "y": 89.0,
-        "w": 230.0,
-        "h": 28.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "6580481900935945976",
-      "role": "TreeItem",
-      "label": "Favicon",
-      "bounds": {
-        "x": 29.0,
-        "y": 145.0,
-        "w": 230.0,
-        "h": 28.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "8593156504149649983",
+      "accesskit_id": "7891363768799038776",
       "role": "TreeItem",
       "label": "GitHub",
       "bounds": {
@@ -142,19 +129,6 @@
       "focused": false
     },
     {
-      "accesskit_id": "15550795210854138450",
-      "role": "TreeItem",
-      "label": "Usage",
-      "bounds": {
-        "x": 29.0,
-        "y": 173.0,
-        "w": 230.0,
-        "h": 28.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
       "accesskit_id": "15772906034713358327",
       "role": "Button",
       "label": "Generate favicons",
@@ -165,6 +139,19 @@
         "h": 24.0
       },
       "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16861677078717231250",
+      "role": "TreeItem",
+      "label": "Favicon",
+      "bounds": {
+        "x": 29.0,
+        "y": 145.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
       "focused": false
     },
     {
@@ -181,6 +168,32 @@
       "focused": false
     },
     {
+      "accesskit_id": "17367794532657506781",
+      "role": "TreeItem",
+      "label": "Home",
+      "bounds": {
+        "x": 29.0,
+        "y": 89.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17480741335877695196",
+      "role": "TreeItem",
+      "label": "Settings",
+      "bounds": {
+        "x": 29.0,
+        "y": 201.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
       "accesskit_id": "17900589767825635402",
       "role": "ListItem",
       "label": "Home",
@@ -189,19 +202,6 @@
         "y": 23.0,
         "w": 38.0,
         "h": 23.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "18182534071161197539",
-      "role": "TreeItem",
-      "label": "Settings",
-      "bounds": {
-        "x": 29.0,
-        "y": 201.0,
-        "w": 230.0,
-        "h": 28.0
       },
       "focusable": false,
       "focused": false

@@ -2346,8 +2346,8 @@ dependencies = [
 
 [[package]]
 name = "gpui-base"
-version = "0.7.3"
-source = "git+https://github.com/longbridge/gpui-component?rev=67265a36e260ffe03c5aaebdcd8d654dbf892eab#67265a36e260ffe03c5aaebdcd8d654dbf892eab"
+version = "0.8.0"
+source = "git+https://github.com/longbridge/gpui-component?rev=1676826d9d49b90f4d7b6808b69924f58796f6f1#1676826d9d49b90f4d7b6808b69924f58796f6f1"
 dependencies = [
  "aho-corasick",
  "anyhow",
@@ -2386,8 +2386,8 @@ dependencies = [
 
 [[package]]
 name = "gpui-component"
-version = "0.7.3"
-source = "git+https://github.com/longbridge/gpui-component?rev=67265a36e260ffe03c5aaebdcd8d654dbf892eab#67265a36e260ffe03c5aaebdcd8d654dbf892eab"
+version = "0.8.0"
+source = "git+https://github.com/longbridge/gpui-component?rev=1676826d9d49b90f4d7b6808b69924f58796f6f1#1676826d9d49b90f4d7b6808b69924f58796f6f1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2467,8 +2467,8 @@ dependencies = [
 
 [[package]]
 name = "gpui-component-macros"
-version = "0.7.3"
-source = "git+https://github.com/longbridge/gpui-component?rev=67265a36e260ffe03c5aaebdcd8d654dbf892eab#67265a36e260ffe03c5aaebdcd8d654dbf892eab"
+version = "0.8.0"
+source = "git+https://github.com/longbridge/gpui-component?rev=1676826d9d49b90f4d7b6808b69924f58796f6f1#1676826d9d49b90f4d7b6808b69924f58796f6f1"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -2478,8 +2478,8 @@ dependencies = [
 
 [[package]]
 name = "gpui-kit-assets"
-version = "0.7.3"
-source = "git+https://github.com/longbridge/gpui-component?rev=67265a36e260ffe03c5aaebdcd8d654dbf892eab#67265a36e260ffe03c5aaebdcd8d654dbf892eab"
+version = "0.8.0"
+source = "git+https://github.com/longbridge/gpui-component?rev=1676826d9d49b90f4d7b6808b69924f58796f6f1#1676826d9d49b90f4d7b6808b69924f58796f6f1"
 dependencies = [
  "anyhow",
  "gpui-pre",
@@ -6842,7 +6842,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",

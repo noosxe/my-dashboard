@@ -24,7 +24,8 @@ rust-version = "1.85"
 
 [workspace.dependencies]
 anyhow = "1"
-# GPUI stack at gpui-kit v0.7.3 (v0.6.0 was the "GPUI Kit" rebrand:
+# GPUI stack at gpui-kit v0.8.0 (gpui-pre family unchanged at 0.3.9; v0.6.0
+# was the "GPUI Kit" rebrand:
 # upstream republished the zed gpui family to crates.io as gpui-pre-*
 # (gpui-component no longer builds against zed-git gpui, so our direct deps
 # moved with it; the package-rename aliases keep `use gpui::…` etc.
@@ -33,8 +34,8 @@ anyhow = "1"
 # the same versions with zero import churn (see PR for #114). 0.7.x keeps that
 # stance for startup too: our manual `cx.open_window` + `Root::new` wrap is
 # exactly what the umbrella's `gpui_kit::open_window` does internally, and
-# `Root::new`/`Root::update` remain public (base/src/root.rs :147/:183; still
-# public at v0.7.3), so no startup churn rides the bump.
+# `Root::new`/`Root::update` remain public (base/src/root.rs :170/:206; still
+# public at v0.8.0), so no startup churn rides the bump.
 #
 # Exact pins (=), not caret (#126): each gpui-pre release is a snapshot of a
 # DIFFERENT zed rev — "same-ish version" is not the same code, so a pin that
@@ -62,11 +63,11 @@ reqwest_client = { package = "gpui-pre-reqwest-client", version = "=0.3.9" }
 # the full grammar pack (35 languages, cc-built). Feature names upstream;
 # deliberate full-pack enable over cherry-picking. syntect retires in 0070
 # part 2.
-gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "67265a36e260ffe03c5aaebdcd8d654dbf892eab", features = ["tree-sitter", "tree-sitter-languages"] } # v0.7.3
+gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "1676826d9d49b90f4d7b6808b69924f58796f6f1", features = ["tree-sitter", "tree-sitter-languages"] } # v0.8.0
 # The nav-history primitive (docs/0048 D1): gpui_base::History — same
 # pinned checkout as gpui-component, so the family stays on one rev.
-gpui_base = { package = "gpui-base", git = "https://github.com/longbridge/gpui-component", rev = "67265a36e260ffe03c5aaebdcd8d654dbf892eab" }
-gpui-kit-assets = { git = "https://github.com/longbridge/gpui-component", rev = "67265a36e260ffe03c5aaebdcd8d654dbf892eab" } # v0.7.3
+gpui_base = { package = "gpui-base", git = "https://github.com/longbridge/gpui-component", rev = "1676826d9d49b90f4d7b6808b69924f58796f6f1" }
+gpui-kit-assets = { git = "https://github.com/longbridge/gpui-component", rev = "1676826d9d49b90f4d7b6808b69924f58796f6f1" } # v0.8.0
 dashboard-core = { path = "crates/core" }
 dashboard-agent = { path = "crates/agent" }
 dashboard-debug = { path = "crates/debug" }

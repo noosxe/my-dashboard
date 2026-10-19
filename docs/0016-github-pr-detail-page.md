@@ -144,6 +144,11 @@ Out (non-goals):
 > stands, still exactly two sites (:527, :858). The v0.7.2/v0.7.3
 > releases carry no Select-layout changes.
 
+> **Re-verified at the v0.8.0 pin `1676826` (2026-10-19):** `select.rs`
+> still carries exactly two `size_full` sites — the trap stands. The
+> v0.8.0 release notes list no Select-layout change (Select: keyboard
+> confirmation and item reconciliation only, #3446).
+
 - `ui::tab::{Tab, TabBar}` with `.underline()` variant — the GitHub-style tab
   chrome; `selected_index` + `on_click` drive an enum in our state.
 - `ui::input::textarea::{Textarea, TextareaState}` — multiline input with

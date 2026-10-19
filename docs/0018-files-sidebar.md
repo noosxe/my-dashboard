@@ -67,6 +67,10 @@ The product owner wants GitHub-style master–detail instead:
 > byte-identical to the v0.7.1 pin — the `size_full` sites (:527/:858)
 > and the §8 wrapper-div workaround stand.
 
+> **Re-verified at the v0.8.0 pin `1676826` (2026-10-19):** `select.rs`
+> still has the two `size_full` sites; the §8 wrapper-div workaround
+> stands.
+
 All of this ships upstream today; no new dependencies:
 
 - **Select** — `SelectState::new(SearchableVec::from(items), None,

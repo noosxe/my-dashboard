@@ -15,13 +15,13 @@
 --session audit
 
 # → settings (sidebar TreeItem id; the sidebar is chrome on every page).
-click 18182534071161197539 --wait-frame
+click 17480741335877695196 --wait-frame
 assert-label "Appearance"
 audit
 assert-baseline settings
 
 # → favicon module (sidebar TreeItem id).
-click 6580481900935945976 --wait-frame
+click 16861677078717231250 --wait-frame
 assert-label "Emoji"
 audit
 assert-baseline favicon
