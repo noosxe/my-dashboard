@@ -25,6 +25,19 @@
       "focused": false
     },
     {
+      "accesskit_id": "1046671865314738724",
+      "role": "TreeItem",
+      "label": "Usage",
+      "bounds": {
+        "x": 29.0,
+        "y": 173.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
       "accesskit_id": "1604365170848998340",
       "role": "Button",
       "label": "Back",
@@ -259,19 +272,6 @@
       "focused": false
     },
     {
-      "accesskit_id": "5961417643842590894",
-      "role": "TreeItem",
-      "label": "Home",
-      "bounds": {
-        "x": 29.0,
-        "y": 89.0,
-        "w": 230.0,
-        "h": 28.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
       "accesskit_id": "6443597541507064418",
       "role": "Button",
       "label": "Glyph",
@@ -285,19 +285,6 @@
       "focused": false
     },
     {
-      "accesskit_id": "6580481900935945976",
-      "role": "TreeItem",
-      "label": "Favicon",
-      "bounds": {
-        "x": 29.0,
-        "y": 145.0,
-        "w": 230.0,
-        "h": 28.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
       "accesskit_id": "7162709301175681152",
       "role": "Button",
       "label": "SF Pro",
@@ -308,6 +295,19 @@
         "h": 20.0
       },
       "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "7891363768799038776",
+      "role": "TreeItem",
+      "label": "GitHub",
+      "bounds": {
+        "x": 29.0,
+        "y": 117.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
       "focused": false
     },
     {
@@ -347,19 +347,6 @@
         "h": 18.0
       },
       "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "8593156504149649983",
-      "role": "TreeItem",
-      "label": "GitHub",
-      "bounds": {
-        "x": 29.0,
-        "y": 117.0,
-        "w": 230.0,
-        "h": 28.0
-      },
-      "focusable": false,
       "focused": false
     },
     {
@@ -597,19 +584,6 @@
       "focused": false
     },
     {
-      "accesskit_id": "15550795210854138450",
-      "role": "TreeItem",
-      "label": "Usage",
-      "bounds": {
-        "x": 29.0,
-        "y": 173.0,
-        "w": 230.0,
-        "h": 28.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
       "accesskit_id": "15968077461302059527",
       "role": "TextInput",
       "label": "My App",
@@ -649,6 +623,19 @@
       "focused": false
     },
     {
+      "accesskit_id": "16861677078717231250",
+      "role": "TreeItem",
+      "label": "Favicon",
+      "bounds": {
+        "x": 29.0,
+        "y": 145.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
       "accesskit_id": "16963919496256642517",
       "role": "Button",
       "label": "Toggle sidebar",
@@ -662,6 +649,19 @@
       "focused": false
     },
     {
+      "accesskit_id": "17367794532657506781",
+      "role": "TreeItem",
+      "label": "Home",
+      "bounds": {
+        "x": 29.0,
+        "y": 89.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
       "accesskit_id": "17393429249193941830",
       "role": "Button",
       "label": "Courier New",
@@ -672,6 +672,19 @@
         "h": 20.0
       },
       "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17480741335877695196",
+      "role": "TreeItem",
+      "label": "Settings",
+      "bounds": {
+        "x": 29.0,
+        "y": 201.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
       "focused": false
     },
     {
@@ -748,19 +761,6 @@
         "y": 285.0,
         "w": 279.0,
         "h": 32.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "18182534071161197539",
-      "role": "TreeItem",
-      "label": "Settings",
-      "bounds": {
-        "x": 29.0,
-        "y": 201.0,
-        "w": 230.0,
-        "h": 28.0
       },
       "focusable": false,
       "focused": false

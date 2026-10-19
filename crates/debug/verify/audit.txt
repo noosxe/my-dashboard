@@ -58,8 +58,10 @@ assert-baseline home
 # PR (0065 D5).
 
 # Home → usage analytics via the sidebar TreeItem (chrome on every
-# page; its id is stable across boots and walk orders).
-click 15550795210854138450 --wait-frame
+# page; its id is stable across boots and walk orders — the constants
+# re-derived once at the gpui-kit 0.8.0 bump, #530's receipts; upstream
+# reworked id derivation in the a11y changes, labels unchanged).
+click 1046671865314738724 --wait-frame
 assert-label "as of"
 audit
 assert-baseline usage-overview
@@ -80,7 +82,7 @@ audit
 assert-baseline hub
 
 # Back home — the review's home state, re-visited after navigation.
-click 5961417643842590894 --wait-frame
+click 17367794532657506781 --wait-frame
 assert-label "Open GitHub module"
 audit
 assert-baseline home-return
