@@ -126,6 +126,16 @@ Known cost: a manual refresh pressed while a same-key fetch is in flight
 is a no-op; #188's refresh affordance can disable itself once the
 record's `in_flight` is visible to it.
 
+**Amended (repo-tabs refresh, docs/0077 D3): the known cost is resolved
+head-on, not by disabling the affordance.** A `Trigger::Manual` dispatch
+(docs/0052 — the refresh buttons) is the user's explicit re-fetch and is
+never absorbed: finding the key armed, it still dispatches, rides out the
+in-flight fetch, and lands after it — restamping the lane clock. It never
+clears the holder's arm (only the holder does), so the guard's
+skip-converges semantics for automatic triggers are untouched. The
+skip-instead-of-queue rationale stands: a Manual rider doesn't queue, it
+runs concurrently and its fresher landing supersedes.
+
 ### D3 — One fetch record: status × in-flight, orthogonally
 
 ```rust

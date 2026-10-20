@@ -4726,12 +4726,21 @@ pub(crate) async fn run_read_deduped(
     // A failed `cx.update` means the app is tearing down — skipping is
     // the harmless answer.
     let armed = cx.update(|cx| state.update(cx, |s, _| s.in_flight_arm(key.clone())));
-    if !armed {
+    // docs/0031 D2 amended: a Manual read (docs/0052) is the user's
+    // explicit re-fetch — it rides out an in-flight identical read
+    // instead of being absorbed. The natural "switch lane, immediately
+    // hit refresh" flow must not be a silent no-op; the in-flight
+    // holder keeps its own arm, and the manual result lands after it
+    // and restamps the lane clock.
+    if !armed && spec.origin.trigger != Trigger::Manual {
         log::debug!("{kind_name}: skipped — an identical read is in flight");
         return None;
     }
     let result = run_spec_tracked(state.clone(), spec, cx).await;
-    cx.update(|cx| state.update(cx, |s, _| s.in_flight_clear(&key)));
+    // Only the holder clears the arm — a Manual rider never touches it.
+    if armed {
+        cx.update(|cx| state.update(cx, |s, _| s.in_flight_clear(&key)));
+    }
     Some(result)
 }
 
@@ -9236,6 +9245,18 @@ mod tests {
         }
     }
 
+    fn manual_spec(kind: Kind, ident: Option<&str>) -> FetchSpec {
+        FetchSpec {
+            origin: Origin::new(Surface::RepoView, Trigger::Manual),
+            kind,
+            url: api::notifications_url(1),
+            etag: None,
+            ident: ident.map(Into::into),
+            max_pages: 1,
+            variables: None,
+        }
+    }
+
     #[test]
     fn fetch_record_transitions() {
         // docs/0031 D3/D4: `land` stamps fetched_at and clears errors;
@@ -9311,6 +9332,68 @@ mod tests {
             .await;
         assert!(result.is_some());
         assert_eq!(http.recorded().len(), 1);
+        assert!(
+            cx.update(|cx| state.read(cx).in_flight.is_empty()),
+            "the guard clears when the run lands"
+        );
+    }
+
+    /// docs/0031 D2 amended: a Manual read (docs/0052 — the refresh
+    /// buttons) is the user's explicit re-fetch. With the key armed it
+    /// still dispatches, lands behind the holder, and — critically —
+    /// never clears the holder's arm for it.
+    #[gpui::test]
+    async fn read_deduped_manual_trigger_rides_out_an_in_flight_read(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        cx.update(dashboard_core::status::init);
+        cx.update(dashboard_core::toasts::init); // refresh raises auth alerts
+        let http = Arc::new(MockHttp::new(vec![
+            api_result(200, "[]"),
+            api_result(200, "[]"),
+        ]));
+        let state = gate_state_entity(cx, http.clone(), "dedup-manual");
+
+        // Lane A mid-flight, simulated deterministically: the key is
+        // armed without a transport round (docs/0031 §5).
+        let key: InFlightKey = (Kind::Notifications, None);
+        cx.update(|cx| {
+            state.update(cx, |s, _| assert!(s.in_flight_arm(key.clone())));
+        });
+
+        // The Manual rider: same key → still dispatches.
+        let result = cx
+            .spawn({
+                let state = state.clone();
+                move |mut cx: gpui::AsyncApp| async move {
+                    run_read_deduped(state, manual_spec(Kind::Notifications, None), &mut cx).await
+                }
+            })
+            .await;
+        assert!(result.is_some(), "a Manual read is never absorbed");
+        assert_eq!(http.recorded().len(), 1, "the rider hits the transport");
+        assert!(
+            cx.update(|cx| state.read(cx).in_flight.contains(&key)),
+            "the rider leaves the holder's arm in place"
+        );
+
+        // The holder still owns the guard: its own clear reopens the
+        // lane, and the next automatic dispatch runs and clears behind
+        // itself.
+        cx.update(|cx| {
+            state.update(cx, |s, _| s.in_flight_clear(&key));
+        });
+        let http2 = http.clone();
+        let next = cx
+            .spawn({
+                let state = state.clone();
+                move |mut cx: gpui::AsyncApp| async move {
+                    run_read_deduped(state, dedup_spec(Kind::Notifications, None), &mut cx).await
+                }
+            })
+            .await;
+        assert!(next.is_some());
+        assert_eq!(http2.recorded().len(), 2);
         assert!(
             cx.update(|cx| state.read(cx).in_flight.is_empty()),
             "the guard clears when the run lands"

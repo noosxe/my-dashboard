@@ -2849,12 +2849,14 @@ impl GithubPage {
                                 let full = repo.full_name.clone();
                                 let lane = self.tab.lane();
                                 move |this, window, cx| {
-                                    // User-invoked: the active lane's spec,
-                                    // ignoring age/backoff (docs/0077 D3).
+                                    // User-invoked (docs/0052): the active
+                                    // lane's spec, Trigger::Manual — ignoring
+                                    // age/backoff (docs/0077 D3) and the
+                                    // in-flight dedup (docs/0031 D2 amended).
                                     let spec = this.state.read(cx).repo_lane_spec(
                                         &full,
                                         lane,
-                                        Origin::new(Surface::RepoView, Trigger::ViewShown),
+                                        Origin::new(Surface::RepoView, Trigger::Manual),
                                     );
                                     this.run_specs(vec![spec], window, cx);
                                 }
@@ -4754,6 +4756,156 @@ mod tests {
         vcx.update(|_, cx| {
             page.update(cx, |p, _| assert_eq!(p.tab, RepoTab::Pulls));
         });
+    }
+
+    /// The header refresh button (docs/0024 D2 amended) refreshes the
+    /// ACTIVE tab's lane: clicked on the Issues tab it must fire
+    /// RepoIssues (docs/0077 D3's manual-refresh contract), and back on
+    /// Pulls it must fire RepoPulls. Drives the real button through the
+    /// window, not the closure's inner path.
+    #[gpui::test]
+    fn repo_refresh_button_refreshes_the_active_tab(cx: &mut TestAppContext) {
+        use std::sync::Arc;
+
+        use crate::auth::MockTokenStore;
+        use crate::http::mock::MockHttp;
+        use crate::http::{Http, SharedToken};
+        use crate::service::{AuthStatus, GithubCache, GithubState};
+        use dashboard_core::nav::Navigator;
+
+        cx.update(gpui_component::init);
+        cx.update(dashboard_core::status::init);
+        let ok_lane = |lane_field: &str| {
+            let body = format!(
+                r#"{{"data":{{"repository":{{"name":"one","nameWithOwner":"acme/one",
+                "owner":{{"login":"acme"}},"{lane_field}":{{"totalCount":0,"nodes":[]}}}}}}}}"#
+            );
+            Ok(crate::http::HttpResult {
+                status: 200,
+                etag: None,
+                rate: None,
+                body: Some(body),
+            })
+        };
+        // 1: the open's pulls lane; 2: the issues switch; 3: the pull
+        // on Issues; 4: the pull back on Pulls. Extra heads absorb any
+        // attach-edge specs; results are never read.
+        let mock = Arc::new(MockHttp::new(vec![
+            ok_lane("pullRequests"),
+            ok_lane("issues"),
+            ok_lane("issues"),
+            ok_lane("pullRequests"),
+            ok_lane("pullRequests"),
+            ok_lane("pullRequests"),
+        ]));
+        let (state, nav) = cx.update(|cx| {
+            let shared: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let refresh: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let state = cx.new(|_| {
+                GithubState::new(
+                    mock.clone() as Arc<dyn Http>,
+                    Arc::new(MockTokenStore::with("t0k".into())),
+                    shared,
+                    refresh,
+                    GithubCache::at_tmp("repo-refresh-active-tab"),
+                    DraftStore::at_tmp("repo-refresh-active-tab"),
+                )
+            });
+            state.update(cx, |s, _| {
+                s.auth = AuthStatus::Connected;
+                s.orgs.clear();
+                s.user = None;
+                s.repos = vec![repo("acme/one", None)];
+            });
+            let nav = cx.new(|_| Navigator::default());
+            (state, nav)
+        });
+        let (page, vcx) = cx
+            .add_window_view(|window, cx| GithubPage::new(state.clone(), nav.clone(), window, cx));
+
+        vcx.update(|window, cx| {
+            page.update(cx, |p, cx| p.select_repo("acme/one".into(), window, cx));
+        });
+        vcx.run_until_parked();
+        let _ = vcx.debug_bounds("repo-rows-refresh"); // flush frames
+        let on_pulls = vcx.debug_bounds("repo-rows-refresh");
+        assert!(
+            on_pulls.is_some(),
+            "the header refresh button renders on the Pulls tab"
+        );
+        vcx.update(|window, cx| {
+            page.update(cx, |p, cx| p.switch_repo_tab(RepoTab::Issues, window, cx));
+        });
+        // A manual click right after the switch: whether it lands
+        // inside the switch's in-flight window or after it, it still
+        // dispatches (docs/0031 D2 amended — the guard-level contract
+        // is pinned by
+        // read_deduped_manual_trigger_rides_out_an_in_flight_read).
+        let race = vcx
+            .debug_bounds("repo-rows-refresh")
+            .expect("the header refresh button renders on the Issues tab");
+        vcx.simulate_click(race.center(), gpui::Modifiers::default());
+        vcx.run_until_parked();
+        let on_issues = vcx.debug_bounds("repo-rows-refresh");
+        assert!(
+            on_issues.is_some(),
+            "the header refresh button renders on the Issues tab"
+        );
+
+        // The click drives the real header button on the Issues tab.
+        let refresh = vcx
+            .debug_bounds("repo-rows-refresh")
+            .expect("the header refresh button renders");
+        vcx.simulate_click(refresh.center(), gpui::Modifiers::default());
+        vcx.run_until_parked();
+        let recorded = mock.recorded();
+        assert_eq!(
+            recorded.len(),
+            4,
+            "the switch + the race-window click each fire"
+        );
+        assert!(
+            recorded[2]
+                .body
+                .as_deref()
+                .unwrap_or("")
+                .contains("query RepoIssues"),
+            "the Issues switch fires RepoIssues, got {:?}",
+            recorded[2].body
+        );
+        assert!(
+            recorded[3]
+                .body
+                .as_deref()
+                .unwrap_or("")
+                .contains("query RepoIssues"),
+            "the race-window manual click fires RepoIssues too, got {:?}",
+            recorded[3].body
+        );
+
+        // Same click on the Pulls tab fires the pulls lane.
+        vcx.update(|window, cx| {
+            page.update(cx, |p, cx| p.switch_repo_tab(RepoTab::Pulls, window, cx));
+        });
+        vcx.run_until_parked();
+        let refresh = vcx
+            .debug_bounds("repo-rows-refresh")
+            .expect("the header refresh button renders");
+        vcx.simulate_click(refresh.center(), gpui::Modifiers::default());
+        vcx.run_until_parked();
+        let recorded = mock.recorded();
+        // The switch back lands inside the freshness floor (docs/0077
+        // D3): no refetch — the click is the only Pulls-tab request.
+        assert_eq!(recorded.len(), 5, "switch-back stays quiet; click fires");
+        assert!(
+            recorded[4]
+                .body
+                .as_deref()
+                .unwrap_or("")
+                .contains("query RepoPulls"),
+            "refresh on the Pulls tab fires RepoPulls, got {:?}",
+            recorded[4].body
+        );
     }
 
     /// docs/0052 D5: the module view-shown notifications fire — the

@@ -119,12 +119,14 @@ which is the owner-set goal.
 | View-shown after a detail page closes | active tab's lane (age-gated) |
 | Mutation-refetch return (docs/0016 flows) | invalidates **all three** lanes' freshness for the repo (correctness over frugality after a write); the next view-shown/heartbeat then fetches the active one |
 | Heartbeat beat (docs/0035) | active tab's lane only, at `FOCUS_MIN_AGE` |
+| Header refresh button (docs/0024 D2 amended) | the active tab's lane as `Trigger::Manual` — no age/backoff gate and never absorbed by the in-flight dedup (docs/0031 D2 amended): a click during an in-flight lane fetch rides out and refetches |
 
 "Switch fires the lane" means the switch *offers* the spec; the established
 substrate decides whether a request goes out: docs/0031 in-flight dedup
-absorbs a rapid toggle, and the lane's landed clock gates re-offers inside
-the freshness floor (the same semantics as today's view-shown). A first
-visit to a tab always fetches.
+absorbs a rapid toggle (automatic triggers only — a `Trigger::Manual`
+rider dispatches regardless, docs/0031 D2 amended), and the lane's landed
+clock gates re-offers inside the freshness floor (the same semantics as
+today's view-shown). A first visit to a tab always fetches.
 
 ### D4 — Landed clocks and backoff go per-lane
 
