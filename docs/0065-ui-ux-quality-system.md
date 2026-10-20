@@ -128,6 +128,12 @@ below threshold — text pairs at 4.5:1 (SC 1.4.3 AA; verified against
 primary W3C text at implementation). Decorative/non-text pairs are
 exempt by explicit list in the test, not by silence.
 
+
+**Amendment (docs/0078):** the gate is scoped to *app-owned* theme
+content. The factory pair is retired — the bundled set is the upstream
+gallery verbatim — so the app owns no palette bytes to vouch for; the
+threshold table above stays normative for any future app-owned surface.
+Upstream curation is trusted, not gated (the docs/0074 D4 stance).
 **Amendment (Phase 1 implementation):** pre-computing every pair found
 (a) two real text failures in Aurora Light — `info.foreground` and
 `warning.foreground` were white ink on fills darker than their
@@ -285,6 +291,8 @@ Implementation issues are split per phase after this doc merges.
 - `audit` rules get unit tests over synthetic `tree --json` fixtures
   (each rule: a passing tree, a failing tree, an incomplete tree).
 - Contrast test covers every declared aurora pair; fixture pairs pin
+  both sides of the threshold. (Retired by docs/0078 with the theme it
+  vouched for.)
   both sides of the threshold.
 - The pixel-differ gets tolerance tests over crafted fixture PNGs
   (identical / one-pixel change / tolerance boundary).

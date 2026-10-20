@@ -578,7 +578,7 @@ keeps them apart.
 compares against the committed baseline at
 `crates/debug/verify/pixels/<surface>-<WxH>-<theme>.png` (size comes
 from the session record — pinned `--size` is the receipt contract;
-the theme flag is the operator stating which Aurora theme is active).
+the theme flag is the operator stating which theme is active).
 The differ is a pure module (`pixels.rs`): per-channel tolerance of
 2/255 — above anti-aliasing jitter, far below anything visible — any
 pixel over tolerance is drift (exit 1 with count, worst delta, first

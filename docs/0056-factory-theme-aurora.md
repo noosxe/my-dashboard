@@ -7,6 +7,13 @@
   (defaults restored from a runtime snapshot), D9 (default-name
   constants)
 
+
+> **Superseded by docs/0078 (2026-10-20).** The factory pair is retired:
+> the bundled set is the upstream gallery verbatim and the shipped defaults
+> are the kit's own `Default Light` / `Default Dark` (docs/0078 D1/D2).
+> `Aurora Dark` survives in this doc's git history
+> (`crates/core/assets/themes/aurora.json`) and installs as an ordinary
+> user theme file.
 ## 1. Summary
 
 The factory palettes — what a fresh install sees with no settings and
