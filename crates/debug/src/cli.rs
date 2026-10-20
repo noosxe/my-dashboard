@@ -329,7 +329,7 @@ pub fn parse_args(args: &[String]) -> Result<Command, String> {
                         if value != "dark" && value != "light" {
                             return Err(format!(
                                 "unknown theme {value:?} — the operator states which \
-                                 Aurora theme is active; dark|light only"
+                                 shipped default theme is active; dark|light only"
                             ));
                         }
                         theme = Some(value.clone());
@@ -351,7 +351,7 @@ pub fn parse_args(args: &[String]) -> Result<Command, String> {
                 return Err(format!("bad surface name {surface:?}"));
             }
             let Some(theme) = theme else {
-                return Err("golden needs --theme dark|light (the operator states which Aurora theme is active)".into());
+                return Err("golden needs --theme dark|light (the operator states which shipped default theme is active)".into());
             };
             Ok(Command::Golden {
                 surface,

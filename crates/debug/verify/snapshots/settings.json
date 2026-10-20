@@ -14,11 +14,11 @@
     {
       "accesskit_id": "440496287770319064",
       "role": "Button",
-      "label": "Dark palette: Aurora Dark",
+      "label": "Dark palette: Default Dark",
       "bounds": {
-        "x": 1121.0,
+        "x": 1118.0,
         "y": 339.0,
-        "w": 122.0,
+        "w": 125.0,
         "h": 32.0
       },
       "focusable": true,
@@ -40,11 +40,11 @@
     {
       "accesskit_id": "974986411809348007",
       "role": "Button",
-      "label": "Light palette: Aurora Light",
+      "label": "Light palette: Default Light",
       "bounds": {
-        "x": 1120.0,
+        "x": 1117.0,
         "y": 280.0,
-        "w": 123.0,
+        "w": 126.0,
         "h": 32.0
       },
       "focusable": true,

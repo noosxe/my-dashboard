@@ -14,12 +14,11 @@
 
 --session golden
 
-# Home at both Aurora themes. Theme switch is a settings interaction:
-# drive it before capturing (assert-golden records which theme each
-# baseline means).
+# Home at both shipped default themes. Theme switch is a settings
+# interaction: drive it before capturing (assert-golden records which
+# theme each baseline means).
 wait-frame
 assert-golden home
-
 # The Linux-box operator captures the light twins in the same run
 # after flipping the theme in settings (assert-golden home --theme light).
 
