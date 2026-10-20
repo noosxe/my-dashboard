@@ -155,6 +155,12 @@ where
                 // docs/0049 D1: icon-only refresh affordance —
                 // named explicitly.
                 .accessibility_label("Refresh")
+                // Test/bridge-addressable: the same "{id}-refresh" the
+                // element id carries (docs/0010 D10).
+                .debug_selector({
+                    let id = SharedString::from(format!("{id}-refresh"));
+                    move || id.to_string()
+                })
                 .on_click(cx.listener(move |this, _, window, cx| on_refresh(this, window, cx))),
         )
         .into_any_element()
