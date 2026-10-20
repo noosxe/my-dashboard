@@ -31,17 +31,19 @@ use crate::toasts::{self, Level};
 /// Registry names of the two bundled palettes (docs/0056 D2). The
 /// registry is name-keyed and first registration wins, so user files
 /// re-using these names are skipped: bundled palettes can't be shadowed.
-pub const DEFAULT_LIGHT_NAME: &str = "Aurora Light";
-pub const DEFAULT_DARK_NAME: &str = "Aurora Dark";
+pub const DEFAULT_LIGHT_NAME: &str = "Default Light";
+pub const DEFAULT_DARK_NAME: &str = "Default Dark";
 
-/// The factory palettes, embedded at compile time (docs/0056 D1) and
-/// replayed into every [`rebuild_themes`]. Replaces docs/0025 D5's
-/// boot-time snapshot of the upstream pair: the shipped defaults are
-/// ours, not the library's, and a checked-in file is reviewable and
-/// diffable in a way a runtime snapshot never was. Upstream's
-/// `init_default_themes` stays private — irrelevant now, since nothing
-/// replays its pair.
-static BUNDLED_DEFAULTS: &str = include_str!("../assets/themes/aurora.json");
+/// The shipped default palettes — the kit's own `Default Light` /
+/// `Default Dark` — embedded at compile time (docs/0078 D2) and replayed
+/// into every [`rebuild_themes`], before the user dir and the presets. A
+/// byte-for-byte copy of the pinned gpui-component
+/// `default-theme.json` (synced by the bump ritual, docs/0078 D8), with
+/// `is_default` kept: the pair floats to the top of `sorted_themes()`.
+/// Upstream's `init_default_themes` stays private — this checked-in copy
+/// is the registration path (docs/0025 D5's snapshot, as docs/0056's
+/// checked-in-file approach).
+static BUNDLED_DEFAULTS: &str = include_str!("../assets/themes/kit-defaults.json");
 
 /// Load every flat `*.json` under `dir` into the registry (docs/0025
 /// D1/D7): per-file tolerance — an unreadable or invalid file logs a
@@ -115,10 +117,12 @@ pub struct AppSettings {
     /// The live appearance (`System` is implicit: `None`); see `MODE_SYSTEM`.
     pub theme_mode: Option<String>,
     /// Palette of the **light** slot — a light-mode `ThemeRegistry` name
-    /// (e.g. `"Aurora Light"`); `None` = factory default (docs/0056).
+    /// Palette of the **light** slot — a light-mode `ThemeRegistry` name
+    /// (e.g. `"Default Light"`); `None` = factory default (docs/0078).
     pub theme_name_light: Option<String>,
     /// Palette of the **dark** slot — a dark-mode `ThemeRegistry` name;
-    /// `None` = factory dark (`Aurora Dark`, docs/0056 D2).
+    /// Palette of the **dark** slot — a dark-mode `ThemeRegistry` name;
+    /// `None` = factory dark (`Default Dark`, docs/0078).
     pub theme_name_dark: Option<String>,
     /// Notification hub preferences (docs/0062 D7); `None` = factory
     /// behavior (numeric badge, all levels, nothing muted).
@@ -263,10 +267,11 @@ fn install_slot_theme(mode: ThemeMode, name: &str, cx: &mut App) -> bool {
 
 /// Install `name` into its slot; a missing name (fresh install) or one
 /// that failed (stale/deleted, docs/0025 D8 — warned, persisted value
-/// untouched) falls through to the embedded factory palette for that
-/// mode (docs/0056 D3). Without the fallthrough the slot would keep the
-/// `Theme` global's bootstrap value, which comes from the library's
-/// private fallback map — still the upstream pair.
+/// untouched) falls through to the shipped default palette for that mode
+/// (docs/0078 D3). Without the fallthrough the slot would keep the
+/// `Theme` global's bootstrap value; installing the kit pair by name —
+/// registered moments earlier by [`rebuild_themes`] — keeps the picker's
+/// active entry resolvable by name.
 fn install_slot_or_factory(mode: ThemeMode, name: Option<String>, cx: &mut App) {
     if let Some(name) = &name {
         if install_slot_theme(mode, name, cx) {
@@ -286,12 +291,12 @@ fn install_slot_or_factory(mode: ThemeMode, name: Option<String>, cx: &mut App) 
 /// mode (first boot / `System`), the OS appearance. All idempotent at
 /// defaults.
 fn apply_saved_theme(cx: &mut App) {
-    // The factory fallback lives HERE, not in the library bootstrap: the
-    // registry's private fallback map still holds the upstream pair
-    // (init_default_themes, docs/0025 §2), and a fresh `Theme` global
-    // bootstraps from it. Installing the embedded pair by name —
-    // registered moments earlier by rebuild_themes — is what makes a
-    // factory boot, and a stale-name boot, land on Aurora (docs/0056 D3).
+    // The shipped-defaults install lives HERE, not in the library
+    // bootstrap: our rebuild resets the registry (eviction semantics,
+    // docs/0025 D5), which drops the pair `gpui_component::init`
+    // registered. Re-registering the vendored kit pair (docs/0078 D2) and
+    // installing it by name is what makes a factory boot, and a
+    // stale-name boot, land on the shipped defaults (docs/0078 D3).
     let values = cx.global::<AppSettings>();
     let light = values.theme_name_light.clone();
     let dark = values.theme_name_dark.clone();
@@ -918,12 +923,12 @@ mod tests {
     #[gpui::test]
     fn rebuild_replays_the_bundled_defaults_and_all_presets(cx: &mut gpui::TestAppContext) {
         // Fresh-global rebuild (as after any watcher event) must bring
-        // the factory pair back with OUR values — the kit's vendored
-        // aurora.json is a stale copy and is excluded from the preset
-        // bundle (docs/0074 D2) — plus every preset (docs/0074 D2).
+        // the shipped defaults back — the kit's own pair, vendored
+        // verbatim (docs/0078 D2) — plus every preset, `aurora.json`
+        // included (docs/0078 D1).
         let names = boot_and_names(cx, None);
-        assert!(names.contains(&"Aurora Dark".to_string()));
-        assert!(names.contains(&"Aurora Light".to_string()));
+        assert!(names.contains(&"Default Dark".to_string()));
+        assert!(names.contains(&"Default Light".to_string()));
         for (file, _) in crate::theme_presets::PRESETS {
             let set: ThemeSet = serde_json::from_str(file_src(file)).unwrap();
             for theme in set.themes {
@@ -934,14 +939,16 @@ mod tests {
                 );
             }
         }
-        assert_eq!(names.len(), 37, "factory pair + 35 presets");
-        // The factory pair kept our values, not the kit's stale copy.
+        assert_eq!(names.len(), 38, "kit pair + 36 presets");
+        // The kit pair registers with `is_default` kept (docs/0078 D2):
+        // it floats to the top of `sorted_themes()` and the fallback-map
+        // semantics stay the library's own.
         cx.update(|cx| {
             let themes = ThemeRegistry::global(cx).themes();
-            assert_eq!(
-                themes["Aurora Light"].colors.background.as_deref(),
-                Some("#f8f9fc")
-            );
+            assert!(themes["Default Light"].is_default);
+            assert!(themes["Default Dark"].is_default);
+            // Upstream's divergent Aurora Light ships under the same name.
+            assert!(themes.contains_key("Aurora Light"));
         });
     }
 
@@ -990,15 +997,15 @@ mod tests {
         std::fs::write(dir.join("broken.json"), "{ not json").unwrap();
         std::fs::write(
             dir.join("collide.json"),
-            r#"{"themes":[{"name":"Aurora Light","mode":"light"}]}"#,
+            r#"{"themes":[{"name":"Default Light","mode":"light"}]}"#,
         )
         .unwrap();
         let names = boot_and_names(cx, Some(&dir));
         // Valid file in; invalid file out; the default-name collision
-        // skipped (D6) — one "Aurora Light", no duplicates (D7). The
-        // presets fill the remaining names (docs/0074 D2).
+        // skipped (D6) — one "Default Light", no duplicates (D7). The
+        // presets fill the remaining names (docs/0078 D1).
+        assert_eq!(names.len(), 39, "kit pair + user file + 36 presets");
         assert!(names.contains(&"Test Light".to_string()));
-        assert_eq!(names.len(), 38, "factory pair + user file + 35 presets");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1036,7 +1043,7 @@ mod tests {
             let names = boot_shape_names(cx);
             assert!(!names.contains(&"Mine".to_string()));
             // The defaults are back, untouched, plus the presets.
-            assert_eq!(names.len(), 37);
+            assert_eq!(names.len(), 38);
         });
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1059,22 +1066,23 @@ mod tests {
             // Pre-0056 install: settings.json still names the removed
             // upstream pair (D8). Boot restore must warn + land on the
             // default, and leave the persisted value alone. ("Catppuccin
-            // Mocha" resolves again since docs/0074 — the sentinel must
-            // be a name nothing registers.)
+            // Mocha" resolves again since docs/0074, and the kit pair's
+            // names register again since docs/0078 — the sentinel must be
+            // a name nothing registers.)
             cx.set_global(AppSettings {
                 theme_mode: Some("dark".into()),
                 theme_name_light: None,
-                theme_name_dark: Some("Default Dark".into()),
+                theme_name_dark: Some("Retired Aurora Dark".into()),
                 notifications: None,
                 agent_bridge: None,
             });
             apply_saved_theme(cx);
-            // D8 degrade + docs/0056 D3: the unknown name warns and the
-            // dark slot lands on the embedded factory pair.
-            assert_eq!(cx.theme().dark_theme.name, "Aurora Dark");
+            // D8 degrade + docs/0078 D3: the unknown name warns and the
+            // dark slot lands on the shipped default pair.
+            assert_eq!(cx.theme().dark_theme.name, "Default Dark");
             assert_eq!(
                 cx.global::<AppSettings>().theme_name_dark.as_deref(),
-                Some("Default Dark")
+                Some("Retired Aurora Dark")
             );
         });
     }

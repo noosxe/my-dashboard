@@ -4,11 +4,11 @@
 use gpui::App;
 use gpui_component::{ThemeRegistry, ThemeSet};
 
-/// The vendored gallery (docs/0074 D1) — the kit's `themes/` at the
-/// pinned rev, minus its stale `aurora.json` copy (docs/0074 D2: the
-/// factory pair must not depend on load order to win). Synced by the
-/// bump ritual (docs/0074 D8): re-copy on every gpui-component bump;
-/// the smoke test below catches shape drift.
+/// The vendored gallery (docs/0074 D1, as amended by docs/0078 D1) — the
+/// kit's `themes/` at the pinned rev, verbatim: every file, `aurora.json`
+/// included; no exclusions, no factory pair to protect. Synced by the
+/// bump ritual (docs/0074 D8, docs/0078 D8): re-copy on every
+/// gpui-component bump; the smoke test below catches shape drift.
 pub(crate) const PRESETS: &[(&str, &str)] = &[
     (
         "adventure.json",
@@ -21,6 +21,10 @@ pub(crate) const PRESETS: &[(&str, &str)] = &[
     (
         "asciinema.json",
         include_str!("../assets/themes/presets/asciinema.json"),
+    ),
+    (
+        "aurora.json",
+        include_str!("../assets/themes/presets/aurora.json"),
     ),
     (
         "ayu.json",
@@ -127,7 +131,7 @@ mod tests {
     use gpui_component::ThemeSet;
 
     /// docs/0074 §4 D4 smoke: every vendored file parses as a
-    /// `ThemeSet`; 35 themes; each carries a mode, a non-empty colors
+    /// `ThemeSet`; 36 themes; each carries a mode, a non-empty colors
     /// map, and a non-empty `highlight` section (the property the Diff
     /// story depends on); none sets `is_default`; names are unique
     /// across files (a duplicate would be silently insert-only-skipped).
@@ -162,7 +166,7 @@ mod tests {
             }
             assert_eq!(set.themes.len(), themes.len());
         }
-        assert_eq!(total, 35, "gallery size drifted — re-sync per docs/0074 D8");
+        assert_eq!(total, 36, "gallery size drifted — re-sync per docs/0074 D8");
         assert_eq!(names.len(), total, "duplicate preset names");
     }
 
