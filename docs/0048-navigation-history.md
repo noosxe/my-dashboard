@@ -143,7 +143,11 @@ an issue, opening the new-issue/new-PR form, opening a notification's
 target, module root via sidebar/module entry, crumb clicks, Home,
 Settings. **Not** recorded: filter typing, search, load-more paging,
 in-page tabs (PR page Checks/Conversations), scrolling, pickers, drafts'
-text. Dedup rule: if the new visit's `route_key` equals the trail
+text. **Amended (2026-10-20, repo-tab trail):** the repo *view's* tabs
+(docs/0077) are the one recorded in-page-tab kind — each tab switch is a
+visit keyed `repo:<name>:<tab>`, because the tab selects the view's
+primary content (the lane), not a sub-state of a deeper place. PR-page
+tabs stay unrecorded. Dedup rule: if the new visit's `route_key` equals the trail
 head's, the visit is ignored entirely — no push, and no spurious
 forward-tail truncation. Any different-key visit pushes (truncating the
 forward tail, the standard browser rule, which `History::push`

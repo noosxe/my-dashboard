@@ -73,6 +73,17 @@ you left it; the view-shown trigger re-offers the active lane, age-gated).
 It does not persist across app restarts. The switch is a plain
 `cx.listener` write + `cx.notify()` — no entity, no focus dance.
 
+> **Amended (2026-10-20, repo-tab trail):** the switch is no longer
+> only a local write — it is a recorded visit (docs/0048 D4, amended).
+> `GithubPlace::Repo` carries the tab and the trail key extends to
+> `repo:<name>:<tab>` (`pulls` / `issues` / `notifs`), so Back/Forward
+> re-enter the exact lane. The reset-to-`Pulls`-on-selection rule above
+> stands unchanged: the selection visit is `repo:<name>:pulls` because
+> the reset happens before the record. Restore rides the live
+> `switch_repo_tab` path, so the docs/0077 D4 freshness gate and the
+> docs/0031 dedup decide what refetches — Back to a fresh lane never
+> refetches.
+
 ### D2 — Per-tab fetch lanes; RepoSnapshot retired
 
 Two new GraphQL kinds replace `Kind::RepoSnapshot` everywhere:
