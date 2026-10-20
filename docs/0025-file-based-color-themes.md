@@ -96,6 +96,11 @@ Amended by docs/0074: the bundled set grows — the factory Aurora pair
 plus the vendored gpui-component presets (the library's upstream
 defaults stay unshipped); replay order factory → user dir → presets.
 
+
+Amended by docs/0078: the bundled set is exactly the kit gallery verbatim
+(`aurora.json` included) and the library's upstream defaults ship again via
+the vendored pair file (`kit-defaults.json`, `is_default` kept); replay
+order kit defaults → user dir → presets.
 **D4 — Boot order (synchronous first load).** `settings::init` (runs
 after `gpui_component::init`, before any window exists): load persisted
 values → walk the themes dir once synchronously (same loader as below)
@@ -112,9 +117,10 @@ Fresh-global rebuild gives full add/edit/remove semantics; the library
 observer does the re-styling. The initial `on_load` (watcher spawn
 re-loads once) is an idempotent duplicate of D4's walk — accepted, files
 are tiny. As shipped, the defaults are restored from a boot-time
-serialized snapshot of the pristine pair (`init_default_themes` being
-private, §2); the fallback map stays empty, which nothing reads at
-runtime (D9).
+As shipped, the defaults are restored from a checked-in, verbatim copy of
+the upstream pair (docs/0078 D2; docs/0056 introduced the checked-in-file
+approach for its own — since-retired — pair); the fallback map stays empty,
+which nothing reads at runtime (D9).
 
 **D6 — Collision precedence: first registration wins.** `Default Light` /
 `Default Dark` are registered before any user file, and both our loader

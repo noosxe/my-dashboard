@@ -90,6 +90,11 @@ corrected an earlier draft of this paragraph, which put presets before
 the user dir; the registry tests caught that order handing preset names
 to the built-ins.) A test pins the shadowing.
 
+
+Amended by docs/0078: the exclusion is lifted — the bundled gallery is
+verbatim (21 files / 36 themes, `aurora.json` included) and the app-owned
+factory pair is retired; the shipped defaults are the kit's own pair
+(vendored verbatim, docs/0078 D2).
 **D3 — `is_default` is stripped from presets at load.** No preset
 carries the flag today (§2), but the strip is one line and makes the
 invariant structural: the fallback slots stay factory-owned regardless
@@ -106,6 +111,10 @@ as a `ThemeSet`, every theme has a mode, a non-empty colors map, and a
 non-empty `highlight` section (the property the Diff story depends on),
 and no `is_default` (belt for D3). Upstream curation is trusted for the
 rest — same trust we already extend to every component default.
+
+Amended by docs/0078: the factory AA gate retires with the factory pair —
+docs/0065 D4 scopes AA gating to app-owned theme content, of which none
+remains. Upstream curation is trusted, not vouched.
 
 **D5 — The picker needs no change.** `sorted_themes()` already orders
 defaults first, light before dark, then name; persistence and the
@@ -137,11 +146,20 @@ we could lift into ours in a one-line follow-up — filed `deferred`, not
 bundled here, because any Aurora `highlight` addition is a #524 design
 decision (which palette family matches Aurora), not a vendoring step.
 
+
+Resolved by docs/0078: the factory pair is retired and #524 closes as
+moot-by-design. The candidate seed was inspected on the issue first (the
+kit's `aurora.json` highlight section is the Xcode light palette,
+Light-only) and rejected there before the retirement decision.
 **D8 — Bump ritual: re-sync presets on every gpui-component bump.** The
 Cargo.toml bump checklist (exact-pin comment) gains one line: re-copy
 `themes/*.json` (minus `aurora.json`) from the new checkout into
 `crates/core/assets/themes/presets/` and let the smoke test (D4) catch
 shape drift. Presets change only when we bump, so the copies cannot rot
+
+Amended by docs/0078: the sync copies the whole gallery (`aurora.json`
+included) plus the kit's `default-theme.json` into
+`crates/core/assets/themes/kit-defaults.json` (the shipped defaults).
 between bumps.
 
 ## 4 — Tests
@@ -159,6 +177,9 @@ between bumps.
    with `is_default: true` still lands with the flag stripped and the
    fallback slots unchanged.
 
+
+Amended by docs/0078: the smoke count is 36; the rebuild test pins the kit
+pair plus all presets (38 names) instead of the factory pair.
 ## 5 — Verification
 
 - Gates: `cargo fmt --all --check`, `cargo clippy --workspace
@@ -182,6 +203,9 @@ between bumps.
   still deferred; this doc neither fixes nor worsens it.
 - **Upstream accessor adoption** — filed `deferred`; lands via a future
   bump PR (D1/D8).
+
+Amended by docs/0078: the #524 non-goal is resolved by retirement — the
+factory pair no longer exists to retune.
 - **Theme authoring UX, live preview, per-surface overrides** — out of
   scope; docs/0025's file-based flow remains the authoring story.
 - **wasm** — the app is desktop; the wasm-gated upstream accessor is
