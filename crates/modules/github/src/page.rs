@@ -81,6 +81,15 @@ impl RepoTab {
             RepoTab::Notifications => "Notifications",
         }
     }
+    /// The trail-key tag (docs/0048 D4 amended): the visit key is
+    /// `repo:<name>:<tag>`, human-readable for debugging.
+    fn key_tag(self) -> &'static str {
+        match self {
+            RepoTab::Pulls => "pulls",
+            RepoTab::Issues => "issues",
+            RepoTab::Notifications => "notifs",
+        }
+    }
 }
 use dashboard_core::module::ModuleNav;
 use dashboard_core::nav::{Crumb, NavEvent, Navigator, Page, Route};
@@ -205,7 +214,10 @@ pub(crate) struct GithubPage {
 /// context (the detail pages refresh themselves per docs/0032).
 #[derive(Clone)]
 pub(crate) enum GithubPlace {
-    Repo(String),
+    /// The repo view at a tab (docs/0048 D4 amended): the tab rides the
+    /// place so a switch is its own visit and a restore re-enters the
+    /// exact lane.
+    Repo(String, RepoTab),
     /// Identity only — the row copy lives in the store (docs/0073
     /// D4); restore re-opens from the entry.
     Pr(String, i64),
@@ -217,7 +229,7 @@ pub(crate) enum GithubPlace {
 impl GithubPlace {
     fn key(&self) -> String {
         match self {
-            Self::Repo(name) => format!("repo:{name}"),
+            Self::Repo(name, tab) => format!("repo:{name}:{}", tab.key_tag()),
             Self::Pr(repo, number) => format!("pr:{repo}#{number}"),
             Self::Issue(repo, issue) => format!("issue:{repo}#{}", issue.number),
             Self::NewIssue(repo) => format!("new-issue:{}", repo.full_name),
@@ -1004,7 +1016,15 @@ impl GithubPage {
                                     // the crumb click is "show the repo
                                     // view", so the trail records it.
                                     if let Some(name) = this.state.read(cx).selected.clone() {
-                                        this.record_place(GithubPlace::Repo(name.to_string()), cx);
+                                        // The repo view re-enters at the
+                                        // active tab (docs/0077 D1 amended):
+                                        // it survives the detail round trip,
+                                        // and the crumb click is a visit to
+                                        // exactly that place.
+                                        this.record_place(
+                                            GithubPlace::Repo(name.to_string(), this.tab),
+                                            cx,
+                                        );
                                     }
                                 });
                             }),
@@ -1130,7 +1150,7 @@ impl GithubPage {
         // Deep places sit on the repo view: re-select the repo first
         // when the current position differs (the ancestor activation).
         let repo: Option<String> = match place {
-            GithubPlace::Repo(_) => None,
+            GithubPlace::Repo(..) => None,
             GithubPlace::Pr(r, _) | GithubPlace::Issue(r, _) => Some(r.clone()),
             GithubPlace::NewIssue(r) | GithubPlace::NewPr(r) => Some(r.full_name.clone()),
         };
@@ -1141,7 +1161,7 @@ impl GithubPage {
             }
         }
         match place {
-            GithubPlace::Repo(name) => {
+            GithubPlace::Repo(name, tab) => {
                 // Back to the repo place (docs/0048 D5) lands ON the repo
                 // view, so no sub-page can outlive the landing beneath it.
                 // A live repo click never arrives through an open sub-page
@@ -1154,8 +1174,15 @@ impl GithubPage {
                 self.close_notification(cx);
                 self.creator_open = false;
                 self.creator_pr_open = false;
+                // The re-select is silent (the trail head IS this route)
+                // and the tab re-enters through the live switch path
+                // (docs/0077 D1 amended): the freshness gate and the
+                // docs/0031 dedup decide what refetches, so Back to a
+                // fresh lane is not a refetch storm. A same-tab restore
+                // (Pulls after the reset) is the switch's no-op arm.
                 let name = SharedString::from(name.clone());
-                self.select_repo(name, window, cx);
+                self.select_repo_inner(name, window, cx);
+                self.switch_repo_tab(*tab, window, cx);
             }
             GithubPlace::Pr(repo, number) => {
                 // docs/0073 D4 (stage 2): the place carries identity —
@@ -1183,7 +1210,9 @@ impl GithubPage {
         cx: &mut Context<Self>,
     ) {
         self.select_repo_inner(full_name.clone(), window, cx);
-        self.record_place(GithubPlace::Repo(full_name.to_string()), cx);
+        // The inner reset landed the tab on Pulls first (docs/0077 D1),
+        // so the selection visit is the pulls place.
+        self.record_place(GithubPlace::Repo(full_name.to_string(), self.tab), cx);
     }
 
     /// The repo selection without the trail write — the ancestor
@@ -1247,6 +1276,14 @@ impl GithubPage {
         }
         self.tab = tab;
         cx.notify();
+        // The switch is a visit (docs/0048 D4 amended): the tab rides the
+        // place key, so Back/Forward re-enter the exact lane. Recorded
+        // before the connected/gated early-returns — the trail records
+        // navigation, not fetches.
+        let selected = self.state.read(cx).selected.clone();
+        if let Some(full) = selected {
+            self.record_place(GithubPlace::Repo(full, tab), cx);
+        }
         let (connected, gated, selected) = {
             let s = self.state.read(cx);
             (s.auth.connected(), s.gated(), s.selected.clone())
@@ -6170,7 +6207,7 @@ mod tests {
                 p.select_repo("acme/one".into(), window, cx);
             });
             nav.read_with(cx, |nav, _| {
-                assert_eq!(nav.history_entries_last_key(), "github:repo:acme/one");
+                assert_eq!(nav.history_entries_last_key(), "github:repo:acme/one:pulls");
             });
 
             // PR visit recorded; the sub-page is up.
@@ -6299,7 +6336,7 @@ mod tests {
             });
             assert!(page.read(cx).issue.is_some());
             let route = nav.update(cx, |nav, cx| nav.back(cx)).unwrap();
-            assert_eq!(route.key(), "github:repo:acme/one");
+            assert_eq!(route.key(), "github:repo:acme/one:pulls");
             history.restore(route.payload(), window, cx);
             let landed = page.read(cx);
             assert!(landed.issue.is_none(), "Back closed the issue page");
@@ -6312,7 +6349,7 @@ mod tests {
             nav.read_with(cx, |nav, _| {
                 assert_eq!(
                     nav.history_entries_last_key(),
-                    "github:repo:acme/one",
+                    "github:repo:acme/one:pulls",
                     "the restore's re-select dedups against the landed head"
                 );
             });
@@ -6323,11 +6360,107 @@ mod tests {
             });
             assert!(page.read(cx).pr.is_some());
             let route = nav.update(cx, |nav, cx| nav.back(cx)).unwrap();
-            assert_eq!(route.key(), "github:repo:acme/one");
+            assert_eq!(route.key(), "github:repo:acme/one:pulls");
             history.restore(route.payload(), window, cx);
             let landed = page.read(cx);
             assert!(landed.pr.is_none(), "Back closed the PR page");
             assert!(landed.issue.is_none());
+        });
+    }
+
+    #[gpui::test]
+    fn repo_tab_switches_are_trail_places(cx: &mut TestAppContext) {
+        use std::sync::Arc;
+
+        use crate::auth::MockTokenStore;
+        use crate::http::mock::MockHttp;
+        use crate::http::{Http, SharedToken};
+        use crate::service::{GithubCache, GithubState};
+        use dashboard_core::module::ModuleNav;
+        use dashboard_core::nav::Navigator;
+        use dashboard_core::paths::AppPaths;
+
+        cx.update(gpui_component::init);
+        cx.update(dashboard_core::status::init);
+        let cx = cx.add_empty_window();
+        cx.update(|window, cx| {
+            // Scripted failures: the tab-switch lane offers never land.
+            // The probe is about the trail, not the rows.
+            let client: Arc<dyn Http> = Arc::new(MockHttp::new(vec![
+                Err(crate::http::HttpError("probe".into())),
+                Err(crate::http::HttpError("probe".into())),
+                Err(crate::http::HttpError("probe".into())),
+                Err(crate::http::HttpError("probe".into())),
+                Err(crate::http::HttpError("probe".into())),
+            ]));
+            let shared: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let refresh: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let state = cx.new(|_| {
+                GithubState::new(
+                    client,
+                    Arc::new(MockTokenStore::with("t0k".into())),
+                    shared,
+                    refresh,
+                    GithubCache::new(AppPaths::init()),
+                    DraftStore::at_tmp("page-tab-nav"),
+                )
+            });
+            let nav = cx.new(|_| Navigator::default());
+            let page = cx.new(|cx| GithubPage::new(state.clone(), nav.clone(), window, cx));
+            let history = crate::page::GithubNav {
+                page: page.downgrade(),
+            };
+
+            // Selection records the pulls place (the reset lands first).
+            page.update(cx, |p, cx| {
+                p.select_repo("acme/one".into(), window, cx);
+            });
+            nav.read_with(cx, |nav, _| {
+                assert_eq!(nav.history_entries_last_key(), "github:repo:acme/one:pulls");
+            });
+
+            // Each switch is its own visit, keyed by the tab.
+            page.update(cx, |p, cx| p.switch_repo_tab(RepoTab::Issues, window, cx));
+            page.update(cx, |p, cx| {
+                p.switch_repo_tab(RepoTab::Notifications, window, cx)
+            });
+            nav.read_with(cx, |nav, _| {
+                assert_eq!(
+                    nav.history_entries_last_key(),
+                    "github:repo:acme/one:notifs"
+                );
+            });
+
+            // Back re-enters the exact lane through the live switch path.
+            let route = nav.update(cx, |nav, cx| nav.back(cx)).unwrap();
+            assert_eq!(route.key(), "github:repo:acme/one:issues");
+            history.restore(route.payload(), window, cx);
+            assert_eq!(page.read(cx).tab, RepoTab::Issues);
+            nav.read_with(cx, |nav, _| {
+                assert_eq!(
+                    nav.history_entries_last_key(),
+                    "github:repo:acme/one:issues",
+                    "the restore's switch record dedups against the landed head"
+                );
+            });
+
+            // Forward returns to notifications; the browser rule holds.
+            let route = nav.update(cx, |nav, cx| nav.forward(cx)).unwrap();
+            assert_eq!(route.key(), "github:repo:acme/one:notifs");
+            history.restore(route.payload(), window, cx);
+            assert_eq!(page.read(cx).tab, RepoTab::Notifications);
+
+            // A fresh visit after Back still truncates the forward tail.
+            let route = nav.update(cx, |nav, cx| nav.back(cx)).unwrap();
+            assert_eq!(route.key(), "github:repo:acme/one:issues");
+            page.update(cx, |p, cx| p.switch_repo_tab(RepoTab::Pulls, window, cx));
+            nav.read_with(cx, |nav, _| {
+                assert_eq!(nav.history_entries_last_key(), "github:repo:acme/one:pulls");
+                assert!(
+                    !nav.can_forward(),
+                    "the fresh visit killed the notifs forward branch"
+                );
+            });
         });
     }
 }
