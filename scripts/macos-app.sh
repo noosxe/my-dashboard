@@ -16,6 +16,9 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+# Shared signing-identity helpers (docs/0061 D1/D3) — same resolution and
+# expiry surfacing as scripts/macos-package.sh.
+source "$(dirname "$0")/lib/codesign-identity.sh"
 
 DEV=0
 if [ "${1:-}" = "--dev" ]; then
@@ -39,14 +42,7 @@ fi
 VERSION="0.1.0"
 DEST="${HOME}/Applications/${APP_NAME}.app"
 
-if [ -z "${SIGN_IDENTITY:-}" ]; then
-    # First Apple Development identity, e.g.
-    #   1) ABCDEF… "Apple Development: name (TEAMID)"
-    SIGN_IDENTITY="$(security find-identity -v -p codesigning \
-        | grep '"Apple Development' | head -n1 \
-        | sed -E 's/.*"([^"]+)".*/\1/' || true)"
-fi
-IDENTITY="${SIGN_IDENTITY:--}"
+IDENTITY="$(resolve_identity)"
 
 echo "==> build ($([ "${DEV}" = 1 ] && echo debug || echo release))"
 "${BUILD[@]}"
@@ -83,36 +79,7 @@ if [ "${IDENTITY}" = "-" ]; then
     echo "    note: ad-hoc signing — a rebuild may re-trigger the macOS"
     echo "    notification authorization prompt (docs/0060 D4, docs/0061)."
 else
-    # Development certificates are short-lived; an expired one drops OS
-    # posts silently again. Surface the date of the certificate that
-    # signing actually used (docs/0061 D3), matched by the SHA-1 the
-    # keychain reports for this identity — a plain -c lookup cannot
-    # distinguish same-named duplicate certificates.
-    CERTSHA="$(security find-identity -v -p codesigning \
-        | grep "\"${IDENTITY}\"" | head -n1 | awk '{print $2}' || true)"
-    EXPIRY=""
-    if [ -n "${CERTSHA}" ]; then
-        CERTDIR="$(mktemp -d)"
-        security find-certificate -a -c "Apple Development" -p \
-            | awk -v d="${CERTDIR}" \
-                '/BEGIN CERT/{n++; f=sprintf("%s/ac%d.pem", d, n)} {print > f}' || true
-        for pem in "${CERTDIR}"/ac*.pem; do
-            [ -e "${pem}" ] || continue
-            FP="$(openssl x509 -noout -fingerprint -sha1 -in "${pem}" 2>/dev/null \
-                | sed -E 's/.*=//;s/://g' || true)"
-            if [ "${FP}" = "${CERTSHA}" ]; then
-                EXPIRY="$(openssl x509 -noout -enddate -in "${pem}" 2>/dev/null \
-                    | sed -E 's/^notAfter=//' || true)"
-                break
-            fi
-        done
-        rm -rf "${CERTDIR}"
-    fi
-    if [ -n "${EXPIRY}" ]; then
-        echo "    certificate expires: ${EXPIRY}"
-    else
-        echo "    warning: could not read the certificate expiry date"
-    fi
+    print_expiry "${IDENTITY}"
 fi
 
 echo "==> opening ${DEST}"
