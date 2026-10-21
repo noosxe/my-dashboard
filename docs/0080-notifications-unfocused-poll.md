@@ -104,8 +104,11 @@ matters).
   the arm (F6).
 - **D4 — the announce: new threads raise per-thread Info toasts**
 - **D4 — the announce: new threads raise per-thread Info toasts**
-  (source `github`, `Level::Info`, dedupe key = thread id, click
-  opens the notification detail page, ✕ per docs/0058/0059). The
+  (source `github`, `Level::Info`, dedupe key = thread id, ✕ per
+  docs/0058/0059; click-through to the notification page is
+  **deferred** — `ToastAction` is carried but unwired per docs/0058
+  §10 and a service-layer raise has no nav bridge, so it is issue
+  #603, not a blocker). The
   docs/0060 gate (F4) does the rest: a raise while the window is
   inactive becomes an OS banner; while focused it stays an in-app
   toast. In practice banners come from poll landings — the poll arm
@@ -163,7 +166,8 @@ matters).
 ## 7. Acceptance (human checks, on the containerized env + local)
 
 - [ ] Merge a PR on github.com with the dashboard unfocused: OS
-      banner within ~70 s; click opens the notification page.
+      banner within ~70 s (the announce toast is informational —
+      click-through is deferred, issue #603).
 - [ ] Dashboard focused and idle 10 min on the home page: Usage page
       shows zero `poll`-trigger rows (G2); alt-tab away → polls begin;
       back → they stop.

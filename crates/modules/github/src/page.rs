@@ -401,6 +401,10 @@ impl GithubPage {
         // owns the screen — pages stay alive behind other modules, which
         // is exactly why the gate lives there.
         cx.observe_window_activation(window, |this, window, cx| {
+            // docs/0080 D2: the poll gate tracks focus both ways — the
+            // state-side arm (docs/0080 D3) reads this flag per tick.
+            this.state
+                .update(cx, |s, _| s.window_active = window.is_window_active());
             if window.is_window_active() {
                 this.refresh_open_page(cx);
             }

@@ -491,6 +491,10 @@ pub(crate) enum Trigger {
     /// checks rollup under a cached detail; the page revalidates so both
     /// surfaces report the same status.
     Drift,
+    /// docs/0080 D3: the unfocused-poll arm — the notifications lane
+    /// polled on a timer while the window is inactive (the single
+    /// docs/0052 D1 carve-out; Usage receipts name it).
+    Poll,
     Probe,
     Auth,
 }
@@ -505,6 +509,7 @@ impl Trigger {
             Trigger::Expand => "expand",
             Trigger::MutationRefetch => "mutation-refetch",
             Trigger::Drift => "drift",
+            Trigger::Poll => "poll",
             Trigger::Probe => "probe",
             Trigger::Auth => "auth",
         }
