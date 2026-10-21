@@ -76,6 +76,22 @@ certificate** so the identity is stable across rebuilds.
   re-signed bare binary still could not post notifications (F3), so it
   buys nothing that matters.
 
+- **D6 — Local packaging script.** `scripts/macos-package.sh` produces a
+  drag-installable `My Dashboard.app` in the **caller's cwd**: release
+  binary, the docs/0079 icon, signed by the same identity resolution (D1)
+  with the same expiry surfacing (D3). It never installs to
+  `~/Applications` and never opens the app — its output is the artifact
+  itself (drag to `/Applications`, hand to another Mac, inspect the
+  bundle). Release-only on purpose: a dragged app shares the release
+  bundle id, so it stays the *same* app to macOS and notification
+  authorization carries over; a `--dev` drag-install would freeze a
+  second copy of the dev bundle into a permanent location. The identity
+  logic is factored into `scripts/lib/codesign-identity.sh`, sourced by
+  both bundling scripts, so D1/D3 stay single-sourced (the Info.plist
+  text is duplicated — declarative, not logic). Still not
+  distribution-shaped (D4): no Developer ID, no notarization; other
+  Macs will Gate-keep the artifact (§6).
+
 ## 4. Testing
 
 - Script-level only (no Rust changes): `bash -n` clean; identity
@@ -86,6 +102,11 @@ certificate** so the identity is stable across rebuilds.
   expiry line prints; re-running `--dev` rebuilds and re-signs under
   the **same** identity (that is the fix).
 
+- Package script (same PR): `bash -n` clean on all three files;
+  end-to-end run from the repo root assembles `My Dashboard.app` into
+  the cwd, `codesign -v` passes, the plist carries `CFBundleIconFile`,
+  `git check-ignore` matches the produced app, and the refactored
+  `macos-app.sh` still builds, signs, installs, and opens unchanged.
 ## 5. Human checks (owner)
 
 - [ ] `./scripts/macos-app.sh --dev` twice in a row (with a rebuild
@@ -98,11 +119,17 @@ certificate** so the identity is stable across rebuilds.
 - [ ] Release mode (`./scripts/macos-app.sh`) still works and keeps
       its own authorization history.
 
+- [ ] `./scripts/macos-package.sh` from the repo root, then drag the
+      produced `My Dashboard.app` to `/Applications` and launch it: it
+      comes up with the app icon and its notification authorization is
+      shared with the `macos-app.sh` install (no re-prompt).
+
 ## 6. Non-goals (parked, not done here)
 
 - Release/distribution signing: Developer ID, notarization, DMG
   packaging, secure timestamps, hardened runtime — the owner deferred
-  this conversation.
+  this conversation — the D6 drag-install artifact is local-only and
+  does not change that.
 - nix-built darwin package signing (the flake package is Linux-only
   today).
 - CI signing (no secrets in CI by policy; also release-shaped).
