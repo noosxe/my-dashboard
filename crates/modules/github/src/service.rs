@@ -19,7 +19,7 @@
 //!   `sign_out_now`) — every state write ends with the 0003 §3.12
 //!   unfocused refresh.
 
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -57,6 +57,15 @@ use dashboard_core::usage_records::Transport;
 /// bootstrap arm. No lane fetches because this timer elapsed. The
 /// first beat still runs immediately on open (docs/0005 Q7).
 pub const TICK: Duration = Duration::from_secs(10);
+/// docs/0080 D3: the unfocused-poll floor — while the window is
+/// inactive, the notifications lane (the one docs/0080 D1 carve-out
+/// to "nothing fetches on a timer") waits at least this long between
+/// landings. Worst-case detection ≈ floor + one tick.
+pub(crate) const UNFOCUSED_POLL_MIN_AGE: Duration = Duration::from_secs(60);
+/// docs/0080 D4: per-landing announce cap — the first three new
+/// threads raise individually, the remainder collapse into one
+/// `+N more` summary toast so a backlog can never stack banners.
+pub(crate) const ANNOUNCE_CAP: usize = 3;
 /// docs/0052 D4: the refocus floor — on window activation every
 /// visible lane younger than this skips, older fires. Kept from
 /// docs/0032 D1: rapid alt-tabbing must not become a cadence.
@@ -2360,6 +2369,22 @@ pub struct GithubState {
     /// construction — only transition edges stage (the FSM flags
     /// below) and the tick drains every beat.
     pub(crate) pending_alerts: Vec<dashboard_core::toasts::Toast>,
+    /// docs/0080 D2: the focus gate for the unfocused-poll arm —
+    /// `true` until an activation observer reports deactivation. Not
+    /// the deleted docs/0052 `focus_engaged`: it gates a single arm
+    /// and prices nothing.
+    pub(crate) window_active: bool,
+    /// docs/0080 D5: thread ids that have landed **while unread** this
+    /// session; the first landing after launch seeds silently (the
+    /// `notification_seen_seeded` flag), later landings announce the
+    /// unread diff. In-memory on purpose — restart forgets (docs/0080
+    /// §8 non-goal).
+    pub(crate) notification_seen: HashSet<String>,
+    /// docs/0080 D5: `false` until the first notifications landing of
+    /// the session; that landing records the seen-set without
+    /// announcing (no launch-time banner storm for threads that
+    /// arrived while the app was closed).
+    pub(crate) notification_seen_seeded: bool,
     /// Transport-health FSM (transition-only, docs/0058 §13): `true`
     /// from the first service-lane network failure until the next
     /// landed response. One offline toast per incident; recovery is
@@ -2513,6 +2538,9 @@ impl GithubState {
             pending_alerts: Vec::new(),
             net_down: false,
             auth_alert_open: false,
+            window_active: true,
+            notification_seen: HashSet::new(),
+            notification_seen_seeded: false,
         };
         // docs/0072 D8 (#556): seed the store from the persisted
         // documents. A sign-out-then-connect cycle within one process
@@ -2623,6 +2651,18 @@ impl GithubState {
         // docs/0052 D1: the tick plans no content lanes —
         // notifications moved to the view-shown/refocus/manual
         // triggers (docs/0052 D5, `notifications_spec_if_stale`).
+        // docs/0080 D1/D3 — the single carve-out: while the window is
+        // inactive, the notifications lane may poll at the 60 s floor,
+        // through the same gate (pause, backoff, age) as every other
+        // trigger. Focused ticks stay content-silent.
+        if !self.window_active {
+            if let Some(spec) = self.notifications_spec_if_stale(
+                UNFOCUSED_POLL_MIN_AGE,
+                Origin::new(Surface::ServiceTick, Trigger::Poll),
+            ) {
+                specs.push(spec);
+            }
+        }
         specs
     }
 
@@ -2945,6 +2985,13 @@ impl GithubState {
     /// Q6, #84).
     fn apply_notifications(&mut self, items: Vec<Notification>) {
         let unread = items.iter().filter(|n| n.unread).count();
+        // docs/0080 D5/D6: the announce diff runs in the shared apply
+        // path — every landing origin (poll, refocus, view-shown,
+        // manual) announces identically; docs/0060 prices the channel
+        // (OS banner while unfocused, quiet in-app toast while
+        // focused). The 304 restore replays the cached rows — ids
+        // already in the seen-set — so a 304 never announces.
+        self.announce_new_threads(&items);
         self.notifications = items;
         // A landed sync owns freshness now (docs/0034 D2) — the ETag-304
         // path counts: the server just confirmed the blob is current.
@@ -2964,6 +3011,56 @@ impl GithubState {
         }
     }
 
+    /// docs/0080 D4/D5: stage announce toasts for threads this session
+    /// has not landed unread before — per-thread `github` Info for the
+    /// first [`ANNOUNCE_CAP`] of a landing, one `+N` summary for the
+    /// rest, so a backlog can never stack dozens of banners. The
+    /// first landing after launch seeds silently (`D5`): threads that
+    /// arrived while the app was closed live in the inbox. Keyed
+    /// dedupe (`docs/0058 D4`) makes repeats refresh, and the
+    /// docs/0062 mute on the `github` source silences the whole path.
+    /// Click-through is deferred to #603 (docs/0058 §10 action
+    /// wiring + a nav bridge do not exist; the toast is informational).
+    fn announce_new_threads(&mut self, items: &[Notification]) {
+        let new_threads: Vec<&Notification> = items
+            .iter()
+            .filter(|n| n.unread && !self.notification_seen.contains(&n.id))
+            .collect();
+        for n in items.iter().filter(|n| n.unread) {
+            self.notification_seen.insert(n.id.clone());
+        }
+        if !self.notification_seen_seeded {
+            self.notification_seen_seeded = true;
+            return;
+        }
+        if new_threads.is_empty() {
+            return;
+        }
+        let head = new_threads.len().min(ANNOUNCE_CAP);
+        for n in &new_threads[..head] {
+            self.pending_alerts.push(
+                dashboard_core::toasts::Toast::new(
+                    dashboard_core::toasts::Level::Info,
+                    n.subject.title.clone(),
+                )
+                .title(n.repository.full_name.clone())
+                .source("github")
+                .dedupe_key(format!("github-notif-{}", n.id)),
+            );
+        }
+        let rest = new_threads.len() - head;
+        if rest > 0 {
+            self.pending_alerts.push(
+                dashboard_core::toasts::Toast::new(
+                    dashboard_core::toasts::Level::Info,
+                    format!("+{rest} more GitHub notifications"),
+                )
+                .title("GitHub")
+                .source("github")
+                .dedupe_key("github-notif-summary"),
+            );
+        }
+    }
     /// Apply a parsed per-repo notifications payload to state. Shared by
     /// the 200 path and the ETag-304 restore (docs/0005 Q6, #84).
     fn apply_repo_notifications(&mut self, id: &str, items: Vec<Notification>) {
@@ -6227,6 +6324,148 @@ mod tests {
 
     fn one_notification() -> &'static str {
         r#"[{"id":"1","unread":true,"subject":{"title":"t","type":"Issue","url":"u"},"repository":{"full_name":"o/r"}}]"#
+    }
+
+    // --- docs/0080: the unfocused-poll arm + the announce diff ---------
+
+    /// One REST notification item as JSON, for the announce tests.
+    fn poll_notif(id: &str, repo: &str, title: &str) -> String {
+        format!(
+            r#"{{"id":"{id}","unread":true,"subject":{{"title":"{title}","type":"Issue","url":"u"}},"repository":{{"full_name":"{repo}"}}}}"#
+        )
+    }
+
+    fn poll_notifs(items: &[String]) -> Vec<Notification> {
+        serde_json::from_str(&format!("[{}]", items.join(","))).unwrap()
+    }
+
+    #[test]
+    fn plan_tick_polls_notifications_only_while_unfocused() {
+        let http = Arc::new(MockHttp::new(vec![]));
+        let mut state = make_state(http.clone());
+        state.auth = AuthStatus::Connected;
+        state.needs_bootstrap = false;
+
+        // Focused: docs/0052 D1 holds — no content lane from the tick.
+        let specs = state.plan_tick(1);
+        assert!(
+            specs.iter().all(|s| s.kind != Kind::Notifications),
+            "a focused tick plans no notifications"
+        );
+
+        // Unfocused: the poll arm offers the lane, stamped
+        // `service-tick × poll` for the Usage receipts (docs/0080 D3).
+        state.window_active = false;
+        let specs = state.plan_tick(2);
+        let poll = specs
+            .iter()
+            .find(|s| s.kind == Kind::Notifications)
+            .expect("the unfocused tick polls notifications");
+        assert_eq!(poll.origin.surface.as_str(), "service-tick");
+        assert_eq!(poll.origin.trigger.as_str(), "poll");
+
+        // The 60 s floor holds after a fresh landing (docs/0080 D3).
+        state.notifications_landed = Some(Instant::now());
+        assert!(
+            state
+                .plan_tick(3)
+                .iter()
+                .all(|s| s.kind != Kind::Notifications)
+        );
+
+        // Stale past the floor: the arm re-offers.
+        state.notifications_landed = Some(Instant::now() - UNFOCUSED_POLL_MIN_AGE);
+        assert!(
+            state
+                .plan_tick(4)
+                .iter()
+                .any(|s| s.kind == Kind::Notifications)
+        );
+
+        // Backoff gates the arm like every other trigger (docs/0036,
+        // reused by docs/0080 D3) — no request storm on failures.
+        state.notifications_fail_streak = 1;
+        state.notifications_attempted_at = Some(Instant::now());
+        assert!(
+            state
+                .plan_tick(5)
+                .iter()
+                .all(|s| s.kind != Kind::Notifications)
+        );
+    }
+
+    #[test]
+    fn apply_notifications_seeds_silently_then_announces_the_diff() {
+        let http = Arc::new(MockHttp::new(vec![]));
+        let mut state = make_state(http.clone());
+        state.auth = AuthStatus::Connected;
+
+        // First landing after launch: seeds silently (docs/0080 D5) —
+        // no launch-time banner storm for pre-existing unread threads.
+        state.apply_notifications(poll_notifs(&[poll_notif("1", "o/r", "t1")]));
+        assert!(state.pending_alerts.is_empty(), "the seed stays silent");
+
+        // A later landing announces only the unseen threads, keyed
+        // `github-notif-{id}`, Info, source `github` (docs/0080 D4).
+        state.apply_notifications(poll_notifs(&[
+            poll_notif("1", "o/r", "t1"),
+            poll_notif("2", "o/r", "t2"),
+            poll_notif("3", "acme/x", "t3"),
+        ]));
+        let alerts = state.take_pending_alerts();
+        assert_eq!(alerts.len(), 2, "seen thread 1 stays silent");
+        assert_eq!(alerts[0].dedupe_key.as_deref(), Some("github-notif-2"));
+        assert_eq!(alerts[1].dedupe_key.as_deref(), Some("github-notif-3"));
+        assert_eq!(alerts[0].source.as_deref(), Some("github"));
+        assert_eq!(alerts[0].level, dashboard_core::toasts::Level::Info);
+        assert_eq!(&alerts[0].message[..], "t2");
+        assert_eq!(alerts[0].title.as_deref(), Some("o/r"));
+
+        // Repeats and already-seen threads stay silent (docs/0058 D4).
+        state.apply_notifications(poll_notifs(&[poll_notif("2", "o/r", "t2")]));
+        assert!(state.pending_alerts.is_empty());
+
+        // A thread that first landed read announces when it turns
+        // unread — read landings don't enter the seen-set.
+        let read_landed: Vec<Notification> = serde_json::from_str(
+            r#"[{"id":"9","unread":false,"subject":{"title":"t9","type":"Issue","url":"u"},"repository":{"full_name":"o/r"}}]"#,
+        )
+        .unwrap();
+        state.apply_notifications(read_landed);
+        assert!(state.pending_alerts.is_empty(), "read lands silent");
+        let unread_later: Vec<Notification> =
+            serde_json::from_str(&format!("[{}]", poll_notif("9", "o/r", "t9"))).unwrap();
+        state.apply_notifications(unread_later);
+        let alerts = state.take_pending_alerts();
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(alerts[0].dedupe_key.as_deref(), Some("github-notif-9"));
+    }
+
+    #[test]
+    fn apply_notifications_caps_announce_with_summary() {
+        let http = Arc::new(MockHttp::new(vec![]));
+        let mut state = make_state(http.clone());
+        state.auth = AuthStatus::Connected;
+
+        state.apply_notifications(poll_notifs(&[poll_notif("0", "o/r", "seed")]));
+        assert!(state.pending_alerts.is_empty());
+
+        let five: Vec<String> = (1..=5)
+            .map(|i| poll_notif(&i.to_string(), "o/r", &format!("t{i}")))
+            .collect();
+        state.apply_notifications(poll_notifs(&five));
+        let alerts = state.take_pending_alerts();
+        assert_eq!(alerts.len(), 4, "3 per-thread + 1 summary (docs/0080 D4)");
+        for (i, alert) in alerts.iter().take(ANNOUNCE_CAP).enumerate() {
+            assert_eq!(
+                alert.dedupe_key.as_deref(),
+                Some(format!("github-notif-{}", i + 1).as_str())
+            );
+        }
+        let summary = &alerts[ANNOUNCE_CAP];
+        assert_eq!(summary.dedupe_key.as_deref(), Some("github-notif-summary"));
+        assert_eq!(&summary.message[..], "+2 more GitHub notifications");
+        assert_eq!(summary.source.as_deref(), Some("github"));
     }
 
     // --- GraphQL page/response builders -------------------------------

@@ -99,6 +99,11 @@ impl GithubCard {
         // the state-side gates decide; the home-active check keeps a
         // module-screen refocus off the card's lanes).
         cx.observe_window_activation(window, |this, window, cx| {
+            // docs/0080 D2: the poll gate tracks focus both ways —
+            // deactivation arms the unfocused-poll arm, activation
+            // stops it (the refocus lanes below still fire).
+            this.state
+                .update(cx, |s, _| s.window_active = window.is_window_active());
             if !window.is_window_active() || !this.last_home_active {
                 return;
             }
