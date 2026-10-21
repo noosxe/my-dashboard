@@ -3637,6 +3637,22 @@ impl GithubState {
             return;
         };
         entry.summary.state = detail.state.clone();
+        // The detail is the freshest read the store holds (docs/0020:
+        // one query on open, no cache) — its label set supersedes the
+        // summary's. Without this a row's chips stay frozen at the
+        // document's seed snapshot even after the user has seen the
+        // fresh labels on the page (docs/0072 stage 4, amended).
+        entry.summary.labels = Some(gql::LabelSummary {
+            total_count: detail.labels_total,
+            nodes: detail
+                .labels
+                .iter()
+                .map(|l| gql::LabelRef {
+                    name: l.name.clone(),
+                    color: l.color.clone(),
+                })
+                .collect(),
+        });
         entry.detail = Some(detail);
         entry.detail_at = Some(Instant::now());
         entry.books.in_flight = false;
@@ -4357,7 +4373,21 @@ impl GithubState {
                                     }
                                     repo.prs.total_count
                                 }
-                                _ => repo.issues.total_count,
+                                _ => {
+                                    // docs/0072 stage 4 (amended): the
+                                    // Issues lane refreshes its documents
+                                    // exactly like the PR lane's stage-2
+                                    // landing — a document summary that
+                                    // outlives its lane goes stale (the
+                                    // row renders the document, so a
+                                    // label added upstream never showed).
+                                    // `land_issue_summary` keeps the
+                                    // patched/detail state.
+                                    for row in &repo.issues.nodes {
+                                        self.land_issue_summary(&full_name, row);
+                                    }
+                                    repo.issues.total_count
+                                }
                             };
                             self.merge_repo_lane(repo, lane);
                             self.persist_snapshot();
@@ -8278,6 +8308,144 @@ mod tests {
         assert!(issue.detail_at.is_none());
     }
 
+    /// docs/0072 stage 4 (amended): a repo-lane Issues landing refreshes
+    /// the documents' summary layer — the rows render the document, so a
+    /// label added upstream must reach the row on the next landing (the
+    /// Pulls lane has had this since stage 2).
+    #[test]
+    fn repo_lane_landing_refreshes_issue_document_labels() {
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        // The document was seeded when the issue page last opened: two
+        // labels, detail state recorded.
+        let mut seeded = store_issue(92);
+        seeded.labels = Some(gql::LabelSummary {
+            total_count: 2,
+            nodes: vec![
+                gql::LabelRef {
+                    name: "data-model".into(),
+                    color: Some("FBCA04".into()),
+                },
+                gql::LabelRef {
+                    name: "deferred".into(),
+                    color: Some("DDDDDD".into()),
+                },
+            ],
+        });
+        state.land_issue_summary("acme/one", &seeded);
+        state.land_issue_detail("acme/one", 92, store_issue_detail());
+        assert_eq!(
+            state.issue_entry("acme/one", 92).unwrap().summary.state,
+            Some("OPEN".into())
+        );
+
+        // Upstream grows a third label; the lane lands the fresh row.
+        let body = serde_json::json!({
+            "data": {
+                "repository": {
+                    "name": "one",
+                    "nameWithOwner": "acme/one",
+                    "owner": {"login": "acme"},
+                    "databaseId": null,
+                    "id": null,
+                    "pullRequests": {"totalCount": 0, "nodes": []},
+                    "issues": {
+                        "totalCount": 1,
+                        "nodes": [{
+                            "number": 92,
+                            "title": "How high a PAX door sits above the floor",
+                            "url": "u",
+                            "labels": {"totalCount": 3, "nodes": [
+                                {"name": "data-model", "color": "FBCA04"},
+                                {"name": "deferred", "color": "DDDDDD"},
+                                {"name": "needs-store-visit", "color": "C2185B"}
+                            ]}
+                        }]
+                    }
+                }
+            }
+        });
+        state.apply_repo_lane(
+            Some("acme/one"),
+            &body.to_string(),
+            crate::service::RepoLane::Issues,
+        );
+
+        // The row derives from the document — which now carries the
+        // fresh label set, while the detail-landed state survives.
+        // The row derives from the document — which now carries the
+        // fresh label set, while the detail-landed state survives.
+        let held = state.repos.iter().find(|r| r.key == "acme/one").unwrap();
+        let rows = state.repo_issue_rows(held);
+        assert_eq!(rows.len(), 1);
+        let labels = rows[0].labels.as_ref().expect("labels land");
+        assert_eq!(labels.total_count, 3);
+        let names: Vec<_> = labels.nodes.iter().map(|l| l.name.as_str()).collect();
+        assert_eq!(names, ["data-model", "deferred", "needs-store-visit"]);
+        assert_eq!(
+            state.issue_entry("acme/one", 92).unwrap().summary.state,
+            Some("OPEN".into()),
+            "the lane never moves a detail-landed state"
+        );
+    }
+
+    /// docs/0072 stage 4 (amended): a detail landing propagates the
+    /// fresh label set into the row summary — the detail is the
+    /// freshest read the store holds, and the user has already seen
+    /// its labels on the page.
+    #[test]
+    fn land_issue_detail_propagates_labels_into_the_row_summary() {
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        let mut seeded = store_issue(92);
+        seeded.labels = Some(gql::LabelSummary {
+            total_count: 2,
+            nodes: vec![
+                gql::LabelRef {
+                    name: "data-model".into(),
+                    color: Some("FBCA04".into()),
+                },
+                gql::LabelRef {
+                    name: "deferred".into(),
+                    color: Some("DDDDDD".into()),
+                },
+            ],
+        });
+        state.land_issue_summary("acme/one", &seeded);
+
+        // The detail the page just fetched carries the upstream truth:
+        // three labels (the query's first page, 20 wide).
+        let value = serde_json::json!({
+            "issue": {
+                "id": "I_92",
+                "number": 92,
+                "title": "How high a PAX door sits above the floor",
+                "url": "u",
+                "state": "OPEN",
+                "createdAt": "2026-09-01T00:00:00Z",
+                "labels": {
+                    "totalCount": 3,
+                    "nodes": [
+                        {"id": "L1", "name": "data-model", "color": "FBCA04"},
+                        {"id": "L2", "name": "deferred", "color": "DDDDDD"},
+                        {"id": "L3", "name": "needs-store-visit", "color": "C2185B"}
+                    ]
+                },
+                "comments": {"totalCount": 0, "nodes": []},
+                "timelineItems": {"totalCount": 0, "filteredCount": 0, "nodes": []}
+            }
+        });
+        state.land_issue_detail(
+            "acme/one",
+            92,
+            gql::issue_detail_from_value(&value).expect("detail parses"),
+        );
+
+        let summary = &state.issue_entry("acme/one", 92).unwrap().summary;
+        let labels = summary.labels.as_ref().expect("labels propagate");
+        assert_eq!(labels.total_count, 3);
+        let names: Vec<_> = labels.nodes.iter().map(|l| l.name.as_str()).collect();
+        assert_eq!(names, ["data-model", "deferred", "needs-store-visit"]);
+        assert_eq!(summary.state, Some("OPEN".into()));
+    }
     #[test]
     fn doc_store_unparseable_rows_are_skipped_not_fatal() {
         let db = doc_db("garbage");

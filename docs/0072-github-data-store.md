@@ -251,6 +251,20 @@ its arming hook — exactly the stage-3 rule. Failures keep the prior
 document, record inline in the op's documented scope (Timeline /
 Rail — docs/0020 D5 placement kept), and stage the warning toast.
 
+**Amended (stale issue-document labels):** two gaps in the stage-4
+wiring let a document's summary outlive its lane — `apply_repo_lane`'s
+Issues arm never called `land_issue_summary` (only the issue page's
+open seeded the document), and `land_issue_detail` patched only `state`
+into the summary. Since the repo view renders the document when one
+exists (docs/0073 D3), a label added upstream after the document was
+seeded never reached the row — the row stayed frozen while the detail
+page, a fresh fetch per open, showed the truth. Amended: the Issues
+lane now lands its rows as summaries on every landing (the same shape
+as the PR lane's stage-2 landing; `land_issue_summary` still never
+moves a patched or detail-landed state), and a detail landing
+propagates the fresh label set (`labels` + `labels_total`) into the
+summary beside the state.
+
 ### D5 — Concurrency: one pending op per entry, many entries in flight
 
 The single-flight constraint narrows from "the whole page" to "the one
