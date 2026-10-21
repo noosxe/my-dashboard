@@ -1,5 +1,11 @@
 # 0052 — GitHub: no autorefresh; fetch on show, refocus, and manual
 
+> **Amended by docs/0080** (unfocused poll): D1's "nothing fetches on
+> a timer" gains exactly one exception — the notifications lane polls
+> while the window is **inactive** (60 s floor, `Trigger::Poll`),
+> and landings announce new threads as toasts (banners while
+> unfocused). See docs/0080.
+
 - **Date:** 2026-09-21
 - **Depends on:** 0031 (fetch record/dedup), 0032 (detail auto-refresh —
   amended), 0035 (list-surface refresh — amended), 0036 (backoff —
