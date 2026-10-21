@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!--
+    my-dashboard macOS app icon — source of truth.
+
+    Brand: the sidebar mark (crates/core/src/shell.rs, SidebarHeader) —
+    the lucide `gallery-vertical-end` glyph in the factory Aurora theme's
+    primary (docs/0056): vertical gradient #1E293B → #0F172A, glyph
+    #F8FAFC. Geometry per Apple's macOS icon grid: 1024 canvas, 824×824
+    body centered (100px margins), 185.4px corner radius (measured off
+    Apple's own App Store icon). Regenerate the .icns with
+    scripts/app-icon.sh.
+  -->
+  <defs>
+    <linearGradient id="brand" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1E293B"/>
+      <stop offset="1" stop-color="#0F172A"/>
+    </linearGradient>
+    <filter id="drop" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#000000" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+
+  <rect x="100" y="100" width="824" height="824" rx="185.4" fill="url(#brand)" filter="url(#drop)"/>
+
+  <!-- gallery-vertical-end, 24-unit viewBox scaled into the body:
+       translate centers the 24-box at the body center; scale 528/24 = 22.
+       Strokes: 2 units → 44px, round caps/joins as upstream. -->
+  <g transform="translate(248, 248) scale(22)" fill="none" stroke="#F8FAFC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M7 2h10"/>
+    <path d="M5 6h14"/>
+    <rect width="18" height="12" x="3" y="10" rx="2"/>
+  </g>
+</svg>
