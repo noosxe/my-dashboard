@@ -1,0 +1,168 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="820" viewBox="0 0 1280 820" font-family="Helvetica Neue, Helvetica, Arial, sans-serif">
+  <defs>
+    <symbol id="chev" viewBox="0 0 10 10">
+      <path d="M2 3.5 L5 6.5 L8 3.5" fill="none" stroke="#71717a" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="copy" viewBox="0 0 16 16">
+      <rect x="5" y="5" width="8" height="8" rx="1.5" fill="none" stroke="#71717a" stroke-width="1.3"/>
+      <path d="M3 10.5 V4 a1 1 0 0 1 1 -1 H10.5" fill="none" stroke="#71717a" stroke-width="1.3"/>
+    </symbol>
+    <symbol id="ok" viewBox="0 0 16 16">
+      <circle cx="8" cy="8" r="6.5" fill="none" stroke="#16a34a" stroke-width="1.4"/>
+      <path d="M5 8.2 L7.1 10.2 L11 6" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="fail" viewBox="0 0 16 16">
+      <circle cx="8" cy="8" r="6.5" fill="none" stroke="#dc2626" stroke-width="1.4"/>
+      <path d="M5.7 5.7 L10.3 10.3 M10.3 5.7 L5.7 10.3" stroke="#dc2626" stroke-width="1.5" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="pend" viewBox="0 0 16 16">
+      <circle cx="8" cy="8" r="3.5" fill="#d97706"/>
+    </symbol>
+    <symbol id="branch" viewBox="0 0 16 16">
+      <circle cx="4.5" cy="3.5" r="1.6" fill="none" stroke="#52525b" stroke-width="1.3"/>
+      <circle cx="4.5" cy="12.5" r="1.6" fill="none" stroke="#52525b" stroke-width="1.3"/>
+      <circle cx="11.5" cy="5" r="1.6" fill="none" stroke="#52525b" stroke-width="1.3"/>
+      <path d="M4.5 5.1 V10.9 M11.5 6.6 C11.5 9 4.5 8.5 4.5 10.9" fill="none" stroke="#52525b" stroke-width="1.3"/>
+    </symbol>
+    <symbol id="ext" viewBox="0 0 16 16">
+      <path d="M9 3 H13 V7 M13 3 L7.5 8.5 M11 9.5 V13 H3 V5 H6.5" fill="none" stroke="#71717a" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="refresh" viewBox="0 0 16 16">
+      <path d="M13 8 a5 5 0 1 1 -1.5 -3.6 M13 2.8 V5.2 H10.6" fill="none" stroke="#71717a" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+  </defs>
+
+  <!-- window -->
+  <rect width="1280" height="820" fill="#f4f4f5"/>
+  <rect x="0" y="0" width="1280" height="40" fill="#fafafa"/>
+  <line x1="0" y1="40" x2="1280" y2="40" stroke="#e4e4e7"/>
+  <circle cx="20" cy="20" r="6" fill="#ef4444"/><circle cx="40" cy="20" r="6" fill="#f59e0b"/><circle cx="60" cy="20" r="6" fill="#22c55e"/>
+  <text x="250" y="25" font-size="13" fill="#71717a">GitHub  ›  noosxe/my-dashboard</text>
+
+  <!-- app sidebar rail -->
+  <rect x="0" y="41" width="56" height="779" fill="#fafafa"/>
+  <line x1="56" y1="41" x2="56" y2="820" stroke="#e4e4e7"/>
+  <rect x="16" y="60" width="24" height="24" rx="6" fill="#18181b"/>
+  <rect x="16" y="100" width="24" height="24" rx="6" fill="#e4e4e7"/>
+  <rect x="16" y="140" width="24" height="24" rx="6" fill="#e4e4e7"/>
+
+  <!-- left column: repo list -->
+  <rect x="57" y="41" width="260" height="779" fill="#ffffff"/>
+  <line x1="317" y1="41" x2="317" y2="820" stroke="#e4e4e7"/>
+  <rect x="72" y="56" width="230" height="30" rx="6" fill="#ffffff" stroke="#e4e4e7"/>
+  <text x="84" y="76" font-size="12" fill="#a1a1aa">Search repositories…</text>
+  <rect x="68" y="98" width="238" height="44" rx="6" fill="#f4f4f5"/>
+  <text x="80" y="116" font-size="13" font-weight="600" fill="#18181b">noosxe/my-dashboard</text>
+  <text x="80" y="133" font-size="11" fill="#71717a">Modular Rust/gpui dashboard</text>
+  <text x="80" y="166" font-size="13" fill="#18181b">noosxe/worker-mcp</text>
+  <text x="80" y="183" font-size="11" fill="#71717a">MCP worker</text>
+  <text x="80" y="214" font-size="13" fill="#18181b">noosxe/dotfiles</text>
+  <text x="80" y="231" font-size="11" fill="#71717a">NixOS + home-manager</text>
+
+  <!-- right column: pinned chrome (D9) -->
+  <rect x="318" y="41" width="962" height="779" fill="#ffffff"/>
+  <text x="344" y="80" font-size="20" font-weight="600" fill="#18181b">noosxe/my-dashboard</text>
+  <text x="344" y="102" font-size="12" fill="#71717a">Modular Rust/gpui desktop dashboard</text>
+  <text x="1170" y="80" font-size="11" fill="#a1a1aa" text-anchor="end">synced 2m</text>
+  <use href="#refresh" x="1180" y="68" width="16" height="16"/>
+
+  <rect x="344" y="118" width="910" height="30" rx="6" fill="#ffffff" stroke="#e4e4e7"/>
+  <text x="356" y="138" font-size="12" fill="#a1a1aa">Filter rows… (#number or text)</text>
+
+  <text x="1254" y="176" font-size="12" fill="#3f3f46" text-anchor="end">New issue</text>
+  <text x="1170" y="176" font-size="12" fill="#3f3f46" text-anchor="end">New pull request</text>
+
+  <!-- tab strip -->
+  <text x="344" y="210" font-size="13" fill="#71717a">Open PRs</text>
+  <text x="432" y="210" font-size="13" fill="#71717a">Open issues</text>
+  <text x="536" y="210" font-size="13" fill="#71717a">Notifications</text>
+  <text x="652" y="210" font-size="13" font-weight="600" fill="#18181b">Commits</text>
+  <rect x="648" y="219" width="62" height="2" fill="#18181b"/>
+  <line x1="344" y1="221" x2="1254" y2="221" stroke="#e4e4e7"/>
+
+  <!-- ref selector (D7, pending Q2) + count -->
+  <rect x="344" y="236" width="128" height="28" rx="6" fill="#ffffff" stroke="#e4e4e7"/>
+  <use href="#branch" x="354" y="242" width="16" height="16"/>
+  <text x="376" y="255" font-size="12" font-weight="600" fill="#18181b">main</text>
+  <use href="#chev" x="452" y="245" width="10" height="10"/>
+  <text x="1254" y="255" font-size="12" fill="#71717a" text-anchor="end">425 commits</text>
+
+  <!-- list viewport (scrolls internally) -->
+  <rect x="1250" y="282" width="4" height="120" rx="2" fill="#d4d4d8"/>
+
+  <!-- day header 1 -->
+  <text x="344" y="296" font-size="11" font-weight="600" fill="#71717a">Commits on Oct 22, 2026</text>
+
+  <!-- row 1: selected -->
+  <rect x="340" y="306" width="904" height="52" rx="6" fill="#f4f4f5"/>
+  <rect x="340" y="306" width="904" height="52" rx="6" fill="none" stroke="#a1a1aa" stroke-width="1"/>
+  <text x="352" y="326" font-size="13" fill="#18181b">clippy: apply MSRV-gated lints unlocked by rust-version 1.98</text>
+  <use href="#ok" x="1222" y="314" width="16" height="16"/>
+  <circle cx="361" cy="344" r="8" fill="#6366f1"/><text x="361" y="348" font-size="9" fill="#ffffff" text-anchor="middle">N</text>
+  <text x="375" y="348" font-size="11" fill="#3f3f46">noosxe</text>
+  <text x="420" y="348" font-size="11" fill="#71717a">committed 14h</text>
+  <text x="1196" y="348" font-size="11" fill="#3f3f46" font-family="Menlo, monospace" text-anchor="end">3af7ef3</text>
+  <use href="#copy" x="1214" y="337" width="14" height="14"/>
+
+  <!-- row 2: verified -->
+  <text x="352" y="382" font-size="13" fill="#18181b">build: pin the Rust toolchain explicitly in all four places (docs/0027 D4)</text>
+  <rect x="1144" y="369" width="66" height="18" rx="9" fill="none" stroke="#16a34a"/>
+  <text x="1177" y="382" font-size="10" fill="#16a34a" text-anchor="middle">Verified</text>
+  <use href="#ok" x="1222" y="370" width="16" height="16"/>
+  <circle cx="361" cy="400" r="8" fill="#6366f1"/><text x="361" y="404" font-size="9" fill="#ffffff" text-anchor="middle">N</text>
+  <text x="375" y="404" font-size="11" fill="#3f3f46">noosxe</text>
+  <text x="420" y="404" font-size="11" fill="#71717a">committed 15h</text>
+  <text x="1196" y="404" font-size="11" fill="#3f3f46" font-family="Menlo, monospace" text-anchor="end">27ac3f7</text>
+  <use href="#copy" x="1214" y="393" width="14" height="14"/>
+
+  <!-- row 3: CI failing -->
+  <text x="352" y="438" font-size="13" fill="#18181b">ci: cargo-deny dependency audit (docs/0027 D8) (#641)</text>
+  <use href="#fail" x="1222" y="426" width="16" height="16"/>
+  <circle cx="361" cy="456" r="8" fill="#0ea5e9"/><text x="361" y="460" font-size="9" fill="#ffffff" text-anchor="middle">O</text>
+  <text x="375" y="460" font-size="11" fill="#3f3f46">octocat</text>
+  <text x="424" y="460" font-size="11" fill="#71717a">committed 18h</text>
+  <text x="1196" y="460" font-size="11" fill="#3f3f46" font-family="Menlo, monospace" text-anchor="end">1941430</text>
+  <use href="#copy" x="1214" y="449" width="14" height="14"/>
+
+  <!-- day header 2 -->
+  <text x="344" y="500" font-size="11" font-weight="600" fill="#71717a">Commits on Oct 21, 2026</text>
+
+  <!-- row 4: unverified, pending -->
+  <text x="352" y="530" font-size="13" fill="#18181b">github: remove leftover debug prints</text>
+  <rect x="1132" y="517" width="78" height="18" rx="9" fill="none" stroke="#a1a1aa"/>
+  <text x="1171" y="530" font-size="10" fill="#71717a" text-anchor="middle">Unverified</text>
+  <use href="#pend" x="1222" y="518" width="16" height="16"/>
+  <circle cx="361" cy="548" r="8" fill="#6366f1"/><text x="361" y="552" font-size="9" fill="#ffffff" text-anchor="middle">N</text>
+  <text x="375" y="552" font-size="11" fill="#3f3f46">noosxe</text>
+  <text x="420" y="552" font-size="11" fill="#71717a">committed 1d</text>
+  <text x="1196" y="552" font-size="11" fill="#3f3f46" font-family="Menlo, monospace" text-anchor="end">edfc227</text>
+  <use href="#copy" x="1214" y="541" width="14" height="14"/>
+
+  <!-- row 5: unlinked author (name fallback), no CI -->
+  <text x="352" y="586" font-size="13" fill="#18181b">app: quit when the window closes on macOS (docs/0002 D4)</text>
+  <circle cx="361" cy="604" r="8" fill="#a1a1aa"/><text x="361" y="608" font-size="9" fill="#ffffff" text-anchor="middle">D</text>
+  <text x="375" y="608" font-size="11" fill="#3f3f46">Dev Box</text>
+  <text x="424" y="608" font-size="11" fill="#71717a">committed 1d</text>
+  <text x="1196" y="608" font-size="11" fill="#3f3f46" font-family="Menlo, monospace" text-anchor="end">f28d914</text>
+  <use href="#copy" x="1214" y="597" width="14" height="14"/>
+
+  <!-- row 6 -->
+  <text x="352" y="642" font-size="13" fill="#18181b">docs/0080: notifications unfocused poll (#636)</text>
+  <use href="#ok" x="1222" y="630" width="16" height="16"/>
+  <circle cx="361" cy="660" r="8" fill="#6366f1"/><text x="361" y="664" font-size="9" fill="#ffffff" text-anchor="middle">N</text>
+  <text x="375" y="664" font-size="11" fill="#3f3f46">noosxe</text>
+  <text x="420" y="664" font-size="11" fill="#71717a">committed 2d</text>
+  <text x="1196" y="664" font-size="11" fill="#3f3f46" font-family="Menlo, monospace" text-anchor="end">9c41be0</text>
+  <use href="#copy" x="1214" y="653" width="14" height="14"/>
+
+  <!-- load-more tail (D8) -->
+  <circle cx="356" cy="702" r="5" fill="none" stroke="#a1a1aa" stroke-width="1.5" stroke-dasharray="20 12"/>
+  <text x="368" y="706" font-size="11" fill="#71717a">Loading older commits…</text>
+
+  <!-- annotations -->
+  <g font-size="11" fill="#7c3aed">
+    <text x="344" y="752">D9: header, search and tabs stay pinned — the List scrolls internally (bounded height).</text>
+    <text x="344" y="770">D5: fixed two-line rows · day headers by local date · badge + CI glyph right · mono short SHA + copy (full oid).</text>
+    <text x="344" y="788">D6: ↑/↓ select · Enter opens on GitHub (Q1) · ⌘/Ctrl+Enter copies SHA · D2: scroll near the end fetches the next 50 (Paginate).</text>
+  </g>
+</svg>
