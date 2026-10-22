@@ -445,15 +445,15 @@ impl IssueDetailPage {
                             // refetch race).
                             let still_there =
                                 |id: &str| detail.comments.nodes.iter().any(|c| c.id == id);
-                            if let Some((id, _)) = &self.timeline_edit {
-                                if !still_there(id) {
-                                    self.timeline_edit = None;
-                                }
+                            if let Some((id, _)) = &self.timeline_edit
+                                && !still_there(id)
+                            {
+                                self.timeline_edit = None;
                             }
-                            if let Some(id) = &self.delete_confirm {
-                                if !still_there(id) {
-                                    self.delete_confirm = None;
-                                }
+                            if let Some(id) = &self.delete_confirm
+                                && !still_there(id)
+                            {
+                                self.delete_confirm = None;
                             }
                             // 0022 D5: a fresh payload under an open
                             // picker re-aligns its frozen draft by id —
@@ -1390,11 +1390,11 @@ impl IssueDetailPage {
         if self.writes_busy(cx) {
             return;
         }
-        if let Some(RailEditor::Labels(draft)) = &mut self.rail_edit {
-            if let Some(checked) = draft.checked.get_mut(ix) {
-                *checked = !*checked;
-                cx.notify();
-            }
+        if let Some(RailEditor::Labels(draft)) = &mut self.rail_edit
+            && let Some(checked) = draft.checked.get_mut(ix)
+        {
+            *checked = !*checked;
+            cx.notify();
         }
     }
 
@@ -1402,11 +1402,11 @@ impl IssueDetailPage {
         if self.writes_busy(cx) {
             return;
         }
-        if let Some(RailEditor::Assignees(draft)) = &mut self.rail_edit {
-            if let Some(checked) = draft.checked.get_mut(ix) {
-                *checked = !*checked;
-                cx.notify();
-            }
+        if let Some(RailEditor::Assignees(draft)) = &mut self.rail_edit
+            && let Some(checked) = draft.checked.get_mut(ix)
+        {
+            *checked = !*checked;
+            cx.notify();
         }
     }
 
@@ -2997,11 +2997,11 @@ impl Render for IssueDetailPage {
         // mounts — the anchor records its origin on paint, the offset lands
         // next frame. A card swapped for an editor/confirm keeps the jump
         // armed until it really shows.
-        if let CommentAnchor::Jumping(id) = self.anchor.clone() {
-            if self.anchor_row_mounts(&id) {
-                self.anchor = CommentAnchor::Highlighted(id);
-                self.start_anchor_fade(cx);
-            }
+        if let CommentAnchor::Jumping(id) = self.anchor.clone()
+            && self.anchor_row_mounts(&id)
+        {
+            self.anchor = CommentAnchor::Highlighted(id);
+            self.start_anchor_fade(cx);
         }
         let detail = self.detail(cx);
         page_canvas()

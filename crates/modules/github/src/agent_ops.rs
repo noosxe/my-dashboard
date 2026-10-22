@@ -262,12 +262,12 @@ impl GithubAgentOps {
     ) -> Result<Value, RpcError> {
         let p: RepoRowsParams =
             parse(params).ok_or_else(|| bad_params("params: {repo: string, state?: \"open\"}"))?;
-        if let Some(state) = p.state.as_deref() {
-            if state != "open" {
-                return Err(bad_params(
-                    "phase 1 holds open rows only (the inventory summaries are open-only)",
-                ));
-            }
+        if let Some(state) = p.state.as_deref()
+            && state != "open"
+        {
+            return Err(bad_params(
+                "phase 1 holds open rows only (the inventory summaries are open-only)",
+            ));
         }
         let s = self.state.read(cx);
         let Some(repo) = s

@@ -219,12 +219,11 @@ impl DashboardShell {
     /// own `Reentered` handler returns to root (docs/0014 §5 D7).
     fn navigate(&mut self, page: Page, window: &mut Window, cx: &mut Context<Self>) {
         let current = self.nav.read(cx).page.clone();
-        if let Page::Module(id) = &current {
-            if current != page {
-                if let Some(nav) = self.registry.get(id).and_then(|e| e.nav.as_ref()) {
-                    nav.collapse(window, cx);
-                }
-            }
+        if let Page::Module(id) = &current
+            && current != page
+            && let Some(nav) = self.registry.get(id).and_then(|e| e.nav.as_ref())
+        {
+            nav.collapse(window, cx);
         }
         self.nav.update(cx, |nav, cx| nav.go(page, cx));
         self.focus_root(window, cx);
@@ -250,10 +249,10 @@ impl DashboardShell {
             if let Some(nav) = self.registry.get(id).and_then(|e| e.nav.as_ref()) {
                 nav.restore(payload, window, cx);
             }
-        } else if let Page::Module(id) = &route.page {
-            if let Some(nav) = self.registry.get(id).and_then(|e| e.nav.as_ref()) {
-                nav.collapse(window, cx);
-            }
+        } else if let Page::Module(id) = &route.page
+            && let Some(nav) = self.registry.get(id).and_then(|e| e.nav.as_ref())
+        {
+            nav.collapse(window, cx);
         }
     }
 

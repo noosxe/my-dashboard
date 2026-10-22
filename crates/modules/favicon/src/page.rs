@@ -204,10 +204,10 @@ impl FaviconModel {
         if !spec.app_name.is_empty() {
             app_name_input.update(cx, |s, cx| s.set_value(spec.app_name.clone(), window, cx));
         }
-        if let Source::Svg { data, .. } = &spec.source {
-            if let Some(markup) = decode_b64(data) {
-                svg_textarea.update(cx, |s, cx| s.set_value(markup, window, cx));
-            }
+        if let Source::Svg { data, .. } = &spec.source
+            && let Some(markup) = decode_b64(data)
+        {
+            svg_textarea.update(cx, |s, cx| s.set_value(markup, window, cx));
         }
 
         let this = Self {

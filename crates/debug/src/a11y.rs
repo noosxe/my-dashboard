@@ -542,14 +542,12 @@ async fn node_info(
     if let Ok(builder) = ComponentProxy::builder(bus)
         .destination(destination)
         .and_then(|builder| builder.path(path))
+        && let Ok(component) = builder.build().await
+        && let Ok((x, y, w, h)) = component.get_extents(CoordType::Window).await
     {
-        if let Ok(component) = builder.build().await {
-            if let Ok((x, y, w, h)) = component.get_extents(CoordType::Window).await {
-                // AT-SPI's "no extent" sentinel is the all-(-1) rect.
-                if (x, y, w, h) != (-1, -1, -1, -1) {
-                    info.bounds = Some((x, y, w, h));
-                }
-            }
+        // AT-SPI's "no extent" sentinel is the all-(-1) rect.
+        if (x, y, w, h) != (-1, -1, -1, -1) {
+            info.bounds = Some((x, y, w, h));
         }
     }
     info

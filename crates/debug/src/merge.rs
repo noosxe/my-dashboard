@@ -87,10 +87,10 @@ pub fn mark_pointer_focus(dump: &mut Value) {
         return;
     };
     for key in keys {
-        if let Some(node) = nodes.get_mut(&key) {
-            if let Some(object) = node.as_object_mut() {
-                object.insert("focused".into(), Value::Bool(true));
-            }
+        if let Some(node) = nodes.get_mut(&key)
+            && let Some(object) = node.as_object_mut()
+        {
+            object.insert("focused".into(), Value::Bool(true));
         }
     }
 }

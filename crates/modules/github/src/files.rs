@@ -557,10 +557,9 @@ fn diff_element(
             if let Some(ix) = id
                 .strip_prefix("pr-draft-")
                 .and_then(|s| s.parse::<usize>().ok())
+                && ix < page.drafts.len()
             {
-                if ix < page.drafts.len() {
-                    return draft_chip(page, &page_h, window, ix, cx);
-                }
+                return draft_chip(page, &page_h, window, ix, cx);
             }
             div().into_any_element()
         })

@@ -113,10 +113,8 @@ impl Http for UreqClient {
         }
         .set("User-Agent", USER_AGENT)
         .set("Accept", accept);
-        if is_api {
-            if let Some(token) = self.token.read().ok().and_then(|t| t.clone()) {
-                req = req.set("Authorization", &format!("Bearer {token}"));
-            }
+        if is_api && let Some(token) = self.token.read().ok().and_then(|t| t.clone()) {
+            req = req.set("Authorization", &format!("Bearer {token}"));
         }
         if let Some(tag) = etag {
             req = req.set("If-None-Match", tag);

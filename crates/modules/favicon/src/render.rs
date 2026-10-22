@@ -243,7 +243,7 @@ pub fn png_bytes(pixmap: &resvg::tiny_skia::Pixmap) -> Result<Vec<u8>, RenderErr
 pub fn preview_frame(pixmap: resvg::tiny_skia::Pixmap) -> Arc<gpui::RenderImage> {
     let mut buffer = image::ImageBuffer::from_raw(pixmap.width(), pixmap.height(), pixmap.take())
         .expect("pixmap data length matches dims");
-    for pixel in buffer.chunks_exact_mut(4) {
+    for pixel in buffer.as_chunks_mut::<4>().0 {
         pixel.swap(0, 2);
         if pixel[3] > 0 {
             let a = pixel[3] as f32 / 255.0;
@@ -521,7 +521,7 @@ mod tests {
         let pixmap = rasterize(&svg, 128, &db).unwrap();
         let data = pixmap.data();
         let mut saturated = 0;
-        for px in data.chunks_exact(4) {
+        for px in data.as_chunks::<4>().0 {
             let (r, g, b, a) = (px[0], px[1], px[2], px[3]);
             if a == 0 {
                 continue;

@@ -223,19 +223,19 @@ pub(crate) fn milestone_rows(
         label: m.title.clone(),
         avatar_url: None,
     }));
-    if let Some(m) = applied {
-        if !rows.iter().any(|r| r.id == m.id) {
-            let label = if m.state.as_deref() == Some("CLOSED") {
-                format!("{} · closed", m.title)
-            } else {
-                m.title.clone()
-            };
-            rows.push(PickerRow {
-                id: m.id.clone(),
-                label,
-                avatar_url: None,
-            });
-        }
+    if let Some(m) = applied
+        && !rows.iter().any(|r| r.id == m.id)
+    {
+        let label = if m.state.as_deref() == Some("CLOSED") {
+            format!("{} · closed", m.title)
+        } else {
+            m.title.clone()
+        };
+        rows.push(PickerRow {
+            id: m.id.clone(),
+            label,
+            avatar_url: None,
+        });
     }
     rows
 }
