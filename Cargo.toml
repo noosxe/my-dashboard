@@ -20,7 +20,11 @@ default-members = ["crates/app"]
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+# = the pinned toolchain, not a support floor: this is an app, built only
+# with the flake/CI/verify-image toolchain. Kept equal so the MSRV-aware
+# resolver (resolver 3) never holds back a release that toolchain can
+# build (#641). Lockstep pin — scripts/check-toolchain-pins.sh, docs/0027 D4.
+rust-version = "1.98.0"
 
 [workspace.dependencies]
 anyhow = "1"

@@ -29,8 +29,9 @@ per change. Consequence: the image changes rarely (D2/D3 only), and
 ### D2 — Base pinned by digest, bumped in lockstep
 
 `FROM rust:1.98.0@sha256:620dbcd1…` — tag *and* digest, matching
-`RUST_TOOLCHAIN` in `.github/workflows/ci.yml` and the dev-shell flake
-(docs/0027 D4's "pinned in lockstep, bump together, deliberately"). The
+the dev-shell flake's explicit release, `RUST_TOOLCHAIN` in
+`.github/workflows/ci.yml` and `rust-version` in `Cargo.toml` (docs/0027
+D4's four-way lockstep, enforced by `scripts/check-toolchain-pins.sh`). The
 digest is the Docker analogue of CI's SHA-pinned actions: re-pulling the
 same tag months later must not silently change the verification env.
 
@@ -166,9 +167,10 @@ cached; the rebuild is short).
 
 ## 5. Base-image bump ritual
 
-One PR changes all three pins together: the tag + digest in
-`docker/Dockerfile` and `RUST_TOOLCHAIN` in `.github/workflows/ci.yml`
-(the flake bump rides its own lockstep rule, docs/0027 D4). After
+One PR changes all four toolchain pins together (docs/0027 D4): the
+tag + digest in `docker/Dockerfile`, the release in `flake.nix`,
+`RUST_TOOLCHAIN` in `.github/workflows/ci.yml` and `rust-version` in
+`Cargo.toml`; `scripts/check-toolchain-pins.sh` must pass. After
 merging, recreate the caches and pay the one cold build:
 
 ```sh

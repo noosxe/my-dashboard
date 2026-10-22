@@ -4,9 +4,11 @@
 # COPY'd in — so every run verifies the working tree as it stands, and the
 # image itself almost never changes.
 #
-# The base pin is deliberate (docs/0071 D2): bump the tag, digest and
-# RUST_TOOLCHAIN in .github/workflows/ci.yml together, and recreate the
-# cargo cache volume (docs/0071 D6) in the same change.
+# The base pin is deliberate (docs/0071 D2): bump the tag + digest
+# together with the other toolchain pins — the flake.nix release,
+# RUST_TOOLCHAIN in .github/workflows/ci.yml and Cargo.toml
+# `rust-version` (scripts/check-toolchain-pins.sh, docs/0027 D4) — and
+# recreate the cargo cache volume (docs/0071 D6) in the same change.
 FROM rust:1.98.0@sha256:620dbcd124499c59e2406d3741574b5c5838cf9eb9656f0c3a03948f79b02959
 
 # GUI dev stack — keep in lockstep with the apt list in

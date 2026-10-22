@@ -60,7 +60,7 @@ written).
   install plus the parity contract below (all three gaps were on the
   retired self-hosted platform — §4).
 - **Dev-shell parity**: locally the gates run inside `nix develop` (toolchain
-  frozen by `flake.lock` at 1.98.0, gpui dynamic libs on `LD_LIBRARY_PATH`,
+  named explicitly in `flake.nix`, 1.98.0 — D4; gpui dynamic libs on `LD_LIBRARY_PATH`,
   hermetic IBM Plex via `FONTCONFIG_FILE`). CI cannot replicate the nix parts —
   parity is therefore *approximate* (D1, D4) and the drift surface is recorded
   here deliberately.
@@ -138,11 +138,32 @@ runs. `timeout-minutes` (30/45) bounds a hung job.
 
 ### D4 — Toolchain pinned, in lockstep with the flake
 
-`RUST_TOOLCHAIN: "1.98.0"` as a single workflow-level env, matching the
-dev-shell toolchain the flake currently freezes. Bumped **deliberately,
-together with** `flake.lock` toolchain moves (rust-overlay stable bump). A
-floating `stable` on CI would let it diverge from the local gates and fail
+The dev-shell flake is the reference toolchain and **names its release
+explicitly** (`rust-bin.stable."1.98.0"`), so a `nix flake update` can
+never move it. CI stays nix-free (§4) and pins the same release as a
+single workflow-level env, `RUST_TOOLCHAIN: "1.98.0"`. A floating `stable`
+on either side would let it diverge from the local gates and fail
 green-local PRs mid-flight.
+
+Four pins, one release, bumped **deliberately, in one PR**:
+
+| Pin | Where |
+|---|---|
+| Dev shell | `flake.nix` — `rust-bin.stable."<x.y.z>"` |
+| CI | `.github/workflows/ci.yml` — `RUST_TOOLCHAIN` |
+| Verification image | `docker/Dockerfile` — `FROM rust:<x.y.z>@sha256:…` (docs/0071 D2, §5) |
+| Workspace | `Cargo.toml` — `[workspace.package] rust-version` |
+
+`scripts/check-toolchain-pins.sh` fails when they disagree; it is the
+first step of the CI `lint` job and runs locally with no toolchain.
+
+`rust-version` is the pinned toolchain, **not a support floor**: this is
+an app built only with the toolchain above, never a library consumed
+under older compilers. Keeping it equal means cargo's MSRV-aware
+resolver (resolver 3) never holds back a release that toolchain can
+build — a stale 1.85 had made security bumps need `--precise` (#641).
+The bump needs a `flake.lock` that knows the new release (`nix flake
+update rust-overlay`), and `rust-version` may only rise.
 
 ### D5 — Supply chain & hygiene
 
@@ -292,6 +313,11 @@ upstream GPUI stack, so they are ignored and tracked in #640.
 - *(2026-10-22, #639)* **Dependency audit** (D8): advisories **fail** the
   build (not warn-only), licenses and sources fail, bans warn on
   duplicates. The audit runs on PRs/pushes **and** weekly on a schedule.
+- *(2026-10-22, #641)* **Explicit toolchain everywhere** (D4): the flake
+  names its release instead of `stable.latest`, `rust-version` rises from
+  the stale 1.85 to the pinned 1.98.0, and a pin-agreement check in the
+  `lint` job enforces the four-way lockstep. The dev shell is the only
+  local toolchain (no Homebrew/rustup rust, docs/0001 §4).
 
 ## 5. Implementation plan (this PR)
 
