@@ -161,6 +161,19 @@ host and new files/crates grow from there.
   shows) + `app_id` for Wayland taskbar grouping (pending Q3/Q4 values).
 - **D4 — Close = quit** (pending Q7): no `on_close_window` override in 0002; the
   hook is documented for future tray behavior.
+  **macOS (2026-10-22):** gpui's `QuitMode::Default` is `Explicit` on macOS, so
+  closing the window (red traffic light) left the process alive in the Dock —
+  D4 held on Linux only. `main` now builds the app with
+  `.with_quit_mode(QuitMode::LastWindowClosed)` on every platform (verified in
+  pinned gpui-pre `app.rs`: when a removed window leaves the window map empty,
+  the window-update trail calls `cx.quit()`). That is the same graceful path as
+  the Quit menu item / Cmd+Q and the debug bridge's `app.quit` — the platform
+  terminates, `App::shutdown` runs the `on_app_quit` handlers, so the debounced
+  state flush (docs/0045 §9) and the usage-store flush (docs/0057 D9) still land.
+  Linux behavior is unchanged (its default already was `LastWindowClosed`). The
+  app has a single window; a future second window would make "last window"
+  matter and must revisit this. No Cmd+W binding exists yet (no Close Window
+  menu item — D12).
 - **D5 — Theme**: rely on `gpui_component::init` defaults + `cx.theme()` tokens
   everywhere (no hardcoded colors in the shell). Mode strategy per Q5.
   **Enforced (2026-09-02):** literal color constructors (`gpui::rgb`/`rgba`/`hsla`)
