@@ -26,8 +26,8 @@ the GraphQL `history` connection with cursors as the user scrolls
 user first lands on the tab, through a new `RepoLane::Commits` that rides
 the docs/0077 lane machinery, so nothing is fetched for a hidden tab.
 
-A branch selector is designed in (the lane is keyed by `(repo, ref)` from
-day one), but whether it ships in v1 is open question Q2.
+A branch selector ships in v1 (D7; the lane is keyed by `(repo, ref)`
+from day one).
 
 ## 2 Verified facts (pinned sources, 2026-10-23)
 
@@ -356,7 +356,7 @@ uniform rows (§2 fact 5):
   the tail reads "Filtering N loaded commits; clear to load more". See
   F2. There is no per-tab filter toolbar in v1 (Q3).
 
-### D7: Branch/ref selector (if Q2 = yes)
+### D7: Branch/ref selector (ships in v1, Q2 resolved)
 
 A compact `Select` sits left-aligned in the tab body header, above the
 list. It shows the current ref name ("main" by default) and is searchable
@@ -521,6 +521,16 @@ The owner asked for these to be named, not silently deviated from.
 - **Q5: Tab order.** Commits goes last (D1, for index stability), or
   after Open issues to match GitHub's emphasis? I recommend last.
 
+### 6.1 Resolutions (owner, 2026-10-23)
+
+- **Q1:** (a) is accepted. v1 opens the commit on github.com. The in-app
+  commit page is a follow-up design doc (§7).
+- **Q2:** yes. The ref selector (D7) ships in v1.
+- **Q3:** none. v1 has no server-side filters, only the loaded-text quick
+  filter (D6). Author="mine" is the first follow-up (§7).
+- **Q4:** no associated-PR chip in v1 (§7).
+- **Q5:** Commits is the last tab (D1).
+
 ## 7 Non-goals (filed as `deferred` issues before implementation merges)
 
 - An in-app commit detail page (Q1(b); its own design doc).
@@ -588,7 +598,7 @@ The owner asked for these to be named, not silently deviated from.
 2. **UI:** `RepoTab::Commits`, the `CommitsDelegate` (`List` sections,
    rows, states), the D9 layout, the copy SHA, the a11y and ids, the
    receipt, the goldens and the 0065 receipts.
-3. **(Q2 = yes)** The ref selector over `RepoBranches`, with
+3. The ref selector (Q2 resolved: ships in v1) over `RepoBranches`, with
    `RefKey`-keyed books.
 
 ## 10 Mockup
@@ -596,7 +606,7 @@ The owner asked for these to be named, not silently deviated from.
 ![Commits tab mockup](assets/0081-commits-tab.png)
 
 Mockup source: [`assets/0081-commits-tab.svg`](assets/0081-commits-tab.svg).
-It shows the Commits tab active with the ref selector (D7, pending Q2),
+It shows the Commits tab active with the ref selector (D7),
 two day groups, signed, unsigned and CI-failing rows, a selected row with
 the copy affordance, and the load-more tail. The colors are illustrative
 neutrals; the implementation uses theme tokens only.
