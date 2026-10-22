@@ -39,6 +39,13 @@ impl gpui::AssetSource for AppAssets {
 fn main() {
     gpui_platform::application()
         .with_assets(AppAssets)
+        // Close = quit on every platform (docs/0002 D4): gpui's default
+        // keeps a macOS app alive with no windows. `LastWindowClosed`
+        // calls `cx.quit()` once the single window is removed — the same
+        // graceful path as Cmd+Q and the bridge's `app.quit`, so the
+        // `on_app_quit` flushes below still run (pinned gpui-pre
+        // `app.rs`, `QuitMode`). Linux already behaved this way.
+        .with_quit_mode(QuitMode::LastWindowClosed)
         // Avatar rows fetch remote images through gpui's asset loader
         // (docs/0005 §6.3, doc 0012 D1); without a client gpui falls back
         // to NullHttpClient and logs an error per image.
