@@ -412,10 +412,10 @@ pub fn allocate_path(dir: &std::path::Path, stem: &str, ext: &str) -> std::path:
             let Some(rest) = name.strip_prefix(&prefix) else {
                 continue;
             };
-            if let Some(digits) = rest.strip_suffix(&format!(".{ext}")) {
-                if let Ok(n) = digits.parse::<u64>() {
-                    highest = highest.max(n);
-                }
+            if let Some(digits) = rest.strip_suffix(&format!(".{ext}"))
+                && let Ok(n) = digits.parse::<u64>()
+            {
+                highest = highest.max(n);
             }
         }
     }

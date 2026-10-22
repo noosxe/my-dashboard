@@ -533,10 +533,10 @@ fn stray_debug_processes(self_pid: u32) -> Vec<String> {
         if pid == self_pid {
             continue;
         }
-        if let Ok(comm) = std::fs::read_to_string(entry.path().join("comm")) {
-            if comm.trim() == "dashboard-debug" {
-                strays.push(pid.to_string());
-            }
+        if let Ok(comm) = std::fs::read_to_string(entry.path().join("comm"))
+            && comm.trim() == "dashboard-debug"
+        {
+            strays.push(pid.to_string());
         }
     }
     strays.sort();
@@ -1093,10 +1093,10 @@ pub fn golden_verb(session: Option<&str>, surface: &str, theme: &str, update: bo
     // #531: same binding rule as critique — the capture targets the
     // session's bridge, so bind redirects the process roots before the
     // token lookup (its failures all print; connect_quiet's never do).
-    if let Some(name) = session {
-        if let Err(code) = crate::session::bind(name) {
-            return code;
-        }
+    if let Some(name) = session
+        && let Err(code) = crate::session::bind(name)
+    {
+        return code;
     }
     let mut conn = match connect_quiet() {
         Ok(conn) => conn,
@@ -1165,11 +1165,11 @@ pub fn golden_verb(session: Option<&str>, surface: &str, theme: &str, update: bo
         return 1;
     }
     if update {
-        if let Some(parent) = baseline.parent() {
-            if let Err(err) = std::fs::create_dir_all(parent) {
-                eprintln!("cannot create {}: {err}", parent.display());
-                return 1;
-            }
+        if let Some(parent) = baseline.parent()
+            && let Err(err) = std::fs::create_dir_all(parent)
+        {
+            eprintln!("cannot create {}: {err}", parent.display());
+            return 1;
         }
         if let Err(err) = std::fs::copy(&capture, &baseline) {
             eprintln!("cannot write {}: {err}", baseline.display());

@@ -1109,15 +1109,15 @@ impl PrDetailPage {
                                 node_kind(&detail.comments.nodes, &detail.reviews.nodes, id)
                                     .is_some()
                             };
-                            if let Some((id, _)) = &self.timeline_edit {
-                                if !still_there(id) {
-                                    self.timeline_edit = None;
-                                }
+                            if let Some((id, _)) = &self.timeline_edit
+                                && !still_there(id)
+                            {
+                                self.timeline_edit = None;
                             }
-                            if let Some(id) = &self.delete_confirm {
-                                if !still_there(id) {
-                                    self.delete_confirm = None;
-                                }
+                            if let Some(id) = &self.delete_confirm
+                                && !still_there(id)
+                            {
+                                self.delete_confirm = None;
                             }
                             self.state
                                 .update(cx, |s, _| s.land_detail(&self.repo, self.number, detail));
@@ -1317,13 +1317,12 @@ impl PrDetailPage {
     }
 
     fn toggle_gate_env(&mut self, run_id: u64, ix: usize, cx: &mut Context<Self>) {
-        if let Some(review) = &mut self.gate_review {
-            if review.run_id == run_id {
-                if let Some((.., selected)) = review.environments.get_mut(ix) {
-                    *selected = !*selected;
-                    cx.notify();
-                }
-            }
+        if let Some(review) = &mut self.gate_review
+            && review.run_id == run_id
+            && let Some((.., selected)) = review.environments.get_mut(ix)
+        {
+            *selected = !*selected;
+            cx.notify();
         }
     }
 
@@ -1682,28 +1681,28 @@ impl PrDetailPage {
             panel = panel.child(env_row);
         }
         panel = panel.child(review.comment.clone());
-        if let Some(approvals) = &review.approvals {
-            if !approvals.is_empty() {
+        if let Some(approvals) = &review.approvals
+            && !approvals.is_empty()
+        {
+            panel = panel.child(
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child("Prior reviews:"),
+            );
+            for approval in approvals {
+                let who = approval
+                    .user
+                    .as_ref()
+                    .and_then(|u| u.login.clone())
+                    .unwrap_or_else(|| "someone".into());
+                let state = approval.state.clone().unwrap_or_else(|| "reviewed".into());
                 panel = panel.child(
                     div()
                         .text_xs()
                         .text_color(cx.theme().muted_foreground)
-                        .child("Prior reviews:"),
+                        .child(format!("{who} — {state}")),
                 );
-                for approval in approvals {
-                    let who = approval
-                        .user
-                        .as_ref()
-                        .and_then(|u| u.login.clone())
-                        .unwrap_or_else(|| "someone".into());
-                    let state = approval.state.clone().unwrap_or_else(|| "reviewed".into());
-                    panel = panel.child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(format!("{who} — {state}")),
-                    );
-                }
             }
         }
         panel = panel.child(
@@ -2257,10 +2256,10 @@ impl PrDetailPage {
             .update(cx, |st, cx| st.set_query(q, window, cx));
         let list = self.file_list.clone();
         let matched = list.read(cx).delegate().matched().to_vec();
-        if let Some(sel) = &self.selected_file {
-            if !matched.iter().any(|f| &f.path == sel) {
-                self.selected_file = None;
-            }
+        if let Some(sel) = &self.selected_file
+            && !matched.iter().any(|f| &f.path == sel)
+        {
+            self.selected_file = None;
         }
         let selected = self.selected_file.clone();
         self.file_list.update(cx, |st, cx| {
@@ -3241,15 +3240,15 @@ impl PrDetailPage {
         // always between the last two clicked rows; clicking the end
         // row again collapses back to a single line. Same side only in
         // v1; a different side or file starts a fresh composer.
-        if let Some(c) = self.line_composer.as_mut() {
-            if c.path == path && c.side == side {
-                if let Some((s, e)) = normalize_range((side, c.line), (side, line)) {
-                    c.line = e.1;
-                    c.start = if s.1 == e.1 { None } else { Some(s) };
-                    cx.notify();
-                    return;
-                }
-            }
+        if let Some(c) = self.line_composer.as_mut()
+            && c.path == path
+            && c.side == side
+            && let Some((s, e)) = normalize_range((side, c.line), (side, line))
+        {
+            c.line = e.1;
+            c.start = if s.1 == e.1 { None } else { Some(s) };
+            cx.notify();
+            return;
         }
         let editor = cx.new(|cx| {
             TextareaState::new(window, cx)
@@ -6027,34 +6026,34 @@ impl Render for PrDetailPage {
         // mounts — the anchor records its origin on paint, the offset lands
         // next frame. A card swapped for an editor/confirm (or a
         // non-conversation tab) keeps the jump armed until it really shows.
-        if let CommentAnchor::Jumping(id) = self.anchor.clone() {
-            if self.anchor_row_mounts(&id) {
-                self.anchor = CommentAnchor::Highlighted(id);
-                self.start_anchor_fade(cx);
-            }
+        if let CommentAnchor::Jumping(id) = self.anchor.clone()
+            && self.anchor_row_mounts(&id)
+        {
+            self.anchor = CommentAnchor::Highlighted(id);
+            self.start_anchor_fade(cx);
         }
         // Method Select (D5): `SelectState` needs a window, so it is built
         // on the first render that has a detail payload — once per page
         // (a repo's allowed methods can't change while the page is open).
-        if self.method_select.is_none() {
-            if let Some(d) = self.detail(cx) {
-                let methods = allowed_methods(&d.merge_methods);
-                if !methods.is_empty() {
-                    let labels: Vec<SharedString> = methods
-                        .iter()
-                        .map(|m| SharedString::from(m.label()))
-                        .collect();
-                    let default = default_method(&methods).unwrap_or(methods[0]);
-                    let default_label: SharedString = default.label().into();
-                    let select = cx.new(|cx| {
-                        let mut select =
-                            SelectState::new(SearchableVec::from(labels), None, window, cx);
-                        select.set_selected_value(&default_label, window, cx);
-                        select
-                    });
-                    self.methods = methods;
-                    self.method_select = Some(select);
-                }
+        if self.method_select.is_none()
+            && let Some(d) = self.detail(cx)
+        {
+            let methods = allowed_methods(&d.merge_methods);
+            if !methods.is_empty() {
+                let labels: Vec<SharedString> = methods
+                    .iter()
+                    .map(|m| SharedString::from(m.label()))
+                    .collect();
+                let default = default_method(&methods).unwrap_or(methods[0]);
+                let default_label: SharedString = default.label().into();
+                let select = cx.new(|cx| {
+                    let mut select =
+                        SelectState::new(SearchableVec::from(labels), None, window, cx);
+                    select.set_selected_value(&default_label, window, cx);
+                    select
+                });
+                self.methods = methods;
+                self.method_select = Some(select);
             }
         }
         let detail = self.detail(cx);

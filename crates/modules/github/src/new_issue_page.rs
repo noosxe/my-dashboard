@@ -723,7 +723,7 @@ fn decode_base64(input: &str) -> Option<String> {
     let unpadded = bytes.len() - bytes.iter().rev().take_while(|b| **b == b'=').count();
     // Padding is only ever terminal: one or two `=`, total length a
     // multiple of 4, and the data part leaves no impossible tail.
-    if bytes.len() % 4 != 0 || bytes.len() - unpadded > 2 {
+    if !bytes.len().is_multiple_of(4) || bytes.len() - unpadded > 2 {
         return None;
     }
     let mut out = Vec::with_capacity(unpadded / 4 * 3 + 3);

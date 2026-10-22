@@ -317,12 +317,12 @@ impl UsageBook {
     /// is read, never written, here — it stays the operational truth
     /// (D4).
     pub(crate) fn display(&self, now: u64, rate_limited_until: Option<u64>) -> UsageDisplay {
-        if let Some(until) = rate_limited_until {
-            if until > now {
-                return UsageDisplay::Exhausted {
-                    resumes_in_secs: until - now,
-                };
-            }
+        if let Some(until) = rate_limited_until
+            && until > now
+        {
+            return UsageDisplay::Exhausted {
+                resumes_in_secs: until - now,
+            };
         }
         let rest = self.rest.display(now);
         let graphql = self.graphql.display(now);
@@ -955,7 +955,7 @@ fn group_thousands(n: u32) -> String {
     let s = n.to_string();
     let mut out = String::with_capacity(s.len() + s.len() / 3);
     for (i, ch) in s.chars().enumerate() {
-        if i > 0 && (s.len() - i) % 3 == 0 {
+        if i > 0 && (s.len() - i).is_multiple_of(3) {
             out.push(',');
         }
         out.push(ch);
@@ -1065,10 +1065,10 @@ fn bucket_label(name: &str, unit: &str, d: Option<BucketDisplay>) -> String {
                 unit,
                 spoken_duration(d.resets_in_secs)
             );
-            if d.stale {
-                if let Some(at) = d.snapshot_at {
-                    out = format!("{out}, last updated {}", local_hhmm(at));
-                }
+            if d.stale
+                && let Some(at) = d.snapshot_at
+            {
+                out = format!("{out}, last updated {}", local_hhmm(at));
             }
             out
         }

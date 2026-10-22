@@ -1938,10 +1938,10 @@ impl GithubPage {
         // not become the row's name. Reading order mirrors the row:
         // number+title, repo, author, state, CI signal.
         let mut label = format!("PR #{}: {}", pr.number, pr.title);
-        if let Some(repo_name) = pr.key.split('#').next() {
-            if !repo_name.is_empty() {
-                label.push_str(&format!(" — {repo_name}"));
-            }
+        if let Some(repo_name) = pr.key.split('#').next()
+            && !repo_name.is_empty()
+        {
+            label.push_str(&format!(" — {repo_name}"));
         }
         if let Some(author) = pr.author.as_ref() {
             label.push_str(&format!(" · {}", author.login));
@@ -2136,10 +2136,10 @@ impl GithubPage {
         let pending = self.state.read(cx).issue_pending(&repo, issue.number);
         // docs/0049 D1: explicit accessible name (PR-row pattern).
         let mut label = format!("Issue #{}: {}", issue.number, issue.title);
-        if let Some(repo_name) = issue.key.split('#').next() {
-            if !repo_name.is_empty() {
-                label.push_str(&format!(" — {repo_name}"));
-            }
+        if let Some(repo_name) = issue.key.split('#').next()
+            && !repo_name.is_empty()
+        {
+            label.push_str(&format!(" — {repo_name}"));
         }
         if let Some(author) = issue.author.as_ref() {
             label.push_str(&format!(" · {}", author.login));

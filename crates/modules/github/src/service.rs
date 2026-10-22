@@ -2581,11 +2581,11 @@ impl GithubState {
     pub fn plan_tick(&mut self, _tick: u64) -> Vec<FetchSpec> {
         // Gate first: a rate-limit pause (or auth loss) defers bootstrap
         // too — the flag survives until the window passes.
-        if let Some(until) = self.rate_limited_until {
-            if now_epoch() >= until {
-                self.rate_limited_until = None;
-                log::info!("rate-limit window passed — resuming fetches");
-            }
+        if let Some(until) = self.rate_limited_until
+            && now_epoch() >= until
+        {
+            self.rate_limited_until = None;
+            log::info!("rate-limit window passed — resuming fetches");
         }
         // Proactive refresh arming (docs/0028 §3.4) — before the gates:
         // the refresh call spends no API budget, so it is armed even
@@ -2655,13 +2655,13 @@ impl GithubState {
         // inactive, the notifications lane may poll at the 60 s floor,
         // through the same gate (pause, backoff, age) as every other
         // trigger. Focused ticks stay content-silent.
-        if !self.window_active {
-            if let Some(spec) = self.notifications_spec_if_stale(
+        if !self.window_active
+            && let Some(spec) = self.notifications_spec_if_stale(
                 UNFOCUSED_POLL_MIN_AGE,
                 Origin::new(Surface::ServiceTick, Trigger::Poll),
-            ) {
-                specs.push(spec);
-            }
+            )
+        {
+            specs.push(spec);
         }
         specs
     }
@@ -2777,13 +2777,12 @@ impl GithubState {
         min_age: Duration,
         origin: Origin,
     ) -> Option<FetchSpec> {
-        if let Some(attempted_at) = self.rows_attempted_at {
-            if self.rows_fail_streak > 0
-                && attempted_at.elapsed()
-                    < dashboard_core::freshness::backoff_delay(self.rows_fail_streak)
-            {
-                return None;
-            }
+        if let Some(attempted_at) = self.rows_attempted_at
+            && self.rows_fail_streak > 0
+            && attempted_at.elapsed()
+                < dashboard_core::freshness::backoff_delay(self.rows_fail_streak)
+        {
+            return None;
         }
         if self
             .rows_landed
@@ -2887,13 +2886,12 @@ impl GithubState {
         min_age: Duration,
         origin: Origin,
     ) -> Option<Vec<FetchSpec>> {
-        if let Some(attempted_at) = self.home_attempted_at {
-            if self.home_fail_streak > 0
-                && attempted_at.elapsed()
-                    < dashboard_core::freshness::backoff_delay(self.home_fail_streak)
-            {
-                return None;
-            }
+        if let Some(attempted_at) = self.home_attempted_at
+            && self.home_fail_streak > 0
+            && attempted_at.elapsed()
+                < dashboard_core::freshness::backoff_delay(self.home_fail_streak)
+        {
+            return None;
         }
         if self.home_landed.is_some_and(|t| t.elapsed() < min_age) {
             return None;
@@ -3646,10 +3644,10 @@ impl GithubState {
         let now = Instant::now();
         let mut stale: Vec<(PrKey, PendingKind, u64)> = Vec::new();
         for (key, entry) in &self.pulls {
-            if let Some(op) = &entry.pending {
-                if now.duration_since(op.started_at) > PR_PENDING_MAX_AGE {
-                    stale.push((key.clone(), op.kind, op.token));
-                }
+            if let Some(op) = &entry.pending
+                && now.duration_since(op.started_at) > PR_PENDING_MAX_AGE
+            {
+                stale.push((key.clone(), op.kind, op.token));
             }
         }
         for (key, kind, token) in &stale {
@@ -4218,15 +4216,14 @@ impl GithubState {
                             log::warn!("inventory: data null — keeping last-known");
                             return; // stale data stays (docs/0007 §6)
                         };
-                        if let Some(rl) = &data.rate_limit {
-                            if rl.remaining <= 0 {
+                        if let Some(rl) = &data.rate_limit
+                            && rl.remaining <= 0 {
                                 self.rate_limited_until = Some(rl.reset_epoch());
                                 log::warn!(
                                     "inventory: GraphQL point budget exhausted — paused until {}",
                                     rl.reset_at
                                 );
                             }
-                        }
                         // One run, one atomic apply (docs/0007 D4).
                         self.user = Some(User {
                             login: data.viewer.login.clone(),
@@ -4259,15 +4256,14 @@ impl GithubState {
                             log::warn!("card-totals: data null — keeping last-known");
                             return;
                         };
-                        if let Some(rl) = &data.rate_limit {
-                            if rl.remaining <= 0 {
+                        if let Some(rl) = &data.rate_limit
+                            && rl.remaining <= 0 {
                                 self.rate_limited_until = Some(rl.reset_epoch());
                                 log::warn!(
                                     "card-totals: GraphQL point budget exhausted — paused until {}",
                                     rl.reset_at
                                 );
                             }
-                        }
                         if let Some(page) = data.viewer.repositories {
                             let mut prs = 0i64;
                             let mut issues = 0i64;
@@ -5644,10 +5640,8 @@ pub fn spawn_tick_loop(state: Entity<GithubState>, window: AnyWindowHandle, cx: 
             // refresh through the gate now; on success re-plan in this
             // same tick so the bootstrap it arms runs immediately (the
             // old top-of-next-tick drain hop is gone).
-            if pending {
-                if let Some(GateOutcome::Refreshed) = drain_refresh(&state, cx).await {
-                    specs = cx.update(|cx| state.update(cx, |s, _| s.plan_tick(tick)));
-                }
+            if pending && let Some(GateOutcome::Refreshed) = drain_refresh(&state, cx).await {
+                specs = cx.update(|cx| state.update(cx, |s, _| s.plan_tick(tick)));
             }
             log::trace!(
                 "tick {tick}: {}",

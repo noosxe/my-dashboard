@@ -232,10 +232,10 @@ pub fn audit_dump(dump: &Value) -> Result<AuditReport, String> {
         let mut children = Vec::new();
         if let Some(list) = node["children"].as_array() {
             for child in list {
-                if let Some(child_key) = child.as_str() {
-                    if let Some(child_index) = index_of.get(child_key) {
-                        children.push(*child_index);
-                    }
+                if let Some(child_key) = child.as_str()
+                    && let Some(child_index) = index_of.get(child_key)
+                {
+                    children.push(*child_index);
                 }
             }
         }

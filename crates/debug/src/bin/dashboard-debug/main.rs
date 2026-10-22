@@ -132,10 +132,10 @@ fn run() -> i32 {
                         .ok()
                         .filter(|value| !value.is_empty())
                 });
-            if let Some(name) = &bound {
-                if let Err(code) = session::bind(name) {
-                    return code;
-                }
+            if let Some(name) = &bound
+                && let Err(code) = session::bind(name)
+            {
+                return code;
             }
             let mut conn = match connect_quiet() {
                 Ok(conn) => conn,
@@ -145,10 +145,10 @@ fn run() -> i32 {
         }
         _ => {}
     }
-    if let Some(name) = session_name {
-        if let Err(code) = session::bind(&name) {
-            return code;
-        }
+    if let Some(name) = session_name
+        && let Err(code) = session::bind(&name)
+    {
+        return code;
     }
 
     let mut conn = match connect_quiet() {
@@ -277,11 +277,10 @@ pub(crate) fn run_command(conn: &mut Conn, command: &Command) -> i32 {
             | Command::WaitFrame { .. }
             | Command::Click { .. }
             | Command::Focus { .. }
-    ) {
-        if let Some(reason) = dashboard_debug::gate::gate_reason() {
-            eprintln!("error: {reason}");
-            return 1;
-        }
+    ) && let Some(reason) = dashboard_debug::gate::gate_reason()
+    {
+        eprintln!("error: {reason}");
+        return 1;
     }
     match command {
         Command::Tree { json, window, view } => match view {
@@ -738,11 +737,12 @@ pub(crate) fn tab_stops(conn: &mut Conn, window: &Option<u64>) -> i32 {
             .unwrap_or_default();
         println!("{stop}. #{id} {role}{label_text}");
         last_stop = Some((id.clone(), role));
-        if let Some(start) = &start {
-            if id == *start && moved {
-                println!("cycle closed after {stop} stops");
-                return 0;
-            }
+        if let Some(start) = &start
+            && id == *start
+            && moved
+        {
+            println!("cycle closed after {stop} stops");
+            return 0;
         }
         if previous.as_deref() == Some(id.as_str()) {
             eprintln!("focus did not advance past #{id} after tab — focus trap");
@@ -815,11 +815,11 @@ fn baseline_verb(conn: &mut Conn, surface: &str, update: bool, window: &Option<u
 
     let path = baselines_root().join(format!("{surface}.json"));
     if update {
-        if let Some(parent) = path.parent() {
-            if let Err(err) = std::fs::create_dir_all(parent) {
-                eprintln!("cannot create {}: {err}", parent.display());
-                return 1;
-            }
+        if let Some(parent) = path.parent()
+            && let Err(err) = std::fs::create_dir_all(parent)
+        {
+            eprintln!("cannot create {}: {err}", parent.display());
+            return 1;
         }
         let text = serde_json::to_string_pretty(&sanitized).expect("serialize baseline");
         if let Err(err) = std::fs::write(&path, format!("{text}\n")) {

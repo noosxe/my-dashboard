@@ -119,10 +119,10 @@ fn matches_search(title: &str, number: i64, search: &str) -> bool {
     if needle.is_empty() {
         return true;
     }
-    if let Some(rest) = needle.strip_prefix('#') {
-        if let Ok(n) = rest.parse::<i64>() {
-            return number == n;
-        }
+    if let Some(rest) = needle.strip_prefix('#')
+        && let Ok(n) = rest.parse::<i64>()
+    {
+        return number == n;
     }
     title.to_lowercase().contains(&needle.to_lowercase())
 }

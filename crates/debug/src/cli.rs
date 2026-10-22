@@ -210,19 +210,19 @@ pub fn parse_invocation(args: &[String]) -> Result<Invocation, String> {
     let mut skip_next = false;
     for arg in args {
         if std::mem::take(&mut skip_next) {
-            if let Some(current) = session {
-                if current != arg.as_str() {
-                    return Err("duplicate --session".into());
-                }
+            if let Some(current) = session
+                && current != arg.as_str()
+            {
+                return Err("duplicate --session".into());
             }
             session = Some(arg.clone());
         } else if arg == "--session" {
             skip_next = true;
         } else if let Some(value) = arg.strip_prefix("--session=") {
-            if let Some(current) = &session {
-                if current != value {
-                    return Err("duplicate --session".into());
-                }
+            if let Some(current) = &session
+                && current != value
+            {
+                return Err("duplicate --session".into());
             }
             session = Some(value.to_string());
         } else {

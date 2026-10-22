@@ -273,10 +273,10 @@ fn install_slot_theme(mode: ThemeMode, name: &str, cx: &mut App) -> bool {
 /// registered moments earlier by [`rebuild_themes`] — keeps the picker's
 /// active entry resolvable by name.
 fn install_slot_or_factory(mode: ThemeMode, name: Option<String>, cx: &mut App) {
-    if let Some(name) = &name {
-        if install_slot_theme(mode, name, cx) {
-            return;
-        }
+    if let Some(name) = &name
+        && install_slot_theme(mode, name, cx)
+    {
+        return;
     }
     let factory = if mode.is_dark() {
         DEFAULT_DARK_NAME

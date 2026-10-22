@@ -532,7 +532,7 @@ impl SQLiteStore {
             // Pathology only (dead writer); O(n) is fine off any hot path.
             st.buffer.remove(0);
             st.dropped += 1;
-            if st.dropped == 1 || st.dropped % 10_000 == 0 {
+            if st.dropped == 1 || st.dropped.is_multiple_of(10_000) {
                 warn!(
                     "app db: writer stalled, dropped {} oldest unflushed commands",
                     st.dropped

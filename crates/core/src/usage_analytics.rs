@@ -122,15 +122,15 @@ pub struct Filters {
 
 impl Filters {
     fn matches(&self, rec: &UsageRecord) -> bool {
-        if let Some(t) = self.transport {
-            if rec.transport != t {
-                return false;
-            }
+        if let Some(t) = self.transport
+            && rec.transport != t
+        {
+            return false;
         }
-        if let Some(m) = &self.module {
-            if rec.module.as_ref() != m {
-                return false;
-            }
+        if let Some(m) = &self.module
+            && rec.module.as_ref() != m
+        {
+            return false;
         }
         if self.errors_only && !is_error(rec) {
             return false;
@@ -1571,10 +1571,10 @@ impl UsagePage {
         self.rows = usage_records::source(cx).records_between(from, self.as_of_ms);
         // A module facet that outlived its rows (refresh dropped them)
         // resets to All — never a silent always-empty filter.
-        if let Some(m) = &self.module {
-            if !self.rows.iter().any(|r| r.module.as_ref() == m) {
-                self.module = None;
-            }
+        if let Some(m) = &self.module
+            && !self.rows.iter().any(|r| r.module.as_ref() == m)
+        {
+            self.module = None;
         }
     }
 
@@ -1927,7 +1927,9 @@ const MAX_X_TICKS: usize = 6;
 /// steps before settling for the ceil.
 fn tick_stride(points: usize) -> usize {
     let base = points.div_ceil(MAX_X_TICKS).max(1);
-    (base..=base + 2).find(|s| points % s == 0).unwrap_or(base)
+    (base..=base + 2)
+        .find(|s| points.is_multiple_of(*s))
+        .unwrap_or(base)
 }
 
 /// Snapshot age copy: `3m ago`, `2h ago` — staleness stays visible
@@ -1948,7 +1950,7 @@ fn fmt_hours(h: f64) -> String {
     let s = n.to_string();
     let mut out = String::with_capacity(s.len() + s.len() / 3);
     for (i, ch) in s.chars().enumerate() {
-        if i > 0 && (s.len() - i) % 3 == 0 {
+        if i > 0 && (s.len() - i).is_multiple_of(3) {
             out.push(',');
         }
         out.push(ch);

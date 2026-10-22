@@ -361,11 +361,11 @@ impl NewPrPage {
         // content is never clobbered by a re-open). `set_value`
         // suppresses Change events, so the prefill parks nothing — the
         // template stays a default, not user content.
-        if let (Some(text), false) = (&self.template_body, self.draft_restored) {
-            if self.body.read(cx).value().is_empty() {
-                self.body
-                    .update(cx, |state, cx| state.set_value(text.clone(), window, cx));
-            }
+        if let (Some(text), false) = (&self.template_body, self.draft_restored)
+            && self.body.read(cx).value().is_empty()
+        {
+            self.body
+                .update(cx, |state, cx| state.set_value(text.clone(), window, cx));
         }
     }
 
