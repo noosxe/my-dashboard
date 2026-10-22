@@ -14,17 +14,22 @@
 #   run must surface favicon-overwrite-confirm before writing.
 #
 # What each snapshot must show (docs/0064 D2/D5/D7):
-#   boot        — favicon-page, favicon-source-tabs, favicon-text-input,
-#                 favicon-font-family, the three light pickers,
-#                 favicon-preview-{16..512} frames, favicon-export dir
-#                 field, favicon-export button
+#   boot        — favicon-page with its three zones (favicon-inspector,
+#                 favicon-stage, favicon-export-rail; docs/0064 §12),
+#                 favicon-source-tabs, favicon-text-input,
+#                 favicon-font-family (Select), the three light color
+#                 fields, favicon-preview-{16,32,96,180,512} frames,
+#                 favicon-context-* mocks, the favicon-export-dir field
+#                 and the favicon-export button
 #   edited      — text changed to "D" (set on favicon-text-input)
 #   platformed  — favicon-platform-ios and -pwa checked, favicon-ios-1024
-#                 visible; the file-count hint reads 9
+#                 visible, favicon-app-name shown (PWA on); the commit
+#                 button reads "Export 9 files"
 #   exported    — success toast (source "favicon"); exporting back to
 #                 false; /tmp/favicon-out holds 9 files
-#   re-export   — favicon-overwrite-confirm panel with the 9 collisions
-#                 (never silent overwrite), cancel leaves files intact
+#   re-export   — the overwrite AlertDialog (favicon-overwrite-confirm /
+#                 -cancel buttons) listing the 9 collisions (never a
+#                 silent overwrite); cancel leaves files intact
 #
 # Also covers the analytics rail: the export emitted one
 # module="favicon" transport="local" op="export" record (D9) — visible
@@ -70,7 +75,7 @@ wait-frame
 wait-frame
 snapshot exported
 
-# 5. Re-export: collisions pre-flight must surface the confirm panel.
+# 5. Re-export: collisions pre-flight must surface the confirm dialog.
 click favicon-export
 wait-frame
 snapshot re-export

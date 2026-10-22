@@ -12,215 +12,7 @@
       "focused": false
     },
     {
-      "accesskit_id": "440496287770319064",
-      "role": "Button",
-      "label": "Dark palette: Default Dark",
-      "bounds": {
-        "x": 1118.0,
-        "y": 339.0,
-        "w": 125.0,
-        "h": 32.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "638290477557665179",
-      "role": "TreeItem",
-      "label": "Notifications",
-      "bounds": {
-        "x": 284.0,
-        "y": 145.0,
-        "w": 226.0,
-        "h": 28.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "974986411809348007",
-      "role": "Button",
-      "label": "Light palette: Default Light",
-      "bounds": {
-        "x": 1117.0,
-        "y": 280.0,
-        "w": 126.0,
-        "h": 32.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "1046671865314738724",
-      "role": "TreeItem",
-      "label": "Usage",
-      "bounds": {
-        "x": 29.0,
-        "y": 173.0,
-        "w": 230.0,
-        "h": 28.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "1236962487082578453",
-      "role": "TextInput",
-      "label": "Search...",
-      "bounds": {
-        "x": 284.0,
-        "y": 65.0,
-        "w": 226.0,
-        "h": 32.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "1453678373047388297",
-      "role": "Button",
-      "label": "Toggle Notifications submenu",
-      "bounds": {
-        "x": 482.0,
-        "y": 149.0,
-        "w": 20.0,
-        "h": 20.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "1604365170848998340",
-      "role": "Button",
-      "label": "Back",
-      "bounds": {
-        "x": 312.0,
-        "y": 22.0,
-        "w": 24.0,
-        "h": 24.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "4708591563532119033",
-      "role": "Button",
-      "label": "Forward",
-      "bounds": {
-        "x": 338.0,
-        "y": 22.0,
-        "w": 24.0,
-        "h": 24.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "5211320293504918274",
-      "role": "Button",
-      "label": "Notifications, 0 unread",
-      "bounds": {
-        "x": 1227.0,
-        "y": 728.0,
-        "w": 24.0,
-        "h": 24.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "7891363768799038776",
-      "role": "TreeItem",
-      "label": "GitHub",
-      "bounds": {
-        "x": 29.0,
-        "y": 117.0,
-        "w": 230.0,
-        "h": 28.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "8678533655181457759",
-      "role": "ListItem",
-      "label": "Settings",
-      "bounds": {
-        "x": 438.0,
-        "y": 23.0,
-        "w": 52.0,
-        "h": 23.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "8734599192126940911",
-      "role": "TreeItem",
-      "label": "GitHub",
-      "bounds": {
-        "x": 284.0,
-        "y": 217.0,
-        "w": 226.0,
-        "h": 28.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "9287361734341280224",
-      "role": "Group",
-      "label": null,
-      "bounds": {
-        "x": 0.0,
-        "y": 0.0,
-        "w": 1276.0,
-        "h": 773.0
-      },
-      "focusable": true,
-      "focused": true
-    },
-    {
-      "accesskit_id": "9539561525993471886",
-      "role": "Button",
-      "label": "Toggle About submenu",
-      "bounds": {
-        "x": 482.0,
-        "y": 185.0,
-        "w": 20.0,
-        "h": 20.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "9985127159504786661",
-      "role": "TreeItem",
-      "label": "About",
-      "bounds": {
-        "x": 284.0,
-        "y": 181.0,
-        "w": 226.0,
-        "h": 28.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "12936707671790326913",
-      "role": "TreeItem",
-      "label": "Appearance",
-      "bounds": {
-        "x": 284.0,
-        "y": 109.0,
-        "w": 226.0,
-        "h": 28.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "14979470380984681970",
+      "accesskit_id": "481650520311213421",
       "role": "Button",
       "label": "Toggle GitHub submenu",
       "bounds": {
@@ -233,33 +25,7 @@
       "focused": false
     },
     {
-      "accesskit_id": "16861677078717231250",
-      "role": "TreeItem",
-      "label": "Favicon",
-      "bounds": {
-        "x": 29.0,
-        "y": 145.0,
-        "w": 230.0,
-        "h": 28.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "16963919496256642517",
-      "role": "Button",
-      "label": "Toggle sidebar",
-      "bounds": {
-        "x": 280.0,
-        "y": 22.0,
-        "w": 24.0,
-        "h": 24.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "17256575431550872216",
+      "accesskit_id": "581275255321529650",
       "role": "Button",
       "label": "Mode: System",
       "bounds": {
@@ -272,7 +38,85 @@
       "focused": false
     },
     {
-      "accesskit_id": "17367794532657506781",
+      "accesskit_id": "2108810803643324527",
+      "role": "Button",
+      "label": "Back",
+      "bounds": {
+        "x": 312.0,
+        "y": 22.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2899867086231059108",
+      "role": "TreeItem",
+      "label": "GitHub",
+      "bounds": {
+        "x": 284.0,
+        "y": 217.0,
+        "w": 226.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3229520539080433524",
+      "role": "TreeItem",
+      "label": "GitHub",
+      "bounds": {
+        "x": 29.0,
+        "y": 117.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3401610582491939323",
+      "role": "Button",
+      "label": "Toggle sidebar",
+      "bounds": {
+        "x": 280.0,
+        "y": 22.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4150395053608904858",
+      "role": "TreeItem",
+      "label": "About",
+      "bounds": {
+        "x": 284.0,
+        "y": 181.0,
+        "w": 226.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5213037196393554084",
+      "role": "Button",
+      "label": "Forward",
+      "bounds": {
+        "x": 338.0,
+        "y": 22.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5242195142294137531",
       "role": "TreeItem",
       "label": "Home",
       "bounds": {
@@ -285,7 +129,85 @@
       "focused": false
     },
     {
-      "accesskit_id": "17480741335877695196",
+      "accesskit_id": "5742238570407476047",
+      "role": "Link",
+      "label": "Home",
+      "bounds": {
+        "x": 374.0,
+        "y": 23.0,
+        "w": 38.0,
+        "h": 23.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5861259399387492613",
+      "role": "TreeItem",
+      "label": "Favicon",
+      "bounds": {
+        "x": 29.0,
+        "y": 145.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6462305681043987258",
+      "role": "Group",
+      "label": null,
+      "bounds": {
+        "x": 0.0,
+        "y": 0.0,
+        "w": 1276.0,
+        "h": 773.0
+      },
+      "focusable": true,
+      "focused": true
+    },
+    {
+      "accesskit_id": "10945950159469875406",
+      "role": "Button",
+      "label": "Light palette: Default Light",
+      "bounds": {
+        "x": 1117.0,
+        "y": 280.0,
+        "w": 126.0,
+        "h": 32.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12015402759395612123",
+      "role": "TreeItem",
+      "label": "Appearance",
+      "bounds": {
+        "x": 284.0,
+        "y": 109.0,
+        "w": 226.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12722702697303831455",
+      "role": "Button",
+      "label": "Toggle Notifications submenu",
+      "bounds": {
+        "x": 482.0,
+        "y": 149.0,
+        "w": 20.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12818898106091981080",
       "role": "TreeItem",
       "label": "Settings",
       "bounds": {
@@ -298,14 +220,92 @@
       "focused": false
     },
     {
-      "accesskit_id": "17900589767825635402",
-      "role": "Link",
-      "label": "Home",
+      "accesskit_id": "13921366594509517075",
+      "role": "TextInput",
+      "label": "Search...",
       "bounds": {
-        "x": 374.0,
+        "x": 284.0,
+        "y": 65.0,
+        "w": 226.0,
+        "h": 32.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14791507337088170047",
+      "role": "Button",
+      "label": "Toggle About submenu",
+      "bounds": {
+        "x": 482.0,
+        "y": 185.0,
+        "w": 20.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14831572709305685087",
+      "role": "TreeItem",
+      "label": "Usage",
+      "bounds": {
+        "x": 29.0,
+        "y": 173.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14966926531539958883",
+      "role": "ListItem",
+      "label": "Settings",
+      "bounds": {
+        "x": 438.0,
         "y": 23.0,
-        "w": 38.0,
+        "w": 52.0,
         "h": 23.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15320400995491321174",
+      "role": "Button",
+      "label": "Notifications, 0 unread",
+      "bounds": {
+        "x": 1227.0,
+        "y": 728.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17951102005292490210",
+      "role": "Button",
+      "label": "Dark palette: Default Dark",
+      "bounds": {
+        "x": 1118.0,
+        "y": 339.0,
+        "w": 125.0,
+        "h": 32.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "18163729638805393140",
+      "role": "TreeItem",
+      "label": "Notifications",
+      "bounds": {
+        "x": 284.0,
+        "y": 145.0,
+        "w": 226.0,
+        "h": 28.0
       },
       "focusable": false,
       "focused": false

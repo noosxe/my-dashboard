@@ -3,9 +3,12 @@
 //! preview frames and every exported PNG/ICO frame come from the same
 //! emitted artifact, so preview and export can never drift.
 //!
-//! Rasters always render the light palette: the dark palette travels
-//! inside the SVG as a `prefers-color-scheme` media block (one file,
-//! two looks, D4) and the browser resolves it per OS setting.
+//! Export rasters always render the light palette: the dark palette
+//! travels inside the SVG as a `prefers-color-scheme` media block (one
+//! file, two looks, D4) and the browser resolves it per OS setting.
+//! resvg never resolves that query, so the stage's dark preview
+//! (§12 L5) rasterizes [`emit_preview_svg`] instead — the same design
+//! with the dark palette inlined. Export never calls it.
 
 use std::sync::Arc;
 
@@ -86,6 +89,30 @@ pub fn emit_svg(spec: &DesignSpec) -> String {
 
     svg.push_str("</svg>");
     svg
+}
+
+/// Which palette a stage preview shows (docs/0064 §12 L5).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+pub enum PreviewTheme {
+    #[default]
+    Light,
+    Dark,
+}
+
+/// The preview-only emission (§12 L5): [`emit_svg`] for `Light`; for
+/// `Dark`, the same design with the dark palette inlined as the
+/// presentation colors and no media block — what favicon.svg looks
+/// like in a dark-mode browser, in a form resvg can draw. No dark
+/// palette → the light rendering (the browser shows the same).
+pub fn emit_preview_svg(spec: &DesignSpec, theme: PreviewTheme) -> String {
+    match (theme, &spec.dark) {
+        (PreviewTheme::Dark, Some(dark)) => emit_svg(&DesignSpec {
+            light: dark.clone(),
+            dark: None,
+            ..spec.clone()
+        }),
+        _ => emit_svg(spec),
+    }
 }
 
 /// The glyph layer for each [`Source`] (D4), positioned dead-center in
@@ -569,6 +596,35 @@ mod tests {
         .unwrap();
         assert_eq!((w as u32, h as u32), (24, 24));
         assert!(validate_svg("not svg", &db).is_err());
+    }
+
+    /// §12 L5: the dark preview inlines the dark palette with no media
+    /// block; the light preview is the export emission byte for byte
+    /// (the export goldens above stay the D4 contract).
+    #[test]
+    fn preview_dark_inlines_palette() {
+        let spec = dark_spec();
+        let dark = emit_preview_svg(&spec, PreviewTheme::Dark);
+        assert!(!dark.contains("@media"), "{dark}");
+        assert!(!dark.contains("<style>"), "{dark}");
+        assert!(dark.contains("stop-color=\"#0b0d12\""), "{dark}");
+        assert!(dark.contains("stop-color=\"#1c2230\""), "{dark}");
+        assert!(dark.contains("fill=\"#101014\""), "{dark}");
+        assert!(!dark.contains(&spec.light.bg_start), "{dark}");
+        assert_eq!(
+            emit_preview_svg(&spec, PreviewTheme::Light),
+            emit_svg(&spec)
+        );
+        // Export emission unchanged by the preview path.
+        assert_golden("text-dark.svg", &emit_svg(&spec));
+        rasterize(&dark, 16, &db()).expect("dark preview rasterizes");
+    }
+
+    /// No dark palette → Dark previews the light rendering.
+    #[test]
+    fn preview_dark_without_palette_is_light() {
+        let spec = text_spec();
+        assert_eq!(emit_preview_svg(&spec, PreviewTheme::Dark), emit_svg(&spec));
     }
 
     #[test]

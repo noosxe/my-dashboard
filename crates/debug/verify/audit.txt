@@ -61,7 +61,11 @@ assert-baseline home
 # page; its id is stable across boots and walk orders — the constants
 # re-derived once at the gpui-kit 0.8.0 bump, #530's receipts; upstream
 # reworked id derivation in the a11y changes, labels unchanged).
-click 1046671865314738724 --wait-frame
+# Re-keyed again with favicon layout v3 (#610): modules initialize
+# before the shell's Root, so the favicon model's widget-entity count
+# shifts every later element-path id. Structure is unchanged on every
+# surface but favicon (id-agnostic compare in that PR).
+click 14831572709305685087 --wait-frame
 assert-label "as of"
 audit
 assert-baseline usage-overview
@@ -69,26 +73,26 @@ assert-baseline usage-overview
 # The quota tab is the usage surface's other half (#535); its golden
 # pins the empty-ledger shape (a seeded-ledger re-capture is tracked
 # separately).
-click 10331718283301957339 --wait-frame
+click 3064783294597837295 --wait-frame
 assert-label "Group by dimension"
 assert-baseline usage-quota
 
 # Usage analytics → notification hub. The status bell is a popover
 # trigger (no Click action): the click lands via the announced
 # bounds-center fallback.
-click 5211320293504918274 --wait-frame
+click 15320400995491321174 --wait-frame
 assert-label "Clear all"
 audit
 assert-baseline hub
 
 # Back home — the review's home state, re-visited after navigation.
-click 17367794532657506781 --wait-frame
+click 5242195142294137531 --wait-frame
 assert-label "Open GitHub module"
 audit
 assert-baseline home-return
 
 # Home → GitHub module page last (the home card's stable id).
-click 409056323268249092 --wait-frame
+click 10180477284460313495 --wait-frame
 assert-label "API usage"
 audit
 assert-baseline github

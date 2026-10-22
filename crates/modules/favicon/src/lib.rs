@@ -11,6 +11,7 @@ pub mod spec;
 pub mod state;
 
 mod card;
+mod controls;
 mod page;
 
 use dashboard_core::Module;

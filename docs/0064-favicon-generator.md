@@ -551,3 +551,52 @@ re-captured golden, and the critique before/after pair (§10's
   behind an "All fonts" toggle (L2).
 - **Breakpoint** — 1040 px content width for collapsing the export rail
   is accepted (L1).
+
+### 12.5 Implementation notes (2026-10-22)
+
+Where the shipped page settles a choice §12.2 left open, or deviates
+from its letter:
+
+- **Breakpoint measure (L1).** The page measures its own laid-out width
+  (a zero-paint `canvas` on the page root) instead of computing
+  `window.viewport_size()` minus the sidebar: it is the same content
+  width, and it also follows the sidebar's collapsed/expanded state,
+  which the page can't otherwise see. A flip across 1040 px re-renders
+  once. Note what 1040 means in practice: with the sidebar expanded,
+  the content width at the canonical 1280×800 is about 990 px, so the
+  rail sits under the stage there; three columns appear from about
+  1335 px of window width (or at 1280 with the sidebar collapsed).
+- **Form lane (L2).** `form::Form`/`Field` lays rows out with fixed
+  `gap_x(gap × 3)` / `gap_y(gap)` steps, which don't reproduce the §11
+  ladder (12 px lane gap, 16 px row gap), so the hand-rolled
+  `field_row` stays, now on the 72 px lane and the 216 px control
+  width. Every control (inputs, select, color fields, slider + readout,
+  the Mode and Shape segmented controls) fills those 216 px. The one
+  exception is Weight: its four tiers need ~280 px at the inputs'
+  height, so its label sits above it and the control takes the full
+  300 px, like the Source tabs (critique finding, iteration 1).
+- **Font note (L7).** The fallback note sits as the select's
+  description line (under the select and the "All fonts" switch), not
+  in its empty slot, so it's visible without opening the menu.
+- **Radius (L4).** The slider's minimum is 1 %, so dragging never turns
+  Rounded into Square; Square stays its own choice.
+- **Frame budget (L5).** The seventh frame is the *other* palette's
+  16 px raster, so both tab mocks stay live whichever theme the stage
+  shows: six stage-theme frames (16/32/96/180/192/512) plus one.
+- **Literal colors (L5).** The Android mock's white disc shares the tab
+  mocks' single `#[allow(clippy::disallowed_methods)]` (`mock_colors`):
+  it imitates Chrome's launcher, not app chrome.
+- **iOS 1024 (L6).** The switch label shortens to "1024 marketing icon"
+  to fit the rail.
+- **Bridge ids re-key app-wide (L8).** Modules initialize before the
+  shell's `Root`, so changing how many widget entities the favicon
+  model creates (one `Select` in place of a text field, three color
+  fields in place of six) renumbers every later element-path id —
+  sidebar, home, usage, hub, settings, github. Per docs/0055 the
+  committed receipts (`audit.txt`, `surfaces-pending.txt`) take the
+  new ids and every structural golden is re-captured in this PR;
+  compared id-agnostically (role, label, bounds, focus), all goldens
+  except `favicon` are unchanged.
+- **Overwrite confirm (L6).** The `AlertDialog` is visible to the
+  bridge tree (`AlertDialog` → `Cancel` / `Overwrite` buttons), so the
+  inline fallback is retired.

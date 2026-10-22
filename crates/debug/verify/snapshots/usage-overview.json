@@ -12,98 +12,7 @@
       "focused": false
     },
     {
-      "accesskit_id": "1046671865314738724",
-      "role": "TreeItem",
-      "label": "Usage",
-      "bounds": {
-        "x": 29.0,
-        "y": 173.0,
-        "w": 230.0,
-        "h": 28.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "1525318875470354074",
-      "role": "Tab",
-      "label": "1d",
-      "bounds": {
-        "x": 335.0,
-        "y": 69.0,
-        "w": 41.0,
-        "h": 32.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "1604365170848998340",
-      "role": "Button",
-      "label": "Back",
-      "bounds": {
-        "x": 312.0,
-        "y": 22.0,
-        "w": 24.0,
-        "h": 24.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "3823005723247848639",
-      "role": "Switch",
-      "label": "errors only",
-      "bounds": {
-        "x": 901.0,
-        "y": 75.0,
-        "w": 112.0,
-        "h": 20.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "4042875328851608775",
-      "role": "Tab",
-      "label": "Request latency",
-      "bounds": {
-        "x": 458.0,
-        "y": 148.0,
-        "w": 101.0,
-        "h": 36.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "4708591563532119033",
-      "role": "Button",
-      "label": "Forward",
-      "bounds": {
-        "x": 338.0,
-        "y": 22.0,
-        "w": 24.0,
-        "h": 24.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "5211320293504918274",
-      "role": "Button",
-      "label": "Notifications, 0 unread",
-      "bounds": {
-        "x": 1227.0,
-        "y": 728.0,
-        "w": 24.0,
-        "h": 24.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "5333618498855903566",
+      "accesskit_id": "1569892238906301793",
       "role": "Tab",
       "label": "GraphQL",
       "bounds": {
@@ -116,111 +25,20 @@
       "focused": false
     },
     {
-      "accesskit_id": "5665498644499542820",
-      "role": "Status",
-      "label": "0 flights · as of HH:MM · oldest retained —",
+      "accesskit_id": "2108810803643324527",
+      "role": "Button",
+      "label": "Back",
       "bounds": {
-        "x": 288.0,
-        "y": 113.0,
-        "w": 955.0,
-        "h": 23.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "7394377040279208561",
-      "role": "Tab",
-      "label": "1m",
-      "bounds": {
-        "x": 424.0,
-        "y": 69.0,
-        "w": 45.0,
-        "h": 32.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "7814161829920702638",
-      "role": "Tab",
-      "label": "1h",
-      "bounds": {
-        "x": 292.0,
-        "y": 69.0,
-        "w": 41.0,
-        "h": 32.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "7891363768799038776",
-      "role": "TreeItem",
-      "label": "GitHub",
-      "bounds": {
-        "x": 29.0,
-        "y": 117.0,
-        "w": 230.0,
-        "h": 28.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "8641967729860642271",
-      "role": "TabList",
-      "label": null,
-      "bounds": {
-        "x": 521.0,
-        "y": 69.0,
-        "w": 307.0,
-        "h": 32.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "9287361734341280224",
-      "role": "Group",
-      "label": null,
-      "bounds": {
-        "x": 0.0,
-        "y": 0.0,
-        "w": 1276.0,
-        "h": 773.0
+        "x": 312.0,
+        "y": 22.0,
+        "w": 24.0,
+        "h": 24.0
       },
       "focusable": true,
-      "focused": true
-    },
-    {
-      "accesskit_id": "9321147160169138910",
-      "role": "ListItem",
-      "label": "Usage",
-      "bounds": {
-        "x": 438.0,
-        "y": 23.0,
-        "w": 39.0,
-        "h": 23.0
-      },
-      "focusable": false,
       "focused": false
     },
     {
-      "accesskit_id": "10236405020590842079",
-      "role": "TabList",
-      "label": null,
-      "bounds": {
-        "x": 288.0,
-        "y": 69.0,
-        "w": 185.0,
-        "h": 32.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "10331718283301957339",
+      "accesskit_id": "3064783294597837295",
       "role": "Tab",
       "label": "Quota usage",
       "bounds": {
@@ -233,103 +51,12 @@
       "focused": false
     },
     {
-      "accesskit_id": "11202676663664758053",
-      "role": "Tab",
-      "label": "Local",
-      "bounds": {
-        "x": 766.0,
-        "y": 69.0,
-        "w": 58.0,
-        "h": 32.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "11400859267751309847",
-      "role": "TabList",
-      "label": null,
-      "bounds": {
-        "x": 840.0,
-        "y": 69.0,
-        "w": 49.0,
-        "h": 32.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "11622461453306252130",
-      "role": "Tab",
-      "label": "REST",
-      "bounds": {
-        "x": 568.0,
-        "y": 69.0,
-        "w": 58.0,
-        "h": 32.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "12640504620777800111",
-      "role": "TabList",
-      "label": null,
-      "bounds": {
-        "x": 288.0,
-        "y": 148.0,
-        "w": 955.0,
-        "h": 36.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "13683219994729557125",
-      "role": "Tab",
-      "label": "1w",
-      "bounds": {
-        "x": 378.0,
-        "y": 69.0,
-        "w": 44.0,
-        "h": 32.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "16322764463700713000",
-      "role": "Button",
-      "label": "Refresh",
-      "bounds": {
-        "x": 485.0,
-        "y": 73.0,
-        "w": 24.0,
-        "h": 24.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "16620561237752305903",
-      "role": "Tab",
-      "label": "Overview",
-      "bounds": {
-        "x": 288.0,
-        "y": 148.0,
-        "w": 59.0,
-        "h": 36.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "16861677078717231250",
+      "accesskit_id": "3229520539080433524",
       "role": "TreeItem",
-      "label": "Favicon",
+      "label": "GitHub",
       "bounds": {
         "x": 29.0,
-        "y": 145.0,
+        "y": 117.0,
         "w": 230.0,
         "h": 28.0
       },
@@ -337,7 +64,7 @@
       "focused": false
     },
     {
-      "accesskit_id": "16963919496256642517",
+      "accesskit_id": "3401610582491939323",
       "role": "Button",
       "label": "Toggle sidebar",
       "bounds": {
@@ -350,20 +77,33 @@
       "focused": false
     },
     {
-      "accesskit_id": "17001987691618498253",
+      "accesskit_id": "4549813706715974963",
       "role": "Tab",
-      "label": "All",
+      "label": "1w",
       "bounds": {
-        "x": 844.0,
+        "x": 378.0,
         "y": 69.0,
-        "w": 41.0,
+        "w": 44.0,
         "h": 32.0
       },
       "focusable": false,
       "focused": false
     },
     {
-      "accesskit_id": "17367794532657506781",
+      "accesskit_id": "5213037196393554084",
+      "role": "Button",
+      "label": "Forward",
+      "bounds": {
+        "x": 338.0,
+        "y": 22.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5242195142294137531",
       "role": "TreeItem",
       "label": "Home",
       "bounds": {
@@ -376,33 +116,7 @@
       "focused": false
     },
     {
-      "accesskit_id": "17480741335877695196",
-      "role": "TreeItem",
-      "label": "Settings",
-      "bounds": {
-        "x": 29.0,
-        "y": 201.0,
-        "w": 230.0,
-        "h": 28.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "17491519618115106617",
-      "role": "Tab",
-      "label": "Auth",
-      "bounds": {
-        "x": 710.0,
-        "y": 69.0,
-        "w": 54.0,
-        "h": 32.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "17900589767825635402",
+      "accesskit_id": "5742238570407476047",
       "role": "Link",
       "label": "Home",
       "bounds": {
@@ -415,7 +129,189 @@
       "focused": false
     },
     {
-      "accesskit_id": "17911304407689491830",
+      "accesskit_id": "5861259399387492613",
+      "role": "TreeItem",
+      "label": "Favicon",
+      "bounds": {
+        "x": 29.0,
+        "y": 145.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6462305681043987258",
+      "role": "Group",
+      "label": null,
+      "bounds": {
+        "x": 0.0,
+        "y": 0.0,
+        "w": 1276.0,
+        "h": 773.0
+      },
+      "focusable": true,
+      "focused": true
+    },
+    {
+      "accesskit_id": "6514429976129663073",
+      "role": "Tab",
+      "label": "All",
+      "bounds": {
+        "x": 844.0,
+        "y": 69.0,
+        "w": 41.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "7438950403715156280",
+      "role": "Tab",
+      "label": "Local",
+      "bounds": {
+        "x": 766.0,
+        "y": 69.0,
+        "w": 58.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "7858735193356650357",
+      "role": "Tab",
+      "label": "REST",
+      "bounds": {
+        "x": 568.0,
+        "y": 69.0,
+        "w": 58.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9353626249048185859",
+      "role": "Tab",
+      "label": "Overview",
+      "bounds": {
+        "x": 288.0,
+        "y": 148.0,
+        "w": 59.0,
+        "h": 36.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10838656661166323527",
+      "role": "Tab",
+      "label": "1d",
+      "bounds": {
+        "x": 335.0,
+        "y": 69.0,
+        "w": 41.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11266401421637455186",
+      "role": "TabList",
+      "label": null,
+      "bounds": {
+        "x": 521.0,
+        "y": 69.0,
+        "w": 307.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12376107920839581663",
+      "role": "Status",
+      "label": "0 flights · as of HH:MM · oldest retained —",
+      "bounds": {
+        "x": 288.0,
+        "y": 113.0,
+        "w": 955.0,
+        "h": 23.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12786463592891377012",
+      "role": "Button",
+      "label": "Refresh",
+      "bounds": {
+        "x": 485.0,
+        "y": 73.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12818898106091981080",
+      "role": "TreeItem",
+      "label": "Settings",
+      "bounds": {
+        "x": 29.0,
+        "y": 201.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12860838712367654994",
+      "role": "TabList",
+      "label": null,
+      "bounds": {
+        "x": 288.0,
+        "y": 69.0,
+        "w": 185.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13727793358165504844",
+      "role": "Tab",
+      "label": "Auth",
+      "bounds": {
+        "x": 710.0,
+        "y": 69.0,
+        "w": 54.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14025292959595231626",
+      "role": "TabList",
+      "label": null,
+      "bounds": {
+        "x": 840.0,
+        "y": 69.0,
+        "w": 49.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14147578147739890057",
       "role": "Tab",
       "label": "All",
       "bounds": {
@@ -425,6 +321,110 @@
         "h": 32.0
       },
       "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14831572709305685087",
+      "role": "TreeItem",
+      "label": "Usage",
+      "bounds": {
+        "x": 29.0,
+        "y": 173.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15222684413924149210",
+      "role": "Tab",
+      "label": "Request latency",
+      "bounds": {
+        "x": 458.0,
+        "y": 148.0,
+        "w": 101.0,
+        "h": 36.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15264938312554613026",
+      "role": "TabList",
+      "label": null,
+      "bounds": {
+        "x": 288.0,
+        "y": 148.0,
+        "w": 955.0,
+        "h": 36.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15320400995491321174",
+      "role": "Button",
+      "label": "Notifications, 0 unread",
+      "bounds": {
+        "x": 1227.0,
+        "y": 728.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15609540036460531170",
+      "role": "ListItem",
+      "label": "Usage",
+      "bounds": {
+        "x": 438.0,
+        "y": 23.0,
+        "w": 39.0,
+        "h": 23.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16707714825975178014",
+      "role": "Tab",
+      "label": "1m",
+      "bounds": {
+        "x": 424.0,
+        "y": 69.0,
+        "w": 45.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17127499615616672091",
+      "role": "Tab",
+      "label": "1h",
+      "bounds": {
+        "x": 292.0,
+        "y": 69.0,
+        "w": 41.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17985741066573757529",
+      "role": "Switch",
+      "label": "errors only",
+      "bounds": {
+        "x": 901.0,
+        "y": 75.0,
+        "w": 112.0,
+        "h": 20.0
+      },
+      "focusable": true,
       "focused": false
     }
   ]
