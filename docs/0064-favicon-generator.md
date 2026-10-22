@@ -339,3 +339,210 @@ is re-captured **in the same PR** through the surfaces-pending hop order
 replays against identical id-derivation (docs/0055). The staged-surface
 audit stays red on the caret fails only (#530); nothing in this
 revision adds an audit finding.
+
+## 12. Layout v3 (2026-10-22) — inspector, stage, export rail
+
+![Layout v3 mockup](assets/0064-favicon-layout-v3.png)
+
+Mockup source: [`assets/0064-favicon-layout-v3.svg`](assets/0064-favicon-layout-v3.svg)
+(hand-drawn in the app's dark theme at the canonical 1280×800,
+rasterized with resvg). It is a composition target, not a pixel spec.
+
+### 12.1 Problem (owner screenshot, §10/§11 layout)
+
+§10 fixed the page structurally and §11 fixed its rhythm, but the page
+still reads as unfinished:
+
+1. **Most of the canvas is unused.** A 420 px controls column and a
+   content-sized right column fill the top-left; at 1280×800 about 40%
+   of the content area (right side and bottom) stays empty.
+2. **The hero frame doesn't dominate.** The 512 frame is drawn at
+   192 px and the 180 ladder frame at 180 px, so they look the same
+   size, and the ladder sits ragged under the card.
+3. **No context.** A favicon succeeds or fails at 16 px in a browser
+   tab, on both light and dark chrome. The page never shows that, and
+   the dark palette can't be previewed at all: rasters always render
+   the light palette (`render.rs` module doc).
+4. **Font family is chosen twice.** A free-text field plus 15 ghost
+   chips cover the same choice, and the chips are the noisiest
+   element on the page.
+5. **Inconsistent controls.** `ColorPicker::label` text is larger than
+   every other label; turning on the dark palette duplicates the whole
+   color row; field widths vary (80/120/220/280 px), so right edges
+   are ragged.
+6. **Settings in the wrong place.** Platforms decide the output, but
+   they sit with the design controls. App name feeds only
+   `site.webmanifest` (`export::manifest_json`) yet is always shown.
+   Browse looks like plain text, the directory placeholder is
+   clipped, and Export floats mid-page.
+7. **Circle is a toggle that disables the radius slider.** It's really
+   a third shape option, not a separate setting.
+
+### 12.2 Decisions
+
+**L1 — Three zones: design → see → ship.** The page body becomes three
+columns under the page title, each owning a vertical scroll region:
+
+| zone | width | content |
+| --- | --- | --- |
+| Inspector | 300 px fixed | Source / Colors / Shape (L2–L4) |
+| Stage | `flex_1` (min 400 px) | hero, ladder, in-context previews (L5) |
+| Export rail | 280 px fixed | platforms, folder, app name, commit (L6) |
+
+The stage is the only filled surface (`muted`-tinted, `rounded_lg`,
+1 px `border`); the side columns are bare and separated from it by
+space, not lines (0065 A15). When the content width falls below
+1040 px (`window.viewport_size()` minus the shell sidebar) the export
+rail drops under the stage, so the column count goes from 3 to 2
+with no other behavior change.
+
+**L2 — Inspector: one form lane.** Every field row uses a shared
+72 px label lane and **one control width (216 px)**, so right edges
+line up. gpui-component's `form::Form`/`Field` replaces the
+hand-rolled `field_row` only if it reproduces the §11 spacing ladder
+(verified at implementation; otherwise `field_row` stays with the new
+widths).
+- **Source** — segmented tabs as today, then the per-source form.
+- **Font** — a searchable `Select` replaces both the free-text field and
+  the chips. Items are the curated `FONT_FAMILIES` that resolve on this
+  machine, followed by every other installed family from the fontdb
+  the module already loads (`render::system_font_db`), de-duplicated
+  and sorted. A stored family that isn't installed (state from another
+  machine) stays selected and shows as "<family> (not installed)", so
+  D11's fallback rule stays honest.
+- **Weight** — unchanged segmented control (Light / Regular /
+  Semibold / Bold).
+- **Size** — the glyph-scale slider, labeled "Size".
+- **Emoji** — the grid moves into a fixed-height (≈ 5 rows) scroll
+  region; the free-text field is labeled "Emoji" (it takes a glyph,
+  not a keyword).
+- **Image / SVG** — the upload buttons become `outline` (not ghost)
+  with a status line (`Loaded: W×H` / error) beneath.
+
+**L3 — Colors: one palette at a time.** A `Light | Dark` segmented
+control picks which palette the three fields edit. The fields are
+`ColorSelect` (swatch + hex in an input-height frame, upstream
+`color_picker.rs`'s form variant) labeled Glyph / Start / End on the
+form lane. This replaces the `ColorPicker::label` text and the
+duplicate dark row.
+- While no dark palette exists, Dark mode shows the light values and
+  the note "Dark reuses these until you change it." The first edit
+  in Dark mode creates `spec.dark` as a **copy of the light palette**
+  with that one change applied (today `toggle_dark` seeds
+  `ThemeColors::default()`).
+- When a dark palette exists, a ghost "Use light colors" button
+  appears under the Dark fields and resets `spec.dark` to `None`.
+- The `favicon-theme-toggle` switch is retired; `DesignSpec` is
+  unchanged.
+
+**L4 — Shape: Square / Rounded / Circle.** One segmented control maps
+onto the existing spec, so there is no schema change:
+
+| choice | spec |
+| --- | --- |
+| Square | `circle = false`, `radius_frac = 0` |
+| Rounded | `circle = false`, `radius_frac > 0` |
+| Circle | `circle = true` |
+
+The radius slider only renders for Rounded. Switching back to Rounded
+restores the last non-zero radius (held on the model, not persisted;
+default 0.18).
+
+**L5 — Stage: the icon, at size, in context.**
+- **Hero** — the 512 raster at 224 px, centered, captioned
+  "512 × 512 · favicon.svg". The `Quiet` card and the "Every exported
+  size is this exact SVG." copy go away (D2 still holds; it just
+  stops being UI copy).
+- **Ladder** — one bottom-aligned row: 16 and 32 at actual size, 96
+  drawn at 64 px and 180 at 90 px, labeled honestly ("96 · ⅔",
+  "180 · ½"). A ladder that silently scales is what made the old one
+  read as wrong.
+- **Preview theme** — a `Light | Dark` segmented control at the
+  stage's top-right switches the hero and ladder between palettes.
+  Dark rasters come from a **preview-only** emission, a sibling of
+  `emit_svg` that inlines the dark palette instead of the
+  `prefers-color-scheme` block (resvg doesn't resolve the media
+  query). D2 is unchanged for export: exported PNG/ICO frames are
+  still the light raster of the exact emitted SVG. The dark preview
+  shows what favicon.svg looks like in a dark-mode browser. When no
+  dark palette exists, Dark shows the light rendering.
+- **In context** — a 2×2 grid of mock surfaces, drawn with theme
+  tokens. Fixed chrome colors are allowed only for the two tab mocks,
+  which imitate browser chrome; that is the one
+  `#[allow(clippy::disallowed_methods)]` this page needs, with a
+  justifying comment.
+  - light browser tab: 16 px light raster + app name + ×;
+  - dark browser tab: 16 px **dark** raster (always rendered, so both
+    tabs are live regardless of the preview theme);
+  - iOS home screen: the 180 frame at 48 px under an iOS-style mask;
+  - Android launcher: the 192 frame at 34 px inside a 48 px white
+    circle, which is how Chrome shows a non-maskable PWA icon.
+    Adaptive/maskable icons stay #430.
+- **Raster budget** — the frame set grows from 5 to 7: 16/32/96/180/512
+  in the preview theme, plus a 16 px dark frame and a 192 px frame. It
+  is still one background pass per debounced edit, under the existing
+  generation token.
+
+**L6 — Export rail: what, where, go.**
+- **Platforms as a checklist.** Each row is a `Checkbox` + platform
+  name, a right-aligned file count, and a muted file list beneath it,
+  all derived from `export::plan` so the rail can't drift from what
+  gets written. The iOS 1024 switch stays nested under iOS.
+- **Folder** — the path input + an **outline** "Browse…" button. The
+  placeholder shortens to "Choose a folder", so it no longer clips.
+- **App name** — only shown while Android / PWA is selected, with the
+  note "Written to site.webmanifest."
+- **Commit** — the primary button, full rail width, anchored to the
+  rail's bottom, labeled with the count: "Export 7 files" /
+  "Exporting…". The "Writes N files" line goes away. The button stays
+  enabled; the missing-folder and no-platform guards keep raising
+  their toasts (D7).
+- **Overwrite confirm** — the inline bordered box becomes an
+  `AlertDialog` listing the colliding files with Overwrite / Cancel.
+  The bridge ids `favicon-overwrite-confirm` / `-cancel` move onto
+  the dialog buttons. If the dialog layer turns out not to be visible
+  to the bridge tree, the inline box stays (a structural receipt
+  decides at implementation).
+
+**L7 — Copy.**
+- Section titles: Source / Colors / Shape / Preview / In context / Export.
+- Labels: "Glyph size" → "Size", "Corner radius" → "Radius",
+  "Directory" → "Folder".
+- The fallback note moves to the font select's empty/description
+  slot: "Fonts resolve on the viewer's machine; missing ones fall back."
+
+**L8 — Bridge ids** (0010 D10; golden re-captured in the
+implementation PR, per the §10 precedent).
+- **Kept:** every D10 id not listed below.
+- **Retired:** `favicon-font-chips` + `favicon-font-chip-N`,
+  `favicon-theme-toggle`, `favicon-shape-circle`.
+- **Added:** `favicon-inspector`, `favicon-stage`,
+  `favicon-export-rail`, `favicon-palette-mode`, `favicon-dark-reset`,
+  `favicon-shape`, `favicon-stage-theme`,
+  `favicon-context-{tab-light,tab-dark,ios,android}`.
+
+The `favicon-font-family` id moves from the input to the `Select`.
+
+**L9 — Anchors and gates.** Composes toward **Zed** (inspector / canvas
+/ panel composition in gpui, docs/references) with the gpui-component
+`story` gallery as the widget-level anchor. The deviation from Zed: the
+centre is a fixed stage, not an editor, so it gets the one filled
+surface. The implementation PR carries the 0065 receipts: `audit` +
+`tree --tab-stops` over the page, `assert-baseline favicon` with the
+re-captured golden, and the critique before/after pair (§10's
+`before.png` lineage), capped at 3 iterations.
+
+### 12.3 Non-goals (filed, `deferred`)
+
+- **Size/padding for Image and SVG sources.** `source_scale` is
+  text/emoji-only today, so the Size row simply doesn't appear on
+  those tabs. Making it apply is a render change, not layout.
+- **Font previews in the select** (each family drawn in its own
+  face). This needs a custom `SearchableListItem` render.
+
+### 12.4 Open for review
+
+- **Font list** — this design lists every installed family. The
+  alternative is curated only, with "Show all fonts" behind a toggle.
+- **Breakpoint** — 1040 px content width for collapsing the export
+  rail.
