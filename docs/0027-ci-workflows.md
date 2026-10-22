@@ -13,8 +13,9 @@ workflow installs its own toolchain (rustup, pinned) and everything
 GitHub's ubuntu images do **not** ship (the GUI dev stack + fonts),
 assuming a hosted-image-parity baseline on the runner image (§2, §4, §5) —
 GitHub-hosted ubuntu runners (`ubuntu-24.04`) ship it by construction.
-Two jobs (`lint`, `test`),
-one pinned third-party action (`actions/checkout`), no secrets.
+Two gate jobs (`lint`, `test`) plus a `deny` dependency audit
+(`cargo-deny` against the committed `deny.toml`, also run weekly — D8),
+SHA-pinned third-party actions only, no secrets.
 
 The runner platform is **GitHub-hosted** (`ubuntu-24.04` standard hosted
 runners, both jobs — switched from the owner's self-hosted docker runners
@@ -129,6 +130,8 @@ week-old artifacts before save).
   fresh temp `XDG_RUNTIME_DIR` (§2 explains why both are kept despite the
   headless-green probe).
 
+A third job, `deny`, audits the dependency graph (D8).
+
 Jobs are independent (no `needs`); the platform may run them concurrently or
 queued. `concurrency: ci-<ref>` with `cancel-in-progress` kills superseded
 runs. `timeout-minutes` (30/45) bounds a hung job.
@@ -149,7 +152,9 @@ Exactly one third-party action, `actions/checkout`, pinned by commit SHA
 update PRs; each ecosystem's updates are grouped into a single PR
 (`groups` with an all-matching pattern). No other actions, no cache service,
 no secrets — the workflow is
-fork-safe by construction.
+fork-safe by construction. Since then two more SHA-pinned actions joined
+under the same rule and the same dependabot coverage: `Swatinem/rust-cache`
+(#158) and `EmbarkStudios/cargo-deny-action` (D8).
 
 ### D7 — Path-based filtering: docs-only changes don't build anything
 
@@ -193,12 +198,71 @@ that cannot affect a build.
   a release build would add ~10 min/run for little signal.
 - **Maintenance/scheduled jobs**: the platform is ephemeral, so there is
   nothing on the runner to prune (the persistent-host rationale is void);
-  #155 stays open only until closed as obsolete.
+  #155 stays open only until closed as obsolete. The weekly `deny` run
+  (D8) is the one scheduled job — it watches the advisory database, not
+  the runner.
 - **Build-artifact caching**: #158.
 - **Required status checks**: enabling `lint`/`test` in branch protection is
   a repo-settings action for the owner (§6), not workflow code.
 - A shared composite action for the duplicated bootstrap steps — two copies
   are fine; refactor if a third job ever needs it.
+
+### D8 — Dependency audit: `cargo-deny` (#639)
+
+A third job, `deny`, runs `cargo deny check` against the committed
+`deny.toml` at the repo root through `EmbarkStudios/cargo-deny-action`,
+pinned to its peeled v2.1.1 commit (bundles cargo-deny 0.20.2). The action
+runs in its own container with its own cargo, so the job needs no
+toolchain bootstrap, apt step or cache, and finishes in about a minute.
+
+**Policy** (owner decisions 2026-10-22, §4):
+
+| Check | Fails the job on | Notes |
+|---|---|---|
+| `advisories` | vulnerabilities, and unmaintained / unsound / yanked crates, direct **and** transitive | Exceptions go in `ignore`, each with a reason and an issue |
+| `licenses` | any license outside the explicit allow-list | Allow-list built from what the graph uses; workspace crates (`publish = false`) are skipped |
+| `sources` | any registry other than crates.io; any git source other than the pinned gpui-component rev; any git dep without `rev = …` | Bumping the gpui-component rev in `Cargo.toml` means bumping `allow-git` too |
+| `bans` | wildcard version requirements | Duplicate versions only **warn** (the gpui stack brings many — `getrandom`, `itertools`, `hashbrown`, …); promote to `deny` when the graph allows |
+
+The graph is audited for the shipped platforms only (`[graph] targets`:
+x86_64/aarch64 Linux and macOS) with all features enabled.
+
+**Triggers.** The `deny` job rides the workflow's normal triggers (PRs to
+`main`, pushes to `main`, same D7 path filter, so a `Cargo.lock` or
+`deny.toml` change always runs it). It also runs on a weekly `schedule`
+(Mondays 06:00 UTC), because new advisories land in the RustSec database
+without any change here. `lint` and `test` skip the scheduled event
+(`if: github.event_name != 'schedule'`), and scheduled runs take their own
+concurrency group so they never cancel a push run on `main`. A red
+scheduled run means a new advisory: triage it the same way as below.
+
+**Run it locally** before pushing a change to `Cargo.toml`, `Cargo.lock`
+or `deny.toml` (it is not an AGENTS.md gate; CI enforces it):
+
+```bash
+cargo install --locked cargo-deny@0.20.2   # once; matches the CI action
+cargo deny check                            # all four checks
+cargo deny check advisories                 # or one at a time
+```
+
+**Adding an exception.** First try to remove the finding: for an advisory,
+`cargo update -p <crate>` (or `--precise <version>`) often pulls in the
+patched release without touching any manifest. When it can't be fixed
+here (upstream-only, needs a semver-major bump), file a GitHub issue,
+then add the narrowest exception with a comment that names the issue:
+
+- advisory → `[advisories] ignore = [{ id = "RUSTSEC-…", reason = "… (#NNN)" }]`;
+- license → add it to `[licenses] allow` if it is acceptable for the whole
+  graph, otherwise a per-crate `[licenses] exceptions` entry;
+- source → an `allow-git` entry with the exact URL and `?rev=`.
+
+cargo-deny warns when an `ignore` entry no longer matches anything; delete
+it then, and close the issue.
+
+Initial triage (#639): six vulnerabilities (rustls, rustls-webpki,
+webpki-roots, quick-xml via zbus_xml) were fixed by lockfile bumps. Eight
+unmaintained advisories have no patched release and come in through the
+upstream GPUI stack, so they are ignored and tracked in #640.
 
 ## 4. Owner decisions (2026-09-07)
 
@@ -225,6 +289,9 @@ that cannot affect a build.
   parity-gap caveats are void. Workflow logic is unchanged — only the
   `runs-on` labels, surrounding comments and this doc move; the §5
   listing stays the original-PR snapshot (as D7 left it).
+- *(2026-10-22, #639)* **Dependency audit** (D8): advisories **fail** the
+  build (not warn-only), licenses and sources fail, bans warn on
+  duplicates. The audit runs on PRs/pushes **and** weekly on a schedule.
 
 ## 5. Implementation plan (this PR)
 
@@ -381,6 +448,8 @@ jobs:
   closed obsolete given the ephemeral platform).
 - **#156** — port the Catppuccin theme jq/Whiskers gates to a nix-free CI
   step.
+- **#640** — unmaintained transitive crates ignored in `deny.toml`
+  (upstream GPUI stack); drop each ignore as upstream moves off it.
 - **#158** — build-artifact caching for the ephemeral runners
   (`rust-cache`/`sccache`, or accept cold permanently).
 - (Informal, no issue yet: a shared composite action if a third job needs

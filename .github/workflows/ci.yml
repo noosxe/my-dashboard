@@ -42,11 +42,17 @@ on:
       - ".pi/**"
       - ".gitignore"
       - "LICENSE*"
+  # Weekly dependency audit (docs/0027 D8): RustSec advisories appear
+  # without any code change, so the `deny` job also runs on a schedule
+  # (Mondays 06:00 UTC). Only `deny` runs on this event; lint/test skip.
+  schedule:
+    - cron: "0 6 * * 1"
 
 # One in-flight run per ref: superseded pushes cancel their queued run
-# and free the runners sooner.
+# and free the runners sooner. Scheduled runs get their own group so they
+# never cancel (or get cancelled by) a push to main.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name == 'schedule' && 'schedule' || github.ref }}
   cancel-in-progress: true
 
 # Pinned in lockstep with the dev shell's toolchain (flake.lock freezes
@@ -59,6 +65,7 @@ jobs:
   lint:
     # Formatting + the zero-warnings clippy gate (incl. the clippy.toml
     # token-discipline lints) + the bridge-less build variant.
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -114,6 +121,7 @@ jobs:
     # Full test suite. Verified headless-green (docs/0027 §2), but Xvfb +
     # a fresh XDG_RUNTIME_DIR stay as cheap insurance so a future gpui rev
     # that wants a display fails loudly instead of mysteriously.
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -157,3 +165,21 @@ jobs:
         run: |
           export XDG_RUNTIME_DIR="$(mktemp -d)"
           xvfb-run --auto-servernum cargo test --workspace
+
+  deny:
+    # Dependency audit against the committed deny.toml (docs/0027 D8):
+    # advisories, licenses and sources fail the job; bans (duplicate
+    # versions) only warn. Needs no toolchain bootstrap or apt step —
+    # the action's container ships its own cargo + cargo-deny.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: cargo deny check
+        # Pinned to the peeled v2.1.1 commit (repo convention); that tag
+        # bundles cargo-deny 0.20.2.
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check

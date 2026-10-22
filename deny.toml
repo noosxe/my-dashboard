@@ -1,0 +1,95 @@
+# cargo-deny — dependency audit (advisories, licenses, sources, bans).
+# Enforced by the `deny` job in .github/workflows/ci.yml; design, policy
+# and how to add an exception: docs/0027 D8. Run locally with
+# `cargo deny check` (keys verified against cargo-deny 0.20.2 docs).
+
+[graph]
+# The platforms the app ships on (Linux + macOS). Without this the graph
+# also pulls in Windows/wasm-only crates that never build here.
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+]
+# Audit every feature combination's crates, not just the defaults (e.g.
+# the bridge-less build and gpui-component's optional languages).
+all-features = true
+
+[advisories]
+# Owner decision (2026-10-22): advisories FAIL the build. Vulnerabilities
+# always fail; unmaintained, unsound and yanked are raised from cargo-
+# deny's defaults so they fail too, transitive ones included.
+yanked = "deny"
+unmaintained = "all"
+unsound = "all"
+# Every entry needs an issue and a reason. cargo-deny warns when an entry
+# no longer matches anything — delete it then.
+ignore = [
+    # Unmaintained, no patched release, transitive via the upstream GPUI
+    # stack — unfixable here without forking it. Tracked in #640.
+    { id = "RUSTSEC-2024-0384", reason = "instant: via gpui-base/gpui-component (#640)" },
+    { id = "RUSTSEC-2024-0436", reason = "paste: via gpui-component, metal, pulp (#640)" },
+    { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile: via gpui-pre-reqwest (#640)" },
+    { id = "RUSTSEC-2026-0206", reason = "rustybuzz: via usvg (gpui-pre, resvg) (#640)" },
+    { id = "RUSTSEC-2026-0192", reason = "ttf-parser: via fontdb/rustybuzz/gpui-pre (#640)" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names: via zbus 5 (accesskit, atspi, ashpd) (#640)" },
+    { id = "RUSTSEC-2026-0370", reason = "zvariant: via zbus 5, merged into zbus 6 (#640)" },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive: via zbus 5 (#640)" },
+]
+
+[licenses]
+# Built from what the graph actually uses (`cargo deny list -l license`),
+# all compatible with the repo's MIT license. A new license in the graph
+# fails the check: review it, then add it here (or as a per-crate
+# exception below) in the PR that pulls it in.
+allow = [
+    "0BSD",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0", # webpki-roots (Mozilla CA bundle data)
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "MPL-2.0", # file-level copyleft; option-ext (dirs) and cbindgen (build-dep)
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+exceptions = []
+# Expected `no-license-field` warning: tree-sitter-graphql 0.1.0 (via
+# gpui-component) declares `license-file = "LICENSE"` instead of an SPDX
+# expression; cargo-deny scans that file, finds MIT and passes it.
+
+[licenses.private]
+# The workspace crates are `publish = false` and carry no `license` field
+# (the repo's LICENSE file covers them) — don't flag them as unlicensed.
+ignore = true
+
+[bans]
+# Warn-only to start (#639): the gpui stack alone brings several duplicate
+# versions (getrandom, itertools, hashbrown, …) that only upstream can
+# collapse. Promote to "deny" once the graph is clean enough.
+multiple-versions = "warn"
+wildcards = "deny"
+# Path dependencies between workspace members carry no version; that is
+# not a wildcard published to a registry.
+allow-wildcard-paths = true
+
+[sources]
+# Only crates.io, plus the single pinned gpui-component git rev declared
+# in the root Cargo.toml (gpui-component, gpui-base, gpui-kit-assets).
+# Bumping that rev means bumping it here too.
+unknown-registry = "deny"
+unknown-git = "deny"
+# Git dependencies must pin an exact commit (`rev = …`), never track a
+# branch or tag.
+required-git-spec = "rev"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = [
+    "https://github.com/longbridge/gpui-component?rev=1676826d9d49b90f4d7b6808b69924f58796f6f1",
+]
