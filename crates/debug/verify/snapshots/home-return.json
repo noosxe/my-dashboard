@@ -12,33 +12,7 @@
       "focused": false
     },
     {
-      "accesskit_id": "409056323268249092",
-      "role": "ListItem",
-      "label": "Open GitHub module",
-      "bounds": {
-        "x": 288.0,
-        "y": 69.0,
-        "w": 320.0,
-        "h": 200.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "1046671865314738724",
-      "role": "TreeItem",
-      "label": "Usage",
-      "bounds": {
-        "x": 29.0,
-        "y": 173.0,
-        "w": 230.0,
-        "h": 28.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "1604365170848998340",
+      "accesskit_id": "2108810803643324527",
       "role": "Button",
       "label": "Back",
       "bounds": {
@@ -51,46 +25,7 @@
       "focused": false
     },
     {
-      "accesskit_id": "2160375675320333291",
-      "role": "ListItem",
-      "label": "Open Favicon module",
-      "bounds": {
-        "x": 624.0,
-        "y": 69.0,
-        "w": 320.0,
-        "h": 200.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "4708591563532119033",
-      "role": "Button",
-      "label": "Forward",
-      "bounds": {
-        "x": 338.0,
-        "y": 22.0,
-        "w": 24.0,
-        "h": 24.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "5211320293504918274",
-      "role": "Button",
-      "label": "Notifications, 0 unread",
-      "bounds": {
-        "x": 1227.0,
-        "y": 728.0,
-        "w": 24.0,
-        "h": 24.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "7891363768799038776",
+      "accesskit_id": "3229520539080433524",
       "role": "TreeItem",
       "label": "GitHub",
       "bounds": {
@@ -103,59 +38,7 @@
       "focused": false
     },
     {
-      "accesskit_id": "9287361734341280224",
-      "role": "Group",
-      "label": null,
-      "bounds": {
-        "x": 0.0,
-        "y": 0.0,
-        "w": 1276.0,
-        "h": 773.0
-      },
-      "focusable": true,
-      "focused": true
-    },
-    {
-      "accesskit_id": "14518835817314702619",
-      "role": "ListItem",
-      "label": "Open Favicon generator — “A” in Helvetica, platforms web",
-      "bounds": {
-        "x": 637.0,
-        "y": 113.0,
-        "w": 294.0,
-        "h": 143.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "15772906034713358327",
-      "role": "Button",
-      "label": "Generate favicons",
-      "bounds": {
-        "x": 650.0,
-        "y": 187.0,
-        "w": 130.0,
-        "h": 24.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "16861677078717231250",
-      "role": "TreeItem",
-      "label": "Favicon",
-      "bounds": {
-        "x": 29.0,
-        "y": 145.0,
-        "w": 230.0,
-        "h": 28.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "16963919496256642517",
+      "accesskit_id": "3401610582491939323",
       "role": "Button",
       "label": "Toggle sidebar",
       "bounds": {
@@ -168,7 +51,20 @@
       "focused": false
     },
     {
-      "accesskit_id": "17367794532657506781",
+      "accesskit_id": "5213037196393554084",
+      "role": "Button",
+      "label": "Forward",
+      "bounds": {
+        "x": 338.0,
+        "y": 22.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5242195142294137531",
       "role": "TreeItem",
       "label": "Home",
       "bounds": {
@@ -181,7 +77,98 @@
       "focused": false
     },
     {
-      "accesskit_id": "17480741335877695196",
+      "accesskit_id": "5742238570407476047",
+      "role": "ListItem",
+      "label": "Home",
+      "bounds": {
+        "x": 374.0,
+        "y": 23.0,
+        "w": 38.0,
+        "h": 23.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5861259399387492613",
+      "role": "TreeItem",
+      "label": "Favicon",
+      "bounds": {
+        "x": 29.0,
+        "y": 145.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6462305681043987258",
+      "role": "Group",
+      "label": null,
+      "bounds": {
+        "x": 0.0,
+        "y": 0.0,
+        "w": 1276.0,
+        "h": 773.0
+      },
+      "focusable": true,
+      "focused": true
+    },
+    {
+      "accesskit_id": "8844050212482636029",
+      "role": "Button",
+      "label": "Generate favicons",
+      "bounds": {
+        "x": 650.0,
+        "y": 187.0,
+        "w": 130.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9165262808707711585",
+      "role": "ListItem",
+      "label": "Open Favicon generator — “A” in Helvetica, platforms web",
+      "bounds": {
+        "x": 637.0,
+        "y": 113.0,
+        "w": 294.0,
+        "h": 143.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10180477284460313495",
+      "role": "ListItem",
+      "label": "Open GitHub module",
+      "bounds": {
+        "x": 288.0,
+        "y": 69.0,
+        "w": 320.0,
+        "h": 200.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11931796636579506558",
+      "role": "ListItem",
+      "label": "Open Favicon module",
+      "bounds": {
+        "x": 624.0,
+        "y": 69.0,
+        "w": 320.0,
+        "h": 200.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12818898106091981080",
       "role": "TreeItem",
       "label": "Settings",
       "bounds": {
@@ -194,16 +181,29 @@
       "focused": false
     },
     {
-      "accesskit_id": "17900589767825635402",
-      "role": "ListItem",
-      "label": "Home",
+      "accesskit_id": "14831572709305685087",
+      "role": "TreeItem",
+      "label": "Usage",
       "bounds": {
-        "x": 374.0,
-        "y": 23.0,
-        "w": 38.0,
-        "h": 23.0
+        "x": 29.0,
+        "y": 173.0,
+        "w": 230.0,
+        "h": 28.0
       },
       "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15320400995491321174",
+      "role": "Button",
+      "label": "Notifications, 0 unread",
+      "bounds": {
+        "x": 1227.0,
+        "y": 728.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
       "focused": false
     }
   ]

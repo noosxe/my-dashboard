@@ -44,7 +44,7 @@ impl FaviconCard {
 impl Render for FaviconCard {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let model = self.model.read(cx);
-        let preview = model.previews.get(&180).cloned();
+        let preview = model.stage_frame(180);
         let spec = model.spec();
         let summary = match &spec.source {
             crate::spec::Source::Text { chars, family, .. } => {
