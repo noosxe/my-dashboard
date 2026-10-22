@@ -733,13 +733,6 @@ impl GithubPage {
             None => (Vec::new(), 0, true, false),
         };
         let pr_rows = filters::apply_prs(&self.filters.prs, &source, viewer.as_deref(), &search);
-        #[cfg(test)]
-        eprintln!(
-            "PROBE home: landed={} filtered={} rows={}",
-            landed,
-            filtered,
-            pr_rows.len()
-        );
         let source_len = source.len();
 
         // Label options derive from the present nodes (docs/0042 D3).

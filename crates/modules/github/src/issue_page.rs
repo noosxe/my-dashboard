@@ -592,7 +592,6 @@ impl IssueDetailPage {
                 // spawn kept alive for exactly this.
                 this.comment
                     .update(cx, |state, cx| state.set_value("", window, cx));
-                eprintln!("DBGHOOK box={:?}", this.comment.read(cx).value());
                 // 0045 D5: the posted comment leaves no on-disk draft
                 // (cancel first — no pre-submit write may land now).
                 this.draft.discard();
