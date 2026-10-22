@@ -404,12 +404,17 @@ hand-rolled `field_row` only if it reproduces the §11 spacing ladder
 widths).
 - **Source** — segmented tabs as today, then the per-source form.
 - **Font** — a searchable `Select` replaces both the free-text field and
-  the chips. Items are the curated `FONT_FAMILIES` that resolve on this
-  machine, followed by every other installed family from the fontdb
-  the module already loads (`render::system_font_db`), de-duplicated
-  and sorted. A stored family that isn't installed (state from another
-  machine) stays selected and shows as "<family> (not installed)", so
-  D11's fallback rule stays honest.
+  the chips. By default it lists only the curated `FONT_FAMILIES` that
+  resolve on this machine. An **"All fonts"** `Switch`
+  (`favicon-font-all`) under the select swaps in every installed family
+  from the fontdb the module already loads (`render::system_font_db`),
+  de-duplicated and sorted, curated ones first (`SelectState::set_items`).
+  The toggle is model state and isn't persisted; it starts off. The
+  currently selected family is always in the list, even when it isn't
+  curated, so turning the toggle off never hides the selection. A stored
+  family that isn't installed (state from another machine) stays
+  selected and shows as "<family> (not installed)", so D11's fallback
+  rule stays honest.
 - **Weight** — unchanged segmented control (Light / Regular /
   Semibold / Bold).
 - **Size** — the glyph-scale slider, labeled "Size".
@@ -517,8 +522,8 @@ implementation PR, per the §10 precedent).
 - **Retired:** `favicon-font-chips` + `favicon-font-chip-N`,
   `favicon-theme-toggle`, `favicon-shape-circle`.
 - **Added:** `favicon-inspector`, `favicon-stage`,
-  `favicon-export-rail`, `favicon-palette-mode`, `favicon-dark-reset`,
-  `favicon-shape`, `favicon-stage-theme`,
+  `favicon-export-rail`, `favicon-font-all`, `favicon-palette-mode`,
+  `favicon-dark-reset`, `favicon-shape`, `favicon-stage-theme`,
   `favicon-context-{tab-light,tab-dark,ios,android}`.
 
 The `favicon-font-family` id moves from the input to the `Select`.
@@ -540,9 +545,9 @@ re-captured golden, and the critique before/after pair (§10's
 - **Font previews in the select** (each family drawn in its own
   face). This needs a custom `SearchableListItem` render.
 
-### 12.4 Open for review
+### 12.4 Review resolutions (owner)
 
-- **Font list** — this design lists every installed family. The
-  alternative is curated only, with "Show all fonts" behind a toggle.
-- **Breakpoint** — 1040 px content width for collapsing the export
-  rail.
+- **Font list** — curated list by default, every installed family
+  behind an "All fonts" toggle (L2).
+- **Breakpoint** — 1040 px content width for collapsing the export rail
+  is accepted (L1).
