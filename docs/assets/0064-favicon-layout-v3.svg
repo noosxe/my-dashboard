@@ -1,0 +1,229 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="800" viewBox="0 0 1280 800" font-family="Helvetica Neue, Helvetica, Arial, sans-serif">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6366f1"/>
+      <stop offset="1" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <symbol id="icon" viewBox="0 0 100 100">
+      <rect width="100" height="100" rx="18" fill="url(#g)"/>
+      <text x="50" y="71" text-anchor="middle" font-size="60" fill="#ffffff">A</text>
+    </symbol>
+    <symbol id="chev" viewBox="0 0 10 10">
+      <path d="M2 3.5 L5 6.5 L8 3.5" fill="none" stroke="#9aa0b8" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="check" viewBox="0 0 16 16">
+      <rect width="16" height="16" rx="4" fill="#7aa2f7"/>
+      <path d="M4 8.2 L7 11 L12 5.2" fill="none" stroke="#1a1b26" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="uncheck" viewBox="0 0 16 16">
+      <rect x="0.5" y="0.5" width="15" height="15" rx="4" fill="none" stroke="#4a4e68"/>
+    </symbol>
+  </defs>
+
+  <!-- window -->
+  <rect width="1280" height="800" fill="#1f2133"/>
+
+  <!-- sidebar -->
+  <rect width="180" height="776" fill="#1b1c2b"/>
+  <line x1="180.5" y1="0" x2="180.5" y2="776" stroke="#2c2e42"/>
+  <rect x="16" y="20" width="24" height="24" rx="6" fill="#7aa2f7"/>
+  <text x="50" y="37" font-size="14" fill="#e4e6f0">Dashboard</text>
+  <g font-size="13" fill="#c9cde0">
+    <text x="40" y="82">Home</text>
+    <text x="40" y="110">GitHub</text>
+    <rect x="12" y="120" width="156" height="24" rx="6" fill="#2a2d45"/>
+    <text x="40" y="137" fill="#e4e6f0">Favicon</text>
+    <text x="40" y="166">Usage</text>
+    <text x="40" y="194">Settings</text>
+  </g>
+  <g fill="none" stroke="#9aa0b8" stroke-width="1.2">
+    <rect x="20" y="72" width="11" height="11" rx="2"/>
+    <circle cx="25.5" cy="105.5" r="5.5"/>
+    <circle cx="25.5" cy="132.5" r="5.5"/>
+    <circle cx="25.5" cy="161.5" r="5.5"/>
+    <circle cx="25.5" cy="189.5" r="5.5"/>
+  </g>
+
+  <!-- top bar -->
+  <line x1="180" y1="40.5" x2="1280" y2="40.5" stroke="#2c2e42"/>
+  <text x="200" y="25" font-size="13" fill="#9aa0b8">Home</text>
+  <text x="240" y="25" font-size="13" fill="#9aa0b8">›</text>
+  <text x="254" y="25" font-size="13" fill="#e4e6f0">Favicon</text>
+
+  <!-- status bar -->
+  <rect y="776" width="1280" height="24" fill="#1b1c2b"/>
+  <line x1="0" y1="776.5" x2="1280" y2="776.5" stroke="#2c2e42"/>
+
+  <!-- page title -->
+  <text x="200" y="76" font-size="18" font-weight="600" fill="#e4e6f0">Favicon generator</text>
+
+  <!-- ============ LEFT: design inspector ============ -->
+  <g font-size="13">
+    <text x="200" y="112" font-weight="600" fill="#e4e6f0">Source</text>
+    <rect x="200" y="122" width="300" height="30" rx="7" fill="#2a2d45"/>
+    <rect x="203" y="125" width="72" height="24" rx="5" fill="#1f2133"/>
+    <g text-anchor="middle" fill="#9aa0b8">
+      <text x="239" y="141" fill="#e4e6f0">Text</text>
+      <text x="312" y="141">Emoji</text>
+      <text x="387" y="141">Image</text>
+      <text x="462" y="141">SVG</text>
+    </g>
+
+    <g fill="#9aa0b8">
+      <text x="200" y="188">Text</text>
+      <text x="200" y="226">Font</text>
+      <text x="200" y="264">Weight</text>
+      <text x="200" y="302">Size</text>
+    </g>
+    <rect x="276.5" y="168.5" width="64" height="29" rx="6" fill="#23253a" stroke="#3a3d56"/>
+    <text x="288" y="188" fill="#e4e6f0">A</text>
+
+    <rect x="276.5" y="206.5" width="223" height="29" rx="6" fill="#23253a" stroke="#3a3d56"/>
+    <text x="288" y="226" fill="#e4e6f0">Helvetica</text>
+    <use href="#chev" x="480" y="216" width="10" height="10"/>
+
+    <rect x="276" y="244" width="224" height="30" rx="7" fill="#2a2d45"/>
+    <rect x="333" y="247" width="56" height="24" rx="5" fill="#1f2133"/>
+    <g text-anchor="middle" fill="#9aa0b8" font-size="12">
+      <text x="304" y="263">Light</text>
+      <text x="361" y="263" fill="#e4e6f0">Regular</text>
+      <text x="418" y="263">Semibold</text>
+      <text x="474" y="263">Bold</text>
+    </g>
+
+    <rect x="276" y="296" width="176" height="4" rx="2" fill="#3a3d56"/>
+    <rect x="276" y="296" width="106" height="4" rx="2" fill="#7aa2f7"/>
+    <circle cx="382" cy="298" r="7" fill="#e4e6f0" stroke="#7aa2f7" stroke-width="2"/>
+    <text x="500" y="302" text-anchor="end" fill="#e4e6f0">60%</text>
+
+    <text x="200" y="350" font-weight="600" fill="#e4e6f0">Colors</text>
+    <g fill="#9aa0b8">
+      <text x="200" y="384">Mode</text>
+      <text x="200" y="422">Glyph</text>
+      <text x="200" y="460">Start</text>
+      <text x="200" y="498">End</text>
+    </g>
+    <rect x="276" y="364" width="150" height="30" rx="7" fill="#2a2d45"/>
+    <rect x="279" y="367" width="72" height="24" rx="5" fill="#1f2133"/>
+    <text x="315" y="384" text-anchor="middle" fill="#e4e6f0">Light</text>
+    <text x="389" y="384" text-anchor="middle" fill="#9aa0b8">Dark</text>
+
+    <g>
+      <rect x="276.5" y="402.5" width="223" height="29" rx="6" fill="#23253a" stroke="#3a3d56"/>
+      <rect x="284" y="409" width="16" height="16" rx="4" fill="#ffffff"/>
+      <text x="310" y="422" fill="#e4e6f0">#FFFFFF</text>
+      <rect x="276.5" y="440.5" width="223" height="29" rx="6" fill="#23253a" stroke="#3a3d56"/>
+      <rect x="284" y="447" width="16" height="16" rx="4" fill="#6366f1"/>
+      <text x="310" y="460" fill="#e4e6f0">#6366F1</text>
+      <rect x="276.5" y="478.5" width="223" height="29" rx="6" fill="#23253a" stroke="#3a3d56"/>
+      <rect x="284" y="485" width="16" height="16" rx="4" fill="#8b5cf6"/>
+      <text x="310" y="498" fill="#e4e6f0">#8B5CF6</text>
+    </g>
+    <text x="276" y="528" font-size="12" fill="#9aa0b8">Dark reuses these until you change it.</text>
+
+    <text x="200" y="574" font-weight="600" fill="#e4e6f0">Shape</text>
+    <rect x="200" y="584" width="300" height="30" rx="7" fill="#2a2d45"/>
+    <rect x="303" y="587" width="94" height="24" rx="5" fill="#1f2133"/>
+    <g text-anchor="middle" fill="#9aa0b8">
+      <text x="251" y="603">Square</text>
+      <text x="350" y="603" fill="#e4e6f0">Rounded</text>
+      <text x="449" y="603">Circle</text>
+    </g>
+    <text x="200" y="642" fill="#9aa0b8">Radius</text>
+    <rect x="276" y="636" width="176" height="4" rx="2" fill="#3a3d56"/>
+    <rect x="276" y="636" width="63" height="4" rx="2" fill="#7aa2f7"/>
+    <circle cx="339" cy="638" r="7" fill="#e4e6f0" stroke="#7aa2f7" stroke-width="2"/>
+    <text x="500" y="642" text-anchor="end" fill="#e4e6f0">18%</text>
+  </g>
+
+  <!-- ============ CENTER: preview stage ============ -->
+  <rect x="516.5" y="95.5" width="447" height="664" rx="10" fill="#191a28" stroke="#2c2e42"/>
+  <g font-size="12">
+    <text x="536" y="122" fill="#9aa0b8">Preview</text>
+    <rect x="828" y="106" width="120" height="26" rx="6" fill="#2a2d45"/>
+    <rect x="831" y="109" width="57" height="20" rx="4" fill="#1f2133"/>
+    <text x="859" y="123" text-anchor="middle" fill="#e4e6f0">Light</text>
+    <text x="918" y="123" text-anchor="middle" fill="#9aa0b8">Dark</text>
+  </g>
+
+  <use href="#icon" x="628" y="150" width="224" height="224"/>
+  <text x="740" y="398" font-size="12" text-anchor="middle" fill="#9aa0b8">512 × 512 · favicon.svg</text>
+
+  <g font-size="12" fill="#9aa0b8" text-anchor="middle">
+    <use href="#icon" x="597" y="504" width="16" height="16"/>
+    <text x="605" y="540">16</text>
+    <use href="#icon" x="641" y="488" width="32" height="32"/>
+    <text x="657" y="540">32</text>
+    <use href="#icon" x="701" y="456" width="64" height="64"/>
+    <text x="733" y="540">96 · ⅔</text>
+    <use href="#icon" x="793" y="430" width="90" height="90"/>
+    <text x="838" y="540">180 · ½</text>
+  </g>
+
+  <line x1="536" y1="566.5" x2="944" y2="566.5" stroke="#2c2e42"/>
+  <text x="536" y="590" font-size="12" fill="#9aa0b8">In context</text>
+
+  <!-- browser tabs, light + dark chrome -->
+  <rect x="536" y="602" width="198" height="40" rx="8" fill="#dee1e6"/>
+  <rect x="544" y="608" width="160" height="28" rx="6" fill="#ffffff"/>
+  <use href="#icon" x="554" y="614" width="16" height="16"/>
+  <text x="578" y="627" font-size="12" fill="#202124">My App</text>
+  <text x="694" y="627" font-size="13" fill="#5f6368" text-anchor="middle">×</text>
+
+  <rect x="746" y="602" width="198" height="40" rx="8" fill="#202124"/>
+  <rect x="754" y="608" width="160" height="28" rx="6" fill="#35363a"/>
+  <use href="#icon" x="764" y="614" width="16" height="16"/>
+  <text x="788" y="627" font-size="12" fill="#e8eaed">My App</text>
+  <text x="904" y="627" font-size="13" fill="#9aa0a6" text-anchor="middle">×</text>
+
+  <!-- home screens -->
+  <rect x="536" y="654" width="198" height="90" rx="8" fill="#2f3350"/>
+  <use href="#icon" x="611" y="664" width="48" height="48"/>
+  <text x="635" y="730" font-size="11" fill="#e4e6f0" text-anchor="middle">My App</text>
+
+  <rect x="746" y="654" width="198" height="90" rx="8" fill="#2f3350"/>
+  <circle cx="845" cy="688" r="24" fill="#ffffff"/>
+  <use href="#icon" x="828" y="671" width="34" height="34"/>
+  <text x="845" y="730" font-size="11" fill="#e4e6f0" text-anchor="middle">My App</text>
+  <g font-size="11" fill="#9aa0b8">
+    <text x="544" y="668">iOS</text>
+    <text x="754" y="668">Android</text>
+  </g>
+
+  <!-- ============ RIGHT: export rail ============ -->
+  <g font-size="13">
+    <text x="980" y="112" font-weight="600" fill="#e4e6f0">Export</text>
+
+    <use href="#check" x="980" y="128" width="16" height="16"/>
+    <text x="1004" y="141" fill="#e4e6f0">Web</text>
+    <text x="1260" y="141" text-anchor="end" font-size="12" fill="#9aa0b8">4 files</text>
+    <text x="1004" y="160" font-size="12" fill="#9aa0b8">favicon.svg · .ico · 96 px · HTML</text>
+
+    <use href="#uncheck" x="980" y="180" width="16" height="16"/>
+    <text x="1004" y="193" fill="#e4e6f0">iOS</text>
+    <text x="1260" y="193" text-anchor="end" font-size="12" fill="#9aa0b8">1 file</text>
+    <text x="1004" y="212" font-size="12" fill="#9aa0b8">apple-touch-icon 180 px</text>
+
+    <use href="#check" x="980" y="232" width="16" height="16"/>
+    <text x="1004" y="245" fill="#e4e6f0">Android / PWA</text>
+    <text x="1260" y="245" text-anchor="end" font-size="12" fill="#9aa0b8">3 files</text>
+    <text x="1004" y="264" font-size="12" fill="#9aa0b8">192 · 512 px · site.webmanifest</text>
+
+    <line x1="980" y1="288.5" x2="1260" y2="288.5" stroke="#2c2e42"/>
+
+    <text x="980" y="316" fill="#9aa0b8">Folder</text>
+    <rect x="980.5" y="326.5" width="191" height="29" rx="6" fill="#23253a" stroke="#3a3d56"/>
+    <text x="992" y="346" fill="#e4e6f0">~/Projects/site/public</text>
+    <rect x="1180.5" y="326.5" width="79" height="29" rx="6" fill="none" stroke="#3a3d56"/>
+    <text x="1220" y="346" text-anchor="middle" fill="#e4e6f0">Browse…</text>
+
+    <text x="980" y="386" fill="#9aa0b8">App name</text>
+    <rect x="980.5" y="396.5" width="279" height="29" rx="6" fill="#23253a" stroke="#3a3d56"/>
+    <text x="992" y="416" fill="#e4e6f0">My App</text>
+    <text x="980" y="444" font-size="12" fill="#9aa0b8">Written to site.webmanifest.</text>
+
+    <rect x="980" y="704" width="280" height="34" rx="7" fill="#7aa2f7"/>
+    <text x="1120" y="726" text-anchor="middle" font-weight="600" fill="#1a1b26">Export 7 files</text>
+    <text x="1120" y="756" text-anchor="middle" font-size="12" fill="#9aa0b8">Existing files are listed before overwrite.</text>
+  </g>
+</svg>
