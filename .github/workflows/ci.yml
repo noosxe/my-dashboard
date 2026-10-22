@@ -55,9 +55,10 @@ concurrency:
   group: ci-${{ github.event_name == 'schedule' && 'schedule' || github.ref }}
   cancel-in-progress: true
 
-# Pinned in lockstep with the dev shell's toolchain (flake.lock freezes
-# rust-bin.stable.latest; 1.98.0 today). Bump both together, deliberately
-# (docs/0027 D4).
+# Pinned in lockstep with the dev shell's toolchain (flake.nix names the
+# release explicitly), docker/Dockerfile and Cargo.toml `rust-version`.
+# Bump all four together, deliberately; the lint job's pin check fails
+# otherwise (docs/0027 D4).
 env:
   RUST_TOOLCHAIN: "1.98.0"
 
@@ -72,6 +73,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Toolchain pins agree (flake, CI, Dockerfile, rust-version)
+        # Cheapest step first: no toolchain needed (docs/0027 D4).
+        run: scripts/check-toolchain-pins.sh
       - name: Install system dependencies (GUI dev stack + fonts)
         # Installs ONLY what GitHub's ubuntu images do not ship
         # (docs/0027 D1): the gpui link libs + IBM Plex for font parity

@@ -49,8 +49,12 @@
         fontsConf = pkgs.makeFontsConf { fontDirectories = [ uiFont ]; };
 
         # "default" profile = rustc, cargo, clippy, rustfmt;
-        # rust-src added for rust-analyzer. Pinned by flake.lock.
-        rustToolchain = pkgs.rust-bin.stable.latest.default.override {
+        # rust-src added for rust-analyzer. Explicit version, not
+        # `stable.latest`: a `nix flake update` must not move the
+        # toolchain under CI. Lockstep with RUST_TOOLCHAIN (ci.yml),
+        # docker/Dockerfile and `rust-version` (Cargo.toml) — checked by
+        # scripts/check-toolchain-pins.sh (docs/0027 D4).
+        rustToolchain = pkgs.rust-bin.stable."1.98.0".default.override {
           extensions = [ "rust-src" ];
         };
 
