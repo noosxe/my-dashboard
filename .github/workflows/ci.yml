@@ -1,6 +1,7 @@
-# CI — the AGENTS.md gates, enforced on every PR to main and every push
-# to main that touches build-affecting paths (docs- and repo-meta-only
-# changes skip — D7). Design: docs/0027-ci-workflows.md (D1–D7).
+# CI — the AGENTS.md gates, enforced on every PR to main that touches
+# build-affecting paths (docs- and repo-meta-only changes skip — D7), and
+# on pushes to main only when the cache-key inputs change (D9).
+# Design: docs/0027-ci-workflows.md (D1–D9).
 #
 # Environment: GitHub-hosted ubuntu runners (`ubuntu-24.04`, both jobs;
 # docs/0027 §4): the hosted image ships the build baseline (gcc/make/
@@ -31,17 +32,19 @@ on:
       - ".pi/**"
       - ".gitignore"
       - "LICENSE*"
+  # Pushes to main (docs/0027 D9): the merged code already passed the
+  # PR run, so main re-runs only when an input of the rust-cache key or
+  # the dependency audit changes — manifests, lockfile, deny.toml, this
+  # workflow. Those runs re-warm the main-scoped caches every PR restores
+  # from; code-only merges would re-save an identical dependency cache.
+  # An allowlist on purpose (unlike D7): it names what the run exists for.
   push:
     branches: [main]
-    paths-ignore:
-      - "docs/**"
-      - "**/*.md"
-      - "*.md"
-      - ".agents/**"
-      - "skills-lock.json"
-      - ".pi/**"
-      - ".gitignore"
-      - "LICENSE*"
+    paths:
+      - "Cargo.lock"
+      - "**/Cargo.toml"
+      - "deny.toml"
+      - ".github/workflows/ci.yml"
   # Weekly dependency audit (docs/0027 D8): RustSec advisories appear
   # without any code change, so the `deny` job also runs on a schedule
   # (Mondays 06:00 UTC). Only `deny` runs on this event; lint/test skip.
