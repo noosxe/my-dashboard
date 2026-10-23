@@ -499,7 +499,6 @@ pub(crate) enum Trigger {
     /// for its next page near the bottom. Distinct from `Manual` (the
     /// home "Load more" click) so passive scrolling isn't billed as a
     /// deliberate action.
-    #[cfg_attr(not(test), allow(dead_code))] // docs/0081 stage 2 (#647) consumes it
     Paginate,
     Probe,
     Auth,

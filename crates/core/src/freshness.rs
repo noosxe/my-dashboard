@@ -100,13 +100,34 @@ pub fn synced_label(age: Option<Duration>) -> Option<SharedString> {
     })
 }
 
+/// The pinned wall clock for fixture captures (docs/0081 §12): in
+/// debug builds, `DASHBOARD_FIXED_NOW=<rfc3339>` freezes the "now" row
+/// ages count from, so structural goldens over fixture data don't drift
+/// with the calendar. Release builds never read it.
+pub const FIXED_NOW_ENV: &str = "DASHBOARD_FIXED_NOW";
+
+fn wall_now() -> chrono::DateTime<chrono::Utc> {
+    static PINNED: std::sync::OnceLock<Option<chrono::DateTime<chrono::Utc>>> =
+        std::sync::OnceLock::new();
+    let pinned = PINNED.get_or_init(|| {
+        if !cfg!(debug_assertions) {
+            return None;
+        }
+        std::env::var(FIXED_NOW_ENV)
+            .ok()
+            .and_then(|v| chrono::DateTime::parse_from_rfc3339(&v).ok())
+            .map(|t| t.with_timezone(&chrono::Utc))
+    });
+    pinned.unwrap_or_else(chrono::Utc::now)
+}
+
 /// GitHub-side relative timestamp for rows — "now" / "3m" / "2h" /
 /// "5d"; empty when the payload carries no parseable timestamp.
 pub fn relative_age(updated_at: Option<&str>) -> String {
     let Some(ts) = updated_at.and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok()) else {
         return String::new();
     };
-    let secs = (chrono::Utc::now() - ts.with_timezone(&chrono::Utc))
+    let secs = (wall_now() - ts.with_timezone(&chrono::Utc))
         .num_seconds()
         .max(0);
     match secs {

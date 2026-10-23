@@ -1,0 +1,65 @@
+{
+ "data": {
+  "rateLimit": null,
+  "viewer": {
+   "avatarUrl": "https://avatars.invalid/fixture-user",
+   "login": "fixture-user",
+   "organizations": {
+    "nodes": []
+   },
+   "repositories": {
+    "nodes": [
+     {
+      "databaseId": 1005,
+      "description": "Fixture repository for verification captures",
+      "hasIssuesEnabled": true,
+      "id": "R_atlas",
+      "isArchived": false,
+      "isPrivate": false,
+      "name": "atlas",
+      "nameWithOwner": "fixture-user/atlas",
+      "owner": {
+       "login": "fixture-user"
+      },
+      "pushedAt": "2026-10-23T12:00:00Z",
+      "url": "https://github.com/fixture-user/atlas"
+     },
+     {
+      "databaseId": 1006,
+      "description": "A second fixture repository",
+      "hasIssuesEnabled": true,
+      "id": "R_beacon",
+      "isArchived": false,
+      "isPrivate": false,
+      "name": "beacon",
+      "nameWithOwner": "fixture-user/beacon",
+      "owner": {
+       "login": "fixture-user"
+      },
+      "pushedAt": "2026-10-20T12:00:00Z",
+      "url": "https://github.com/fixture-user/beacon"
+     },
+     {
+      "databaseId": 1007,
+      "description": null,
+      "hasIssuesEnabled": true,
+      "id": "R_compass",
+      "isArchived": false,
+      "isPrivate": false,
+      "name": "compass",
+      "nameWithOwner": "fixture-user/compass",
+      "owner": {
+       "login": "fixture-user"
+      },
+      "pushedAt": "2026-10-14T12:00:00Z",
+      "url": "https://github.com/fixture-user/compass"
+     }
+    ],
+    "pageInfo": {
+     "endCursor": null,
+     "hasNextPage": false
+    }
+   }
+  }
+ }
+}

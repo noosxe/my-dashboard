@@ -156,6 +156,22 @@ one-shot capture receipt that walks audit.txt's exact step order,
 running `baseline <surface> --update` at each stop — the committed
 receipts only ever assert, never write (0065 D5).
 
+Signed-in GitHub surfaces run over the committed fixtures (docs/0081
+§12.1) — debug builds only, no network, no keyring:
+
+```sh
+scripts/verify.sh sh -c '
+  set -e
+  cargo build -p dashboard-app
+  export DASHBOARD_GITHUB_FIXTURE=/work/crates/debug/verify/fixtures/github
+  export DASHBOARD_FIXED_NOW=2026-10-23T12:00:00Z
+  cargo run -p dashboard-debug -- session start --name commits --size 1280x800 \
+    --binary /tmp/target/debug/my-dashboard
+  cargo run -p dashboard-debug -- run crates/debug/verify/repo-commits.txt
+  cargo run -p dashboard-debug -- session stop commits
+'
+```
+
 Interactive inspection: `scripts/verify.sh bash`.
 
 Freshness caution: cargo tracks host edits by mtime, and macOS bind

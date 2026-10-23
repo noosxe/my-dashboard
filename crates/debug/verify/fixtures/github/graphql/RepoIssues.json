@@ -1,0 +1,16 @@
+{
+ "data": {
+  "rateLimit": null,
+  "repository": {
+   "issues": {
+    "nodes": [],
+    "totalCount": 0
+   },
+   "name": "atlas",
+   "nameWithOwner": "fixture-user/atlas",
+   "owner": {
+    "login": "fixture-user"
+   }
+  }
+ }
+}

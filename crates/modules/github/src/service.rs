@@ -1034,7 +1034,6 @@ impl CommitLane {
     /// Not while a page flies, after a failed page (Retry is the user's
     /// call), past the cap, or at the end of history. The rate-limit
     /// gate sits in the spec builder.
-    #[cfg_attr(not(test), allow(dead_code))] // docs/0081 stage 2 (#647) consumes it
     pub(crate) fn can_load_more(&self) -> bool {
         self.landed.is_some()
             && !self.complete
@@ -1045,7 +1044,6 @@ impl CommitLane {
     }
 
     /// The cap stopped paging, not the end of history (D8's tail).
-    #[cfg_attr(not(test), allow(dead_code))] // docs/0081 stage 2 (#647) consumes it
     pub(crate) fn capped(&self) -> bool {
         !self.complete && self.rows.len() >= COMMITS_HELD_CAP
     }
@@ -3010,7 +3008,6 @@ impl GithubState {
     /// `loading_more` lock on success — the caller dispatches the spec.
     /// A `Manual` origin is the tail row's Retry: it clears the last
     /// page failure first.
-    #[cfg_attr(not(test), allow(dead_code))] // docs/0081 stage 2 (#647) consumes it
     pub(crate) fn commits_more_spec(
         &mut self,
         full_name: &str,
@@ -3053,7 +3050,6 @@ impl GithubState {
     /// docs/0081 D3 — read a commits book and stamp it most recently
     /// used (the tab calls this on entry so a visited book outlives the
     /// LRU).
-    #[cfg_attr(not(test), allow(dead_code))] // docs/0081 stage 2 (#647) consumes it
     pub(crate) fn touch_commit_lane(&mut self, full_name: &str, rk: &RefKey) {
         self.commit_lane_clock += 1;
         let stamp = self.commit_lane_clock;
