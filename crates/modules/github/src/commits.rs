@@ -1,6 +1,7 @@
-//! Commits tab (docs/0081 stage 2): the day-grouped virtual list over a
-//! commits book (D5/D6) and its pure model — local-day sections, the
-//! loaded-rows quick filter (F2) and the row's accessible name.
+//! Commits tab (docs/0081 stages 2–3): the day-grouped virtual list over
+//! a commits book (D5/D6) and its pure model — local-day sections, the
+//! loaded-rows quick filter (F2) and the row's accessible name — plus
+//! the D7 branch selector's items, search delegate and branch source.
 //!
 //! Ownership: the book lives on `GithubState::commit_lanes` (D3); the
 //! page copies the active book's rows into [`CommitsDelegate`] through
@@ -17,6 +18,7 @@ use gpui_component::{
     button::{Button, ButtonVariants},
     h_flex,
     list::{ListDelegate, ListItem, ListState},
+    searchable_list::{SearchableListDelegate, SearchableListItem, SearchableVec},
     spinner::Spinner,
     tag::Tag,
     tooltip::Tooltip,
@@ -25,8 +27,10 @@ use gpui_component::{
 
 use dashboard_core::freshness::relative_age;
 
+use crate::card::GIT_BRANCH;
 use crate::gql::{self, CommitRow};
 use crate::page::{GithubPage, ci_row_glyph};
+use crate::service::{GithubState, RefKey, SpecResult};
 use crate::usage::{Origin, Surface, Trigger};
 
 /// One local calendar day of commits (D5): `start..start + len` into
@@ -520,6 +524,223 @@ impl RenderOnce for CopyShaButton {
     }
 }
 
+// --- D7: the branch selector ---------------------------------------------
+
+/// docs/0081 D7 — one branch in the ref selector. The value is the
+/// short branch name; the default branch carries a "default" tag in the
+/// menu.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct RefItem {
+    pub name: SharedString,
+    pub default: bool,
+}
+
+impl SearchableListItem for RefItem {
+    type Value = SharedString;
+
+    fn title(&self) -> SharedString {
+        self.name.clone()
+    }
+
+    /// The trigger reads as GitHub's branch button: glyph + name.
+    fn display_title(&self) -> Option<AnyElement> {
+        Some(
+            h_flex()
+                .gap_1p5()
+                .items_center()
+                .min_w_0()
+                .child(Icon::empty().path(GIT_BRANCH).size_3p5())
+                .child(div().truncate().child(self.name.clone()))
+                .into_any_element(),
+        )
+    }
+
+    fn render(&self, _: &mut Window, _: &mut App) -> impl IntoElement {
+        h_flex()
+            .w_full()
+            .min_w_0()
+            .gap_2()
+            .justify_between()
+            .child(div().truncate().child(self.name.clone()))
+            .when(self.default, |row| {
+                row.child(Tag::secondary().outline().small().child("default"))
+            })
+    }
+
+    fn value(&self) -> &SharedString {
+        &self.name
+    }
+}
+
+/// docs/0081 D7 — the selector's items: the default branch first (as
+/// GitHub lists it), then the page's branches in its alphabetical
+/// order, plus the current ref when the page doesn't hold it (a branch
+/// picked from a server search). Deduplicated.
+pub(crate) fn ref_items(
+    names: &[String],
+    default_name: Option<&str>,
+    current: Option<&str>,
+) -> Vec<RefItem> {
+    let mut items: Vec<RefItem> = Vec::with_capacity(names.len() + 2);
+    let mut push = |name: &str| {
+        if !items.iter().any(|i| i.name.as_ref() == name) {
+            items.push(RefItem {
+                name: name.to_string().into(),
+                default: Some(name) == default_name,
+            });
+        }
+    };
+    if let Some(d) = default_name {
+        push(d);
+    }
+    for n in names {
+        push(n);
+    }
+    if let Some(c) = current {
+        push(c);
+    }
+    items
+}
+
+/// docs/0081 D7 — the book a picked branch name selects: the default
+/// branch shares the `RefKey::Default` book (one book, one clock),
+/// anything else is a branch book.
+pub(crate) fn ref_key_for(name: &str, default_name: Option<&str>) -> RefKey {
+    if Some(name) == default_name {
+        RefKey::Default
+    } else {
+        RefKey::Branch(name.to_string())
+    }
+}
+
+/// docs/0081 D7 — the branch list behind the selector, page-owned and
+/// fetched lazily on the selector's first open per repo selection (the
+/// docs/0044 picker-source pattern). Not retained across repos.
+#[derive(Default)]
+pub(crate) struct RefSource {
+    /// The repo this source was fetched for.
+    pub repo: Option<String>,
+    /// The alphabetical default page: `None` = not fetched yet.
+    pub page: Option<Result<gql::RepoBranches, String>>,
+    pub loading: bool,
+    /// docs/0044 §9 — the server-filtered page for the live query, only
+    /// fetched when the default page is truncated (more than 100
+    /// branches).
+    pub search: Option<gql::RepoBranches>,
+    /// Debounce generation for `search`.
+    pub search_gen: u64,
+}
+
+impl RefSource {
+    /// Should opening the selector fetch? A first open for this repo,
+    /// or a reopen after a failure (retry on reopen).
+    pub(crate) fn needs_fetch(&self, repo: &str) -> bool {
+        if self.repo.as_deref() != Some(repo) {
+            return true;
+        }
+        !self.loading && !matches!(self.page, Some(Ok(_)))
+    }
+
+    /// The landed default page for `repo`, if any.
+    pub(crate) fn page_for(&self, repo: &str) -> Option<&gql::RepoBranches> {
+        match (&self.page, self.repo.as_deref() == Some(repo)) {
+            (Some(Ok(page)), true) => Some(page),
+            _ => None,
+        }
+    }
+
+    /// The names the selector lists for `repo`: the live search page
+    /// while one is held, else the default page.
+    pub(crate) fn names_for(&self, repo: &str) -> &[String] {
+        if self.repo.as_deref() != Some(repo) {
+            return &[];
+        }
+        self.search
+            .as_ref()
+            .or(self.page_for(repo))
+            .map(|p| p.names.as_slice())
+            .unwrap_or(&[])
+    }
+}
+
+/// docs/0044 D4 — parse a `RepoBranches` result the 0007 raw-envelope
+/// way. A non-200 is forwarded to the shared handling first (auth loss,
+/// rate-limit pause), then reported as the failure.
+pub(crate) fn branches_from_result(
+    result: SpecResult,
+    state: &Entity<GithubState>,
+    cx: &mut App,
+) -> Result<gql::RepoBranches, String> {
+    if let Some(m) = &result.network {
+        return Err(format!("Network error: {m}"));
+    }
+    if result.status != 200 {
+        let status = result.status;
+        state.update(cx, |s, cx| {
+            s.apply(result);
+            cx.notify();
+        });
+        return Err(format!("GitHub answered HTTP {status}"));
+    }
+    let body = result.body.ok_or_else(|| "Empty response".to_string())?;
+    let env = serde_json::from_str::<gql::Envelope<serde_json::Value>>(&body)
+        .map_err(|e| format!("Malformed payload ({e})"))?;
+    let empty = serde_json::Value::Null;
+    let repo = env
+        .data
+        .as_ref()
+        .and_then(|d| d.get("repository"))
+        .unwrap_or(&empty);
+    Ok(gql::branches_from_value(repo))
+}
+
+/// docs/0044 §9 / docs/0081 D7 — the selector's delegate:
+/// [`SearchableVec`]'s instant local filter, plus a ping that lets the
+/// page swap in a server-filtered page when the repo has more branches
+/// than the loaded page holds.
+pub(crate) struct RefSearchDelegate {
+    inner: SearchableVec<RefItem>,
+    page: WeakEntity<GithubPage>,
+}
+
+impl RefSearchDelegate {
+    pub(crate) fn new(items: Vec<RefItem>, page: WeakEntity<GithubPage>) -> Self {
+        Self {
+            inner: SearchableVec::new(items),
+            page,
+        }
+    }
+}
+
+impl SearchableListDelegate for RefSearchDelegate {
+    type Item = RefItem;
+
+    fn items_count(&self, _section: usize) -> usize {
+        self.inner.items_count(0)
+    }
+
+    fn item(&self, ix: IndexPath) -> Option<&Self::Item> {
+        self.inner.item(ix)
+    }
+
+    fn position<V>(&self, value: &V) -> Option<IndexPath>
+    where
+        Self::Item: SearchableListItem<Value = V>,
+        V: PartialEq,
+    {
+        self.inner.position(value)
+    }
+
+    fn perform_search(&mut self, query: &str, window: &mut Window, cx: &mut App) -> Task<()> {
+        let local = self.inner.perform_search(query, window, cx);
+        let query = query.trim().to_string();
+        let _ = self.page.update_in(cx, |page, window, cx| {
+            page.queue_ref_search(query, window, cx);
+        });
+        local
+    }
+}
+
 #[cfg(test)]
 mod tests {
     // Named imports: the parent's `gpui::*` glob carries gpui's own
@@ -689,5 +910,62 @@ mod tests {
         assert!(!d.may_page(), "a non-empty filter stops paging");
         assert!(d.set_book(&rows, "", false));
         assert!(!d.may_page(), "the book's own gate");
+    }
+
+    #[test]
+    fn ref_items_put_the_default_first_and_keep_the_pick() {
+        use super::ref_items;
+        let names = ["feat".to_string(), "main".to_string(), "zeta".to_string()];
+        let items = ref_items(&names, Some("main"), Some("main"));
+        let got: Vec<(&str, bool)> = items.iter().map(|i| (i.name.as_ref(), i.default)).collect();
+        assert_eq!(got, [("main", true), ("feat", false), ("zeta", false)]);
+        // A branch picked from a server search stays listed.
+        let items = ref_items(&names, Some("main"), Some("far/away"));
+        assert_eq!(items.last().unwrap().name.as_ref(), "far/away");
+        // Before any fetch: just the current ref.
+        let items = ref_items(&[], Some("main"), Some("main"));
+        assert_eq!(items.len(), 1);
+        assert!(ref_items(&[], None, None).is_empty());
+    }
+
+    #[test]
+    fn ref_key_maps_the_default_branch_to_the_default_book() {
+        use super::ref_key_for;
+        use crate::service::RefKey;
+        assert_eq!(ref_key_for("main", Some("main")), RefKey::Default);
+        assert_eq!(
+            ref_key_for("feat", Some("main")),
+            RefKey::Branch("feat".into())
+        );
+        assert_eq!(ref_key_for("main", None), RefKey::Branch("main".into()));
+    }
+
+    #[test]
+    fn ref_source_fetches_once_per_repo_and_retries_failures() {
+        use super::RefSource;
+        let mut src = RefSource::default();
+        assert!(src.needs_fetch("o/r"));
+        src.repo = Some("o/r".into());
+        src.loading = true;
+        assert!(!src.needs_fetch("o/r"), "in flight");
+        src.loading = false;
+        src.page = Some(Err("boom".into()));
+        assert!(src.needs_fetch("o/r"), "a failure retries on reopen");
+        assert!(src.names_for("o/r").is_empty());
+        src.page = Some(Ok(gql::RepoBranches {
+            default_branch: Some("main".into()),
+            total_count: 1,
+            names: vec!["main".into()],
+        }));
+        assert!(!src.needs_fetch("o/r"));
+        assert!(src.needs_fetch("o/other"), "a new repo fetches its own");
+        assert_eq!(src.names_for("o/r"), ["main".to_string()]);
+        assert!(src.names_for("o/other").is_empty());
+        src.search = Some(gql::RepoBranches {
+            default_branch: None,
+            total_count: 1,
+            names: vec!["feat-x".into()],
+        });
+        assert_eq!(src.names_for("o/r"), ["feat-x".to_string()]);
     }
 }

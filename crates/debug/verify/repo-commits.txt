@@ -15,8 +15,12 @@
 # and expect, in order: no `fetch repo-commits` before the tab click;
 # exactly one `fetch repo-commits` after it; `commits: opened <sha>`
 # for the Enter; `commits: next page … (paginate)` lines with
-# `repo-commits-more applied` up to `120 of 120 held, complete`; and no
-# further commits flight after the filter text.
+# `repo-commits-more applied` up to `120 of 120 held, complete`; no
+# further commits flight after the filter text; then (docs/0081 D7)
+# exactly one `fetch repo-branches` on the selector's open, `commits:
+# fixture-user/atlas now on feature/ref-picker` and one `fetch
+# repo-commits: fixture-user/atlas:feature/ref-picker` landing `Fresh,
+# 6 of 6 held`.
 #
 # Ids are element-path ids, stable for this exact walk from a fresh
 # boot (history re-keys them — the audit.txt contract; re-derive with
@@ -63,6 +67,11 @@ key enter
 # Scroll to the end: the list pages itself (`Trigger::Paginate`) until
 # history is complete.
 # Each page landing redraws, so each scroll pairs with a frame wait.
+# A scroll that lands while the previous page still flies is absorbed by
+# the single-flight lock, so one spare pair covers that race (scrolling
+# at the end of history is a no-op).
+mouse scroll 900 500 -20000
+wait-frame
 mouse scroll 900 500 -20000
 wait-frame
 mouse scroll 900 500 -20000
@@ -76,3 +85,30 @@ click 8982527431771287529
 type parser
 assert-label "No loaded commits match"
 assert-label "Filtering 120 loaded commits; clear to load more"
+
+# D7 ref selector. Clear the filter first (the field still has focus).
+key backspace
+key backspace
+key backspace
+key backspace
+key backspace
+key backspace
+wait-frame
+assert-label "Beginning of history · 120 commits"
+
+# The first open fetches the branch list (one `fetch repo-branches`);
+# the menu's search box takes focus. Its rows carry no accessible name
+# upstream (the List gap, #661) — the pick goes through the search.
+click 343177776538413344 --wait-frame
+assert-label "Find a branch…"
+type ref
+key enter
+wait-frame
+wait-frame
+
+# The tab is on the branch's own book: its rows replaced main's.
+assert-label "Commits on feature/ref-picker"
+assert-no-label "Commits on main"
+assert-label "github: ref selector in the commits header (#800) — fixture-user, committed 20m, CI: pending, b5c0ffe"
+assert-label "Beginning of history · 6 commits"
+audit

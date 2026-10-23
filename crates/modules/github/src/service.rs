@@ -924,8 +924,9 @@ pub(crate) enum RepoLane {
     Issues,
     Notifications,
     /// docs/0081 D1 — the Commits tab's lane. Its rows live in
-    /// [`GithubState::commit_lanes`], not on the repo entry; the
-    /// `rows_landed` clock tracks the default ref's book.
+    /// [`GithubState::commit_lanes`], not on the repo entry; each book
+    /// carries its own landing clock (D7), and `rows_landed` mirrors the
+    /// default ref's for the agent view.
     Commits,
 }
 
@@ -3101,21 +3102,107 @@ impl GithubState {
         min_age: Duration,
         origin: Origin,
     ) -> Option<FetchSpec> {
-        if let Some(attempted_at) = self.rows_attempted_at
-            && self.rows_fail_streak > 0
-            && attempted_at.elapsed()
-                < dashboard_core::freshness::backoff_delay(self.rows_fail_streak)
-        {
-            return None;
+        if lane == RepoLane::Commits {
+            return self.commits_refresh_spec(full_name, &RefKey::Default, min_age, origin);
         }
-        if self
-            .rows_landed
-            .get(&(full_name.to_string(), lane))
-            .is_some_and(|t| t.elapsed() < min_age)
+        if self.rows_backing_off()
+            || self
+                .rows_landed
+                .get(&(full_name.to_string(), lane))
+                .is_some_and(|t| t.elapsed() < min_age)
         {
             return None;
         }
         Some(self.repo_lane_spec(full_name, lane, origin))
+    }
+
+    /// docs/0081 D7 — the commits lane's refresh gate for one ref: the
+    /// same per-repo backoff, aged by that book's own landing clock, so
+    /// a held branch book paints and stays quiet inside `min_age` and a
+    /// never-landed (or evicted) one fetches.
+    pub(crate) fn commits_refresh_spec(
+        &self,
+        full_name: &str,
+        rk: &RefKey,
+        min_age: Duration,
+        origin: Origin,
+    ) -> Option<FetchSpec> {
+        if self.rows_backing_off()
+            || self
+                .commits_landed(full_name, rk)
+                .is_some_and(|t| t.elapsed() < min_age)
+        {
+            return None;
+        }
+        Some(self.commits_spec(full_name, rk, origin))
+    }
+
+    /// The repo view's active tab, ref-aware (docs/0081 D7): the
+    /// Commits tab's page 1 follows the selected ref's book; the other
+    /// lanes ignore `rk`.
+    pub(crate) fn repo_tab_spec(
+        &self,
+        full_name: &str,
+        lane: RepoLane,
+        rk: &RefKey,
+        origin: Origin,
+    ) -> FetchSpec {
+        match lane {
+            RepoLane::Commits => self.commits_spec(full_name, rk, origin),
+            _ => self.repo_lane_spec(full_name, lane, origin),
+        }
+    }
+
+    /// [`Self::repo_lane_refresh_specs`], ref-aware for the Commits tab
+    /// (docs/0081 D7).
+    pub(crate) fn repo_tab_refresh_spec(
+        &self,
+        full_name: &str,
+        lane: RepoLane,
+        rk: &RefKey,
+        min_age: Duration,
+        origin: Origin,
+    ) -> Option<FetchSpec> {
+        match lane {
+            RepoLane::Commits => self.commits_refresh_spec(full_name, rk, min_age, origin),
+            _ => self.repo_lane_refresh_specs(full_name, lane, min_age, origin),
+        }
+    }
+
+    /// The active tab's landing clock (docs/0037 D6), ref-aware for the
+    /// Commits tab (docs/0081 D7) — the freshness cluster's label and
+    /// the skeleton gate read it.
+    pub(crate) fn repo_tab_landed(
+        &self,
+        full_name: &str,
+        lane: RepoLane,
+        rk: &RefKey,
+    ) -> Option<Instant> {
+        match lane {
+            RepoLane::Commits => self.commits_landed(full_name, rk),
+            _ => self
+                .rows_landed
+                .get(&(full_name.to_string(), lane))
+                .copied(),
+        }
+    }
+
+    /// docs/0081 D7 — when this `(repo, ref)` book's page 1 last
+    /// landed; `None` = never (or evicted). The clock the Commits tab's
+    /// freshness cluster and refresh gate read.
+    pub(crate) fn commits_landed(&self, full_name: &str, rk: &RefKey) -> Option<Instant> {
+        self.commit_lanes
+            .get(&(full_name.to_string(), rk.clone()))
+            .and_then(|l| l.landed)
+    }
+
+    /// docs/0036 D3 — the per-repo rows backoff is still running.
+    fn rows_backing_off(&self) -> bool {
+        self.rows_attempted_at.is_some_and(|attempted_at| {
+            self.rows_fail_streak > 0
+                && attempted_at.elapsed()
+                    < dashboard_core::freshness::backoff_delay(self.rows_fail_streak)
+        })
     }
 
     /// The agent surface's tab-agnostic view of "this repo's rows
@@ -10950,6 +11037,65 @@ mod tests {
         let spec = state.commits_spec("o/r", &RefKey::Branch("feat".into()), Origin::BACKGROUND);
         assert_eq!(spec.ident.as_deref(), Some("o/r:feat"));
         assert_eq!(spec.variables.unwrap()["ref"], "refs/heads/feat");
+    }
+
+    #[test]
+    fn commits_refresh_gate_is_per_ref() {
+        // D7: each (repo, ref) book gates on its own landing clock — a
+        // landed default book doesn't hide a never-fetched branch, and
+        // an evicted book refetches.
+        let mut state = connected_state();
+        let feat = RefKey::Branch("feat".into());
+        let min_age = Duration::from_secs(60);
+        state.apply(commits_result(
+            Kind::RepoCommits,
+            "o/r",
+            commits_body(1, None, &["c1"]),
+            None,
+        ));
+        assert!(
+            state
+                .commits_refresh_spec("o/r", &RefKey::Default, min_age, Origin::BACKGROUND)
+                .is_none()
+        );
+        let spec = state
+            .repo_tab_refresh_spec("o/r", RepoLane::Commits, &feat, min_age, Origin::BACKGROUND)
+            .expect("a fresh branch book fetches");
+        assert_eq!(spec.ident.as_deref(), Some("o/r:feat"));
+        assert!(
+            state
+                .repo_tab_landed("o/r", RepoLane::Commits, &feat)
+                .is_none()
+        );
+        state.apply(commits_result(
+            Kind::RepoCommits,
+            "o/r:feat",
+            commits_body(1, None, &["f1"]),
+            None,
+        ));
+        assert!(
+            state
+                .repo_tab_landed("o/r", RepoLane::Commits, &feat)
+                .is_some()
+        );
+        assert!(
+            state
+                .commits_refresh_spec("o/r", &feat, min_age, Origin::BACKGROUND)
+                .is_none(),
+            "a held branch book is age-gated"
+        );
+        assert_eq!(held_oids(&state, feat.clone()), ["f1"]);
+        // The branch landing leaves the default lane clock alone.
+        assert_eq!(held_oids(&state, RefKey::Default), ["c1"]);
+        state
+            .commit_lanes
+            .remove(&("o/r".to_string(), RefKey::Default));
+        assert!(
+            state
+                .repo_lane_refresh_specs("o/r", RepoLane::Commits, min_age, Origin::BACKGROUND)
+                .is_some(),
+            "an evicted book refetches even with rows_landed fresh"
+        );
     }
 
     #[test]

@@ -80,21 +80,53 @@ def commit(i):
     }
 
 
-def history(start, count):
-    nodes = [commit(i) for i in range(start, start + count)]
+def history(start, count, total=TOTAL, make=None):
+    make = make or commit
+    nodes = [make(i) for i in range(start, start + count)]
     end = start + count
-    more = end < TOTAL
+    more = end < total
     return {
-        "oid": oid(0),
+        "oid": make(0)["oid"],
         "history": {
-            "totalCount": TOTAL,
+            "totalCount": total,
             "pageInfo": {
                 "hasNextPage": more,
-                "endCursor": f"{oid(0)} {end - 1}" if more else None,
+                "endCursor": f"{make(0)['oid']} {end - 1}" if more else None,
             },
             "nodes": nodes,
         },
     }
+
+
+# docs/0081 D7: the ref selector's branch list and one picked branch.
+# The fixture transport answers by operation name, so every picked
+# branch serves this history — the receipt picks BRANCH.
+BRANCHES = ["feature/ref-picker", "main", "release/1.0"]
+BRANCH = "feature/ref-picker"
+BRANCH_TOTAL = 6
+BRANCH_HEADLINES = [
+    "github: ref selector in the commits header",
+    "github: per-ref freshness clock",
+    "verify: branch fixtures for the receipts",
+]
+
+
+def branch_commit(i):
+    # Newer than main's tip and on its own oids, so a pick visibly
+    # swaps every row.
+    c = commit(i)
+    o = f"{(i * 2246822519 + 0xB5C0FFEE) % (1 << 32):08x}" + f"{i + 0xBB00:032x}"
+    c.update(
+        oid=o,
+        abbreviatedOid=o[:7],
+        messageHeadline=f"{BRANCH_HEADLINES[i % len(BRANCH_HEADLINES)]} (#{800 - i})",
+        url=f"https://github.com/{FULL}/commit/{o}",
+        signature=None,
+        statusCheckRollup={"state": "PENDING" if i == 0 else "SUCCESS"},
+    )
+    t = NOW - timedelta(minutes=20 + i * 90)
+    c["committedDate"] = c["authoredDate"] = iso(t)
+    return c
 
 
 def repo(name, desc, pushed_days):
@@ -209,6 +241,32 @@ def main():
             {"data": {"rateLimit": RATE, "repository": {"object": history(s, min(PAGE, TOTAL - s))}}}
             for s in range(PAGE, TOTAL, PAGE)
         ],
+    )
+    write(
+        "graphql/RepoBranches.json",
+        {
+            "data": {
+                "rateLimit": RATE,
+                "repository": {
+                    "defaultBranchRef": {"name": "main"},
+                    "refs": {"totalCount": len(BRANCHES), "nodes": [{"name": n} for n in BRANCHES]},
+                },
+            }
+        },
+    )
+    write(
+        "graphql/RepoCommitsRef.json",
+        {
+            "data": {
+                "rateLimit": RATE,
+                "repository": {
+                    "ref": {
+                        "name": BRANCH,
+                        "target": history(0, BRANCH_TOTAL, BRANCH_TOTAL, branch_commit),
+                    }
+                },
+            }
+        },
     )
     write("rest/notifications.json", [])
     write(f"rest/repos_{VIEWER}_{REPO}_notifications.json", [])
