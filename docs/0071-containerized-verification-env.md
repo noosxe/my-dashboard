@@ -4,6 +4,9 @@
 #523 into a committed, reproducible environment: `docker/Dockerfile`,
 `docker/entrypoint.sh` and `scripts/verify.sh`.*
 
+> **Amended 2026-10-23** (D9): UI receipts are captured only here, never
+> on the macOS host; signed-in surfaces use the docs/0081 §12.1 fixtures.
+
 ## 1. Context
 
 docs/0065 receipts (audit, tab-stops, critique) require a Linux session:
@@ -113,6 +116,19 @@ reviewed like any code.
 Root inside the container is fine; the isolation boundary is the
 container itself. Only the repo is mounted — never `$HOME`, never
 credential stores, never the Docker socket.
+
+### D9 — UI receipts are container-only *(amendment, 2026-10-23)*
+
+Owner policy: **no UI captures on the host.** Every UI receipt is
+captured in this environment and nowhere else: `audit`, `tree
+--tab-stops`, `assert-baseline` and structural goldens, `critique`
+screenshots, and pixel goldens. The macOS host may build, run unit
+tests and attach the bridge for logs, but it never produces a receipt or
+a screenshot. Surfaces that need signed-in or external data render here
+through the GitHub fixture mode (docs/0081 §12.1:
+`DASHBOARD_GITHUB_FIXTURE` + `DASHBOARD_FIXED_NOW`, debug builds only),
+not through a real account. A surface that can't be reached that way
+gets a fixture extension, not a host capture.
 
 ## 3. The pieces
 
