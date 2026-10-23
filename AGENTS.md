@@ -95,6 +95,13 @@ verification in one command.
 - **Never reach for OS-level input injection** (xdotool, ydotool, enigo,
   …). The bridge is the sanctioned path and exists precisely so agents
   don't disturb the owner's machine.
+- **No UI captures on the host** (docs/0071 D9). Every UI receipt —
+  `audit`, `tree --tab-stops`, `assert-baseline`/goldens, `critique`
+  screenshots — is captured only in the containerized verification env
+  (docs/0071), never on the macOS host. Surfaces that need signed-in or
+  external data render there through the GitHub fixture mode (docs/0081
+  §12.1); a surface it can't reach gets a fixture extension, not a host
+  capture.
 - Node ids are the `accesskit_id` strings from `tree` output (stable for
   the run); the top-level `nodes` map keys are ephemeral and change per
   dump.
