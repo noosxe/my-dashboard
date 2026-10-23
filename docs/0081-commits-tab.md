@@ -584,6 +584,9 @@ The owner asked for these to be named, not silently deviated from.
   fixture-backed repo.
 - **0065 D7 critique** before/after (the before is the three-tab view,
   the after is the Commits tab), max 3 iterations, findings in the PR.
+  As shipped, the before is the Open PRs tab of the same fixture repo
+  (§12.1): main has no fixture mode, so no signed-in "three-tab" frame
+  exists to capture there.
 - **Anchor (D8):** **Linear** for list-dense restraint (rows, day
   headers, muted metadata), with **Zed** (provisional) as the dev-tool
   register. The gpui-component `story` List and Avatar panels are the
@@ -596,7 +599,7 @@ The owner asked for these to be named, not silently deviated from.
    `Kind::RepoCommits` plus the more query (D2 shapes, live-verified in
    §2 fact 11), `CommitLane`
    book, prepend-merge, `Trigger::Paginate`, unit tests.
-2. **UI:** `RepoTab::Commits`, the `CommitsDelegate` (`List` sections,
+2. **UI** (**shipped**, #647; see §12): `RepoTab::Commits`, the `CommitsDelegate` (`List` sections,
    rows, states), the D9 layout, the copy SHA, the a11y and ids, the
    receipt, the goldens and the 0065 receipts.
 3. The ref selector (Q2 resolved: ships in v1) over `RepoBranches`, with
@@ -643,6 +646,115 @@ recorded here because docs must match shipped behavior.
   `REPO_COMMITS_MORE_QUERY` and `REPO_COMMITS_REF_QUERY`, run verbatim
   against `noosxe/my-dashboard`, each billed `rateLimit.cost = 1` and
   returned 50 rows. Page 2 continued from `"<tip> 49"` to `"<tip> 99"`.
+
+## 12 Implementation notes (stage 2, #647, 2026-10-23)
+
+The tab UI shipped as designed, with these refinements:
+
+- **Where the states render.** The `List` mounts only over a non-empty
+  result. The skeleton (a day-header bar over six two-line rows), "No
+  commits on <ref>", the page-1 error with **Retry** (`commits-retry`)
+  and the filtered no-match cell ("No loaded commits match",
+  `commits-no-match`, the other tabs' top-left muted cell) all render in
+  its place. The no-match cell sits outside the `List` because the
+  pinned `List` keeps drawing a stale scrollbar thumb once its rows go
+  to zero (critique iteration 2).
+- **The tail is a strip below the list, not a virtual row.** The pinned
+  `List` sizes every section footer from section 0's footer
+  (`prepare_items_if_needed`), so a footer on the last day only would
+  either pad every day or collapse. `commits-more` is a fixed strip
+  under the list, in the mockup's position, with `Role::Status` and its
+  text as the accessible name. It shows the D8 tail states: loading
+  (spinner), the load-more error with **Retry** (`commits-more-retry`,
+  `Trigger::Manual`), "Beginning of history · N commits", the cap link
+  "Older history on GitHub ↗" (`commits-cap-link`, to
+  `github.com/<repo>/commits/<ref>`), the filtering note, and otherwise
+  "N commits loaded". A new filter text scrolls the list back to the
+  top.
+- **Copy button, not `Clipboard`.** The pinned `Clipboard` renders a
+  `Button` that is always a tab stop. That would put one stop per
+  visible row inside the list, against D6's single stop.
+  `commit-copy-<oid12>` is the same ghost icon button with the same
+  two-second check mark, `tab_stop(false)`, the tooltip "Copy full SHA"
+  and the label "Copy SHA <short>". Keyboard copy stays
+  secondary-confirm.
+- **The body header** (`commits-header`) carries the ref name on the
+  left once page 1 has resolved it (`commits-ref`, with the octicon
+  `git-branch-16` glyph, vendored at `crates/app/assets/icons/` like the
+  lock and the mark, because the kit's asset source embeds only its
+  default icon set) and "N commits" on the right (`commits-count`,
+  `history.totalCount`). Stage 3 (#648) replaces the ref label with
+  D7's `Select`.
+- **Accessibility structure.** The pinned `ListState` owns the `List`
+  node and wraps each row in its own `ListItem` node (position, size,
+  selected); neither takes a label, and a label on a role-less element
+  produces no node at all. So:
+  - the list's name "Commits on <ref>" sits on a `Role::Group` wrapper
+    (`commits-list`) around the `List`;
+  - each row's D6 label sits on a `Role::Group` node inside its
+    `ListItem` (the `ListItem` itself stays unnamed — an upstream gap);
+  - day headers are `Role::Heading`, level 3;
+  - the list's focus handle is made a tab stop (the pinned `ListState`
+    creates it without one; the flag lives on the shared handle), so
+    Tab from the strip reaches the list and ↑/↓/Enter work.
+  The upstream `List` also numbers `position_in_set` per day section
+  (the row index within its section) against a whole-list
+  `size_of_set`; filed upstream-side, not worked around.
+- **Lifecycle.** The `ListState` entity is built in the page
+  constructor's deferred step: built inline in `new` it would renumber
+  every later element-path accesskit id at boot (the #610 re-key), and
+  built on first show its own element ids depend on how many entities
+  exist at that moment, which varies run to run. The deferred step is a
+  fixed point in boot, so the list's ids are stable across runs; it
+  still renumbers the ids of entities created later (the usage page,
+  quota tab and hub), so those goldens and `audit.txt`'s quota-tab
+  click were re-keyed in the same PR, with identical structure.
+- **Sync.** The page copies the active book into `CommitsDelegate` at
+  render time while the tab is active. The copy is compare-first, so
+  an unchanged book doesn't re-notify the list. Day sections are
+  recomputed from the filtered rows on every change, using the
+  reader's local timezone.
+- **Scroll anchoring (D4/D9).** A prepend while the reader is scrolled
+  down shifts the offset by the content-height delta (the virtual
+  list's max-offset change, read a frame or two later). At the top the
+  new commits simply show. A replaced book (`rewritten`) and a repo
+  switch scroll back to the top. `rewritten` shows a muted line above
+  the list ("History was rewritten — showing the latest commits").
+- **`ci_row_glyph`** moved from a `GithubPage` method to a module
+  function, so the commits delegate (rendered in the `ListState`'s
+  context) shares the PR rows' glyph, color and tooltip contract.
+- **Logs.** `commits: opened <sha> on GitHub`, `commits: copied <oid>`
+  and `commits: next page of <repo> (<trigger>)` (debug level) are the
+  receipt's evidence for the open, the copy and the `Paginate` pages.
+
+### 12.1 Verification fixtures (container captures)
+
+The docs/0071 container has no network credentials and no keyring, so
+no signed-in GitHub surface could be driven or captured there. Stage 2
+adds a debug-build-only fixture mode:
+
+- **`DASHBOARD_GITHUB_FIXTURE=<dir>`** swaps the module's transport and
+  token store (`fixture.rs`): a fake non-expiring token that never
+  touches the keychain, and an offline `Http` that answers
+  `query <Operation>` from `<dir>/graphql/<Operation>.json` and
+  `GET /<path>` from `<dir>/rest/<path with / as _>.json`. A JSON array
+  file is a sequence (the n-th request gets element n, the last
+  repeats) for paginated lanes. A missing file answers 404 and logs
+  `github fixture: no file <path>`; writes are refused. Release builds
+  never read the variable.
+- **`DASHBOARD_FIXED_NOW=<rfc3339>`** pins the clock behind
+  `relative_age` (debug builds only), so row ages — and therefore the
+  structural goldens — don't drift with the calendar.
+- **The fixture set** lives at `crates/debug/verify/fixtures/github/`
+  with its generator (`generate.py`): viewer `fixture-user`, three
+  repositories, and `fixture-user/atlas` with 120 commits over a month
+  (pages of 50, 50, 20), mixed signatures, CI states and an unlinked
+  author. It carries no rate-limit data on purpose: the usage chip
+  counts down to the reset on the real clock.
+- **The receipt** `crates/debug/verify/repo-commits.txt` replays §8 over
+  it, and `snapshots/github-commits.json` is its golden.
+  `snapshots/github.json` did not drift: it captures the signed-out
+  module, which this stage doesn't change.
 
 ## 10 Mockup
 

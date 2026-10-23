@@ -17,6 +17,9 @@ use crate::usage::{Origin, Surface, Trigger};
 pub(crate) const GITHUB_MARK: &str = "icons/github.svg";
 /// Private-repo lock glyph (octicon lock-16, @primer/octicons 19.33.0).
 pub(crate) const REPO_LOCK: &str = "icons/lock.svg";
+/// The branch glyph (docs/0081 D5, octicon `git-branch-16`, served by the
+/// app's asset source like the lock).
+pub(crate) const GIT_BRANCH: &str = "icons/git-branch.svg";
 
 /// The GitHub-mark SVG element (served by the app's asset source).
 pub(crate) fn github_mark(cx: &App) -> impl IntoElement {

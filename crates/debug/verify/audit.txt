@@ -73,7 +73,11 @@ assert-baseline usage-overview
 # The quota tab is the usage surface's other half (#535); its golden
 # pins the empty-ledger shape (a seeded-ledger re-capture is tracked
 # separately).
-click 3064783294597837295 --wait-frame
+# Its id moved with the GitHub page's Commits list (docs/0081 §12, an
+# entity built in the page's deferred boot step): usage, quota and hub
+# ids re-keyed with structure identical (id-agnostic compare in that
+# PR); the sidebar, bell and home-card ids held.
+click 11090856427906237462 --wait-frame
 assert-label "Group by dimension"
 assert-baseline usage-quota
 

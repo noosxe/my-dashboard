@@ -1,0 +1,39 @@
+{
+ "data": {
+  "rateLimit": null,
+  "viewer": {
+   "repositories": {
+    "nodes": [
+     {
+      "issues": {
+       "totalCount": 0
+      },
+      "pullRequests": {
+       "totalCount": 0
+      }
+     },
+     {
+      "issues": {
+       "totalCount": 0
+      },
+      "pullRequests": {
+       "totalCount": 0
+      }
+     },
+     {
+      "issues": {
+       "totalCount": 0
+      },
+      "pullRequests": {
+       "totalCount": 0
+      }
+     }
+    ],
+    "pageInfo": {
+     "endCursor": null,
+     "hasNextPage": false
+    }
+   }
+  }
+ }
+}

@@ -13,7 +13,8 @@ const MIN_SIZE: (f32, f32) = (900., 600.);
 
 /// Asset source: gpui-component's embedded set + our own icons (the GitHub
 /// Asset source: gpui-component's embedded set + our own icons (GitHub mark;
-/// private-repo lock — both octicons, @primer/octicons 19.33.0).
+/// private-repo lock; the Commits tab's branch glyph — all octicons,
+/// @primer/octicons 19.33.0).
 struct AppAssets;
 
 impl gpui::AssetSource for AppAssets {
@@ -27,6 +28,11 @@ impl gpui::AssetSource for AppAssets {
             return Ok(Some(std::borrow::Cow::Borrowed(
                 include_bytes!("../assets/icons/lock.svg",) as &[u8],
             )));
+        }
+        if path == "icons/git-branch.svg" {
+            return Ok(Some(std::borrow::Cow::Borrowed(include_bytes!(
+                "../assets/icons/git-branch.svg",
+            ) as &[u8])));
         }
         gpui_kit_assets::Assets.load(path)
     }

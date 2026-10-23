@@ -45,6 +45,9 @@ pub(crate) enum RepoTab {
     Pulls,
     Issues,
     Notifications,
+    /// docs/0081 D1 — appended last (Q5) so the existing indices and
+    /// trail keys stay stable.
+    Commits,
 }
 
 impl RepoTab {
@@ -54,6 +57,7 @@ impl RepoTab {
             RepoTab::Pulls => RepoLane::Pulls,
             RepoTab::Issues => RepoLane::Issues,
             RepoTab::Notifications => RepoLane::Notifications,
+            RepoTab::Commits => RepoLane::Commits,
         }
     }
 
@@ -62,6 +66,7 @@ impl RepoTab {
             RepoTab::Pulls => 0,
             RepoTab::Issues => 1,
             RepoTab::Notifications => 2,
+            RepoTab::Commits => 3,
         }
     }
 
@@ -70,6 +75,7 @@ impl RepoTab {
             0 => Some(RepoTab::Pulls),
             1 => Some(RepoTab::Issues),
             2 => Some(RepoTab::Notifications),
+            3 => Some(RepoTab::Commits),
             _ => None,
         }
     }
@@ -79,6 +85,7 @@ impl RepoTab {
             RepoTab::Pulls => "Open PRs",
             RepoTab::Issues => "Open issues",
             RepoTab::Notifications => "Notifications",
+            RepoTab::Commits => "Commits",
         }
     }
     /// The trail-key tag (docs/0048 D4 amended): the visit key is
@@ -88,6 +95,7 @@ impl RepoTab {
             RepoTab::Pulls => "pulls",
             RepoTab::Issues => "issues",
             RepoTab::Notifications => "notifs",
+            RepoTab::Commits => "commits",
         }
     }
 }
@@ -95,7 +103,8 @@ use dashboard_core::module::ModuleNav;
 use dashboard_core::nav::{Crumb, NavEvent, Navigator, Page, Route};
 
 use crate::api;
-use crate::card::{REPO_LOCK, github_mark};
+use crate::card::{GIT_BRANCH, REPO_LOCK, github_mark};
+use crate::commits::CommitsDelegate;
 use crate::filters;
 use crate::gql;
 use crate::issue_page;
@@ -105,7 +114,7 @@ use crate::notification_page::{self, NotificationPageEvent};
 use crate::pr_page;
 use crate::service::{
     AuthStatus, ConnectPhase, FetchSpec, GithubState, HomeScope, Kind, LandedClock, LaneView,
-    RepoLane, ThreadOp, run_read_deduped, run_spec_tracked, start_connect,
+    RefKey, RepoLane, ThreadOp, run_read_deduped, run_spec_tracked, start_connect,
 };
 use crate::usage::{Origin, Surface, Trigger};
 
@@ -188,6 +197,16 @@ pub(crate) struct GithubPage {
     /// The shared quick-filter input (docs/0042 D5) — one query narrows
     /// all three boxes at once.
     row_search: Entity<InputState>,
+    /// The Commits tab's virtual list (docs/0081 D5): its delegate holds
+    /// a filtered copy of the active book, synced at render. Built in the
+    /// constructor's deferred step, never inline in `new`: an entity
+    /// built there would shift every later element-path accesskit id the
+    /// committed receipts click by (the #610 re-key). `None` only until
+    /// that step runs.
+    commits_list: Option<Entity<ListState<CommitsDelegate>>>,
+    /// The repo the commits list last synced — a different one resets
+    /// its scroll and selection.
+    commits_synced_repo: Option<String>,
     /// Window access for observer-time entity updates (0009 D6).
     window: AnyWindowHandle,
     /// View-shown edge tracking (docs/0051 D4): transitions into the
@@ -457,6 +476,8 @@ impl GithubPage {
             filters: filters::RepoViewFilters::default(),
             tab: RepoTab::default(),
             row_search,
+            commits_list: None,
+            commits_synced_repo: None,
         };
         // Seed from whatever the state already holds (last-known
         // caches) — but NOT here: Module::init runs inside
@@ -467,6 +488,12 @@ impl GithubPage {
         // the end of the current effect cycle, window in hand.
         cx.defer_in(window, |this, window, cx| {
             this.sync_from_state_in(window, cx);
+            // docs/0081 §12: the Commits list is built here, after the
+            // window's build closure (so the shell's boot-time entities
+            // keep their ids) but at a fixed point in boot (so the list's
+            // own element ids are stable across runs — a list built on
+            // first show would get a timing-dependent entity id).
+            this.ensure_commits_list(window, cx);
         });
         page
     }
@@ -1272,6 +1299,9 @@ impl GithubPage {
             return;
         }
         self.tab = tab;
+        if tab == RepoTab::Commits {
+            self.ensure_commits_list(window, cx);
+        }
         cx.notify();
         // The switch is a visit (docs/0048 D4 amended): the tab rides the
         // place key, so Back/Forward re-enter the exact lane. Recorded
@@ -1292,6 +1322,11 @@ impl GithubPage {
             return;
         };
         let lane = tab.lane();
+        if tab == RepoTab::Commits {
+            // docs/0081 D3: a visited book outlives the LRU.
+            self.state
+                .update(cx, |s, _| s.touch_commit_lane(&full, &RefKey::Default));
+        }
         let Some(spec) = self.state.update(cx, |s, _| {
             s.repo_lane_refresh_specs(
                 &full,
@@ -1961,7 +1996,7 @@ impl GithubPage {
             label.push_str(&format!(" · {}", kind.label()));
         }
         if let Some(rollup) = gql::rollup_state(pr.status.as_deref()) {
-            label.push_str(&format!(" · {}", Self::ci_row_glyph(rollup, cx).2));
+            label.push_str(&format!(" · {}", ci_row_glyph(rollup, cx).2));
         }
         let label: SharedString = label.into();
         let row = pr.clone();
@@ -1995,7 +2030,7 @@ impl GithubPage {
                             // (#67; the 0005-deferred rollup). Nothing
                             // renders without checks (null rollup).
                             .when_some(gql::rollup_state(pr.status.as_deref()), |row, state| {
-                                let (icon, color, tip) = Self::ci_row_glyph(state, cx);
+                                let (icon, color, tip) = ci_row_glyph(state, cx);
                                 let key = pr.key.clone();
                                 let id: SharedString = format!("pr-ci-{key}").into();
                                 let glyph = div()
@@ -2093,35 +2128,6 @@ impl GithubPage {
                     ),
             )
             .into_any_element()
-    }
-
-    /// Rollup state → (glyph, theme color, tooltip) for the PR rows
-    /// (#67) — same tone contract as pr_page's `check_visual` (D7):
-    /// success green, failure red, pending amber. The Neutral arm is
-    /// unreachable via `rollup_state` (null rollup → no glyph) but
-    /// keeps the match exhaustive. Pending renders spinning upstream
-    /// (`Spinner`) at the call site — #397, decoration only; the
-    /// tooltip carries the semantics.
-    fn ci_row_glyph(
-        state: gql::CheckState,
-        cx: &Context<Self>,
-    ) -> (IconName, gpui::Hsla, &'static str) {
-        match state {
-            gql::CheckState::Success => (IconName::CircleCheck, cx.theme().success, "CI: passing"),
-            gql::CheckState::Failure => (IconName::CircleX, cx.theme().danger, "CI: failing"),
-            gql::CheckState::Pending => (IconName::LoaderCircle, cx.theme().warning, "CI: pending"),
-            // docs/0066: unreachable via `rollup_state` (null rollup → no
-            // glyph) but the match stays exhaustive — the Neutral arm's
-            // treatment.
-            gql::CheckState::Waiting => (
-                IconName::Pause,
-                cx.theme().warning,
-                "CI: waiting for approval",
-            ),
-            gql::CheckState::Neutral => {
-                (IconName::Dash, cx.theme().muted_foreground, "CI: no status")
-            }
-        }
     }
 
     /// Issue rows mirror the PR row treatment (docs/0012 D4, opened
@@ -2626,8 +2632,12 @@ impl ListDelegate for RepoListDelegate {
 }
 
 impl Render for GithubPage {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let auth = self.state.read(cx).auth.clone();
+        // A restore can land on the Commits tab without a switch.
+        if self.tab == RepoTab::Commits {
+            self.ensure_commits_list(window, cx);
+        }
 
         // Non-connected: the connect panel owns the page (§6.4 auth row).
         if !auth.connected() {
@@ -2734,6 +2744,7 @@ impl GithubPage {
             .child(
                 div().flex_none().child(
                     Select::new(&self.org_select)
+                        .accessibility_label("Organization")
                         .placeholder("Organization…")
                         .search_placeholder("Filter organizations…")
                         .empty(|_, cx| {
@@ -2769,11 +2780,19 @@ impl GithubPage {
         repo_notifs: &[api::Notification],
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        // docs/0081 D9: the Commits tab bounds its own height — the
+        // chrome pins and the virtual list scrolls internally; the
+        // other tabs keep the one-scroll column (F1).
+        let pinned = selected_repo.is_some() && self.tab == RepoTab::Commits;
+        if pinned {
+            self.sync_commits(cx);
+        }
         let detail: AnyElement = match selected_repo {
             // docs/0047 D1: the home view replaces the placeholder — the
             // module's landing surface is the account's open PRs.
             None => self.render_home_view(cx),
             Some(repo) => page_canvas()
+                .when(pinned, |canvas| canvas.size_full().min_h_0())
                 // Header (the PR page's idiom): title and description
                 // left, the freshness cluster right-aligned — one
                 // freshness cluster per page (docs/0037 Q1), not a
@@ -2924,9 +2943,19 @@ impl GithubPage {
                     RepoTab::Pulls => self.repo_pulls_box(repo, cx),
                     RepoTab::Issues => self.repo_issues_box(repo, cx),
                     RepoTab::Notifications => self.repo_notifs_box(repo_notifs, cx),
+                    RepoTab::Commits => self.repo_commits_box(repo, cx),
                 })
                 .into_any_element(),
         };
+        if pinned {
+            return v_flex()
+                .id("repo-detail")
+                .flex_1()
+                .h_full()
+                .min_h_0()
+                .child(detail)
+                .into_any_element();
+        }
         div()
             .id("repo-detail")
             .flex_1()
@@ -2954,6 +2983,7 @@ impl GithubPage {
             .child(Tab::new().label(RepoTab::Pulls.label()))
             .child(Tab::new().label(RepoTab::Issues.label()))
             .child(Tab::new().label(RepoTab::Notifications.label()))
+            .child(Tab::new().label(RepoTab::Commits.label()))
             .into_any_element()
     }
 
@@ -3165,6 +3195,381 @@ impl GithubPage {
                     .into_any_element(),
             )
             .into_any_element()
+    }
+
+    /// The Commits tab body (docs/0081 D5/D8/D9): the ref and count
+    /// row, then the state the book is in — skeletons, the empty and
+    /// error cells, or the virtual list with its tail strip. Fills the
+    /// pinned column (`flex_1().min_h_0()`).
+    fn repo_commits_box(&self, repo: &gql::Repo, cx: &Context<Self>) -> AnyElement {
+        let lane = self
+            .state
+            .read(cx)
+            .commit_lanes
+            .get(&(repo.full_name.clone(), RefKey::Default))
+            .cloned()
+            .unwrap_or_default();
+        // Unknown until page 1 lands, and absent for an empty
+        // repository (`defaultBranchRef: null`).
+        let ref_name = lane
+            .ref_name
+            .clone()
+            .unwrap_or_else(|| "the default branch".to_string());
+        let muted = cx.theme().muted_foreground;
+        let header = h_flex()
+            .id("commits-header")
+            .flex_none()
+            .justify_between()
+            .items_center()
+            .gap_2()
+            .text_sm()
+            .when(lane.ref_name.is_some(), |row| {
+                // D7's ref selector replaces this label in stage 3.
+                row.child(
+                    h_flex()
+                        .id("commits-ref")
+                        .debug_selector(|| "commits-ref".to_string())
+                        .gap_1p5()
+                        .items_center()
+                        .font_weight(FontWeight::MEDIUM)
+                        .child(Icon::empty().path(GIT_BRANCH).size_4().text_color(muted))
+                        .child(ref_name.clone()),
+                )
+            })
+            // The count sits right even before the ref label lands.
+            .child(div().flex_1())
+            .when(lane.landed.is_some() && lane.total_count > 0, |row| {
+                row.child(
+                    div()
+                        .id("commits-count")
+                        .debug_selector(|| "commits-count".to_string())
+                        .text_color(muted)
+                        .child(commit_count_label(lane.total_count)),
+                )
+            });
+        let body: AnyElement = if lane.rows.is_empty() {
+            if let Some(err) = lane.error.as_ref() {
+                // D8: page-1 error, nothing held — name the cause, offer Retry.
+                v_flex()
+                    .id("commits-error")
+                    .debug_selector(|| "commits-error".to_string())
+                    .gap_2()
+                    .items_start()
+                    .px_2()
+                    .py_1p5()
+                    .text_sm()
+                    .child(
+                        div()
+                            .text_color(cx.theme().danger)
+                            .child(format!("Couldn't load commits: {err}")),
+                    )
+                    .child(self.commits_retry_button("commits-retry", false, cx))
+                    .into_any_element()
+            } else if lane.landed.is_some() {
+                muted_cell(&format!("No commits on {ref_name}"), cx)
+            } else {
+                commits_skeleton_rows()
+            }
+        } else {
+            v_flex()
+                .flex_1()
+                .min_h_0()
+                .gap_1()
+                .when(lane.rewritten, |col| {
+                    col.child(
+                        div()
+                            .id("commits-rewritten")
+                            .debug_selector(|| "commits-rewritten".to_string())
+                            .flex_none()
+                            .px_2()
+                            .text_xs()
+                            .text_color(muted)
+                            .child("History was rewritten — showing the latest commits"),
+                    )
+                })
+                .child(
+                    div()
+                        .id("commits-list")
+                        .debug_selector(|| "commits-list".to_string())
+                        .flex_1()
+                        .min_h_0()
+                        // The pinned `ListState` owns the `List` node and
+                        // takes no name: a named group carries it.
+                        .role(accesskit::Role::Group)
+                        .aria_label(format!("Commits on {ref_name}"))
+                        .map(|el| match self.commits_list.as_ref() {
+                            // D8: filtered, no match. Rendered here, not as
+                            // the list's empty view — the pinned `List`
+                            // keeps drawing a stale scrollbar thumb once its
+                            // rows go to zero.
+                            Some(list) if list.read(cx).delegate().rows().is_empty() => {
+                                el.child(commits_no_match(cx))
+                            }
+                            Some(list) => el.child(List::new(list).size_full()),
+                            None => el,
+                        }),
+                )
+                .child(self.commits_tail(&lane, cx))
+                .into_any_element()
+        };
+        v_flex()
+            .id("commits-box")
+            .flex_1()
+            .min_h_0()
+            .gap_2()
+            .child(header)
+            .child(body)
+            .into_any_element()
+    }
+
+    /// The tail strip under the list (docs/0081 D8): paging status,
+    /// the load-more failure with Retry, the end of history, the cap
+    /// hand-off, or the filtered count. Pinned below the list rather
+    /// than a virtual tail row — the pinned `List` sizes every section
+    /// footer from section 0's, so a last-section footer can't be the
+    /// only one.
+    fn commits_tail(&self, lane: &crate::service::CommitLane, cx: &Context<Self>) -> AnyElement {
+        let muted = cx.theme().muted_foreground;
+        // A status line (rubric 1): its text is its accessible name, so
+        // the paging state is announced and assertable.
+        let strip = |label: &str| {
+            h_flex()
+                .id("commits-more")
+                .debug_selector(|| "commits-more".to_string())
+                .role(accesskit::Role::Status)
+                .aria_label(label.to_string())
+                .flex_none()
+                .gap_2()
+                .items_center()
+                .px_2()
+                .py_1()
+                .text_xs()
+                .text_color(muted)
+        };
+        if !self.filters.search.is_empty() {
+            // D6/F2: the filter covers the loaded rows only.
+            let text = format!(
+                "Filtering {} loaded commits; clear to load more",
+                lane.rows.len()
+            );
+            return strip(&text).child(text).into_any_element();
+        }
+        if let Some(err) = lane.more_error.as_ref() {
+            let text = format!("Couldn't load older commits: {err}");
+            return strip(&text)
+                .child(div().text_color(cx.theme().danger).child(text))
+                .child(self.commits_retry_button("commits-more-retry", true, cx))
+                .into_any_element();
+        }
+        if lane.loading_more {
+            let text = "Loading older commits…";
+            return strip(text)
+                .child(Spinner::new().xsmall().color(muted))
+                .child(text)
+                .into_any_element();
+        }
+        if lane.complete {
+            let text = format!(
+                "Beginning of history · {}",
+                commit_count_label(lane.rows.len() as i64)
+            );
+            return strip(&text).child(text).into_any_element();
+        }
+        if lane.capped() {
+            let url = self.commits_history_url(lane, cx);
+            return strip("Older history on GitHub")
+                .child(
+                    h_flex()
+                        .id("commits-cap-link")
+                        .debug_selector(|| "commits-cap-link".to_string())
+                        .role(accesskit::Role::Link)
+                        .aria_label("Older history on GitHub")
+                        .gap_1()
+                        .items_center()
+                        .cursor_pointer()
+                        .hover(|s| s.underline())
+                        .on_click(move |_, _, cx| cx.open_url(&url))
+                        .child("Older history on GitHub")
+                        .child(Icon::new(IconName::ExternalLink).size_3()),
+                )
+                .into_any_element();
+        }
+        // More history exists and nothing is in flight: the list asks
+        // for it near the bottom (D2, `Trigger::Paginate`).
+        let text = format!("{} loaded", commit_count_label(lane.rows.len() as i64));
+        strip(&text).child(text).into_any_element()
+    }
+
+    /// github.com's commits page for the book's ref — the cap hand-off.
+    fn commits_history_url(&self, lane: &crate::service::CommitLane, cx: &Context<Self>) -> String {
+        let full = self.state.read(cx).selected.clone().unwrap_or_default();
+        match lane.ref_name.as_deref() {
+            Some(r) => format!("https://github.com/{full}/commits/{r}"),
+            None => format!("https://github.com/{full}/commits"),
+        }
+    }
+
+    /// Retry for the commits book (docs/0081 D8): page 1 (`more` =
+    /// false) re-sends the lane's spec, the tail's Retry re-asks for
+    /// the failed page — both `Trigger::Manual`.
+    fn commits_retry_button(&self, id: &'static str, more: bool, cx: &Context<Self>) -> Button {
+        Button::new(id)
+            .debug_selector(move || id.to_string())
+            .label("Retry")
+            .ghost()
+            .xsmall()
+            .on_click(cx.listener(move |this, _, window, cx| {
+                let origin = Origin::new(Surface::RepoView, Trigger::Manual);
+                if more {
+                    this.load_more_commits(origin, window, cx);
+                    return;
+                }
+                let Some(full) = this.state.read(cx).selected.clone() else {
+                    return;
+                };
+                let spec = this
+                    .state
+                    .read(cx)
+                    .repo_lane_spec(&full, RepoLane::Commits, origin);
+                this.run_specs(vec![spec], window, cx);
+            }))
+    }
+
+    /// docs/0081 D2/D10 — ask for the next commits page:
+    /// `Trigger::Paginate` from the list's scroll threshold,
+    /// `Trigger::Manual` from the tail's Retry. The spec builder holds
+    /// the single-flight lock, the cap and the rate-limit gate.
+    pub(crate) fn load_more_commits(
+        &mut self,
+        origin: Origin,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(full) = self.state.read(cx).selected.clone() else {
+            return;
+        };
+        let spec = self.state.update(cx, |s, cx| {
+            let spec = s.commits_more_spec(&full, &RefKey::Default, origin);
+            if spec.is_some() {
+                // The lock flips the tail to "Loading older commits…".
+                cx.notify();
+            }
+            spec
+        });
+        if let Some(spec) = spec {
+            log::debug!("commits: next page of {full} ({})", origin.trigger.as_str());
+            self.run_specs(vec![spec], window, cx);
+        }
+    }
+
+    /// Copy the active commits book into the list delegate (docs/0081
+    /// D5), compare-first; a repo switch resets scroll and selection,
+    /// a prepend keeps the reader's place (D4/D9).
+    fn sync_commits(&mut self, cx: &mut Context<Self>) {
+        let Some(list) = self.commits_list.clone() else {
+            return;
+        };
+        let Some(full) = self.state.read(cx).selected.clone() else {
+            return;
+        };
+        let (rows, can_more) = self
+            .state
+            .read(cx)
+            .commit_lanes
+            .get(&(full.clone(), RefKey::Default))
+            .map(|l| (l.rows.clone(), l.can_load_more()))
+            .unwrap_or_default();
+        let query = self.filters.search.clone();
+        // A repo switch or a new filter starts the list from the top.
+        let switched = self.commits_synced_repo.as_deref() != Some(full.as_str())
+            || list.read(cx).delegate().query() != query;
+        let old_first = list
+            .read(cx)
+            .delegate()
+            .rows()
+            .first()
+            .map(|r| r.oid.clone());
+        let changed = list.update(cx, |list, cx| {
+            let changed = list.delegate_mut().set_book(&rows, &query, can_more);
+            if changed {
+                cx.notify();
+            }
+            changed
+        });
+        if switched {
+            self.commits_synced_repo = Some(full);
+            list.update(cx, |list, cx| {
+                list.scroll_handle()
+                    .base_handle()
+                    .set_offset(point(px(0.), px(0.)));
+                cx.notify();
+            });
+        } else if changed && let Some(old_first) = old_first {
+            self.anchor_commits_scroll(&list, &old_first, cx);
+        }
+    }
+
+    /// The Commits list, created on first need (see the field).
+    fn ensure_commits_list(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.commits_list.is_some() {
+            return;
+        }
+        let page = cx.entity().downgrade();
+        let list = cx.new(|cx| ListState::new(CommitsDelegate::new(page), window, cx));
+        // docs/0081 D6: Tab from the tab strip lands on the list. The
+        // pinned `ListState` creates its handle without a tab stop; the
+        // flag lives on the shared handle state.
+        let _ = list.read(cx).focus_handle(cx).tab_stop(true);
+        self.commits_list = Some(list);
+    }
+
+    /// docs/0081 D4/D9 — after a prepend of k commits while the reader
+    /// is scrolled down, shift the offset by the height the new rows
+    /// (and any new day header) added above the viewport, so the rows
+    /// they were reading stay put. The virtual list only knows that
+    /// height after its next layout, so this waits a frame or two for
+    /// the max offset to move. At the top the new commits simply show.
+    fn anchor_commits_scroll(
+        &mut self,
+        list: &Entity<ListState<CommitsDelegate>>,
+        old_first: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let weak = list.downgrade();
+        let list = list.read(cx);
+        let prepended = list
+            .delegate()
+            .rows()
+            .iter()
+            .position(|r| r.oid == old_first);
+        let handle = list.scroll_handle().base_handle().clone();
+        let offset = handle.offset();
+        match prepended {
+            Some(0) => return,
+            Some(_) if offset.y < px(0.) => {}
+            Some(_) => return,
+            // D4: a replaced book restarts from the top.
+            None => {
+                handle.set_offset(point(px(0.), px(0.)));
+                return;
+            }
+        }
+        let old_max = handle.max_offset();
+        let list = weak;
+        cx.spawn(async move |_, cx| {
+            for _ in 0..30 {
+                cx.background_executor()
+                    .timer(Duration::from_millis(16))
+                    .await;
+                let max = handle.max_offset();
+                if max.y != old_max.y {
+                    handle.set_offset(point(offset.x, offset.y - (max.y - old_max.y)));
+                    _ = list.update(cx, |_, cx| cx.notify());
+                    break;
+                }
+            }
+        })
+        .detach();
     }
 
     // ------------------------------------------------------------------
@@ -3546,6 +3951,34 @@ impl GithubPage {
 fn private_lock(color: gpui::Hsla) -> Icon {
     Icon::empty().path(REPO_LOCK).size_3().text_color(color)
 }
+
+/// Rollup state → (glyph, theme color, tooltip) for the PR rows
+/// (#67) and the commit rows (docs/0081 D5) — same tone contract as pr_page's `check_visual` (D7):
+/// success green, failure red, pending amber. The Neutral arm is
+/// unreachable via `rollup_state` (null rollup → no glyph) but
+/// keeps the match exhaustive. Pending renders spinning upstream
+/// (`Spinner`) at the call site — #397, decoration only; the
+/// tooltip carries the semantics.
+pub(crate) fn ci_row_glyph(
+    state: gql::CheckState,
+    cx: &App,
+) -> (IconName, gpui::Hsla, &'static str) {
+    match state {
+        gql::CheckState::Success => (IconName::CircleCheck, cx.theme().success, "CI: passing"),
+        gql::CheckState::Failure => (IconName::CircleX, cx.theme().danger, "CI: failing"),
+        gql::CheckState::Pending => (IconName::LoaderCircle, cx.theme().warning, "CI: pending"),
+        // docs/0066: unreachable via `rollup_state` (null rollup → no
+        // glyph) but the match stays exhaustive — the Neutral arm's
+        // treatment.
+        gql::CheckState::Waiting => (
+            IconName::Pause,
+            cx.theme().warning,
+            "CI: waiting for approval",
+        ),
+        gql::CheckState::Neutral => (IconName::Dash, cx.theme().muted_foreground, "CI: no status"),
+    }
+}
+
 fn muted_cell(text: &str, cx: &Context<GithubPage>) -> AnyElement {
     muted_cell_keyed(text.to_string(), None, cx)
 }
@@ -3568,6 +4001,55 @@ fn home_skeleton_rows() -> AnyElement {
         .child(Skeleton::new().h_6())
         .into_any_element()
 }
+/// docs/0081 D8 — the Commits tab's first-load skeleton: a day header
+/// bar over six two-line rows (the `home_skeleton_rows` rhythm at the
+/// commit row's shape).
+fn commits_skeleton_rows() -> AnyElement {
+    v_flex()
+        .id("commits-skeleton")
+        .debug_selector(|| "commits-skeleton".to_string())
+        .gap_3()
+        .px_2()
+        .pt_3()
+        .child(Skeleton::new().h_3().w_40())
+        .children((0..6).map(|i| {
+            v_flex()
+                .gap_1p5()
+                .child(if i % 2 == 0 {
+                    Skeleton::new().h_4().w_3_4()
+                } else {
+                    Skeleton::new().h_4().w_2_3().secondary()
+                })
+                .child(Skeleton::new().h_3().w_1_3().secondary())
+        }))
+        .into_any_element()
+}
+
+/// docs/0081 D8 — the filtered-no-match cell: the other repo tabs'
+/// muted cell (top-left), as a status so it is announced.
+fn commits_no_match(cx: &Context<GithubPage>) -> AnyElement {
+    div()
+        .id("commits-no-match")
+        .debug_selector(|| "commits-no-match".to_string())
+        .role(accesskit::Role::Status)
+        .aria_label("No loaded commits match")
+        .px_2()
+        .py_1p5()
+        .text_sm()
+        .text_color(cx.theme().muted_foreground)
+        .child("No loaded commits match")
+        .into_any_element()
+}
+
+/// "1 commit" / "425 commits" — the header count and the tail strip.
+fn commit_count_label(n: i64) -> String {
+    if n == 1 {
+        "1 commit".to_string()
+    } else {
+        format!("{n} commits")
+    }
+}
+
 fn muted_cell_keyed(
     text: String,
     key: Option<&'static str>,
@@ -4759,6 +5241,167 @@ mod tests {
         vcx.update(|_, cx| {
             page.update(cx, |p, _| assert_eq!(p.tab, RepoTab::Pulls));
         });
+    }
+
+    /// docs/0081 D1/D2/D6 — the Commits tab end to end: repo open
+    /// fires no commits flight; entering the tab fires page 1 exactly
+    /// once (a fresh re-entry is gated); the landed book syncs into the
+    /// list; the quick filter turns paging off; a load-more is single
+    /// flight and pinned to the tip.
+    #[gpui::test]
+    fn commits_tab_offers_its_lane_and_pages_on_demand(cx: &mut TestAppContext) {
+        use std::sync::Arc;
+
+        use crate::auth::MockTokenStore;
+        use crate::http::mock::MockHttp;
+        use crate::http::{Http, SharedToken};
+        use crate::service::{AuthStatus, GithubCache, GithubState};
+        use crate::usage::{Origin, Surface, Trigger};
+        use dashboard_core::nav::Navigator;
+        use dashboard_core::paths::AppPaths;
+        use gpui_component::list::ListDelegate as _;
+
+        cx.update(gpui_component::init);
+        cx.update(dashboard_core::status::init);
+        let vcx = cx.add_empty_window();
+
+        let node = |oid: &str| {
+            format!(
+                r#"{{"oid":"{oid}","abbreviatedOid":"{short}","messageHeadline":"commit {oid}","committedDate":"2026-10-22T20:14:08Z","authoredDate":"2026-10-22T20:14:08Z","url":"https://github.com/acme/one/commit/{oid}","author":{{"name":"N","email":"n@x","avatarUrl":null,"user":{{"login":"noosxe"}}}},"signature":null,"statusCheckRollup":{{"state":"SUCCESS"}}}}"#,
+                short = &oid[..7]
+            )
+        };
+        let a = "a".repeat(40);
+        let b = "b".repeat(40);
+        let pulls_body = r#"{"data":{"repository":{"name":"one","nameWithOwner":"acme/one",
+            "owner":{"login":"acme"},"pullRequests":{"totalCount":0,"nodes":[]}}}}"#;
+        let commits_body = format!(
+            r#"{{"data":{{"rateLimit":{{"cost":1,"remaining":4999,"resetAt":"2099-01-01T00:00:00Z","limit":5000}},"repository":{{"defaultBranchRef":{{"name":"main","target":{{"oid":"{a}","history":{{"totalCount":120,"pageInfo":{{"hasNextPage":true,"endCursor":"{a} 1"}},"nodes":[{},{}]}}}}}}}}}}}}"#,
+            node(&a),
+            node(&b)
+        );
+        let ok = |body: String| {
+            Ok(crate::http::HttpResult {
+                status: 200,
+                etag: None,
+                rate: None,
+                body: Some(body),
+            })
+        };
+        let mock = Arc::new(MockHttp::new(vec![
+            ok(pulls_body.to_string()),
+            ok(commits_body),
+            ok(r#"{"data":null}"#.to_string()),
+        ]));
+        let page = vcx.update(|window, cx| {
+            let shared: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let refresh: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let state = cx.new(|_| {
+                GithubState::new(
+                    mock.clone() as Arc<dyn Http>,
+                    Arc::new(MockTokenStore::with("t0k".into())),
+                    shared,
+                    refresh,
+                    GithubCache::new(AppPaths::init()),
+                    DraftStore::at_tmp("repo-commits-tab"),
+                )
+            });
+            state.update(cx, |s, _| {
+                s.auth = AuthStatus::Connected;
+                s.orgs.clear();
+                s.user = None;
+            });
+            let nav = cx.new(|_| Navigator::default());
+            cx.new(|cx| GithubPage::new(state, nav, window, cx))
+        });
+        let commits_flights = || {
+            mock.recorded()
+                .iter()
+                .filter(|r| {
+                    r.body
+                        .as_deref()
+                        .unwrap_or("")
+                        .contains("query RepoCommits")
+                })
+                .count()
+        };
+
+        vcx.update(|window, cx| {
+            page.update(cx, |p, cx| p.select_repo("acme/one".into(), window, cx));
+        });
+        vcx.run_until_parked();
+        assert_eq!(commits_flights(), 0, "repo open never fetches commits");
+
+        vcx.update(|window, cx| {
+            page.update(cx, |p, cx| p.switch_repo_tab(RepoTab::Commits, window, cx));
+        });
+        vcx.run_until_parked();
+        assert_eq!(commits_flights(), 1, "entering the tab offers page 1");
+        vcx.update(|window, cx| {
+            page.update(cx, |p, cx| {
+                p.switch_repo_tab(RepoTab::Pulls, window, cx);
+                p.switch_repo_tab(RepoTab::Commits, window, cx);
+            });
+        });
+        vcx.run_until_parked();
+        assert_eq!(commits_flights(), 1, "a fresh book's re-entry is gated");
+
+        // The landed book syncs into the list (render's sync step).
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.sync_commits(cx);
+                let list = p.commits_list.as_ref().unwrap().read(cx);
+                assert_eq!(list.delegate().rows().len(), 2);
+                assert!(list.delegate().has_more(cx), "history continues");
+                assert_eq!(
+                    super::GithubPlace::Repo("acme/one".into(), p.tab).key(),
+                    "repo:acme/one:commits"
+                );
+            });
+        });
+
+        // D6/F2: filter text turns paging off; clearing it restores it.
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.filters.search = "zzz".into();
+                p.sync_commits(cx);
+                let list = p.commits_list.as_ref().unwrap().read(cx);
+                assert!(list.delegate().rows().is_empty());
+                assert!(
+                    !list.delegate().has_more(cx),
+                    "no chain-fetch while filtered"
+                );
+                p.filters.search.clear();
+                p.sync_commits(cx);
+            });
+        });
+
+        // Load-more: single flight, pinned to the tip, `Paginate`.
+        vcx.update(|window, cx| {
+            page.update(cx, |p, cx| {
+                let origin = Origin::new(Surface::RepoView, Trigger::Paginate);
+                p.load_more_commits(origin, window, cx);
+                p.load_more_commits(origin, window, cx);
+            });
+        });
+        vcx.run_until_parked();
+        let recorded = mock.recorded();
+        let more: Vec<_> = recorded
+            .iter()
+            .filter(|r| {
+                r.body
+                    .as_deref()
+                    .unwrap_or("")
+                    .contains("query RepoCommitsMore")
+            })
+            .collect();
+        assert_eq!(more.len(), 1, "the loading_more lock refuses re-entry");
+        let body = more[0].body.as_deref().unwrap_or("");
+        assert!(
+            body.contains(&format!(r#""tip":"{a}""#)),
+            "pinned to page_tip: {body}"
+        );
+        assert!(body.contains(&format!(r#""after":"{a} 1""#)), "{body}");
     }
 
     /// The header refresh button (docs/0024 D2 amended) refreshes the

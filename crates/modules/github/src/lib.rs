@@ -13,9 +13,11 @@ pub mod agent_ops;
 pub mod api;
 pub mod auth;
 pub mod card;
+mod commits;
 pub mod drafts;
 pub mod files;
 mod filters;
+mod fixture;
 pub mod gql;
 pub mod http;
 pub mod issue_page;
@@ -152,7 +154,14 @@ impl Module for GithubModule {
         // attributes here; the settings page mutes by this id.
         dashboard_core::toasts::register_source("github", "GitHub", cx);
         // Keychain-backed token slot + shared client + cache root (0005 Q3/Q6).
-        let store: Arc<dyn TokenStore> = Arc::new(KeyringTokenStore);
+        // docs/0081 §12: a debug-build fixture dir swaps the keychain and
+        // the network for committed JSON (the docs/0071 captures).
+        let fixture = fixture::fixture_dir();
+        let store: Arc<dyn TokenStore> = if fixture.is_some() {
+            Arc::new(fixture::FixtureTokenStore)
+        } else {
+            Arc::new(KeyringTokenStore)
+        };
         let shared_token: SharedToken = Arc::new(std::sync::RwLock::new(None));
         // Refresh-token slot (docs/0011 §4.3) — same handling rules as
         // the access-token slot.
@@ -162,10 +171,11 @@ impl Module for GithubModule {
         // transports and the auth flows borrow `state.client`, so no
         // call site changes.
         let usage = usage::new_ledger();
-        let client: Arc<dyn Http> = usage::CountingHttp::wrap(
-            Arc::new(UreqClient::new(shared_token.clone())),
-            usage.clone(),
-        );
+        let transport: Arc<dyn Http> = match fixture {
+            Some(dir) => Arc::new(fixture::FixtureHttp::new(dir)),
+            None => Arc::new(UreqClient::new(shared_token.clone())),
+        };
+        let client: Arc<dyn Http> = usage::CountingHttp::wrap(transport, usage.clone());
         let cache = GithubCache::new(paths);
 
         // The single state entity — seeds from last-known caches and

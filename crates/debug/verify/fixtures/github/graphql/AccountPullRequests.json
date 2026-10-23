@@ -1,0 +1,13 @@
+{
+ "data": {
+  "rateLimit": null,
+  "search": {
+   "issueCount": 0,
+   "nodes": [],
+   "pageInfo": {
+    "endCursor": null,
+    "hasNextPage": false
+   }
+  }
+ }
+}

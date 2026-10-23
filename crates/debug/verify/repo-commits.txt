@@ -1,0 +1,78 @@
+# repo-commits.txt — docs/0081 §8's bridge receipt for the repo view's
+# Commits tab, over the committed GitHub fixtures (docs/0081 §12): a
+# signed-in module with no network and no keyring, so it runs in the
+# docs/0071 container like every other receipt.
+#
+# Prerequisites (in-container, one chain = one container):
+#   export DASHBOARD_GITHUB_FIXTURE=/work/crates/debug/verify/fixtures/github
+#   export DASHBOARD_FIXED_NOW=2026-10-23T12:00:00Z
+#   export RUST_LOG=info,dashboard_module_github=debug
+#   dashboard-debug session start --name commits --size 1280x800 \
+#     --binary /tmp/target/debug/my-dashboard
+# Run: dashboard-debug run crates/debug/verify/repo-commits.txt
+# Then read the flights (scripts have no log verb):
+#   dashboard-debug --session commits logs | grep -E 'repo-commits|commits: '
+# and expect, in order: no `fetch repo-commits` before the tab click;
+# exactly one `fetch repo-commits` after it; `commits: opened <sha>`
+# for the Enter; `commits: next page … (paginate)` lines with
+# `repo-commits-more applied` up to `120 of 120 held, complete`; and no
+# further commits flight after the filter text.
+#
+# Ids are element-path ids, stable for this exact walk from a fresh
+# boot (history re-keys them — the audit.txt contract; re-derive with
+# `tree` along the same route after a layout change);
+# the repo list's rows carry no accessible name upstream (#95), so the
+# repo is picked through the list's own filter + keyboard.
+
+--session commits
+
+# Home → GitHub through the sidebar TreeItem (chrome on every page;
+# audit.txt's stable-id route — the home card's click doesn't
+# navigate reliably from a fresh boot).
+assert-label "Open GitHub module"
+click 3229520539080433524 --wait-frame
+assert-label "Filter repositories"
+
+# Pick fixture-user/atlas: filter, ↓, Enter. Repo open fires the Open
+# PRs lane only — the Commits tab doesn't exist in the tree yet.
+click 11420537349083359760
+type atlas
+key down
+key enter
+assert-label "Open repository fixture-user/atlas on GitHub"
+assert-no-label "Commits on main"
+
+# Enter the Commits tab (the strip's fourth, index-derived id).
+click 12482848471666265815 --wait-frame
+assert-label "Commits on main"
+assert-label "Commits on Oct 23, 2026"
+assert-label "fixture-user, committed 1h, CI: passing"
+assert-label "Copy SHA 9e3779b"
+assert-label "50 commits loaded"
+audit
+tab-stops
+assert-baseline github-commits
+
+# Keyboard: the list is a tab stop; ↓↓ selects the second commit,
+# Enter opens it (the `commits: opened 9e3779b` log line).
+focus 12746888743394341120
+key down
+key down
+key enter
+
+# Scroll to the end: the list pages itself (`Trigger::Paginate`) until
+# history is complete.
+# Each page landing redraws, so each scroll pairs with a frame wait.
+mouse scroll 900 500 -20000
+wait-frame
+mouse scroll 900 500 -20000
+wait-frame
+mouse scroll 900 500 -20000
+wait-frame
+assert-label "Beginning of history · 120 commits"
+
+# The quick filter covers loaded commits only and stops paging.
+click 8982527431771287529
+type parser
+assert-label "No loaded commits match"
+assert-label "Filtering 120 loaded commits; clear to load more"
