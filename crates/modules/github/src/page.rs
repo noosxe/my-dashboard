@@ -16,7 +16,7 @@ use dashboard_core::ui::{page_canvas, page_title};
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::{
-    ActiveTheme, Disableable, Icon, IconName, IndexPath, Sizable as _,
+    ActiveTheme, Disableable, Icon, IconName, IndexPath, Selectable as _, Sizable as _,
     avatar::Avatar,
     badge::Badge,
     button::{Button, ButtonVariants},
@@ -113,8 +113,9 @@ use crate::new_pr_page::{NewPrPage, NewPrPageEvent};
 use crate::notification_page::{self, NotificationPageEvent};
 use crate::pr_page;
 use crate::service::{
-    AuthStatus, ConnectPhase, FetchSpec, GithubState, HomeScope, Kind, LandedClock, LaneView,
-    RefKey, RepoLane, ThreadOp, run_read_deduped, run_spec_tracked, start_connect,
+    AuthStatus, CommitFilter, CommitsKey, ConnectPhase, FetchSpec, GithubState, HomeScope, Kind,
+    LandedClock, LaneView, RefKey, RepoLane, ThreadOp, run_read_deduped, run_spec_tracked,
+    start_connect,
 };
 use crate::usage::{Origin, Surface, Trigger};
 
@@ -206,11 +207,16 @@ pub(crate) struct GithubPage {
     commits_list: Option<Entity<ListState<CommitsDelegate>>>,
     /// The book the commits list last synced — a different repo or ref
     /// resets its scroll and selection.
-    commits_synced: Option<(String, RefKey)>,
+    commits_synced: Option<(String, CommitsKey)>,
     /// docs/0081 D7 — the Commits tab's selected ref: session-local,
     /// reset to the default branch on every repo selection (like the
     /// tab itself, docs/0077 D1).
     commits_ref: RefKey,
+    /// docs/0081 §14 — the "mine" toggle: session-local, kept across
+    /// branch picks, reset with `commits_ref` on every repo selection.
+    /// Effective only once the viewer's node id is known
+    /// ([`Self::commits_key`]).
+    commits_mine: bool,
     /// docs/0081 D7 — the branch selector, built beside the commits
     /// list (same deferred boot step, same id-stability reason).
     ref_select: Option<Entity<SelectState<RefSearchDelegate>>>,
@@ -497,6 +503,7 @@ impl GithubPage {
             commits_list: None,
             commits_synced: None,
             commits_ref: RefKey::Default,
+            commits_mine: false,
             ref_select: None,
             ref_select_trigger: None,
             ref_select_open: false,
@@ -563,12 +570,12 @@ impl GithubPage {
             // connect-flow hop); the ident-keyed dedup absorbs a
             // collision with a just-fired open (docs/0031).
             let lane = self.tab.lane();
-            let rk = self.commits_ref.clone();
+            let key = self.commits_key(cx);
             if let Some(spec) = self.state.update(cx, |s, _| {
                 s.repo_tab_refresh_spec(
                     &full,
                     lane,
-                    &rk,
+                    &key,
                     crate::service::FOCUS_MIN_AGE,
                     Origin::new(Surface::RepoView, Trigger::Refocus),
                 )
@@ -1303,8 +1310,10 @@ impl GithubPage {
         self.filters.issues.label = None;
         // docs/0077 D1: opening a repo view lands on the Open PRs tab.
         self.tab = RepoTab::Pulls;
-        // docs/0081 D7: and the Commits tab on the default branch.
+        // docs/0081 D7/§14: and the Commits tab on the default branch,
+        // unfiltered.
         self.commits_ref = RefKey::Default;
+        self.commits_mine = false;
         let spec = self.state.update(cx, |s, cx| {
             s.selected = Some(full_name.to_string());
             let spec = s.repo_lane_spec(
@@ -1350,17 +1359,17 @@ impl GithubPage {
             return;
         };
         let lane = tab.lane();
-        let rk = self.commits_ref.clone();
+        let key = self.commits_key(cx);
         if tab == RepoTab::Commits {
             // docs/0081 D3: a visited book outlives the LRU.
             self.state
-                .update(cx, |s, _| s.touch_commit_lane(&full, &rk));
+                .update(cx, |s, _| s.touch_commit_lane(&full, &key));
         }
         let Some(spec) = self.state.update(cx, |s, _| {
             s.repo_tab_refresh_spec(
                 &full,
                 lane,
-                &rk,
+                &key,
                 crate::service::FOCUS_MIN_AGE,
                 Origin::new(Surface::RepoView, Trigger::ViewShown),
             )
@@ -1949,7 +1958,7 @@ impl GithubPage {
         let state = self.state.read(cx);
         state.selected.as_deref().is_some_and(|full| {
             state
-                .repo_tab_landed(full, self.tab.lane(), &self.commits_ref)
+                .repo_tab_landed(full, self.tab.lane(), &self.commits_key(cx))
                 .is_some()
         })
     }
@@ -2898,7 +2907,7 @@ impl GithubPage {
                             &LandedClock(self.state.read(cx).repo_tab_landed(
                                 &repo.full_name,
                                 self.tab.lane(),
-                                &self.commits_ref,
+                                &self.commits_key(cx),
                             )),
                             cx,
                             {
@@ -2912,7 +2921,7 @@ impl GithubPage {
                                     let spec = this.state.read(cx).repo_tab_spec(
                                         &full,
                                         lane,
-                                        &this.commits_ref,
+                                        &this.commits_key(cx),
                                         Origin::new(Surface::RepoView, Trigger::Manual),
                                     );
                                     this.run_specs(vec![spec], window, cx);
@@ -3237,11 +3246,13 @@ impl GithubPage {
     /// error cells, or the virtual list with its tail strip. Fills the
     /// pinned column (`flex_1().min_h_0()`).
     fn repo_commits_box(&self, repo: &gql::Repo, cx: &Context<Self>) -> AnyElement {
+        let key = self.commits_key(cx);
+        let mine = key.filter == CommitFilter::Mine;
         let lane = self
             .state
             .read(cx)
             .commit_lanes
-            .get(&(repo.full_name.clone(), self.commits_ref.clone()))
+            .get(&(repo.full_name.clone(), key))
             .cloned()
             .unwrap_or_default();
         // A picked branch is named by the pick; the default ref is
@@ -3252,6 +3263,7 @@ impl GithubPage {
             RefKey::Default => lane
                 .ref_name
                 .clone()
+                .or_else(|| self.default_ref_name(&repo.full_name, cx))
                 .unwrap_or_else(|| "the default branch".to_string()),
         };
         let muted = cx.theme().muted_foreground;
@@ -3294,6 +3306,9 @@ impl GithubPage {
                         ),
                 )
             })
+            // §14: the server-side author filter, beside the ref it
+            // narrows.
+            .child(self.commits_mine_toggle(cx))
             // The count sits right even before the ref label lands.
             .child(div().flex_1())
             .when(lane.landed.is_some() && lane.total_count > 0, |row| {
@@ -3302,7 +3317,7 @@ impl GithubPage {
                         .id("commits-count")
                         .debug_selector(|| "commits-count".to_string())
                         .text_color(muted)
-                        .child(commit_count_label(lane.total_count)),
+                        .child(commit_count_label(lane.total_count, mine)),
                 )
             });
         let body: AnyElement = if lane.rows.is_empty() {
@@ -3324,7 +3339,12 @@ impl GithubPage {
                     .child(self.commits_retry_button("commits-retry", false, cx))
                     .into_any_element()
             } else if lane.landed.is_some() {
-                muted_cell(&format!("No commits on {ref_name}"), cx)
+                let text = if mine {
+                    format!("No commits by you on {ref_name}")
+                } else {
+                    format!("No commits on {ref_name}")
+                };
+                muted_cell(&text, cx)
             } else {
                 commits_skeleton_rows()
             }
@@ -3354,7 +3374,11 @@ impl GithubPage {
                         // The pinned `ListState` owns the `List` node and
                         // takes no name: a named group carries it.
                         .role(accesskit::Role::Group)
-                        .aria_label(format!("Commits on {ref_name}"))
+                        .aria_label(if mine {
+                            format!("Your commits on {ref_name}")
+                        } else {
+                            format!("Commits on {ref_name}")
+                        })
                         .map(|el| match self.commits_list.as_ref() {
                             // D8: filtered, no match. Rendered here, not as
                             // the list's empty view — the pinned `List`
@@ -3429,7 +3453,7 @@ impl GithubPage {
         if lane.complete {
             let text = format!(
                 "Beginning of history · {}",
-                commit_count_label(lane.rows.len() as i64)
+                commit_count_label(lane.rows.len() as i64, false)
             );
             return strip(&text).child(text).into_any_element();
         }
@@ -3454,17 +3478,28 @@ impl GithubPage {
         }
         // More history exists and nothing is in flight: the list asks
         // for it near the bottom (D2, `Trigger::Paginate`).
-        let text = format!("{} loaded", commit_count_label(lane.rows.len() as i64));
+        let text = format!(
+            "{} loaded",
+            commit_count_label(lane.rows.len() as i64, false)
+        );
         strip(&text).child(text).into_any_element()
     }
 
-    /// github.com's commits page for the book's ref — the cap hand-off.
+    /// github.com's commits page for the book's ref — the cap hand-off;
+    /// a "mine" book hands off to GitHub's own author filter (§14).
     fn commits_history_url(&self, lane: &crate::service::CommitLane, cx: &Context<Self>) -> String {
-        let full = self.state.read(cx).selected.clone().unwrap_or_default();
-        match lane.ref_name.as_deref() {
+        let state = self.state.read(cx);
+        let full = state.selected.clone().unwrap_or_default();
+        let mut url = match lane.ref_name.as_deref() {
             Some(r) => format!("https://github.com/{full}/commits/{r}"),
             None => format!("https://github.com/{full}/commits"),
+        };
+        if self.commits_key(cx).filter == CommitFilter::Mine
+            && let Some(user) = state.user.as_ref()
+        {
+            url.push_str(&format!("?author={}", user.login));
         }
+        url
     }
 
     /// Retry for the commits book (docs/0081 D8): page 1 (`more` =
@@ -3488,7 +3523,7 @@ impl GithubPage {
                 let spec = this
                     .state
                     .read(cx)
-                    .commits_spec(&full, &this.commits_ref, origin);
+                    .commits_spec(&full, &this.commits_key(cx), origin);
                 this.run_specs(vec![spec], window, cx);
             }))
     }
@@ -3506,8 +3541,9 @@ impl GithubPage {
         let Some(full) = self.state.read(cx).selected.clone() else {
             return;
         };
+        let key = self.commits_key(cx);
         let spec = self.state.update(cx, |s, cx| {
-            let spec = s.commits_more_spec(&full, &self.commits_ref, origin);
+            let spec = s.commits_more_spec(&full, &key, origin);
             if spec.is_some() {
                 // The lock flips the tail to "Loading older commits…".
                 cx.notify();
@@ -3530,17 +3566,18 @@ impl GithubPage {
         let Some(full) = self.state.read(cx).selected.clone() else {
             return;
         };
+        let key = self.commits_key(cx);
         let (rows, can_more) = self
             .state
             .read(cx)
             .commit_lanes
-            .get(&(full.clone(), self.commits_ref.clone()))
+            .get(&(full.clone(), key.clone()))
             .map(|l| (l.rows.clone(), l.can_load_more()))
             .unwrap_or_default();
         let query = self.filters.search.clone();
-        // A repo or ref switch, or a new filter, starts the list from
-        // the top.
-        let book = (full, self.commits_ref.clone());
+        // A repo, ref or author-filter switch, or a new filter text,
+        // starts the list from the top.
+        let book = (full, key);
         let switched = self.commits_synced.as_ref() != Some(&book)
             || list.read(cx).delegate().query() != query;
         let old_first = list
@@ -3628,7 +3665,7 @@ impl GithubPage {
         self.state
             .read(cx)
             .commit_lanes
-            .get(&(full.to_string(), RefKey::Default))
+            .get(&(full.to_string(), CommitsKey::default()))
             .and_then(|l| l.ref_name.clone())
             .or_else(|| {
                 self.ref_source
@@ -3827,8 +3864,16 @@ impl GithubPage {
             return;
         }
         log::info!("commits: {full} now on {name}");
-        self.commits_ref = rk.clone();
+        self.commits_ref = rk;
         cx.notify();
+        self.offer_commits_book(&full, window, cx);
+    }
+
+    /// Offer the Commits tab's current `(ref, filter)` book (docs/0081
+    /// D7/§14): stamp it most recently used, then its page 1 through
+    /// the `FOCUS_MIN_AGE` gate as `ViewShown` — a held book paints at
+    /// once and stays quiet, a fresh one fetches.
+    fn offer_commits_book(&mut self, full: &str, window: &mut Window, cx: &mut Context<Self>) {
         let (connected, gated) = {
             let s = self.state.read(cx);
             (s.auth.connected(), s.gated())
@@ -3836,11 +3881,12 @@ impl GithubPage {
         if !connected || gated {
             return;
         }
+        let key = self.commits_key(cx);
         let spec = self.state.update(cx, |s, _| {
-            s.touch_commit_lane(&full, &rk);
+            s.touch_commit_lane(full, &key);
             s.commits_refresh_spec(
-                &full,
-                &rk,
+                full,
+                &key,
                 crate::service::FOCUS_MIN_AGE,
                 Origin::new(Surface::RepoView, Trigger::ViewShown),
             )
@@ -3848,6 +3894,72 @@ impl GithubPage {
         if let Some(spec) = spec {
             self.run_specs(vec![spec], window, cx);
         }
+    }
+
+    /// docs/0081 §14 — the book the Commits tab shows: the selected ref,
+    /// filtered to the viewer's commits when the toggle is on and the
+    /// viewer's node id is known (until then the toggle is disabled and
+    /// the tab shows the unfiltered book).
+    pub(crate) fn commits_key(&self, cx: &App) -> CommitsKey {
+        let mine = self.commits_mine && self.state.read(cx).viewer_node_id().is_some();
+        CommitsKey {
+            rk: self.commits_ref.clone(),
+            filter: if mine {
+                CommitFilter::Mine
+            } else {
+                CommitFilter::All
+            },
+        }
+    }
+
+    /// docs/0081 §14 — flip the "mine" toggle: switch to that filter's
+    /// book for the same ref and offer its page 1 (`history(author:)`).
+    pub(crate) fn toggle_commits_mine(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(full) = self.state.read(cx).selected.clone() else {
+            return;
+        };
+        if self.state.read(cx).viewer_node_id().is_none() {
+            return;
+        }
+        self.commits_mine = !self.commits_mine;
+        log::info!(
+            "commits: {full} {}",
+            if self.commits_mine {
+                "filtered to my commits"
+            } else {
+                "showing all authors"
+            }
+        );
+        cx.notify();
+        self.offer_commits_book(&full, window, cx);
+    }
+
+    /// The "Mine" toggle in the Commits body header (docs/0081 §14): a
+    /// toggle button (pressed state for assistive tech, a check glyph
+    /// and the selected fill when on), disabled until
+    /// the session inventory has fetched the viewer's node id.
+    fn commits_mine_toggle(&self, cx: &Context<Self>) -> Button {
+        let known = self.state.read(cx).viewer_node_id().is_some();
+        let on = self.commits_mine && known;
+        Button::new("commits-mine")
+            .debug_selector(|| "commits-mine".to_string())
+            .label("Mine")
+            .small()
+            .outline()
+            .selected(on)
+            .toggled(on)
+            // The on state shows as a glyph, not only the selected fill
+            // (rubric 17; critique iteration 1).
+            .when(on, |b| b.icon(IconName::Check))
+            .disabled(!known)
+            .tooltip(if known {
+                "Only commits you authored"
+            } else {
+                "Available once your account has loaded"
+            })
+            .on_click(cx.listener(|this, _, window, cx| {
+                this.toggle_commits_mine(window, cx);
+            }))
     }
 
     /// docs/0081 D4/D9 — after a prepend of k commits while the reader
@@ -4369,11 +4481,18 @@ fn commits_no_match(cx: &Context<GithubPage>) -> AnyElement {
 }
 
 /// "1 commit" / "425 commits" — the header count and the tail strip.
-fn commit_count_label(n: i64) -> String {
-    if n == 1 {
+/// The body header's count: `history.totalCount`, which counts the
+/// filtered history on a "mine" book (docs/0081 §14).
+fn commit_count_label(n: i64, mine: bool) -> String {
+    let count = if n == 1 {
         "1 commit".to_string()
     } else {
         format!("{n} commits")
+    };
+    if mine {
+        format!("{count} by you")
+    } else {
+        count
     }
 }
 
@@ -4677,6 +4796,7 @@ mod tests {
                 s.user = Some(gql::User {
                     login: "me".into(),
                     avatar_url: String::new(),
+                    id: String::new(),
                 });
                 s.repos = vec![r];
                 s.selected = Some("acme/one".into());
@@ -5890,7 +6010,7 @@ mod tests {
             assert!(
                 p.state
                     .read(cx)
-                    .repo_tab_landed("acme/one", RepoLane::Commits, &p.commits_ref)
+                    .repo_tab_landed("acme/one", RepoLane::Commits, &p.commits_key(cx))
                     .is_some(),
                 "the freshness cluster reads the branch book's clock"
             );
@@ -5932,6 +6052,203 @@ mod tests {
         resync(vcx);
         vcx.update(|_, cx| assert_eq!(page.read(cx).commits_ref, RefKey::Default));
         assert_eq!(selected(vcx).as_deref(), Some("main"));
+    }
+
+    /// docs/0081 §14 — the "mine" toggle: inert until the viewer's node
+    /// id is known; on, it switches to the filtered book and fetches its
+    /// page 1 with `history(author: { id })`; off, the held unfiltered
+    /// book paints with no flight; it survives a branch pick (the
+    /// branch's own mine book) and a repo selection resets it.
+    #[gpui::test]
+    fn commits_mine_toggle_switches_books_and_resets_per_repo(cx: &mut TestAppContext) {
+        use std::sync::Arc;
+
+        use crate::auth::MockTokenStore;
+        use crate::http::mock::MockHttp;
+        use crate::http::{Http, SharedToken};
+        use crate::service::{AuthStatus, CommitFilter, GithubCache, GithubState, RefKey};
+        use dashboard_core::nav::Navigator;
+        use dashboard_core::paths::AppPaths;
+
+        cx.update(gpui_component::init);
+        cx.update(dashboard_core::status::init);
+        let vcx = cx.add_empty_window();
+
+        let node = |oid: &str| {
+            format!(
+                r#"{{"oid":"{oid}","abbreviatedOid":"{short}","messageHeadline":"commit {oid}","committedDate":"2026-10-22T20:14:08Z","authoredDate":"2026-10-22T20:14:08Z","url":"https://github.com/acme/one/commit/{oid}","author":{{"name":"N","email":"n@x","avatarUrl":null,"user":{{"login":"me"}}}},"signature":null,"statusCheckRollup":null}}"#,
+                short = &oid[..7]
+            )
+        };
+        let history = |tip: &str, nodes: &[&str]| {
+            let nodes: Vec<String> = nodes.iter().map(|o| node(o)).collect();
+            format!(
+                r#"{{"oid":"{tip}","history":{{"totalCount":{n},"pageInfo":{{"hasNextPage":false,"endCursor":null}},"nodes":[{}]}}}}"#,
+                nodes.join(","),
+                n = nodes.len()
+            )
+        };
+        let (a, b, m, f) = (
+            "a".repeat(40),
+            "b".repeat(40),
+            "c".repeat(40),
+            "f".repeat(40),
+        );
+        let pulls_body = r#"{"data":{"repository":{"name":"one","nameWithOwner":"acme/one",
+            "owner":{"login":"acme"},"pullRequests":{"totalCount":0,"nodes":[]}}}}"#;
+        let default_body = format!(
+            r#"{{"data":{{"repository":{{"defaultBranchRef":{{"name":"main","target":{}}}}}}}}}"#,
+            history(&a, &[&a, &b])
+        );
+        // The ref tip (`a`) is not the viewer's: only `m` is.
+        let mine_body = format!(
+            r#"{{"data":{{"repository":{{"defaultBranchRef":{{"name":"main","target":{}}}}}}}}}"#,
+            history(&a, &[&m])
+        );
+        let feat_mine_body = format!(
+            r#"{{"data":{{"repository":{{"ref":{{"name":"feat","target":{}}}}}}}}}"#,
+            history(&f, &[&f])
+        );
+        let ok = |body: String| {
+            Ok(crate::http::HttpResult {
+                status: 200,
+                etag: None,
+                rate: None,
+                body: Some(body),
+            })
+        };
+        let mock = Arc::new(MockHttp::new(vec![
+            ok(pulls_body.to_string()),
+            ok(default_body),
+            ok(mine_body),
+            ok(feat_mine_body),
+            ok(pulls_body.to_string()),
+        ]));
+        let (page, state) = vcx.update(|window, cx| {
+            let shared: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let refresh: SharedToken = Arc::new(std::sync::RwLock::new(None));
+            let state = cx.new(|_| {
+                GithubState::new(
+                    mock.clone() as Arc<dyn Http>,
+                    Arc::new(MockTokenStore::with("t0k".into())),
+                    shared,
+                    refresh,
+                    GithubCache::new(AppPaths::init()),
+                    DraftStore::at_tmp("repo-commits-mine"),
+                )
+            });
+            state.update(cx, |s, _| {
+                s.auth = AuthStatus::Connected;
+                s.orgs.clear();
+                s.user = None;
+            });
+            let nav = cx.new(|_| Navigator::default());
+            let page = cx.new(|cx| GithubPage::new(state.clone(), nav, window, cx));
+            (page, state)
+        });
+        // (author id, op) of every commits flight, in order.
+        let flights = || {
+            mock.recorded()
+                .iter()
+                .filter_map(|r| {
+                    let body: serde_json::Value =
+                        serde_json::from_str(r.body.as_deref().unwrap_or("")).ok()?;
+                    let query = body["query"].as_str()?;
+                    let op = ["RepoCommitsRef", "RepoCommits"]
+                        .into_iter()
+                        .find(|op| query.contains(&format!("query {op}(")))?;
+                    let author = body["variables"]["author"]["id"]
+                        .as_str()
+                        .map(str::to_string);
+                    Some((author, op))
+                })
+                .collect::<Vec<_>>()
+        };
+        let rows = |cx: &mut gpui::VisualTestContext| {
+            cx.update(|_, cx| {
+                page.update(cx, |p, cx| p.sync_commits(cx));
+                page.read(cx)
+                    .commits_list
+                    .as_ref()
+                    .unwrap()
+                    .read(cx)
+                    .delegate()
+                    .rows()
+                    .iter()
+                    .map(|r| r.oid.clone())
+                    .collect::<Vec<_>>()
+            })
+        };
+        let toggle = |cx: &mut gpui::VisualTestContext| {
+            cx.update(|window, cx| page.update(cx, |p, cx| p.toggle_commits_mine(window, cx)));
+            cx.run_until_parked();
+        };
+
+        vcx.update(|window, cx| {
+            page.update(cx, |p, cx| p.select_repo("acme/one".into(), window, cx));
+        });
+        vcx.run_until_parked();
+        vcx.update(|window, cx| {
+            page.update(cx, |p, cx| p.switch_repo_tab(RepoTab::Commits, window, cx));
+        });
+        vcx.run_until_parked();
+        assert_eq!(rows(vcx), [a.clone(), b.clone()]);
+
+        // No viewer id yet: the toggle is inert.
+        toggle(vcx);
+        vcx.update(|_, cx| assert!(!page.read(cx).commits_mine));
+        assert_eq!(flights(), [(None, "RepoCommits")]);
+
+        vcx.update(|_, cx| {
+            state.update(cx, |s, _| {
+                s.user = Some(gql::User {
+                    login: "me".into(),
+                    avatar_url: String::new(),
+                    id: "U_me".into(),
+                })
+            })
+        });
+        toggle(vcx);
+        assert_eq!(
+            flights(),
+            [(None, "RepoCommits"), (Some("U_me".into()), "RepoCommits")],
+            "on: the mine book's page 1 carries the author"
+        );
+        assert_eq!(rows(vcx), std::slice::from_ref(&m));
+        vcx.update(|_, cx| {
+            let p = page.read(cx);
+            assert_eq!(p.commits_key(cx).filter, CommitFilter::Mine);
+            let lane = &p.state.read(cx).commit_lanes[&("acme/one".to_string(), p.commits_key(cx))];
+            assert_eq!(lane.ref_name.as_deref(), Some("main"));
+        });
+
+        // Off: the held unfiltered book paints, no flight.
+        toggle(vcx);
+        assert_eq!(flights().len(), 2);
+        assert_eq!(rows(vcx), [a.clone(), b.clone()]);
+
+        // On again, then a branch pick keeps the filter.
+        toggle(vcx);
+        assert_eq!(flights().len(), 2, "a held mine book is age-gated");
+        vcx.update(|window, cx| page.update(cx, |p, cx| p.pick_ref("feat".into(), window, cx)));
+        vcx.run_until_parked();
+        assert_eq!(
+            flights().last().cloned(),
+            Some((Some("U_me".into()), "RepoCommitsRef"))
+        );
+        assert_eq!(rows(vcx), std::slice::from_ref(&f));
+
+        // A repo selection resets the toggle with the ref.
+        vcx.update(|window, cx| {
+            page.update(cx, |p, cx| p.select_repo("acme/one".into(), window, cx))
+        });
+        vcx.run_until_parked();
+        vcx.update(|_, cx| {
+            let p = page.read(cx);
+            assert!(!p.commits_mine);
+            assert_eq!(p.commits_ref, RefKey::Default);
+            assert_eq!(p.commits_key(cx).filter, CommitFilter::All);
+        });
     }
 
     /// The header refresh button (docs/0024 D2 amended) refreshes the
@@ -7137,6 +7454,7 @@ mod tests {
                 s.user = Some(gql::User {
                     login: "me".into(),
                     avatar_url: String::new(),
+                    id: String::new(),
                 });
                 s.orgs = crate::gql::orgs_from_values(&[serde_json::json!({"login": "acme"})]);
                 if with_repos {

@@ -3,6 +3,7 @@
   "rateLimit": null,
   "viewer": {
    "avatarUrl": "https://avatars.invalid/fixture-user",
+   "id": "U_fixture",
    "login": "fixture-user",
    "organizations": {
     "nodes": []

@@ -6,7 +6,8 @@
 # Prerequisites (in-container, one chain = one container):
 #   export DASHBOARD_GITHUB_FIXTURE=/work/crates/debug/verify/fixtures/github
 #   export DASHBOARD_FIXED_NOW=2026-10-23T12:00:00Z
-#   export RUST_LOG=info,dashboard_module_github=debug
+#   export RUST_LOG=warn,dashboard_module_github=debug  # info floods the
+#   # log ring with zbus a11y traffic before the later flights
 #   dashboard-debug session start --name commits --size 1280x800 \
 #     --binary /tmp/target/debug/my-dashboard
 # Run: dashboard-debug run crates/debug/verify/repo-commits.txt
@@ -16,8 +17,11 @@
 # exactly one `fetch repo-commits` after it; `commits: opened <sha>`
 # for the Enter; `commits: next page … (paginate)` lines with
 # `repo-commits-more applied` up to `120 of 120 held, complete`; no
-# further commits flight after the filter text; then (docs/0081 D7)
-# exactly one `fetch repo-branches` on the selector's open, `commits:
+# further commits flight after the filter text; then (docs/0081 §14)
+# `commits: fixture-user/atlas filtered to my commits` with exactly one
+# `fetch repo-commits: fixture-user/atlas~mine` landing `Fresh, 40 of
+# 40 held`, and `showing all authors` with no flight; then (docs/0081
+# D7) exactly one `fetch repo-branches` on the selector's open, `commits:
 # fixture-user/atlas now on feature/ref-picker` and one `fetch
 # repo-commits: fixture-user/atlas:feature/ref-picker` landing `Fresh,
 # 6 of 6 held`.
@@ -94,6 +98,24 @@ key backspace
 key backspace
 key backspace
 wait-frame
+assert-label "Beginning of history · 120 commits"
+
+# §14 author = mine: the toggle swaps in its own server-filtered book
+# (`history(author: { id })`, served from RepoCommits.author.json) —
+# the viewer's 40 commits; octocat's and the unlinked author's go.
+click 10789357359616730678 --wait-frame
+wait-frame
+assert-label "Your commits on main"
+assert-no-label "Commits on main"
+assert-label "ci: cache the cargo registry between jobs (#697) — fixture-user, committed 16h, CI: pending, daa66d1"
+assert-no-label "Copy SHA 9e3779b"
+assert-no-label "Dev Box"
+assert-label "Beginning of history · 40 commits"
+audit
+# Off again: main's held, complete book paints with no flight.
+click 10789357359616730678 --wait-frame
+assert-label "Commits on main"
+assert-label "Copy SHA 9e3779b"
 assert-label "Beginning of history · 120 commits"
 
 # The first open fetches the branch list (one `fetch repo-branches`);
