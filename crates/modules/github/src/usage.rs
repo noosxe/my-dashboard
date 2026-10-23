@@ -495,6 +495,12 @@ pub(crate) enum Trigger {
     /// polled on a timer while the window is inactive (the single
     /// docs/0052 D1 carve-out; Usage receipts name it).
     Poll,
+    /// docs/0081 D10: scroll-driven pagination — the commits list asked
+    /// for its next page near the bottom. Distinct from `Manual` (the
+    /// home "Load more" click) so passive scrolling isn't billed as a
+    /// deliberate action.
+    #[cfg_attr(not(test), allow(dead_code))] // docs/0081 stage 2 (#647) consumes it
+    Paginate,
     Probe,
     Auth,
 }
@@ -510,6 +516,7 @@ impl Trigger {
             Trigger::MutationRefetch => "mutation-refetch",
             Trigger::Drift => "drift",
             Trigger::Poll => "poll",
+            Trigger::Paginate => "paginate",
             Trigger::Probe => "probe",
             Trigger::Auth => "auth",
         }

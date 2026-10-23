@@ -443,6 +443,16 @@ pub enum Kind {
     /// Repo-scoped open-issue page — the Open issues tab's lane
     /// (docs/0077 D2).
     RepoIssues,
+    /// docs/0081 D2 — page 1 of a commits book: `RepoCommits`
+    /// (`defaultBranchRef`) or `RepoCommitsRef` (a picked branch, the
+    /// spec's `ref` variable). Ident per [`commits_ident`].
+    RepoCommits,
+    /// docs/0081 D2 — page N of a commits book, tip-pinned through
+    /// `object(oid:)`. Same ident as page 1, its own in-flight key; the
+    /// book's `loading_more` lock is the single-flight guard (D10). The
+    /// run arm copies `$after` into [`SpecResult::cursor`] so `apply`
+    /// can drop a page minted against a replaced book.
+    RepoCommitsMore,
     /// Repo-scoped unread notifications — the Notifications tab's lane
     /// (docs/0077 D5; was "fetched once per open", docs/0007 D6).
     RepoNotifications,
@@ -913,6 +923,10 @@ pub(crate) enum RepoLane {
     Pulls,
     Issues,
     Notifications,
+    /// docs/0081 D1 — the Commits tab's lane. Its rows live in
+    /// [`GithubState::commit_lanes`], not on the repo entry; the
+    /// `rows_landed` clock tracks the default ref's book.
+    Commits,
 }
 
 impl RepoLane {
@@ -922,7 +936,188 @@ impl RepoLane {
             RepoLane::Pulls => "pulls",
             RepoLane::Issues => "issues",
             RepoLane::Notifications => "notifs",
+            RepoLane::Commits => "commits",
         }
+    }
+}
+
+/// docs/0081 D2 — commits per page. Each page bills one point
+/// (measured, §2 fact 11); 50 rows outrun the `List`'s 20-entity
+/// load-more threshold and keep the `statusCheckRollup` server time
+/// down.
+pub(crate) const COMMITS_PAGE: i64 = 50;
+
+/// docs/0081 D2 — held commits per book. Past it the book stops paging
+/// and the tail row hands off to GitHub.
+pub(crate) const COMMITS_HELD_CAP: usize = 1000;
+
+/// docs/0081 D3 — books kept across repo/ref switches (LRU).
+pub(crate) const COMMIT_LANES_CAP: usize = 8;
+
+/// docs/0081 D3/D7 — which ref a commits book follows. Part of the book
+/// key from day one so the branch selector adds no data change.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) enum RefKey {
+    Default,
+    Branch(String),
+}
+
+/// The commits lanes' ident: `owner/repo` for the default ref,
+/// `owner/repo:<branch>` for a picked branch — `:` occurs in neither
+/// repository names nor git ref names, so the split is unambiguous.
+pub(crate) fn commits_ident(full_name: &str, rk: &RefKey) -> String {
+    match rk {
+        RefKey::Default => full_name.to_string(),
+        RefKey::Branch(name) => format!("{full_name}:{name}"),
+    }
+}
+
+/// Inverse of [`commits_ident`].
+pub(crate) fn parse_commits_ident(ident: &str) -> (String, RefKey) {
+    match ident.split_once(':') {
+        Some((full, name)) => (full.to_string(), RefKey::Branch(name.to_string())),
+        None => (ident.to_string(), RefKey::Default),
+    }
+}
+
+/// How a page-1 landing met the held book (docs/0081 D4) — the log
+/// line and the tests read it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CommitLanding {
+    /// The first landing for this book.
+    Fresh,
+    /// The held tip was found at index k: k new commits prepended, the
+    /// tail, cursor and completeness kept.
+    Prepended(usize),
+    /// The held tip was absent (force-push, more than a page of new
+    /// commits) or the overlap disagreed: the book restarts from page 1.
+    Replaced,
+}
+
+/// docs/0081 D3 — one `(repo, ref)` commits book: the only copy of its
+/// rows (views derive from it, docs/0073 D3). In memory only.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct CommitLane {
+    /// The resolved ref name (`main`); `None` until landed, or when the
+    /// ref doesn't exist (an empty repository).
+    pub ref_name: Option<String>,
+    /// The newest tip a page-1 landing saw.
+    pub tip: Option<String>,
+    /// The tip the cursor was minted against — load-more pages through
+    /// `object(oid: page_tip)` (D2). Equals `tip` until a prepend-merge
+    /// moves `tip` while the tail keeps paging the old history.
+    pub page_tip: Option<String>,
+    /// Newest-first.
+    pub rows: Vec<gql::CommitRow>,
+    /// `history.totalCount` at `tip`.
+    pub total_count: i64,
+    pub cursor: Option<String>,
+    /// `!hasNextPage` from the last page.
+    pub complete: bool,
+    /// The load-more single-flight lock (D10).
+    pub loading_more: bool,
+    /// The last page-1 failure — inline error + Retry when nothing is
+    /// held, a silently aging label otherwise (D8).
+    pub error: Option<String>,
+    /// The last load-more failure — the tail row's Retry (D8).
+    pub more_error: Option<String>,
+    /// One-shot: the last page-1 landing replaced a landed book (D4).
+    pub rewritten: bool,
+    /// Page-1 landing clock; `None` = never landed.
+    pub landed: Option<Instant>,
+    /// LRU stamp (D3).
+    used: u64,
+}
+
+impl CommitLane {
+    /// May the list ask for the next page (`ListDelegate::has_more`)?
+    /// Not while a page flies, after a failed page (Retry is the user's
+    /// call), past the cap, or at the end of history. The rate-limit
+    /// gate sits in the spec builder.
+    #[cfg_attr(not(test), allow(dead_code))] // docs/0081 stage 2 (#647) consumes it
+    pub(crate) fn can_load_more(&self) -> bool {
+        self.landed.is_some()
+            && !self.complete
+            && self.cursor.is_some()
+            && !self.loading_more
+            && self.more_error.is_none()
+            && self.rows.len() < COMMITS_HELD_CAP
+    }
+
+    /// The cap stopped paging, not the end of history (D8's tail).
+    #[cfg_attr(not(test), allow(dead_code))] // docs/0081 stage 2 (#647) consumes it
+    pub(crate) fn capped(&self) -> bool {
+        !self.complete && self.rows.len() >= COMMITS_HELD_CAP
+    }
+
+    /// Land a page-1 result (docs/0081 D4): prepend-merge when the held
+    /// tip appears in the page and the overlap agrees row for row
+    /// (history is not strictly append-at-head — a merged side branch
+    /// can interleave older commits below the old tip, which a merge
+    /// would miss), otherwise restart the book from this page.
+    pub(crate) fn land_first(&mut self, page: gql::CommitPage, now: Instant) -> CommitLanding {
+        let was_landed = self.landed.is_some();
+        self.error = None;
+        self.rewritten = false;
+        self.ref_name = page.ref_name.clone();
+        self.landed = Some(now);
+        if was_landed
+            && let Some(held_tip) = self.tip.clone()
+            && let Some(k) = page.nodes.iter().position(|c| c.oid == held_tip)
+        {
+            let overlap = &page.nodes[k..];
+            let agrees = overlap.len() <= self.rows.len()
+                && overlap.iter().zip(&self.rows).all(|(a, b)| a.oid == b.oid);
+            if agrees {
+                let mut nodes = page.nodes;
+                let overlap: Vec<_> = nodes.drain(k..).collect();
+                // The mutable facts on rows the page re-read (D4).
+                for (held, fresh) in self.rows.iter_mut().zip(overlap) {
+                    held.status_check_rollup = fresh.status_check_rollup;
+                    held.signature = fresh.signature;
+                }
+                if k > 0 {
+                    nodes.append(&mut self.rows);
+                    self.rows = nodes;
+                }
+                self.tip = page.tip;
+                if let Some(total) = page.total_count {
+                    self.total_count = total;
+                }
+                return CommitLanding::Prepended(k);
+            }
+        }
+        self.rewritten = was_landed && !self.rows.is_empty();
+        self.rows = page.nodes;
+        self.tip = page.tip.clone();
+        self.page_tip = page.tip;
+        self.total_count = page.total_count.unwrap_or(self.rows.len() as i64);
+        self.cursor = page.end_cursor;
+        self.complete = !page.has_next_page;
+        // A load-more in flight against the old chain lands stale and is
+        // dropped by the cursor check in `land_more`.
+        self.loading_more = false;
+        self.more_error = None;
+        if was_landed {
+            CommitLanding::Replaced
+        } else {
+            CommitLanding::Fresh
+        }
+    }
+
+    /// Land a load-more page minted from `after`. A page whose cursor
+    /// no longer matches the book (a replace landed meanwhile) is
+    /// stale and dropped — `false`.
+    pub(crate) fn land_more(&mut self, after: &str, page: gql::CommitPage) -> bool {
+        if self.cursor.as_deref() != Some(after) {
+            return false;
+        }
+        self.rows.extend(page.nodes);
+        self.cursor = page.end_cursor;
+        self.complete = !page.has_next_page;
+        self.loading_more = false;
+        self.more_error = None;
+        true
     }
 }
 
@@ -1006,6 +1201,18 @@ pub fn run_spec(
         Kind::SessionInventory => run_paged_view(&rec, spec, gql::SESSION_INVENTORY_QUERY),
         Kind::RepoPulls => run_graphql_fetch(&rec, spec, gql::REPO_PULLS_QUERY, "repo-pulls"),
         Kind::RepoIssues => run_graphql_fetch(&rec, spec, gql::REPO_ISSUES_QUERY, "repo-issues"),
+        Kind::RepoCommits => {
+            let picked = spec
+                .variables
+                .as_ref()
+                .is_some_and(|v| v.get("ref").is_some());
+            if picked {
+                run_graphql_fetch(&rec, spec, gql::REPO_COMMITS_REF_QUERY, "repo-commits")
+            } else {
+                run_graphql_fetch(&rec, spec, gql::REPO_COMMITS_QUERY, "repo-commits")
+            }
+        }
+        Kind::RepoCommitsMore => run_commits_more(&rec, spec),
         Kind::PrDetail => run_pr_detail(&rec, spec),
         Kind::PrMutation(m) => run_pr_mutation(&rec, spec, m),
         Kind::IssueDetail => run_issue_detail(&rec, spec),
@@ -1730,6 +1937,8 @@ impl Kind {
                 | Kind::RepoPulls
                 | Kind::RepoIssues
                 | Kind::RepoNotifications
+                | Kind::RepoCommits
+                | Kind::RepoCommitsMore
                 | Kind::AccountPullRequests
                 | Kind::RateLimit
         )
@@ -1741,6 +1950,8 @@ impl Kind {
             Kind::Notifications => "notifications",
             Kind::RepoPulls => "repo-pulls",
             Kind::RepoIssues => "repo-issues",
+            Kind::RepoCommits => "repo-commits",
+            Kind::RepoCommitsMore => "repo-commits-more",
             Kind::PrDetail => "pr-detail",
             Kind::PrMutation(_) => "pr-mutation",
             Kind::IssueDetail => "issue-detail",
@@ -2335,6 +2546,11 @@ pub struct GithubState {
     /// seeded; docs/0034 disk-seeding stays a snapshot/notifications
     /// affair.
     pub(crate) home_lanes: BTreeMap<(String, HomeScope), HomeLane>,
+    /// docs/0081 D3 — the commits books, keyed `(repo, ref)`; LRU-capped
+    /// at [`COMMIT_LANES_CAP`]. Session-only, never persisted.
+    pub(crate) commit_lanes: BTreeMap<(String, RefKey), CommitLane>,
+    /// The LRU stamp source for `commit_lanes`.
+    commit_lane_clock: u64,
     /// The home lane's landed clock (the notifications-lane pattern,
     /// docs/0038 D7): the age gate reads it; backoff books sit beside it.
     pub(crate) home_landed: Option<Instant>,
@@ -2520,6 +2736,8 @@ impl GithubState {
             notifications_fail_streak: 0,
             notifications_attempted_at: None,
             home_lanes: BTreeMap::new(),
+            commit_lanes: BTreeMap::new(),
+            commit_lane_clock: 0,
             home_landed: None,
             home_fail_streak: 0,
             home_attempted_at: None,
@@ -2759,7 +2977,117 @@ impl GithubState {
                 Some(2),
                 origin,
             ),
+            RepoLane::Commits => self.commits_spec(full_name, &RefKey::Default, origin),
         }
+    }
+
+    /// docs/0081 D2 — page 1 of a commits book: the default-branch
+    /// query, or the picked-branch query when `rk` names one.
+    pub(crate) fn commits_spec(&self, full_name: &str, rk: &RefKey, origin: Origin) -> FetchSpec {
+        let (owner, name) = split_full_name(full_name);
+        let mut variables = serde_json::json!({
+            "owner": owner,
+            "name": name,
+            "first": COMMITS_PAGE,
+        });
+        if let RefKey::Branch(branch) = rk {
+            variables["ref"] = Value::String(format!("refs/heads/{branch}"));
+        }
+        FetchSpec {
+            origin,
+            kind: Kind::RepoCommits,
+            url: gql::GRAPHQL_ENDPOINT.to_string(),
+            etag: None,
+            ident: Some(commits_ident(full_name, rk)),
+            max_pages: 1,
+            variables: Some(variables),
+        }
+    }
+
+    /// docs/0081 D2/D10 — the next page of a commits book, or `None`
+    /// when it may not page (see [`CommitLane::can_load_more`]) or the
+    /// module is gated (auth loss, rate-limit pause). Takes the
+    /// `loading_more` lock on success — the caller dispatches the spec.
+    /// A `Manual` origin is the tail row's Retry: it clears the last
+    /// page failure first.
+    #[cfg_attr(not(test), allow(dead_code))] // docs/0081 stage 2 (#647) consumes it
+    pub(crate) fn commits_more_spec(
+        &mut self,
+        full_name: &str,
+        rk: &RefKey,
+        origin: Origin,
+    ) -> Option<FetchSpec> {
+        if self.gated() {
+            return None;
+        }
+        let key = (full_name.to_string(), rk.clone());
+        let lane = self.commit_lanes.get_mut(&key)?;
+        if origin.trigger == Trigger::Manual {
+            lane.more_error = None;
+        }
+        if !lane.can_load_more() {
+            return None;
+        }
+        let (Some(tip), Some(after)) = (lane.page_tip.clone(), lane.cursor.clone()) else {
+            return None;
+        };
+        lane.loading_more = true;
+        let (owner, name) = split_full_name(full_name);
+        Some(FetchSpec {
+            origin,
+            kind: Kind::RepoCommitsMore,
+            url: gql::GRAPHQL_ENDPOINT.to_string(),
+            etag: None,
+            ident: Some(commits_ident(full_name, rk)),
+            max_pages: 1,
+            variables: Some(serde_json::json!({
+                "owner": owner,
+                "name": name,
+                "tip": tip,
+                "first": COMMITS_PAGE,
+                "after": after,
+            })),
+        })
+    }
+
+    /// docs/0081 D3 — read a commits book and stamp it most recently
+    /// used (the tab calls this on entry so a visited book outlives the
+    /// LRU).
+    #[cfg_attr(not(test), allow(dead_code))] // docs/0081 stage 2 (#647) consumes it
+    pub(crate) fn touch_commit_lane(&mut self, full_name: &str, rk: &RefKey) {
+        self.commit_lane_clock += 1;
+        let stamp = self.commit_lane_clock;
+        if let Some(lane) = self
+            .commit_lanes
+            .get_mut(&(full_name.to_string(), rk.clone()))
+        {
+            lane.used = stamp;
+        }
+    }
+
+    /// The book for `key`, created empty (never landed) when absent and
+    /// stamped most recently used; the least recently used book beyond
+    /// [`COMMIT_LANES_CAP`] is evicted (never the one returned).
+    fn commit_lane_entry(&mut self, key: (String, RefKey)) -> &mut CommitLane {
+        self.commit_lane_clock += 1;
+        let stamp = self.commit_lane_clock;
+        if !self.commit_lanes.contains_key(&key) {
+            while self.commit_lanes.len() >= COMMIT_LANES_CAP {
+                let Some(oldest) = self
+                    .commit_lanes
+                    .iter()
+                    .min_by_key(|(_, l)| l.used)
+                    .map(|(k, _)| k.clone())
+                else {
+                    break;
+                };
+                log::debug!("repo-commits: evicting book {oldest:?} (LRU)");
+                self.commit_lanes.remove(&oldest);
+            }
+        }
+        let lane = self.commit_lanes.entry(key).or_default();
+        lane.used = stamp;
+        lane
     }
 
     /// Heartbeat/tab-entry refresh for one repo-view lane (docs/0077
@@ -2798,16 +3126,23 @@ impl GithubState {
     /// landed" (docs/0077 D4): any lane's clock, aged by the newest —
     /// the agent ops surface has no tab context.
     pub(crate) fn repo_rows_landed_any(&self, full_name: &str) -> Option<Instant> {
-        [RepoLane::Pulls, RepoLane::Issues, RepoLane::Notifications]
-            .iter()
-            .filter_map(|lane| self.rows_landed.get(&(full_name.to_string(), *lane)))
-            .copied()
-            .max()
+        [
+            RepoLane::Pulls,
+            RepoLane::Issues,
+            RepoLane::Notifications,
+            RepoLane::Commits,
+        ]
+        .iter()
+        .filter_map(|lane| self.rows_landed.get(&(full_name.to_string(), *lane)))
+        .copied()
+        .max()
     }
 
     /// docs/0077 D3 — post-write invalidation: a settled repo-view
     /// mutation drops all three lane clocks so the next view-shown or
-    /// beat refetches the active one (correctness over frugality).
+    /// beat refetches the active one (correctness over frugality). The
+    /// commits clock is deliberately kept: no in-app write changes
+    /// history (docs/0081 D1).
     pub(crate) fn invalidate_repo_lanes(&mut self, full_name: &str) {
         for lane in [RepoLane::Pulls, RepoLane::Issues, RepoLane::Notifications] {
             self.rows_landed.remove(&(full_name.to_string(), lane));
@@ -4096,6 +4431,18 @@ impl GithubState {
                 );
             }
         }
+        // docs/0081 D8: a failed commits page records its error on the
+        // book — page 1 as the inline error (or a silently aging label
+        // when rows are held), page N as the tail row's Retry.
+        if matches!(result.kind, Kind::RepoCommits | Kind::RepoCommitsMore)
+            && (result.network.is_some() || !(200..300).contains(&result.status))
+        {
+            let msg = result
+                .network
+                .clone()
+                .unwrap_or_else(|| format!("HTTP {}", result.status));
+            self.commits_failed(result.kind, result.ident.as_deref(), msg);
+        }
         if let Some(m) = result.network {
             log::warn!("{}: network error: {m}", result.kind.kind_name());
             // Transition-only (docs/0058 §13): the first transport-level
@@ -4290,6 +4637,14 @@ impl GithubState {
                     _ => RepoLane::Issues,
                 };
                 self.apply_repo_lane(result.ident.as_deref(), body, lane);
+            }
+            Kind::RepoCommits | Kind::RepoCommitsMore => {
+                self.apply_commits(
+                    result.kind,
+                    result.ident.as_deref(),
+                    result.cursor.as_deref(),
+                    body,
+                );
             }
             Kind::Notifications => match serde_json::from_str::<Vec<Notification>>(body) {
                 Ok(items) => {
@@ -4500,6 +4855,108 @@ impl GithubState {
         }
     }
 
+    /// docs/0081 D8 — book a failed commits page. A page-1 failure
+    /// creates the (never-landed) book if needed so the tab can render
+    /// error + Retry; a page-N failure only unlocks a book still waiting
+    /// on it (a replace in between already unlocked it).
+    fn commits_failed(&mut self, kind: Kind, ident: Option<&str>, msg: String) {
+        let Some(ident) = ident else {
+            log::warn!("{}: spec without ident", kind.kind_name());
+            return;
+        };
+        let key = parse_commits_ident(ident);
+        if kind == Kind::RepoCommits {
+            self.commit_lane_entry(key).error = Some(msg);
+        } else if let Some(lane) = self.commit_lanes.get_mut(&key)
+            && lane.loading_more
+        {
+            lane.loading_more = false;
+            lane.more_error = Some(msg);
+        }
+    }
+
+    /// docs/0081 D2–D4 — land one commits page: page 1 prepend-merges
+    /// into (or restarts) the book and stamps the lane clock; page N
+    /// appends when its cursor still matches the book.
+    fn apply_commits(&mut self, kind: Kind, ident: Option<&str>, after: Option<&str>, body: &str) {
+        let name = kind.kind_name();
+        let Some(ident) = ident else {
+            log::warn!("{name}: spec without ident");
+            return;
+        };
+        let env = match serde_json::from_str::<gql::Envelope<gql::CommitsData>>(body) {
+            Ok(env) => env,
+            Err(e) => {
+                log::warn!("{name} payload: {e}");
+                self.commits_failed(kind, Some(ident), format!("unreadable response ({e})"));
+                return;
+            }
+        };
+        for e in &env.errors {
+            log::warn!("{name}: {}", e.message);
+        }
+        let first_error = env.errors.first().map(|e| e.message.clone());
+        let Some(data) = env.data else {
+            let msg = first_error.unwrap_or_else(|| "no data".into());
+            self.commits_failed(kind, Some(ident), msg);
+            return;
+        };
+        if let Some(rl) = &data.rate_limit
+            && rl.remaining <= 0
+        {
+            self.rate_limited_until = Some(rl.reset_epoch());
+            log::warn!(
+                "{name}: GraphQL point budget exhausted — paused until {}",
+                rl.reset_at
+            );
+        }
+        let Some(repo) = data.repository else {
+            let msg = first_error.unwrap_or_else(|| "repository unavailable".into());
+            self.commits_failed(kind, Some(ident), msg);
+            return;
+        };
+        let page = gql::commits_page(&repo);
+        let key = parse_commits_ident(ident);
+        if kind == Kind::RepoCommits {
+            let is_default = key.1 == RefKey::Default;
+            let full_name = key.0.clone();
+            let lane = self.commit_lane_entry(key);
+            let landing = lane.land_first(page.unwrap_or_default(), Instant::now());
+            log::info!(
+                "repo-commits applied: {ident}, {landing:?}, {} of {} held",
+                lane.rows.len(),
+                lane.total_count
+            );
+            if is_default {
+                self.rows_landed
+                    .insert((full_name, RepoLane::Commits), Instant::now());
+            }
+            return;
+        }
+        let Some(after) = after else {
+            log::warn!("{name}: result without its cursor");
+            return;
+        };
+        let Some(page) = page else {
+            self.commits_failed(kind, Some(ident), "history unavailable".into());
+            return;
+        };
+        let Some(lane) = self.commit_lanes.get_mut(&key) else {
+            log::debug!("{name}: {ident} — book evicted, page dropped");
+            return;
+        };
+        if lane.land_more(after, page) {
+            let suffix = if lane.complete { ", complete" } else { "" };
+            log::info!(
+                "repo-commits-more applied: {ident}, {} of {} held{suffix}",
+                lane.rows.len(),
+                lane.total_count
+            );
+        } else {
+            log::debug!("{name}: {ident} — stale page (book restarted), dropped");
+        }
+    }
+
     /// Lane-aware single-repo merge (docs/0077 D2): the held entry keeps
     /// its other collection; fresh scalars (description, pushes,
     /// creation gates) ride in with the payload. A repo the snapshot
@@ -4509,7 +4966,7 @@ impl GithubState {
             match lane {
                 RepoLane::Pulls => held.prs = incoming.prs,
                 RepoLane::Issues => held.issues = incoming.issues,
-                RepoLane::Notifications => {}
+                RepoLane::Notifications | RepoLane::Commits => {}
             }
             held.database_id = incoming.database_id;
             held.description = incoming.description;
@@ -4682,6 +5139,8 @@ impl GithubState {
         self.repos.clear();
         self.notifications.clear();
         self.repo_notifications.clear();
+        // docs/0081 D3: commits books are account-scoped session state.
+        self.commit_lanes.clear();
         // The document store is session state (docs/0072 D1) — it goes
         // with the account, like every other session book above. The
         // persisted rows too (D8): sign-out wipes them the way it wipes
@@ -4804,6 +5263,25 @@ pub(crate) async fn run_spec_tracked(
 /// same continuation semantics the capped snapshot run reports.
 fn run_home_prs(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
     let mut result = run_graphql_fetch(http, spec, gql::ACCOUNT_PULL_REQUESTS_QUERY, "home-prs");
+    result.cursor = spec
+        .variables
+        .as_ref()
+        .and_then(|v| v.get("after"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    result
+}
+
+/// docs/0081 D2 — one tip-pinned load-more page. The spec's `$after`
+/// rides back on [`SpecResult::cursor`] (the [`run_home_prs`] idiom) so
+/// `apply` lands it only on the chain that minted it.
+fn run_commits_more(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
+    let mut result = run_graphql_fetch(
+        http,
+        spec,
+        gql::REPO_COMMITS_MORE_QUERY,
+        "repo-commits-more",
+    );
     result.cursor = spec
         .variables
         .as_ref()
@@ -10287,5 +10765,609 @@ mod tests {
         run_spec(&*http, &recorder, &spec, std::time::Instant::now());
         assert!(crate::usage::background_records() > before);
         assert_eq!(sink.snapshot()[0].surface.as_ref(), "background");
+    }
+
+    // --- commits lane (docs/0081 stage 1, #646) ----------------------------
+
+    /// One `CommitRow` node; `oid` doubles as the headline so tests read
+    /// row order straight off the oids.
+    fn commit_node(oid: &str, rollup: Option<&str>) -> String {
+        let rollup = match rollup {
+            Some(state) => format!(r#"{{"state":"{state}"}}"#),
+            None => "null".into(),
+        };
+        format!(
+            r#"{{"oid":"{oid}","abbreviatedOid":"{short}","messageHeadline":"{oid}","committedDate":"2026-10-22T20:14:08Z","authoredDate":"2026-10-22T20:14:08Z","url":"https://github.com/o/r/commit/{oid}","author":{{"name":"N","email":"n@x","avatarUrl":"https://a/u","user":{{"login":"noosxe"}}}},"signature":null,"statusCheckRollup":{rollup}}}"#,
+            short = &oid[..oid.len().min(7)]
+        )
+    }
+
+    fn history_json(tip: &str, total: i64, next: Option<&str>, oids: &[&str]) -> String {
+        let nodes: Vec<String> = oids
+            .iter()
+            .map(|o| commit_node(o, Some("SUCCESS")))
+            .collect();
+        let (has_next, cursor) = match next {
+            Some(c) => ("true".to_string(), format!(r#""{c}""#)),
+            None => ("false".to_string(), "null".to_string()),
+        };
+        format!(
+            r#"{{"oid":"{tip}","history":{{"totalCount":{total},"pageInfo":{{"hasNextPage":{has_next},"endCursor":{cursor}}},"nodes":[{}]}}}}"#,
+            nodes.join(",")
+        )
+    }
+
+    /// A page-1 body (`defaultBranchRef` shape), tip = first oid.
+    fn commits_body(total: i64, next: Option<&str>, oids: &[&str]) -> String {
+        format!(
+            r#"{{"data":{{"rateLimit":{{"cost":1,"remaining":4999,"resetAt":"2099-01-01T00:00:00Z","limit":5000}},"repository":{{"defaultBranchRef":{{"name":"main","target":{}}}}}}}}}"#,
+            history_json(oids.first().copied().unwrap_or("none"), total, next, oids)
+        )
+    }
+
+    /// A page-N body (`object(oid:)` shape).
+    fn commits_more_body(tip: &str, next: Option<&str>, oids: &[&str]) -> String {
+        format!(
+            r#"{{"data":{{"rateLimit":{{"cost":1,"remaining":4998,"resetAt":"2099-01-01T00:00:00Z","limit":5000}},"repository":{{"object":{}}}}}}}"#,
+            history_json(tip, 0, next, oids)
+        )
+    }
+
+    fn commits_result(kind: Kind, ident: &str, body: String, cursor: Option<&str>) -> SpecResult {
+        SpecResult {
+            kind,
+            ident: Some(ident.into()),
+            status: 200,
+            etag: None,
+            rate: None,
+            body: Some(body),
+            network: None,
+            cursor: cursor.map(str::to_string),
+        }
+    }
+
+    fn connected_state() -> GithubState {
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.auth = AuthStatus::Connected;
+        state
+    }
+
+    fn held_oids(state: &GithubState, rk: RefKey) -> Vec<String> {
+        state.commit_lanes[&("o/r".to_string(), rk)]
+            .rows
+            .iter()
+            .map(|c| c.oid.clone())
+            .collect()
+    }
+
+    #[test]
+    fn commits_page_parses_all_three_shapes_and_nullables() {
+        // §2 fact 11: unsigned commits carry `signature: null`, an
+        // unlinked email `user: null`; both must parse.
+        let unlinked = r#"{"oid":"bbbbbbb1","abbreviatedOid":"bbbbbbb","messageHeadline":"h","committedDate":"d","authoredDate":"d","url":"u","author":{"name":"Dev Box","email":"d@x","avatarUrl":"a","user":null},"signature":{"isValid":true,"state":"VALID","wasSignedByGitHub":true},"statusCheckRollup":null}"#;
+        let body = format!(
+            r#"{{"repository":{{"defaultBranchRef":{{"name":"main","target":{{"oid":"t1","history":{{"totalCount":2,"pageInfo":{{"hasNextPage":true,"endCursor":"t1 1"}},"nodes":[{},{unlinked}]}}}}}}}}}}"#,
+            commit_node("aaaaaaa1", None)
+        );
+        let data: gql::CommitsData = serde_json::from_str(&body).unwrap();
+        let page = gql::commits_page(&data.repository.unwrap()).unwrap();
+        assert_eq!(page.ref_name.as_deref(), Some("main"));
+        assert_eq!(page.tip.as_deref(), Some("t1"));
+        assert_eq!(page.total_count, Some(2));
+        assert!(page.has_next_page);
+        assert_eq!(page.end_cursor.as_deref(), Some("t1 1"));
+        assert_eq!(page.nodes.len(), 2);
+        assert!(page.nodes[0].signature.is_none());
+        assert!(page.nodes[0].status_check_rollup.is_none());
+        let dev = &page.nodes[1];
+        assert!(dev.author.as_ref().unwrap().user.is_none());
+        let sig = dev.signature.as_ref().unwrap();
+        assert!(sig.is_valid && sig.was_signed_by_github);
+
+        // The picked-branch shape answers through `ref`.
+        let body = format!(
+            r#"{{"repository":{{"ref":{{"name":"feat","target":{}}}}}}}"#,
+            history_json("t2", 1, None, &["ccccccc1"])
+        );
+        let data: gql::CommitsData = serde_json::from_str(&body).unwrap();
+        let page = gql::commits_page(&data.repository.unwrap()).unwrap();
+        assert_eq!(page.ref_name.as_deref(), Some("feat"));
+        assert!(!page.has_next_page);
+
+        // The load-more shape carries no ref name.
+        let body = format!(
+            r#"{{"repository":{{"object":{}}}}}"#,
+            history_json("t3", 0, None, &["ddddddd1"])
+        );
+        let data: gql::CommitsData = serde_json::from_str(&body).unwrap();
+        let page = gql::commits_page(&data.repository.unwrap()).unwrap();
+        assert_eq!(page.ref_name, None);
+        assert_eq!(page.tip.as_deref(), Some("t3"));
+
+        // No ref (an empty repository) and a null object: no history.
+        for empty in [
+            r#"{"repository":{"defaultBranchRef":null}}"#,
+            r#"{"repository":{"object":null}}"#,
+        ] {
+            let data: gql::CommitsData = serde_json::from_str(empty).unwrap();
+            assert!(gql::commits_page(&data.repository.unwrap()).is_none());
+        }
+    }
+
+    #[test]
+    fn commits_ident_round_trips() {
+        assert_eq!(commits_ident("o/r", &RefKey::Default), "o/r");
+        assert_eq!(
+            commits_ident("o/r", &RefKey::Branch("a/b".into())),
+            "o/r:a/b"
+        );
+        assert_eq!(parse_commits_ident("o/r"), ("o/r".into(), RefKey::Default));
+        assert_eq!(
+            parse_commits_ident("o/r:a/b"),
+            ("o/r".into(), RefKey::Branch("a/b".into()))
+        );
+    }
+
+    #[test]
+    fn commits_lane_spec_and_freshness_gate() {
+        // D1: the lane offers page 1 of the default ref; once landed it
+        // is age-gated like the other lanes, and a manual spec is built
+        // regardless.
+        let mut state = connected_state();
+        let spec = state
+            .repo_lane_refresh_specs(
+                "o/r",
+                RepoLane::Commits,
+                Duration::from_secs(60),
+                Origin::BACKGROUND,
+            )
+            .expect("never-landed is refreshable");
+        assert_eq!(spec.kind, Kind::RepoCommits);
+        assert_eq!(spec.ident.as_deref(), Some("o/r"));
+        let vars = spec.variables.as_ref().unwrap();
+        assert_eq!(vars["first"], COMMITS_PAGE);
+        assert!(
+            vars.get("ref").is_none(),
+            "default ref uses defaultBranchRef"
+        );
+
+        state.apply(commits_result(
+            Kind::RepoCommits,
+            "o/r",
+            commits_body(2, None, &["c2", "c1"]),
+            None,
+        ));
+        assert!(
+            state
+                .repo_lane_refresh_specs(
+                    "o/r",
+                    RepoLane::Commits,
+                    Duration::from_secs(60),
+                    Origin::BACKGROUND
+                )
+                .is_none(),
+            "a just-landed commits lane is fresh"
+        );
+        assert!(state.repo_rows_landed_any("o/r").is_some());
+
+        // A picked branch rides the ref query variable and its own ident.
+        let spec = state.commits_spec("o/r", &RefKey::Branch("feat".into()), Origin::BACKGROUND);
+        assert_eq!(spec.ident.as_deref(), Some("o/r:feat"));
+        assert_eq!(spec.variables.unwrap()["ref"], "refs/heads/feat");
+    }
+
+    #[test]
+    fn commits_clock_survives_mutation_invalidation() {
+        // D1: no in-app write changes history.
+        let mut state = connected_state();
+        state.apply(commits_result(
+            Kind::RepoCommits,
+            "o/r",
+            commits_body(1, None, &["c1"]),
+            None,
+        ));
+        state.invalidate_repo_lanes("o/r");
+        assert!(
+            state
+                .rows_landed
+                .contains_key(&("o/r".to_string(), RepoLane::Commits))
+        );
+    }
+
+    #[test]
+    fn commits_pagination_appends_locks_and_completes() {
+        let mut state = connected_state();
+        state.apply(commits_result(
+            Kind::RepoCommits,
+            "o/r",
+            commits_body(4, Some("c4 1"), &["c4", "c3"]),
+            None,
+        ));
+        let lane = &state.commit_lanes[&("o/r".to_string(), RefKey::Default)];
+        assert!(lane.can_load_more());
+        assert_eq!(lane.total_count, 4);
+
+        // Page 2: tip-pinned, takes the lock; a second ask is refused.
+        let spec = state
+            .commits_more_spec(
+                "o/r",
+                &RefKey::Default,
+                Origin::new(Surface::RepoView, Trigger::Paginate),
+            )
+            .expect("pageable");
+        assert_eq!(spec.kind, Kind::RepoCommitsMore);
+        let vars = spec.variables.as_ref().unwrap();
+        assert_eq!(vars["tip"], "c4");
+        assert_eq!(vars["after"], "c4 1");
+        assert!(
+            state
+                .commits_more_spec("o/r", &RefKey::Default, Origin::BACKGROUND)
+                .is_none(),
+            "loading_more locks the chain"
+        );
+
+        state.apply(commits_result(
+            Kind::RepoCommitsMore,
+            "o/r",
+            commits_more_body("c4", None, &["c2", "c1"]),
+            Some("c4 1"),
+        ));
+        assert_eq!(held_oids(&state, RefKey::Default), ["c4", "c3", "c2", "c1"]);
+        let lane = &state.commit_lanes[&("o/r".to_string(), RefKey::Default)];
+        assert!(lane.complete && !lane.loading_more);
+        assert!(!lane.can_load_more(), "end of history");
+        assert!(!lane.capped());
+    }
+
+    #[test]
+    fn commits_more_failure_books_retry_and_unlocks() {
+        let mut state = connected_state();
+        state.apply(commits_result(
+            Kind::RepoCommits,
+            "o/r",
+            commits_body(4, Some("c4 1"), &["c4", "c3"]),
+            None,
+        ));
+        state
+            .commits_more_spec("o/r", &RefKey::Default, Origin::BACKGROUND)
+            .unwrap();
+        state.apply(SpecResult {
+            kind: Kind::RepoCommitsMore,
+            ident: Some("o/r".into()),
+            status: 502,
+            etag: None,
+            rate: None,
+            body: None,
+            network: None,
+            cursor: Some("c4 1".into()),
+        });
+        let lane = &state.commit_lanes[&("o/r".to_string(), RefKey::Default)];
+        assert_eq!(lane.more_error.as_deref(), Some("HTTP 502"));
+        assert!(!lane.loading_more);
+        assert_eq!(lane.rows.len(), 2, "held rows survive");
+        // No auto-retry; the tail row's Retry (Manual) clears and pages.
+        assert!(
+            state
+                .commits_more_spec(
+                    "o/r",
+                    &RefKey::Default,
+                    Origin::new(Surface::RepoView, Trigger::Paginate)
+                )
+                .is_none()
+        );
+        assert!(
+            state
+                .commits_more_spec(
+                    "o/r",
+                    &RefKey::Default,
+                    Origin::new(Surface::RepoView, Trigger::Manual)
+                )
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn commits_page1_failure_creates_error_book_and_keeps_rows() {
+        // D8: nothing held → a never-landed book carrying the error.
+        let mut state = connected_state();
+        state.apply(SpecResult {
+            kind: Kind::RepoCommits,
+            ident: Some("o/r".into()),
+            status: 0,
+            etag: None,
+            rate: None,
+            body: None,
+            network: Some("offline".into()),
+            cursor: None,
+        });
+        let lane = &state.commit_lanes[&("o/r".to_string(), RefKey::Default)];
+        assert!(lane.landed.is_none());
+        assert_eq!(lane.error.as_deref(), Some("offline"));
+
+        // A landing clears it; a later failure keeps the rows (stale).
+        state.apply(commits_result(
+            Kind::RepoCommits,
+            "o/r",
+            commits_body(1, None, &["c1"]),
+            None,
+        ));
+        assert!(
+            state.commit_lanes[&("o/r".to_string(), RefKey::Default)]
+                .error
+                .is_none()
+        );
+        state.apply(SpecResult {
+            kind: Kind::RepoCommits,
+            ident: Some("o/r".into()),
+            status: 502,
+            etag: None,
+            rate: None,
+            body: None,
+            network: None,
+            cursor: None,
+        });
+        assert_eq!(held_oids(&state, RefKey::Default), ["c1"]);
+    }
+
+    #[test]
+    fn commits_empty_repository_lands_empty() {
+        let mut state = connected_state();
+        state.apply(commits_result(
+            Kind::RepoCommits,
+            "o/r",
+            r#"{"data":{"repository":{"defaultBranchRef":null}}}"#.into(),
+            None,
+        ));
+        let lane = &state.commit_lanes[&("o/r".to_string(), RefKey::Default)];
+        assert!(lane.landed.is_some() && lane.rows.is_empty() && lane.complete);
+        assert!(!lane.can_load_more());
+    }
+
+    #[test]
+    fn commits_revalidation_prepends_refreshes_or_replaces() {
+        // D4: k = 0 → no-op merge with refreshed rollups.
+        let mut state = connected_state();
+        state.apply(commits_result(
+            Kind::RepoCommits,
+            "o/r",
+            commits_body(10, Some("c3 2"), &["c3", "c2", "c1"]),
+            None,
+        ));
+        state
+            .commit_lanes
+            .get_mut(&("o/r".to_string(), RefKey::Default))
+            .unwrap()
+            .rows[0]
+            .status_check_rollup = None;
+        let mut lane = state.commit_lanes[&("o/r".to_string(), RefKey::Default)].clone();
+        let page = |oids: &[&str], next: Option<&str>| {
+            let body = format!(
+                r#"{{"repository":{{"defaultBranchRef":{{"name":"main","target":{}}}}}}}"#,
+                history_json(oids[0], 13, next, oids)
+            );
+            let data: gql::CommitsData = serde_json::from_str(&body).unwrap();
+            gql::commits_page(&data.repository.unwrap()).unwrap()
+        };
+        assert_eq!(
+            lane.land_first(page(&["c3", "c2", "c1"], Some("c3 2")), Instant::now()),
+            CommitLanding::Prepended(0)
+        );
+        assert_eq!(
+            lane.rows[0]
+                .status_check_rollup
+                .as_ref()
+                .unwrap()
+                .state
+                .as_deref(),
+            Some("SUCCESS"),
+            "the overlap's rollup is refreshed"
+        );
+
+        // k = 3 → three new commits on top; tail, cursor and page tip kept.
+        let landing = lane.land_first(
+            page(&["c6", "c5", "c4", "c3", "c2"], Some("c6 4")),
+            Instant::now(),
+        );
+        assert_eq!(landing, CommitLanding::Prepended(3));
+        let oids: Vec<_> = lane.rows.iter().map(|c| c.oid.as_str()).collect();
+        assert_eq!(oids, ["c6", "c5", "c4", "c3", "c2", "c1"]);
+        assert_eq!(lane.tip.as_deref(), Some("c6"));
+        assert_eq!(
+            lane.page_tip.as_deref(),
+            Some("c3"),
+            "the tail keeps paging its own chain"
+        );
+        assert_eq!(lane.cursor.as_deref(), Some("c3 2"));
+        assert_eq!(lane.total_count, 13);
+        assert!(!lane.rewritten);
+
+        // Tip absent (force-push) → replace + the one-shot flag.
+        let landing = lane.land_first(page(&["x2", "x1"], None), Instant::now());
+        assert_eq!(landing, CommitLanding::Replaced);
+        let oids: Vec<_> = lane.rows.iter().map(|c| c.oid.as_str()).collect();
+        assert_eq!(oids, ["x2", "x1"]);
+        assert!(lane.rewritten && lane.complete);
+        assert_eq!(lane.page_tip.as_deref(), Some("x2"));
+
+        // An overlap that disagrees (an interleaved merge) also replaces.
+        let landing = lane.land_first(page(&["y1", "x2", "zz"], None), Instant::now());
+        assert_eq!(landing, CommitLanding::Replaced);
+        // The flag lasts one landing.
+        lane.land_first(page(&["y1", "x2", "zz"], None), Instant::now());
+        assert!(!lane.rewritten);
+    }
+
+    #[test]
+    fn commits_more_landing_after_replace_is_dropped() {
+        let mut state = connected_state();
+        state.apply(commits_result(
+            Kind::RepoCommits,
+            "o/r",
+            commits_body(4, Some("c4 1"), &["c4", "c3"]),
+            None,
+        ));
+        state
+            .commits_more_spec("o/r", &RefKey::Default, Origin::BACKGROUND)
+            .unwrap();
+        // A force-push lands page 1 while page 2 flies.
+        state.apply(commits_result(
+            Kind::RepoCommits,
+            "o/r",
+            commits_body(2, Some("x2 1"), &["x2", "x1"]),
+            None,
+        ));
+        state.apply(commits_result(
+            Kind::RepoCommitsMore,
+            "o/r",
+            commits_more_body("c4", None, &["c2", "c1"]),
+            Some("c4 1"),
+        ));
+        assert_eq!(held_oids(&state, RefKey::Default), ["x2", "x1"]);
+    }
+
+    #[test]
+    fn commits_cap_stops_paging() {
+        let mut lane = CommitLane {
+            landed: Some(Instant::now()),
+            cursor: Some("t 999".into()),
+            ..CommitLane::default()
+        };
+        let row: gql::CommitRow = serde_json::from_str(&commit_node("c", None)).unwrap();
+        lane.rows = vec![row; COMMITS_HELD_CAP];
+        assert!(!lane.can_load_more());
+        assert!(lane.capped());
+    }
+
+    #[test]
+    fn commits_more_spec_respects_the_rate_limit_gate() {
+        let mut state = connected_state();
+        state.apply(commits_result(
+            Kind::RepoCommits,
+            "o/r",
+            commits_body(4, Some("c4 1"), &["c4", "c3"]),
+            None,
+        ));
+        state.rate_limited_until = Some(now_epoch() + 600);
+        assert!(
+            state
+                .commits_more_spec("o/r", &RefKey::Default, Origin::BACKGROUND)
+                .is_none()
+        );
+        assert!(!state.commit_lanes[&("o/r".to_string(), RefKey::Default)].loading_more);
+    }
+
+    #[test]
+    fn commit_lanes_evict_least_recently_used() {
+        let mut state = connected_state();
+        for i in 0..COMMIT_LANES_CAP {
+            let ident = format!("o/r:b{i}");
+            state.apply(commits_result(
+                Kind::RepoCommits,
+                &ident,
+                commits_body(1, None, &["c1"]),
+                None,
+            ));
+        }
+        // Touching b0 makes b1 the least recently used.
+        state.touch_commit_lane("o/r", &RefKey::Branch("b0".into()));
+        state.apply(commits_result(
+            Kind::RepoCommits,
+            "o/r",
+            commits_body(1, None, &["c1"]),
+            None,
+        ));
+        assert_eq!(state.commit_lanes.len(), COMMIT_LANES_CAP);
+        assert!(
+            state
+                .commit_lanes
+                .contains_key(&("o/r".to_string(), RefKey::Branch("b0".into())))
+        );
+        assert!(
+            !state
+                .commit_lanes
+                .contains_key(&("o/r".to_string(), RefKey::Branch("b1".into())))
+        );
+        assert!(
+            state
+                .commit_lanes
+                .contains_key(&("o/r".to_string(), RefKey::Default))
+        );
+        // A non-default ref doesn't stamp the lane clock (stage 3 owns
+        // per-ref freshness); the default ref did.
+        assert!(
+            state
+                .rows_landed
+                .contains_key(&("o/r".to_string(), RepoLane::Commits))
+        );
+    }
+
+    #[test]
+    fn sign_out_clears_commit_books() {
+        let mut state = connected_state();
+        state.apply(commits_result(
+            Kind::RepoCommits,
+            "o/r",
+            commits_body(1, None, &["c1"]),
+            None,
+        ));
+        state.sign_out();
+        assert!(state.commit_lanes.is_empty());
+    }
+
+    #[test]
+    fn commits_records_name_the_op_and_trigger() {
+        // D10: page 1 records under `repo-commits` with the entry
+        // trigger, scroll pages under `repo-commits-more` / `paginate`;
+        // each bills the body's one point.
+        let http = Arc::new(MockHttp::new(vec![
+            gql_ok(&commits_body(4, Some("c4 1"), &["c4", "c3"])),
+            gql_ok(&commits_more_body("c4", None, &["c2", "c1"])),
+        ]));
+        let sink = records_sink(8);
+        let recorder = dashboard_core::usage_records::Recorder::new("github", sink.clone());
+        let mut state = connected_state();
+        let spec = state.commits_spec(
+            "o/r",
+            &RefKey::Default,
+            Origin::new(Surface::RepoView, Trigger::ViewShown),
+        );
+        let result = run_spec(&*http, &recorder, &spec, std::time::Instant::now());
+        assert!(
+            http.recorded()[0]
+                .body
+                .as_ref()
+                .unwrap()
+                .contains("defaultBranchRef")
+        );
+        state.apply(result);
+        let spec = state
+            .commits_more_spec(
+                "o/r",
+                &RefKey::Default,
+                Origin::new(Surface::RepoView, Trigger::Paginate),
+            )
+            .unwrap();
+        let result = run_spec(&*http, &recorder, &spec, std::time::Instant::now());
+        assert_eq!(result.cursor.as_deref(), Some("c4 1"), "after rides back");
+        assert!(
+            http.recorded()[1]
+                .body
+                .as_ref()
+                .unwrap()
+                .contains("object(oid: $tip)")
+        );
+        state.apply(result);
+        assert_eq!(held_oids(&state, RefKey::Default), ["c4", "c3", "c2", "c1"]);
+
+        let rows = sink.snapshot();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].op.as_ref(), "repo-commits");
+        assert_eq!(rows[0].surface.as_ref(), "repo-view");
+        assert_eq!(rows[0].trigger.as_ref(), "view-shown");
+        assert_eq!(rows[1].op.as_ref(), "repo-commits-more");
+        assert_eq!(rows[1].trigger.as_ref(), "paginate");
+        for r in &rows {
+            assert_eq!(r.cost, Some(1));
+        }
     }
 }
