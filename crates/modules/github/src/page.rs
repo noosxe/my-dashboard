@@ -1849,7 +1849,13 @@ impl GithubPage {
                 // stamp nothing.
                 let rows_ok = result.network.is_none() && (200..300).contains(&result.status);
                 match result.kind {
-                    Kind::RepoPulls | Kind::RepoIssues | Kind::RepoNotifications => {
+                    // docs/0081 D1: page 1 of the commits lane shares the
+                    // per-repo clock; load-more pages don't (their retry
+                    // is the user's, D8).
+                    Kind::RepoPulls
+                    | Kind::RepoIssues
+                    | Kind::RepoNotifications
+                    | Kind::RepoCommits => {
                         state.update(cx, |s, _| s.bump_rows_backoff(rows_ok));
                     }
                     Kind::AccountPullRequests => {

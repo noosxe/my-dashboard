@@ -2568,6 +2568,225 @@ pub fn branches_from_value(repo: &serde_json::Value) -> RepoBranches {
     }
 }
 
+/// docs/0081 D2 — the commits lanes' shared row selection. One
+/// `history` connection per page and no nested connections here, so
+/// every page bills one point (measured, docs/0081 §2 fact 11).
+macro_rules! commit_row_fragment {
+    () => {
+        r#"
+fragment CommitRow on Commit {
+  oid abbreviatedOid messageHeadline committedDate authoredDate url
+  author { name email avatarUrl(size: 40) user { login } }
+  signature { isValid state wasSignedByGitHub }
+  statusCheckRollup { state }
+}
+"#
+    };
+}
+
+/// docs/0081 D2 — page 1 on the default branch: `defaultBranchRef`
+/// resolves the ref, its name and the pinned tip in one round trip
+/// (`ref(qualifiedName: "HEAD")` returns null — §2 fact 11).
+pub const REPO_COMMITS_QUERY: &str = concat!(
+    r#"
+query RepoCommits($owner: String!, $name: String!, $first: Int!) {
+  rateLimit { cost remaining resetAt limit }
+  repository(owner: $owner, name: $name) {
+    defaultBranchRef {
+      name
+      target { ... on Commit { oid history(first: $first) {
+        totalCount pageInfo { hasNextPage endCursor }
+        nodes { ...CommitRow } } } }
+    }
+  }
+}
+"#,
+    commit_row_fragment!()
+);
+
+/// docs/0081 D2/D7 — page 1 on a picked branch: the same body on
+/// `ref(qualifiedName:)` (short names and `refs/heads/…` both resolve).
+pub const REPO_COMMITS_REF_QUERY: &str = concat!(
+    r#"
+query RepoCommitsRef($owner: String!, $name: String!, $ref: String!, $first: Int!) {
+  rateLimit { cost remaining resetAt limit }
+  repository(owner: $owner, name: $name) {
+    ref(qualifiedName: $ref) {
+      name
+      target { ... on Commit { oid history(first: $first) {
+        totalCount pageInfo { hasNextPage endCursor }
+        nodes { ...CommitRow } } } }
+    }
+  }
+}
+"#,
+    commit_row_fragment!()
+);
+
+/// docs/0081 D2 — page N, pinned to the tip page 1 resolved: the cursor
+/// is `"<tip> <offset>"`, so paging through the moving ref could shift
+/// offsets under a push. `object(oid:)` keeps the walk on one history.
+pub const REPO_COMMITS_MORE_QUERY: &str = concat!(
+    r#"
+query RepoCommitsMore($owner: String!, $name: String!, $tip: GitObjectID!, $first: Int!, $after: String!) {
+  rateLimit { cost remaining resetAt limit }
+  repository(owner: $owner, name: $name) {
+    object(oid: $tip) { ... on Commit { history(first: $first, after: $after) {
+      pageInfo { hasNextPage endCursor }
+      nodes { ...CommitRow } } } }
+  }
+}
+"#,
+    commit_row_fragment!()
+);
+
+/// docs/0081 D5 — one commit row. Immutable apart from the CI rollup
+/// (and, rarely, the signature verdict) — the only fields a
+/// revalidation refreshes (D4).
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitRow {
+    pub oid: String,
+    pub abbreviated_oid: String,
+    pub message_headline: String,
+    pub committed_date: String,
+    pub authored_date: String,
+    pub url: String,
+    /// Null for some imported/bot commits.
+    #[serde(default)]
+    pub author: Option<CommitActor>,
+    /// Null when the commit is unsigned (§2 fact 11).
+    #[serde(default)]
+    pub signature: Option<CommitSignature>,
+    /// Null when no checks ran.
+    #[serde(default)]
+    pub status_check_rollup: Option<CommitRollup>,
+}
+
+/// `GitActor` — `user` is null when the email links to no account (the
+/// row then falls back to `name`, docs/0081 D5).
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitActor {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub email: Option<String>,
+    #[serde(default)]
+    pub avatar_url: Option<String>,
+    #[serde(default)]
+    pub user: Option<CommitUser>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct CommitUser {
+    pub login: String,
+}
+
+/// `GitSignature` — the Verified badge reads `is_valid` (docs/0081 D5).
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitSignature {
+    #[serde(default)]
+    pub is_valid: bool,
+    #[serde(default)]
+    pub state: Option<String>,
+    #[serde(default, rename = "wasSignedByGitHub")]
+    pub was_signed_by_github: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct CommitRollup {
+    #[serde(default)]
+    pub state: Option<String>,
+}
+
+/// The envelope `data` of all three commits queries.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitsData {
+    #[serde(default)]
+    pub rate_limit: Option<RateLimitField>,
+    pub repository: Option<CommitsRepository>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitsRepository {
+    #[serde(default)]
+    default_branch_ref: Option<CommitsRef>,
+    #[serde(default, rename = "ref")]
+    named_ref: Option<CommitsRef>,
+    #[serde(default)]
+    object: Option<CommitTarget>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CommitsRef {
+    name: String,
+    #[serde(default)]
+    target: Option<CommitTarget>,
+}
+
+/// `... on Commit` — a non-commit target (an annotated tag object)
+/// parses to all-`None`.
+#[derive(Debug, Deserialize)]
+struct CommitTarget {
+    #[serde(default)]
+    oid: Option<String>,
+    #[serde(default)]
+    history: Option<CommitHistory>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CommitHistory {
+    #[serde(default)]
+    total_count: Option<i64>,
+    #[serde(default)]
+    page_info: PageInfo,
+    #[serde(default)]
+    nodes: Vec<serde_json::Value>,
+}
+
+/// One parsed commits page (docs/0081 D2). Page 1 carries the ref name
+/// and the tip; a page-N parse (`object(oid:)`) carries the tip only.
+/// The default value is page 1's "no history" landing (`ref_name:
+/// None` — an empty repository, or a branch that no longer exists).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct CommitPage {
+    pub ref_name: Option<String>,
+    pub tip: Option<String>,
+    pub total_count: Option<i64>,
+    pub has_next_page: bool,
+    pub end_cursor: Option<String>,
+    pub nodes: Vec<CommitRow>,
+}
+
+/// Map a commits envelope's repository node to its page — whichever of
+/// the three query shapes answered. `None` when no commit history came
+/// back: no ref (an empty repository, a deleted branch), a null
+/// `object`, or a non-commit target. Page 1 lands that as an empty
+/// history; a load-more treats it as a failed page. Nodes parse per
+/// item ([DG] degradation: a malformed commit is skipped with a
+/// warning).
+pub fn commits_page(repo: &CommitsRepository) -> Option<CommitPage> {
+    let (ref_name, target) = match (&repo.default_branch_ref, &repo.named_ref, &repo.object) {
+        (Some(r), _, _) | (None, Some(r), _) => (Some(r.name.clone()), r.target.as_ref()?),
+        (None, None, Some(t)) => (None, t),
+        (None, None, None) => return None,
+    };
+    let history = target.history.as_ref()?;
+    Some(CommitPage {
+        ref_name,
+        tip: target.oid.clone(),
+        total_count: history.total_count,
+        has_next_page: history.page_info.has_next_page,
+        end_cursor: history.page_info.end_cursor.clone(),
+        nodes: parse_nodes::<CommitRow>(&history.nodes),
+    })
+}
+
 /// docs/0046 D1 — one parsed Markdown issue template. `title` and
 /// `about` are commonly absent (most `.md` templates ship neither);
 /// `body` is the template's actual content — `None` degrades to an

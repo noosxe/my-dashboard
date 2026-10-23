@@ -592,14 +592,57 @@ The owner asked for these to be named, not silently deviated from.
 
 ## 9 Implementation plan (issues filed after this doc merges)
 
-1. **Data:** `RepoLane::Commits`, `Kind::RepoCommits` plus the more
-   query (D2 shapes, live-verified in §2 fact 11), `CommitLane`
+1. **Data** (**shipped**, #646; see §11): `RepoLane::Commits`,
+   `Kind::RepoCommits` plus the more query (D2 shapes, live-verified in
+   §2 fact 11), `CommitLane`
    book, prepend-merge, `Trigger::Paginate`, unit tests.
 2. **UI:** `RepoTab::Commits`, the `CommitsDelegate` (`List` sections,
    rows, states), the D9 layout, the copy SHA, the a11y and ids, the
    receipt, the goldens and the 0065 receipts.
 3. The ref selector (Q2 resolved: ships in v1) over `RepoBranches`, with
    `RefKey`-keyed books.
+
+## 11 Implementation notes (stage 1, #646, 2026-10-23)
+
+The data layer shipped as designed, with these refinements. They are
+recorded here because docs must match shipped behavior.
+
+- **Two kinds, two op names.** `Kind::RepoCommits` covers both page-1
+  shapes; the spec's `ref` variable picks `RepoCommitsRef`.
+  `Kind::RepoCommitsMore` is page N. Usage records name them
+  `repo-commits` and `repo-commits-more` (D10 had one name), so the
+  usage page splits tab entries from scroll pages on the op as well as
+  the trigger. Load-more therefore has its own docs/0031 in-flight key,
+  and the book's `loading_more` lock remains the single-flight guard.
+- **`CommitLane` fields** (D3) also carry `page_tip` (the tip the cursor
+  was minted against; a prepend moves `tip` while the tail keeps paging
+  `page_tip`'s chain, because the cursor is `"<tip> <offset>"`), a
+  split `error` (page 1) / `more_error` (page N), and `landed:
+  Option<Instant>` (`None` = never landed). A failed page 1 with nothing
+  held creates a never-landed book carrying the error, for D8's inline
+  error and Retry.
+- **D4 overlap check.** A prepend-merge needs the held tip in the page
+  **and** the overlap after it to match the held rows oid for oid.
+  History isn't strictly append-at-head: merging a side branch can
+  interleave older commits below the old tip, which a merge would miss.
+  Any disagreement replaces the book, the same as a force-push.
+- **Stale pages.** The run arm echoes `$after` back. A load-more whose
+  cursor no longer matches the book (a replace landed while it flew)
+  is dropped.
+- **Clocks.** Only the default ref's landing stamps
+  `rows_landed[(repo, Commits)]` (the freshness cluster and the agent
+  view read it). Per-ref freshness for picked branches belongs to stage
+  3 (#648), which reads the book's own `landed`.
+- **Backoff.** Page-1 results bump the per-repo rows backoff (the page's
+  run arm). Load-more failures don't, because their retry is the user's
+  (D8).
+- **Rate-limit gate.** `commits_more_spec` returns `None` while
+  `gated()`, and a body's `rateLimit.remaining <= 0` arms the pause as
+  on the other GraphQL lanes.
+- **Live receipt** (2026-10-23): the shipped `REPO_COMMITS_QUERY`,
+  `REPO_COMMITS_MORE_QUERY` and `REPO_COMMITS_REF_QUERY`, run verbatim
+  against `noosxe/my-dashboard`, each billed `rateLimit.cost = 1` and
+  returned 50 rows. Page 2 continued from `"<tip> 49"` to `"<tip> 99"`.
 
 ## 10 Mockup
 
