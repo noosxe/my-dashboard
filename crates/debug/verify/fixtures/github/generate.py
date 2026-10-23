@@ -129,6 +129,23 @@ def branch_commit(i):
     return c
 
 
+# docs/0081 §14: the "mine" filter's history — the viewer's commits
+# only (every third), served when the request carries `$author`.
+MINE = [i for i in range(TOTAL) if AUTHORS[i % len(AUTHORS)]["login"] == VIEWER]
+
+
+def mine_history():
+    tip = commit(0)["oid"]
+    return {
+        "oid": tip,
+        "history": {
+            "totalCount": len(MINE),
+            "pageInfo": {"hasNextPage": False, "endCursor": None},
+            "nodes": [commit(i) for i in MINE],
+        },
+    }
+
+
 def repo(name, desc, pushed_days):
     return {
         "databaseId": 1000 + len(name),
@@ -167,6 +184,8 @@ def main():
             "data": {
                 "rateLimit": RATE,
                 "viewer": {
+                    # docs/0081 §14: the "mine" filter's CommitAuthor.id.
+                    "id": "U_fixture",
                     "login": VIEWER,
                     # Unreachable on purpose: the container has no
                     # network, so avatars render their fallback.
@@ -231,6 +250,15 @@ def main():
             "data": {
                 "rateLimit": RATE,
                 "repository": {"defaultBranchRef": {"name": "main", "target": history(0, PAGE)}},
+            }
+        },
+    )
+    write(
+        "graphql/RepoCommits.author.json",
+        {
+            "data": {
+                "rateLimit": RATE,
+                "repository": {"defaultBranchRef": {"name": "main", "target": mine_history()}},
             }
         },
     )

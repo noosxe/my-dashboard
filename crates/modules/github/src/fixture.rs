@@ -9,6 +9,9 @@
 //! - `graphql/<Operation>.json` — the body for `query <Operation>`. A
 //!   JSON **array** is a sequence: the n-th request gets element n, the
 //!   last one repeats (paginated lanes).
+//! - `graphql/<Operation>.author.json` — the body when the request's
+//!   `$author` variable is set (the commits "mine" filter, docs/0081
+//!   §14), so a filtered book serves its own history.
 //! - `rest/<path>.json` — the body for `GET /<path>`, slashes as `_`,
 //!   query string dropped (`/user/orgs?per_page=100` →
 //!   `rest/user_orgs.json`).
@@ -113,6 +116,16 @@ pub(crate) fn operation_name(query: &str) -> Option<&str> {
     (!name.is_empty()).then_some(name)
 }
 
+/// The fixture file for one GraphQL request: `<op>.json`, or
+/// `<op>.author.json` when `$author` is set.
+pub(crate) fn graphql_file(op: &str, variables: &serde_json::Value) -> String {
+    if variables.get("author").is_some_and(|a| !a.is_null()) {
+        format!("{op}.author.json")
+    } else {
+        format!("{op}.json")
+    }
+}
+
 /// `https://api.github.com/user/orgs?per_page=100` → `user_orgs`.
 pub(crate) fn rest_key(url: &str) -> String {
     let path = url
@@ -142,18 +155,18 @@ impl Http for FixtureHttp {
     fn post_graphql(
         &self,
         query: &str,
-        _variables: &serde_json::Value,
+        variables: &serde_json::Value,
     ) -> Result<HttpResult, HttpError> {
         let Some(op) = operation_name(query) else {
             return Err(HttpError("fixture: unnamed GraphQL operation".into()));
         };
-        Ok(self.serve(PathBuf::from("graphql").join(format!("{op}.json"))))
+        Ok(self.serve(PathBuf::from("graphql").join(graphql_file(op, variables))))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{FixtureHttp, operation_name, rest_key};
+    use super::{FixtureHttp, graphql_file, operation_name, rest_key};
     use crate::http::{Http, Verb};
 
     #[test]
@@ -172,6 +185,17 @@ mod tests {
             "user_orgs"
         );
         assert_eq!(rest_key("https://api.github.com/user"), "user");
+        let mine = serde_json::json!({ "first": 50, "author": { "id": "U_x" } });
+        assert_eq!(
+            graphql_file("RepoCommits", &mine),
+            "RepoCommits.author.json"
+        );
+        let all = serde_json::json!({ "first": 50, "author": null });
+        assert_eq!(graphql_file("RepoCommits", &all), "RepoCommits.json");
+        assert_eq!(
+            graphql_file("RepoCommits", &serde_json::Value::Null),
+            "RepoCommits.json"
+        );
     }
 
     #[test]

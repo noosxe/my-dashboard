@@ -1,0 +1,846 @@
+{
+ "data": {
+  "rateLimit": null,
+  "repository": {
+   "defaultBranchRef": {
+    "name": "main",
+    "target": {
+     "history": {
+      "nodes": [
+       {
+        "abbreviatedOid": "0000000",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-23T11:00:00Z",
+        "committedDate": "2026-10-23T11:00:00Z",
+        "messageHeadline": "github: commits tab rows and day headers (#700)",
+        "oid": "0000000000000000000000000000000000000000",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/0000000000000000000000000000000000000000"
+       },
+       {
+        "abbreviatedOid": "daa66d1",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-22T20:00:00Z",
+        "committedDate": "2026-10-22T20:00:00Z",
+        "messageHeadline": "ci: cache the cargo registry between jobs (#697)",
+        "oid": "daa66d1300000000000000000000000000000003",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "PENDING"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/daa66d1300000000000000000000000000000003"
+       },
+       {
+        "abbreviatedOid": "b54cda2",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-22T05:00:00Z",
+        "committedDate": "2026-10-22T05:00:00Z",
+        "messageHeadline": "usage: split GraphQL and REST buckets (#694)",
+        "oid": "b54cda2600000000000000000000000000000006",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/b54cda2600000000000000000000000000000006"
+       },
+       {
+        "abbreviatedOid": "8ff3473",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-21T14:00:00Z",
+        "committedDate": "2026-10-21T14:00:00Z",
+        "messageHeadline": "settings: theme picker remembers the choice (#691)",
+        "oid": "8ff3473900000000000000000000000000000009",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": null,
+        "url": "https://github.com/fixture-user/atlas/commit/8ff3473900000000000000000000000000000009"
+       },
+       {
+        "abbreviatedOid": "6a99b44",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-20T23:00:00Z",
+        "committedDate": "2026-10-20T23:00:00Z",
+        "messageHeadline": "docs: record the stage notes (#688)",
+        "oid": "6a99b44c0000000000000000000000000000000c",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "FAILURE"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/6a99b44c0000000000000000000000000000000c"
+       },
+       {
+        "abbreviatedOid": "4540215",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-20T08:00:00Z",
+        "committedDate": "2026-10-20T08:00:00Z",
+        "messageHeadline": "favicon: inspector spacing follows the 4px scale (#685)",
+        "oid": "4540215f0000000000000000000000000000000f",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/4540215f0000000000000000000000000000000f"
+       },
+       {
+        "abbreviatedOid": "1fe68e7",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-19T17:00:00Z",
+        "committedDate": "2026-10-19T17:00:00Z",
+        "messageHeadline": "debug: wait-frame samples before dispatch (#682)",
+        "oid": "1fe68e7200000000000000000000000000000012",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "PENDING"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/1fe68e7200000000000000000000000000000012"
+       },
+       {
+        "abbreviatedOid": "fa8cfb8",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-19T02:00:00Z",
+        "committedDate": "2026-10-19T02:00:00Z",
+        "messageHeadline": "build: pin the toolchain in all four places (#679)",
+        "oid": "fa8cfb8500000000000000000000000000000015",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/fa8cfb8500000000000000000000000000000015"
+       },
+       {
+        "abbreviatedOid": "d533689",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-18T11:00:00Z",
+        "committedDate": "2026-10-18T11:00:00Z",
+        "messageHeadline": "core: freshness label reads the lane clock (#676)",
+        "oid": "d533689800000000000000000000000000000018",
+        "signature": null,
+        "statusCheckRollup": null,
+        "url": "https://github.com/fixture-user/atlas/commit/d533689800000000000000000000000000000018"
+       },
+       {
+        "abbreviatedOid": "afd9d5a",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-17T20:00:00Z",
+        "committedDate": "2026-10-17T20:00:00Z",
+        "messageHeadline": "app: quit when the last window closes (#673)",
+        "oid": "afd9d5ab0000000000000000000000000000001b",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "FAILURE"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/afd9d5ab0000000000000000000000000000001b"
+       },
+       {
+        "abbreviatedOid": "8a8042b",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-17T05:00:00Z",
+        "committedDate": "2026-10-17T05:00:00Z",
+        "messageHeadline": "github: commits tab rows and day headers (#670)",
+        "oid": "8a8042be0000000000000000000000000000001e",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/8a8042be0000000000000000000000000000001e"
+       },
+       {
+        "abbreviatedOid": "6526afd",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-16T14:00:00Z",
+        "committedDate": "2026-10-16T14:00:00Z",
+        "messageHeadline": "ci: cache the cargo registry between jobs (#667)",
+        "oid": "6526afd100000000000000000000000000000021",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": {
+         "state": "PENDING"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/6526afd100000000000000000000000000000021"
+       },
+       {
+        "abbreviatedOid": "3fcd1ce",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-15T23:00:00Z",
+        "committedDate": "2026-10-15T23:00:00Z",
+        "messageHeadline": "usage: split GraphQL and REST buckets (#664)",
+        "oid": "3fcd1ce400000000000000000000000000000024",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/3fcd1ce400000000000000000000000000000024"
+       },
+       {
+        "abbreviatedOid": "1a7389f",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-15T08:00:00Z",
+        "committedDate": "2026-10-15T08:00:00Z",
+        "messageHeadline": "settings: theme picker remembers the choice (#661)",
+        "oid": "1a7389f700000000000000000000000000000027",
+        "signature": null,
+        "statusCheckRollup": null,
+        "url": "https://github.com/fixture-user/atlas/commit/1a7389f700000000000000000000000000000027"
+       },
+       {
+        "abbreviatedOid": "f519f70",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-14T17:00:00Z",
+        "committedDate": "2026-10-14T17:00:00Z",
+        "messageHeadline": "docs: record the stage notes (#658)",
+        "oid": "f519f70a0000000000000000000000000000002a",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "FAILURE"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/f519f70a0000000000000000000000000000002a"
+       },
+       {
+        "abbreviatedOid": "cfc0641",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-14T02:00:00Z",
+        "committedDate": "2026-10-14T02:00:00Z",
+        "messageHeadline": "favicon: inspector spacing follows the 4px scale (#655)",
+        "oid": "cfc0641d0000000000000000000000000000002d",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/cfc0641d0000000000000000000000000000002d"
+       },
+       {
+        "abbreviatedOid": "aa66d13",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-13T11:00:00Z",
+        "committedDate": "2026-10-13T11:00:00Z",
+        "messageHeadline": "debug: wait-frame samples before dispatch (#652)",
+        "oid": "aa66d13000000000000000000000000000000030",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "PENDING"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/aa66d13000000000000000000000000000000030"
+       },
+       {
+        "abbreviatedOid": "850d3e4",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-12T20:00:00Z",
+        "committedDate": "2026-10-12T20:00:00Z",
+        "messageHeadline": "build: pin the toolchain in all four places (#649)",
+        "oid": "850d3e4300000000000000000000000000000033",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/850d3e4300000000000000000000000000000033"
+       },
+       {
+        "abbreviatedOid": "5fb3ab5",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-12T05:00:00Z",
+        "committedDate": "2026-10-12T05:00:00Z",
+        "messageHeadline": "core: freshness label reads the lane clock (#646)",
+        "oid": "5fb3ab5600000000000000000000000000000036",
+        "signature": null,
+        "statusCheckRollup": null,
+        "url": "https://github.com/fixture-user/atlas/commit/5fb3ab5600000000000000000000000000000036"
+       },
+       {
+        "abbreviatedOid": "3a5a186",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-11T14:00:00Z",
+        "committedDate": "2026-10-11T14:00:00Z",
+        "messageHeadline": "app: quit when the last window closes (#643)",
+        "oid": "3a5a186900000000000000000000000000000039",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": {
+         "state": "FAILURE"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/3a5a186900000000000000000000000000000039"
+       },
+       {
+        "abbreviatedOid": "1500857",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-10T23:00:00Z",
+        "committedDate": "2026-10-10T23:00:00Z",
+        "messageHeadline": "github: commits tab rows and day headers (#640)",
+        "oid": "1500857c0000000000000000000000000000003c",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/1500857c0000000000000000000000000000003c"
+       },
+       {
+        "abbreviatedOid": "efa6f28",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-10T08:00:00Z",
+        "committedDate": "2026-10-10T08:00:00Z",
+        "messageHeadline": "ci: cache the cargo registry between jobs (#637)",
+        "oid": "efa6f28f0000000000000000000000000000003f",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "PENDING"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/efa6f28f0000000000000000000000000000003f"
+       },
+       {
+        "abbreviatedOid": "ca4d5fa",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-09T17:00:00Z",
+        "committedDate": "2026-10-09T17:00:00Z",
+        "messageHeadline": "usage: split GraphQL and REST buckets (#634)",
+        "oid": "ca4d5fa200000000000000000000000000000042",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/ca4d5fa200000000000000000000000000000042"
+       },
+       {
+        "abbreviatedOid": "a4f3ccb",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-09T02:00:00Z",
+        "committedDate": "2026-10-09T02:00:00Z",
+        "messageHeadline": "settings: theme picker remembers the choice (#631)",
+        "oid": "a4f3ccb500000000000000000000000000000045",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": null,
+        "url": "https://github.com/fixture-user/atlas/commit/a4f3ccb500000000000000000000000000000045"
+       },
+       {
+        "abbreviatedOid": "7f9a39c",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-08T11:00:00Z",
+        "committedDate": "2026-10-08T11:00:00Z",
+        "messageHeadline": "docs: record the stage notes (#628)",
+        "oid": "7f9a39c800000000000000000000000000000048",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "FAILURE"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/7f9a39c800000000000000000000000000000048"
+       },
+       {
+        "abbreviatedOid": "5a40a6d",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-07T20:00:00Z",
+        "committedDate": "2026-10-07T20:00:00Z",
+        "messageHeadline": "favicon: inspector spacing follows the 4px scale (#625)",
+        "oid": "5a40a6db0000000000000000000000000000004b",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/5a40a6db0000000000000000000000000000004b"
+       },
+       {
+        "abbreviatedOid": "34e713e",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-07T05:00:00Z",
+        "committedDate": "2026-10-07T05:00:00Z",
+        "messageHeadline": "debug: wait-frame samples before dispatch (#622)",
+        "oid": "34e713ee0000000000000000000000000000004e",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "PENDING"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/34e713ee0000000000000000000000000000004e"
+       },
+       {
+        "abbreviatedOid": "0f8d810",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-06T14:00:00Z",
+        "committedDate": "2026-10-06T14:00:00Z",
+        "messageHeadline": "build: pin the toolchain in all four places (#619)",
+        "oid": "0f8d810100000000000000000000000000000051",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/0f8d810100000000000000000000000000000051"
+       },
+       {
+        "abbreviatedOid": "ea33ee1",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-05T23:00:00Z",
+        "committedDate": "2026-10-05T23:00:00Z",
+        "messageHeadline": "core: freshness label reads the lane clock (#616)",
+        "oid": "ea33ee1400000000000000000000000000000054",
+        "signature": null,
+        "statusCheckRollup": null,
+        "url": "https://github.com/fixture-user/atlas/commit/ea33ee1400000000000000000000000000000054"
+       },
+       {
+        "abbreviatedOid": "c4da5b2",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-05T08:00:00Z",
+        "committedDate": "2026-10-05T08:00:00Z",
+        "messageHeadline": "app: quit when the last window closes (#613)",
+        "oid": "c4da5b2700000000000000000000000000000057",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "FAILURE"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/c4da5b2700000000000000000000000000000057"
+       },
+       {
+        "abbreviatedOid": "9f80c83",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-04T17:00:00Z",
+        "committedDate": "2026-10-04T17:00:00Z",
+        "messageHeadline": "github: commits tab rows and day headers (#610)",
+        "oid": "9f80c83a0000000000000000000000000000005a",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/9f80c83a0000000000000000000000000000005a"
+       },
+       {
+        "abbreviatedOid": "7a27354",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-04T02:00:00Z",
+        "committedDate": "2026-10-04T02:00:00Z",
+        "messageHeadline": "ci: cache the cargo registry between jobs (#607)",
+        "oid": "7a27354d0000000000000000000000000000005d",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": {
+         "state": "PENDING"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/7a27354d0000000000000000000000000000005d"
+       },
+       {
+        "abbreviatedOid": "54cda26",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-03T11:00:00Z",
+        "committedDate": "2026-10-03T11:00:00Z",
+        "messageHeadline": "usage: split GraphQL and REST buckets (#604)",
+        "oid": "54cda26000000000000000000000000000000060",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/54cda26000000000000000000000000000000060"
+       },
+       {
+        "abbreviatedOid": "2f740f7",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-02T20:00:00Z",
+        "committedDate": "2026-10-02T20:00:00Z",
+        "messageHeadline": "settings: theme picker remembers the choice (#601)",
+        "oid": "2f740f7300000000000000000000000000000063",
+        "signature": null,
+        "statusCheckRollup": null,
+        "url": "https://github.com/fixture-user/atlas/commit/2f740f7300000000000000000000000000000063"
+       },
+       {
+        "abbreviatedOid": "0a1a7c8",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-02T05:00:00Z",
+        "committedDate": "2026-10-02T05:00:00Z",
+        "messageHeadline": "docs: record the stage notes (#598)",
+        "oid": "0a1a7c8600000000000000000000000000000066",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "FAILURE"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/0a1a7c8600000000000000000000000000000066"
+       },
+       {
+        "abbreviatedOid": "e4c0e99",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-01T14:00:00Z",
+        "committedDate": "2026-10-01T14:00:00Z",
+        "messageHeadline": "favicon: inspector spacing follows the 4px scale (#595)",
+        "oid": "e4c0e99900000000000000000000000000000069",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/e4c0e99900000000000000000000000000000069"
+       },
+       {
+        "abbreviatedOid": "bf6756a",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-09-30T23:00:00Z",
+        "committedDate": "2026-09-30T23:00:00Z",
+        "messageHeadline": "debug: wait-frame samples before dispatch (#592)",
+        "oid": "bf6756ac0000000000000000000000000000006c",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "PENDING"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/bf6756ac0000000000000000000000000000006c"
+       },
+       {
+        "abbreviatedOid": "9a0dc3b",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-09-30T08:00:00Z",
+        "committedDate": "2026-09-30T08:00:00Z",
+        "messageHeadline": "build: pin the toolchain in all four places (#589)",
+        "oid": "9a0dc3bf0000000000000000000000000000006f",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/9a0dc3bf0000000000000000000000000000006f"
+       },
+       {
+        "abbreviatedOid": "74b430d",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-09-29T17:00:00Z",
+        "committedDate": "2026-09-29T17:00:00Z",
+        "messageHeadline": "core: freshness label reads the lane clock (#586)",
+        "oid": "74b430d200000000000000000000000000000072",
+        "signature": null,
+        "statusCheckRollup": null,
+        "url": "https://github.com/fixture-user/atlas/commit/74b430d200000000000000000000000000000072"
+       },
+       {
+        "abbreviatedOid": "4f5a9de",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-09-29T02:00:00Z",
+        "committedDate": "2026-09-29T02:00:00Z",
+        "messageHeadline": "app: quit when the last window closes (#583)",
+        "oid": "4f5a9de500000000000000000000000000000075",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": {
+         "state": "FAILURE"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/4f5a9de500000000000000000000000000000075"
+       }
+      ],
+      "pageInfo": {
+       "endCursor": null,
+       "hasNextPage": false
+      },
+      "totalCount": 40
+     },
+     "oid": "0000000000000000000000000000000000000000"
+    }
+   }
+  }
+ }
+}

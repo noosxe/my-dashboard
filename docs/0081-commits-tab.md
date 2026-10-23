@@ -2,7 +2,8 @@
 
 - **Issue:** (filed with the implementation issues after this doc merges)
 - **Amends:** docs/0077 D1/D3/D6 (a fourth tab and lane), docs/0048 D4 (a
-  `commits` trail key)
+  `commits` trail key), docs/0051 D3 (the inventory selects the viewer's
+  node `id`, §14)
 - **Interacts with:** docs/0031 (in-flight dedup), docs/0036 (backoff),
   docs/0037/0033 (freshness cluster), docs/0042 (shared quick filter),
   docs/0044 (`RepoBranches` source), docs/0047 (cursor "Load more"
@@ -27,7 +28,8 @@ user first lands on the tab, through a new `RepoLane::Commits` that rides
 the docs/0077 lane machinery, so nothing is fetched for a hidden tab.
 
 A branch selector ships in v1 (D7; the lane is keyed by `(repo, ref)`
-from day one).
+from day one). A server-side **author = mine** toggle followed (§14),
+widening the key to `(repo, ref, filter)`.
 
 ## 2 Verified facts (pinned sources, 2026-10-23)
 
@@ -250,6 +252,7 @@ pub(crate) struct CommitLane {
     pub error: Option<String>,     // last page-N failure, tail-row retry
 }
 // keyed by (full_name, RefKey) — RefKey::Default | RefKey::Branch(name)
+// (shipped as (full_name, CommitsKey { rk, filter }), §14)
 pub(crate) commit_lanes: HashMap<(String, RefKey), CommitLane>,
 ```
 
@@ -445,7 +448,8 @@ The owner asked for these to be named, not silently deviated from.
   fresh paginated history. They are **not** docs/0042 toolbar chips. The
   shared text box stays client-side and is labeled as filtering
   *loaded* commits, with auto-paging disabled while it is active (D6).
-  Whether any structured filter ships in v1 is Q3.
+  Whether any structured filter ships in v1 is Q3. The first one,
+  author = mine, shipped this way (§14).
 
 ### F3: Repo-view rows have no keyboard path
 
@@ -527,14 +531,17 @@ The owner asked for these to be named, not silently deviated from.
   commit page is a follow-up design doc (§7).
 - **Q2:** yes. The ref selector (D7) ships in v1.
 - **Q3:** none. v1 has no server-side filters, only the loaded-text quick
-  filter (D6). Author="mine" is the first follow-up (§7).
+  filter (D6). Author="mine" is the first follow-up; it **shipped** in
+  #650 as a lane-keyed server-side toggle (§14). Path, date-range and
+  other-author filters stay deferred (§7).
 - **Q4:** no associated-PR chip in v1 (§7).
 - **Q5:** Commits is the last tab (D1).
 
 ## 7 Non-goals (filed as `deferred` issues before implementation merges)
 
 - An in-app commit detail page (Q1(b); its own design doc).
-- Server-side author, path and date filters (Q3 follow-ups).
+- Server-side path and date filters, and author filters other than
+  "mine" (a user picker) (Q3 follow-ups; author = mine shipped, §14).
 - Associated-PR chips and co-author avatar stacks (Q4).
 - Tags or arbitrary-SHA history, compare views, and blame.
 - Persisting commit books to the app DB across restarts.
@@ -572,6 +579,15 @@ The owner asked for these to be named, not silently deviated from.
   re-picked paints with no flight (age-gated); each book gates on its
   own clock; a repo selection resets to the default ref; the menu lists
   the default branch first.
+- Author = mine (§14, #650): the `~mine` ident round-trips; the spec
+  carries `author: { id }` only with the viewer's node id known (and
+  falls back to the unfiltered book without it); mine and unfiltered
+  books hold their own rows, clocks and cursors, and page N repeats
+  `$author`; a mine revalidation whose ref tip isn't the viewer's
+  prepend-merges instead of reading as a rewrite; the toggle is inert
+  without the id, switches books (a held one paints with no flight),
+  survives a branch pick and resets on repo selection; the inventory
+  lands the viewer id.
 
 **Bridge (docs/0010 / docs/0055), in the docs/0071 container:**
 
@@ -584,7 +600,10 @@ The owner asked for these to be named, not silently deviated from.
   → assert the tail text and no further flights. Stage 3 extends it:
   open `commits-ref-select` (assert the branch list, one
   `RepoBranches` flight), pick a branch, assert its rows replaced
-  main's.
+  main's. §14 extends it: click `commits-mine` on main (assert "Your
+  commits on main", the filtered count and tail, a viewer row present
+  and other authors' rows gone), click it off (main's rows back, no
+  flight).
 - `dashboard-debug audit` over the repo view on the Commits tab, plus
   `tree --tab-stops` (the list is one tab stop reachable from the strip).
 - **Structural golden:** `snapshots/github.json` **will drift** (a
@@ -613,6 +632,8 @@ The owner asked for these to be named, not silently deviated from.
    receipt, the goldens and the 0065 receipts.
 3. **Ref selector** (**shipped**, #648; see §13): the D7 `Select` over
    `RepoBranches`, with `RefKey`-keyed books and per-ref clocks.
+4. **Author = mine** (**shipped**, #650; see §14): the first Q3
+   follow-up, a server-side toggle with its own books.
 
 ## 11 Implementation notes (stage 1, #646, 2026-10-23)
 
@@ -818,6 +839,79 @@ The D7 ref selector shipped as designed, with these refinements:
   (six newer commits on their own oids). The fixture transport answers
   by operation name, so any picked branch serves that history; the
   receipt picks `feature/ref-picker`.
+
+## 14 Implementation notes (author = mine, #650, 2026-10-23)
+
+Q3's first follow-up shipped as F2 recommends: a server-side filter
+that is part of the lane key, not a docs/0042 chip.
+
+- **Schema** (`docs.github.com/public/fpt/schema.docs.graphql`,
+  re-fetched 2026-10-23): `Commit.history(…, author: CommitAuthor)`,
+  where `input CommitAuthor { emails: [String!], id: ID }` and `id` is
+  a User id that takes precedence over `emails` (§2 fact 7).
+- **Query shape.** The three commits queries each gain one optional
+  variable, `$author: CommitAuthor`, passed to `history(…, author:
+  $author)`. Absent (or `null`) is the unfiltered history, so the
+  unfiltered books send exactly what they did before, and no new
+  operation names are needed. Live receipts against
+  `noosxe/my-dashboard`: the variable absent or `null` returns the
+  full history (`totalCount` 432); `author: { id: <viewer> }` returns
+  423, billed `rateLimit.cost = 1`. Its `endCursor` is still
+  `"<tip> <offset>"`, but the offset counts **filtered** commits, and
+  page 2 through `object(oid: <tip>) { history(after:, author:) }`
+  continued with no gap or duplicate. So page N must repeat `$author`.
+- **The viewer's node id.** The module didn't fetch it before.
+  `SessionInventory` now selects `viewer { id }` (amending docs/0051
+  D3, at no extra cost), and it lands as `User.id` (`#[serde(default)]`,
+  so the cached snapshot from an older build reads an empty id until
+  the next inventory). `viewer_node_id()` is `None` while the id is
+  unknown.
+- **The key.** Books are keyed `(repo, CommitsKey { rk: RefKey, filter:
+  CommitFilter })` with `CommitFilter { All, Mine }`. The ident appends
+  `~mine` (`owner/repo~mine`, `owner/repo:<branch>~mine`); `~` occurs
+  in neither repository names nor git ref names. Each filter value is
+  its own book with its own rows, cursor, cap, `landed` clock, error
+  and LRU slot (D2–D4, D3's cap of 8 counts mine books too). Only the
+  unfiltered default book stamps `rows_landed[(repo, Commits)]` for
+  the agent view. The spec builder adds `author: { id }` for `Mine`;
+  without a viewer id it builds the unfiltered book's spec (and
+  ident), so a response always lands in the book it belongs to.
+  `commits_more_spec` returns `None` for a mine book without the id.
+- **D4 anchor.** A page-1 revalidation used to look for the held
+  **ref tip** among the landed rows. On a filtered history the ref tip
+  is usually someone else's commit and is never in the rows, so every
+  refocus would have read as a rewrite. The merge now anchors on the
+  **newest held row**. That is the same commit as the tip on an
+  unfiltered book, so their behavior is unchanged.
+- **The toggle** (`commits-mine`) is a small outline button labelled
+  "Mine", placed right of the branch selector in `commits-header`.
+  When on it shows a check glyph as well as the kit's selected fill, so
+  the state doesn't rest on color alone (critique iteration 1). It
+  exposes a pressed state (`aria_toggled`), with the tooltip "Only
+  commits you authored". It
+  is disabled, with the tooltip "Available once your account has
+  loaded", until the viewer id is known. A click flips the page's
+  `commits_mine` and offers the new book's page 1 through the
+  `FOCUS_MIN_AGE` gate as `ViewShown`, the same path as a branch pick:
+  a fresh book fetches, and a held one paints at once (the list
+  scrolls to the top on any book switch). Log line: `commits: <repo>
+  filtered to my commits` / `showing all authors`.
+- **State.** `commits_mine` follows `commits_ref`: session-local,
+  reset to off on every repo selection, and **kept across a branch
+  pick** (the picked branch's own mine book).
+- **Copy while filtered.** The list's group name reads "Your commits on
+  <ref>", the count "N commits by you" (`history.totalCount` counts the
+  filtered history), and the empty cell "No commits by you on <ref>".
+  The cap hand-off link appends `?author=<login>` to GitHub's commits
+  URL. The other tail states are unchanged. The loaded-text quick
+  filter (D6) composes on top: it narrows the mine book's loaded rows.
+- **Fixtures** (§12.1). The fixture transport serves
+  `graphql/<Operation>.author.json` when the request's `$author` is
+  set, so a filtered book has its own history. The new
+  `RepoCommits.author.json` holds `fixture-user`'s 40 of atlas's 120
+  commits (one complete page), and `SessionInventory.json`'s viewer
+  carries `id: "U_fixture"`. The generator leaves every existing
+  fixture byte-identical.
 
 ## 10 Mockup
 

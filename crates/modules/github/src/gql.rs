@@ -54,6 +54,7 @@ pub const SESSION_INVENTORY_QUERY: &str = r#"
 query SessionInventory($cursor: String) {
   rateLimit { cost remaining resetAt limit }
   viewer {
+    id
     login
     avatarUrl
     organizations(first: 100) {
@@ -352,6 +353,10 @@ pub struct SnapshotData {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ViewerData {
+    /// The viewer's User node id — the commits "mine" filter's
+    /// `CommitAuthor.id` (docs/0081 §14).
+    #[serde(default)]
+    pub id: String,
     pub login: String,
     #[serde(default)]
     pub avatar_url: String,
@@ -424,6 +429,10 @@ pub struct User {
     pub login: String,
     #[serde(default)]
     pub avatar_url: String,
+    /// The User node id (docs/0081 §14); empty in caches written before
+    /// it was fetched, until the next inventory lands.
+    #[serde(default)]
+    pub id: String,
 }
 
 /// Org dropdown entry (was REST `GET /user/orgs`); the service prepends
@@ -2586,15 +2595,18 @@ fragment CommitRow on Commit {
 
 /// docs/0081 D2 — page 1 on the default branch: `defaultBranchRef`
 /// resolves the ref, its name and the pinned tip in one round trip
-/// (`ref(qualifiedName: "HEAD")` returns null — §2 fact 11).
+/// (`ref(qualifiedName: "HEAD")` returns null — §2 fact 11). All three
+/// commits queries take an optional `$author: CommitAuthor` (§14, the
+/// "mine" filter: `{ id: <viewer node id> }`); absent or null is the
+/// unfiltered history.
 pub const REPO_COMMITS_QUERY: &str = concat!(
     r#"
-query RepoCommits($owner: String!, $name: String!, $first: Int!) {
+query RepoCommits($owner: String!, $name: String!, $first: Int!, $author: CommitAuthor) {
   rateLimit { cost remaining resetAt limit }
   repository(owner: $owner, name: $name) {
     defaultBranchRef {
       name
-      target { ... on Commit { oid history(first: $first) {
+      target { ... on Commit { oid history(first: $first, author: $author) {
         totalCount pageInfo { hasNextPage endCursor }
         nodes { ...CommitRow } } } }
     }
@@ -2608,12 +2620,12 @@ query RepoCommits($owner: String!, $name: String!, $first: Int!) {
 /// `ref(qualifiedName:)` (short names and `refs/heads/…` both resolve).
 pub const REPO_COMMITS_REF_QUERY: &str = concat!(
     r#"
-query RepoCommitsRef($owner: String!, $name: String!, $ref: String!, $first: Int!) {
+query RepoCommitsRef($owner: String!, $name: String!, $ref: String!, $first: Int!, $author: CommitAuthor) {
   rateLimit { cost remaining resetAt limit }
   repository(owner: $owner, name: $name) {
     ref(qualifiedName: $ref) {
       name
-      target { ... on Commit { oid history(first: $first) {
+      target { ... on Commit { oid history(first: $first, author: $author) {
         totalCount pageInfo { hasNextPage endCursor }
         nodes { ...CommitRow } } } }
     }
@@ -2628,10 +2640,10 @@ query RepoCommitsRef($owner: String!, $name: String!, $ref: String!, $first: Int
 /// offsets under a push. `object(oid:)` keeps the walk on one history.
 pub const REPO_COMMITS_MORE_QUERY: &str = concat!(
     r#"
-query RepoCommitsMore($owner: String!, $name: String!, $tip: GitObjectID!, $first: Int!, $after: String!) {
+query RepoCommitsMore($owner: String!, $name: String!, $tip: GitObjectID!, $first: Int!, $after: String!, $author: CommitAuthor) {
   rateLimit { cost remaining resetAt limit }
   repository(owner: $owner, name: $name) {
-    object(oid: $tip) { ... on Commit { history(first: $first, after: $after) {
+    object(oid: $tip) { ... on Commit { history(first: $first, after: $after, author: $author) {
       pageInfo { hasNextPage endCursor }
       nodes { ...CommitRow } } } }
   }
@@ -3637,6 +3649,31 @@ mod tests {
             SESSION_INVENTORY_QUERY.contains("isArchived"),
             "SESSION_INVENTORY_QUERY: isArchived selection missing (#275)"
         );
+    }
+
+    #[test]
+    fn commits_queries_take_the_optional_author_filter() {
+        // docs/0081 §14: one optional `$author: CommitAuthor` per query
+        // (schema: `CommitAuthor { id: ID, emails: [String!] }`) — absent
+        // is the unfiltered history, so the "mine" book shares the ops.
+        for (name, doc) in [
+            ("RepoCommits", REPO_COMMITS_QUERY),
+            ("RepoCommitsRef", REPO_COMMITS_REF_QUERY),
+            ("RepoCommitsMore", REPO_COMMITS_MORE_QUERY),
+        ] {
+            assert!(
+                doc.contains("$author: CommitAuthor)"),
+                "{name}: $author var"
+            );
+            assert!(doc.contains("author: $author)"), "{name}: history(author:)");
+        }
+        // The viewer's node id feeds `CommitAuthor.id`.
+        let viewer = SESSION_INVENTORY_QUERY
+            .split("viewer {")
+            .nth(1)
+            .and_then(|rest| rest.split("organizations").next())
+            .unwrap();
+        assert!(viewer.split_whitespace().any(|w| w == "id"));
     }
 
     #[test]

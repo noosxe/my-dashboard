@@ -402,6 +402,19 @@
       "focused": false
     },
     {
+      "accesskit_id": "10789357359616730678",
+      "role": "Button",
+      "label": "Mine",
+      "bounds": {
+        "x": 672.0,
+        "y": 233.0,
+        "w": 49.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
       "accesskit_id": "10832232269558921901",
       "role": "Label",
       "label": "GitHub API usage pending; session: 8 requests (6 GraphQL, 2 REST, 0 auth)",

@@ -957,28 +957,71 @@ pub(crate) const COMMIT_LANES_CAP: usize = 8;
 
 /// docs/0081 D3/D7 — which ref a commits book follows. Part of the book
 /// key from day one so the branch selector adds no data change.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) enum RefKey {
+    #[default]
     Default,
     Branch(String),
 }
 
+/// docs/0081 §14 — a commits book's server-side filter, the third part
+/// of its key (F2: structured filters are lane keys, not 0042 chips).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) enum CommitFilter {
+    #[default]
+    All,
+    /// `history(author: { id: <viewer node id> })`.
+    Mine,
+}
+
+/// docs/0081 D3/§14 — which book the Commits tab shows: a ref and a
+/// filter. Each value is its own paginated book with its own cursor,
+/// cap, clock and revalidation (D2–D4).
+#[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) struct CommitsKey {
+    pub rk: RefKey,
+    pub filter: CommitFilter,
+}
+
+impl From<RefKey> for CommitsKey {
+    fn from(rk: RefKey) -> Self {
+        Self {
+            rk,
+            filter: CommitFilter::All,
+        }
+    }
+}
+
+/// The ident suffix of a [`CommitFilter::Mine`] book — `~` occurs in
+/// neither repository names nor git ref names.
+const COMMITS_MINE_SUFFIX: &str = "~mine";
+
 /// The commits lanes' ident: `owner/repo` for the default ref,
 /// `owner/repo:<branch>` for a picked branch — `:` occurs in neither
-/// repository names nor git ref names, so the split is unambiguous.
-pub(crate) fn commits_ident(full_name: &str, rk: &RefKey) -> String {
-    match rk {
+/// repository names nor git ref names, so the split is unambiguous —
+/// with `~mine` appended for the author filter (§14).
+pub(crate) fn commits_ident(full_name: &str, key: &CommitsKey) -> String {
+    let base = match &key.rk {
         RefKey::Default => full_name.to_string(),
         RefKey::Branch(name) => format!("{full_name}:{name}"),
+    };
+    match key.filter {
+        CommitFilter::All => base,
+        CommitFilter::Mine => format!("{base}{COMMITS_MINE_SUFFIX}"),
     }
 }
 
 /// Inverse of [`commits_ident`].
-pub(crate) fn parse_commits_ident(ident: &str) -> (String, RefKey) {
-    match ident.split_once(':') {
+pub(crate) fn parse_commits_ident(ident: &str) -> (String, CommitsKey) {
+    let (ident, filter) = match ident.strip_suffix(COMMITS_MINE_SUFFIX) {
+        Some(base) => (base, CommitFilter::Mine),
+        None => (ident, CommitFilter::All),
+    };
+    let (full, rk) = match ident.split_once(':') {
         Some((full, name)) => (full.to_string(), RefKey::Branch(name.to_string())),
         None => (ident.to_string(), RefKey::Default),
-    }
+    };
+    (full, CommitsKey { rk, filter })
 }
 
 /// How a page-1 landing met the held book (docs/0081 D4) — the log
@@ -1050,10 +1093,13 @@ impl CommitLane {
     }
 
     /// Land a page-1 result (docs/0081 D4): prepend-merge when the held
-    /// tip appears in the page and the overlap agrees row for row
-    /// (history is not strictly append-at-head — a merged side branch
-    /// can interleave older commits below the old tip, which a merge
-    /// would miss), otherwise restart the book from this page.
+    /// newest row appears in the page and the overlap agrees row for
+    /// row (history is not strictly append-at-head — a merged side
+    /// branch can interleave older commits below the old tip, which a
+    /// merge would miss), otherwise restart the book from this page.
+    /// The anchor is the newest held row, not the ref tip: they are the
+    /// same commit on an unfiltered book, but a "mine" book's ref tip is
+    /// usually someone else's commit and never in its rows (§14).
     pub(crate) fn land_first(&mut self, page: gql::CommitPage, now: Instant) -> CommitLanding {
         let was_landed = self.landed.is_some();
         self.error = None;
@@ -1061,8 +1107,8 @@ impl CommitLane {
         self.ref_name = page.ref_name.clone();
         self.landed = Some(now);
         if was_landed
-            && let Some(held_tip) = self.tip.clone()
-            && let Some(k) = page.nodes.iter().position(|c| c.oid == held_tip)
+            && let Some(newest) = self.rows.first().map(|c| c.oid.clone())
+            && let Some(k) = page.nodes.iter().position(|c| c.oid == newest)
         {
             let overlap = &page.nodes[k..];
             let agrees = overlap.len() <= self.rows.len()
@@ -2545,9 +2591,10 @@ pub struct GithubState {
     /// seeded; docs/0034 disk-seeding stays a snapshot/notifications
     /// affair.
     pub(crate) home_lanes: BTreeMap<(String, HomeScope), HomeLane>,
-    /// docs/0081 D3 — the commits books, keyed `(repo, ref)`; LRU-capped
+    /// docs/0081 D3 — the commits books, keyed `(repo, ref, filter)`
+    /// (§14); LRU-capped
     /// at [`COMMIT_LANES_CAP`]. Session-only, never persisted.
-    pub(crate) commit_lanes: BTreeMap<(String, RefKey), CommitLane>,
+    pub(crate) commit_lanes: BTreeMap<(String, CommitsKey), CommitLane>,
     /// The LRU stamp source for `commit_lanes`.
     commit_lane_clock: u64,
     /// The home lane's landed clock (the notifications-lane pattern,
@@ -2976,28 +3023,44 @@ impl GithubState {
                 Some(2),
                 origin,
             ),
-            RepoLane::Commits => self.commits_spec(full_name, &RefKey::Default, origin),
+            RepoLane::Commits => self.commits_spec(full_name, &CommitsKey::default(), origin),
         }
     }
 
     /// docs/0081 D2 — page 1 of a commits book: the default-branch
-    /// query, or the picked-branch query when `rk` names one.
-    pub(crate) fn commits_spec(&self, full_name: &str, rk: &RefKey, origin: Origin) -> FetchSpec {
+    /// query, or the picked-branch query when the key names one, with
+    /// `$author` for the "mine" filter (§14). The page offers `Mine`
+    /// only once the viewer's node id is known; without it the key
+    /// falls back to the unfiltered book, so the ident always names the
+    /// book the response really belongs to.
+    pub(crate) fn commits_spec(
+        &self,
+        full_name: &str,
+        key: &CommitsKey,
+        origin: Origin,
+    ) -> FetchSpec {
         let (owner, name) = split_full_name(full_name);
         let mut variables = serde_json::json!({
             "owner": owner,
             "name": name,
             "first": COMMITS_PAGE,
         });
-        if let RefKey::Branch(branch) = rk {
+        if let RefKey::Branch(branch) = &key.rk {
             variables["ref"] = Value::String(format!("refs/heads/{branch}"));
+        }
+        let mut key = key.clone();
+        if key.filter == CommitFilter::Mine {
+            match self.commits_author() {
+                Some(author) => variables["author"] = author,
+                None => key.filter = CommitFilter::All,
+            }
         }
         FetchSpec {
             origin,
             kind: Kind::RepoCommits,
             url: gql::GRAPHQL_ENDPOINT.to_string(),
             etag: None,
-            ident: Some(commits_ident(full_name, rk)),
+            ident: Some(commits_ident(full_name, &key)),
             max_pages: 1,
             variables: Some(variables),
         }
@@ -3012,14 +3075,21 @@ impl GithubState {
     pub(crate) fn commits_more_spec(
         &mut self,
         full_name: &str,
-        rk: &RefKey,
+        key: &CommitsKey,
         origin: Origin,
     ) -> Option<FetchSpec> {
         if self.gated() {
             return None;
         }
-        let key = (full_name.to_string(), rk.clone());
-        let lane = self.commit_lanes.get_mut(&key)?;
+        // A filtered book pages with the same `$author` it landed with
+        // (the cursor's offset counts filtered commits, §14).
+        let author = match key.filter {
+            CommitFilter::All => None,
+            CommitFilter::Mine => Some(self.commits_author()?),
+        };
+        let lane = self
+            .commit_lanes
+            .get_mut(&(full_name.to_string(), key.clone()))?;
         if origin.trigger == Trigger::Manual {
             lane.more_error = None;
         }
@@ -3031,32 +3101,51 @@ impl GithubState {
         };
         lane.loading_more = true;
         let (owner, name) = split_full_name(full_name);
+        let mut variables = serde_json::json!({
+            "owner": owner,
+            "name": name,
+            "tip": tip,
+            "first": COMMITS_PAGE,
+            "after": after,
+        });
+        if let Some(author) = author {
+            variables["author"] = author;
+        }
         Some(FetchSpec {
             origin,
             kind: Kind::RepoCommitsMore,
             url: gql::GRAPHQL_ENDPOINT.to_string(),
             etag: None,
-            ident: Some(commits_ident(full_name, rk)),
+            ident: Some(commits_ident(full_name, key)),
             max_pages: 1,
-            variables: Some(serde_json::json!({
-                "owner": owner,
-                "name": name,
-                "tip": tip,
-                "first": COMMITS_PAGE,
-                "after": after,
-            })),
+            variables: Some(variables),
         })
+    }
+
+    /// docs/0081 §14 — the viewer's node id, once the session inventory
+    /// has fetched it; `None` until then (the "mine" toggle stays off).
+    pub(crate) fn viewer_node_id(&self) -> Option<&str> {
+        self.user
+            .as_ref()
+            .map(|u| u.id.as_str())
+            .filter(|id| !id.is_empty())
+    }
+
+    /// The `$author: CommitAuthor` value of a "mine" book.
+    fn commits_author(&self) -> Option<Value> {
+        self.viewer_node_id()
+            .map(|id| serde_json::json!({ "id": id }))
     }
 
     /// docs/0081 D3 — read a commits book and stamp it most recently
     /// used (the tab calls this on entry so a visited book outlives the
     /// LRU).
-    pub(crate) fn touch_commit_lane(&mut self, full_name: &str, rk: &RefKey) {
+    pub(crate) fn touch_commit_lane(&mut self, full_name: &str, key: &CommitsKey) {
         self.commit_lane_clock += 1;
         let stamp = self.commit_lane_clock;
         if let Some(lane) = self
             .commit_lanes
-            .get_mut(&(full_name.to_string(), rk.clone()))
+            .get_mut(&(full_name.to_string(), key.clone()))
         {
             lane.used = stamp;
         }
@@ -3065,7 +3154,7 @@ impl GithubState {
     /// The book for `key`, created empty (never landed) when absent and
     /// stamped most recently used; the least recently used book beyond
     /// [`COMMIT_LANES_CAP`] is evicted (never the one returned).
-    fn commit_lane_entry(&mut self, key: (String, RefKey)) -> &mut CommitLane {
+    fn commit_lane_entry(&mut self, key: (String, CommitsKey)) -> &mut CommitLane {
         self.commit_lane_clock += 1;
         let stamp = self.commit_lane_clock;
         if !self.commit_lanes.contains_key(&key) {
@@ -3103,7 +3192,7 @@ impl GithubState {
         origin: Origin,
     ) -> Option<FetchSpec> {
         if lane == RepoLane::Commits {
-            return self.commits_refresh_spec(full_name, &RefKey::Default, min_age, origin);
+            return self.commits_refresh_spec(full_name, &CommitsKey::default(), min_age, origin);
         }
         if self.rows_backing_off()
             || self
@@ -3123,32 +3212,32 @@ impl GithubState {
     pub(crate) fn commits_refresh_spec(
         &self,
         full_name: &str,
-        rk: &RefKey,
+        key: &CommitsKey,
         min_age: Duration,
         origin: Origin,
     ) -> Option<FetchSpec> {
         if self.rows_backing_off()
             || self
-                .commits_landed(full_name, rk)
+                .commits_landed(full_name, key)
                 .is_some_and(|t| t.elapsed() < min_age)
         {
             return None;
         }
-        Some(self.commits_spec(full_name, rk, origin))
+        Some(self.commits_spec(full_name, key, origin))
     }
 
     /// The repo view's active tab, ref-aware (docs/0081 D7): the
-    /// Commits tab's page 1 follows the selected ref's book; the other
-    /// lanes ignore `rk`.
+    /// Commits tab's page 1 follows the selected `(ref, filter)` book;
+    /// the other lanes ignore `key`.
     pub(crate) fn repo_tab_spec(
         &self,
         full_name: &str,
         lane: RepoLane,
-        rk: &RefKey,
+        key: &CommitsKey,
         origin: Origin,
     ) -> FetchSpec {
         match lane {
-            RepoLane::Commits => self.commits_spec(full_name, rk, origin),
+            RepoLane::Commits => self.commits_spec(full_name, key, origin),
             _ => self.repo_lane_spec(full_name, lane, origin),
         }
     }
@@ -3159,12 +3248,12 @@ impl GithubState {
         &self,
         full_name: &str,
         lane: RepoLane,
-        rk: &RefKey,
+        key: &CommitsKey,
         min_age: Duration,
         origin: Origin,
     ) -> Option<FetchSpec> {
         match lane {
-            RepoLane::Commits => self.commits_refresh_spec(full_name, rk, min_age, origin),
+            RepoLane::Commits => self.commits_refresh_spec(full_name, key, min_age, origin),
             _ => self.repo_lane_refresh_specs(full_name, lane, min_age, origin),
         }
     }
@@ -3176,10 +3265,10 @@ impl GithubState {
         &self,
         full_name: &str,
         lane: RepoLane,
-        rk: &RefKey,
+        key: &CommitsKey,
     ) -> Option<Instant> {
         match lane {
-            RepoLane::Commits => self.commits_landed(full_name, rk),
+            RepoLane::Commits => self.commits_landed(full_name, key),
             _ => self
                 .rows_landed
                 .get(&(full_name.to_string(), lane))
@@ -3190,9 +3279,9 @@ impl GithubState {
     /// docs/0081 D7 — when this `(repo, ref)` book's page 1 last
     /// landed; `None` = never (or evicted). The clock the Commits tab's
     /// freshness cluster and refresh gate read.
-    pub(crate) fn commits_landed(&self, full_name: &str, rk: &RefKey) -> Option<Instant> {
+    pub(crate) fn commits_landed(&self, full_name: &str, key: &CommitsKey) -> Option<Instant> {
         self.commit_lanes
-            .get(&(full_name.to_string(), rk.clone()))
+            .get(&(full_name.to_string(), key.clone()))
             .and_then(|l| l.landed)
     }
 
@@ -4658,6 +4747,7 @@ impl GithubState {
                         self.user = Some(User {
                             login: data.viewer.login.clone(),
                             avatar_url: data.viewer.avatar_url.clone(),
+                            id: data.viewer.id.clone(),
                         });
                         self.apply_orgs(gql::orgs_from_values(&data.viewer.organizations.nodes));
                         if let Some(page) = data.viewer.repositories {
@@ -5001,7 +5091,7 @@ impl GithubState {
         let page = gql::commits_page(&repo);
         let key = parse_commits_ident(ident);
         if kind == Kind::RepoCommits {
-            let is_default = key.1 == RefKey::Default;
+            let is_default = key.1 == CommitsKey::default();
             let full_name = key.0.clone();
             let lane = self.commit_lane_entry(key);
             let landing = lane.land_first(page.unwrap_or_default(), Instant::now());
@@ -7028,7 +7118,7 @@ mod tests {
     fn gql_page(has_next: bool, end_cursor: &str, repos_json: &str) -> String {
         format!(
             r#"{{"data":{{"rateLimit":{{"cost":2,"remaining":4950,"resetAt":"2030-01-01T00:00:00Z"}},
-                "viewer":{{"login":"noosxe","avatarUrl":"https://a/me.png",
+                "viewer":{{"id":"U_noosxe","login":"noosxe","avatarUrl":"https://a/me.png",
                 "organizations":{{"nodes":[{{"login":"acme","avatarUrl":"https://a/o.png"}}]}},
                 "repositories":{{"totalCount":9,
                 "pageInfo":{{"hasNextPage":{has_next},"endCursor":"{end_cursor}"}},
@@ -7602,6 +7692,8 @@ mod tests {
 
         // User + orgs (personal first, Q10).
         assert_eq!(state.user.as_ref().unwrap().login, "noosxe");
+        // docs/0081 §14: the viewer's node id, the "mine" filter's author.
+        assert_eq!(state.viewer_node_id(), Some("U_noosxe"));
         assert_eq!(state.orgs[0].login, "noosxe");
         assert_eq!(state.orgs[1].login, "acme");
 
@@ -8517,6 +8609,7 @@ mod tests {
         state.user = Some(User {
             login: "noosxe".into(),
             avatar_url: "a".into(),
+            id: String::new(),
         });
         state.apply_orgs(vec![Org {
             login: "acme".into(),
@@ -10882,9 +10975,15 @@ mod tests {
 
     /// A page-1 body (`defaultBranchRef` shape), tip = first oid.
     fn commits_body(total: i64, next: Option<&str>, oids: &[&str]) -> String {
+        commits_body_at(oids.first().copied().unwrap_or("none"), total, next, oids)
+    }
+
+    /// A page-1 body whose ref tip is `tip` — on a filtered ("mine")
+    /// history the tip is usually not one of the rows (§14).
+    fn commits_body_at(tip: &str, total: i64, next: Option<&str>, oids: &[&str]) -> String {
         format!(
             r#"{{"data":{{"rateLimit":{{"cost":1,"remaining":4999,"resetAt":"2099-01-01T00:00:00Z","limit":5000}},"repository":{{"defaultBranchRef":{{"name":"main","target":{}}}}}}}}}"#,
-            history_json(oids.first().copied().unwrap_or("none"), total, next, oids)
+            history_json(tip, total, next, oids)
         )
     }
 
@@ -10915,8 +11014,8 @@ mod tests {
         state
     }
 
-    fn held_oids(state: &GithubState, rk: RefKey) -> Vec<String> {
-        state.commit_lanes[&("o/r".to_string(), rk)]
+    fn held_oids(state: &GithubState, key: impl Into<CommitsKey>) -> Vec<String> {
+        state.commit_lanes[&("o/r".to_string(), key.into())]
             .rows
             .iter()
             .map(|c| c.oid.clone())
@@ -10979,16 +11078,217 @@ mod tests {
 
     #[test]
     fn commits_ident_round_trips() {
-        assert_eq!(commits_ident("o/r", &RefKey::Default), "o/r");
+        assert_eq!(commits_ident("o/r", &CommitsKey::default()), "o/r");
         assert_eq!(
-            commits_ident("o/r", &RefKey::Branch("a/b".into())),
+            commits_ident("o/r", &CommitsKey::from(RefKey::Branch("a/b".into()))),
             "o/r:a/b"
         );
-        assert_eq!(parse_commits_ident("o/r"), ("o/r".into(), RefKey::Default));
+        assert_eq!(
+            parse_commits_ident("o/r"),
+            ("o/r".into(), CommitsKey::default())
+        );
         assert_eq!(
             parse_commits_ident("o/r:a/b"),
-            ("o/r".into(), RefKey::Branch("a/b".into()))
+            ("o/r".into(), CommitsKey::from(RefKey::Branch("a/b".into())))
         );
+    }
+
+    fn mine(rk: RefKey) -> CommitsKey {
+        CommitsKey {
+            rk,
+            filter: CommitFilter::Mine,
+        }
+    }
+
+    fn with_viewer(state: &mut GithubState) {
+        state.user = Some(User {
+            login: "me".into(),
+            avatar_url: String::new(),
+            id: "U_me".into(),
+        });
+    }
+
+    #[test]
+    fn commits_ident_round_trips_the_mine_filter() {
+        // §14: the filter is the third part of the book key.
+        assert_eq!(commits_ident("o/r", &mine(RefKey::Default)), "o/r~mine");
+        assert_eq!(
+            commits_ident("o/r", &mine(RefKey::Branch("a/b".into()))),
+            "o/r:a/b~mine"
+        );
+        assert_eq!(
+            parse_commits_ident("o/r~mine"),
+            ("o/r".into(), mine(RefKey::Default))
+        );
+        assert_eq!(
+            parse_commits_ident("o/r:a/b~mine"),
+            ("o/r".into(), mine(RefKey::Branch("a/b".into())))
+        );
+    }
+
+    #[test]
+    fn mine_spec_carries_the_viewer_author_and_its_own_ident() {
+        let mut state = connected_state();
+        // Without the viewer's node id the key falls back to the
+        // unfiltered book, so the ident names what really comes back.
+        assert_eq!(state.viewer_node_id(), None);
+        let spec = state.commits_spec("o/r", &mine(RefKey::Default), Origin::BACKGROUND);
+        assert_eq!(spec.ident.as_deref(), Some("o/r"));
+        assert!(spec.variables.unwrap().get("author").is_none());
+        // A cache written before the id was fetched holds an empty one.
+        state.user = Some(User {
+            login: "me".into(),
+            avatar_url: String::new(),
+            id: String::new(),
+        });
+        assert_eq!(state.viewer_node_id(), None);
+
+        with_viewer(&mut state);
+        let spec = state.commits_spec("o/r", &mine(RefKey::Default), Origin::BACKGROUND);
+        assert_eq!(spec.kind, Kind::RepoCommits);
+        assert_eq!(spec.ident.as_deref(), Some("o/r~mine"));
+        let vars = spec.variables.unwrap();
+        assert_eq!(vars["author"], serde_json::json!({ "id": "U_me" }));
+        assert!(vars.get("ref").is_none());
+        // On a picked branch it rides beside the ref.
+        let spec = state.commits_spec(
+            "o/r",
+            &mine(RefKey::Branch("feat".into())),
+            Origin::BACKGROUND,
+        );
+        assert_eq!(spec.ident.as_deref(), Some("o/r:feat~mine"));
+        let vars = spec.variables.unwrap();
+        assert_eq!(vars["ref"], "refs/heads/feat");
+        assert_eq!(vars["author"]["id"], "U_me");
+        // The unfiltered book never sends `$author`.
+        let spec = state.commits_spec("o/r", &CommitsKey::default(), Origin::BACKGROUND);
+        assert!(spec.variables.unwrap().get("author").is_none());
+    }
+
+    #[test]
+    fn mine_books_page_and_gate_independently() {
+        // §14: each filter value is its own book — own rows, cursor,
+        // clock and paging (D2–D4).
+        let mut state = connected_state();
+        with_viewer(&mut state);
+        let min_age = Duration::from_secs(60);
+        let mine_key = mine(RefKey::Default);
+        // A mine landing alone leaves the default lane clock (the agent
+        // view's) untouched.
+        state.apply(commits_result(
+            Kind::RepoCommits,
+            "o/r~mine",
+            commits_body_at("t9", 3, Some("t9 1"), &["m3", "m2"]),
+            None,
+        ));
+        assert!(state.repo_rows_landed_any("o/r").is_none());
+        assert!(
+            state
+                .commits_refresh_spec("o/r", &CommitsKey::default(), min_age, Origin::BACKGROUND)
+                .is_some(),
+            "the unfiltered book is still unfetched"
+        );
+        state.apply(commits_result(
+            Kind::RepoCommits,
+            "o/r",
+            commits_body(9, None, &["t9", "c1"]),
+            None,
+        ));
+        assert_eq!(held_oids(&state, mine_key.clone()), ["m3", "m2"]);
+        assert_eq!(held_oids(&state, RefKey::Default), ["t9", "c1"]);
+        assert!(
+            state
+                .commits_refresh_spec("o/r", &mine_key, min_age, Origin::BACKGROUND)
+                .is_none(),
+            "a held mine book is age-gated"
+        );
+        let lane = &state.commit_lanes[&("o/r".to_string(), mine_key.clone())];
+        assert_eq!(lane.total_count, 3);
+        assert!(lane.can_load_more());
+
+        // Page N pages the filtered chain with the same `$author`.
+        let spec = state
+            .commits_more_spec(
+                "o/r",
+                &mine_key,
+                Origin::new(Surface::RepoView, Trigger::Paginate),
+            )
+            .expect("the mine book has more");
+        assert_eq!(spec.kind, Kind::RepoCommitsMore);
+        assert_eq!(spec.ident.as_deref(), Some("o/r~mine"));
+        let vars = spec.variables.as_ref().unwrap();
+        assert_eq!(vars["tip"], "t9");
+        assert_eq!(vars["after"], "t9 1");
+        assert_eq!(vars["author"]["id"], "U_me");
+        state.apply(commits_result(
+            Kind::RepoCommitsMore,
+            "o/r~mine",
+            commits_more_body("t9", None, &["m1"]),
+            Some("t9 1"),
+        ));
+        assert_eq!(held_oids(&state, mine_key.clone()), ["m3", "m2", "m1"]);
+        assert!(state.commit_lanes[&("o/r".to_string(), mine_key.clone())].complete);
+        assert_eq!(held_oids(&state, RefKey::Default), ["t9", "c1"]);
+    }
+
+    #[test]
+    fn mine_more_spec_needs_the_viewer_id() {
+        let mut state = connected_state();
+        with_viewer(&mut state);
+        state.apply(commits_result(
+            Kind::RepoCommits,
+            "o/r~mine",
+            commits_body_at("t9", 3, Some("t9 1"), &["m3", "m2"]),
+            None,
+        ));
+        state.user = None;
+        assert!(
+            state
+                .commits_more_spec("o/r", &mine(RefKey::Default), Origin::BACKGROUND)
+                .is_none()
+        );
+        assert!(
+            !state.commit_lanes[&("o/r".to_string(), mine(RefKey::Default))].loading_more,
+            "no lock taken for a spec never built"
+        );
+    }
+
+    #[test]
+    fn mine_revalidation_prepends_although_the_ref_tip_is_not_mine() {
+        // D4 on a filtered book: the ref tip (someone else's commit)
+        // never appears in the rows, so the merge anchors on the newest
+        // held row — a refocus must not read as a rewrite.
+        let mut state = connected_state();
+        with_viewer(&mut state);
+        state.apply(commits_result(
+            Kind::RepoCommits,
+            "o/r~mine",
+            commits_body_at("t1", 4, Some("t1 1"), &["m2", "m1"]),
+            None,
+        ));
+        state.apply(commits_result(
+            Kind::RepoCommits,
+            "o/r~mine",
+            commits_body_at("t2", 5, Some("t2 2"), &["m3", "m2", "m1"]),
+            None,
+        ));
+        let lane = &state.commit_lanes[&("o/r".to_string(), mine(RefKey::Default))];
+        assert_eq!(held_oids(&state, mine(RefKey::Default)), ["m3", "m2", "m1"]);
+        assert!(!lane.rewritten);
+        assert_eq!(lane.tip.as_deref(), Some("t2"));
+        // The tail keeps paging the chain its cursor was minted on.
+        assert_eq!(lane.page_tip.as_deref(), Some("t1"));
+        assert_eq!(lane.cursor.as_deref(), Some("t1 1"));
+        assert_eq!(lane.total_count, 5);
+        // An unchanged revalidation is a no-op merge, not a rewrite.
+        state.apply(commits_result(
+            Kind::RepoCommits,
+            "o/r~mine",
+            commits_body_at("t3", 5, Some("t3 2"), &["m3", "m2", "m1"]),
+            None,
+        ));
+        assert!(!state.commit_lanes[&("o/r".to_string(), mine(RefKey::Default))].rewritten);
+        assert_eq!(held_oids(&state, mine(RefKey::Default)), ["m3", "m2", "m1"]);
     }
 
     #[test]
@@ -11034,7 +11334,11 @@ mod tests {
         assert!(state.repo_rows_landed_any("o/r").is_some());
 
         // A picked branch rides the ref query variable and its own ident.
-        let spec = state.commits_spec("o/r", &RefKey::Branch("feat".into()), Origin::BACKGROUND);
+        let spec = state.commits_spec(
+            "o/r",
+            &CommitsKey::from(RefKey::Branch("feat".into())),
+            Origin::BACKGROUND,
+        );
         assert_eq!(spec.ident.as_deref(), Some("o/r:feat"));
         assert_eq!(spec.variables.unwrap()["ref"], "refs/heads/feat");
     }
@@ -11045,7 +11349,7 @@ mod tests {
         // landed default book doesn't hide a never-fetched branch, and
         // an evicted book refetches.
         let mut state = connected_state();
-        let feat = RefKey::Branch("feat".into());
+        let feat = CommitsKey::from(RefKey::Branch("feat".into()));
         let min_age = Duration::from_secs(60);
         state.apply(commits_result(
             Kind::RepoCommits,
@@ -11055,7 +11359,7 @@ mod tests {
         ));
         assert!(
             state
-                .commits_refresh_spec("o/r", &RefKey::Default, min_age, Origin::BACKGROUND)
+                .commits_refresh_spec("o/r", &CommitsKey::default(), min_age, Origin::BACKGROUND)
                 .is_none()
         );
         let spec = state
@@ -11089,7 +11393,7 @@ mod tests {
         assert_eq!(held_oids(&state, RefKey::Default), ["c1"]);
         state
             .commit_lanes
-            .remove(&("o/r".to_string(), RefKey::Default));
+            .remove(&("o/r".to_string(), CommitsKey::default()));
         assert!(
             state
                 .repo_lane_refresh_specs("o/r", RepoLane::Commits, min_age, Origin::BACKGROUND)
@@ -11125,7 +11429,7 @@ mod tests {
             commits_body(4, Some("c4 1"), &["c4", "c3"]),
             None,
         ));
-        let lane = &state.commit_lanes[&("o/r".to_string(), RefKey::Default)];
+        let lane = &state.commit_lanes[&("o/r".to_string(), CommitsKey::default())];
         assert!(lane.can_load_more());
         assert_eq!(lane.total_count, 4);
 
@@ -11133,7 +11437,7 @@ mod tests {
         let spec = state
             .commits_more_spec(
                 "o/r",
-                &RefKey::Default,
+                &CommitsKey::default(),
                 Origin::new(Surface::RepoView, Trigger::Paginate),
             )
             .expect("pageable");
@@ -11143,7 +11447,7 @@ mod tests {
         assert_eq!(vars["after"], "c4 1");
         assert!(
             state
-                .commits_more_spec("o/r", &RefKey::Default, Origin::BACKGROUND)
+                .commits_more_spec("o/r", &CommitsKey::default(), Origin::BACKGROUND)
                 .is_none(),
             "loading_more locks the chain"
         );
@@ -11155,7 +11459,7 @@ mod tests {
             Some("c4 1"),
         ));
         assert_eq!(held_oids(&state, RefKey::Default), ["c4", "c3", "c2", "c1"]);
-        let lane = &state.commit_lanes[&("o/r".to_string(), RefKey::Default)];
+        let lane = &state.commit_lanes[&("o/r".to_string(), CommitsKey::default())];
         assert!(lane.complete && !lane.loading_more);
         assert!(!lane.can_load_more(), "end of history");
         assert!(!lane.capped());
@@ -11171,7 +11475,7 @@ mod tests {
             None,
         ));
         state
-            .commits_more_spec("o/r", &RefKey::Default, Origin::BACKGROUND)
+            .commits_more_spec("o/r", &CommitsKey::default(), Origin::BACKGROUND)
             .unwrap();
         state.apply(SpecResult {
             kind: Kind::RepoCommitsMore,
@@ -11183,7 +11487,7 @@ mod tests {
             network: None,
             cursor: Some("c4 1".into()),
         });
-        let lane = &state.commit_lanes[&("o/r".to_string(), RefKey::Default)];
+        let lane = &state.commit_lanes[&("o/r".to_string(), CommitsKey::default())];
         assert_eq!(lane.more_error.as_deref(), Some("HTTP 502"));
         assert!(!lane.loading_more);
         assert_eq!(lane.rows.len(), 2, "held rows survive");
@@ -11192,7 +11496,7 @@ mod tests {
             state
                 .commits_more_spec(
                     "o/r",
-                    &RefKey::Default,
+                    &CommitsKey::default(),
                     Origin::new(Surface::RepoView, Trigger::Paginate)
                 )
                 .is_none()
@@ -11201,7 +11505,7 @@ mod tests {
             state
                 .commits_more_spec(
                     "o/r",
-                    &RefKey::Default,
+                    &CommitsKey::default(),
                     Origin::new(Surface::RepoView, Trigger::Manual)
                 )
                 .is_some()
@@ -11222,7 +11526,7 @@ mod tests {
             network: Some("offline".into()),
             cursor: None,
         });
-        let lane = &state.commit_lanes[&("o/r".to_string(), RefKey::Default)];
+        let lane = &state.commit_lanes[&("o/r".to_string(), CommitsKey::default())];
         assert!(lane.landed.is_none());
         assert_eq!(lane.error.as_deref(), Some("offline"));
 
@@ -11234,7 +11538,7 @@ mod tests {
             None,
         ));
         assert!(
-            state.commit_lanes[&("o/r".to_string(), RefKey::Default)]
+            state.commit_lanes[&("o/r".to_string(), CommitsKey::default())]
                 .error
                 .is_none()
         );
@@ -11260,7 +11564,7 @@ mod tests {
             r#"{"data":{"repository":{"defaultBranchRef":null}}}"#.into(),
             None,
         ));
-        let lane = &state.commit_lanes[&("o/r".to_string(), RefKey::Default)];
+        let lane = &state.commit_lanes[&("o/r".to_string(), CommitsKey::default())];
         assert!(lane.landed.is_some() && lane.rows.is_empty() && lane.complete);
         assert!(!lane.can_load_more());
     }
@@ -11277,11 +11581,11 @@ mod tests {
         ));
         state
             .commit_lanes
-            .get_mut(&("o/r".to_string(), RefKey::Default))
+            .get_mut(&("o/r".to_string(), CommitsKey::default()))
             .unwrap()
             .rows[0]
             .status_check_rollup = None;
-        let mut lane = state.commit_lanes[&("o/r".to_string(), RefKey::Default)].clone();
+        let mut lane = state.commit_lanes[&("o/r".to_string(), CommitsKey::default())].clone();
         let page = |oids: &[&str], next: Option<&str>| {
             let body = format!(
                 r#"{{"repository":{{"defaultBranchRef":{{"name":"main","target":{}}}}}}}"#,
@@ -11349,7 +11653,7 @@ mod tests {
             None,
         ));
         state
-            .commits_more_spec("o/r", &RefKey::Default, Origin::BACKGROUND)
+            .commits_more_spec("o/r", &CommitsKey::default(), Origin::BACKGROUND)
             .unwrap();
         // A force-push lands page 1 while page 2 flies.
         state.apply(commits_result(
@@ -11392,10 +11696,10 @@ mod tests {
         state.rate_limited_until = Some(now_epoch() + 600);
         assert!(
             state
-                .commits_more_spec("o/r", &RefKey::Default, Origin::BACKGROUND)
+                .commits_more_spec("o/r", &CommitsKey::default(), Origin::BACKGROUND)
                 .is_none()
         );
-        assert!(!state.commit_lanes[&("o/r".to_string(), RefKey::Default)].loading_more);
+        assert!(!state.commit_lanes[&("o/r".to_string(), CommitsKey::default())].loading_more);
     }
 
     #[test]
@@ -11411,7 +11715,7 @@ mod tests {
             ));
         }
         // Touching b0 makes b1 the least recently used.
-        state.touch_commit_lane("o/r", &RefKey::Branch("b0".into()));
+        state.touch_commit_lane("o/r", &CommitsKey::from(RefKey::Branch("b0".into())));
         state.apply(commits_result(
             Kind::RepoCommits,
             "o/r",
@@ -11419,20 +11723,18 @@ mod tests {
             None,
         ));
         assert_eq!(state.commit_lanes.len(), COMMIT_LANES_CAP);
+        assert!(state.commit_lanes.contains_key(&(
+            "o/r".to_string(),
+            CommitsKey::from(RefKey::Branch("b0".into()))
+        )));
+        assert!(!state.commit_lanes.contains_key(&(
+            "o/r".to_string(),
+            CommitsKey::from(RefKey::Branch("b1".into()))
+        )));
         assert!(
             state
                 .commit_lanes
-                .contains_key(&("o/r".to_string(), RefKey::Branch("b0".into())))
-        );
-        assert!(
-            !state
-                .commit_lanes
-                .contains_key(&("o/r".to_string(), RefKey::Branch("b1".into())))
-        );
-        assert!(
-            state
-                .commit_lanes
-                .contains_key(&("o/r".to_string(), RefKey::Default))
+                .contains_key(&("o/r".to_string(), CommitsKey::default()))
         );
         // A non-default ref doesn't stamp the lane clock (stage 3 owns
         // per-ref freshness); the default ref did.
@@ -11470,7 +11772,7 @@ mod tests {
         let mut state = connected_state();
         let spec = state.commits_spec(
             "o/r",
-            &RefKey::Default,
+            &CommitsKey::default(),
             Origin::new(Surface::RepoView, Trigger::ViewShown),
         );
         let result = run_spec(&*http, &recorder, &spec, std::time::Instant::now());
@@ -11485,7 +11787,7 @@ mod tests {
         let spec = state
             .commits_more_spec(
                 "o/r",
-                &RefKey::Default,
+                &CommitsKey::default(),
                 Origin::new(Surface::RepoView, Trigger::Paginate),
             )
             .unwrap();
