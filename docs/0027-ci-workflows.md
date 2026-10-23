@@ -5,8 +5,9 @@
 Enforce the AGENTS.md quality gates — `cargo fmt --all --check`,
 `cargo clippy --workspace --all-targets` at **zero warnings** (including the
 `clippy.toml` token-discipline lints), and `cargo test --workspace` — on every
-PR to `main` and every push to `main` that touches build-affecting paths
-(documentation- and repo-meta-only changes skip the runners — D7).
+PR to `main` that touches build-affecting paths (documentation- and
+repo-meta-only changes skip the runners — D7). Pushes to `main` re-run CI
+only when the dependency cache-key inputs change (D9).
 
 The CI is **nix-free** (owner decision, §4): the
 workflow installs its own toolchain (rustup, pinned) and everything
@@ -179,8 +180,8 @@ under the same rule and the same dependabot coverage: `Swatinem/rust-cache`
 
 ### D7 — Path-based filtering: docs-only changes don't build anything
 
-Both triggers (`pull_request` and `push` to `main`) carry a `paths-ignore`
-**denylist**: `docs/**` and every Markdown file (`**/*.md` plus `*.md` for
+The `pull_request` trigger carries a `paths-ignore`
+**denylist** (the `push` trigger has its own, narrower allowlist — D9): `docs/**` and every Markdown file (`**/*.md` plus `*.md` for
 the repo root — README, AGENTS.md), plus the agent-skill/tooling files
 `.agents/**` and `skills-lock.json` (added 2026-10-12 after a skills-only
 PR paid two full cold builds for shell/markdown changes), and the
@@ -208,6 +209,44 @@ that cannot affect a build.
 - **The gates themselves are unchanged.** AGENTS.md's "run the gates
   before pushing" stays the local contract; D7 only stops CI from
   re-enforcing them where they cannot matter.
+
+### D9 — Pushes to `main`: re-run only when the cache inputs change
+
+Every merge used to re-run `lint` and `test` on `main` in full, re-checking
+code its PR run had just passed. In October 2026 that was ~48% of all
+billable minutes (~1,045 of ~2,170). The `main` runs still have one job
+nobody else can do: GitHub scopes caches by ref, and PR runs restore only
+from their own ref or the base branch, so `main`'s rust-cache entries are
+what keeps every new PR's build warm (D2). Without them PR jobs go back
+to the cold ~10–15 min.
+
+rust-cache saves only dependency artifacts (workspace crates are pruned
+before save). Its key is the job id, rustc version and the
+`Cargo.toml`/`Cargo.lock` hashes. A code-only merge therefore re-saves
+an identical cache. So the `push` trigger carries a **`paths` allowlist**
+of exactly the inputs that change what `main` should hold:
+
+- `Cargo.lock` and `**/Cargo.toml`: the dependency set (the cache key);
+- `deny.toml`: the audit policy (D8);
+- `.github/workflows/ci.yml`: the workflow itself, which carries
+  `RUST_TOOLCHAIN` (the rustc part of the key).
+
+D7's denylist reasoning ("future paths keep CI by default") is about
+*gating*. Gating happens on the PR. This list exists for *cache
+freshness*. It names what the run is for, so an allowlist is the right
+shape. Consequences:
+
+- **No post-merge re-check of code-only merges.** A semantic conflict
+  between two PRs that each passed against an older `main` now shows up
+  on the next PR's run, not on `main`. That's acceptable for a
+  single-maintainer repo with linear (rebase) merges. If it starts to
+  bite, the fix is the merge queue or "require branches up to date" (a
+  D6 repo-settings action), not a `main` re-run.
+- **Cache longevity.** GitHub evicts entries untouched for 7 days, but a
+  PR restore counts as a touch, so active development keeps `main`'s
+  entries alive. After a quiet week, the first PR pays one cold build.
+- **The weekly `deny` schedule is unchanged** (D8). New advisories still
+  surface on `main` without a push.
 
 ### D6 — What deliberately stays out
 
@@ -249,8 +288,9 @@ The graph is audited for the shipped platforms only (`[graph] targets`:
 x86_64/aarch64 Linux and macOS) with all features enabled.
 
 **Triggers.** The `deny` job rides the workflow's normal triggers (PRs to
-`main`, pushes to `main`, same D7 path filter, so a `Cargo.lock` or
-`deny.toml` change always runs it). It also runs on a weekly `schedule`
+`main` under the D7 path filter; pushes to `main` under the D9 allowlist,
+which names `Cargo.lock`, every `Cargo.toml` and `deny.toml`, so a
+dependency change always runs it). It also runs on a weekly `schedule`
 (Mondays 06:00 UTC), because new advisories land in the RustSec database
 without any change here. `lint` and `test` skip the scheduled event
 (`if: github.event_name != 'schedule'`), and scheduled runs take their own
@@ -318,6 +358,10 @@ upstream GPUI stack, so they are ignored and tracked in #640.
   the stale 1.85 to the pinned 1.98.0, and a pin-agreement check in the
   `lint` job enforces the four-way lockstep. The dev shell is the only
   local toolchain (no Homebrew/rustup rust, docs/0001 §4).
+- *(2026-10-23)* **Push-to-`main` runs trimmed** (D9): pushes to `main`
+  re-run CI only for `Cargo.lock`/`Cargo.toml`/`deny.toml`/`ci.yml`
+  changes, keeping the PR-shared caches warm without re-checking every
+  merge (~48% of October's minutes). The weekly audit stays.
 
 ## 5. Implementation plan (this PR)
 
