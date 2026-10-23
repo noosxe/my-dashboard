@@ -76,8 +76,10 @@ assert-baseline usage-overview
 # Its id moved with the GitHub page's Commits list (docs/0081 §12, an
 # entity built in the page's deferred boot step): usage, quota and hub
 # ids re-keyed with structure identical (id-agnostic compare in that
-# PR); the sidebar, bell and home-card ids held.
-click 11090856427906237462 --wait-frame
+# PR); the sidebar, bell and home-card ids held. Moved again, the same
+# way, with the Commits tab's branch selector (docs/0081 §13), built in
+# that same step.
+click 16590358183187069862 --wait-frame
 assert-label "Group by dimension"
 assert-baseline usage-quota
 

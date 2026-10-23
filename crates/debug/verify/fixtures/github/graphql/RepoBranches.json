@@ -1,0 +1,24 @@
+{
+ "data": {
+  "rateLimit": null,
+  "repository": {
+   "defaultBranchRef": {
+    "name": "main"
+   },
+   "refs": {
+    "nodes": [
+     {
+      "name": "feature/ref-picker"
+     },
+     {
+      "name": "main"
+     },
+     {
+      "name": "release/1.0"
+     }
+    ],
+    "totalCount": 3
+   }
+  }
+ }
+}

@@ -30,7 +30,7 @@
       "label": "github: commits tab rows and day headers (#700) — fixture-user, committed 1h, CI: passing, 0000000",
       "bounds": {
         "x": 568.0,
-        "y": 299.0,
+        "y": 300.0,
         "w": 675.0,
         "h": 57.0
       },
@@ -43,7 +43,7 @@
       "label": null,
       "bounds": {
         "x": 568.0,
-        "y": 413.0,
+        "y": 414.0,
         "w": 675.0,
         "h": 57.0
       },
@@ -64,16 +64,16 @@
       "focused": false
     },
     {
-      "accesskit_id": "1225896016114583095",
-      "role": "Group",
-      "label": "app: quit when the last window closes (#693) — octocat, committed 1d, CI: failing, 538453d",
+      "accesskit_id": "343177776538413344",
+      "role": "ComboBox",
+      "label": "Branch",
       "bounds": {
         "x": 568.0,
-        "y": 733.0,
-        "w": 675.0,
-        "h": 57.0
+        "y": 233.0,
+        "w": 96.0,
+        "h": 24.0
       },
-      "focusable": false,
+      "focusable": true,
       "focused": false
     },
     {
@@ -95,7 +95,7 @@
       "label": null,
       "bounds": {
         "x": 568.0,
-        "y": 505.0,
+        "y": 506.0,
         "w": 675.0,
         "h": 57.0
       },
@@ -108,7 +108,7 @@
       "label": null,
       "bounds": {
         "x": 568.0,
-        "y": 356.0,
+        "y": 357.0,
         "w": 675.0,
         "h": 57.0
       },
@@ -121,7 +121,7 @@
       "label": null,
       "bounds": {
         "x": 568.0,
-        "y": 619.0,
+        "y": 620.0,
         "w": 675.0,
         "h": 57.0
       },
@@ -134,7 +134,7 @@
       "label": null,
       "bounds": {
         "x": 568.0,
-        "y": 562.0,
+        "y": 563.0,
         "w": 675.0,
         "h": 57.0
       },
@@ -173,7 +173,7 @@
       "label": "Copy SHA 0000000",
       "bounds": {
         "x": 1215.0,
-        "y": 330.0,
+        "y": 331.0,
         "w": 20.0,
         "h": 20.0
       },
@@ -186,24 +186,11 @@
       "label": "Copy SHA daa66d1",
       "bounds": {
         "x": 1215.0,
-        "y": 536.0,
+        "y": 537.0,
         "w": 20.0,
         "h": 20.0
       },
       "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "4263071684212234660",
-      "role": "ListItem",
-      "label": null,
-      "bounds": {
-        "x": 568.0,
-        "y": 733.0,
-        "w": 675.0,
-        "h": 57.0
-      },
-      "focusable": false,
       "focused": false
     },
     {
@@ -264,7 +251,7 @@
       "label": "usage: split GraphQL and REST buckets (#694) — fixture-user, committed 1d, CI: passing, b54cda2",
       "bounds": {
         "x": 568.0,
-        "y": 676.0,
+        "y": 677.0,
         "w": 675.0,
         "h": 57.0
       },
@@ -303,7 +290,7 @@
       "label": "ci: cache the cargo registry between jobs (#697) — fixture-user, committed 16h, CI: pending, daa66d1",
       "bounds": {
         "x": 568.0,
-        "y": 505.0,
+        "y": 506.0,
         "w": 675.0,
         "h": 57.0
       },
@@ -316,24 +303,11 @@
       "label": "docs: record the stage notes (#698) — Dev Box, committed 11h, CI: failing, 3c6ef36",
       "bounds": {
         "x": 568.0,
-        "y": 413.0,
+        "y": 414.0,
         "w": 675.0,
         "h": 57.0
       },
       "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "8260378588983551117",
-      "role": "Button",
-      "label": "Copy SHA 538453d",
-      "bounds": {
-        "x": 1215.0,
-        "y": 764.0,
-        "w": 20.0,
-        "h": 20.0
-      },
-      "focusable": true,
       "focused": false
     },
     {
@@ -355,7 +329,7 @@
       "label": "core: freshness label reads the lane clock (#696) — octocat, committed 21h, Unverified, 78dde6c",
       "bounds": {
         "x": 568.0,
-        "y": 562.0,
+        "y": 563.0,
         "w": 675.0,
         "h": 57.0
       },
@@ -394,7 +368,7 @@
       "label": "favicon: inspector spacing follows the 4px scale (#695) — Dev Box, committed 1d, Verified, CI: passing, 1715607",
       "bounds": {
         "x": 568.0,
-        "y": 619.0,
+        "y": 620.0,
         "w": 675.0,
         "h": 57.0
       },
@@ -407,7 +381,7 @@
       "label": "Copy SHA 9e3779b",
       "bounds": {
         "x": 1215.0,
-        "y": 387.0,
+        "y": 388.0,
         "w": 20.0,
         "h": 20.0
       },
@@ -420,7 +394,7 @@
       "label": "Copy SHA 78dde6c",
       "bounds": {
         "x": 1215.0,
-        "y": 593.0,
+        "y": 594.0,
         "w": 20.0,
         "h": 20.0
       },
@@ -511,7 +485,7 @@
       "label": "Commits on Oct 22, 2026",
       "bounds": {
         "x": 568.0,
-        "y": 470.0,
+        "y": 471.0,
         "w": 675.0,
         "h": 35.0
       },
@@ -524,9 +498,9 @@
       "label": null,
       "bounds": {
         "x": 568.0,
-        "y": 264.0,
+        "y": 265.0,
         "w": 675.0,
-        "h": 412.0
+        "h": 411.0
       },
       "focusable": true,
       "focused": false
@@ -550,7 +524,7 @@
       "label": "Commits on Oct 23, 2026",
       "bounds": {
         "x": 568.0,
-        "y": 264.0,
+        "y": 265.0,
         "w": 675.0,
         "h": 35.0
       },
@@ -576,9 +550,9 @@
       "label": "Commits on main",
       "bounds": {
         "x": 568.0,
-        "y": 264.0,
+        "y": 265.0,
         "w": 675.0,
-        "h": 412.0
+        "h": 411.0
       },
       "focusable": false,
       "focused": false
@@ -589,7 +563,7 @@
       "label": "build: pin the toolchain in all four places (#699) — octocat, committed 6h, Verified, CI: passing, 9e3779b",
       "bounds": {
         "x": 568.0,
-        "y": 356.0,
+        "y": 357.0,
         "w": 675.0,
         "h": 57.0
       },
@@ -641,7 +615,7 @@
       "label": "Copy SHA 1715607",
       "bounds": {
         "x": 1215.0,
-        "y": 650.0,
+        "y": 651.0,
         "w": 20.0,
         "h": 20.0
       },
@@ -654,7 +628,7 @@
       "label": "Copy SHA b54cda2",
       "bounds": {
         "x": 1215.0,
-        "y": 707.0,
+        "y": 708.0,
         "w": 20.0,
         "h": 20.0
       },
@@ -693,7 +667,7 @@
       "label": "Copy SHA 3c6ef36",
       "bounds": {
         "x": 1215.0,
-        "y": 444.0,
+        "y": 445.0,
         "w": 20.0,
         "h": 20.0
       },
@@ -719,7 +693,7 @@
       "label": null,
       "bounds": {
         "x": 568.0,
-        "y": 676.0,
+        "y": 677.0,
         "w": 675.0,
         "h": 57.0
       },
@@ -745,7 +719,7 @@
       "label": null,
       "bounds": {
         "x": 568.0,
-        "y": 299.0,
+        "y": 300.0,
         "w": 675.0,
         "h": 57.0
       },

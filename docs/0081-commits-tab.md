@@ -347,7 +347,7 @@ uniform rows (§2 fact 5):
   `commit-<oid12>` row selectors (`debug_selector`, the first 12 hex
   digits of the oid, unique and stable within a run),
   `commit-copy-<oid12>`, `commits-day-<yyyy-mm-dd>`, `commits-more`
-  (the tail row), `commits-ref-select` (when D7 ships) and
+  (the tail row), `commits-ref-select` (the D7 selector) and
   `commits-retry`.
 - **Quick filter (docs/0042 D5).** The shared `repo-row-search` box
   filters the **loaded** commits by case-insensitive substring over the
@@ -566,6 +566,12 @@ The owner asked for these to be named, not silently deviated from.
   omissions).
 - Usage: page 1 records `ViewShown`/`Manual`, scroll pages record
   `Paginate`; `kind_name` is `repo-commits`.
+- Ref selector (D7, stage 3): the default ref is labelled from
+  `defaultBranchRef.name` before any branch fetch; picking a branch
+  fetches its fresh book once and the list follows it; a held book
+  re-picked paints with no flight (age-gated); each book gates on its
+  own clock; a repo selection resets to the default ref; the menu lists
+  the default branch first.
 
 **Bridge (docs/0010 / docs/0055), in the docs/0071 container:**
 
@@ -575,7 +581,10 @@ The owner asked for these to be named, not silently deviated from.
   day headers, and `commit-*` rows with labels; `key down` / `key enter`
   (a `logs` line for the open); scroll to the bottom → assert
   `Paginate` in `logs` and the row count grew; type in `repo-row-search`
-  → assert the tail text and no further flights.
+  → assert the tail text and no further flights. Stage 3 extends it:
+  open `commits-ref-select` (assert the branch list, one
+  `RepoBranches` flight), pick a branch, assert its rows replaced
+  main's.
 - `dashboard-debug audit` over the repo view on the Commits tab, plus
   `tree --tab-stops` (the list is one tab stop reachable from the strip).
 - **Structural golden:** `snapshots/github.json` **will drift** (a
@@ -602,8 +611,8 @@ The owner asked for these to be named, not silently deviated from.
 2. **UI** (**shipped**, #647; see §12): `RepoTab::Commits`, the `CommitsDelegate` (`List` sections,
    rows, states), the D9 layout, the copy SHA, the a11y and ids, the
    receipt, the goldens and the 0065 receipts.
-3. The ref selector (Q2 resolved: ships in v1) over `RepoBranches`, with
-   `RefKey`-keyed books.
+3. **Ref selector** (**shipped**, #648; see §13): the D7 `Select` over
+   `RepoBranches`, with `RefKey`-keyed books and per-ref clocks.
 
 ## 11 Implementation notes (stage 1, #646, 2026-10-23)
 
@@ -633,9 +642,9 @@ recorded here because docs must match shipped behavior.
   cursor no longer matches the book (a replace landed while it flew)
   is dropped.
 - **Clocks.** Only the default ref's landing stamps
-  `rows_landed[(repo, Commits)]` (the freshness cluster and the agent
-  view read it). Per-ref freshness for picked branches belongs to stage
-  3 (#648), which reads the book's own `landed`.
+  `rows_landed[(repo, Commits)]` (the agent view reads it). Per-ref
+  freshness for picked branches belongs to stage 3 (#648), which reads
+  the book's own `landed` (§13).
 - **Backoff.** Page-1 results bump the per-repo rows backoff (the page's
   run arm). Load-more failures don't, because their retry is the user's
   (D8).
@@ -683,8 +692,8 @@ The tab UI shipped as designed, with these refinements:
   `git-branch-16` glyph, vendored at `crates/app/assets/icons/` like the
   lock and the mark, because the kit's asset source embeds only its
   default icon set) and "N commits" on the right (`commits-count`,
-  `history.totalCount`). Stage 3 (#648) replaces the ref label with
-  D7's `Select`.
+  `history.totalCount`). Stage 3 (#648) replaced the ref label with
+  D7's `Select` (§13).
 - **Accessibility structure.** The pinned `ListState` owns the `List`
   node and wraps each row in its own `ListItem` node (position, size,
   selected); neither takes a label, and a label on a role-less element
@@ -755,6 +764,60 @@ adds a debug-build-only fixture mode:
   it, and `snapshots/github-commits.json` is its golden.
   `snapshots/github.json` did not drift: it captures the signed-out
   module, which this stage doesn't change.
+
+## 13 Implementation notes (stage 3, #648, 2026-10-23)
+
+The D7 ref selector shipped as designed, with these refinements:
+
+- **The clock is the book's own.** D7 left the choice between a sub-map
+  on the lane book and folding `RefKey` into `rows_landed`. Neither was
+  needed: every `CommitLane` already carries `landed`, so the Commits
+  tab's refresh gate (`commits_refresh_spec`), its freshness cluster
+  label and its skeleton gate all read the selected `(repo, ref)` book's
+  `landed` through three ref-aware wrappers (`repo_tab_spec`,
+  `repo_tab_refresh_spec`, `repo_tab_landed`) that fall through to the
+  lane functions for the other tabs. `repo_lane_refresh_specs` itself
+  is unchanged for those tabs; its Commits arm now gates on the default
+  book's `landed` too, so an LRU-evicted default book refetches instead
+  of waiting out a still-fresh `rows_landed` stamp with skeletons.
+  `rows_landed[(repo, Commits)]` still mirrors the default book for the
+  agent view.
+- **Picking.** `commits_ref: RefKey` is a page field, reset to
+  `Default` in `select_repo_inner` (with the tab). Picking the default
+  branch's name selects `RefKey::Default`, so the default branch has one
+  book and one clock whichever way it was reached. A pick offers the
+  book's page 1 through the `FOCUS_MIN_AGE` gate as `ViewShown`: a
+  fresh book fetches `RepoCommitsRef`, a held one paints at once and
+  stays quiet (the list scrolls to the top on any ref switch). Log
+  line: `commits: <repo> now on <branch>`.
+- **The selector** (`commits-ref-select`, inside `commits-ref`) is a
+  small searchable `Select` that hugs the branch name (96–280 px, a long
+  name truncates), left in `commits-header`,
+  with the accessible name "Branch" and the ref name as its value. The
+  trigger renders GitHub's branch button (the `git-branch-16` glyph and
+  the name); the menu lists the default branch first with a "default"
+  tag, then the rest alphabetically. Until the branch list is fetched
+  the menu holds just the current ref, so the trigger names it from
+  `defaultBranchRef.name` (or the picked branch); before page 1 lands it
+  shows the placeholder "Default branch".
+- **Branch list: lazy, page-owned.** `RepoBranches` fires on the
+  selector's first open per repo selection (`Surface::RepoView` ×
+  `Trigger::Expand`), and again on a reopen after a failure; it isn't
+  retained across repos. The kit's `Select` emits no open event, so the
+  page observes the select and treats "its focus handle is no longer the
+  closed trigger's" as the open edge (the open menu hands out its list's
+  handle). A non-200 goes through the shared `apply` handling first
+  (auth loss, rate-limit pause). Log line: `commits: branches of <repo>:
+  <n> of <total>`.
+- **Search.** Typing filters the loaded names locally at once. Only a
+  repo with more branches than the 100-name page asks the server
+  (`refs(query:)`, debounced 300 ms with a generation counter, the
+  docs/0044 §9 shape); a failed search keeps the local view.
+- **Fixtures** (§12.1): `graphql/RepoBranches.json` (`main`,
+  `feature/ref-picker`, `release/1.0`) and `graphql/RepoCommitsRef.json`
+  (six newer commits on their own oids). The fixture transport answers
+  by operation name, so any picked branch serves that history; the
+  receipt picks `feature/ref-picker`.
 
 ## 10 Mockup
 

@@ -1,0 +1,138 @@
+{
+ "data": {
+  "rateLimit": null,
+  "repository": {
+   "ref": {
+    "name": "feature/ref-picker",
+    "target": {
+     "history": {
+      "nodes": [
+       {
+        "abbreviatedOid": "b5c0ffe",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-23T11:40:00Z",
+        "committedDate": "2026-10-23T11:40:00Z",
+        "messageHeadline": "github: ref selector in the commits header (#800)",
+        "oid": "b5c0ffee0000000000000000000000000000bb00",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "PENDING"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/b5c0ffee0000000000000000000000000000bb00"
+       },
+       {
+        "abbreviatedOid": "3bacca6",
+        "author": {
+         "avatarUrl": null,
+         "email": "octo@example.com",
+         "name": "Octo Cat",
+         "user": {
+          "login": "octocat"
+         }
+        },
+        "authoredDate": "2026-10-23T10:10:00Z",
+        "committedDate": "2026-10-23T10:10:00Z",
+        "messageHeadline": "github: per-ref freshness clock (#799)",
+        "oid": "3bacca650000000000000000000000000000bb01",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/3bacca650000000000000000000000000000bb01"
+       },
+       {
+        "abbreviatedOid": "c19894d",
+        "author": {
+         "avatarUrl": null,
+         "email": "dev@example.com",
+         "name": "Dev Box",
+         "user": null
+        },
+        "authoredDate": "2026-10-23T08:40:00Z",
+        "committedDate": "2026-10-23T08:40:00Z",
+        "messageHeadline": "verify: branch fixtures for the receipts (#798)",
+        "oid": "c19894dc0000000000000000000000000000bb02",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/c19894dc0000000000000000000000000000bb02"
+       },
+       {
+        "abbreviatedOid": "47845f5",
+        "author": {
+         "avatarUrl": null,
+         "email": "fixture@example.com",
+         "name": "Fixture User",
+         "user": {
+          "login": "fixture-user"
+         }
+        },
+        "authoredDate": "2026-10-23T07:10:00Z",
+        "committedDate": "2026-10-23T07:10:00Z",
+        "messageHeadline": "github: ref selector in the commits header (#797)",
+        "oid": "47845f530000000000000000000000000000bb03",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/47845f530000000000000000000000000000bb03"
+       },
+       {
+        "abbreviatedOid": "cd7029c",
+        "author": {
+         "avatarUrl": null,
+         "email": "octo@example.com",
+         "name": "Octo Cat",
+         "user": {
+          "login": "octocat"
+         }
+        },
+        "authoredDate": "2026-10-23T05:40:00Z",
+        "committedDate": "2026-10-23T05:40:00Z",
+        "messageHeadline": "github: per-ref freshness clock (#796)",
+        "oid": "cd7029ca0000000000000000000000000000bb04",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/cd7029ca0000000000000000000000000000bb04"
+       },
+       {
+        "abbreviatedOid": "535bf44",
+        "author": {
+         "avatarUrl": null,
+         "email": "dev@example.com",
+         "name": "Dev Box",
+         "user": null
+        },
+        "authoredDate": "2026-10-23T04:10:00Z",
+        "committedDate": "2026-10-23T04:10:00Z",
+        "messageHeadline": "verify: branch fixtures for the receipts (#795)",
+        "oid": "535bf4410000000000000000000000000000bb05",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/atlas/commit/535bf4410000000000000000000000000000bb05"
+       }
+      ],
+      "pageInfo": {
+       "endCursor": null,
+       "hasNextPage": false
+      },
+      "totalCount": 6
+     },
+     "oid": "b5c0ffee0000000000000000000000000000bb00"
+    }
+   }
+  }
+ }
+}
