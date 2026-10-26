@@ -62,6 +62,20 @@ version pressure).
   simulate_click` are thin wrappers over the same `dispatch_event` — proof
   the path is complete for hover, click, drag, and keys.
 
+> **Re-verified at gpui-pre `=0.3.10` (gpui-kit v0.8.1, 2026-10-26):**
+> two of these surfaces changed shape upstream; the wire syntax did not.
+> `Keystroke::parse` now takes `&'static str` only — the CLI's dynamic
+> keystroke goes through `Keystroke::parse_with_os(&str, OperatingSystem)`
+> (`platform/keystroke.rs:125`), fed `cx.platform_info().os`, so
+> `secondary-` resolves to cmd on macOS and ctrl elsewhere exactly as the
+> old cfg-based parse did. `PlatformInput::ScrollWheel(ScrollWheelEvent)`
+> is `PlatformInput::Scroll(ScrollEvent)` with a new `source:
+> ScrollSource` field (`interactive.rs:522`); the bridge stamps
+> `ScrollSource::Pointer` (a wheel/trackpad scroll, not a GPUI-recognized
+> touch pan). The wire event stays `"type": "scroll_wheel"`. Dispatch
+> entry points moved to `window.rs:5633` (`dispatch_event`) and `:5591`
+> (`dispatch_keystroke`), signatures unchanged.
+
 **Component tree dump — public, ungated, but incomplete:**
 
 - gpui builds an AccessKit tree every frame: elements with an `.id()` and

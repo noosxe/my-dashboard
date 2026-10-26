@@ -91,5 +91,5 @@ unknown-git = "deny"
 required-git-spec = "rev"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 allow-git = [
-    "https://github.com/longbridge/gpui-component?rev=1676826d9d49b90f4d7b6808b69924f58796f6f1",
+    "https://github.com/longbridge/gpui-component?rev=99576db58ec8103417c41a092e891b4022d24e7e",
 ]

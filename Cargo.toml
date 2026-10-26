@@ -28,7 +28,7 @@ rust-version = "1.98.0"
 
 [workspace.dependencies]
 anyhow = "1"
-# GPUI stack at gpui-kit v0.8.0 (gpui-pre family unchanged at 0.3.9; v0.6.0
+# GPUI stack at gpui-kit v0.8.1 (gpui-pre family at 0.3.10; v0.6.0
 # was the "GPUI Kit" rebrand:
 # upstream republished the zed gpui family to crates.io as gpui-pre-*
 # (gpui-component no longer builds against zed-git gpui, so our direct deps
@@ -38,8 +38,8 @@ anyhow = "1"
 # the same versions with zero import churn (see PR for #114). 0.7.x keeps that
 # stance for startup too: our manual `cx.open_window` + `Root::new` wrap is
 # exactly what the umbrella's `gpui_kit::open_window` does internally, and
-# `Root::new`/`Root::update` remain public (base/src/root.rs :170/:206; still
-# public at v0.8.0), so no startup churn rides the bump.
+# `Root::new`/`Root::update` remain public (base/src/root.rs :175/:211; still
+# public at v0.8.1), so no startup churn rides the bump.
 #
 # Exact pins (=), not caret (#126): each gpui-pre release is a snapshot of a
 # DIFFERENT zed rev — "same-ish version" is not the same code, so a pin that
@@ -47,31 +47,31 @@ anyhow = "1"
 # never remembered details). The caret already bit at birth: #124's manifest
 # said 0.3.1 and its own lockfile resolved 0.3.3, and 0.3.4 (zed@6916400) is
 # published now — one lockfile regen away from a silent behavior change.
-# Upstream pins its own family the same way (=0.3.9 in gpui-pre-platform's
-# Cargo.toml at v0.7.3) and now pins the exact snapshot per release
+# Upstream pins its own family the same way (=0.3.10 in its workspace
+# Cargo.toml at v0.8.1) and now pins the exact snapshot per release
 # (gpui-kit #3163). Bumps are deliberate PRs: flip all three to the same new
 # =x.y.z together, run the full gates, the #125 upstream-quirk
 # re-verification checklist, an app smoke, and re-sync the vendored
 # theme presets (cp themes/*.json minus aurora.json →
 # crates/core/assets/themes/presets/, docs/0074 D8).
-gpui = { package = "gpui-pre", version = "=0.3.9" }
-gpui_platform = { package = "gpui-pre-platform", version = "=0.3.9", features = [
+gpui = { package = "gpui-pre", version = "=0.3.10" }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.10", features = [
     "font-kit", "x11", "wayland",
 ] }
 # Concrete gpui HttpClient — serves remote avatar images (docs/0005 §6.3,
 # doc 0012 D1). Same gpui-pre family as gpui; exact-pinned with it.
-reqwest_client = { package = "gpui-pre-reqwest-client", version = "=0.3.9" }
+reqwest_client = { package = "gpui-pre-reqwest-client", version = "=0.3.10" }
 # Repo renamed longbridge/gpui-kit (release page); the old URL 301s — kept
 # for now to avoid re-resolving the whole family in one lockfile regen.
 # docs/0070 D2: tree-sitter syntax for the Diff component — runtime plus
 # the full grammar pack (35 languages, cc-built). Feature names upstream;
 # deliberate full-pack enable over cherry-picking. syntect retires in 0070
 # part 2.
-gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "1676826d9d49b90f4d7b6808b69924f58796f6f1", features = ["tree-sitter", "tree-sitter-languages"] } # v0.8.0
+gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "99576db58ec8103417c41a092e891b4022d24e7e", features = ["tree-sitter", "tree-sitter-languages"] } # v0.8.1
 # The nav-history primitive (docs/0048 D1): gpui_base::History — same
 # pinned checkout as gpui-component, so the family stays on one rev.
-gpui_base = { package = "gpui-base", git = "https://github.com/longbridge/gpui-component", rev = "1676826d9d49b90f4d7b6808b69924f58796f6f1" }
-gpui-kit-assets = { git = "https://github.com/longbridge/gpui-component", rev = "1676826d9d49b90f4d7b6808b69924f58796f6f1" } # v0.8.0
+gpui_base = { package = "gpui-base", git = "https://github.com/longbridge/gpui-component", rev = "99576db58ec8103417c41a092e891b4022d24e7e" }
+gpui-kit-assets = { git = "https://github.com/longbridge/gpui-component", rev = "99576db58ec8103417c41a092e891b4022d24e7e" } # v0.8.1
 dashboard-core = { path = "crates/core" }
 dashboard-agent = { path = "crates/agent" }
 dashboard-debug = { path = "crates/debug" }

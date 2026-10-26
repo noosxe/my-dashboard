@@ -116,6 +116,19 @@
       "focused": false
     },
     {
+      "accesskit_id": "2291830802833848640",
+      "role": "TextInput",
+      "label": "Filter rows… (#number or text)",
+      "bounds": {
+        "x": 577.0,
+        "y": 139.0,
+        "w": 657.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
       "accesskit_id": "2357905833261408053",
       "role": "ListItem",
       "label": null,
@@ -311,19 +324,6 @@
       "focused": false
     },
     {
-      "accesskit_id": "8982527431771287529",
-      "role": "TextInput",
-      "label": "Filter rows… (#number or text)",
-      "bounds": {
-        "x": 568.0,
-        "y": 137.0,
-        "w": 675.0,
-        "h": 24.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
       "accesskit_id": "8989899905502859829",
       "role": "Group",
       "label": "core: freshness label reads the lane clock (#696) — octocat, committed 21h, Unverified, 78dde6c",
@@ -425,19 +425,6 @@
         "h": 19.0
       },
       "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "11420537349083359760",
-      "role": "TextInput",
-      "label": "Filter repositories…",
-      "bounds": {
-        "x": 286.0,
-        "y": 93.0,
-        "w": 251.0,
-        "h": 24.0
-      },
-      "focusable": true,
       "focused": false
     },
     {
@@ -568,6 +555,19 @@
         "h": 411.0
       },
       "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13046189450844208135",
+      "role": "TextInput",
+      "label": "Filter repositories…",
+      "bounds": {
+        "x": 304.0,
+        "y": 93.0,
+        "w": 209.0,
+        "h": 24.0
+      },
+      "focusable": true,
       "focused": false
     },
     {
