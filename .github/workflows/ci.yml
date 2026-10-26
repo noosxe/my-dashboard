@@ -1,7 +1,7 @@
 # CI — the AGENTS.md gates, enforced on every PR to main that touches
 # build-affecting paths (docs- and repo-meta-only changes skip — D7), and
 # on pushes to main only when the cache-key inputs change (D9).
-# Design: docs/0027-ci-workflows.md (D1–D9).
+# Design: docs/0027-ci-workflows.md (D1–D10).
 #
 # Environment: GitHub-hosted ubuntu runners (`ubuntu-24.04`, both jobs;
 # docs/0027 §4): the hosted image ships the build baseline (gcc/make/
@@ -64,6 +64,11 @@ concurrency:
 # otherwise (docs/0027 D4).
 env:
   RUST_TOOLCHAIN: "1.98.0"
+  # No debug info in CI builds (docs/0027 D10): nothing here runs a
+  # debugger, and DWARF is most of the target/ cache's size, link time
+  # and disk. The `test` profile inherits `dev`, so this covers
+  # `cargo test` too. Part of rust-cache's key (it hashes CARGO_* env).
+  CARGO_PROFILE_DEV_DEBUG: "0"
 
 jobs:
   lint:
@@ -79,12 +84,27 @@ jobs:
       - name: Toolchain pins agree (flake, CI, Dockerfile, rust-version)
         # Cheapest step first: no toolchain needed (docs/0027 D4).
         run: scripts/check-toolchain-pins.sh
+      - name: Restore apt archive cache (.debs)
+        # docs/0027 D10: the downloaded .debs are cached, not the
+        # installed files — dpkg still runs every postinst/trigger. The
+        # key follows this file (the package list lives here); a partial
+        # match still saves most of the download.
+        id: apt-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /tmp/apt-archives/*.deb
+          key: apt-${{ github.job }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/ci.yml') }}
+          restore-keys: |
+            apt-${{ github.job }}-${{ runner.os }}-${{ runner.arch }}-
       - name: Install system dependencies (GUI dev stack + fonts)
         # Installs ONLY what GitHub's ubuntu images do not ship
         # (docs/0027 D1): the gpui link libs + IBM Plex for font parity
         # with the dev shell. The build baseline — gcc/make/cmake/
         # pkg-config/xvfb/git/curl — ships on the hosted ubuntu-24.04
-        # image by construction (docs/0027 §2, §4).
+        # image by construction (docs/0027 §2, §4). apt reuses every
+        # cached .deb whose checksum matches the fresh index and only
+        # downloads the rest (docs/0027 D10); the dir sits under /tmp so
+        # apt's _apt sandbox user can reach it.
         run: |
           if [ "$(id -u)" -ne 0 ] && ! command -v sudo >/dev/null 2>&1; then
             echo "::error::cannot install packages: non-root job user and no sudo on this runner image."
@@ -92,12 +112,23 @@ jobs:
             exit 1
           fi
           SUDO="$(command -v sudo >/dev/null 2>&1 && echo sudo || true)"
+          APT_OPTS="-o Dir::Cache::Archives=/tmp/apt-archives -o APT::Keep-Downloaded-Packages=true"
+          mkdir -p /tmp/apt-archives/partial
           $SUDO apt-get update
-          $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y \
+          $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y $APT_OPTS \
             libwayland-dev libvulkan-dev libxcb1-dev libxkbcommon-dev \
             libxkbcommon-x11-dev \
             libatk1.0-dev libfontconfig1-dev libglib2.0-dev libgtk-3-dev \
             fonts-ibm-plex
+          # Drop superseded .debs so a re-saved cache doesn't accumulate them.
+          $SUDO apt-get autoclean $APT_OPTS
+      - name: Save apt archive cache (main only)
+        # Same main-only rule as rust-cache's save-if (docs/0027 D10).
+        if: github.ref == 'refs/heads/main' && steps.apt-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /tmp/apt-archives/*.deb
+          key: ${{ steps.apt-cache.outputs.cache-primary-key }}
       - name: Bootstrap Rust toolchain
         run: |
           command -v rustup >/dev/null 2>&1 || \
@@ -117,6 +148,10 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           cache-on-failure: true
+          # PRs restore main's cache but never save their own (docs/0027
+          # D10): per-PR saves crowded the 10 GB repo cap and could evict
+          # the main entries every PR starts from.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: cargo fmt --all --check
         run: cargo fmt --all --check
       - name: cargo clippy --workspace --all-targets (zero warnings)
@@ -135,12 +170,27 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Restore apt archive cache (.debs)
+        # docs/0027 D10: the downloaded .debs are cached, not the
+        # installed files — dpkg still runs every postinst/trigger. The
+        # key follows this file (the package list lives here); a partial
+        # match still saves most of the download.
+        id: apt-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /tmp/apt-archives/*.deb
+          key: apt-${{ github.job }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/ci.yml') }}
+          restore-keys: |
+            apt-${{ github.job }}-${{ runner.os }}-${{ runner.arch }}-
       - name: Install system dependencies (GUI dev stack + fonts)
         # Installs ONLY what GitHub's ubuntu images do not ship
         # (docs/0027 D1): the gpui link libs + IBM Plex for font parity
         # with the dev shell. The build baseline — gcc/make/cmake/
         # pkg-config/xvfb/git/curl — ships on the hosted ubuntu-24.04
-        # image by construction (docs/0027 §2, §4).
+        # image by construction (docs/0027 §2, §4). apt reuses every
+        # cached .deb whose checksum matches the fresh index and only
+        # downloads the rest (docs/0027 D10); the dir sits under /tmp so
+        # apt's _apt sandbox user can reach it.
         run: |
           if [ "$(id -u)" -ne 0 ] && ! command -v sudo >/dev/null 2>&1; then
             echo "::error::cannot install packages: non-root job user and no sudo on this runner image."
@@ -148,12 +198,23 @@ jobs:
             exit 1
           fi
           SUDO="$(command -v sudo >/dev/null 2>&1 && echo sudo || true)"
+          APT_OPTS="-o Dir::Cache::Archives=/tmp/apt-archives -o APT::Keep-Downloaded-Packages=true"
+          mkdir -p /tmp/apt-archives/partial
           $SUDO apt-get update
-          $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y \
+          $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y $APT_OPTS \
             libwayland-dev libvulkan-dev libxcb1-dev libxkbcommon-dev \
             libxkbcommon-x11-dev \
             libatk1.0-dev libfontconfig1-dev libglib2.0-dev libgtk-3-dev \
             fonts-ibm-plex
+          # Drop superseded .debs so a re-saved cache doesn't accumulate them.
+          $SUDO apt-get autoclean $APT_OPTS
+      - name: Save apt archive cache (main only)
+        # Same main-only rule as rust-cache's save-if (docs/0027 D10).
+        if: github.ref == 'refs/heads/main' && steps.apt-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /tmp/apt-archives/*.deb
+          key: ${{ steps.apt-cache.outputs.cache-primary-key }}
       - name: Bootstrap Rust toolchain
         run: |
           command -v rustup >/dev/null 2>&1 || \
@@ -168,6 +229,10 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           cache-on-failure: true
+          # PRs restore main's cache but never save their own (docs/0027
+          # D10): per-PR saves crowded the 10 GB repo cap and could evict
+          # the main entries every PR starts from.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: cargo test --workspace (Xvfb, fresh runtime dir)
         run: |
           export XDG_RUNTIME_DIR="$(mktemp -d)"

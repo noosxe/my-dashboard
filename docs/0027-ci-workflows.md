@@ -21,8 +21,9 @@ SHA-pinned third-party actions only, no secrets.
 The runner platform is **GitHub-hosted** (`ubuntu-24.04` standard hosted
 runners, both jobs — switched from the owner's self-hosted docker runners
 after they went down, §4): hosted VMs are just as ephemeral (fresh VM per
-run, torn down after), so every run is still a full cold build; build
-caching is deliberately deferred (#158).
+run, torn down after). Build artifacts are cached with `rust-cache`
+(D2, #158) and the apt `.debs` with `actions/cache` (D10); both caches
+are saved only from `main`, and CI builds carry no debug info (D10).
 
 Release/packaging CI (binary builds, caches, tag automation) is explicitly out
 of scope (see the standing note in `docs/README.md`; it takes its own doc when
@@ -83,6 +84,10 @@ curl — is the **image's** job. The workflow installs only the remainder:
    (dev-shell font parity — not on hosted images either). The step is
    sudo-shimmed (`sudo` if present, else plain) so it works as root in the
    docker containers and as the sudo-capable `runner` user on hosted images.
+   The downloaded `.debs` are cached (D10): apt is pointed at a restored
+   archive directory, so a warm run downloads nothing while `apt-get
+   update`, dependency resolution and every dpkg maintainer script and
+   trigger still run exactly as in a cold install.
 2. **Rust toolchain** — rustup into `~/.cargo`, pinned `$RUST_TOOLCHAIN`
    with `rustfmt`/`clippy` components.
 
@@ -96,7 +101,10 @@ metric-sensitive tests would surface any residue). Mitigation if that ever
 bites: ship a tiny in-repo `fontconfig.conf` and export `FONTCONFIG_FILE`.
 
 Per-job cost on the ephemeral platform: ~30 s apt + ~40 s rustup — accepted;
-see D2 for the bigger cold-build cost and #158. (The **interim parity-gap
+see D2 for the bigger cold-build cost and #158. *(2026-10-26, D10)* Measured
+on hosted runners: apt median ~27 s but a long tail up to 949 s (a slow
+mirror served the 43.5 MB of `.debs` at 47 kB/s); with the `.deb` cache the
+step is ~16–17 s and its download is 0 B. rustup is ~8–10 s. (The **interim parity-gap
 state** — runs failing on missing `cc`/`xvfb-run` until the self-hosted
 images reached parity — is history: the hosted `ubuntu-24.04` image ships
 the baseline by construction, §4.)
@@ -112,7 +120,11 @@ observed). Build-artifact caching was deliberately deferred to #158.
 *(landed, #158)* **`Swatinem/rust-cache` v2** now caches `~/.cargo`
 (registry + git deps) and `./target` on both jobs — keyed automatically
 by job id (separate lint/test caches), rustc version, and the
-Cargo.lock/Toml hashes; placed *after* the toolchain bootstrap so the
+Cargo.lock/Toml hashes, plus every `CARGO*`/`RUST*`/`CC*`/`CMAKE*` env
+var in the job (upstream-verified at the pinned v2.9.2 commit — so
+`RUST_TOOLCHAIN` and D10's `CARGO_PROFILE_DEV_DEBUG` are key inputs, and
+changing either starts a fresh cache instead of restoring an
+incompatible one); placed *after* the toolchain bootstrap so the
 rustc hash is correct; `cache-on-failure: true` so a red first run on a
 branch still warms the cache. The out-of-workspace target dir export was
 **removed**: rust-cache's default `workspaces` mapping is `. -> target`,
@@ -121,6 +133,10 @@ target-artifact caching (upstream-verified) while offering nothing the
 action does not already handle. Quota/eviction stays GitHub-side (10 GB
 repo cache cap, LRU eviction; the action prunes non-dependency and
 week-old artifacts before save).
+
+*(amended 2026-10-26, D10)* **Saved from `main` only**
+(`save-if: ${{ github.ref == 'refs/heads/main' }}`): PR runs restore
+`main`'s entries and never save their own.
 
 ### D3 — Two jobs: `lint`, `test`
 
@@ -176,7 +192,8 @@ update PRs; each ecosystem's updates are grouped into a single PR
 no secrets — the workflow is
 fork-safe by construction. Since then two more SHA-pinned actions joined
 under the same rule and the same dependabot coverage: `Swatinem/rust-cache`
-(#158) and `EmbarkStudios/cargo-deny-action` (D8).
+(#158) and `EmbarkStudios/cargo-deny-action` (D8), and
+`actions/cache/restore` + `actions/cache/save` (v6.1.0, D10).
 
 ### D7 — Path-based filtering: docs-only changes don't build anything
 
@@ -245,8 +262,118 @@ shape. Consequences:
 - **Cache longevity.** GitHub evicts entries untouched for 7 days, but a
   PR restore counts as a touch, so active development keeps `main`'s
   entries alive. After a quiet week, the first PR pays one cold build.
+  *(amended 2026-10-26, D10)* Since PRs no longer save, that cold build
+  repeats on every PR push until the next allowlisted push to `main`
+  re-warms it — see D10 for the numbers and the trade-off.
 - **The weekly `deny` schedule is unchanged** (D8). New advisories still
   surface on `main` without a push.
+
+### D10 — Cheaper caches: `.deb` cache, no debug info, saves from `main` only
+
+Profiled over the 69 runs from 2026-10-13 to 2026-10-23: apt install
+time had a median of 27 s but 11 runs took over 2 minutes (173 min in
+total); cache restore + save took 108 min. The test cache was ~1.7 GB and
+the lint cache ~1 GB, and every PR saved its own copy (scoped to
+`refs/pull/N/merge`) against the 10 GB repo cap, where it could evict the
+`main` entries every PR restores from. A cold rebuild of the whole gpui
+family (#674) also ran the runner out of disk (rust-lld: bus error, "No
+space left on device"). Three changes, `lint` and `test` stay separate
+jobs (D3):
+
+1. **apt `.debs` are cached, not installed files.** Before the install
+   step, `actions/cache/restore` restores `/tmp/apt-archives/*.deb`; the
+   install step passes `-o Dir::Cache::Archives=/tmp/apt-archives -o
+   APT::Keep-Downloaded-Packages=true` to `apt-get install`, then runs
+   `apt-get autoclean` with the same options so superseded `.debs` don't
+   pile up. apt reuses each cached `.deb` whose checksum matches the
+   freshly updated (signed) index and downloads only the rest, so a new
+   upstream version or a changed runner image costs one partial download,
+   never a broken install. The directory sits under `/tmp` so apt's
+   `_apt` sandbox user can reach it (under `$HOME` apt falls back to an
+   unsandboxed download, with a warning). The key is
+   `apt-<job>-<os>-<arch>-<hash of ci.yml>` (the package list lives in
+   the workflow), with the prefix up to the hash as restore key. Like
+   rust-cache, the `.debs` are saved only on `main` and only when the
+   restore wasn't an exact hit. The D1 root/sudo guard is unchanged.
+
+   *Rejected: `awalsh128/cache-apt-pkgs-action`* (read at v1.6.3,
+   `553a35b`). On a cache miss its install script runs
+   `curl …/ilikenwf/apt-fast/master/quick-install.sh | bash`, an unpinned
+   remote script, which breaks D5. On a hit it untars the files that
+   `dpkg -L` listed over `/` and runs no dpkg triggers (fontconfig, ldconfig,
+   …); maintainer scripts run only with `execute_install_scripts: true`.
+   The packages are never registered with dpkg, and the key covers only
+   the package names, not their versions or the image. It also always
+   calls `sudo`, which drops D1's root-container path. Caching the `.debs`
+   keeps apt and dpkg fully in charge and needs only `actions/cache`.
+
+2. **No debug info**: workflow-level `CARGO_PROFILE_DEV_DEBUG: "0"`
+   overrides the workspace's `debug = "limited"`. Nothing in CI runs a
+   debugger. The `test` profile inherits `dev` (Cargo reference,
+   Profiles), so `cargo test` follows; checked with a probe crate: `cargo
+   test -v` drops `-C debuginfo=1` under the variable, so no separate
+   `CARGO_PROFILE_TEST_DEBUG` is needed. rust-cache hashes `CARGO*` env
+   into its key (D2), so the first run after this change starts a new
+   cache, and the old one is never restored into a different-profile
+   build.
+
+3. **Caches are saved from `main` only**: rust-cache's
+   `save-if: ${{ github.ref == 'refs/heads/main' }}` (input verified at
+   the pinned v2.9.2 source: `save.ts` returns before saving unless it is
+   `"true"`), and the `.deb` save step carries the same condition. PRs
+   restore `main`'s entries (GitHub lets a PR read its base branch's
+   caches) and never save.
+
+**Interaction with D9.** `main` runs only when `Cargo.lock`, a
+`Cargo.toml`, `deny.toml` or `ci.yml` changes. Those are exactly the
+inputs of the rust-cache and `.deb` keys, so every change that would make
+`main`'s cache stale also re-saves it: a dependency change re-warms the
+cache on its merge, and so does this PR's own merge (it changes `ci.yml`
+and the env part of the key). Code-only merges leave the dependency set,
+and so the cache, unchanged. The weekly schedule still runs only `deny`
+(D8) and saves nothing.
+
+**Trade-offs, accepted:**
+
+- **A dependency PR rebuilds its changed crates on every push.** It
+  restores `main`'s older entry by prefix and can't save its own, so a
+  big bump (the gpui family in #674) pays its rebuild on each push until
+  it merges. After that, `main` holds the new graph.
+- **Quiet weeks.** GitHub evicts entries untouched for 7 days, and a PR
+  restore counts as a touch. With no PR runs for 7 days, `main`'s entries
+  are evicted and nothing re-creates them until the next allowlisted push
+  to `main`. Until then every PR push is a cold build (~6–7 min `lint`,
+  ~10 min `test`, measured below). In practice the weekly dependabot cargo
+  PR's merge changes `Cargo.lock` and re-warms `main`. A manual re-warm
+  path (a `workflow_dispatch` trigger, or `lint`/`test` on the weekly
+  schedule) is deliberately not added; that is the owner's call.
+
+**Measured (2026-10-26).** "Before" is historical runs with
+`debug = "limited"`: warm = PR runs restoring an exact `main` hit (runs
+39891076007, 39887822010); cold = runs with no rust-cache hit (39511003531
+and 39523605469 for `test`, 39499372740 for `lint`). "After" is #675 run
+40390032550 (attempt 1 cold, attempt 2 warm, with PR saves temporarily
+enabled to measure).
+
+| | Before | After |
+|---|---|---|
+| `test` cache size | 1712 MB | 831 MB (−51%) |
+| `lint` cache size | 975 MB | 563 MB (−42%) |
+| apt step | median 27 s, tail to 949 s | 16–17 s warm (0 B downloaded); 22–26 s cold |
+| rust-cache restore, warm (`test` / `lint`) | 56–60 s / 23–42 s | 24 s / 15 s |
+| `cargo test`, warm | 103–106 s | 85 s |
+| `cargo clippy`, warm | 16–26 s | 19 s |
+| `test` job, warm | 193–210 s | 143 s |
+| `lint` job, warm | 96–100 s | 78 s |
+| `cargo test`, cold | 612–622 s | 535 s |
+| `clippy` + bridge-less `check`, cold | 370 + 43 s | 303 + 33 s |
+| `test` / `lint` job, cold | 680–698 s / 482 s | 598 s / 401 s |
+| rust-cache save (cold, `test` / `lint`) | 33 s / 23 s | 25 s / 20 s |
+
+Link time is not broken out on its own; the warm `cargo test` step
+(compile workspace crates, link test binaries, run) is where it shows.
+Also not counted above: PR runs no longer save their own 1–2.7 GB entries,
+and the apt long tail is gone because the warm path downloads nothing.
 
 ### D6 — What deliberately stays out
 
@@ -362,6 +489,12 @@ upstream GPUI stack, so they are ignored and tracked in #640.
   re-run CI only for `Cargo.lock`/`Cargo.toml`/`deny.toml`/`ci.yml`
   changes, keeping the PR-shared caches warm without re-checking every
   merge (~48% of October's minutes). The weekly audit stays.
+- *(2026-10-26)* **Cheaper caches** (D10): the apt `.debs` are cached
+  (`actions/cache`, not `awalsh128/cache-apt-pkgs-action`, which runs an
+  unpinned remote script), CI builds drop debug info, and rust-cache plus
+  the `.deb` cache save from `main` only. `lint`/`test` stay separate
+  jobs. Measured: caches −42 to −51%, warm `test` job 193–210 s → 143 s,
+  warm `lint` 96–100 s → 78 s, apt 0 B downloaded when warm.
 
 ## 5. Implementation plan (this PR)
 
