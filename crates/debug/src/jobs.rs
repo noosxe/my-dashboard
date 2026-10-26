@@ -235,7 +235,8 @@ fn input_dispatch(app: &mut App, params: InputDispatchParams) -> Result<Value, R
     let handle = resolve_window(app, params.window)?;
     handle
         .update(app, |_, window, cx| {
-            let outcome = match params.event.to_synthetic_input()? {
+            let os = cx.platform_info().os;
+            let outcome = match params.event.to_synthetic_input(os)? {
                 // Ime-aware path (D6): text entry works through the
                 // simulated-ime wrapper upstream's own tests use.
                 SyntheticInput::Keystroke(keystroke) => DispatchOutcome::Keystroke {

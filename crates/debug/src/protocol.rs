@@ -8,7 +8,7 @@
 
 use gpui::{
     KeyUpEvent, Keystroke, Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    PlatformInput, Point, ScrollDelta, ScrollWheelEvent, TouchPhase, px,
+    OperatingSystem, PlatformInput, Point, ScrollDelta, ScrollEvent, ScrollSource, TouchPhase, px,
 };
 use serde::{Deserialize, Serialize};
 
@@ -241,8 +241,9 @@ pub enum InputEvent {
         #[serde(default)]
         modifiers: Vec<Modifier>,
     },
-    /// `keystroke` uses upstream `Keystroke::parse` syntax, e.g. `"a"`,
-    /// `"ctrl-s"`, `"shift-tab"` (modifiers ride inside the keystroke).
+    /// `keystroke` uses upstream `Keystroke::parse_with_os` syntax, e.g.
+    /// `"a"`, `"ctrl-s"`, `"shift-tab"` (modifiers ride inside the
+    /// keystroke; `secondary-` resolves per the app's host OS).
     KeyDown {
         keystroke: String,
     },
@@ -282,8 +283,11 @@ impl InputEvent {
     /// own syntheses: mouse events per `handle_a11y_action`'s Click
     /// fallback (`first_mouse: false`) and `simulate_mouse_move`
     /// (`pressed_button: None`); scroll uses `ScrollDelta::Pixels` with
-    /// `TouchPhase::Moved`.
-    pub fn to_synthetic_input(&self) -> Result<SyntheticInput, RpcError> {
+    /// `TouchPhase::Moved` from a `ScrollSource::Pointer` (a wheel or
+    /// trackpad, not a GPUI-recognized touch pan). `os` is the app's
+    /// `cx.platform_info().os`: the CLI keystroke is a dynamic string,
+    /// so `secondary-` needs it to resolve (gpui-pre 0.3.10).
+    pub fn to_synthetic_input(&self, os: OperatingSystem) -> Result<SyntheticInput, RpcError> {
         fn point(x: f32, y: f32) -> Point<gpui::Pixels> {
             Point { x: px(x), y: px(y) }
         }
@@ -347,26 +351,27 @@ impl InputEvent {
                 dx,
                 dy,
                 modifiers: mods,
-            } => SyntheticInput::Event(PlatformInput::ScrollWheel(ScrollWheelEvent {
+            } => SyntheticInput::Event(PlatformInput::Scroll(ScrollEvent {
                 position: point(*x, *y),
                 delta: ScrollDelta::Pixels(point(*dx, *dy)),
                 modifiers: modifiers(mods),
                 touch_phase: TouchPhase::Moved,
+                source: ScrollSource::Pointer,
             })),
             InputEvent::KeyDown { keystroke } => {
-                SyntheticInput::Keystroke(parse_keystroke(keystroke)?)
+                SyntheticInput::Keystroke(parse_keystroke(keystroke, os)?)
             }
             InputEvent::KeyUp { keystroke } => {
                 SyntheticInput::Event(PlatformInput::KeyUp(KeyUpEvent {
-                    keystroke: parse_keystroke(keystroke)?,
+                    keystroke: parse_keystroke(keystroke, os)?,
                 }))
             }
         })
     }
 }
 
-fn parse_keystroke(source: &str) -> Result<Keystroke, RpcError> {
-    Keystroke::parse(source).map_err(|err| {
+fn parse_keystroke(source: &str, os: OperatingSystem) -> Result<Keystroke, RpcError> {
+    Keystroke::parse_with_os(source, os).map_err(|err| {
         RpcError::new(
             error_code::BAD_KEYSTROKE,
             format!("invalid keystroke {source:?}: {err} — expected e.g. \"a\", \"ctrl-s\""),
@@ -431,7 +436,7 @@ mod tests {
                        "click_count": 2, "modifiers": ["ctrl", "shift"]}
         }));
         let SyntheticInput::Event(PlatformInput::MouseDown(event)) =
-            p.event.to_synthetic_input().unwrap()
+            p.event.to_synthetic_input(OperatingSystem::Linux).unwrap()
         else {
             panic!("wrong variant");
         };
@@ -448,7 +453,7 @@ mod tests {
     fn mouse_move_has_no_pressed_button_or_modifiers() {
         let p = params(serde_json::json!({"event": {"type": "mouse_move", "x": 9.0, "y": 8.0}}));
         let SyntheticInput::Event(PlatformInput::MouseMove(event)) =
-            p.event.to_synthetic_input().unwrap()
+            p.event.to_synthetic_input(OperatingSystem::Linux).unwrap()
         else {
             panic!("wrong variant");
         };
@@ -461,8 +466,8 @@ mod tests {
         let p = params(
             serde_json::json!({"event": {"type": "scroll_wheel", "x": 5.0, "y": 6.0, "dx": 0.0, "dy": -60.0}}),
         );
-        let SyntheticInput::Event(PlatformInput::ScrollWheel(event)) =
-            p.event.to_synthetic_input().unwrap()
+        let SyntheticInput::Event(PlatformInput::Scroll(event)) =
+            p.event.to_synthetic_input(OperatingSystem::Linux).unwrap()
         else {
             panic!("wrong variant");
         };
@@ -472,6 +477,7 @@ mod tests {
         assert_eq!(delta.x.as_f32(), 0.0);
         assert_eq!(delta.y.as_f32(), -60.0);
         assert_eq!(event.touch_phase, TouchPhase::Moved);
+        assert_eq!(event.source, ScrollSource::Pointer);
     }
 
     #[test]
@@ -480,7 +486,7 @@ mod tests {
             "event": {"type": "mouse_up", "x": 0.0, "y": 0.0, "modifiers": ["cmd", "fn"]}
         }));
         let SyntheticInput::Event(PlatformInput::MouseUp(event)) =
-            p.event.to_synthetic_input().unwrap()
+            p.event.to_synthetic_input(OperatingSystem::Linux).unwrap()
         else {
             panic!("wrong variant");
         };
@@ -490,7 +496,9 @@ mod tests {
     #[test]
     fn key_down_parses_keystroke_with_modifiers() {
         let p = params(serde_json::json!({"event": {"type": "key_down", "keystroke": "ctrl-s"}}));
-        let SyntheticInput::Keystroke(keystroke) = p.event.to_synthetic_input().unwrap() else {
+        let SyntheticInput::Keystroke(keystroke) =
+            p.event.to_synthetic_input(OperatingSystem::Linux).unwrap()
+        else {
             panic!("wrong variant");
         };
         assert!(keystroke.modifiers.control);
@@ -498,11 +506,34 @@ mod tests {
     }
 
     #[test]
+    fn secondary_modifier_resolves_per_host_os() {
+        // gpui-pre 0.3.10: dynamic keystrokes resolve `secondary-` against
+        // the OS the caller passes (cmd on macOS, ctrl elsewhere).
+        let p =
+            params(serde_json::json!({"event": {"type": "key_down", "keystroke": "secondary-s"}}));
+        let SyntheticInput::Keystroke(mac) =
+            p.event.to_synthetic_input(OperatingSystem::Mac).unwrap()
+        else {
+            panic!("wrong variant");
+        };
+        assert!(mac.modifiers.platform && !mac.modifiers.control);
+        let SyntheticInput::Keystroke(linux) =
+            p.event.to_synthetic_input(OperatingSystem::Linux).unwrap()
+        else {
+            panic!("wrong variant");
+        };
+        assert!(linux.modifiers.control && !linux.modifiers.platform);
+    }
+
+    #[test]
     fn bad_keystroke_yields_typed_error() {
-        // `Keystroke::parse` accepts empty strings and lone keys; it
+        // `Keystroke::parse_with_os` accepts empty strings and lone keys; it
         // rejects a plain key followed by more components ("a-b").
         let p = params(serde_json::json!({"event": {"type": "key_up", "keystroke": "a-b"}}));
-        let err = p.event.to_synthetic_input().unwrap_err();
+        let err = p
+            .event
+            .to_synthetic_input(OperatingSystem::Linux)
+            .unwrap_err();
         assert_eq!(err.code, error_code::BAD_KEYSTROKE);
     }
 

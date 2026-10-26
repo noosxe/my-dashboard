@@ -51,6 +51,19 @@
       "focused": false
     },
     {
+      "accesskit_id": "2209867835079331558",
+      "role": "TextInput",
+      "label": "Search...",
+      "bounds": {
+        "x": 315.0,
+        "y": 71.0,
+        "w": 184.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
       "accesskit_id": "2899867086231059108",
       "role": "TreeItem",
       "label": "GitHub",
@@ -217,19 +230,6 @@
         "h": 28.0
       },
       "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "13501581804868022998",
-      "role": "TextInput",
-      "label": "Search...",
-      "bounds": {
-        "x": 284.0,
-        "y": 65.0,
-        "w": 226.0,
-        "h": 32.0
-      },
-      "focusable": true,
       "focused": false
     },
     {

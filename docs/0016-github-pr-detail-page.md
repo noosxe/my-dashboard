@@ -149,6 +149,14 @@ Out (non-goals):
 > v0.8.0 release notes list no Select-layout change (Select: keyboard
 > confirmation and item reconciliation only, #3446).
 
+> **Re-verified at the v0.8.1 pin `99576db` (2026-10-26):**
+> `component/src/select.rs` is byte-identical to the v0.8.0 pin — the
+> two `size_full` sites (:554/:896) and the trap stand. The tab bar and
+> list changes in v0.8.1 are API ports to gpui-pre 0.3.10 only
+> (`ScrollEvent` rename, OS-aware `cmd-enter`/`ctrl-enter` binding, the
+> `secondary(cx)` modifier helper); the tab/timeline split behavior is
+> untouched.
+
 - `ui::tab::{Tab, TabBar}` with `.underline()` variant — the GitHub-style tab
   chrome; `selected_index` + `on_click` drive an enum in our state.
 - `ui::input::textarea::{Textarea, TextareaState}` — multiline input with

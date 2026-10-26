@@ -43,7 +43,10 @@ assert-label "Filter repositories"
 
 # Pick fixture-user/atlas: filter, ↓, Enter. Repo open fires the Open
 # PRs lane only — the Commits tab doesn't exist in the tree yet.
-click 11420537349083359760
+# Both TextInput ids here re-keyed at the gpui-kit v0.8.1 bump: the
+# text node moved from the input's frame to its inner editor
+# (longbridge/gpui-kit#3585), same label and role.
+click 13046189450844208135
 type atlas
 key down
 key enter
@@ -85,7 +88,7 @@ wait-frame
 assert-label "Beginning of history · 120 commits"
 
 # The quick filter covers loaded commits only and stops paging.
-click 8982527431771287529
+click 2291830802833848640
 type parser
 assert-label "No loaded commits match"
 assert-label "Filtering 120 loaded commits; clear to load more"

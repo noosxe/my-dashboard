@@ -90,6 +90,19 @@
       "focused": false
     },
     {
+      "accesskit_id": "2574149446061486388",
+      "role": "TextInput",
+      "label": "A",
+      "bounds": {
+        "x": 383.0,
+        "y": 195.0,
+        "w": 194.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
       "accesskit_id": "2628987172600759473",
       "role": "Button",
       "label": "Gradient end color (light)",
@@ -217,19 +230,6 @@
         "h": 32.0
       },
       "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "4641394408872312027",
-      "role": "TextInput",
-      "label": "A",
-      "bounds": {
-        "x": 372.0,
-        "y": 189.0,
-        "w": 216.0,
-        "h": 32.0
-      },
-      "focusable": true,
       "focused": false
     },
     {
@@ -467,6 +467,19 @@
       "focused": false
     },
     {
+      "accesskit_id": "10481500112915853800",
+      "role": "TextInput",
+      "label": "Choose a folder",
+      "bounds": {
+        "x": 615.0,
+        "y": 1085.0,
+        "w": 528.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
       "accesskit_id": "10504924049774222511",
       "role": "Tab",
       "label": "Semibold",
@@ -620,19 +633,6 @@
         "h": 28.0
       },
       "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "15025369694953055819",
-      "role": "TextInput",
-      "label": "Choose a folder",
-      "bounds": {
-        "x": 604.0,
-        "y": 1079.0,
-        "w": 550.0,
-        "h": 32.0
-      },
-      "focusable": true,
       "focused": false
     },
     {

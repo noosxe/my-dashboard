@@ -347,7 +347,7 @@ appropriate to that production animation before asserting final geometry.
   explicit macOS (Metal) and Linux (WGPU) rendering target is
   `cargo test -p gpui-kit --features test-support --test rendering --locked`.
   Linux requires a working WGPU adapter and can use Mesa lavapipe. Windows
-  explicitly skips this target because GPUI 0.3.9 has no Windows headless renderer.
+  explicitly skips this target because GPUI 0.3.10 has no Windows headless renderer.
   Missing renderer support on macOS or Linux fails instead of producing fake images.
 
 ## Additional resources
