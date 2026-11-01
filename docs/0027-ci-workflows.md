@@ -174,6 +174,11 @@ Four pins, one release, bumped **deliberately, in one PR**:
 `scripts/check-toolchain-pins.sh` fails when they disagree; it is the
 first step of the CI `lint` job and runs locally with no toolchain.
 
+The flake's installable package (`packages.<linux>.my-dashboard`) builds
+on the same `rustToolchain` via `makeRustPlatform`, not nixpkgs' default
+`rustc` — with `rust-version` equal to the pin, any other compiler
+refuses the workspace.
+
 `rust-version` is the pinned toolchain, **not a support floor**: this is
 an app built only with the toolchain above, never a library consumed
 under older compilers. Keeping it equal means cargo's MSRV-aware
