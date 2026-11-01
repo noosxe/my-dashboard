@@ -104,7 +104,14 @@
         # FONTCONFIG_FILE here on purpose. `doCheck` stays off: the test
         # gates (cargo fmt/clippy/test) run in the dev shell/CI, and the
         # Nix sandbox lacks the display/runtime-dir the GUI harness wants.
-        my-dashboard = pkgs.rustPlatform.buildRustPackage {
+        # The package builds on the pinned toolchain too, not nixpkgs'
+        # default rustc: `rust-version` equals the pin (docs/0027 D4), so
+        # any older compiler refuses the workspace.
+        rustPlatform = pkgs.makeRustPlatform {
+          cargo = rustToolchain;
+          rustc = rustToolchain;
+        };
+        my-dashboard = rustPlatform.buildRustPackage {
           pname = "my-dashboard";
           inherit version;
 
