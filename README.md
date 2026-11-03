@@ -101,27 +101,17 @@ Integrated into a NixOS flake: pass `my-dashboard.homeManagerModules.default`
 in your `home-manager.nixosModules.home-manager` `modules` list and enable it
 in the user's `home.nix` — same option name.
 
-### Catppuccin themes (home-manager)
+### Themes
 
-Whiskers-generated Catppuccin palettes (Latte, Frappé, Macchiato, Mocha),
-built by the flake and linked into the app's user themes dir — the running
-app hot-reloads them, no restart needed. Themes land in the Appearance
-pickers (Latte is a light palette, the rest are dark). All four flavors
-also ship built-in (docs/0074); these user copies shadow the built-ins
-by name, so a Whiskers install always wins.
+Every upstream gpui-component theme — Catppuccin Latte, Frappé, Macchiato
+and Mocha among them — ships built into the app as a preset (docs/0074);
+pick one under Appearance. No Nix option is needed. To add your own
+palettes, drop ThemeSet JSON files into `~/.config/my-dashboard/themes/`
+(docs/0025): the running app hot-reloads them, and a file whose theme
+name matches a preset shadows it.
 
-```nix
-programs.my-dashboard.catppuccin.enable = true;
-programs.my-dashboard.catppuccin.flavors = [ "latte" "frappe" "macchiato" "mocha" ];  # default: all
-```
-
-Works with `programs.my-dashboard.enable` or standalone (binary managed
-elsewhere). Hand-dropped theme files in `~/.config/my-dashboard/themes/`
-coexist — don't let home-manager manage that directory as a whole.
-
-The generated files are also exposed for non-HM setups:
-`packages.<system>.my-dashboard-catppuccin-themes` (a directory with the
-four ThemeSet JSON files).
+The former `programs.my-dashboard.catppuccin.{enable,flavors}` options
+are removed; setting them fails evaluation with a pointer to the presets.
 
 ### Overlay (any setup)
 
@@ -225,18 +215,6 @@ warnings), `cargo test --workspace`.
 Non-Nix: a stock Rust 1.85+ toolchain plus the usual Linux GUI dev packages
 (wayland, vulkan, xcb, xkbcommon, atk, fontconfig, glib/gtk3) works — the
 flake's `dynamicLibraries` list is the exact set.
-
-**Catppuccin themes without Nix:** install
-[Whiskers](https://github.com/catppuccin/whiskers) (`cargo install
-catppuccin-whiskers`), then from a clone:
-
-```console
-$ whiskers nix/catppuccin.tera        # renders catppuccin-{latte,frappe,macchiato,mocha}.json
-$ cp themes/catppuccin-mocha.json ~/.config/my-dashboard/themes/
-```
-
-They appear in the Appearance pickers immediately (hot reload), shadowing
-the built-in Catppuccin presets by name (docs/0074).
 
 ## License
 

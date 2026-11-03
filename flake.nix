@@ -62,9 +62,8 @@
           rustToolchain
           rust-analyzer
           pkg-config
-          # scripts/install-catppuccin-theme.sh — render + gate the
-          # Catppuccin ThemeSets outside the nix package (docs/0025).
-          catppuccin-whiskers
+          # Post-processing of the debug bridge's `--json` dumps
+          # (docs/0071).
           jq
         ];
 
@@ -82,9 +81,6 @@
           glib
           gtk3
         ];
-
-        # Whiskers template generating the Catppuccin ThemeSet files (#143).
-        catppuccinTemplate = ./nix/catppuccin.tera;
 
         # AT-SPI daemons for the debug bridge (docs/0010 D5): provides
         # at-spi-bus-launcher/registryd and the DBus service files so
@@ -169,51 +165,17 @@
             platforms = platforms.all;
           };
         };
-
-        # Catppuccin theme files for the user themes dir (docs/0025),
-        # generated with Whiskers from in-repo nix/catppuccin.tera — one
-        # ThemeSet JSON per flavor (#143). Hermetic: whiskers has the
-        # palette built in, the template is a flake source file. The jq
-        # gates mirror the app's degrade contract: nothing half-valid
-        # ships — the build fails instead.
-        my-dashboard-catppuccin-themes =
-          pkgs.runCommand "my-dashboard-catppuccin-themes"
-            {
-              nativeBuildInputs = with pkgs; [
-                catppuccin-whiskers
-                jq
-              ];
-              meta = with lib; {
-                description = "Catppuccin ThemeSet files for my-dashboard (Whiskers-generated)";
-                license = licenses.mit;
-                platforms = platforms.linux;
-              };
-            }
-            ''
-              mkdir -p $out work
-              cd work
-              whiskers ${catppuccinTemplate}
-              for f in themes/catppuccin-*.json; do
-                jq -e '.themes[0].name | startswith("Catppuccin ")' "$f" > /dev/null
-                jq -e '.themes[0].mode == "dark" or .themes[0].mode == "light"' "$f" > /dev/null
-                jq -e '.themes[0].colors | length == 100' "$f" > /dev/null
-              done
-              test "$(ls themes/catppuccin-*.json | wc -l)" -eq 4
-              cp themes/catppuccin-*.json $out/
-            '';
       in
       {
         # The installable nix surface is the Linux/NixOS story (the
         # hm/nixos modules; packaging targets Linux). On darwin the app
-        # runs from a dev checkout and themes install by hand
-        # (scripts/install-catppuccin-theme.sh) — exposing linux-only
-        # derivations there only makes `nix flake check` refuse them.
+        # runs from a dev checkout — exposing linux-only derivations
+        # there only makes `nix flake check` refuse them.
         # The dev shell stays on every system: direnv + the darwin
         # Metal-toolchain hook are part of the dev flow.
         packages = lib.optionalAttrs isLinux {
           default = my-dashboard;
           my-dashboard = my-dashboard;
-          my-dashboard-catppuccin-themes = my-dashboard-catppuccin-themes;
         };
 
         apps = lib.optionalAttrs isLinux {
@@ -222,10 +184,6 @@
             program = "${my-dashboard}/bin/my-dashboard";
             meta = my-dashboard.meta;
           };
-        };
-
-        checks = lib.optionalAttrs isLinux {
-          my-dashboard-catppuccin-themes = my-dashboard-catppuccin-themes;
         };
 
         # Maintenance target, not an installable: lets a darwin dev

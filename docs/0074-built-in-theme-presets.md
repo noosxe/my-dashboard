@@ -84,7 +84,7 @@ the replay order is: factory pair (`BUNDLED_DEFAULTS`) → user dir →
 presets. Insert-only semantics then make the order the authority rule
 with no extra machinery: the factory pair always registers first, and —
 since `load_themes_from_str` *skips* names already present — a user
-file with a preset's name (e.g. a Whiskers-rendered Catppuccin flavor)
+file with a preset's name (e.g. a hand-tuned Catppuccin flavor)
 must load **before** the presets to win. (The implementation PR
 corrected an earlier draft of this paragraph, which put presets before
 the user dir; the registry tests caught that order handing preset names
@@ -127,15 +127,15 @@ round (Non-goal: grouping).
   the factory pair **plus the kit presets**; user-dir authority and
   hot-reload semantics unchanged.
 - **0025 D10** (no bundled Catppuccin): superseded — Latte, Frappé,
-  Macchiato and Mocha ship built-in. The Whiskers flow (docs/0025 §9,
-  README) remains the **override** path: same names, user dir wins
-  (D2), so an existing Whiskers install keeps its curated copy with no
-  behavior change.
+  Macchiato and Mocha ship built-in. A user-dir file with a preset's
+  name remains the **override** path: same names, user dir wins (D2).
+  The Nix-side Whiskers builder (template, theme package, HM options,
+  install script) has since been removed as redundant — docs/0025 §9.
 - **0025 §2 D2 note** ("`highlight` sections parse but are unused — no
   code editor in-app"): stale since docs/0070 adopted the Diff; the
   note is corrected to point at the Diff/highlighter consumption.
-- **docs/README**: index row for 0074; the Catppuccin/Whiskers § of the
-  README updated to "override path" phrasing.
+- **docs/README**: index row for 0074; the README's theme § describes
+  the built-in presets and the user-dir override path.
 
 **D7 — #524 interplay: no Aurora change in this scope.** The retune of
 the 0025→component mapping (both Aurora themes' `danger`/`success`
@@ -230,8 +230,8 @@ Shipped in one PR (issue #568):
   `preset_defaults_cannot_hijack_slots`,
   `rebuild_replays_the_bundled_defaults_and_all_presets` — factory pair
   pinned to our values, 37 names —, `user_dir_preset_names_win`).
-- D6: 0025 D2-note/D3/D10 amended; README row + both Whiskers sections
-  marked as the override path; this §7.
+- D6: 0025 D2-note/D3/D10 amended; README row + theme section
+  describe the presets and the user-dir override path; this §7.
 - D8: Cargo.toml bump checklist gained the re-sync line.
 - Receipts: see the PR body (settings golden recaptured in the
   containerized env; audit chain + tab-stops re-run).

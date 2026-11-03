@@ -382,10 +382,10 @@ and the apt long tail is gone because the warm path downloads nothing.
 
 ### D6 — What deliberately stays out
 
-- **Nix package/theme builds**: `nix build .#my-dashboard` and the
-  Catppuccin Whiskers/jq gates are nix derivations by construction; with a
-  nix-free CI they run **local-only**. Porting the theme gates to a shell
-  step is follow-up #156.
+- **Nix package builds**: `nix build .#my-dashboard` is a nix derivation
+  by construction; with a nix-free CI it runs **local-only**. (The
+  Catppuccin Whiskers/jq theme gates it used to sit beside are gone:
+  Catppuccin ships as built-in presets, docs/0074, docs/0025 §9.)
 - **Release-mode build**: dev-profile clippy + test compile every crate;
   a release build would add ~10 min/run for little signal.
 - **Maintenance/scheduled jobs**: the platform is ephemeral, so there is
@@ -654,8 +654,6 @@ jobs:
 
 - **#155** — maintenance workflow (persistent-host rationale; likely to be
   closed obsolete given the ephemeral platform).
-- **#156** — port the Catppuccin theme jq/Whiskers gates to a nix-free CI
-  step.
 - **#640** — unmaintained transitive crates ignored in `deny.toml`
   (upstream GPUI stack); drop each ignore as upstream moves off it.
 - **#158** — build-artifact caching for the ephemeral runners
