@@ -142,8 +142,11 @@ $ nix profile install .#   # if that's your thing
 The build compiles the whole Rust workspace from source (gpui is heavy; the
 first build takes a while, then the store cache takes over). Fonts follow your
 **system fontconfig** (`fonts.packages` on NixOS) — the app doesn't pin its
-own. No desktop entry is installed; launch `my-dashboard` from a terminal or
-your session autostart.
+own. The package ships a desktop entry
+(`share/applications/com.noosxe.my-dashboard.desktop`, named after the app's
+Wayland app_id so docks match the window) and a scalable icon in the hicolor
+theme, so every install path — NixOS/home-manager modules, overlay,
+`nix profile` — puts "My Dashboard" in your launcher.
 
 ## Development
 

@@ -131,12 +131,31 @@
           nativeBuildInputs = with pkgs; [
             pkg-config
             makeWrapper
+            copyDesktopItems
           ];
           buildInputs = dynamicLibraries;
+
+          # Launcher entry + icon. Named after the app's Wayland app_id
+          # (APP_ID, crates/app/src/main.rs) so compositors and docks match
+          # the running window to this entry; the icon reuses the brand
+          # SVG source of truth (docs/0079 D1).
+          desktopItems = [
+            (pkgs.makeDesktopItem {
+              name = "com.noosxe.my-dashboard";
+              desktopName = "My Dashboard";
+              comment = "Universal personal dashboard";
+              exec = "my-dashboard";
+              icon = "com.noosxe.my-dashboard";
+              categories = [ "Utility" ];
+              startupWMClass = "com.noosxe.my-dashboard";
+            })
+          ];
 
           postInstall = ''
             wrapProgram $out/bin/my-dashboard \
               --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath dynamicLibraries}
+            install -Dm444 crates/app/assets/macos/AppIcon.svg \
+              $out/share/icons/hicolor/scalable/apps/com.noosxe.my-dashboard.svg
           '';
 
           meta = with lib; {

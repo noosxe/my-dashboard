@@ -14,7 +14,9 @@ proper macOS app icon and wires it into the bundle.
 
 ## D1 — The brand, pinned
 
-The icon source of truth is `crates/app/assets/macos/AppIcon.svg`. It
+The icon source of truth is `crates/app/assets/macos/AppIcon.svg`. The
+Linux flake package installs the same file as its hicolor scalable app
+icon (`flake.nix`, desktop entry) — moving it means updating both. It
 reproduces the sidebar mark exactly:
 
 - **Glyph**: `gallery-vertical-end`, the same 24-unit paths the sidebar
