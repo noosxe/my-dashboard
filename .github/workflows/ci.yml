@@ -51,6 +51,12 @@ on:
   schedule:
     - cron: "0 6 * * 1"
 
+# Least-privilege GITHUB_TOKEN (docs/0027 D5): every job only reads the
+# repo. Checkout runs with persist-credentials: false and the cache
+# actions use the runner's own cache token, so nothing needs write scopes.
+permissions:
+  contents: read
+
 # One in-flight run per ref: superseded pushes cancel their queued run
 # and free the runners sooner. Scheduled runs get their own group so they
 # never cancel (or get cancelled by) a push to main.
