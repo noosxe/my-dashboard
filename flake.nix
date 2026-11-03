@@ -301,11 +301,12 @@
       }
     )
     // {
-      # final.system: nixpkgs package sets expose the host system.
+      # final.stdenv.hostPlatform.system, not the deprecated `final.system`
+      # alias (warns on current nixpkgs).
       overlays.default = final: _:
         let
           # Nothing to add on systems where the packages are scoped out.
-          pkgs' = self.packages.${final.system} or { };
+          pkgs' = self.packages.${final.stdenv.hostPlatform.system} or { };
         in
         nixpkgs.lib.optionalAttrs (pkgs' ? default) {
           my-dashboard = pkgs'.default;

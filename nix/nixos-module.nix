@@ -15,7 +15,7 @@ in
   options.programs.my-dashboard = {
     enable = lib.mkEnableOption "my-dashboard, the universal personal dashboard app";
 
-    package = lib.mkPackageOption self.packages.${pkgs.system} "default" { };
+    package = lib.mkPackageOption self.packages.${pkgs.stdenv.hostPlatform.system} "default" { };
   };
 
   config = lib.mkIf cfg.enable {

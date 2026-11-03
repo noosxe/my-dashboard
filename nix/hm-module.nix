@@ -23,7 +23,7 @@ let
   themeLink = flavor: {
     name = "my-dashboard/themes/catppuccin-${flavor}.json";
     value.source = "${
-      self.packages.${pkgs.system}.my-dashboard-catppuccin-themes
+      self.packages.${pkgs.stdenv.hostPlatform.system}.my-dashboard-catppuccin-themes
     }/catppuccin-${flavor}.json";
   };
 in
@@ -31,7 +31,7 @@ in
   options.programs.my-dashboard = {
     enable = lib.mkEnableOption "my-dashboard, the universal personal dashboard app";
 
-    package = lib.mkPackageOption self.packages.${pkgs.system} "default" { };
+    package = lib.mkPackageOption self.packages.${pkgs.stdenv.hostPlatform.system} "default" { };
 
     catppuccin = {
       enable = lib.mkEnableOption ''
