@@ -11,18 +11,10 @@ Users can drop `ThemeSet` JSON files into `~/.config/my-dashboard/themes/`
 Files are watched: new, edited, and removed themes take effect on the
 running app without a restart. The bundled set shrinks to the library's
 built-in **`Default Light` / `Default Dark`** — the embedded Catppuccin
-Mocha is removed (dark mode visibly changes; accepted). Catppuccin flavors
-return later as generated output via Whiskers (#143), not hand-maintained
-files.
-
-On a machine where the app runs from a dev checkout (no Home Manager),
-`scripts/install-catppuccin-theme.sh [flavors…]` does the same
-installation by hand: it renders `nix/catppuccin.tera` with Whiskers
-(available in the dev shell), applies the same gates the nix package
-applies, and writes the files into the platform's user themes dir —
-`~/Library/Application Support/my-dashboard/themes/` on macOS,
-`~/.config/my-dashboard/themes/` under XDG. The watcher picks the
-files up live; no restart.
+Mocha is removed (dark mode visibly changes; accepted). Catppuccin
+flavors now ship built-in as presets (docs/0074), alongside every other
+upstream gpui-component theme; no generated or hand-maintained Catppuccin
+files are involved.
 
 ## 2. Upstream facts (live introspection 2026-09-07, pin `0c746df`, `crates/ui/src/theme/`)
 
@@ -158,9 +150,8 @@ JSON is kept in git history as the semantic-key → Catppuccin-role
 reference for that work.
 
 Amended by docs/0074: the four flavors ship built-in (vendored kit
-presets). The Whiskers flow stays as the **override** path — user-dir
-files load before the presets, so a Whiskers install shadows the
-built-in flavors by name, unchanged.
+presets). The Whiskers builder that #143 originally shipped is removed
+(§9); a user-dir file naming a preset still shadows it (docs/0074 D2).
 
 ## 4. Implementation plan (one PR, after this doc merges)
 
@@ -211,9 +202,8 @@ built-in flavors by name, unchanged.
 ## 7. Follow-ups (GitHub issues, not this PR)
 
 - ~~#143 — Whiskers-generated Catppuccin flavors (template + drop-in
-  workflow + optional release artifacts).~~ → shipped: nix/catppuccin.tera
-  + flake package + HM module (see §9); release artifacts not needed
-  (the flake generates on demand).
+  workflow + optional release artifacts).~~ → superseded by the
+  built-in presets (docs/0074); see §9.
 - Upstream report: watcher is recursive, loader is flat
   (`themes_dir` subdirectories silently inert) — file against
   gpui-component when we next touch themes.
@@ -227,40 +217,25 @@ built-in flavors by name, unchanged.
 - Implementation PR: docs/0006 §3.6's bundled-Mocha paragraphs are replaced
   by a pointer here, in the same PR that removes the embedding.
 
-## 9. Shipped record — Catppuccin via Whiskers (#143, flake-integrated)
+## 9. Catppuccin — built-in presets, no theme builder
 
-**Authoring.** `nix/catppuccin.tera` is the one-time semantic-key →
-Catppuccin-role mapping (100 keys, transcribed from the removed bundled
-mocha — see D3), parameterized per flavor: theme name
-`Catppuccin {{flavor.name}}`, `mode` from `flavor.dark` (Latte → light,
-rest → dark), all hexes as `#{{<color>.hex}}` plus the constant alpha
-suffixes where the old mapping had them. Sapphire stays the accent.
-Whiskers facts (docs, v2.9): `matrix: [flavor]` + `filename` (required
-with matrix) writes one file per flavor relative to CWD;
-`flavor.dark`/`flavor.name`/`<color>.hex` are single-flavor context;
-the default `hex_format` yields 6-digit hexes for the fully-opaque
-palette.
+All four Catppuccin flavors (Latte, Frappé, Macchiato, Mocha) ship
+built into the app as presets from the pinned gpui-component theme
+gallery (docs/0074), so the Nix side carries no theme builder: no
+Whiskers template, no theme package or flake check, and no theme
+install script. The repo's #143 Whiskers flow (`nix/catppuccin.tera`,
+`packages.my-dashboard-catppuccin-themes`,
+`scripts/install-catppuccin-theme.sh`) was removed once the presets
+covered it.
 
-**Nix path (primary).** The flake builds
-`packages.my-dashboard-catppuccin-themes` by running
-`nixpkgs#catppuccin-whiskers` over the template (hermetic — the palette
-is built into whiskers; no network). jq gates in the derivation assert
-each file parses with a `Catppuccin ` name, a light/dark mode and 100
-color keys, and that there are exactly 4 — the build fails rather than
-half-shipping. `homeManagerModules.default` gains
-`programs.my-dashboard.catppuccin.{enable,flavors}` (independent of
-`programs.my-dashboard.enable`); enabling links the chosen flavor files
-into `~/.config/my-dashboard/themes/` **file-by-file**, so hand-dropped
-themes coexist. `home-manager` must not manage that directory as a
-whole (standard `xdg.configFile` conflict rules apply).
+`homeManagerModules.default` keeps
+`programs.my-dashboard.catppuccin.{enable,flavors}` only as
+`lib.mkRemovedOptionModule` shims: setting either fails evaluation with
+a message pointing at the presets, instead of silently doing nothing.
+After the switch, home-manager drops the previously linked
+`catppuccin-*.json` files from `~/.config/my-dashboard/themes/` and the
+same-named presets take over, so a persisted `Catppuccin Mocha` (or any
+flavor) selection keeps resolving.
 
-**Manual path (no Nix).** `whiskers nix/catppuccin.tera` (or
-`cargo install catppuccin-whiskers` first) renders the four files into
-`themes/` next to the CWD; copy the ones you want into
-`~/.config/my-dashboard/themes/`. They hot-reload like any other theme
-file (D5).
-
-**Name auto-heal.** The generated names are the pre-0025 ones
-(`Catppuccin Mocha`, …), so an install that persisted the old bundled
-name and then enables catppuccin resolves its D8 fallback silently on
-the next boot — no settings edit needed.
+Custom palettes still go through the user themes dir (§1, D5): a
+hand-dropped file naming a preset shadows it (docs/0074 D2).
