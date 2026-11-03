@@ -199,6 +199,12 @@ fork-safe by construction. Since then two more SHA-pinned actions joined
 under the same rule and the same dependabot coverage: `Swatinem/rust-cache`
 (#158) and `EmbarkStudios/cargo-deny-action` (D8), and
 `actions/cache/restore` + `actions/cache/save` (v6.1.0, D10).
+The workflow pins the `GITHUB_TOKEN` to `permissions: contents: read`
+at the top level, so it never falls back to the repository's default token
+scopes. No job writes to the repo, and the cache actions authenticate with
+the runner's cache token rather than `GITHUB_TOKEN`. Fork-PR runs also stay
+behind GitHub's approval gate for outside contributors (a repository
+setting, not workflow YAML).
 
 ### D7 — Path-based filtering: docs-only changes don't build anything
 
