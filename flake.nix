@@ -301,12 +301,14 @@
       }
     )
     // {
-      # final.stdenv.hostPlatform.system, not the deprecated `final.system`
-      # alias (warns on current nixpkgs).
-      overlays.default = final: _:
+      # The system comes from `prev`, not `final`: the attribute set below
+      # is conditional on it, and keying it off `final` makes nixpkgs'
+      # fixpoint recurse forever. `stdenv.hostPlatform.system`, not the
+      # deprecated `system` alias (warns on current nixpkgs).
+      overlays.default = _: prev:
         let
           # Nothing to add on systems where the packages are scoped out.
-          pkgs' = self.packages.${final.stdenv.hostPlatform.system} or { };
+          pkgs' = self.packages.${prev.stdenv.hostPlatform.system} or { };
         in
         nixpkgs.lib.optionalAttrs (pkgs' ? default) {
           my-dashboard = pkgs'.default;
