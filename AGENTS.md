@@ -7,6 +7,14 @@ Working rules for AI agents in this repository. Follow precisely.
 - **`main` is protected.** All changes go through PRs; the product owner reviews, human-tests, and merges. Never push to `main`, never commit directly to it.
 - **Stay focused.** Keep work scoped to the current task. If something unrelated needs fixing or you see an improvement opportunity, file a GitHub issue — do not fold it into the current PR.
 - **Ask for help freely.** Do not guess where a decision is the product owner's to make. Blocking questions are cheap; wrong assumptions are not.
+- **Everything you write is public.** The repo is public: source, commit messages, issues, PR bodies, comments and the wiki can all be read by anyone. Never write any of the following into them:
+  - names of the owner's private repositories;
+  - machine hostnames;
+  - the owner's personal or system-config repos and their paths;
+  - signing identities (Apple TeamIdentifier, certificate expiry dates);
+  - real data that the app fetched from private accounts.
+
+  Use neutral placeholders instead: `<private-repo>`, `<host>`, "a downstream flake consumer", `<redacted>`. Use the synthetic GitHub fixtures (docs/0081 §12.1) for examples. This applies equally to pasted logs, receipts and screenshots. If something slips through, tell the product owner: editing the text is not enough, because GitHub keeps edit history and old revisions must be deleted by hand.
 - **MCP servers are available** (not connected by default, but discoverable) and may be used when needed — including web search and context7 for verifying upstream sources. Never design or implement against remembered API details; verify against pinned upstream code/docs.
 
 ## Documentation
