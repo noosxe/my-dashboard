@@ -48,7 +48,8 @@ use crate::auth::{
 use crate::gql::{self, Org, Repo, User};
 use crate::http::{Http, HttpError, RateLimit, SharedToken, Verb};
 use crate::usage::{
-    Origin, RecordingHttp, Surface, Trigger, UsageLedger, parse_rate_limit_body, recording_for_auth,
+    Origin, RecordingHttp, Surface, Trigger, UsageLedger, budget_now, parse_rate_limit_body,
+    recording_for_auth,
 };
 use dashboard_core::usage_records::Transport;
 
@@ -1988,7 +1989,7 @@ impl Kind {
                 | Kind::RateLimit
         )
     }
-    fn kind_name(&self) -> &'static str {
+    pub(crate) fn kind_name(&self) -> &'static str {
         match self {
             Kind::CardTotals => "card-totals",
             Kind::SessionInventory => "session-inventory",
@@ -2836,7 +2837,7 @@ impl GithubState {
             return true;
         }
         match self.rate_limited_until {
-            Some(until) => now_epoch() < until,
+            Some(until) => budget_now() < until,
             None => false,
         }
     }
@@ -2846,7 +2847,7 @@ impl GithubState {
         // Gate first: a rate-limit pause (or auth loss) defers bootstrap
         // too — the flag survives until the window passes.
         if let Some(until) = self.rate_limited_until
-            && now_epoch() >= until
+            && budget_now() >= until
         {
             self.rate_limited_until = None;
             log::info!("rate-limit window passed — resuming fetches");
@@ -2883,7 +2884,7 @@ impl GithubState {
         // `reset_at` with it).
         {
             let mut book = self.usage.lock().unwrap();
-            let now = now_epoch();
+            let now = budget_now();
             if book.probe_due(now) {
                 book.mark_probe(now);
                 drop(book);
@@ -4722,7 +4723,7 @@ impl GithubState {
                 // #323 review) — the GraphQL book reconciles from
                 // GraphQL traffic exclusively.
                 if let Some(core) = parse_rate_limit_body(body) {
-                    self.usage.lock().unwrap().fold_probe(core, now_epoch());
+                    self.usage.lock().unwrap().fold_probe(core, budget_now());
                 }
             }
             Kind::SessionInventory => {

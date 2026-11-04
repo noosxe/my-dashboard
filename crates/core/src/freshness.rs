@@ -106,10 +106,12 @@ pub fn synced_label(age: Option<Duration>) -> Option<SharedString> {
 /// with the calendar. Release builds never read it.
 pub const FIXED_NOW_ENV: &str = "DASHBOARD_FIXED_NOW";
 
-fn wall_now() -> chrono::DateTime<chrono::Utc> {
+/// The pinned instant, when this is a debug build running under
+/// `DASHBOARD_FIXED_NOW`; `None` otherwise (always `None` in release).
+pub fn fixed_now() -> Option<chrono::DateTime<chrono::Utc>> {
     static PINNED: std::sync::OnceLock<Option<chrono::DateTime<chrono::Utc>>> =
         std::sync::OnceLock::new();
-    let pinned = PINNED.get_or_init(|| {
+    *PINNED.get_or_init(|| {
         if !cfg!(debug_assertions) {
             return None;
         }
@@ -117,8 +119,29 @@ fn wall_now() -> chrono::DateTime<chrono::Utc> {
             .ok()
             .and_then(|v| chrono::DateTime::parse_from_rfc3339(&v).ok())
             .map(|t| t.with_timezone(&chrono::Utc))
-    });
-    pinned.unwrap_or_else(chrono::Utc::now)
+    })
+}
+
+fn wall_now() -> chrono::DateTime<chrono::Utc> {
+    fixed_now().unwrap_or_else(chrono::Utc::now)
+}
+
+/// Epoch milliseconds on the capture clock (docs/0081 §12.1): the
+/// pinned instant under `DASHBOARD_FIXED_NOW`, the wall clock
+/// otherwise. The clocks that judge *budget windows and ledger age*
+/// read this — the usage page's `as_of`, the usage store's retention
+/// prune, and the GitHub budget book/chip/pause — so fixture reset
+/// times and a seeded ledger anchored to the pinned instant render
+/// the same on any calendar day. Flight timestamps, toasts and timers
+/// stay on the wall clock.
+pub fn clock_epoch_ms() -> u64 {
+    match fixed_now() {
+        Some(t) => t.timestamp_millis().max(0) as u64,
+        None => std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0),
+    }
 }
 
 /// GitHub-side relative timestamp for rows — "now" / "3m" / "2h" /

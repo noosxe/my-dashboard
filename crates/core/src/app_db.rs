@@ -885,7 +885,10 @@ fn writer_loop(store: Arc<SQLiteStore>, conn: Connection) {
         // deterministic.
         let prune_due = quitting || last_prune.is_none_or(|at| at.elapsed() >= PRUNE_INTERVAL);
         if prune_due {
-            match prune_once(&conn, now_epoch_ms()) {
+            // The capture clock (docs/0081 §12.1): a seeded ledger
+            // anchored to DASHBOARD_FIXED_NOW must not age out of the
+            // window on a later calendar day; the wall clock otherwise.
+            match prune_once(&conn, crate::freshness::clock_epoch_ms()) {
                 // Eviction alters the retained set — the token moves
                 // (docs/0057 D7, docs/0054 D9's contract).
                 Ok(n) if n > 0 => {

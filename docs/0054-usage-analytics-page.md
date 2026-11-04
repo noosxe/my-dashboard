@@ -126,6 +126,10 @@ means *now, for the data on screen*. Every window, every tab, every
 number is a pure function of records inside `[as_of − range, as_of)` —
 data cannot drift under the viewer: records landing after the freeze
 have `ts >= as_of` and are invisible until an explicit refresh.
+*(Capture clock, docs/0081 §12.1: `as_of` reads
+`freshness::clock_epoch_ms`, which is the wall clock except under
+`DASHBOARD_FIXED_NOW` in debug builds. There it is the pinned instant
+the seeded fixture ledger ends at.)*
 
 - **The refresh button (⟳, beside the range picker) is the only path
   that moves `as_of` or touches the store**: it stamps `as_of = now`,

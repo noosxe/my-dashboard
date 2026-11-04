@@ -215,6 +215,13 @@ choice (the fetching side has no per-transport gate today); splitting
 the pause per transport is deliberately out of scope and stays a
 recorded follow-up decision, not shipped behavior.
 
+*Capture clock (amendment, docs/0081 §12.1):* every comparison against
+a server reset — the book's display, the chip's countdown and tooltip,
+the pause gate and the probe cooldown — reads `usage::budget_now()`.
+That is the wall clock, pinned under `DASHBOARD_FIXED_NOW` in debug
+builds, so the fixture rate variants (`healthy` / `low` / `exhausted`)
+render the D5 chip states the same way on any calendar day.
+
 ## D5 — The footer chip: module-contributed status items
 
 **Core hook (generic, reusable)** — `ModuleEntry` grows:

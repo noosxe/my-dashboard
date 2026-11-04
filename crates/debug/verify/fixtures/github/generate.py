@@ -18,9 +18,34 @@ NOW = datetime(2026, 10, 23, 12, 0, tzinfo=timezone.utc)
 VIEWER = "fixture-user"
 REPO = "atlas"
 FULL = f"{VIEWER}/{REPO}"
-# No rate data anywhere: the usage chip's label counts down to the
-# reset on the real clock, which would make every golden drift.
+# The committed bodies carry no rate data (`rateLimit: null`): the
+# default capture keeps the chip at "GH … · GQL ?" and the goldens
+# unchanged. A rate variant (rate/<name>.json, selected with
+# DASHBOARD_GITHUB_FIXTURE_RATE) is stamped onto every response at serve
+# time instead — headers, GraphQL `data.rateLimit` and the /rate_limit
+# probe — with resets as offsets from the pinned budget clock (docs/0081
+# §12.1, fixture.rs).
 RATE = None
+# name -> per-bucket snapshot; reset_in_secs is relative to the budget
+# clock's "now" (DASHBOARD_FIXED_NOW under captures). `exhausted` resets
+# both buckets together so the pause countdown is order-independent.
+RATE_VARIANTS = {
+    "healthy": {
+        "rest": {"limit": 5000, "remaining": 4812, "reset_in_secs": 2460},
+        "graphql": {"limit": 5000, "remaining": 4655, "reset_in_secs": 1380},
+        "graphql_cost": 1,
+    },
+    "low": {
+        "rest": {"limit": 5000, "remaining": 312, "reset_in_secs": 2460},
+        "graphql": {"limit": 5000, "remaining": 188, "reset_in_secs": 1380},
+        "graphql_cost": 1,
+    },
+    "exhausted": {
+        "rest": {"limit": 5000, "remaining": 0, "reset_in_secs": 2220},
+        "graphql": {"limit": 5000, "remaining": 0, "reset_in_secs": 2220},
+        "graphql_cost": 1,
+    },
+}
 TOTAL = 120
 PAGE = 50
 
@@ -299,6 +324,8 @@ def main():
     write("rest/notifications.json", [])
     write(f"rest/repos_{VIEWER}_{REPO}_notifications.json", [])
     write("rest/user.json", {"login": VIEWER, "id": 1, "avatar_url": None, "name": "Fixture User"})
+    for name, variant in RATE_VARIANTS.items():
+        write(f"rate/{name}.json", variant)
 
 
 if __name__ == "__main__":
