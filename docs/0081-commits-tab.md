@@ -779,8 +779,72 @@ adds a debug-build-only fixture mode:
   with its generator (`generate.py`): viewer `fixture-user`, three
   repositories, and `fixture-user/atlas` with 120 commits over a month
   (pages of 50, 50, 20), mixed signatures, CI states and an unlinked
-  author. It carries no rate-limit data on purpose: the usage chip
-  counts down to the reset on the real clock.
+  author. Its committed bodies carry no rate-limit data
+  (`rateLimit: null`), so a default capture keeps the chip at
+  `GH … · GQL ?` and the existing goldens don't move. Rate data comes
+  from an opt-in variant (below).
+- **Rate-limit variants** *(amendment, #536 prerequisites)*.
+  `DASHBOARD_GITHUB_FIXTURE_RATE=healthy|low|exhausted` selects
+  `rate/<variant>.json`: one static snapshot per bucket (`limit`,
+  `remaining`, `reset_in_secs`, plus the GraphQL `graphql_cost`). The
+  fixture transport stamps it on every response at serve time: REST
+  responses get the `core` bucket as `x-ratelimit-*` headers, GraphQL
+  responses get the `graphql` bucket as headers *and* as the body's
+  `data.rateLimit`, and `GET /rate_limit` answers a synthesized probe
+  body (`resources.core` from the variant, the measured full phantom for
+  `resources.graphql`, docs/0050 §2) without a committed file. The
+  numbers never decrement, because request order isn't deterministic
+  and a static snapshot is. `healthy` is 4,812 / 4,655 of 5,000, `low`
+  is 312 / 188, and `exhausted` is 0 / 0. In `exhausted`, both buckets
+  reset together, so the pause countdown doesn't depend on which
+  response lands first. Bodies still serve with status 200, so the
+  surfaces behind the paused chip stay populated. Unset, nothing
+  changes. An unknown variant logs `github fixture: rate variant …
+  unusable` and serves no rate data.
+- **The clock concern, resolved: one pinned capture clock.** Reset
+  times are offsets, resolved against the *budget clock* when they are
+  served. Under `DASHBOARD_FIXED_NOW` (debug builds only) that clock is
+  pinned too. `dashboard_core::freshness::clock_epoch_ms` is the
+  pinned instant, else the wall clock. It now drives every clock that
+  judges a budget window or a ledger's age:
+  - the GitHub usage book's snapshots, the chip's countdown and tooltip
+    (`usage::budget_now`);
+  - the `rate_limited_until` pause gate and the `/rate_limit` probe
+    cooldown;
+  - the usage page's frozen `as_of` (docs/0054 D10);
+  - the usage store's 90-day retention prune (docs/0057 D7).
+
+  So `low` reads `GH 312 · GQL 188` with "resets in 41m" / "23m" on
+  any calendar day. In `exhausted`, the pause never expires inside a
+  pinned session, because the frozen clock never reaches the reset.
+  The probe fires at most once per pinned session (its cooldown never
+  elapses), which a capture never needs twice. Flight timestamps,
+  toasts, token expiry and timers stay on the wall clock. So a
+  session's own live flights land *after* the pinned `as_of` and stay
+  off the usage page; only the seeded ledger shows there, which is
+  what makes it deterministic.
+- **Seeded usage ledger** *(#536's mechanism)*. With fixture mode on,
+  `DASHBOARD_GITHUB_USAGE_SEED=<days>` (1–30) appends a synthetic,
+  deterministic flight history to the usage store at module init,
+  before any window exists. So the usage page's first open reads it,
+  and no Refresh is needed. The generator (`usage_seed.rs`) isn't
+  compiled into release builds at all. It is a fixed-seed PRNG over
+  the module's own vocabulary (`Kind::kind_name`, `Surface`,
+  `Trigger`), and its history ends at the capture clock's "now". It
+  models:
+  - busy UTC working hours, sparse nights and rare bursts (about 1,000
+    flights a day);
+  - REST and GraphQL booked against two independent hourly windows
+    (`remaining_after` burns down and refills at `cycle_reset_epoch`);
+  - 304 revalidations, 403/404/502s, network failures and
+    cost-less GraphQL queries at low rates;
+  - non-zero `duration_ms` (log-normal per op), `queue_ms` and
+    `resp_bytes`.
+
+  Idents are `fixture-user/{atlas,beacon,compass}[#n]` only. If any
+  row already sits in the window, the seed is skipped, so a restarted
+  session keeps one copy. Without fixture mode the variable is
+  ignored, with a warning.
 - **The receipt** `crates/debug/verify/repo-commits.txt` replays §8 over
   it, and `snapshots/github-commits.json` is its golden.
   `snapshots/github.json` did not drift: it captures the signed-out

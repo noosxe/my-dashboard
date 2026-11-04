@@ -188,6 +188,39 @@ scripts/verify.sh sh -c '
 '
 ```
 
+The usage surfaces (docs/0081 §12.1) run over the same fixtures, with
+two opt-in extras. `DASHBOARD_GITHUB_USAGE_SEED=<days>` seeds a
+deterministic ledger, so the usage page opens populated.
+`DASHBOARD_GITHUB_FIXTURE_RATE=healthy|low|exhausted` gives the footer
+chip a budget. Both are anchored to the pinned clock, so their numbers
+and countdowns are stable. One session per rate variant (the variant is
+read at boot):
+
+```sh
+scripts/verify.sh sh -c '
+  set -e
+  cargo build -p dashboard-app
+  export DASHBOARD_GITHUB_FIXTURE=/work/crates/debug/verify/fixtures/github
+  export DASHBOARD_FIXED_NOW=2026-10-23T12:00:00Z
+  export DASHBOARD_GITHUB_USAGE_SEED=7
+  export DASHBOARD_GITHUB_FIXTURE_RATE=low
+  cargo run -p dashboard-debug -- session start --name usage --size 1280x800 \
+    --binary /tmp/target/debug/my-dashboard
+  export DASHBOARD_DEBUG_SESSION=usage
+  # The chip shows on the GitHub page (sidebar id: repo-commits.txt).
+  cargo run -p dashboard-debug -- click 3229520539080433524 --wait-frame
+  sleep 4
+  cargo run -p dashboard-debug -- tree | grep "GitHub API"
+  cargo run -p dashboard-debug -- session stop usage
+'
+```
+
+Expected chip labels: `healthy` reads "REST: 4,812 of 5,000 requests
+remaining, resets in 41 minutes; GraphQL: 4,655 of 5,000 points …";
+`low` reads 312 / 188; `exhausted` reads "GitHub API rate limited,
+fetches resume in 37 minutes". The usage page (the chip's "Usage
+analytics" button) opens on the seeded week, as of the pinned 12:00.
+
 Interactive inspection: `scripts/verify.sh bash`.
 
 Freshness caution: cargo tracks host edits by mtime, and macOS bind

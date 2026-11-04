@@ -1544,7 +1544,8 @@ pub struct UsagePage {
 impl UsagePage {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let mut page = Self {
-            as_of_ms: usage_records::now_epoch_ms(),
+            // docs/0081 §12.1: pinned under DASHBOARD_FIXED_NOW.
+            as_of_ms: crate::freshness::clock_epoch_ms(),
             rows: Vec::new(),
             range: Range::D1,
             transport: None,
@@ -1584,7 +1585,7 @@ impl UsagePage {
     /// recomputes from the new anchor. This is not a fetch: memory
     /// only — no `Http`, no specs, no status spinner.
     fn refresh(&mut self, cx: &mut Context<Self>) {
-        self.as_of_ms = usage_records::now_epoch_ms();
+        self.as_of_ms = crate::freshness::clock_epoch_ms();
         self.reload(cx);
         self.recompute_tabs(cx);
     }

@@ -37,7 +37,6 @@ use gpui_component::{
 use dashboard_core::nav::{Navigator, Page};
 use dashboard_core::usage_records::{RecordDraft, Recorder, Transport};
 
-use crate::auth::now_epoch;
 use crate::http::{Http, HttpError, HttpResult, RateLimit, Verb};
 use crate::service::GithubState;
 
@@ -50,6 +49,17 @@ pub(crate) type UsageLedger = Arc<Mutex<UsageBook>>;
 /// impls).
 pub(crate) fn new_ledger() -> UsageLedger {
     Arc::new(Mutex::new(UsageBook::default()))
+}
+
+/// The budget clock, epoch seconds (docs/0081 §12.1): every judgement
+/// against a server `reset_at` — the book's snapshots, the chip's
+/// countdown, the rate-limit pause gate, the probe cooldown — reads
+/// this. Under `DASHBOARD_FIXED_NOW` (debug builds) it is pinned, so
+/// fixture reset times relative to the pinned instant render the same
+/// countdown on any calendar day; the wall clock otherwise. Token
+/// expiry stays on [`crate::auth::now_epoch`].
+pub(crate) fn budget_now() -> u64 {
+    dashboard_core::freshness::clock_epoch_ms() / 1000
 }
 
 /// Minimum spacing between `/rate_limit` probes (docs/0050 D3).
@@ -860,7 +870,7 @@ impl CountingHttp {
                 } else {
                     result.rate.map(Into::into)
                 };
-                book.on_response(bucket, graphql, snapshot, now_epoch());
+                book.on_response(bucket, graphql, snapshot, budget_now());
             }
             Err(_) => book.on_failure(bucket, graphql),
         }
@@ -934,7 +944,7 @@ impl UsageChip {
                 let key = cx.update(|cx| {
                     let rate_limited_until = timer_state.read(cx).rate_limited_until;
                     let book = timer_usage.lock().unwrap();
-                    format!("{:?}", book.display(now_epoch(), rate_limited_until))
+                    format!("{:?}", book.display(budget_now(), rate_limited_until))
                 });
                 if last_key.as_deref() != Some(key.as_str()) {
                     last_key = Some(key);
@@ -950,7 +960,7 @@ impl UsageChip {
         let rate_limited_until = self.state.read(cx).rate_limited_until;
         let book = self.usage.lock().unwrap();
         (
-            book.display(now_epoch(), rate_limited_until),
+            book.display(budget_now(), rate_limited_until),
             book.session_counters(),
         )
     }
@@ -1131,7 +1141,7 @@ impl Render for UsageChip {
                 // rate-limit pause is passed `None` so the tooltip shows
                 // the budget detail even while the chip reads Exhausted.
                 let book = tooltip_usage.lock().unwrap();
-                let display = book.display(now_epoch(), None);
+                let display = book.display(budget_now(), None);
                 let lines = match display {
                     UsageDisplay::Budget { rest, graphql } => {
                         vec![

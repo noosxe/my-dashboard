@@ -32,6 +32,8 @@ pub mod pr_page;
 pub mod service;
 pub mod settings;
 pub mod usage;
+#[cfg(debug_assertions)]
+mod usage_seed;
 
 use std::rc::Rc;
 use std::sync::Arc;
@@ -157,6 +159,18 @@ impl Module for GithubModule {
         // docs/0081 §12: a debug-build fixture dir swaps the keychain and
         // the network for committed JSON (the docs/0071 captures).
         let fixture = fixture::fixture_dir();
+        // docs/0081 §12.1 (#536): the seeded usage ledger — debug
+        // builds only, fixture mode only, before any window exists so
+        // the usage page's first open reads it.
+        #[cfg(debug_assertions)]
+        if let Some(days) = usage_seed::seed_days(fixture.is_some()) {
+            usage_seed::seed(
+                &dashboard_core::usage_records::sink(cx),
+                &dashboard_core::usage_records::source(cx),
+                dashboard_core::freshness::clock_epoch_ms(),
+                days,
+            );
+        }
         let store: Arc<dyn TokenStore> = if fixture.is_some() {
             Arc::new(fixture::FixtureTokenStore)
         } else {

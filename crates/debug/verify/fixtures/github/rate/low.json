@@ -1,0 +1,13 @@
+{
+ "graphql": {
+  "limit": 5000,
+  "remaining": 188,
+  "reset_in_secs": 1380
+ },
+ "graphql_cost": 1,
+ "rest": {
+  "limit": 5000,
+  "remaining": 312,
+  "reset_in_secs": 2460
+ }
+}

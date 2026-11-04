@@ -165,6 +165,10 @@ most once per hour *inside the writer thread's loop* — never at startup
 prune is harmless; the check is one indexed `DELETE` on a table sized in the
 hundreds of thousands of rows at worst. The mutation token moves on prune
 (eviction alters the retained set — the existing `UsageSource` contract).
+*(Capture clock, docs/0081 §12.1: "now" is `freshness::clock_epoch_ms`.
+That is the wall clock, pinned under `DASHBOARD_FIXED_NOW` in debug
+builds, so a seeded fixture ledger can't age out of the window as the
+calendar moves past the pinned instant.)*
 
 **D8 — Read path: direct indexed query on the UI thread.**
 `records_between(from, to)` = `SELECT … WHERE ts_epoch_ms >= ? AND
