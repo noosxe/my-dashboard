@@ -60,6 +60,11 @@ snapshot ("reviewable and diffable") applies unchanged — the file is
 upstream's now, synced by the same bump ritual (D8). `DEFAULT_LIGHT_NAME` /
 `DEFAULT_DARK_NAME` become `"Default Light"` / `"Default Dark"`.
 
+Both vendored sets are Apache-2.0 (GPUI Kit, Longbridge). They are attributed
+in `THIRD_PARTY_NOTICES.md`, with the upstream license file reproduced at
+`LICENSES/gpui-kit-LICENSE-APACHE`. A sync that adds or renames vendored
+files updates that entry too.
+
 **D3 — Boot and stale-name semantics.** Replay order: kit defaults → user
 dir → presets (docs/0025 D5/D6, unchanged). Factory boots and stale-name
 boots land on the kit pair via the existing install-by-name fallthrough.

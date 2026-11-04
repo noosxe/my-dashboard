@@ -218,4 +218,5 @@ flake's `dynamicLibraries` list is the exact set.
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). The repo also vendors a few third-party files (theme presets, icons) that keep
+their own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

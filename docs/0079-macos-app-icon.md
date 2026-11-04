@@ -22,6 +22,8 @@ reproduces the sidebar mark exactly:
 - **Glyph**: `gallery-vertical-end`, the same 24-unit paths the sidebar
   renders via `IconName::GalleryVerticalEnd` (kit assets, lucide upstream:
   two rules and a rounded card — a stack of panels, read as a dashboard).
+  Lucide is ISC-licensed; the icon's attribution lives in
+  `THIRD_PARTY_NOTICES.md`.
 - **Surface**: the factory primary — a vertical `#1E293B → #0F172A`
   gradient with the glyph in `#F8FAFC`. This is the *factory* Aurora
   primary (docs/0056), not a live theme token: an OS icon is fixed

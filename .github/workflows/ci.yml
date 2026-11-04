@@ -32,6 +32,7 @@ on:
       - ".pi/**"
       - ".gitignore"
       - "LICENSE*"
+      - "LICENSES/**"
   # Pushes to main (docs/0027 D9): the merged code already passed the
   # PR run, so main re-runs only when an input of the rust-cache key or
   # the dependency audit changes — manifests, lockfile, deny.toml, this
