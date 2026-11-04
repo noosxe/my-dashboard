@@ -1,8 +1,27 @@
 # 0054 — Usage analytics page
 
-Status: draft under discussion (use case #1 designed; more use cases to be
-appended case by case). Reads the pipeline shipped by docs/0053; nothing
-here changes collection.
+Reads the pipeline shipped by docs/0053; nothing here changes
+collection.
+
+> **Superseded in structure by docs/0082** (usage surfaces redesign,
+> two audiences). The Overview, Quota usage and Request latency tabs
+> (D3) give way to a **Budget** view and a **Requests** view (0082 D1,
+> §9 maps every view below to its new home). Specifically:
+>
+> - **D2:** range presets become Current window / 1h / 24h / 7d / 30d
+>   / 90d (0082 D11).
+> - **D4/D5:** cost views pick one budget and never pool REST requests
+>   with GraphQL points (0082 D2).
+> - **D6:** the donut is removed, and time charts use a proportional
+>   axis (0082 D7, D10a).
+> - **D11:** runway is replaced by an in-window projection (0082 D6).
+> - **D13:** the read bound grows to 90 days (0082 D11).
+> - **D15:** the burn-down applies to the current window only, with
+>   per-window history beside it (0082 D8).
+> - **D17:** no nested table scroll (0082 D20).
+>
+> D10 (frozen `as_of`) and D13 (one calculator) stand. The sections
+> below remain the record of what shipped in 2026-09/10.
 
 ## 1. Problem & goals
 
@@ -39,8 +58,9 @@ Shell-level page, not a github sub-page:
 - The page is cross-module by design (records carry `module`; when
   forgejo/gitea land, their rows join the same views).
 - Discoverability hook: clicking the usage chip on the github module
-  home navigates here (the chip keeps its popover; this adds a "details"
-  affordance).
+  home navigates here (the chip keeps its hover tooltip, docs/0050 D5; this adds a
+  "details" affordance; docs/0082 D13 later makes the chip itself
+  the button).
 
 ## 3. Page skeleton
 
@@ -70,7 +90,6 @@ tabs, both logically and visually):
 - Semantics: `as_of − range <= ts_epoch_ms < as_of`, where `as_of` is
   the page's memoized *now* (D10) — never wall-clock. Nothing else in
   the record participates in windowing.
-- **No cycle selector.** REST and GraphQL rate-limit cycles reset
 - **No cycle selector.** Rate-limit cycles are per-transport and
   per-host facts that reset independently (each response carries its
   own reset instant; REST and GraphQL windows rarely align, and
@@ -531,12 +550,16 @@ Design choices:
   `RecordingHttp`) depend on writing alone; the page depends on
   reading alone; `init_with` takes `Arc<dyn UsageStore>`, and
   `sink(cx)`/`source(cx)` hand out the matching views.
-- **Reads may block.** The trait is sync; the page calls it off-main
-  via the background executor when the backend isn't in-memory (the
-  same discipline as `Http`, docs/0005 Q4).
-- **Deliberately absent:** an `on_change` callback (liveness arrives
-  with the live tail, deferred — v1 recomputes on focus, control
-  change, and `high_water` movement) and aggregate push-down (a new
+- **Reads may block.** The trait is sync. This bullet originally said
+  the page calls it off-main via the background executor when the
+  backend isn't in-memory (the same discipline as `Http`, docs/0005
+  Q4). docs/0057 D8 later chose direct UI-thread reads (owner-accepted),
+  and that is what shipped. docs/0082 D11 adds a measurement gate for
+  the 90-day reach.
+- **Deliberately absent:** an `on_change` callback (liveness would
+  arrive with the live tail, deferred. Per D10, the page recomputes
+  only on first open, explicit refresh and control changes; it does
+  not react to focus or `high_water` movement) and aggregate push-down (a new
   read API *only if* volume ever demands it; the page contract stays
   `Vec<UsageRecord>` until proven insufficient).
 

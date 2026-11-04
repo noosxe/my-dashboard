@@ -1,0 +1,613 @@
+# 0082 — Usage surfaces redesign: two audiences, intent first
+
+- **Issue:** implementation issues are filed after this doc merges
+  (§11). Review umbrella: #439, whose "visual layer only" rule the
+  owner lifted on 2026-11-04 for meaningful improvements.
+- **Amends:** docs/0054 §2, D2, D3, D4, D5, D6, D9, D11, D13, D15 and
+  D17; docs/0050 D5 and its non-goals; docs/0053 §1 (the goal
+  questions get metrics); docs/0057 D8 (read reach); docs/0068 D6
+  (status only).
+- **Keeps:** docs/0050 D1–D4 (verbatim server numbers, buckets, the
+  probe, exhaustion); docs/0053 D1–D6 (the record, origins and the
+  sink); docs/0054 D10 (the frozen `as_of`) and D13 (one calculator);
+  docs/0057 (storage, 90-day retention); docs/0063 (app database).
+- **Interacts with:** docs/0049 (content a11y), docs/0052 D7 (the usage
+  probe), docs/0058 and 0059 (toasts and the hub), docs/0064 D9 (the
+  `local` transport), docs/0065 (UI quality gate), docs/0071 (container
+  receipts), docs/0074 and 0078 (bundled theme presets), docs/0080
+  G3/D7 (poll receipts), docs/0081 §12.1 (GitHub fixtures).
+
+> **Proposed decisions.** Every decision marked **[P]** is a proposal
+> that needs owner review. Each one states its trade-off in a line or
+> two, and the owner corrects them in review. Unmarked decisions are
+> owner decisions already taken (§2) or plain consequences of them.
+
+## 1 Summary
+
+The usage surfaces are the footer chip and the Usage page with its
+Overview, Quota usage and Request latency tabs. They were built round
+by round (docs/0054 §11) and work as specified, but they read badly and
+miss part of what the docs set out to answer.
+
+This doc restarts from **intent**. It distils the questions docs
+0050/0053/0054/0057/0068/0080 asked these surfaces to answer (§3), then
+gives them a structure built around **two audiences** (§4, owner
+decision):
+
+- **Budget** is the default view, for the owner as a *user*: how much
+  GitHub API budget is left, what spends it, how spending looks across
+  past windows, and which spend could be avoided.
+- **Requests** is for the owner as the dashboard's *developer*: request
+  forensics, meaning latency, errors, contention and a full request log.
+
+Beyond the split, this doc:
+- never sums the two budgets;
+- replaces the runway projection with an in-window exhaustion estimate;
+- draws time on a real time axis;
+- reaches the full 90-day retention;
+- drops the donut;
+- folds the keyboard and a11y fixes into the same work.
+
+The order is fixed by the owner (§2):
+1. **This doc.**
+2. **Mockups**, captured as receipts in the docs/0071 container over
+   seeded fixtures (§10).
+3. **Owner approval.**
+4. **Implementation.**
+
+## 2 Owner decisions (2026-11-04)
+
+1. **Two audiences, on purpose.** Some usage surfaces serve the owner
+   as a user (budget health) and some serve the owner as the
+   dashboard's developer (request forensics). Both stay, and the split
+   is explicit in the docs (D1).
+2. **#439's "visual layer only" rule is lifted** for meaningful
+   improvements. Amending docs/0054 and its relatives is allowed.
+3. **Process:** docs → mockups → owner approval → implementation.
+4. **Open questions are settled in this doc** as proposed decisions
+   ([P]) with trade-offs, for correction in review.
+5. **The fixture prerequisites are built separately**, in parallel:
+   the seeded ledger (#536 mechanism) and rate-limit data in the GitHub
+   fixtures. They are prerequisites for §10, not part of this doc.
+
+## 3 Intent: what the docs asked these surfaces to answer
+
+Taken from the design record, de-duplicated:
+
+| # | Question | Source |
+|---|---|---|
+| Q-a | What is left right now, per budget, verbatim from GitHub? | 0050 §1, D5; 0053 §1 ("what is left") |
+| Q-b | What do we spend the quota on: which pages, ops and triggers? | 0053 §1; 0054 §1, §4 |
+| Q-c | How much is spent per quota cycle, over time? | 0053 §1, D1/D3 (`cycle_reset_epoch` exists "for per-cycle GROUP BY"); 0057 §1 ("90 days of quota-cycle context") |
+| Q-d | Which requests are rarely worth their cost? | 0053 §1 (no metric was ever defined) |
+| Q-e | How slow are requests, where, and why? | 0054 §6 ("the developer's and the agent's tab") |
+| Q-f | Is specific traffic accounted for (polls, the probe, agents)? | 0080 G3/D7; 0052 D7; 0068 §2 goal 2, D6 |
+
+Constraints carried forward unchanged:
+- never invent a number: unknown costs are counted, never priced
+  (0050 D1, 0053 D1, 0054 D5);
+- be honest about the retained window (0054 §1, D2);
+- nothing on the page is live (0054 D10);
+- one pure calculator feeds every renderer (0054 D13);
+- module-agnostic records (0053 D6).
+
+### 3.1 How the shipped pages fall short of that intent
+
+The containerized captures over the GitHub fixtures and a synthetic
+seeded ledger (2026-11-04, docs/0071) found the following:
+
+- **Q-a has no large-format home.** The chip is small muted text that
+  appears only on GitHub pages, and warns only at exhaustion (by
+  design: 0050 listed "budget warnings" as a non-goal). The page shows
+  no reset time anywhere.
+- **The runway projection** (0054 D11), remaining ÷ (window spend ÷
+  window hours), is wrong for budgets that refill every hour (0050 §2).
+  It reads hundreds of hours and changes with the selected range.
+- **The Quota tab adds REST requests and GraphQL points** into one Σ
+  and one share column whenever the transport facet is All (0054 D5,
+  the default). 0054 D11 says they are never summed.
+- **Q-c and Q-d have no view.** 0054 D2 permanently rejects a cycle
+  selector, and nothing else shows per-cycle history. "Rarely worth
+  their cost" never got a metric. The closest thing, the 304-vs-200
+  table, sits at the bottom of the latency tab.
+- **The page reaches 1 month** (0054 D2 presets, D13 read bound), but
+  0057 retains 90 days.
+- **Time is not drawn as time.** x scales are ordinal, labels carry
+  seconds and no date, and 1w/1m charts can't be read.
+- **Every cost breakdown is shown three times**: bar chart, donut and
+  table. The donut labels collide.
+- **Chart colours collapse to one hue** in the bundled presets
+  (docs/0078 ships them verbatim).
+- **Keyboard and AT access:**
+  - the segmented controls and the tab strip are not Tab stops;
+  - the Tab walk on the Quota tab never closes its cycle;
+  - the ranking table's cells expose no text, because
+    `TableDelegate::cell_label` exists at the pinned gpui-component
+    and is not implemented (#351);
+  - Select options are unlabelled list items.
+- **The latency tab is about six screens long.** It grew additively
+  over three rounds (0054 §6), with no hierarchy pass.
+
+## 4 Audiences and page structure
+
+### D1 — Two views on one page, one per audience
+
+`Page::Usage` stays shell-hosted (0054 D1: sidebar entry, breadcrumb,
+cross-module). Its body is one of two **views**, picked by a
+segmented control at the head of the page:
+
+| View | Audience | Answers | Default |
+|---|---|---|---|
+| **Budget** | the owner as a user | Q-a, Q-b, Q-c, Q-d | yes |
+| **Requests** | the owner as the dashboard's developer | Q-e, Q-f | no |
+
+- The view choice is component-local, like 0054 D3's tab state. It
+  keeps the frozen `as_of` and the range.
+- The chip (D13) belongs to the Budget audience and navigates to the
+  Budget view.
+- The Overview, Quota usage and Request latency tabs are retired.
+  Their content is redistributed (§9).
+- **[P] The view choice is not persisted across restarts.** The page
+  always opens on Budget. Trade-off: one extra click for developer
+  sessions, but the user-facing default stays predictable.
+
+### D2 — Budgets are never summed
+
+Every cost figure on every surface belongs to **one** budget:
+**REST** (requests, the `core` bucket) or **GraphQL** (points). This
+resolves the contradiction between 0054 D5 and D11 in D11's favour.
+
+- Cost views carry a `Budget: REST | GraphQL` selector that replaces
+  the transport facet for cost (0054 D4).
+- `auth` and `local` records have no budget. They appear only in the
+  Requests view (D9, D16).
+- Trade-off: no single "total spend" number exists. Comparing the two
+  budgets is side by side, never pooled. That is correct, because the
+  budgets are independent (0050 §2).
+
+### D3 — The shared page header
+
+Fixed above the scrolling view body (0054 D17 stays):
+- the view switch;
+- the **range presets** (D11);
+- the refresh button (0054 D10, unchanged);
+- the **honesty line**, which carries dates (D10):
+  `1,087 requests · as of Nov 4, 19:21 · history from Oct 25, 19:22`.
+
+Facets that belong to one view live in that view's query bar, not in
+the header.
+
+## 5 Budget view (the user audience)
+
+The bands below run top to bottom in one scroll. Every band derives
+from the frozen window (0054 D10) through calculator procedures (D15).
+
+### D4 — Band 1: twin budget cards (Q-a)
+
+Two cards with identical anatomy, side by side (stacked below the
+D20 breakpoint), one per budget:
+
+```
+REST requests                       GraphQL points
+3,712 left of 5,000                 4,950 left of 5,000
+▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░  74%           ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░  99%
+Resets 14:00 (in 13 min)            Resets 13:52 (in 5 min)
+≈ runs out ~13:58 at this pace      On track
+as of 13:47 · snapshot 2 min old    as of 13:47 · snapshot 0 min old
+```
+
+- **Numbers** come from the latest `remaining_after` / `limit_after` /
+  `cycle_reset_epoch` with `ts < as_of` for that budget. They are
+  verbatim (0050 D1). With no snapshot in the window, the card reads
+  "No response from GitHub in this range yet". It never shows 0.
+- **The bar** is a `Progress`, coloured by the D5 threshold ladder.
+- **The reset time** is shown as clock time plus a countdown taken
+  from `as_of`. It is the fact the page used to lack.
+- **The projection** follows D6 and is marked `≈`.
+- The cards don't move when GitHub traffic lands. The chip does (D12).
+
+### D5 — The threshold ladder [P]
+
+One ladder, shared by the cards, the chip and history columns:
+
+| State | Rule | Token |
+|---|---|---|
+| Normal | remaining > 25% | `muted_foreground` (chip) / `primary` (bar) |
+| Low | remaining ≤ 25% | `warning` |
+| Critical | remaining ≤ 10% | `danger` |
+| Exhausted | `rate_limited_until` in the future (0050 D4) | `danger` plus the "resumes" copy |
+
+- Each state also carries a word ("Low", "Critical"), so colour is
+  never the only signal (0065 rubric #17).
+- **[P] The thresholds are fixed in v1, not user-configurable.**
+  Trade-off: a power user can't tune them, but there's no settings
+  surface to build or test.
+- **[P] Crossing into Critical raises one `Warning` toast per budget
+  per window** through the hub (docs/0058, dedupe key
+  `usage-<budget>-critical-<reset_epoch>`, source `github`, which the
+  docs/0062 per-source mute covers). This lifts 0050's "budget
+  warnings" non-goal. Trade-off: one more toast source, but a dry
+  budget otherwise stays silent until fetches pause.
+
+### D6 — The in-window projection replaces runway [P]
+
+0054 D11's runway is retired: hourly windows make a cross-window pace
+meaningless. Instead, per budget and inside the **current window
+only**:
+
+- `spent` = Σ known cost of records whose `cycle_reset_epoch` equals the
+  current reset.
+- `elapsed` = `as_of − (reset − 3600 s)`.
+- `pace = spent / elapsed`.
+- **Shown only when** at least 5 costed requests exist **and** at least
+  5 minutes have elapsed in the window:
+  - "≈ runs out ~HH:MM at this pace" when
+    `as_of + remaining / pace < reset`;
+  - "On track" otherwise.
+
+It is still the page's only projection, and it is always marked `≈`.
+The 3600 s window length is GitHub's documented primary window; the
+implementation PR re-verifies it against current GitHub docs.
+
+Trade-off: early in a window it is noisy, hence the guard; a burst
+right after the guard can over-warn. Dropping projection entirely was
+the alternative, but "will I run dry before the reset" is the one
+forward-looking question users actually have.
+
+### D7 — Band 2: where it went (Q-b)
+
+A query bar plus one chart and one table, both fed by one aggregate.
+
+- **Query bar:**
+  - `Budget: REST | GraphQL` (D2);
+  - `Group by` over Surface, Trigger, Operation, Target or Module;
+  - an optional `Then by`.
+
+  0054 D4's two-selector cap stays. Transport leaves the dimension list
+  because the budget decides it.
+- **Chart:** one horizontal `BarChart` showing the top 8 plus "other",
+  with value labels and a value axis. A compound key (`Then by`)
+  draws only the top-level groups. Nested members live in the table.
+- **Table:** it mirrors the chart. Columns: key · cost · share (with an
+  inline share bar) · requests · avg cost · free (304) · errors ·
+  unknown. The table is sortable (upstream `perform_sort`), sized to
+  its content (D20), and each cell exposes its text (D19). Nested rows
+  label their own dimension.
+- **The donut is removed** (amends 0054 D6). It repeated the bar
+  chart's data with less precision.
+- **[P] Drill-down:** activating a table row offers "Show these
+  requests", which switches to the Requests view with that group as a
+  filter. Trade-off: a cross-view jump, but the request log lives in
+  only one place (D9).
+
+### D8 — Band 3: history across windows (Q-c) [P]
+
+Spend over time, shown **per quota window**, never as a cycle selector
+(0054 D2's reason stands: cycles are per budget and independent).
+
+- **Range = Current window:** a step burn-down of `remaining_after`
+  across the window, with the limit drawn via `reference_line` (now
+  available at the pin; see 0054 D15's note) and the reset marked at
+  the right edge.
+- **Range ≤ 7 days:** one column per window of the selected budget.
+  Column height = the window's Σ known cost. A `reference_line` marks
+  the limit. Each column is coloured by the threshold the window
+  reached (D5).
+- **Range 30 or 90 days:** one column per day, showing that day's
+  **peak** window spend (its closest approach to the limit). The
+  tooltip and a11y summary add the day's total.
+
+Trade-off: per-day peaks hide the shape inside a day, but 720 hourly
+columns can't be read. Per-window columns aren't stacked by group:
+D14 keeps categories off colour.
+
+### D9 — Band 4: avoidable spend (Q-d) [P]
+
+This gives 0053's "rarely worth their cost" a metric. For the
+selected budget, rank **operations** by avoidable cost:
+
+- **Revalidation gap:** ops that have both 304 and 200 responses in
+  the range. Cost paid on 200s by ops that usually come back 304.
+- **Timer and refocus spend:** cost from `poll`, `refocus` and `probe`
+  triggers, per op. This also covers 0080 G3's "is the poll worth it".
+- **Errors:** cost paid on flights that failed (non-2xx/3xx, network
+  error).
+
+The band shows a short list (top 5) with cost and share. "Show
+these requests" is the same drill as D7.
+
+Trade-off: these are heuristics, not proof of waste. "Fetched but
+never viewed" would be the strongest signal, and it needs visit
+records (#334), which are deferred.
+
+## 6 Requests view (the developer audience)
+
+### D10 — Structure (Q-e, Q-f)
+
+- **Query bar:**
+  - facets: `Transport` (all four, including `auth` and `local`),
+    `Module`, `Status class` (2xx, 304, 4xx, 5xx, network);
+  - `Group by` and `Then by` (0054 D4's cap);
+  - `Measure`: count, cost, p50, p90, max or error rate. Default p90
+    (0054 D12 keeps its reasoning).
+- **Bands:**
+  1. **Glance strip:** p50 and p90 per transport, a >1 s count and an
+     error count.
+  2. **One trend chart** of the selected measure over time. Counts and
+     cost are drawn as bars, percentiles as step lines (D10a).
+  3. **Ranking table** mirroring the trend, by group.
+  4. **Request log:** a virtualized, sortable `DataTable` of every
+     flight in the selection. Columns: time · op · target ·
+     surface · trigger · status (with a plain-language reason) · cost ·
+     duration · queue · bytes. The default sort is newest first, and
+     sorting by duration gives the old "slowest flights" view. It
+     replaces the top-20 list (0054 D12.3). It is also where 0080's
+     `service-tick × poll` receipts and 0068's agent rows are found.
+  5. **Diagnostics** (a collapsed disclosure): the duration histogram,
+     the payload × duration grid, contention, and the 304-vs-200
+     comparison (0054 §6, #337/#410), unchanged in content.
+
+**D10a — Time and axes (both views).**
+- Every time chart draws a **proportional time axis**. It needs an
+  app-owned chart on the pinned `gpui_base::plot` primitives
+  (`ScaleLinear` over epoch ms, `Bar`, `Line`, `PlotAxis`, `Tooltip`;
+  the gpui-component story's `stacked_bar_chart.rs` is the worked
+  pattern). The stock charts' x scale is ordinal (`ScalePoint`).
+- Every chart has value-axis ticks.
+- Labels gain the date for ranges over 1 day.
+- Natural (spline) curves are not used: they overshoot below zero and
+  invent peaks between buckets.
+
+## 7 Cross-cutting decisions
+
+### D11 — Range presets and reach [P]
+
+- **Presets:** `Current window` (Budget view only), `1h`, `24h`, `7d`,
+  `30d`, `90d`. Default: `24h`. This amends 0054 D2. Custom start/end
+  stays a follow-up.
+- **The read bound grows to 90 days** to match 0057 D7's retention
+  (amends 0054 D13).
+- **[P] The read stays on the UI thread** (0057 D8, an owner-accepted
+  rule), with a gate: the implementation PR measures a 90-day read over
+  the seeded ledger at a heavy-day volume. If it takes more than one
+  frame (16 ms), it moves to the background executor with a designed
+  loading state (D18), as 0054 D9 first allowed. Trade-off: the UI
+  thread stays simple until the measurement says otherwise.
+
+### D12 — Liveness [P]
+
+The page stays frozen (0054 D10): the cards say "as of", and refresh is
+the only clock. The **chip** stays the live surface (0050 D5,
+unchanged).
+
+Trade-off: the cards can be minutes old while the chip moves, but both
+are labelled, and "nothing live on the page" keeps every number on
+screen consistent with every other one. A live hero was the
+alternative; it would be the page's only live element and would break
+the freeze receipt's guarantee.
+
+### D13 — The chip [P]
+
+The chip keeps its verbatim numbers and spoken label (0050 D5). It
+changes in four ways:
+
+- **Words, not abbreviations:** `REST 3,712 · GraphQL 4,950`. The
+  tooltip gives the limits and resets.
+- **The D5 ladder colours each budget's number** independently, with
+  the state word in the spoken label.
+- **The chip itself becomes the button** that opens the Budget view.
+  The separate pie icon is removed. It keeps `.id("github-usage")`, its
+  role becomes a button, and its tooltip and aria label are unchanged
+  in content.
+- The placeholders `…` / `?` become `REST —` / `GraphQL —`, with a
+  tooltip explaining "no response yet".
+
+Trade-off: the chip is about 30 px wider. The status bar's right
+region has room at the app's minimum width; the mockup phase verifies
+this at 1024 px.
+
+### D14 — Colour never encodes category [P]
+
+The bundled presets (0078) give `chart_1…chart_5` as tints of one hue,
+so category colours can't be relied on. Rules:
+- at most one data series per chart, in `chart_1`;
+- categories are encoded by position and label, never by hue (bars
+  plus a mirroring table; no donut, no stacked colours);
+- the two budgets are distinguished by panel and label;
+- state colours come only from the semantic tokens (D5).
+
+Trade-off: no multi-series overlays. In exchange, no app-owned palette
+bytes (0078) and every preset stays legible.
+
+### D15 — One calculator, new procedures [P]
+
+0054 D13 stands. The calculator gains these procedures:
+- `budget_cards` (D4/D6);
+- `where_it_went` (D7);
+- `window_history` (D8);
+- `avoidable` (D9);
+- `request_trend` (D10);
+- `request_log` (D10).
+
+Existing procedures stay where their views survive. The agent op
+`api_usage` (0068 §6) currently aggregates on its own
+(`agent_ops.rs`) and **should** move onto these procedures, so agents
+and the UI get identical numbers; that's a follow-up issue, not this
+redesign's scope. Trade-off: two aggregations exist until then.
+
+### D16 — Non-quota records
+
+`auth` and `local` (0064 D9) records never enter Budget-view figures.
+They appear in the Requests view with their own transport facet.
+
+### D17 — Agent attribution (0068 D6) [P]
+
+0068 D6 (`Surface::Agent` / `Trigger::Agent`) is not in the shipped
+enums. It stays planned and unchanged. When it lands, agent spend
+appears in D7, D9 and D10 with no UI change, because group-by values
+are data-driven.
+
+Trade-off: the 0068 §2 goal of "attributable on the usage page" stays
+unmet until then. The redesign doesn't block on it.
+
+### D18 — Designed states
+
+Every band has the three states (0065 rubric #18, [DG]):
+
+- **Empty:** a band-specific `Empty` with one sentence and the next
+  step ("No GitHub responses in this range. Widen the range or open a
+  GitHub page.").
+- **Loading:** only if D11's gate moves the read off-thread; skeletons
+  per band.
+- **Degraded store:** when `is_degraded()` (0057 D6, 0063 F4), the
+  honesty line adds "History paused: storage unavailable, showing this
+  session only", in `warning` with a word.
+- **Single-sample series:** draw as points, never as an empty frame.
+
+### D19 — Keyboard and accessibility
+
+- **Every control is keyboard-reachable.** Segmented controls and the
+  view switch are one Tab stop each, with arrow keys inside (or every
+  segment a stop, per upstream behaviour). The tab-stop cycle must
+  close on every view (`tree --tab-stops` receipt).
+- **Tables implement `cell_label`** with their existing cell text
+  (closes the app side of #351). Select options carry labels.
+- **One a11y summary per chart**, kept as the D8 contract of 0054. It
+  is no longer duplicated as both a visible line above and a caption
+  below.
+- Ids and roles follow docs/0010 D10 and 0049.
+
+### D20 — Layout
+
+- **Content width is capped** (about 1200 px) and centred, so wide
+  windows don't stretch the charts.
+- **Two columns from about 1100 px**, one below. The budget cards stack
+  first.
+- **No nested scroll:** the D7 and D10 tables size to their content up
+  to a cap, and the request log is the one virtualized table. Today's
+  fixed 300 px tables inside a scrolling page go away.
+- At the minimum window width, the header fits on one line, or wraps
+  as one deliberate second row; the mockups verify this at 1024×700.
+
+### D21 — Vocabulary
+
+- In the UI: "requests", not "flights". The code keeps `flight`.
+- "REST requests" and "GraphQL points"; "free (304)"; "unknown cost"
+  for unattributable.
+- One casing everywhere (`REST`, `GraphQL`, `auth`, `local` as facet
+  labels).
+- No `Σ`, and no abbreviations outside the chip's tooltip.
+
+### D22 — Anchors [P]
+
+- **Linear** stays the visual anchor (docs/references, the
+  usage/analytics register).
+- GitHub's own billing **Usage** page is named in the mockup PR as a
+  *content* reference for "one chart plus a mirroring table". It is not
+  a visual anchor, so `docs/references/` doesn't change.
+
+Trade-off: no chart-specific visual anchor; the gpui-component story
+gallery remains the widget-level one.
+
+## 8 Contradictions in the existing docs, and how this doc settles them
+
+| # | Contradiction or gap | Settled by |
+|---|---|---|
+| 1 | 0054 D11 "never summed" vs D5's pooled Σ and share | D2 |
+| 2 | 0053 §1 "spend per quota cycle" vs 0054 D2 "no cycle selector" | D8: per-window history, no selector |
+| 3 | 0054 D11 runway vs 0050 §2 hourly independent windows | D6 |
+| 4 | 0054 D9 "recomputes on … `high_water` movement" vs D10 "nothing live" | D10 rules. The stale D9 sentence is corrected in 0054 |
+| 5 | 0057 §1 "90 days of quota-cycle context" vs 0054 D2/D13 1-month reach | D11 |
+| 6 | 0054 D11 "the only projection" | D6 keeps one projection, a different one |
+| 7 | 0054 §2 "the chip keeps its popover" vs 0050 D5's tooltip | wording corrected in 0054; D13 makes the chip the button |
+| 8 | Stale status headers (0053 table, 0054 opening line, 0068 header) | removed (AGENTS.md: docs have no lifecycle) |
+| 9 | A truncated duplicate "No cycle selector" line in 0054 D2 | deleted |
+| 10 | 0054 D13 "CLI/MCP consume the same results" vs 0068's own `api_usage` aggregation | D15: migration is a follow-up |
+| 11 | 0068 D6 decided but not in code | D17 |
+| 12 | "Rarely worth their cost" has no metric | D9 |
+| 13 | No doc names the pages' user | D1, owner decision |
+| 14 | 0054 D9 "reads off-main" vs 0057 D8 "UI-thread reads, owner-accepted" | 0057 D8 rules until the D11 measurement gate. The 0054 D9 bullet is annotated |
+
+## 9 Where today's content goes
+
+| Today | Goes to |
+|---|---|
+| Overview: points spent card | Budget band 1 (per-budget spend in each card's sub-line) |
+| Overview: budget & runway card | Budget band 1 (D4); runway retired (D6) |
+| Overview: top consumer card | Budget band 2 (D7) |
+| Overview: slowest-op card | Requests glance strip (D10) |
+| Overview: burn-down | Budget band 3, Current window (D8) |
+| Overview: spend over time | Budget band 3 (per-window columns) |
+| Overview: p90 trend | Requests trend (D10) |
+| Quota: selectors, bar chart and table | Budget band 2 (D7) |
+| Quota: donut | removed |
+| Latency: glance, trend and ranking | Requests bands 1–3 |
+| Latency: slowest flights | Requests log, sorted by duration |
+| Latency: histogram, payload grid, contention, 304-vs-200 | Requests → Diagnostics |
+| Facets: transport | Budget selector (Budget view) or transport facet (Requests view) |
+| Facets: module, errors-only | Requests facets (Module, Status class) |
+
+## 10 Verification and the mockup phase
+
+**Prerequisites** (built separately, §2 item 5):
+- **A seeded ledger** (#536 mechanism), so populated surfaces have
+  receipts and goldens.
+- **Rate-limit data in the GitHub fixtures** (docs/0081 §12.1 shipped
+  without it). It needs a normal, a Low, a Critical and an exhausted
+  variant, so the cards and the chip can be captured in every D5 state.
+
+**Mockups** (step 2 of the process):
+- captured in the docs/0071 container over the fixtures and seed:
+  screenshot plus tree;
+- both views, at 1280×800 and 1024×700;
+- in Default Light, Default Dark and one kit preset;
+- every D5 state of the cards and the chip;
+- the D18 states.
+
+They name the anchor (D22) and are reviewed against docs/0065
+Appendix A. Mockups are throwaway branches or images, not merged code.
+
+**Implementation receipts** (step 4, per AGENTS.md):
+- `audit`;
+- a closed `tree --tab-stops` cycle on both views;
+- new structural goldens (`usage-budget`, `usage-requests`, and seeded
+  variants) replacing `usage-overview` and `usage-quota`;
+- `crates/debug/verify/usage-freeze.txt` rewritten for the new header.
+  Its guarantee, that the "as of" line survives a range change, is
+  kept.
+
+## 11 Implementation plan (issues filed after this doc merges)
+
+The split is proposed and refined when the issues are filed:
+
+1. **Calculator:** the D15 procedures with unit tests (window maths,
+   projection guard, per-day peaks, avoidable ranking).
+2. **Page shell:** the D1 view switch, the D3 header, the D11 presets
+   and read bound with the measurement gate, D18 and D19 header work.
+3. **Budget view:** D4–D9 bands, including the app-owned time-axis
+   chart (D10a).
+4. **Requests view:** D10, including the virtualized request log.
+5. **Chip:** D13 and the D5 ladder, plus the D5 Critical toast.
+6. **Receipts:** goldens, the freeze script rewrite, and the
+   `cell_label` and Select-label a11y (it may ride with 3 and 4).
+
+Deferred follow-ups, each filed with the `deferred` label before the
+implementation merges (AGENTS.md):
+- `api_usage` onto the calculator (D15);
+- custom date range;
+- user-configurable thresholds (D5);
+- visit-based waste (#334);
+- an external-consumer estimate (other clients draining the shared
+  budget, derivable from `remaining_after` deltas);
+- CSV export.
+
+## 12 Non-goals
+
+- **Changes to collection, the record schema or storage** (docs/0053,
+  0057, 0063). The redesign reads existing fields only.
+- **Live updating of the page** (D12; 0054 D10 stays).
+- **Secondary rate limits.** GitHub exposes no queryable state for
+  them.
+- **Other modules' budgets.** The structure is module-agnostic, but only
+  GitHub reports budgets today.
+- **The items deferred in §11.**

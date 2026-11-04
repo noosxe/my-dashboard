@@ -7,6 +7,14 @@ behavior decisions
 ([comment](https://github.com/noosxe/my-dashboard/issues/333#issuecomment-5855880028)).
 This doc formalizes them and fills in the mechanics.*
 
+> **Amended by docs/0082** (usage surfaces redesign): the page's read
+> bound grows from 1 month to the full 90-day retention (0082 D11).
+> D8's UI-thread read stays, gated by a measurement in the
+> implementation PR. If a 90-day read exceeds one frame, it moves
+> off-main with a designed loading state. Storage, retention and the
+> degrade path are unchanged; the degraded state now also reaches the
+> page's honesty line (0082 D18).
+
 ## 1. Context & problem
 
 docs/0053 shipped the usage-records pipeline with `MemorySink` — a capped

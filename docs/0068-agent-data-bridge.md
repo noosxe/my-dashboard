@@ -1,6 +1,6 @@
 # 0068 — Agent Data Bridge: programmatic app access for AI agents over MCP
 
-Status: design (docs-only PR) · 2026-10-06
+2026-10-06
 
 The owner wants AI agents to operate the dashboard the same way the owner can
 — **from the data layer, not by navigating views**: enumerate repos, check PR
@@ -166,6 +166,13 @@ existing group-bys can show agent spend vs UI spend, `api_usage` (below)
 exposes the same cut to agents themselves, and quota-aware behavior (phase
 2: refuse fetches while `rate_limited_until` is in the future — the tick
 loop's self-gating, extended to agent ops) comes free.
+
+> **Status note (docs/0082 D17, 2026-11-04):** the `Agent` variants
+> are not in the shipped enums yet. The decision stands unchanged.
+> When it lands, agent spend shows up in the redesigned usage views
+> without any UI change. docs/0082 D15 also proposes moving
+> `api_usage` onto the docs/0054 D13 calculator, so agents and the UI
+> report identical numbers.
 
 **D7 — closed op set; raw passthrough deferred.** v1 exposes the ops in §6
 only. A raw GraphQL escape hatch is a *product* decision about quota abuse
