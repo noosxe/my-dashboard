@@ -3,8 +3,12 @@
 | | |
 |---|---|
 | Issue | #324 (phase 1: collection pipeline; the analytics UI stays deferred) |
-| Status | design |
 | Depends on | 0050 (merged: buckets, booking rules, `CountingHttp` seam, chip), 0031 (merged: spec discipline), 0051 (merged: dispatch-path inventory) |
+
+> **Amended by docs/0082** (usage surfaces redesign): the §1 goal
+> questions now each have a view. "Spend per quota cycle" becomes
+> per-window history (0082 D8), and "rarely worth their cost" gets a
+> metric (0082 D9). Collection (D1–D6) is unchanged.
 
 ## 1. Context & problem
 

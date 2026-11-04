@@ -1,5 +1,13 @@
 # 0050 — GitHub API Usage Calculator
 
+> **Amended by docs/0082** (usage surfaces redesign): the chip uses
+> words instead of `GH`/`GQL`, colours each budget by the shared
+> threshold ladder, and becomes the button that opens the Budget view
+> (0082 D5, D13). Budget warnings, a non-goal here, arrive as one
+> Critical toast per budget per window (0082 D5). The verbatim-numbers
+> rule (D1) and the buckets, probe and exhaustion mapping (D2–D4) are
+> unchanged.
+
 > **Extended by docs/0053** (usage records): the ledger keeps the live
 > budget and the chip; a per-flight records pipeline now runs beside it
 > — same booking rules (D1), one audit-trail row per HTTP flight with
