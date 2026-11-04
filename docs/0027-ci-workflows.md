@@ -215,7 +215,8 @@ the repo root — README, AGENTS.md), plus the agent-skill/tooling files
 PR paid two full cold builds for shell/markdown changes), and the
 repo-meta files `.pi/**` (agent working artifacts, untracked by the
 same day's hygiene PR), `.gitignore` and `LICENSE*` (added 2026-10-12
-after a `.gitignore`-only hygiene PR paid a full run). First added
+after a `.gitignore`-only hygiene PR paid a full run), and `LICENSES/**`
+(the vendored third-party license texts, added 2026-11-04). First added
 2026-09-17 after a docs-only
 design PR paid two full cold builds (~25 min of runner time) for changes
 that cannot affect a build.
