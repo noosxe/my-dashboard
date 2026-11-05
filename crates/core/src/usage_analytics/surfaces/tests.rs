@@ -522,10 +522,15 @@ fn per_day_columns_show_each_days_peak_window() {
         r.cost = Some(cost);
         r
     };
+    // Day 2 has one window whose response carried no ceiling.
+    let mut no_ceiling = window(day0 + 2 * DAY_MS + 4 * HOUR_MS, 7, 4_000);
+    no_ceiling.limit_after = None;
     let rows = vec![
-        window(day0 + 3 * HOUR_MS, 5, 4_000),
+        // The cheap window drained most: other clients share the token.
+        window(day0 + 3 * HOUR_MS, 5, 2_000),
         window(day0 + 9 * HOUR_MS, 12, 3_000),
         window(day0 + DAY_MS + 2 * HOUR_MS, 3, 400),
+        no_ceiling,
     ];
     let h = window_history(
         &rows,
@@ -546,21 +551,32 @@ fn per_day_columns_show_each_days_peak_window() {
             .all(|w| w[1].day_start_ms == w[0].day_end_ms)
     );
     let d0 = columns.iter().find(|d| d.day_start_ms == day0).unwrap();
+    // The height is the reported drop (owner decision on #709), and it
+    // names its own window — not the costlier one by recorded spend.
+    assert_eq!(d0.peak_drop, Some(3_000));
+    assert_eq!(d0.peak_window_reset_ms, Some(day0 + 3 * HOUR_MS));
     assert_eq!(
         (d0.peak_window_cost, d0.total_cost, d0.windows),
         (12, 17, 2)
     );
-    assert_eq!(d0.peak_window_reset_ms, Some(day0 + 9 * HOUR_MS));
-    assert_eq!(d0.peak_drop, Some(2_000));
     assert_eq!(d0.state, Some(ThresholdState::Normal));
-    let d1 = columns
-        .iter()
-        .find(|d| d.day_start_ms == day0 + DAY_MS)
-        .unwrap();
-    assert_eq!(d1.state, Some(ThresholdState::Critical));
+    let day = |ix: u64| {
+        columns
+            .iter()
+            .find(|d| d.day_start_ms == day0 + ix * DAY_MS)
+            .unwrap()
+    };
+    assert_eq!(day(1).peak_drop, Some(4_600));
+    assert_eq!(day(1).state, Some(ThresholdState::Critical));
+    let d2 = day(2);
+    assert_eq!((d2.peak_drop, d2.peak_window_reset_ms), (None, None));
+    assert_eq!((d2.windows, d2.total_cost, d2.state), (1, 7, None));
     let empty = columns.iter().find(|d| d.windows == 0).unwrap();
-    assert_eq!((empty.peak_window_cost, empty.state), (0, None));
-    assert_eq!(scale.data_max, 12);
+    assert_eq!((empty.peak_drop, empty.state), (None, None));
+    // Auto-scale data max is the tallest drop, not the costliest window.
+    assert_eq!(scale.data_max, 4_600);
+    assert_eq!(scale.limit, Some(5_000));
+    assert_eq!(scale.critical_guide, Some(4_500.0));
 }
 
 #[test]
