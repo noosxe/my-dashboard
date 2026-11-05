@@ -371,8 +371,11 @@ Spend over time, shown **per quota window**, never as a cycle selector
   Column height = the window's Σ known cost. Each column is coloured
   by the threshold the window reached (D5).
 - **Range 30 or 90 days:** one column per day, showing that day's
-  **peak** window spend (its closest approach to the limit). The
-  tooltip and a11y summary add the day's total.
+  **peak window drop as GitHub reports it**, including other clients
+  (`limit − min remaining`: its closest approach to the limit; owner
+  decision on #709). The tooltip and a11y summary add the day's
+  recorded total. A day whose windows reported no ceiling draws no
+  column.
 - **The value axis auto-scales to the data** (Q3). When the data
   reaches about 90% of the limit, the axis shows the whole budget, and
   the limit (`reference_line`) and the **Low and Critical guides** (at
@@ -628,10 +631,17 @@ The implementation settles these mechanical points:
 - **Where it went.** The output keeps every group. Groups beyond the
   top 8 also fold into one `other` row.
 - **History.**
-  - Every column carries the window's Σ known cost (the D8 height)
-    and GitHub's deepest drop (`limit − min remaining`). The state it
-    reached is the D5 ladder over that minimum, and reaching 0 counts
-    as Exhausted.
+  - Every per-window column carries the window's Σ known cost (its
+    D8 height) and GitHub's deepest drop (`limit − min remaining`).
+    The state it reached is the D5 ladder over that minimum, and
+    reaching 0 counts as Exhausted.
+  - A day column's height is `peak_drop`, the largest drop among its
+    windows, and `peak_window_reset_ms` names that window (earliest on
+    a tie). It also carries the recorded peak (`peak_window_cost`) and
+    total (`total_cost`) for the tooltip and a11y summary. Without any
+    ceiling that day, `peak_drop` is `None`, and the view leaves a gap
+    rather than a 0-height bar. The day `ScaleInputs.data_max` is the
+    largest `peak_drop`.
   - A window belongs to the local day it starts on. The caller passes
     the UTC offset, because the calculator reads no clock. Every day
     of a 30- or 90-day range is present, empty days included.

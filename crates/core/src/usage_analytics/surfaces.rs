@@ -857,14 +857,19 @@ pub struct DayColumn {
     /// Local midnight (per `tz_offset_ms`).
     pub day_start_ms: u64,
     pub day_end_ms: u64,
-    /// The column height (D8): the day's peak window spend — the
-    /// largest per-window Σ known cost among windows starting that day.
-    pub peak_window_cost: u64,
-    pub peak_window_reset_ms: Option<u64>,
-    /// GitHub's deepest drop among the day's windows (its closest
-    /// approach to the limit).
+    /// The column height (D8, owner decision on #709): the day's
+    /// peak window drop as GitHub reports it, `limit − min remaining`,
+    /// including other clients' spend. `None` when none of the day's
+    /// windows reported a ceiling: the view draws no column there (an
+    /// honest gap, never a 0-height bar) and the tooltip and a11y
+    /// summary still give the recorded figures below.
     pub peak_drop: Option<u32>,
-    /// The day's total (tooltip and a11y summary, D8).
+    /// The window with that peak drop (earliest on a tie).
+    pub peak_window_reset_ms: Option<u64>,
+    /// The largest per-window Σ known cost of the day: this app's own
+    /// recorded peak (tooltip and a11y summary).
+    pub peak_window_cost: u64,
+    /// The day's recorded total (tooltip and a11y summary, D8).
     pub total_cost: u64,
     pub requests: u64,
     pub unknown: u64,
@@ -942,7 +947,11 @@ pub fn window_history(rows: &[UsageRecord], q: &HistoryQuery) -> WindowHistory {
         Span::D30 | Span::D90 => {
             let b = bounds.expect("trailing presets always resolve");
             let days = day_columns(&columns, b, q.tz_offset_ms);
-            let data_max = days.iter().map(|d| d.peak_window_cost).max().unwrap_or(0);
+            let data_max = days
+                .iter()
+                .filter_map(|d| d.peak_drop)
+                .max()
+                .map_or(0, u64::from);
             HistoryView::Days {
                 columns: days,
                 scale: ScaleInputs::spent(data_max, limit),
@@ -1080,11 +1089,13 @@ fn day_columns(windows: &[WindowColumn], b: Bounds, tz_offset_ms: i64) -> Vec<Da
         d.total_cost += w.cost;
         d.requests += w.requests;
         d.unknown += w.unknown;
-        if d.peak_window_reset_ms.is_none() || w.cost > d.peak_window_cost {
-            d.peak_window_cost = w.cost;
+        // Windows arrive in reset order, so `>` keeps the earliest on
+        // a tie; a window without a ceiling never displaces one with.
+        if w.peak_drop.is_some() && w.peak_drop > d.peak_drop {
+            d.peak_drop = w.peak_drop;
             d.peak_window_reset_ms = Some(w.reset_ms);
         }
-        d.peak_drop = d.peak_drop.max(w.peak_drop);
+        d.peak_window_cost = d.peak_window_cost.max(w.cost);
         d.state = d.state.max(w.state);
     }
     days
