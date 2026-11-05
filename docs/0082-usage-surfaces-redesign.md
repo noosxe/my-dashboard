@@ -309,8 +309,9 @@ only**:
   - "On track" otherwise.
 
 It is still the page's only projection, and it is always marked `≈`.
-The 3600 s window length is GitHub's documented primary window; the
-implementation PR re-verifies it against current GitHub docs.
+The 3600 s window length is GitHub's documented primary window,
+re-verified on 2026-11-05 against GitHub's REST and GraphQL rate-limit
+pages: both budgets are "per hour", and the reset is UTC epoch seconds.
 
 The drop minus this app's Σ known cost in the same window is the
 **external-consumer** spend. D6 doesn't show it; it is the input of
@@ -577,6 +578,79 @@ Existing procedures stay where their views survive. The agent op
 (`agent_ops.rs`) and **should** move onto these procedures, so agents
 and the UI get identical numbers; that's a follow-up issue, not this
 redesign's scope. Trade-off: two aggregations exist until then.
+
+**D15a — The calculator contract (#695).** The procedures live in
+`dashboard_core::usage_analytics::surfaces`, a submodule, because
+`usage_analytics.rs` already holds the retiring tabs' procedures and
+their page. Each one takes the page's rows plus a serde query and
+returns a serde struct (0054 D13):
+
+| Procedure | Query → output |
+|---|---|
+| `budget_cards` | `BudgetCardsQuery` → `BudgetCards { cards, default_budget }` |
+| `where_it_went` | `WhereQuery` → `WhereItWent` |
+| `window_history` | `HistoryQuery` → `WindowHistory` |
+| `avoidable` | `AvoidableQuery` → `Avoidable` |
+| `request_trend` | `RequestTrendQuery` → `RequestTrend` (trend buckets plus the band 3 ranking) |
+| `request_log` | `RequestLogQuery` → `RequestLog` |
+
+Budget-view queries carry a `BudgetScope { module, budget, as_of,
+preset }`. A budget belongs to one module (`github` today, §12). The
+Requests view takes a trailing `Span` only, because `Current window`
+is Budget-only (D11).
+
+The implementation settles these mechanical points:
+- **Windows.** A snapshot is a response with `remaining_after`. Its
+  `cycle_reset_epoch` comes from the same response, so it names the
+  record's own window; 0053 D3's carry-forward only fills records
+  without one.
+  - The current window belongs to the latest snapshot of the last
+    hour, while its reset is still ahead of `as_of`. With no open
+    window, `Current window` resolves to nothing, and the bands are
+    empty rather than guessed.
+  - History discovers windows from their snapshots, then places each
+    record of the budget by timestamp in `[reset − 1 h, reset)`.
+    Records outside every known window are counted as `unwindowed`,
+    never placed.
+- **Cards.** A snapshot whose window has already reset keeps its
+  verbatim numbers, but has no state and projects `WindowClosed`:
+  GitHub has refilled the budget since. Exhausted (D5) means either
+  the caller-supplied per-budget pause (`rate_limited_until`, Q10) is
+  still in the future, or the open window reports 0 left.
+  - `WindowDrop` carries `spent`, this app's `recorded_cost` and
+    `external = spent − recorded_cost` (for #705). `external` can be
+    slightly negative from record timing at the window edge, so
+    consumers clamp it.
+  - D7's default goes to REST whenever either remaining fraction is
+    unknown, as well as on a tie.
+- **Where it went.** The output keeps every group. Groups beyond the
+  top 8 also fold into one `other` row.
+- **History.**
+  - Every column carries the window's Σ known cost (the D8 height)
+    and GitHub's deepest drop (`limit − min remaining`). The state it
+    reached is the D5 ladder over that minimum, and reaching 0 counts
+    as Exhausted.
+  - A window belongs to the local day it starts on. The caller passes
+    the UTC offset, because the calculator reads no clock. Every day
+    of a 30- or 90-day range is present, empty days included.
+  - `ScaleInputs` carries the data max, the limit and both guides. For
+    columns the guides are 75 % and 90 % of the limit spent; for the
+    burn-down they are 25 % and 10 % remaining. The view picks the
+    axis.
+- **Avoidable.** "Usually comes back 304" means the op has more 304s
+  than 200s in range. Entries that cost 0 are not avoidable spend, so
+  they never appear.
+- **Requests.**
+  - Status classes are `Success` (any non-error status other than
+    304), `NotModified`, `ClientError`, `ServerError` and `Network`.
+  - The 1h range buckets the trend by 5 minutes, because a single
+    hour bucket is no trend.
+  - The log's cost cell is `Requests(n)`, `Points(n)`, `Free304`,
+    `Unknown` or `NoBudget`. Ties under any sort fall back to newest
+    first.
+- **Read bound (D11).** `UsageSource::records_between` already takes
+  any lower bound, so the 90-day reach needs no source change. The
+  page's read is #696's wiring.
 
 ### D16 — Non-quota records
 
