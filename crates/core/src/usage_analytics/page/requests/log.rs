@@ -76,15 +76,21 @@ pub(super) fn sync_table(
     log: &Arc<RequestLog>,
     as_of_ms: u64,
     tz_offset_ms: i64,
+    content_w: f32,
     cx: &mut App,
 ) {
-    if c.log.read(cx).delegate().shows(log) {
-        return;
-    }
+    let fresh = !c.log.read(cx).delegate().shows(log);
     c.log.update(cx, |t, cx| {
-        t.delegate_mut().set(log.clone(), as_of_ms, tz_offset_ms);
-        t.refresh(cx);
-        t.scroll_to_row(0, cx);
+        if fresh {
+            t.delegate_mut().set(log.clone(), as_of_ms, tz_offset_ms);
+        }
+        // A new log starts at its first row; a resize keeps the place.
+        if t.delegate_mut().fit(content_w) || fresh {
+            t.refresh(cx);
+        }
+        if fresh {
+            t.scroll_to_row(0, cx);
+        }
     });
 }
 

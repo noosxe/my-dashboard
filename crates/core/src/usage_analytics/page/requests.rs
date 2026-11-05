@@ -137,7 +137,11 @@ impl UsagePage {
             trend_body,
         );
 
-        let ranking = self.ranking_band(data.as_ref().filter(|_| ready(RequestBand::Trend)), cx);
+        let ranking = self.ranking_band(
+            data.as_ref().filter(|_| ready(RequestBand::Trend)),
+            content_w,
+            cx,
+        );
 
         let diagnostics = self.diagnostics_band(
             data.as_ref()
@@ -158,7 +162,7 @@ impl UsagePage {
 
         let (log_meta, log_body) = match (&data, &self.requests_controls) {
             (Some(d), Some(c)) if ready(RequestBand::Log) => {
-                log::sync_table(c, &d.log, d.key.as_of_ms, tz, cx);
+                log::sync_table(c, &d.log, d.key.as_of_ms, tz, content_w, cx);
                 (
                     Some(log::meta_line(log::meta(&d.log), cx)),
                     log::table(c, viewport.height),
@@ -181,18 +185,26 @@ impl UsagePage {
 
     /// Band 3: the ranking table, titled by its grouping ("By
     /// operation").
-    fn ranking_band(&self, data: Option<&RequestsData>, cx: &mut Context<Self>) -> AnyElement {
+    fn ranking_band(
+        &self,
+        data: Option<&RequestsData>,
+        content_w: f32,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let title = format!("By {}", self.requests.group_by.label().to_lowercase());
         let body = match (data, &self.requests_controls) {
             (Some(d), Some(c)) => {
-                if !c.ranking.read(cx).delegate().shows(&d.trend) {
-                    let (group_by, then_by) = (self.requests.group_by, self.requests.then_by);
-                    let trend = d.trend.clone();
-                    c.ranking.update(cx, |t, cx| {
+                let (group_by, then_by) = (self.requests.group_by, self.requests.then_by);
+                let fresh = !c.ranking.read(cx).delegate().shows(&d.trend);
+                let trend = d.trend.clone();
+                c.ranking.update(cx, |t, cx| {
+                    if fresh {
                         t.delegate_mut().set(trend, group_by, then_by);
+                    }
+                    if t.delegate_mut().fit(content_w) || fresh {
                         t.refresh(cx);
-                    });
-                }
+                    }
+                });
                 let rows = c
                     .ranking
                     .read(cx)

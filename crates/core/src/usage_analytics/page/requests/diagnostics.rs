@@ -2,13 +2,13 @@
 //! default, above the log. Its content is docs/0054 §6's (#337, #410),
 //! unchanged: the duration histogram, the payload × duration grid,
 //! contention, and the 304-vs-200 comparison. The disclosure is one Tab
-//! stop (Enter or Space toggles it) and reports its expanded state
-//! (D19).
+//! stop and reports its expanded state (D19); Enter and Space toggle it
+//! through gpui's keyboard click on a focused clickable element.
 
 use std::rc::Rc;
 
 use gpui::prelude::*;
-use gpui::{AnyElement, App, Context, FontWeight, KeyDownEvent, SharedString, Window, div, px};
+use gpui::{AnyElement, App, Context, FontWeight, SharedString, Window, div, px};
 use gpui_component::{ActiveTheme, Icon, IconName, Sizable as _, ThemeStyled as _, h_flex, v_flex};
 
 use super::format;
@@ -342,13 +342,7 @@ impl UsagePage {
                     .text_color(theme.muted_foreground)
                     .child(SharedString::from(CONTENTS)),
             )
-            .on_click(cx.listener(|this, _, _, cx| this.toggle_diagnostics(cx)))
-            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
-                if matches!(ev.keystroke.key.as_str(), "enter" | "space") {
-                    cx.stop_propagation();
-                    this.toggle_diagnostics(cx);
-                }
-            }));
+            .on_click(cx.listener(|this, _, _, cx| this.toggle_diagnostics(cx)));
         let content = open.then(|| match data {
             Some((d, frame)) => body(d, frame, cx),
             None => {

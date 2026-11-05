@@ -600,6 +600,52 @@ mod tests {
                 median(read_ms),
                 median(calc_ms),
             );
+            // The Requests view on its own (#698): every band at 90d
+            // (glance, trend, Diagnostics, log), then a header click
+            // that only re-sorts the log (D11 band reuse).
+            let scope = sf::diagnostics::RequestScope {
+                as_of_ms: anchor,
+                span: sf::Span::D90,
+                tz_offset_ms: 0,
+                filters: sf::RequestFilters::default(),
+            };
+            let log_query = |key| sf::RequestLogQuery {
+                as_of_ms: anchor,
+                span: sf::Span::D90,
+                filters: sf::RequestFilters::default(),
+                sort: sf::LogSort {
+                    key,
+                    descending: true,
+                },
+            };
+            let (mut view_ms, mut sort_ms) = (Vec::new(), Vec::new());
+            for _ in 0..5 {
+                let t = Instant::now();
+                let _ = sf::diagnostics::request_glance(&got, &scope);
+                let _ = sf::diagnostics::request_diagnostics(&got, &scope);
+                let _ = sf::request_trend(
+                    &got,
+                    &sf::RequestTrendQuery {
+                        as_of_ms: anchor,
+                        span: sf::Span::D90,
+                        tz_offset_ms: 0,
+                        filters: sf::RequestFilters::default(),
+                        measure: sf::Measure::P90,
+                        group_by: ua::Dimension::Operation,
+                        then_by: None,
+                    },
+                );
+                let _ = sf::request_log(&got, &log_query(sf::LogSortKey::Time));
+                view_ms.push(t.elapsed().as_secs_f64() * 1e3);
+                let t = Instant::now();
+                let _ = sf::request_log(&got, &log_query(sf::LogSortKey::Duration));
+                sort_ms.push(t.elapsed().as_secs_f64() * 1e3);
+            }
+            println!(
+                "{name}: Requests view derive median {:.1} ms · log re-sort median {:.1} ms",
+                median(view_ms),
+                median(sort_ms),
+            );
             drop(store);
             let _ = std::fs::remove_file(&path);
         }

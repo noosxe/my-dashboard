@@ -17,10 +17,34 @@ use gpui_component::table::{Column, ColumnSort, TableDelegate, TableState};
 
 use super::format;
 use crate::usage_analytics::Dimension;
-use crate::usage_analytics::surfaces::{RequestGroup, RequestTrend};
+use crate::usage_analytics::surfaces::{Measure, RequestGroup, RequestTrend};
 
 /// The table shows this many rows before it scrolls (D20's cap).
 pub(super) const MAX_VISIBLE_ROWS: usize = 12;
+
+/// The key column never narrows below this; past it, it takes what the
+/// figure columns leave so the table spans the band (docs/0082 D10).
+const KEY_MIN_W: f32 = 240.;
+/// The table's border plus its vertical scrollbar's gutter.
+const TABLE_CHROME_W: f32 = 18.;
+
+fn fixed_width(col: Col) -> f32 {
+    match col {
+        Col::Unknown => 120.,
+        Col::ErrorRate => 104.,
+        _ => 92.,
+    }
+}
+
+/// The key column's width in a band `content_w` wide.
+fn key_width(content_w: f32, cost_allowed: bool) -> f32 {
+    let figures: f32 = columns(cost_allowed)
+        .iter()
+        .filter(|c| **c != Col::Key)
+        .map(|c| fixed_width(*c))
+        .sum();
+    (content_w - figures - TABLE_CHROME_W).max(KEY_MIN_W)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Col {
@@ -70,6 +94,20 @@ impl Col {
             Col::Cost => a.cost.cmp(&b.cost),
             Col::Unknown => a.unknown.cmp(&b.unknown),
         }
+    }
+}
+
+/// The column the procedure ranks by: the measure's (by count when
+/// cost is refused, as `request_trend` ranks).
+fn rank_col(m: Measure, cost_allowed: bool) -> Col {
+    match m {
+        Measure::Count => Col::Requests,
+        Measure::Cost if cost_allowed => Col::Cost,
+        Measure::Cost => Col::Requests,
+        Measure::P50 => Col::P50,
+        Measure::P90 => Col::P90,
+        Measure::Max => Col::Max,
+        Measure::ErrorRate => Col::ErrorRate,
     }
 }
 
@@ -162,6 +200,8 @@ pub(super) struct RankingTable {
     source: Option<Arc<RequestTrend>>,
     sort: Option<(Col, ColumnSort)>,
     rows: Vec<FlatRow>,
+    /// The key column's width: what the others leave of the band.
+    key_w: f32,
 }
 
 impl RankingTable {
@@ -173,23 +213,40 @@ impl RankingTable {
             source: None,
             sort: None,
             rows: Vec::new(),
+            key_w: KEY_MIN_W,
         }
+    }
+
+    /// Fit the key column to `content_w`; true when it changed and the
+    /// caller must refresh the table so the header re-reads it.
+    pub(super) fn fit(&mut self, content_w: f32) -> bool {
+        let w = key_width(content_w, self.cost_allowed);
+        let changed = (w - self.key_w).abs() >= 1.;
+        if changed {
+            self.key_w = w;
+        }
+        changed
     }
 
     pub(super) fn shows(&self, data: &Arc<RequestTrend>) -> bool {
         self.source.as_ref().is_some_and(|s| Arc::ptr_eq(s, data))
     }
 
-    /// Point the table at a new derivation. Returns whether the column
-    /// set changed (the caller then refreshes the header).
+    /// Point the table at a new derivation; the caller refreshes the
+    /// table so the header reads the new columns.
     pub(super) fn set(
         &mut self,
         data: Arc<RequestTrend>,
         group_by: Dimension,
         then_by: Option<Dimension>,
     ) {
-        if self.group_by != group_by || self.cost_allowed != data.cost_allowed {
-            // A new key column or column set: back to the measure's rank.
+        let reranked = self
+            .source
+            .as_ref()
+            .is_none_or(|s| s.measure != data.measure);
+        if reranked || self.group_by != group_by || self.cost_allowed != data.cost_allowed {
+            // A new measure, key column or column set: back to the
+            // measure's rank.
             self.sort = None;
         }
         self.group_by = group_by;
@@ -207,9 +264,16 @@ impl RankingTable {
         columns(self.cost_allowed).get(ix).copied()
     }
 
+    /// A column's header state. Unsorted, the procedure's order shows
+    /// as the measure's column descending.
     fn sort_of(&self, col: Col) -> ColumnSort {
+        let ranked = self
+            .source
+            .as_ref()
+            .map(|s| rank_col(s.measure, s.cost_allowed));
         match self.sort {
             Some((c, dir)) if c == col => dir,
+            None if ranked == Some(col) => ColumnSort::Descending,
             _ => ColumnSort::Default,
         }
     }
@@ -229,10 +293,8 @@ impl TableDelegate for RankingTable {
         let key: SharedString = format!("{col:?}").to_lowercase().into();
         let c = Column::new(key, col.name(self.group_by)).sort(self.sort_of(col));
         match col {
-            Col::Key => c.width(px(240.)),
-            Col::Unknown => c.text_right().width(px(120.)),
-            Col::ErrorRate => c.text_right().width(px(104.)),
-            _ => c.text_right().width(px(92.)),
+            Col::Key => c.width(px(self.key_w)),
+            _ => c.text_right().width(px(fixed_width(col))),
         }
     }
 
@@ -359,7 +421,19 @@ mod tests {
         assert_eq!(texts, ["pr-detail", "5", "900 ms", "1.8 s", "3.6 s", "0%"]);
         assert_eq!(columns(true).len(), 8);
         assert_eq!(Col::Cost.name(Dimension::Operation), "Cost", "Q11");
+        assert_eq!(rank_col(Measure::P90, false), Col::P90);
+        assert_eq!(rank_col(Measure::Cost, false), Col::Requests);
+        assert_eq!(rank_col(Measure::Cost, true), Col::Cost);
         assert_eq!(error_rate(0.04), "<0.1%");
         assert_eq!(error_rate(2.54), "2.5%");
+    }
+
+    #[test]
+    fn the_key_column_takes_what_the_figures_leave() {
+        // 4 × 92 + 104 + chrome 18 = 490 beside the key.
+        assert_eq!(key_width(955., false), 465.);
+        // Cost and Unknown cost take 212 more.
+        assert_eq!(key_width(955., true), 253.);
+        assert_eq!(key_width(600., true), KEY_MIN_W, "never below its floor");
     }
 }

@@ -15,7 +15,8 @@ use crate::usage_analytics::surfaces::diagnostics::{RequestGlance, TransportGlan
 /// D10: six tiles per row from this content width, three below.
 pub(super) const SIX_UP_MIN_W: f32 = 900.0;
 
-/// One tile's words: label, headline (with its muted suffix), sub-line.
+/// One tile's words: label, headline (with its muted suffix), and one
+/// or two sub-lines (a transport's p50, then its request count).
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Tile {
     pub id: &'static str,
@@ -23,6 +24,7 @@ pub(super) struct Tile {
     pub value: String,
     pub suffix: Option<&'static str>,
     pub sub: String,
+    pub sub2: Option<String>,
 }
 
 impl Tile {
@@ -32,7 +34,11 @@ impl Tile {
             Some(s) => format!("{s} {}", self.value),
             None => self.value.clone(),
         };
-        format!("{}: {value}, {}", self.label, self.sub)
+        let mut s = format!("{}: {value}, {}", self.label, self.sub);
+        if let Some(more) = &self.sub2 {
+            s.push_str(&format!(", {more}"));
+        }
+        s
     }
 }
 
@@ -49,11 +55,8 @@ fn transport_tile(t: &TransportGlance, filters: &RequestFilters) -> Tile {
             label,
             value: format::duration(p90.into()),
             suffix: Some("p90"),
-            sub: format!(
-                "{} p50 · {}",
-                format::duration(p50.into()),
-                format::requests(t.requests)
-            ),
+            sub: format!("{} p50", format::duration(p50.into())),
+            sub2: Some(format::requests(t.requests)),
         },
         _ => Tile {
             id,
@@ -65,6 +68,7 @@ fn transport_tile(t: &TransportGlance, filters: &RequestFilters) -> Tile {
             } else {
                 "no requests".into()
             },
+            sub2: None,
         },
     }
 }
@@ -83,6 +87,7 @@ pub(super) fn tiles(g: &RequestGlance, filters: &RequestFilters) -> Vec<Tile> {
         value: format::count(g.slow),
         suffix: None,
         sub: format!("{} of requests", format::share(share)),
+        sub2: None,
     });
     out.push(Tile {
         id: "usage-glance-errors",
@@ -90,6 +95,7 @@ pub(super) fn tiles(g: &RequestGlance, filters: &RequestFilters) -> Vec<Tile> {
         value: format::count(g.errors),
         suffix: None,
         sub: "4xx, 5xx and network".into(),
+        sub2: None,
     });
     out
 }
@@ -107,6 +113,8 @@ pub(super) fn band(
     let rows = tiles.chunks(per_row).enumerate().map(|(r, chunk)| {
         h_flex()
             .w_full()
+            // Tiles of one or two sub-lines share a top line.
+            .items_start()
             .when(r > 0, |row| row.border_t_1().border_color(theme.border))
             .children(chunk.iter().enumerate().map(|(i, t)| {
                 let spoken = SharedString::from(t.spoken());
@@ -145,12 +153,12 @@ pub(super) fn band(
                                 )
                             }),
                     )
-                    .child(
+                    .children(std::iter::once(&t.sub).chain(&t.sub2).map(|line| {
                         div()
                             .text_xs()
                             .text_color(theme.muted_foreground)
-                            .child(t.sub.clone()),
-                    )
+                            .child(line.clone())
+                    }))
             }))
     });
     v_flex()
@@ -194,9 +202,10 @@ mod tests {
         assert_eq!(t.len(), 6);
         assert_eq!(
             (t[0].value.as_str(), t[0].sub.as_str()),
-            ("707 ms", "279 ms p50 · 338 requests")
+            ("707 ms", "279 ms p50")
         );
-        assert_eq!(t[0].spoken(), "REST: p90 707 ms, 279 ms p50 · 338 requests");
+        assert_eq!(t[0].sub2.as_deref(), Some("338 requests"));
+        assert_eq!(t[0].spoken(), "REST: p90 707 ms, 279 ms p50, 338 requests");
         assert_eq!(
             (t[1].value.as_str(), t[1].sub.as_str()),
             ("—", "no requests")

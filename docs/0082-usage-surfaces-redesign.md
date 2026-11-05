@@ -496,7 +496,12 @@ the band is accepted as mostly a REST and long-range tool (Q12).
     (0054 D12 keeps its reasoning). `cost` is offered only when the
     Transport facet is a single quota transport (REST or GraphQL), so
     a trend never pools requests and points (D2, Q7); with any other
-    Transport value the option is disabled with a one-line reason.
+    Transport value the option is disabled with a one-line reason: it
+    reads "Cost · REST or GraphQL only", and assistive technology reads
+    "Cost, unavailable: Pick REST or GraphQL: requests and points never
+    pool". Leaving a quota transport while `cost` is the
+    measure resets it to `count` (#698), so the view never shows a
+    measure it can't compute.
     This cost trend is where **this app's recorded spend over time**
     lives, "how much this app spent" (§2.1, #709). The Requests view is
     developer-facing, so every figure here comes from records (§4
@@ -505,25 +510,48 @@ the band is accepted as mostly a REST and long-range tool (Q12).
 - **Bands:**
   1. **Glance strip:** one tile per transport (REST, GraphQL, `auth`,
      `local`) with p90, p50 and the request count; a transport with no
-     requests in range shows "—". Then a "Slower than 1 s" count (with
-     its share) and an error count (4xx, 5xx and network). Six tiles
-     in one row from about 900 px of content, three per row below.
+     requests in range shows "—" over "no requests". Then a "Slower
+     than 1 s" count (with its share) and an error count (4xx, 5xx and
+     network). Six tiles in one row from about 900 px of content, three
+     per row below. The strip follows every facet (#698): a transport
+     the Transport facet excludes reads "—" over "not in this
+     selection", so the tiles always add up to the selection the bands
+     below describe. When the selection holds no requests at all, the
+     view shows one Empty in place of bands 1–5 (D18).
   2. **One trend chart** of the selected measure over time. Counts and
      cost are drawn as bars, percentiles as step lines (D10a). Buckets
      are aligned to the clock (whole hours, 6-hour blocks or days).
-  3. **Ranking table** mirroring the trend, by group.
+  3. **Ranking table** mirroring the trend, titled by its grouping
+     ("By operation"). Columns: the group key, requests, p50, p90,
+     max and error rate, plus cost and unknown-cost counts when
+     `cost` is offered. It is ranked by the measure, whose column
+     shows the sort; a header click re-sorts it, and a new measure or
+     grouping resets to the measure's rank. `Then by` rows nest under
+     their group, labelled "group: key". The key column takes the
+     width the figure columns leave, so the table spans the band.
+     It sizes to its rows up to 12, then scrolls inside (D20).
+     It has no Transport column (owner decision, #698, a change from
+     the approved mockup): `Group by Transport` gives that split.
   4. **Diagnostics** (a collapsed disclosure): the duration histogram,
      the payload × duration grid, contention, and the 304-vs-200
      comparison (0054 §6, #337/#410), unchanged in content. It sits
      above the log (Q8), so it stays reachable without scrolling
-     through the log.
+     through the log. Its header names the four contents while
+     collapsed, and it is one Tab stop (`aria-expanded`) that Enter
+     or Space toggles. Contention adds a step chart of the busiest
+     moment per trend bucket, under its peak and queue-wait lines.
   5. **Request log**, always last: a virtualized, sortable `DataTable`
      of every request in the selection. It fills the scroll viewport
      (Q8): page scroll brings the log to the top of the viewport, then
      the log scrolls its own rows, and nothing sits below it (D20).
      Columns: time · op · target · surface · trigger · status (with a
-     plain-language reason, "304 Not modified", "Network error · timed
-     out") · cost · duration · queue · size. The cost cell spells its
+     plain-language reason, "304 Not modified", "Network error") ·
+     cost · duration · queue · size. A network failure reads "Network
+     error" only: the record keeps no failure kind, so the view never
+     guesses a timeout (#698). The free-text columns (op, target,
+     surface) take the width the band has beyond the columns' minimums;
+     the minimums fit all ten from a 1280 px window, and narrower the
+     log scrolls sideways rather than squeezing a figure out of view. The cost cell spells its
      unit, because the log mixes transports: "12 points", "1 request",
      "free (304)", "unknown", "no budget" (`auth`, `local`). Times
      carry the date for rows outside the `as_of` day. The default sort
@@ -585,6 +613,13 @@ the band is accepted as mostly a REST and long-range tool (Q12).
     both budgets, then the request trend and log) takes 36–42 ms
     optimized and 120–156 ms in the dev build. #696 ships no view
     bodies, so nothing runs it yet; see the next bullet.
+  - **The Requests view (#698)** over the same rows at 90 days: every
+    band (glance, trend and ranking, Diagnostics, log) derives in
+    32–34 ms optimized and 121–127 ms in the dev build. A log header
+    click re-derives only the log: 30–33 ms optimized, 74–77 ms dev.
+    Both run off the UI thread (next bullet). The log draws only its
+    visible rows (`uniform_list`), so a frame never formats the
+    ~10⁵-row log.
   - **Receipt:** the ignored test `usage_read_gate` in
     `crates/modules/github/src/usage_seed.rs`.
 - **The views' derivation runs off the UI thread** (owner decision,
@@ -608,6 +643,12 @@ the band is accepted as mostly a REST and long-range tool (Q12).
     `Group by` / `Then by` pick. A band whose inputs are unchanged is
     carried over from the last landed data, so a budget flip keeps the
     cards on screen and skeletons only the bands it changes.
+  - **The Requests view follows the same rule** (#698). The module
+    list depends on `as_of` only. The glance and Diagnostics also
+    depend on the span and the facets. The trend and ranking also
+    depend on the measure and `Group by` / `Then by`, and the log on
+    its sort. A log header click therefore re-sorts the log
+    off-thread while the bands above stay on screen.
 - **A superseded read is dropped:** each read carries a generation,
   and only the newest refresh lands.
 
@@ -704,6 +745,8 @@ returns a serde struct (0054 D13):
 | `avoidable` | `AvoidableQuery` → `Avoidable` |
 | `request_trend` | `RequestTrendQuery` → `RequestTrend` (trend buckets plus the band 3 ranking) |
 | `request_log` | `RequestLogQuery` → `RequestLog` |
+| `diagnostics::request_glance` | `RequestScope` → `RequestGlance` (D10 band 1, #698) |
+| `diagnostics::request_diagnostics` | `RequestScope` → `Diagnostics` (D10 band 4: histogram, payload grid, contention, 304 vs 200; #698) |
 
 Budget-view queries carry a `BudgetScope { module, budget, as_of,
 preset }`. A budget belongs to one module (`github` today, §12). The
@@ -769,6 +812,15 @@ The implementation settles these mechanical points:
   - The log's cost cell is `Requests(n)`, `Points(n)`, `Free304`,
     `Unknown` or `NoBudget`. Ties under any sort fall back to newest
     first.
+  - The glance and Diagnostics (#698) live in the `diagnostics`
+    submodule and take a `RequestScope { as_of, span, tz_offset,
+    filters }`. They port the old tabs' procedures onto it unchanged:
+    six duration bands, five payload bands with unmeasured bodies
+    counted beside the grid, contention over `[ts − duration, ts)`
+    spans (touching spans never overlap) with clock-aligned buckets,
+    queue waits of 100 ms or more counted as notable, and 304 vs 200
+    medians for ops with both sides in range. "Slow" is 1 s or
+    more.
 - **Read bound (D11).** `UsageSource::records_between` already takes
   any lower bound, so the 90-day reach needs no source change. The
   page's read is #696's wiring.
@@ -787,17 +839,25 @@ and tests next to the code they cover. Under `crates/core/src/`:
 | `usage_analytics/page/honesty.rs` | The honesty line as a pure function, and its date formatting |
 | `usage_analytics/page/states.rs` | D18: loading, page-level Empty, the degraded chip, the views' placeholder |
 | `usage_analytics/page/layout.rs` | D20: the fixed header over one capped, centred page scroll |
-| `usage_analytics/page/derive.rs` | D11: what the read's background task derives (default budget, the views' data), keyed by view, preset, budget and spend grouping, with per-band reuse |
+| `usage_analytics/page/derive.rs` | D11: what the read's background task derives (default budget, the views' data), keyed by view, preset, budget, spend grouping and the Requests query, with per-band reuse |
+| `usage_analytics/page/derive/requests.rs` | D11: the Requests query, its bands' staleness and their derivation |
+| `usage_analytics/page/band_frame.rs`, `format.rs` | Both views: a band's frame (title, summary, empty, skeleton) and shared number, duration, size, time and range wording |
 | `usage_analytics/page/budget.rs` | The Budget view (#697): band order, the budget selector, the skeletons |
 | `usage_analytics/page/budget/cards.rs` | D4/D6: the twin cards and their copy |
 | `usage_analytics/page/budget/ladder.rs` | D5: state words, icons and mark colours |
 | `usage_analytics/page/budget/spend.rs`, `spend_table.rs` | D7: the query bar, summary, chart rows and the sortable table |
 | `usage_analytics/page/budget/history.rs` | D8: titles, the auto-scaled axis and guides, summaries and tooltips |
 | `usage_analytics/page/budget/avoidable.rs` | D9: the top-5 list |
-| `usage_analytics/page/budget/band_frame.rs`, `format.rs` | A band's frame (title, summary, empty, skeleton) and shared number, time and range wording |
+| `usage_analytics/page/budget/format.rs` | Budget-only wording (titles, remaining, countdowns), over the shared `page/format.rs` |
 | `usage_analytics/page/chart.rs` | D10a/D14: shared chart geometry, value and time ticks, guides, the chart frame |
-| `usage_analytics/page/chart/columns.rs`, `burn.rs`, `hbars.rs` | The `gpui_component::plot` charts: time-placed columns, the burn-down, the horizontal bars |
-| `usage_analytics/page/requests.rs` | The Requests view (#698) |
+| `usage_analytics/page/chart/columns.rs`, `burn.rs`, `hbars.rs`, `steps.rs` | The `gpui_component::plot` charts: time-placed columns, the burn-down, the horizontal bars, step lines over an area |
+| `usage_analytics/page/requests.rs` | The Requests view (#698): band order, the skeletons, the ranking band |
+| `usage_analytics/page/requests/query.rs` | D10: the query bar, its select options and the cost offer (Q7) |
+| `usage_analytics/page/requests/glance.rs`, `trend.rs` | Bands 1–2: the tiles, the trend's title, summary and chart |
+| `usage_analytics/page/requests/ranking.rs` | Band 3: the ranking table |
+| `usage_analytics/page/requests/diagnostics.rs`, `grid.rs` | Band 4: the disclosure, its summaries and charts, and the static cross-tab grid |
+| `usage_analytics/page/requests/log.rs`, `log_table.rs` | Band 5: the log's height, meta line and its virtualized table |
+| `usage_analytics/page/requests/format.rs` | Requests-only wording: transports, statuses, cost cells, log times |
 
 A view that outgrows a few hundred lines splits into a directory of its
 own (`budget/cards.rs`, `budget/history.rs`, …) rather than growing
@@ -859,9 +919,10 @@ Every band has the three states (0065 rubric #18, [DG]):
   - Upstream's `DataTable` binds Tab and Shift-Tab to "next/previous
     column" and never lets focus leave, so a table that is a Tab stop
     traps the walk (#711). The views' tables (#697, #698) must keep the
-    cycle closing. Until #711 is fixed upstream, the D7 table is not
-    a Tab stop: it is sortable by pointer, and its cells are still
-    read through `cell_label`.
+    cycle closing. Until #711 is fixed upstream, the D7 table, the
+    D10 ranking and the request log are not Tab stops: they are
+    sortable by pointer, and their cells are still read through
+    `cell_label`.
 - **Tables implement `cell_label`** with their existing cell text
   (closes the app side of #351). Select options carry labels.
 - **One a11y summary per chart**, kept as the D8 contract of 0054. It
@@ -883,6 +944,9 @@ Every band has the three states (0065 rubric #18, [DG]):
   the last band, filling the scroll viewport (D10, Q8): page scroll
   hands over to the log's own rows, with nothing below it. Today's
   fixed 300 px tables inside a scrolling page go away.
+  - Past its cap (12 rows for the D10 ranking) a capped table still
+    scrolls its own rows, so the wheel over it moves the table, not
+    the page. Settling that is #718.
 - At the minimum window width, the header fits on one line (verified
   at 1024×700 in the mockups); if a future control makes it wrap, it
   wraps as one deliberate second row.
