@@ -706,6 +706,13 @@ changes in these ways:
   tooltip explaining "no response yet".
 
 *As shipped (#699):*
+- **Signed in only** (owner decision on #724). "Every page" applies
+  while the GitHub module is `Connected`. Signed out, during the
+  connect flow, after a rejected token or with a keychain error, the
+  status bar carries no chip: there is no budget to show. Signed in,
+  a budget without a snapshot yet still reads `REST —` / `GraphQL —`.
+  A pending token refresh keeps the chip, since the status is still
+  `Connected` (`usage_chip::shown`).
 - The chip is a ghost `Button` (`github-usage`, role Button). Its
   accessible name is the spoken form: `GitHub API: REST: 3,712 of
   5,000 requests remaining, resets in 13 minutes; GraphQL: 1,140 of

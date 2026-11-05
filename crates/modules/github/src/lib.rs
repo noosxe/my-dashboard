@@ -252,10 +252,14 @@ impl Module for GithubModule {
         // Footer chip (docs/0050 D5): one view for the app's lifetime,
         // shown on every page (docs/0082 D13, Q9): the home card and
         // background polls spend the budget off the GitHub pages too.
+        // Signed out there is no chip at all (`usage_chip::shown`).
         let usage_chip =
             cx.new(|cx| usage_chip::UsageChip::new(state.clone(), usage.clone(), nav.clone(), cx));
-        let status_item: StatusItemFn =
-            Arc::new(move |_page, _cx| Some(usage_chip.clone().into_any_element()));
+        let chip_state = state.clone();
+        let status_item: StatusItemFn = Arc::new(move |_page, cx| {
+            usage_chip::shown(&chip_state.read(cx).auth)
+                .then(|| usage_chip.clone().into_any_element())
+        });
         // The usage page reads each budget's pause with its freeze, so a
         // paused budget's card reads Exhausted (docs/0082 Q10).
         let pause_state = state.clone();

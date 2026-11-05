@@ -270,7 +270,9 @@ iff `Page::Module("github")`, exactly the issue's scoping (Home and
 Settings show nothing). This is the "don't reimplement per page" shape:
 future modules plug in with one closure, and the bar owns ordering and
 lifecycle. *Amended by docs/0082 D13 (shipped, #699):* the GitHub chip
-renders on every page; the per-provider visibility hook itself stays.
+renders on every page while the module is signed in (connected), and
+renders nothing signed out or mid connect-flow; the per-provider
+visibility hook itself stays.
 The chip now lives in `crates/modules/github/src/usage_chip.rs`, and
 the copy below is superseded by 0082 D13's: words instead of
 abbreviations, the D5 ladder per budget, `REST —` / `GraphQL —`
@@ -359,7 +361,8 @@ Single implementation issue (cohesive, one seam):
   window self-heals via the free probe.
 - The chip appears only on GitHub module pages, updates live (including
   background auto-refresh), and is labeled per docs/0049 D1. *Amended
-  by docs/0082 D13:* it appears on every page.
+  by docs/0082 D13:* it appears on every page while signed in, and
+  not at all while signed out.
 - Exhaustion display derives from `rate_limited_until` — one operational
   source of truth, unchanged backoff behavior. *Amended by docs/0082
   Q10:* one per bucket, each gating only its own transport.
