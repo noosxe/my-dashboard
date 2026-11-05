@@ -10,7 +10,7 @@ This doc formalizes them and fills in the mechanics.*
 > **Amended by docs/0082** (usage surfaces redesign): the page's read
 > bound grows from 1 month to the full 90-day retention (0082 D11).
 > D8's UI-thread read was gated by a measurement in the
-> implementation PR. A 90-day read measured 71 ms (optimized build)
+> implementation PR. A 90-day read measured 70 ms (optimized build)
 > over the seeded ledger, so the page's read now runs off-main with a
 > designed loading state (0082 D11, D18). Storage, retention and the
 > degrade path are unchanged; the degraded state now also reaches the

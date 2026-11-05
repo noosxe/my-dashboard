@@ -560,22 +560,22 @@ the band is accepted as mostly a REST and long-range tool (Q12).
   above one frame) was measured in #696:
   - **Ledger:** the seeded ledger (`DASHBOARD_GITHUB_USAGE_SEED`, whose
     cap grew from 30 to 90 days for this) over 90 days: about 96,600
-    rows, heaviest day 1,157. The "heavy-day" variant replays that
+    rows, heaviest day about 1,150. The "heavy-day" variant replays that
     heaviest day 90 times: about 101,500 rows.
   - **Store:** the app's SQLite store (docs/0057), written and flushed
     to a scratch file, read with `records_between` over
     `[as_of − 90 d, as_of)`, median of five.
-  - **Result (optimized build):** 71 ms seeded, 74 ms heavy. In the
-    dev build: 280 ms and 288 ms. Both are far above 16 ms.
-  - **Also measured:** recomputing the page's views over those rows
-    (#696's interim bodies plus the header's budget cards) takes
-    48–55 ms optimized and about 215 ms in the dev build. That
-    recompute still runs on the UI thread on every control change
-    (0054 D10's pure recomputation); see the next bullet.
+  - **Result (optimized build):** 70 ms seeded, 70 ms heavy. In the
+    dev build: 273 ms and 285 ms. Both are far above 16 ms.
+  - **Also measured:** running every view procedure over those rows
+    (D15a: budget cards, then where-it-went, history and avoidable for
+    both budgets, then the request trend and log) takes 36–42 ms
+    optimized and 120–156 ms in the dev build. #696 ships no view
+    bodies, so nothing runs it yet; see the next bullet.
   - **Receipt:** the ignored test `usage_read_gate` in
     `crates/modules/github/src/usage_seed.rs`.
 - **[P] The views' derivation joins the read off the UI thread** when
-  #697 and #698 replace the interim bodies: refresh runs read plus
+  #697 and #698 land their bands: refresh runs read plus
   band procedures in one background task, and a control change that
   re-derives over 90 days does the same, behind the band skeletons.
   Trade-off: every band gains a loading state on range changes, but a
@@ -745,6 +745,27 @@ The implementation settles these mechanical points:
   any lower bound, so the 90-day reach needs no source change. The
   page's read is #696's wiring.
 
+**Code layout (#696).** The old page lived in one file of several
+thousand lines; the new one is a module tree with one concern per file
+and tests next to the code they cover. Under `crates/core/src/`:
+
+| File | Concern |
+|---|---|
+| `usage_analytics.rs` | Shared vocabulary: `Dimension`, `is_error`, `percentile_of`, and the agent's `Range` (0068 §6) |
+| `usage_analytics/surfaces.rs` | The procedures above (pure; stays where it is, so #697 and #698 build on an unmoved API) |
+| `usage_analytics/page.rs` | `UsagePage`: state, the read lifecycle (D11), render composition |
+| `usage_analytics/page/header.rs` | The D3 header: view switch, range switch, Refresh, honesty row; the D19 segmented wrapper |
+| `usage_analytics/page/range.rs` | D11 presets, Requests' `Current window` rule, bounds resolution through `BudgetScope` |
+| `usage_analytics/page/honesty.rs` | The honesty line as a pure function, and its date formatting |
+| `usage_analytics/page/states.rs` | D18: loading, page-level Empty, the degraded chip, the views' placeholder |
+| `usage_analytics/page/layout.rs` | D20: the fixed header over one capped, centred page scroll |
+| `usage_analytics/page/budget.rs` | The Budget view (#697) |
+| `usage_analytics/page/requests.rs` | The Requests view (#698) |
+
+A view that outgrows a few hundred lines splits into a directory of its
+own (`budget/cards.rs`, `budget/history.rs`, …) rather than growing
+one file.
+
 ### D16 — Non-quota records
 
 `auth` and `local` (0064 D9) records never enter Budget-view figures.
@@ -797,6 +818,10 @@ Every band has the three states (0065 rubric #18, [DG]):
     is one Tab stop with the framework focus ring. Left/Up and
     Right/Down move the selection, Home and End jump to the ends, and
     its accessible name carries the selection ("Range: 24h").
+  - Upstream's `DataTable` binds Tab and Shift-Tab to "next/previous
+    column" and never lets focus leave, so a table that is a Tab stop
+    traps the walk (#711). The views' tables (#697, #698) must keep the
+    cycle closing.
 - **Tables implement `cell_label`** with their existing cell text
   (closes the app side of #351). Select options carry labels.
 - **One a11y summary per chart**, kept as the D8 contract of 0054. It
@@ -894,6 +919,10 @@ gallery remains the widget-level one.
 | Facets: transport | Budget selector (Budget view) or transport facet (Requests view) |
 | Facets: module, errors-only | Requests facets (Module, Status class) |
 
+The left column's content was removed from the code in #696, together
+with the procedures only it used; the right column is built by #697 and
+#698 (§11).
+
 ## 10 Verification and the mockup phase
 
 **Prerequisites** (built separately, §2 item 5):
@@ -943,25 +972,13 @@ The split is proposed and refined when the issues are filed:
    projection guard, per-day peaks, avoidable ranking).
 2. **Page shell:** the D1 view switch, the D3 header, the D11 presets
    and read bound with the measurement gate, D18 and D19 header work.
-   - **Interim view bodies** keep `main` usable between the shell and
-     the views. The retired tabs' bodies are rehosted under the new
-     switch: Budget shows the old Overview and Quota usage bodies,
-     Requests shows the old Request latency body. Above them sits the
-     old facet bar (transport, module, errors only), as a view-body
-     query bar rather than in the header (D3).
-   - The interim bodies read the header's range, `Current window`
-     included: the selected budget's window bounds every interim
-     figure. Items 3 and 4 replace them.
-   - Two fixes keep them usable at the new reach and on the keyboard:
-     - each burn-down panel draws at most 480 points (the lowest
-       `remaining` per chunk, so the closest approach survives). A
-       90-day window holds tens of thousands of snapshots, and drawing
-       them all every frame froze the page;
-     - their tables leave the Tab order. Upstream's `DataTable` binds
-       Tab to "next column", so a table that is a Tab stop traps the
-       walk (D19). The tables stay usable with the pointer.
-   - Other pre-existing issues in those bodies ship with them, such as
-     the `flights` wording and fixed-height tables.
+   - **The old page content is removed** (owner decision, #696): the
+     Overview, Quota usage and Request latency bodies, their render
+     code, and the calculator procedures only they used. Until items 3
+     and 4 land, each view's body is a neutral placeholder ("This view
+     is being rebuilt"), and the page-level Empty (D18) still shows
+     when the store is empty. The agent `api_usage` op keeps its own
+     aggregation (#702).
 3. **Budget view:** D4–D9 bands, including the app-owned time-axis
    chart (D10a).
 4. **Requests view:** D10, including the virtualized request log.
