@@ -28,12 +28,12 @@ impl UsagePage {
             .iter()
             .position(|v| *v == self.view)
             .unwrap_or(0);
-        let focus = self.focus.clone();
+        let focus = self.focus.as_ref();
 
         let view_switch = segmented_stop(
             "usage-view",
             "Usage view",
-            focus.as_ref().map(|f| &f.0),
+            focus.map(|f| &f.view),
             UsageView::all().iter().map(|v| v.label()).collect(),
             view_ix,
             |this, ix, cx| {
@@ -47,7 +47,7 @@ impl UsagePage {
         let range_switch = segmented_stop(
             "usage-range",
             "Range",
-            focus.as_ref().map(|f| &f.1),
+            focus.map(|f| &f.range),
             presets.iter().map(|p| preset_label(*p)).collect(),
             preset_ix,
             |this, ix, cx| {
@@ -123,7 +123,7 @@ impl UsagePage {
 /// arrow keys; the upstream `TabBar` inside draws the segments and
 /// takes the pointer. Upstream's `TabBar` has no keyboard path.
 #[allow(clippy::too_many_arguments)]
-fn segmented_stop<F>(
+pub(super) fn segmented_stop<F>(
     id: &'static str,
     name: &str,
     focus: Option<&FocusHandle>,
