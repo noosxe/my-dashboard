@@ -26,6 +26,9 @@ use crate::ui::{CardVariant, card, page_canvas};
 use crate::usage_records::{self, Transport, UsageRecord};
 use gpui::SharedString;
 
+/// The redesigned surfaces' procedures (docs/0082 D15).
+pub mod surfaces;
+
 /// The usage page's fixed widget geometry (docs/0002 D10: canvas
 /// sizes are exempt from the rem scale and therefore named).
 const STAT_CARD_MIN_W: f32 = 220.0; // flexed stat cards never narrow below this
