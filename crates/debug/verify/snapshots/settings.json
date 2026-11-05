@@ -12,6 +12,19 @@
       "focused": false
     },
     {
+      "accesskit_id": "364720877318993958",
+      "role": "Button",
+      "label": "GitHub API: REST: no response yet; GraphQL: no response yet; session: 0 requests (0 GraphQL, 0 REST, 0 auth)",
+      "bounds": {
+        "x": 1090.0,
+        "y": 730.0,
+        "w": 129.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
       "accesskit_id": "481650520311213421",
       "role": "Button",
       "label": "Toggle GitHub submenu",
@@ -38,6 +51,19 @@
       "focused": false
     },
     {
+      "accesskit_id": "825159943793770961",
+      "role": "TextInput",
+      "label": "Search...",
+      "bounds": {
+        "x": 315.0,
+        "y": 71.0,
+        "w": 184.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
       "accesskit_id": "2108810803643324527",
       "role": "Button",
       "label": "Back",
@@ -46,19 +72,6 @@
         "y": 22.0,
         "w": 24.0,
         "h": 24.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "2209867835079331558",
-      "role": "TextInput",
-      "label": "Search...",
-      "bounds": {
-        "x": 315.0,
-        "y": 71.0,
-        "w": 184.0,
-        "h": 20.0
       },
       "focusable": true,
       "focused": false

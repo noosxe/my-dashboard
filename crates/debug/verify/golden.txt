@@ -28,9 +28,10 @@ mouse up 448 169
 wait-frame
 assert-golden github
 
-# Usage analytics — proven tab click.
-mouse down 1239 740
-mouse up 1239 740
+# Usage analytics — the status-bar usage chip opens it (docs/0082
+# D13; the chip's centre at 1280x800, signed out).
+mouse down 1154 740
+mouse up 1154 740
 wait-frame
 assert-golden usage
 

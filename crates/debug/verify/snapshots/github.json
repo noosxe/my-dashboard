@@ -12,6 +12,19 @@
       "focused": false
     },
     {
+      "accesskit_id": "364720877318993958",
+      "role": "Button",
+      "label": "GitHub API: REST: no response yet; GraphQL: no response yet; session: 0 requests (0 GraphQL, 0 REST, 0 auth)",
+      "bounds": {
+        "x": 1090.0,
+        "y": 730.0,
+        "w": 129.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
       "accesskit_id": "2108810803643324527",
       "role": "Button",
       "label": "Back",
@@ -116,19 +129,6 @@
       "focused": true
     },
     {
-      "accesskit_id": "10832232269558921901",
-      "role": "Label",
-      "label": "GitHub API usage pending; session: 0 requests (0 GraphQL, 0 REST, 0 auth)",
-      "bounds": {
-        "x": 1120.0,
-        "y": 730.0,
-        "w": 71.0,
-        "h": 19.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
       "accesskit_id": "11742288819721498111",
       "role": "ListItem",
       "label": "GitHub",
@@ -173,19 +173,6 @@
       "label": "Notifications, 0 unread",
       "bounds": {
         "x": 1227.0,
-        "y": 728.0,
-        "w": 24.0,
-        "h": 24.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "16129109161026522213",
-      "role": "Button",
-      "label": "Usage analytics",
-      "bounds": {
-        "x": 1195.0,
         "y": 728.0,
         "w": 24.0,
         "h": 24.0

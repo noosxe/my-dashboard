@@ -80,7 +80,9 @@ audit
 # quota tab it replaced retired with #696). The view-switch segment's
 # id derives like the sidebar's: stable on this fresh-boot route. Over
 # the empty ledger both views show the page-level Empty (0082 D18).
-click 914798575727734911 --wait-frame
+# Re-keyed with #699: the usage chip renders on Home now (0082 D13),
+# and its button's state entities shift the later element-path ids.
+click 16721384506007634183 --wait-frame
 assert-label "No requests recorded yet"
 audit
 
@@ -100,8 +102,12 @@ assert-label "Open GitHub module"
 audit
 assert-baseline home-return
 
-# Home → GitHub module page last (the home card's stable id).
+# Home → GitHub module page last (the home card's stable id). The
+# usage chip shows on every page since docs/0082 D13, so its label no
+# longer marks this page; signed out, the page carries no label of its
+# own, so the hop asserts Home is gone and the golden pins the rest
+# (the `GitHub` breadcrumb).
 click 10180477284460313495 --wait-frame
-assert-label "API usage"
+assert-no-label "Open GitHub module"
 audit
 assert-baseline github

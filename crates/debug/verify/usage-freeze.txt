@@ -15,9 +15,10 @@ mouse down 448 169
 mouse up 448 169
 wait-frame
 
-# module page → usage analytics
-mouse down 1239 740
-mouse up 1239 740
+# module page → usage analytics: the status-bar usage chip (docs/0082
+# D13; its centre at 1280x800, signed out)
+mouse down 1154 740
+mouse up 1154 740
 wait-frame
 
 snapshot opened

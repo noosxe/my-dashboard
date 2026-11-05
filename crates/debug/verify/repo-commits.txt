@@ -65,8 +65,10 @@ tab-stops
 assert-baseline github-commits
 
 # Keyboard: the list is a tab stop; ↓↓ selects the second commit,
-# Enter opens it (the `commits: opened 9e3779b` log line).
-focus 12746888743394341120
+# Enter opens it (the `commits: opened 9e3779b` log line). The list's
+# id re-keyed with #699 (the usage chip renders on Home, so more
+# entities exist before the list is built).
+focus 6147226658770961618
 key down
 key down
 key enter
