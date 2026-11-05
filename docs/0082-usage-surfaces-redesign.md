@@ -279,10 +279,13 @@ as of 13:47 · snapshot 2 min old    as of 13:47 · snapshot 1 min old
 
 - **The state badge** (Low, Critical, Exhausted) sits at the right of
   the title: an icon in the D5 token plus the word in `foreground`.
-  Normal shows no badge.
-- **The meta line** ends with the range's recorded spend for that
-  budget ("10,625 points recorded in the last 24h"); this is where the
-  retired Overview "points spent" card lands (§9).
+  Normal shows no badge. The icons come from gpui-component's default
+  Lucide bundle: `triangle-alert` (Low), `circle-alert` (Critical) and
+  `pause` (Exhausted).
+- **The meta lines:** the snapshot line, then a second line with the
+  range's recorded spend for that budget ("10,625 points recorded in
+  the last 24 hours"). The second line is where the retired Overview
+  "points spent" card lands (§9).
 
 - **Numbers** come from the latest `remaining_after` / `limit_after` /
   `cycle_reset_epoch` with `ts < as_of` for that budget. They are
@@ -377,7 +380,9 @@ A query bar plus one chart and one table, both fed by one aggregate.
 - **Budget selector:** `Budget: REST | GraphQL` (D2) sits in a
   view-level bar between band 1 and band 2, because bands 2, 3 and 4
   all depend on it. Its default is the budget with the **smaller
-  remaining fraction** (Q6), REST on a tie or with no snapshot. The
+  remaining fraction** (Q6), REST on a tie or with no snapshot. A
+  budget the user picks holds across Refresh and range changes for
+  the page's life; only an unpicked selector follows the default. The
   cards (band 1) always show both budgets.
 - **Band query bar:**
   - `Group by` over Surface, Trigger, Operation, Target or Module;
@@ -403,7 +408,8 @@ A query bar plus one chart and one table, both fed by one aggregate.
 - **[P] Drill-down:** activating a table row offers "Show these
   requests", which switches to the Requests view with that group as a
   filter. Trade-off: a cross-view jump, but the request log lives in
-  only one place (D9).
+  only one place (D9). Not shipped with #697, because its target is
+  #698's request log; filed as #714.
 
 ### D8 — Band 3: history across windows (Q-c)
 
@@ -467,7 +473,7 @@ counted twice.
 
 The band shows a short list (top 5): op, a category tag, a one-line
 reason, cost and share of the budget's range spend. "Show these
-requests" is the same drill as D7. Its summary line says
+requests" is the same drill as D7 (#714). Its summary line says
 "Heuristics, not proof" and, like D7's, that the figures are this
 app's recorded spend (§4 principle).
 
@@ -595,6 +601,12 @@ the band is accepted as mostly a REST and long-range tool (Q12).
     procedure calls there and render skeletons while it is pending.
     The honesty line's inputs stay on the UI thread, derived once per
     change (D3), so the header never waits.
+  - **Bands re-derive only on their own inputs** (#697). The cards
+    depend on `as_of` and the preset. History and avoidable also
+    depend on the budget, and where-it-went also depends on the
+    `Group by` / `Then by` pick. A band whose inputs are unchanged is
+    carried over from the last landed data, so a budget flip keeps the
+    cards on screen and skeletons only the bands it changes.
 - **A superseded read is dropped:** each read carries a generation,
   and only the newest refresh lands.
 
@@ -774,8 +786,16 @@ and tests next to the code they cover. Under `crates/core/src/`:
 | `usage_analytics/page/honesty.rs` | The honesty line as a pure function, and its date formatting |
 | `usage_analytics/page/states.rs` | D18: loading, page-level Empty, the degraded chip, the views' placeholder |
 | `usage_analytics/page/layout.rs` | D20: the fixed header over one capped, centred page scroll |
-| `usage_analytics/page/derive.rs` | D11: what the read's background task derives (default budget, the views' data), keyed by view, preset and budget |
-| `usage_analytics/page/budget.rs` | The Budget view (#697) |
+| `usage_analytics/page/derive.rs` | D11: what the read's background task derives (default budget, the views' data), keyed by view, preset, budget and spend grouping, with per-band reuse |
+| `usage_analytics/page/budget.rs` | The Budget view (#697): band order, the budget selector, the skeletons |
+| `usage_analytics/page/budget/cards.rs` | D4/D6: the twin cards and their copy |
+| `usage_analytics/page/budget/ladder.rs` | D5: state words, icons and mark colours |
+| `usage_analytics/page/budget/spend.rs`, `spend_table.rs` | D7: the query bar, summary, chart rows and the sortable table |
+| `usage_analytics/page/budget/history.rs` | D8: titles, the auto-scaled axis and guides, summaries and tooltips |
+| `usage_analytics/page/budget/avoidable.rs` | D9: the top-5 list |
+| `usage_analytics/page/budget/band_frame.rs`, `format.rs` | A band's frame (title, summary, empty, skeleton) and shared number, time and range wording |
+| `usage_analytics/page/chart.rs` | D10a/D14: shared chart geometry, value and time ticks, guides, the chart frame |
+| `usage_analytics/page/chart/columns.rs`, `burn.rs`, `hbars.rs` | The `gpui_component::plot` charts: time-placed columns, the burn-down, the horizontal bars |
 | `usage_analytics/page/requests.rs` | The Requests view (#698) |
 
 A view that outgrows a few hundred lines splits into a directory of its
@@ -838,7 +858,9 @@ Every band has the three states (0065 rubric #18, [DG]):
   - Upstream's `DataTable` binds Tab and Shift-Tab to "next/previous
     column" and never lets focus leave, so a table that is a Tab stop
     traps the walk (#711). The views' tables (#697, #698) must keep the
-    cycle closing.
+    cycle closing. Until #711 is fixed upstream, the D7 table is not
+    a Tab stop: it is sortable by pointer, and its cells are still
+    read through `cell_label`.
 - **Tables implement `cell_label`** with their existing cell text
   (closes the app side of #351). Select options carry labels.
 - **One a11y summary per chart**, kept as the D8 contract of 0054. It
