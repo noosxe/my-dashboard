@@ -203,7 +203,7 @@ pub fn bar(
         );
     }
     // Module-contributed items (docs/0050 D5) after the spinners —
-    // e.g. GitHub's usage chip, visible only on its module pages.
+    // e.g. GitHub's usage chip, on every page while signed in.
     for item in registry.status_items(active, cx) {
         bar = bar.right(item);
     }

@@ -15,10 +15,11 @@ mouse down 448 169
 mouse up 448 169
 wait-frame
 
-# module page → usage analytics: the status-bar usage chip (docs/0082
-# D13; its centre at 1280x800, signed out)
-mouse down 1154 740
-mouse up 1154 740
+# Usage analytics via the sidebar `Usage` item (its centre at
+# 1280x800). Signed out there is no usage chip (docs/0082 D13), and the
+# GitHub page's own "Usage analytics" button retired with #699.
+mouse down 144 187
+mouse up 144 187
 wait-frame
 
 snapshot opened

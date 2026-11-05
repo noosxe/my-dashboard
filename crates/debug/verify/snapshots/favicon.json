@@ -12,19 +12,6 @@
       "focused": false
     },
     {
-      "accesskit_id": "364720877318993958",
-      "role": "Button",
-      "label": "GitHub API: REST: no response yet; GraphQL: no response yet; session: 0 requests (0 GraphQL, 0 REST, 0 auth)",
-      "bounds": {
-        "x": 1090.0,
-        "y": 730.0,
-        "w": 129.0,
-        "h": 20.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
       "accesskit_id": "665103926689405904",
       "role": "Image",
       "label": "My App on an iOS home screen",

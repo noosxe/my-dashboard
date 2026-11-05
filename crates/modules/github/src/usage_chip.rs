@@ -9,7 +9,8 @@
 //! - [`critical`] keeps the D5 Critical toast to one per budget per
 //!   window.
 //!
-//! This file is the view: a 1 Hz self-refresh and the render.
+//! This file is the view: a 1 Hz self-refresh, the render, and
+//! [`shown`], which hides the chip while the module is signed out.
 
 use gpui::prelude::*;
 use gpui::{Context, Entity, FontWeight, Render, SharedString, Window, div};
@@ -22,7 +23,7 @@ use gpui_component::{
 use dashboard_core::nav::Navigator;
 use dashboard_core::usage_analytics::{ladder, live};
 
-use crate::service::GithubState;
+use crate::service::{AuthStatus, GithubState};
 use crate::usage::{UsageLedger, budget_now};
 
 mod critical;
@@ -30,6 +31,16 @@ mod model;
 
 use critical::CriticalWatch;
 use model::{ChipModel, Segment};
+
+/// Whether the chip shows at all (docs/0082 D13, owner decision on
+/// #724): only once a token is connected. Signed out, mid connect-flow,
+/// token-rejected or keychain-broken, there is no budget to show, so the
+/// status bar carries no chip. Signed in, a budget without a snapshot
+/// yet still reads `REST —` / `GraphQL —`. A pending token refresh keeps
+/// the chip (the status is still `Connected`), so it never flickers.
+pub(crate) fn shown(auth: &AuthStatus) -> bool {
+    auth.connected()
+}
 
 /// What a render shows; the refresh loop notifies only when it changes,
 /// so a stable budget draws nothing (0050 D5).
@@ -65,7 +76,7 @@ impl UsageChip {
         let timer_state = state.clone();
         let timer_usage = usage.clone();
         cx.spawn(async move |this, cx| {
-            let mut last: Option<(Vec<Segment>, String)> = None;
+            let mut last: Option<(bool, Vec<Segment>, String)> = None;
             let mut watch = CriticalWatch::default();
             loop {
                 cx.background_executor()
@@ -76,7 +87,10 @@ impl UsageChip {
                     for alert in watch.observe(&model) {
                         dashboard_core::toasts::raise(cx, alert.toast());
                     }
-                    content(&model, session)
+                    let (segments, label) = content(&model, session);
+                    // Signing in or out redraws, so the status-item
+                    // closure re-reads [`shown`].
+                    (shown(&timer_state.read(cx).auth), segments, label)
                 });
                 if last.as_ref() != Some(&shown) {
                     last = Some(shown);
@@ -149,5 +163,29 @@ impl Render for UsageChip {
             .tooltip(model::tooltip(&model))
             .child(row)
             .on_click(move |_, _, cx| live::open_budget_view(&nav, cx))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::service::ConnectPhase;
+
+    #[test]
+    fn the_chip_shows_only_while_connected() {
+        assert!(shown(&AuthStatus::Connected));
+        for hidden in [
+            AuthStatus::Disconnected,
+            AuthStatus::ConnectFlow(ConnectPhase::RequestingCode),
+            AuthStatus::ConnectFlow(ConnectPhase::AwaitApproval {
+                user_code: "ABCD-1234".into(),
+                verification_uri: "https://github.com/login/device".into(),
+            }),
+            AuthStatus::ConnectFlow(ConnectPhase::Denied),
+            AuthStatus::TokenRejected,
+            AuthStatus::KeychainError("locked".into()),
+        ] {
+            assert!(!shown(&hidden), "{hidden:?}");
+        }
     }
 }
