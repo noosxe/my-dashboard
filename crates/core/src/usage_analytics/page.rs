@@ -4,8 +4,9 @@
 //!
 //! Code layout (0082 D15a): this file owns the page state, the read
 //! lifecycle and the render composition; each concern lives next door —
-//! [`header`], [`range`], [`honesty`], [`states`], [`layout`] — and
-//! each view has its own module ([`budget`], [`requests`]).
+//! [`header`], [`range`], [`honesty`], [`states`], [`layout`],
+//! [`derive`] — and each view has its own module ([`budget`],
+//! [`requests`]).
 
 use std::sync::Arc;
 
@@ -16,6 +17,7 @@ use super::surfaces::{self, Bounds, Budget, Preset};
 use crate::usage_records::{self, UsageRecord};
 
 mod budget;
+mod derive;
 mod header;
 mod honesty;
 mod layout;
@@ -23,6 +25,7 @@ mod range;
 mod requests;
 mod states;
 
+use derive::{Landed, ViewData, ViewKey};
 use honesty::Honesty;
 use range::{BUDGET_MODULE, DEFAULT_PRESET, READ_SPAN};
 
@@ -109,6 +112,15 @@ pub struct UsagePage {
     /// Kept in step with rows, view, preset and budget by
     /// [`UsagePage::derive`]; `render` only reads it.
     derived: Derived,
+    /// The active view's data (D11 decision: derived off the UI
+    /// thread). `None` while a derivation is in flight — the bands show
+    /// their skeletons.
+    views: Option<Arc<ViewData>>,
+    /// The key `views` was (or is being) derived for.
+    views_key: Option<ViewKey>,
+    /// Drops a superseded derivation: the newest control change wins.
+    views_gen: u64,
+    _views_task: Option<Task<()>>,
 }
 
 impl UsagePage {
@@ -144,6 +156,10 @@ impl UsagePage {
             budget: Budget::Rest,
             focus: None,
             derived: Derived::default(),
+            views: None,
+            views_key: None,
+            views_gen: 0,
+            _views_task: None,
         };
         page.derive();
         page
@@ -151,23 +167,30 @@ impl UsagePage {
 
     /// The bounded read, half-open on both ends — the upper bound is
     /// what makes the freeze real (0054 D10). Off the UI thread (0082
-    /// D11's gate): the page shows `Loading` until the rows land.
+    /// D11's gate): the page shows `Loading` until the rows land. The
+    /// same background task derives the default budget and the active
+    /// view's data (D11 decision), so a landed read renders complete.
     fn reload(&mut self, cx: &mut Context<Self>) {
         let from = self.as_of_ms.saturating_sub(READ_SPAN.ms());
         let to = self.as_of_ms;
+        let (view, preset) = (self.view, self.preset);
         let source = usage_records::source(cx);
         self.read_gen += 1;
         let generation = self.read_gen;
         self.read = ReadState::Loading;
         self._read_task = Some(cx.spawn(async move |this, cx| {
-            let (rows, degraded) = cx
+            let landed = cx
                 .background_spawn(async move {
-                    (source.records_between(from, to), source.is_degraded())
+                    let rows = source.records_between(from, to);
+                    derive::land(rows, source.is_degraded(), to, view, preset)
                 })
                 .await;
             this.update(cx, |page, cx| {
                 if page.read_gen == generation {
-                    page.apply_read(rows, degraded);
+                    page.apply_read(landed);
+                    // Controls changed while the read was in flight:
+                    // derive for where they stand now.
+                    page.rederive_views(cx);
                     cx.notify();
                 }
             })
@@ -175,25 +198,50 @@ impl UsagePage {
         }));
     }
 
-    /// Land a finished read: the rows, the degraded flag and the budget
-    /// `Current window` follows.
-    fn apply_read(&mut self, rows: Vec<UsageRecord>, degraded: bool) {
-        self.rows = Arc::new(rows);
-        self.degraded = degraded;
+    /// Land a finished read: the rows, the degraded flag, the budget
+    /// `Current window` follows and the views derived for `landed.key`.
+    fn apply_read(&mut self, landed: Landed) {
+        self.rows = Arc::new(landed.rows);
+        self.degraded = landed.degraded;
         self.read = ReadState::Ready;
-        self.budget = surfaces::budget_cards(
-            &self.rows,
-            &surfaces::BudgetCardsQuery {
-                module: BUDGET_MODULE.into(),
-                as_of_ms: self.as_of_ms,
-                preset: Preset::CurrentWindow,
-                // The per-budget pause reaches the page with #699.
-                rest_paused_until_ms: None,
-                graphql_paused_until_ms: None,
-            },
-        )
-        .default_budget;
+        self.budget = landed.budget;
+        // Supersedes any derivation still running for the old rows.
+        self.views_gen += 1;
+        self.views = Some(Arc::new(landed.views));
+        self.views_key = Some(landed.key);
         self.derive();
+    }
+
+    /// The active view's key as the controls stand.
+    fn view_key(&self) -> ViewKey {
+        ViewKey::new(self.as_of_ms, self.view, self.preset, self.budget)
+    }
+
+    /// Re-derive the active view's data on the background executor if
+    /// its key changed (D11 decision): the bands show skeletons until it
+    /// lands, and a superseded derivation never lands.
+    fn rederive_views(&mut self, cx: &mut Context<Self>) {
+        let key = self.view_key();
+        if self.read != ReadState::Ready || self.views_key == Some(key) {
+            return;
+        }
+        self.views_gen += 1;
+        let generation = self.views_gen;
+        self.views = None;
+        self.views_key = Some(key);
+        let rows = self.rows.clone();
+        self._views_task = Some(cx.spawn(async move |this, cx| {
+            let views = cx
+                .background_spawn(async move { derive::derive_views(&rows, key) })
+                .await;
+            this.update(cx, |page, cx| {
+                if page.views_gen == generation {
+                    page.views = Some(Arc::new(views));
+                    cx.notify();
+                }
+            })
+            .ok();
+        }));
     }
 
     /// The refresh button's action (0054 D10): the ONLY path that moves
@@ -207,11 +255,13 @@ impl UsagePage {
 
     fn set_view(&mut self, view: UsageView, cx: &mut Context<Self>) {
         self.select(view, self.preset);
+        self.rederive_views(cx);
         cx.notify();
     }
 
     fn set_preset(&mut self, preset: Preset, cx: &mut Context<Self>) {
         self.select(self.view, preset);
+        self.rederive_views(cx);
         cx.notify();
     }
 
@@ -427,7 +477,13 @@ mod tests {
             assert_eq!(p.derived.oldest_ms, Some(AS_OF - 2 * Span::D7.ms()));
         }
         // A read lands: the cache follows the new rows.
-        p.apply_read(vec![rec(AS_OF - 10)], false);
+        p.apply_read(derive::land(
+            vec![rec(AS_OF - 10)],
+            false,
+            AS_OF,
+            p.view,
+            p.preset,
+        ));
         assert_eq!(p.derived, p.derive_inputs());
         assert_eq!(
             (p.derived.requests, p.derived.oldest_ms),
@@ -436,16 +492,61 @@ mod tests {
     }
 
     #[test]
-    fn a_read_derives_the_d7_default_budget() {
+    fn a_landed_read_sets_the_budget_and_the_views_for_its_key() {
         let mut p = UsagePage::frozen_at(AS_OF, Vec::new());
-        p.apply_read(
+        p.apply_read(derive::land(
             vec![
                 snap(AS_OF - MIN, Transport::Graphql, 1_000, AS_OF + 40 * MIN),
                 snap(AS_OF - MIN, Transport::Rest, 4_000, AS_OF + 10 * MIN),
             ],
             false,
-        );
+            AS_OF,
+            p.view,
+            p.preset,
+        ));
         assert_eq!(p.budget, Budget::Graphql, "20 % left beats 80 %");
+        assert!(p.views.is_some());
+        assert_eq!(p.views_key, Some(p.view_key()));
+    }
+
+    #[gpui::test]
+    fn control_changes_re_derive_the_views_off_thread(cx: &mut TestAppContext) {
+        cx.update(gpui_component::init);
+        let store = Arc::new(MemorySink::default());
+        cx.update(|cx| init_with(cx, store.clone() as Arc<dyn UsageStore>));
+        cx.update(|cx| sink(cx).record(rec(usage_records::now_epoch_ms() - MIN)));
+        let (page, _window_ctx) = cx.add_window_view(UsagePage::new);
+        cx.run_until_parked();
+        cx.update(|cx| {
+            let p = page.read(cx);
+            assert!(p.views.is_some(), "the read lands with its views");
+            assert_eq!(p.views_key, Some(p.view_key()));
+        });
+        // A key change: skeletons (no views) until the background
+        // derivation lands; the newest of two changes wins.
+        page.update(cx, |p, cx| {
+            let gen0 = p.views_gen;
+            p.set_preset(Preset::Trailing(Span::D7), cx);
+            assert!(p.views.is_none(), "bands wait on the derivation");
+            p.set_view(UsageView::Requests, cx);
+            assert_eq!(p.views_gen, gen0 + 2);
+        });
+        cx.run_until_parked();
+        cx.update(|cx| {
+            let p = page.read(cx);
+            assert!(p.views.is_some());
+            assert_eq!(p.views_key, Some(p.view_key()));
+        });
+        // Same key, nothing to derive: 1h and Current window both read
+        // the trailing hour on Requests.
+        page.update(cx, |p, cx| p.set_preset(Preset::Trailing(Span::H1), cx));
+        cx.run_until_parked();
+        page.update(cx, |p, cx| {
+            let gen1 = p.views_gen;
+            p.set_preset(Preset::CurrentWindow, cx);
+            assert_eq!(p.views_gen, gen1);
+            assert!(p.views.is_some());
+        });
     }
 
     #[gpui::test]

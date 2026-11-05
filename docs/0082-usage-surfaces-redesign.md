@@ -89,6 +89,7 @@ decisions:**
 | Q10 | Exhaustion is per budget: one `rate_limited_until` per bucket | D5, D13; amends docs/0050 D4 |
 | #709 | Budget history shows GitHub's reported drop; this app's recorded spend over time is the Requests view's cost trend (calculator review, 2026-11-05) | D1, D8, D10, D15a |
 | #709 | **Source follows audience** is the usage section's general rule ("this should be our philosophy for the usage section for the app in general") | §4 principle; D1, D6–D10 |
+| #712 | View derivation runs off the UI thread with band skeletons (D11 measurement: 36–42 ms optimized over 90 days) | D11, D18 |
 
 **Adopted per mockup recommendation** (the owner accepted the
 mockups' recommendations wholesale):
@@ -579,12 +580,21 @@ the band is accepted as mostly a REST and long-range tool (Q12).
     bodies, so nothing runs it yet; see the next bullet.
   - **Receipt:** the ignored test `usage_read_gate` in
     `crates/modules/github/src/usage_seed.rs`.
-- **[P] The views' derivation joins the read off the UI thread** when
-  #697 and #698 land their bands: refresh runs read plus
-  band procedures in one background task, and a control change that
-  re-derives over 90 days does the same, behind the band skeletons.
-  Trade-off: every band gains a loading state on range changes, but a
-  90-day flip no longer stalls the UI thread for several frames.
+- **The views' derivation runs off the UI thread** (owner decision,
+  #712): refresh runs the read, the D7 default budget and the active
+  view's band procedures in one background task. A control change that
+  changes what the view reads (view, effective preset, budget)
+  re-derives on the background executor too, behind the band
+  skeletons; a superseded derivation is dropped by its own generation
+  token. A change that leaves the key alone (Requests' `1h` and
+  `Current window`) derives nothing. Trade-off: bands gain a loading
+  state on range changes, but a 90-day flip no longer stalls the UI
+  thread for several frames.
+  - #696 ships the lifecycle with an empty `ViewData`
+    (`page/derive.rs`); #697 and #698 add their band outputs and
+    procedure calls there and render skeletons while it is pending.
+    The honesty line's inputs stay on the UI thread, derived once per
+    change (D3), so the header never waits.
 - **A superseded read is dropped:** each read carries a generation,
   and only the newest refresh lands.
 
@@ -764,6 +774,7 @@ and tests next to the code they cover. Under `crates/core/src/`:
 | `usage_analytics/page/honesty.rs` | The honesty line as a pure function, and its date formatting |
 | `usage_analytics/page/states.rs` | D18: loading, page-level Empty, the degraded chip, the views' placeholder |
 | `usage_analytics/page/layout.rs` | D20: the fixed header over one capped, centred page scroll |
+| `usage_analytics/page/derive.rs` | D11: what the read's background task derives (default budget, the views' data), keyed by view, preset and budget |
 | `usage_analytics/page/budget.rs` | The Budget view (#697) |
 | `usage_analytics/page/requests.rs` | The Requests view (#698) |
 
@@ -803,7 +814,8 @@ Every band has the three states (0065 rubric #18, [DG]):
 - **Loading:** D11's gate moved the read off-thread, so the page has
   a loading state: until the read lands, the view body shows skeletons
   and the honesty line reads "Reading history". #696 draws one
-  page-level skeleton; #697 and #698 give each band its own.
+  page-level skeleton; #697 and #698 give each band its own, shown
+  also while a control change re-derives the view (D11).
 - **Degraded store:** when `is_degraded()` (0057 D6, 0063 F4), the
   honesty line adds "History paused: storage unavailable, showing this
   session only": a storage icon (Lucide `database`) in `warning`, the
