@@ -1,0 +1,41 @@
+# usage-chip-paused.txt — the per-budget pause on the chip and the
+# Budget view (docs/0082 Q10, D5, D13; #700). GitHub has paused
+# GraphQL only: the chip names that pause with its resume time and
+# keeps REST live, and the chip opens the Budget view, whose GraphQL
+# card reads Exhausted while the REST card stays on its ladder.
+#
+# Prerequisites: the seeded fixture session (docs/0071 §4) with the
+# `graphql-exhausted` rate variant, named `paused`, at 1280x800:
+#   export DASHBOARD_GITHUB_FIXTURE=/work/crates/debug/verify/fixtures/github
+#   export DASHBOARD_FIXED_NOW=2026-10-23T12:00:00Z
+#   export DASHBOARD_GITHUB_USAGE_SEED=90
+#   export DASHBOARD_GITHUB_FIXTURE_RATE=graphql-exhausted
+#   cargo run -q -p dashboard-debug -- session start --name paused \
+#     --size 1280x800 --binary /tmp/target/debug/my-dashboard
+# Run (in-container): dashboard-debug run crates/debug/verify/usage-chip-paused.txt
+#
+# The other D5 states (a Low variant at about 20 %, Critical, the
+# both-exhausted run) and their goldens belong to #701; the cards'
+# remaining counts come from the seed, not the rate variant, until
+# #716 lands, so this receipt asserts the pause, not the counts.
+
+--session paused
+
+# The chip shows on every page (Q9): on Home, once the fixture's first
+# responses land, it names the paused budget and keeps REST live.
+wait-label "GraphQL: paused, resumes at HH:MM in 37 minutes"
+assert-label "REST: 4,812 of 5,000 requests remaining"
+assert-no-label "REST: paused"
+audit
+tab-stops
+
+# The chip opens the Budget view (D13). Arriving this way re-keys the
+# page's ids (audit.txt's walk-order note), so only labels follow.
+click 364720877318993958 --wait-frame
+wait-label "requests · as of"
+assert-label "Usage view: Budget"
+assert-label "GraphQL points. Exhausted."
+assert-label "GitHub paused GraphQL requests; they resume at the reset"
+assert-no-label "REST requests. Exhausted."
+audit
+tab-stops

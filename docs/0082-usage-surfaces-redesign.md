@@ -889,6 +889,8 @@ and tests next to the code they cover. Under `crates/core/src/`:
 | `usage_analytics/page/layout.rs` | D20: the fixed header over one capped, centred page scroll |
 | `usage_analytics/page/derive.rs` | D11: what the read's background task derives (default budget, the views' data), keyed by view, preset, budget, spend grouping and the Requests query, with per-band reuse |
 | `usage_analytics/page/derive/requests.rs` | D11: the Requests query, its bands' staleness and their derivation |
+| `usage_analytics/page/focus.rs` | D19: a pointer view switch hands orphaned focus to the view switch (#700) |
+| `usage_analytics/page/choice.rs` | D19: the select option both views' pickers share, each drawn as a named `Label` node |
 | `usage_analytics/page/band_frame.rs`, `format.rs` | Both views: a band's frame (title, summary, empty, skeleton) and shared number, duration, size, time and range wording |
 | `usage_analytics/page/budget.rs` | The Budget view (#697): band order, the budget selector, the skeletons |
 | `usage_analytics/page/budget/cards.rs` | D4/D6: the twin cards and their copy |
@@ -970,8 +972,18 @@ Every band has the three states (0065 rubric #18, [DG]):
     D10 ranking and the request log are not Tab stops: they are
     sortable by pointer, and their cells are still read through
     `cell_label`.
+  - **Focus survives a view switch** (#700). A switch unmounts the
+    outgoing view's controls, and a focus handle left on one of them
+    belongs to no rendered element: key dispatch falls back to the
+    window root, outside the shell's Tab binding, so Tab stops moving.
+    A pointer switch made while one of the outgoing view's controls
+    holds focus hands focus to the view switch, the control just used,
+    which then shows its focus ring. A keyboard switch is already
+    there; focus anywhere else stays put.
 - **Tables implement `cell_label`** with their existing cell text
-  (closes the app side of #351). Select options carry labels.
+  (closes the app side of #351). Select options carry labels: both
+  views' pickers draw each option as its own `Label` node (upstream's
+  list row makes no named node, #661), through one shared option type.
 - **One a11y summary per chart**, kept as the D8 contract of 0054. It
   is no longer duplicated as both a visible line above and a caption
   below.
@@ -1114,6 +1126,30 @@ receipt**: the HTML mockups don't replace any receipt below.
 - `crates/debug/verify/usage-freeze.txt` rewritten for the new header.
   Its guarantee, that the "as of" line survives a range change, is
   kept.
+
+**As shipped (#700).** All run in the docs/0071 container at 1280×800
+(recipes in docs/0071 §4):
+- `audit.txt` asserts `usage-budget` and `usage-requests`, the
+  empty-ledger shape (the no-snapshot cards and the page-level Empty,
+  D18), and walks both views' Tab cycles.
+- `usage-seeded.txt` runs over the fixture session's 90-day seed
+  (docs/0081 §12.1). It audits both views, walks their Tab cycles, and
+  asserts `usage-budget-seeded` and `usage-requests-seeded`, which pin
+  the Q13 header and every band with rows and cells. After one wheel
+  scrolls the page to its end it asserts `usage-requests-log`, the Q8
+  log filling the viewport. It opens Diagnostics by keyboard (audit
+  and Tab cycle), and receipts D19's focus hand-over on a pointer view
+  switch, then the switch's arrow keys.
+- `usage-freeze.txt` flips the range 24h → 7d → 24h over the same seed,
+  by accesskit id rather than pixel coordinates. The "as of" line
+  survives, the page never shows "Reading history", and the count
+  returns unchanged: a preset re-slices the frozen read (D11).
+- `usage-chip-paused.txt` runs the `graphql-exhausted` rate variant
+  (Q10). The chip names the GraphQL pause with its resume time and
+  keeps REST live, and the Budget view it opens marks only the GraphQL
+  card Exhausted. Under the pinned clock the cards' counts come from
+  the seed, not the rate variant (#716); the Low and Critical variants
+  are #701's.
 
 ## 11 Implementation plan (issues filed after this doc merges)
 

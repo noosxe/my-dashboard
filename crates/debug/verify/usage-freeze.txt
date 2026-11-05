@@ -1,41 +1,48 @@
 # usage-freeze.txt — #347's freeze receipt as a committed script
-# (docs/0055 D12). One command re-runs the quarter's most fragile
-# receipt: the usage analytics page keeps its honesty through a range
-# flip.
+# (docs/0055 D12), rewritten for the redesigned header (docs/0082 D3,
+# Q13; #700). One command re-runs the quarter's most fragile receipt:
+# the usage analytics page keeps its honesty through a range flip. A
+# preset re-slices the frozen read (D11); it never re-reads, so the
+# "as of" line survives, and flipping back reads the same count.
 #
-# Prerequisites: dashboard-debug session start --name freeze --size 1280x800
-# Coordinates assume that size (fixed-size headless output is what makes
-# them deterministic — ids are per-run seeds and never appear here).
-# Run: dashboard-debug run crates/debug/verify/usage-freeze.txt
+# Prerequisites: the same seeded fixture session as usage-seeded.txt
+# (docs/0071 §4), named `freeze`, at 1280x800:
+#   export DASHBOARD_GITHUB_FIXTURE=/work/crates/debug/verify/fixtures/github
+#   export DASHBOARD_FIXED_NOW=2026-10-23T12:00:00Z
+#   export DASHBOARD_GITHUB_USAGE_SEED=90
+#   cargo run -q -p dashboard-debug -- session start --name freeze \
+#     --size 1280x800 --binary /tmp/target/debug/my-dashboard
+# Run (in-container): dashboard-debug run crates/debug/verify/usage-freeze.txt
+#
+# Every hop is a click on a fresh-boot accesskit id (audit.txt's
+# walk-order note), never a frozen pixel coordinate: the old script's
+# Home-card click broke when the layout moved. Labels are matched as
+# normalized ("as of MMM D, HH:MM").
 
 --session freeze
 
-# home → the GitHub module card
-mouse down 448 169
-mouse up 448 169
-wait-frame
-
-# Usage analytics via the sidebar `Usage` item (its centre at
-# 1280x800). Signed out there is no usage chip (docs/0082 D13), and the
-# GitHub page's own "Usage analytics" button retired with #699.
-mouse down 144 187
-mouse up 144 187
-wait-frame
-
+# Home → usage analytics via the sidebar `Usage` item. The page opens
+# on the Budget view at 24h and reads off the UI thread (D11).
+click 14831572709305685087 --wait-frame
+wait-label "1,071 requests · as of"
 snapshot opened
 
-# flip the range: 24h → 7d (the right-aligned presets, docs/0082 D3;
-# the full rewrite for the new header is #700)
-mouse down 1085 81
-mouse up 1085 81
-wait-frame
-
+# Flip the range 24h → 7d: the right-aligned presets (Q13).
+click 4480912406697884557 --wait-frame
+wait-label "Range: 7d"
 snapshot after-range
 diff opened after-range
 
-# freeze honesty: the "as of" label survives the range flip untouched,
-# and the placeholder the freeze once showed stays gone
-assert-label "as of"
-assert-no-label "Quota placeholder"
+# Freeze honesty: the line changed its count, kept its "as of", and the
+# page never went back to reading.
+assert-diff-label opened after-range "requests · as of MMM D, HH:MM"
+assert-label "requests · as of MMM D, HH:MM"
+assert-no-label "Reading history"
+assert-no-label "1,071 requests · as of"
+
+# Back to 24h: the same frozen read, the same count.
+click 10769755361148233121 --wait-frame
+wait-label "Range: 24h"
+assert-label "1,071 requests · as of MMM D, HH:MM · history from MMM D, HH:MM"
 
 screenshot receipt

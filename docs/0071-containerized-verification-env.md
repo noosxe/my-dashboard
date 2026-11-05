@@ -222,6 +222,35 @@ GraphQL: paused, …"; `graphql-exhausted` pauses GraphQL only and
 leaves REST at 4,812 (docs/0082 Q10). The chip is the button that
 opens the usage page on its Budget view, as of the pinned 12:00.
 
+The usage page's committed receipts (docs/0082 §10) run over a 90-day
+seed, one fresh session per script, because each walks the fresh-boot
+ids; each session is named after its script (`seeded`, `freeze`,
+`paused`). `usage-seeded.txt` audits both views, walks their Tab cycles and
+asserts the populated goldens. `usage-freeze.txt` is the range-flip
+freeze receipt. `usage-chip-paused.txt` adds the `graphql-exhausted`
+variant for the per-budget pause (Q10):
+
+```sh
+scripts/verify.sh sh -c '
+  set -e
+  cargo build -p dashboard-app
+  export DASHBOARD_GITHUB_FIXTURE=/work/crates/debug/verify/fixtures/github
+  export DASHBOARD_FIXED_NOW=2026-10-23T12:00:00Z
+  export DASHBOARD_GITHUB_USAGE_SEED=90
+  for s in usage-seeded usage-freeze; do
+    cargo run -p dashboard-debug -- session start --name ${s#usage-} --size 1280x800 \
+      --binary /tmp/target/debug/my-dashboard
+    cargo run -p dashboard-debug -- run crates/debug/verify/$s.txt
+    cargo run -p dashboard-debug -- session stop ${s#usage-}
+  done
+  export DASHBOARD_GITHUB_FIXTURE_RATE=graphql-exhausted
+  cargo run -p dashboard-debug -- session start --name paused --size 1280x800 \
+    --binary /tmp/target/debug/my-dashboard
+  cargo run -p dashboard-debug -- run crates/debug/verify/usage-chip-paused.txt
+  cargo run -p dashboard-debug -- session stop paused
+'
+```
+
 Interactive inspection: `scripts/verify.sh bash`.
 
 Freshness caution: cargo tracks host edits by mtime, and macOS bind

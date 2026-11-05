@@ -158,8 +158,13 @@ PR body is the review.
 First capture round shipped 2026-10-13 (#535): `home`, `home-return`,
 `github`, `usage-overview`, `usage-quota`, `hub`, plus `settings` and
 `favicon` staged with their expected-red hops (#530). The two usage goldens
-retired with the usage page shell (#696, docs/0082 §9); #700 captures
-the redesigned pair. Three notes
+retired with the usage page shell (#696, docs/0082 §9); #700 captured
+the redesigned set (docs/0082 §10): `usage-budget` and `usage-requests`
+pin the empty-ledger shape in audit.txt's walk, and `usage-budget-seeded`,
+`usage-requests-seeded` and `usage-requests-log` (the Q8 log filling the
+viewport after the page scrolls to it) pin the populated shape in
+`usage-seeded.txt`, over the fixture session's 90-day seed (docs/0081
+§12.1). Three notes
 tighten the original sketch: (1) the diff includes window-relative
 bounds and the `focused` flag, so the same-environment rule (D6)
 applies to structure too — goldens are captured and asserted in the
@@ -168,9 +173,9 @@ capture-local values never reach the file — frame number and timestamp
 are zeroed on write, and wall-clock times in labels ("as of 23:15", the
 usage status line) are normalized to fixed tokens; (3) the write path
 is `baseline <surface> --update` only, and the one-shot capture walks
-the exact audit.txt step order (focus moves matter). The usage goldens
-pin the empty-ledger shape; a seeded-ledger re-capture is tracked
-separately (#536).
+the exact step order of the receipt that asserts it (focus moves
+matter). The seeded-ledger capture that #536 tracked is the fixture
+seed plus `usage-seeded.txt`.
 
 ### D6 — Pixel goldens (Linux, Playwright semantics)
 

@@ -693,9 +693,9 @@ mod tests {
         );
         // #535: every audited stop also asserts its structural golden —
         // the walk visits home→usage (Budget, Requests)→hub→home-return→
-        // github, and each stop pins the tree shape. The two usage stops
-        // are the one exception while the views are placeholders: their
-        // goldens retired with #696 and #700 captures the new pair.
+        // github, and each stop pins the tree shape. The usage stops pin
+        // the empty-ledger shape (#700); the seeded one is
+        // usage-seeded.txt's.
         let mut baselines: Vec<&str> = script
             .steps
             .iter()
@@ -707,7 +707,14 @@ mod tests {
         baselines.sort_unstable();
         assert_eq!(
             baselines,
-            ["github", "home", "home-return", "hub"],
+            [
+                "github",
+                "home",
+                "home-return",
+                "hub",
+                "usage-budget",
+                "usage-requests"
+            ],
             "every audit.txt stop asserts its committed golden (0065 D5)"
         );
     }

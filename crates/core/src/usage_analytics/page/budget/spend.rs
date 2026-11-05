@@ -5,8 +5,7 @@
 //! principle).
 
 use gpui::prelude::*;
-use gpui::{App, Context, Entity, Focusable as _, SharedString, Window, div, px};
-use gpui_component::searchable_list::SearchableVec;
+use gpui::{App, Context, Entity, FocusHandle, Focusable as _, SharedString, Window, div, px};
 use gpui_component::select::{Select, SelectEvent, SelectState};
 use gpui_component::table::{DataTable, TableState};
 use gpui_component::{ActiveTheme, Sizable as _, Size, h_flex, v_flex};
@@ -15,6 +14,7 @@ use super::spend_table::{MAX_VISIBLE_ROWS, SpendTable};
 use super::{band_frame, format};
 use crate::usage_analytics::page::UsagePage;
 use crate::usage_analytics::page::chart::{self, hbars};
+use crate::usage_analytics::page::choice::Choice;
 use crate::usage_analytics::page::derive::SpendGroup;
 use crate::usage_analytics::surfaces::{Preset, SpendDimension, WHERE_TOP_N, WhereItWent};
 
@@ -24,7 +24,16 @@ const THEN_BY_NONE: &str = "(none)";
 /// `size_full()`, so the parent bounds it.
 const PICKER_W: f32 = 160.0;
 
-type Picker = Entity<SelectState<SearchableVec<SharedString>>>;
+/// The options, each its own named node (D19).
+type Options = Vec<Choice<SharedString>>;
+type Picker = Entity<SelectState<Options>>;
+
+fn options(labels: Vec<SharedString>) -> Options {
+    labels
+        .into_iter()
+        .map(|l| Choice::new(l.clone(), l))
+        .collect()
+}
 
 /// The Budget view's own controls: D7's selects and table, created with
 /// the page because they need a window.
@@ -64,17 +73,12 @@ impl Controls {
             .map(|d| SharedString::from(d.label()))
             .collect();
         let group_by = cx.new(|cx| {
-            let mut s = SelectState::new(SearchableVec::from(labels), None, window, cx);
+            let mut s = SelectState::new(options(labels), None, window, cx);
             s.set_selected_value(&SharedString::from(spend.group_by.label()), window, cx);
             s
         });
         let then_by = cx.new(|cx| {
-            let mut s = SelectState::new(
-                SearchableVec::from(then_by_labels(spend.group_by)),
-                None,
-                window,
-                cx,
-            );
+            let mut s = SelectState::new(options(then_by_labels(spend.group_by)), None, window, cx);
             let current = spend.then_by.map_or(THEN_BY_NONE, |d| d.label());
             s.set_selected_value(&SharedString::from(current), window, cx);
             s
@@ -89,7 +93,7 @@ impl Controls {
         cx.subscribe_in(
             &group_by,
             window,
-            |this, _, ev: &SelectEvent<SearchableVec<SharedString>>, window, cx| {
+            |this, _, ev: &SelectEvent<Options>, window, cx| {
                 let SelectEvent::Confirm(Some(label)) = ev else {
                     return;
                 };
@@ -103,7 +107,7 @@ impl Controls {
                     let none =
                         SharedString::from(spend.then_by.map_or(THEN_BY_NONE, |d| d.label()));
                     c.then_by.update(cx, |s, cx| {
-                        s.set_items(SearchableVec::from(then_by_labels(dim)), window, cx);
+                        s.set_items(options(then_by_labels(dim)), window, cx);
                         s.set_selected_value(&none, window, cx);
                     });
                 }
@@ -114,7 +118,7 @@ impl Controls {
         cx.subscribe_in(
             &then_by,
             window,
-            |this, _, ev: &SelectEvent<SearchableVec<SharedString>>, _, cx| {
+            |this, _, ev: &SelectEvent<Options>, _, cx| {
                 let SelectEvent::Confirm(Some(label)) = ev else {
                     return;
                 };
@@ -129,6 +133,16 @@ impl Controls {
             then_by,
             table,
         }
+    }
+
+    /// Every focus handle these controls own (D19): what a view switch
+    /// checks before it unmounts them.
+    pub(in crate::usage_analytics::page) fn focus_handles(&self, cx: &App) -> Vec<FocusHandle> {
+        vec![
+            self.group_by.focus_handle(cx),
+            self.then_by.focus_handle(cx),
+            self.table.focus_handle(cx),
+        ]
     }
 }
 

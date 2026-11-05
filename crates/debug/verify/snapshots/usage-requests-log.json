@@ -1,0 +1,4526 @@
+{
+  "name": "usage-requests-log",
+  "frame_number": 0,
+  "taken_at": 0,
+  "nodes": [
+    {
+      "accesskit_id": "0",
+      "role": "Window",
+      "label": "Dashboard",
+      "bounds": null,
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "188215797032254337",
+      "role": "Button",
+      "label": "Sort by p90",
+      "bounds": {
+        "x": 1008.0,
+        "y": -298.0,
+        "w": 16.0,
+        "h": 16.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "215763797171551251",
+      "role": "Cell",
+      "label": "20 KB",
+      "bounds": {
+        "x": 1161.0,
+        "y": 618.0,
+        "w": 64.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "236579219119654218",
+      "role": "Cell",
+      "label": "—",
+      "bounds": {
+        "x": 1161.0,
+        "y": 528.0,
+        "w": 64.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "357068968437603301",
+      "role": "Cell",
+      "label": "repo-commits-more",
+      "bounds": {
+        "x": 289.0,
+        "y": 26.0,
+        "w": 465.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "364720877318993958",
+      "role": "Button",
+      "label": "GitHub API: REST: no response yet; GraphQL: no response yet; session: 5 requests (3 GraphQL, 2 REST, 0 auth)",
+      "bounds": {
+        "x": 1090.0,
+        "y": 730.0,
+        "w": 129.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "369476839029631988",
+      "role": "Cell",
+      "label": "repo-view",
+      "bounds": {
+        "x": 644.0,
+        "y": 558.0,
+        "w": 89.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "397789053868684312",
+      "role": "Cell",
+      "label": "HH:MM:SS",
+      "bounds": {
+        "x": 289.0,
+        "y": 408.0,
+        "w": 112.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "422656194149966106",
+      "role": "Group",
+      "label": "At a glance",
+      "bounds": {
+        "x": 288.0,
+        "y": -770.0,
+        "w": 955.0,
+        "h": 120.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "427430813544471783",
+      "role": "Cell",
+      "label": "949 ms",
+      "bounds": {
+        "x": 1021.0,
+        "y": 378.0,
+        "w": 76.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "516174110374803835",
+      "role": "Cell",
+      "label": "496 ms",
+      "bounds": {
+        "x": 1021.0,
+        "y": 438.0,
+        "w": 76.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "688007377171327934",
+      "role": "Cell",
+      "label": "pr-threads",
+      "bounds": {
+        "x": 401.0,
+        "y": 408.0,
+        "w": 121.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "727304334368769151",
+      "role": "Cell",
+      "label": "view-shown",
+      "bounds": {
+        "x": 733.0,
+        "y": 498.0,
+        "w": 84.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "797703979498515422",
+      "role": "Cell",
+      "label": "HH:MM:SS",
+      "bounds": {
+        "x": 289.0,
+        "y": 288.0,
+        "w": 112.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "815574149645192647",
+      "role": "Cell",
+      "label": "view-shown",
+      "bounds": {
+        "x": 733.0,
+        "y": 258.0,
+        "w": 84.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "866902721034714306",
+      "role": "Cell",
+      "label": "—",
+      "bounds": {
+        "x": 522.0,
+        "y": 528.0,
+        "w": 122.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "874665190692407218",
+      "role": "Cell",
+      "label": "10 ms",
+      "bounds": {
+        "x": 1097.0,
+        "y": 678.0,
+        "w": 64.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "927945112029594471",
+      "role": "Cell",
+      "label": "22 ms",
+      "bounds": {
+        "x": 1097.0,
+        "y": 228.0,
+        "w": 64.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "947829128300505932",
+      "role": "Cell",
+      "label": "—",
+      "bounds": {
+        "x": 1097.0,
+        "y": 318.0,
+        "w": 64.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1105792472959296301",
+      "role": "Cell",
+      "label": "200 OK",
+      "bounds": {
+        "x": 817.0,
+        "y": 258.0,
+        "w": 120.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1239792050293714761",
+      "role": "Cell",
+      "label": "55 ms",
+      "bounds": {
+        "x": 1097.0,
+        "y": 498.0,
+        "w": 64.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1289887899427407932",
+      "role": "Cell",
+      "label": "repo-pulls",
+      "bounds": {
+        "x": 401.0,
+        "y": 588.0,
+        "w": 121.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1365293746874893076",
+      "role": "Cell",
+      "label": "fixture-user/beacon#12",
+      "bounds": {
+        "x": 522.0,
+        "y": 408.0,
+        "w": 122.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1385317943884358371",
+      "role": "Cell",
+      "label": "4.0 s",
+      "bounds": {
+        "x": 1030.0,
+        "y": -124.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1446916163530883897",
+      "role": "ComboBox",
+      "label": "Measure",
+      "bounds": {
+        "x": 791.0,
+        "y": -818.0,
+        "w": 150.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1477647541645094003",
+      "role": "Row",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": 26.0,
+        "w": 953.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1484397748117883027",
+      "role": "Cell",
+      "label": "486 ms",
+      "bounds": {
+        "x": 846.0,
+        "y": 56.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1511026911207982090",
+      "role": "Cell",
+      "label": "issue-detail",
+      "bounds": {
+        "x": 289.0,
+        "y": -64.0,
+        "w": 465.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1553787284692757159",
+      "role": "Cell",
+      "label": "fixture-user/compass",
+      "bounds": {
+        "x": 522.0,
+        "y": 348.0,
+        "w": 122.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1576328705164902002",
+      "role": "Cell",
+      "label": "739 ms",
+      "bounds": {
+        "x": 846.0,
+        "y": -214.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1598723514054109428",
+      "role": "Row",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": 648.0,
+        "w": 953.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1665388232377347330",
+      "role": "Cell",
+      "label": "59",
+      "bounds": {
+        "x": 754.0,
+        "y": -4.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1690551295301848863",
+      "role": "Cell",
+      "label": "fixture-user/compass",
+      "bounds": {
+        "x": 522.0,
+        "y": 588.0,
+        "w": 122.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1702741031891708883",
+      "role": "Cell",
+      "label": "1.0 s",
+      "bounds": {
+        "x": 846.0,
+        "y": -244.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1703337801111050808",
+      "role": "TabList",
+      "label": "Transport: All",
+      "bounds": {
+        "x": 357.0,
+        "y": -858.0,
+        "w": 302.0,
+        "h": 32.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1799174719479869994",
+      "role": "Button",
+      "label": "Sort by Cost",
+      "bounds": {
+        "x": 999.0,
+        "y": 204.0,
+        "w": 16.0,
+        "h": 16.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1897432331286588080",
+      "role": "Row",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": -64.0,
+        "w": 953.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1949149078953014786",
+      "role": "Cell",
+      "label": "10 points",
+      "bounds": {
+        "x": 937.0,
+        "y": 258.0,
+        "w": 84.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1985905628823302083",
+      "role": "Cell",
+      "label": "HH:MM:SS",
+      "bounds": {
+        "x": 289.0,
+        "y": 228.0,
+        "w": 112.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1992959355188538965",
+      "role": "Cell",
+      "label": "2.0 s",
+      "bounds": {
+        "x": 938.0,
+        "y": -244.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2018508303695603505",
+      "role": "Row",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": 558.0,
+        "w": 953.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2037227744046475820",
+      "role": "Row",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": -304.0,
+        "w": 953.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2044497518725051549",
+      "role": "Cell",
+      "label": "1.0 s",
+      "bounds": {
+        "x": 938.0,
+        "y": -34.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2050632709662582672",
+      "role": "Cell",
+      "label": "2.3 s",
+      "bounds": {
+        "x": 1030.0,
+        "y": -184.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2108810803643324527",
+      "role": "Button",
+      "label": "Back",
+      "bounds": {
+        "x": 312.0,
+        "y": 22.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2306199837024651590",
+      "role": "Cell",
+      "label": "1.6 s",
+      "bounds": {
+        "x": 938.0,
+        "y": -214.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2317217120860973293",
+      "role": "Row",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": -154.0,
+        "w": 953.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2438293093337097582",
+      "role": "Row",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": 468.0,
+        "w": 953.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2483241571795934312",
+      "role": "Button",
+      "label": "Sort by Size",
+      "bounds": {
+        "x": 1203.0,
+        "y": 204.0,
+        "w": 16.0,
+        "h": 16.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2518145225242542008",
+      "role": "Cell",
+      "label": "view-shown",
+      "bounds": {
+        "x": 733.0,
+        "y": 378.0,
+        "w": 84.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2531703991852182104",
+      "role": "Cell",
+      "label": "225 ms",
+      "bounds": {
+        "x": 1021.0,
+        "y": 528.0,
+        "w": 76.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2549358088087982912",
+      "role": "Cell",
+      "label": "repo-view",
+      "bounds": {
+        "x": 644.0,
+        "y": 468.0,
+        "w": 89.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2599443082014418629",
+      "role": "Cell",
+      "label": "200 OK",
+      "bounds": {
+        "x": 817.0,
+        "y": 438.0,
+        "w": 120.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2683703341377588625",
+      "role": "Cell",
+      "label": "23",
+      "bounds": {
+        "x": 754.0,
+        "y": 26.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2706210191391355287",
+      "role": "Cell",
+      "label": "4 points",
+      "bounds": {
+        "x": 937.0,
+        "y": 498.0,
+        "w": 84.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2737001910502467370",
+      "role": "Row",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": -244.0,
+        "w": 953.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2858077882978591659",
+      "role": "Row",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": 378.0,
+        "w": 953.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2873625667400862459",
+      "role": "ColumnHeader",
+      "label": "Queue",
+      "bounds": {
+        "x": 1097.0,
+        "y": 198.0,
+        "w": 64.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2910352743590859530",
+      "role": "Cell",
+      "label": "view-shown",
+      "bounds": {
+        "x": 733.0,
+        "y": 228.0,
+        "w": 84.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3041786462062729826",
+      "role": "Cell",
+      "label": "1.6 s",
+      "bounds": {
+        "x": 1030.0,
+        "y": -4.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3050303327388482877",
+      "role": "Cell",
+      "label": "HH:MM:SS",
+      "bounds": {
+        "x": 289.0,
+        "y": 258.0,
+        "w": 112.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3139020301200195918",
+      "role": "Cell",
+      "label": "200 OK",
+      "bounds": {
+        "x": 817.0,
+        "y": 288.0,
+        "w": 120.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3205033660052310613",
+      "role": "Cell",
+      "label": "repo-commits-more",
+      "bounds": {
+        "x": 401.0,
+        "y": 288.0,
+        "w": 121.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3229520539080433524",
+      "role": "TreeItem",
+      "label": "GitHub",
+      "bounds": {
+        "x": 29.0,
+        "y": 117.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3240302700458574424",
+      "role": "Cell",
+      "label": "669 ms",
+      "bounds": {
+        "x": 846.0,
+        "y": -154.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3277862672552976872",
+      "role": "Row",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": 288.0,
+        "w": 953.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3289018895212722469",
+      "role": "Cell",
+      "label": "684 ms",
+      "bounds": {
+        "x": 1021.0,
+        "y": 618.0,
+        "w": 76.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3293410457042356536",
+      "role": "ColumnHeader",
+      "label": "Status",
+      "bounds": {
+        "x": 817.0,
+        "y": 198.0,
+        "w": 120.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3380898770711548479",
+      "role": "Button",
+      "label": "Sort by Time",
+      "bounds": {
+        "x": 379.0,
+        "y": 204.0,
+        "w": 16.0,
+        "h": 16.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3401610582491939323",
+      "role": "Button",
+      "label": "Toggle sidebar",
+      "bounds": {
+        "x": 280.0,
+        "y": 22.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3422073345944349709",
+      "role": "Cell",
+      "label": "0%",
+      "bounds": {
+        "x": 1122.0,
+        "y": 56.0,
+        "w": 104.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3456008158626322609",
+      "role": "Cell",
+      "label": "4.0 s",
+      "bounds": {
+        "x": 1021.0,
+        "y": 408.0,
+        "w": 76.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3473805202904551381",
+      "role": "Cell",
+      "label": "1.6 s",
+      "bounds": {
+        "x": 1021.0,
+        "y": 468.0,
+        "w": 76.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3499506591447748949",
+      "role": "Cell",
+      "label": "1.7 s",
+      "bounds": {
+        "x": 1030.0,
+        "y": -34.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3528912132027135996",
+      "role": "Cell",
+      "label": "0%",
+      "bounds": {
+        "x": 1122.0,
+        "y": -184.0,
+        "w": 104.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3566885846146431817",
+      "role": "Cell",
+      "label": "session-inventory",
+      "bounds": {
+        "x": 289.0,
+        "y": -34.0,
+        "w": 465.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3667393393985586046",
+      "role": "Cell",
+      "label": "200 OK",
+      "bounds": {
+        "x": 817.0,
+        "y": 588.0,
+        "w": 120.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3690340174085606097",
+      "role": "Cell",
+      "label": "poll",
+      "bounds": {
+        "x": 733.0,
+        "y": 528.0,
+        "w": 84.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3713195246616741749",
+      "role": "ColumnHeader",
+      "label": "Target",
+      "bounds": {
+        "x": 522.0,
+        "y": 198.0,
+        "w": 122.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3905572511914019534",
+      "role": "ComboBox",
+      "label": "Group by",
+      "bounds": {
+        "x": 354.0,
+        "y": -818.0,
+        "w": 150.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4001431468647965247",
+      "role": "Cell",
+      "label": "833 ms",
+      "bounds": {
+        "x": 1021.0,
+        "y": 228.0,
+        "w": 76.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4004367160877789176",
+      "role": "Cell",
+      "label": "view-shown",
+      "bounds": {
+        "x": 733.0,
+        "y": 468.0,
+        "w": 84.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4064965623027612797",
+      "role": "Button",
+      "label": "Sort by Surface",
+      "bounds": {
+        "x": 711.0,
+        "y": 204.0,
+        "w": 16.0,
+        "h": 16.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4071746415576472044",
+      "role": "Cell",
+      "label": "HH:MM:SS",
+      "bounds": {
+        "x": 289.0,
+        "y": 468.0,
+        "w": 112.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4182265751999967524",
+      "role": "Group",
+      "label": "GraphQL: p90 1.4 s, 619 ms p50, 727 requests",
+      "bounds": {
+        "x": 448.0,
+        "y": -769.0,
+        "w": 159.0,
+        "h": 118.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4258063247914531325",
+      "role": "Cell",
+      "label": "3.8 s",
+      "bounds": {
+        "x": 1021.0,
+        "y": 648.0,
+        "w": 76.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4300387756517262758",
+      "role": "Cell",
+      "label": "check-log",
+      "bounds": {
+        "x": 289.0,
+        "y": -274.0,
+        "w": 465.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4333907312677978542",
+      "role": "Cell",
+      "label": "HH:MM:SS",
+      "bounds": {
+        "x": 289.0,
+        "y": 498.0,
+        "w": 112.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4474161599560653639",
+      "role": "Cell",
+      "label": "3 ms",
+      "bounds": {
+        "x": 1097.0,
+        "y": 618.0,
+        "w": 64.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4480912406697884557",
+      "role": "Tab",
+      "label": "30d",
+      "bounds": {
+        "x": 1107.0,
+        "y": 65.0,
+        "w": 49.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4515974884172068989",
+      "role": "Cell",
+      "label": "notification-page",
+      "bounds": {
+        "x": 644.0,
+        "y": 348.0,
+        "w": 89.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4519993892303840218",
+      "role": "ColumnHeader",
+      "label": "Max",
+      "bounds": {
+        "x": 1030.0,
+        "y": -304.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4558121193702480694",
+      "role": "Cell",
+      "label": "4.1 s",
+      "bounds": {
+        "x": 1030.0,
+        "y": -214.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4566705337702685165",
+      "role": "Cell",
+      "label": "200 OK",
+      "bounds": {
+        "x": 817.0,
+        "y": 648.0,
+        "w": 120.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4619655910641163199",
+      "role": "Group",
+      "label": "Request log",
+      "bounds": {
+        "x": 288.0,
+        "y": 166.0,
+        "w": 955.0,
+        "h": 541.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4733413038269812852",
+      "role": "Cell",
+      "label": "7 KB",
+      "bounds": {
+        "x": 1161.0,
+        "y": 408.0,
+        "w": 64.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4753836074428089603",
+      "role": "Cell",
+      "label": "9 KB",
+      "bounds": {
+        "x": 1161.0,
+        "y": 318.0,
+        "w": 64.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4759527759313576960",
+      "role": "Cell",
+      "label": "5 points",
+      "bounds": {
+        "x": 937.0,
+        "y": 588.0,
+        "w": 84.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4796283218418026015",
+      "role": "Cell",
+      "label": "pr-page",
+      "bounds": {
+        "x": 644.0,
+        "y": 618.0,
+        "w": 89.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4833397072043274122",
+      "role": "Cell",
+      "label": "200 OK",
+      "bounds": {
+        "x": 817.0,
+        "y": 498.0,
+        "w": 120.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4874324683447930355",
+      "role": "Tab",
+      "label": "GraphQL",
+      "bounds": {
+        "x": 464.0,
+        "y": -858.0,
+        "w": 80.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4900697196339378634",
+      "role": "Tab",
+      "label": "1h",
+      "bounds": {
+        "x": 970.0,
+        "y": 65.0,
+        "w": 41.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4905714549638387964",
+      "role": "Cell",
+      "label": "22 KB",
+      "bounds": {
+        "x": 1161.0,
+        "y": 678.0,
+        "w": 64.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4939778681945334295",
+      "role": "ColumnHeader",
+      "label": "Requests",
+      "bounds": {
+        "x": 754.0,
+        "y": -304.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4976049364288072002",
+      "role": "Group",
+      "label": "p90 duration over time",
+      "bounds": {
+        "x": 288.0,
+        "y": -626.0,
+        "w": 955.0,
+        "h": 266.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5017575268422938437",
+      "role": "Cell",
+      "label": "43",
+      "bounds": {
+        "x": 754.0,
+        "y": -64.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5046921805564013180",
+      "role": "Cell",
+      "label": "pr-detail",
+      "bounds": {
+        "x": 401.0,
+        "y": 258.0,
+        "w": 121.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5202530384657327686",
+      "role": "Group",
+      "label": "By operation",
+      "bounds": {
+        "x": 288.0,
+        "y": -336.0,
+        "w": 955.0,
+        "h": 423.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5213037196393554084",
+      "role": "Button",
+      "label": "Forward",
+      "bounds": {
+        "x": 338.0,
+        "y": 22.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5224834871284820205",
+      "role": "Cell",
+      "label": "7.0 s",
+      "bounds": {
+        "x": 1030.0,
+        "y": -274.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5242195142294137531",
+      "role": "TreeItem",
+      "label": "Home",
+      "bounds": {
+        "x": 29.0,
+        "y": 89.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5394097277121389018",
+      "role": "Cell",
+      "label": "HH:MM:SS",
+      "bounds": {
+        "x": 289.0,
+        "y": 618.0,
+        "w": 112.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5506343001388406624",
+      "role": "Cell",
+      "label": "HH:MM:SS",
+      "bounds": {
+        "x": 289.0,
+        "y": 528.0,
+        "w": 112.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5548141314118433650",
+      "role": "Cell",
+      "label": "pr-page",
+      "bounds": {
+        "x": 644.0,
+        "y": 648.0,
+        "w": 89.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5584116519209774439",
+      "role": "Button",
+      "label": "Sort by Requests",
+      "bounds": {
+        "x": 824.0,
+        "y": -298.0,
+        "w": 16.0,
+        "h": 16.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5613796844929666092",
+      "role": "Cell",
+      "label": "653 ms",
+      "bounds": {
+        "x": 846.0,
+        "y": -64.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5642526951600527859",
+      "role": "Tab",
+      "label": "Requests",
+      "bounds": {
+        "x": 364.0,
+        "y": 65.0,
+        "w": 83.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5716725547975993884",
+      "role": "Cell",
+      "label": "pr-mutation",
+      "bounds": {
+        "x": 289.0,
+        "y": -184.0,
+        "w": 465.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5742238570407476047",
+      "role": "Link",
+      "label": "Home",
+      "bounds": {
+        "x": 374.0,
+        "y": 23.0,
+        "w": 38.0,
+        "h": 23.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5743704160022269370",
+      "role": "Cell",
+      "label": "49",
+      "bounds": {
+        "x": 754.0,
+        "y": 56.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5814985091175657051",
+      "role": "Cell",
+      "label": "free (304)",
+      "bounds": {
+        "x": 937.0,
+        "y": 528.0,
+        "w": 84.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5861259399387492613",
+      "role": "TreeItem",
+      "label": "Favicon",
+      "bounds": {
+        "x": 29.0,
+        "y": 145.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5990199253337952496",
+      "role": "Cell",
+      "label": "291 ms",
+      "bounds": {
+        "x": 1021.0,
+        "y": 348.0,
+        "w": 76.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6202490299937886254",
+      "role": "Cell",
+      "label": "1.5 s",
+      "bounds": {
+        "x": 938.0,
+        "y": -154.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6215644445366334179",
+      "role": "Cell",
+      "label": "2 points",
+      "bounds": {
+        "x": 937.0,
+        "y": 438.0,
+        "w": 84.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6268183371525838757",
+      "role": "Button",
+      "label": "Sort by Max",
+      "bounds": {
+        "x": 1100.0,
+        "y": -298.0,
+        "w": 16.0,
+        "h": 16.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6276360709949600765",
+      "role": "TabList",
+      "label": null,
+      "bounds": {
+        "x": 288.0,
+        "y": 65.0,
+        "w": 163.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6305337835904184266",
+      "role": "Cell",
+      "label": "200 OK",
+      "bounds": {
+        "x": 817.0,
+        "y": 618.0,
+        "w": 120.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6428248696225074620",
+      "role": "Cell",
+      "label": "HH:MM:SS",
+      "bounds": {
+        "x": 289.0,
+        "y": 678.0,
+        "w": 112.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6462305681043987258",
+      "role": "Group",
+      "label": null,
+      "bounds": {
+        "x": 0.0,
+        "y": 0.0,
+        "w": 1276.0,
+        "h": 773.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6509426779088206676",
+      "role": "Cell",
+      "label": "3.5 s",
+      "bounds": {
+        "x": 1030.0,
+        "y": 56.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6602020934831564839",
+      "role": "Cell",
+      "label": "module-home",
+      "bounds": {
+        "x": 644.0,
+        "y": 678.0,
+        "w": 89.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6648389440371939217",
+      "role": "Cell",
+      "label": "repo-commits",
+      "bounds": {
+        "x": 289.0,
+        "y": -4.0,
+        "w": 465.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6660300944158785413",
+      "role": "Cell",
+      "label": "HH:MM:SS",
+      "bounds": {
+        "x": 289.0,
+        "y": 438.0,
+        "w": 112.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6723074013697890179",
+      "role": "Cell",
+      "label": "15 KB",
+      "bounds": {
+        "x": 1161.0,
+        "y": 588.0,
+        "w": 64.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6819929984959865272",
+      "role": "Cell",
+      "label": "HH:MM:SS",
+      "bounds": {
+        "x": 289.0,
+        "y": 558.0,
+        "w": 112.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6852015064842512206",
+      "role": "Cell",
+      "label": "fixture-user/beacon#47",
+      "bounds": {
+        "x": 522.0,
+        "y": 258.0,
+        "w": 122.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6982904147704652266",
+      "role": "Cell",
+      "label": "11 points",
+      "bounds": {
+        "x": 937.0,
+        "y": 318.0,
+        "w": 84.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "7126694528896759575",
+      "role": "Cell",
+      "label": "603 ms",
+      "bounds": {
+        "x": 1021.0,
+        "y": 588.0,
+        "w": 76.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "7142233388139342288",
+      "role": "Cell",
+      "label": "pr-page",
+      "bounds": {
+        "x": 644.0,
+        "y": 258.0,
+        "w": 89.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "7147879199737234797",
+      "role": "Cell",
+      "label": "0%",
+      "bounds": {
+        "x": 1122.0,
+        "y": -4.0,
+        "w": 104.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "7195075441590281232",
+      "role": "Button",
+      "label": "Sort by Trigger",
+      "bounds": {
+        "x": 795.0,
+        "y": 204.0,
+        "w": 16.0,
+        "h": 16.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "7226983122952551540",
+      "role": "Cell",
+      "label": "621 ms",
+      "bounds": {
+        "x": 846.0,
+        "y": -124.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "7311747119966079510",
+      "role": "Cell",
+      "label": "1.0%",
+      "bounds": {
+        "x": 1122.0,
+        "y": -94.0,
+        "w": 104.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "7328372430244355759",
+      "role": "Cell",
+      "label": "930 ms",
+      "bounds": {
+        "x": 938.0,
+        "y": 56.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "7579998120555065787",
+      "role": "Cell",
+      "label": "pr-threads",
+      "bounds": {
+        "x": 401.0,
+        "y": 618.0,
+        "w": 121.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "7592160027598882246",
+      "role": "Cell",
+      "label": "view-shown",
+      "bounds": {
+        "x": 733.0,
+        "y": 618.0,
+        "w": 84.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "7756599570713239193",
+      "role": "Cell",
+      "label": "repo-pulls",
+      "bounds": {
+        "x": 289.0,
+        "y": -214.0,
+        "w": 465.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "7766490496095442567",
+      "role": "Row",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": -4.0,
+        "w": 953.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "7803143206112154760",
+      "role": "Cell",
+      "label": "repo-issues",
+      "bounds": {
+        "x": 401.0,
+        "y": 228.0,
+        "w": 121.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "7827873454541529405",
+      "role": "Cell",
+      "label": "view-shown",
+      "bounds": {
+        "x": 733.0,
+        "y": 318.0,
+        "w": 84.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "7832977374328391948",
+      "role": "Cell",
+      "label": "notifications",
+      "bounds": {
+        "x": 401.0,
+        "y": 528.0,
+        "w": 121.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "7879142293973454414",
+      "role": "Button",
+      "label": "Sort by Duration",
+      "bounds": {
+        "x": 1082.0,
+        "y": 204.0,
+        "w": 16.0,
+        "h": 16.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "7887566468504457992",
+      "role": "Row",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": 618.0,
+        "w": 953.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8091806660473870162",
+      "role": "ComboBox",
+      "label": "Module",
+      "bounds": {
+        "x": 738.0,
+        "y": -854.0,
+        "w": 150.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8186275285736936644",
+      "role": "Row",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": -94.0,
+        "w": 953.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8295895701844582814",
+      "role": "Cell",
+      "label": "13",
+      "bounds": {
+        "x": 754.0,
+        "y": -184.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8307351258145952069",
+      "role": "Row",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": 528.0,
+        "w": 953.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8358682858056875018",
+      "role": "Cell",
+      "label": "view-shown",
+      "bounds": {
+        "x": 733.0,
+        "y": 348.0,
+        "w": 84.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8359810404310735177",
+      "role": "Cell",
+      "label": "fixture-user/compass",
+      "bounds": {
+        "x": 522.0,
+        "y": 378.0,
+        "w": 122.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8374684176464155725",
+      "role": "Cell",
+      "label": "1.4 s",
+      "bounds": {
+        "x": 938.0,
+        "y": -124.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8404056663660225542",
+      "role": "Cell",
+      "label": "4 points",
+      "bounds": {
+        "x": 937.0,
+        "y": 468.0,
+        "w": 84.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8450147442308095837",
+      "role": "Cell",
+      "label": "200 OK",
+      "bounds": {
+        "x": 817.0,
+        "y": 228.0,
+        "w": 120.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8478349806122642750",
+      "role": "Cell",
+      "label": "23 KB",
+      "bounds": {
+        "x": 1161.0,
+        "y": 498.0,
+        "w": 64.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8539779341107700429",
+      "role": "Status",
+      "label": "1,071 requests · as of MMM D, HH:MM · history from MMM D, HH:MM",
+      "bounds": {
+        "x": 288.0,
+        "y": 105.0,
+        "w": 955.0,
+        "h": 23.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8578863033582838510",
+      "role": "Cell",
+      "label": "3 points",
+      "bounds": {
+        "x": 937.0,
+        "y": 678.0,
+        "w": 84.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8579777641314874176",
+      "role": "Cell",
+      "label": "2 points",
+      "bounds": {
+        "x": 937.0,
+        "y": 408.0,
+        "w": 84.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8599026492711181049",
+      "role": "Cell",
+      "label": "29 ms",
+      "bounds": {
+        "x": 1097.0,
+        "y": 348.0,
+        "w": 64.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8606060075311321857",
+      "role": "Row",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": -184.0,
+        "w": 953.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8727136047787446146",
+      "role": "Row",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": 438.0,
+        "w": 953.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8780852817622019461",
+      "role": "Cell",
+      "label": "1.1 s",
+      "bounds": {
+        "x": 846.0,
+        "y": -184.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8864863621824043502",
+      "role": "Cell",
+      "label": "repo-view",
+      "bounds": {
+        "x": 644.0,
+        "y": 498.0,
+        "w": 89.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8889244816030095515",
+      "role": "Cell",
+      "label": "—",
+      "bounds": {
+        "x": 1161.0,
+        "y": 348.0,
+        "w": 64.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8903078941653901996",
+      "role": "Button",
+      "label": "Refresh",
+      "bounds": {
+        "x": 1219.0,
+        "y": 69.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8904297454501837457",
+      "role": "Cell",
+      "label": "repo-view",
+      "bounds": {
+        "x": 644.0,
+        "y": 228.0,
+        "w": 89.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9025844864952815934",
+      "role": "Row",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": -274.0,
+        "w": 953.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9087164612622605064",
+      "role": "Cell",
+      "label": "34 KB",
+      "bounds": {
+        "x": 1161.0,
+        "y": 648.0,
+        "w": 64.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9146920837428940223",
+      "role": "Row",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": 348.0,
+        "w": 953.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9162468621851211023",
+      "role": "ColumnHeader",
+      "label": "Duration",
+      "bounds": {
+        "x": 1021.0,
+        "y": 198.0,
+        "w": 76.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9264799886618135299",
+      "role": "ComboBox",
+      "label": "Status class",
+      "bounds": {
+        "x": 945.0,
+        "y": -854.0,
+        "w": 150.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9306152876906082729",
+      "role": "Cell",
+      "label": "200 OK",
+      "bounds": {
+        "x": 817.0,
+        "y": 318.0,
+        "w": 120.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9460866345205132899",
+      "role": "Button",
+      "label": "Sort by Operation",
+      "bounds": {
+        "x": 500.0,
+        "y": 204.0,
+        "w": 16.0,
+        "h": 16.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9497022601984455359",
+      "role": "TabList",
+      "label": null,
+      "bounds": {
+        "x": 357.0,
+        "y": -858.0,
+        "w": 302.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9507511457822339362",
+      "role": "Cell",
+      "label": "repo-view",
+      "bounds": {
+        "x": 644.0,
+        "y": 378.0,
+        "w": 89.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9537046229185262951",
+      "role": "Cell",
+      "label": "session-inventory",
+      "bounds": {
+        "x": 401.0,
+        "y": 678.0,
+        "w": 121.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9566705627003325436",
+      "role": "Row",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": 258.0,
+        "w": 953.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9582253411492705100",
+      "role": "ColumnHeader",
+      "label": "Trigger",
+      "bounds": {
+        "x": 733.0,
+        "y": 198.0,
+        "w": 84.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9603644887099019674",
+      "role": "Cell",
+      "label": "6 points",
+      "bounds": {
+        "x": 937.0,
+        "y": 558.0,
+        "w": 84.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9630447778653072835",
+      "role": "Cell",
+      "label": "19 ms",
+      "bounds": {
+        "x": 1097.0,
+        "y": 258.0,
+        "w": 64.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9721714090423866442",
+      "role": "Cell",
+      "label": "3.3 s",
+      "bounds": {
+        "x": 1030.0,
+        "y": -64.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9878287083847588177",
+      "role": "Cell",
+      "label": "943 ms",
+      "bounds": {
+        "x": 938.0,
+        "y": 26.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9983971291854871575",
+      "role": "Label",
+      "label": "Step chart of p90 duration per hourly bucket, 24 buckets; highest 2.3 s in HH:MM–HH:MM",
+      "bounds": {
+        "x": 288.0,
+        "y": -560.0,
+        "w": 955.0,
+        "h": 200.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10002038201067090313",
+      "role": "ColumnHeader",
+      "label": "Operation",
+      "bounds": {
+        "x": 401.0,
+        "y": 198.0,
+        "w": 121.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10020408273737232437",
+      "role": "Cell",
+      "label": "10 KB",
+      "bounds": {
+        "x": 1161.0,
+        "y": 468.0,
+        "w": 64.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10045198273822692283",
+      "role": "Cell",
+      "label": "10 s",
+      "bounds": {
+        "x": 1030.0,
+        "y": -154.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10057586670747279201",
+      "role": "Cell",
+      "label": "1.1 s",
+      "bounds": {
+        "x": 938.0,
+        "y": -64.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10085018269510683778",
+      "role": "TabList",
+      "label": "Usage view: Requests",
+      "bounds": {
+        "x": 288.0,
+        "y": 65.0,
+        "w": 163.0,
+        "h": 32.0
+      },
+      "focusable": true,
+      "focused": true
+    },
+    {
+      "accesskit_id": "10086424801747410030",
+      "role": "Cell",
+      "label": "1.5 s",
+      "bounds": {
+        "x": 938.0,
+        "y": -184.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10087241216280593213",
+      "role": "Cell",
+      "label": "200 OK",
+      "bounds": {
+        "x": 817.0,
+        "y": 678.0,
+        "w": 120.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10097915892414919689",
+      "role": "Cell",
+      "label": "0.7%",
+      "bounds": {
+        "x": 1122.0,
+        "y": -214.0,
+        "w": 104.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10117625333739006571",
+      "role": "Cell",
+      "label": "22",
+      "bounds": {
+        "x": 754.0,
+        "y": -274.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10141139415001624374",
+      "role": "Cell",
+      "label": "pr-threads",
+      "bounds": {
+        "x": 289.0,
+        "y": -124.0,
+        "w": 465.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10155007695392255099",
+      "role": "Cell",
+      "label": "4 points",
+      "bounds": {
+        "x": 937.0,
+        "y": 378.0,
+        "w": 84.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10163929251334143248",
+      "role": "Cell",
+      "label": "136",
+      "bounds": {
+        "x": 754.0,
+        "y": -214.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10166849301373741760",
+      "role": "Cell",
+      "label": "card-totals",
+      "bounds": {
+        "x": 401.0,
+        "y": 438.0,
+        "w": 121.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10199146502080459189",
+      "role": "Cell",
+      "label": "58",
+      "bounds": {
+        "x": 754.0,
+        "y": -34.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10222432931453868446",
+      "role": "Cell",
+      "label": "8 points",
+      "bounds": {
+        "x": 937.0,
+        "y": 618.0,
+        "w": 84.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10285240284115496323",
+      "role": "Cell",
+      "label": "8 points",
+      "bounds": {
+        "x": 937.0,
+        "y": 648.0,
+        "w": 84.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10322509501472128984",
+      "role": "Cell",
+      "label": "304 Not modified",
+      "bounds": {
+        "x": 817.0,
+        "y": 348.0,
+        "w": 120.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10361278335398210572",
+      "role": "Cell",
+      "label": "view-shown",
+      "bounds": {
+        "x": 733.0,
+        "y": 648.0,
+        "w": 84.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10556500466454239965",
+      "role": "Group",
+      "label": "Errors: 11, 4xx, 5xx and network",
+      "bounds": {
+        "x": 1083.0,
+        "y": -769.0,
+        "w": 159.0,
+        "h": 95.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10704007071510499416",
+      "role": "Cell",
+      "label": "repo-pulls",
+      "bounds": {
+        "x": 401.0,
+        "y": 468.0,
+        "w": 121.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10743382848256784842",
+      "role": "Tab",
+      "label": "local",
+      "bounds": {
+        "x": 601.0,
+        "y": -858.0,
+        "w": 54.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10763070877813360551",
+      "role": "Cell",
+      "label": "—",
+      "bounds": {
+        "x": 522.0,
+        "y": 438.0,
+        "w": 122.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10764629570002056512",
+      "role": "Cell",
+      "label": "0%",
+      "bounds": {
+        "x": 1122.0,
+        "y": -274.0,
+        "w": 104.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10769755361148233121",
+      "role": "Tab",
+      "label": "7d",
+      "bounds": {
+        "x": 1064.0,
+        "y": 65.0,
+        "w": 41.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10808836846754188782",
+      "role": "ColumnHeader",
+      "label": "p90",
+      "bounds": {
+        "x": 938.0,
+        "y": -304.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10857551443218874181",
+      "role": "Cell",
+      "label": "3 ms",
+      "bounds": {
+        "x": 1097.0,
+        "y": 528.0,
+        "w": 64.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10952075340166939777",
+      "role": "Cell",
+      "label": "48",
+      "bounds": {
+        "x": 754.0,
+        "y": -124.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11074593783236158361",
+      "role": "Group",
+      "label": "local: —, no requests",
+      "bounds": {
+        "x": 765.0,
+        "y": -769.0,
+        "w": 159.0,
+        "h": 95.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11093543115719113726",
+      "role": "Cell",
+      "label": "568 ms",
+      "bounds": {
+        "x": 1021.0,
+        "y": 258.0,
+        "w": 76.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11112699504672413866",
+      "role": "Cell",
+      "label": "18 ms",
+      "bounds": {
+        "x": 1097.0,
+        "y": 558.0,
+        "w": 64.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11163167637898278919",
+      "role": "Tab",
+      "label": "REST",
+      "bounds": {
+        "x": 404.0,
+        "y": -858.0,
+        "w": 58.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11163860210997538129",
+      "role": "Cell",
+      "label": "thread-detail",
+      "bounds": {
+        "x": 401.0,
+        "y": 348.0,
+        "w": 121.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11179345749518004177",
+      "role": "Cell",
+      "label": "949 ms",
+      "bounds": {
+        "x": 938.0,
+        "y": -4.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11218779582195798132",
+      "role": "Cell",
+      "label": "3.0 s",
+      "bounds": {
+        "x": 938.0,
+        "y": -274.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11228621636395682859",
+      "role": "ColumnHeader",
+      "label": "Operation",
+      "bounds": {
+        "x": 289.0,
+        "y": -304.0,
+        "w": 465.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11273966696359808011",
+      "role": "Cell",
+      "label": "HH:MM:SS",
+      "bounds": {
+        "x": 289.0,
+        "y": 378.0,
+        "w": 112.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11286856280464808920",
+      "role": "Group",
+      "label": "auth: —, no requests",
+      "bounds": {
+        "x": 607.0,
+        "y": -769.0,
+        "w": 158.0,
+        "h": 95.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11320042270200908120",
+      "role": "Cell",
+      "label": "fixture-user/compass",
+      "bounds": {
+        "x": 522.0,
+        "y": 498.0,
+        "w": 122.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11345850104990091788",
+      "role": "Cell",
+      "label": "31 KB",
+      "bounds": {
+        "x": 1161.0,
+        "y": 558.0,
+        "w": 64.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11362577935777209633",
+      "role": "Cell",
+      "label": "bootstrap",
+      "bounds": {
+        "x": 733.0,
+        "y": 678.0,
+        "w": 84.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11383083447850937173",
+      "role": "Cell",
+      "label": "9 KB",
+      "bounds": {
+        "x": 1161.0,
+        "y": 288.0,
+        "w": 64.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11493966292854940617",
+      "role": "Cell",
+      "label": "HH:MM:SS",
+      "bounds": {
+        "x": 289.0,
+        "y": 318.0,
+        "w": 112.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11571636680507294183",
+      "role": "Cell",
+      "label": "—",
+      "bounds": {
+        "x": 522.0,
+        "y": 678.0,
+        "w": 122.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11669656520910579270",
+      "role": "Cell",
+      "label": "21 ms",
+      "bounds": {
+        "x": 1097.0,
+        "y": 408.0,
+        "w": 64.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11715994131587586239",
+      "role": "Cell",
+      "label": "2 KB",
+      "bounds": {
+        "x": 1161.0,
+        "y": 438.0,
+        "w": 64.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11744887991197559987",
+      "role": "Cell",
+      "label": "HH:MM:SS",
+      "bounds": {
+        "x": 289.0,
+        "y": 588.0,
+        "w": 112.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11757761775158096494",
+      "role": "TabList",
+      "label": "Range: 24h",
+      "bounds": {
+        "x": 966.0,
+        "y": 65.0,
+        "w": 245.0,
+        "h": 32.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11777306024594768480",
+      "role": "Cell",
+      "label": "fixture-user/atlas",
+      "bounds": {
+        "x": 522.0,
+        "y": 228.0,
+        "w": 122.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11931369906050876423",
+      "role": "Tab",
+      "label": "Budget",
+      "bounds": {
+        "x": 292.0,
+        "y": 65.0,
+        "w": 70.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11956908557982449280",
+      "role": "Grid",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": 198.0,
+        "w": 953.0,
+        "h": 508.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12009024917237946249",
+      "role": "Cell",
+      "label": "5.3%",
+      "bounds": {
+        "x": 1122.0,
+        "y": -154.0,
+        "w": 104.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12084902621458014550",
+      "role": "Cell",
+      "label": "repo-commits",
+      "bounds": {
+        "x": 401.0,
+        "y": 378.0,
+        "w": 121.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12249287888388558240",
+      "role": "Button",
+      "label": "Diagnostics",
+      "bounds": {
+        "x": 288.0,
+        "y": 111.0,
+        "w": 955.0,
+        "h": 31.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12303232567292509012",
+      "role": "Cell",
+      "label": "pr-detail",
+      "bounds": {
+        "x": 401.0,
+        "y": 648.0,
+        "w": 121.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12461021152916882833",
+      "role": "Cell",
+      "label": "200 OK",
+      "bounds": {
+        "x": 817.0,
+        "y": 408.0,
+        "w": 120.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12490102034995994750",
+      "role": "Cell",
+      "label": "view-shown",
+      "bounds": {
+        "x": 733.0,
+        "y": 588.0,
+        "w": 84.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12554992296248221532",
+      "role": "Button",
+      "label": "Sort by p50",
+      "bounds": {
+        "x": 916.0,
+        "y": -298.0,
+        "w": 16.0,
+        "h": 16.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12661548138642338856",
+      "role": "Cell",
+      "label": "10 s",
+      "bounds": {
+        "x": 1030.0,
+        "y": -94.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12802798764420164952",
+      "role": "Cell",
+      "label": "fixture-user/atlas#3",
+      "bounds": {
+        "x": 522.0,
+        "y": 648.0,
+        "w": 122.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12816173349475906460",
+      "role": "Cell",
+      "label": "342 ms",
+      "bounds": {
+        "x": 1021.0,
+        "y": 498.0,
+        "w": 76.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12818898106091981080",
+      "role": "TreeItem",
+      "label": "Settings",
+      "bounds": {
+        "x": 29.0,
+        "y": 201.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12834893815029128672",
+      "role": "Cell",
+      "label": "1 point",
+      "bounds": {
+        "x": 937.0,
+        "y": 288.0,
+        "w": 84.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12850375626763355394",
+      "role": "Cell",
+      "label": "75",
+      "bounds": {
+        "x": 754.0,
+        "y": -154.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12972246230612710871",
+      "role": "Cell",
+      "label": "fixture-user/compass",
+      "bounds": {
+        "x": 522.0,
+        "y": 558.0,
+        "w": 122.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13027001177788163864",
+      "role": "Cell",
+      "label": "28 ms",
+      "bounds": {
+        "x": 1097.0,
+        "y": 588.0,
+        "w": 64.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13064177187659729846",
+      "role": "Cell",
+      "label": "fixture-user/atlas",
+      "bounds": {
+        "x": 522.0,
+        "y": 288.0,
+        "w": 122.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13137883594015042276",
+      "role": "Cell",
+      "label": "1.2 s",
+      "bounds": {
+        "x": 938.0,
+        "y": -94.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13198901128762164036",
+      "role": "Cell",
+      "label": "0%",
+      "bounds": {
+        "x": 1122.0,
+        "y": 26.0,
+        "w": 104.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13239059148564285850",
+      "role": "Button",
+      "label": "Sort by Error rate",
+      "bounds": {
+        "x": 1204.0,
+        "y": -298.0,
+        "w": 16.0,
+        "h": 16.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13275043016150974516",
+      "role": "Button",
+      "label": "Sort by Status",
+      "bounds": {
+        "x": 915.0,
+        "y": 204.0,
+        "w": 16.0,
+        "h": 16.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13634524397894868795",
+      "role": "Cell",
+      "label": "426 ms",
+      "bounds": {
+        "x": 846.0,
+        "y": -4.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13635548660904297054",
+      "role": "Row",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": 56.0,
+        "w": 953.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13695259094627432604",
+      "role": "Cell",
+      "label": "repo-issues",
+      "bounds": {
+        "x": 289.0,
+        "y": -94.0,
+        "w": 465.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13735398936442087110",
+      "role": "Grid",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": -304.0,
+        "w": 953.0,
+        "h": 390.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13756624633313312479",
+      "role": "Row",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": 678.0,
+        "w": 953.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13778825576174589043",
+      "role": "Cell",
+      "label": "pr-files",
+      "bounds": {
+        "x": 289.0,
+        "y": 56.0,
+        "w": 465.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13786504654937231125",
+      "role": "Cell",
+      "label": "fixture-user/beacon#48",
+      "bounds": {
+        "x": 522.0,
+        "y": 618.0,
+        "w": 122.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13794048319519479434",
+      "role": "Cell",
+      "label": "repo-view",
+      "bounds": {
+        "x": 644.0,
+        "y": 288.0,
+        "w": 89.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13800873385753983853",
+      "role": "Cell",
+      "label": "30 ms",
+      "bounds": {
+        "x": 1097.0,
+        "y": 648.0,
+        "w": 64.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13959109868467038834",
+      "role": "Button",
+      "label": "Sort by Queue",
+      "bounds": {
+        "x": 1145.0,
+        "y": 204.0,
+        "w": 16.0,
+        "h": 16.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13985477417930076226",
+      "role": "Cell",
+      "label": "96",
+      "bounds": {
+        "x": 754.0,
+        "y": -94.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14055333450545791131",
+      "role": "Row",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": -34.0,
+        "w": 953.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14073136446723529547",
+      "role": "Cell",
+      "label": "repo-pulls",
+      "bounds": {
+        "x": 401.0,
+        "y": 318.0,
+        "w": 121.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14091788152288729155",
+      "role": "Cell",
+      "label": "1.8 s",
+      "bounds": {
+        "x": 846.0,
+        "y": -274.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14092244527283687226",
+      "role": "Cell",
+      "label": "557 ms",
+      "bounds": {
+        "x": 846.0,
+        "y": -34.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14113044190403940939",
+      "role": "Cell",
+      "label": "4.1 s",
+      "bounds": {
+        "x": 1030.0,
+        "y": -244.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14164372761793462598",
+      "role": "Cell",
+      "label": "505 ms",
+      "bounds": {
+        "x": 846.0,
+        "y": 26.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14176409422954806556",
+      "role": "Row",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": 588.0,
+        "w": 953.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14391400496860885053",
+      "role": "Cell",
+      "label": "free (304)",
+      "bounds": {
+        "x": 937.0,
+        "y": 348.0,
+        "w": 84.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14403262513718044593",
+      "role": "Cell",
+      "label": "0%",
+      "bounds": {
+        "x": 1122.0,
+        "y": -244.0,
+        "w": 104.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14416159198387441673",
+      "role": "Cell",
+      "label": "HH:MM:SS",
+      "bounds": {
+        "x": 289.0,
+        "y": 348.0,
+        "w": 112.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14475118240120176344",
+      "role": "Row",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": -124.0,
+        "w": 953.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14558093562500966194",
+      "role": "Cell",
+      "label": "fixture-user/compass",
+      "bounds": {
+        "x": 522.0,
+        "y": 318.0,
+        "w": 122.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14559486367719973944",
+      "role": "Cell",
+      "label": "333 ms",
+      "bounds": {
+        "x": 1021.0,
+        "y": 678.0,
+        "w": 76.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14596194212596300633",
+      "role": "Row",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": 498.0,
+        "w": 953.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14597105096713727453",
+      "role": "Cell",
+      "label": "fixture-user/atlas",
+      "bounds": {
+        "x": 522.0,
+        "y": 468.0,
+        "w": 122.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14662763787700750232",
+      "role": "Cell",
+      "label": "587 ms",
+      "bounds": {
+        "x": 846.0,
+        "y": -94.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14759001596589603017",
+      "role": "Group",
+      "label": "Slower than 1 s: 198, 18% of requests",
+      "bounds": {
+        "x": 924.0,
+        "y": -769.0,
+        "w": 159.0,
+        "h": 95.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14831572709305685087",
+      "role": "TreeItem",
+      "label": "Usage",
+      "bounds": {
+        "x": 29.0,
+        "y": 173.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14859146517280946650",
+      "role": "Cell",
+      "label": "9 KB",
+      "bounds": {
+        "x": 1161.0,
+        "y": 378.0,
+        "w": 64.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14870988123307560901",
+      "role": "Cell",
+      "label": "view-shown",
+      "bounds": {
+        "x": 733.0,
+        "y": 438.0,
+        "w": 84.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14894903029761670421",
+      "role": "Row",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": -214.0,
+        "w": 953.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14907412958583091486",
+      "role": "Cell",
+      "label": "24 ms",
+      "bounds": {
+        "x": 1097.0,
+        "y": 378.0,
+        "w": 64.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14909921828439177553",
+      "role": "Cell",
+      "label": "200 OK",
+      "bounds": {
+        "x": 817.0,
+        "y": 558.0,
+        "w": 120.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15015979002237794710",
+      "role": "Row",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": 408.0,
+        "w": 953.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15027561116798391500",
+      "role": "Cell",
+      "label": "service-tick",
+      "bounds": {
+        "x": 644.0,
+        "y": 528.0,
+        "w": 89.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15031526786660065510",
+      "role": "ColumnHeader",
+      "label": "Size",
+      "bounds": {
+        "x": 1161.0,
+        "y": 198.0,
+        "w": 64.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15120606740363832895",
+      "role": "TabList",
+      "label": null,
+      "bounds": {
+        "x": 966.0,
+        "y": 65.0,
+        "w": 245.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15155239970302170722",
+      "role": "Group",
+      "label": "REST: p90 758 ms, 274 ms p50, 344 requests",
+      "bounds": {
+        "x": 289.0,
+        "y": -769.0,
+        "w": 159.0,
+        "h": 118.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15170242477322927258",
+      "role": "Cell",
+      "label": "60 KB",
+      "bounds": {
+        "x": 1161.0,
+        "y": 258.0,
+        "w": 64.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15206860703630973660",
+      "role": "Cell",
+      "label": "home-card",
+      "bounds": {
+        "x": 644.0,
+        "y": 438.0,
+        "w": 89.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15254687046076845693",
+      "role": "Cell",
+      "label": "4 ms",
+      "bounds": {
+        "x": 1097.0,
+        "y": 438.0,
+        "w": 64.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15320400995491321174",
+      "role": "Button",
+      "label": "Notifications, 0 unread",
+      "bounds": {
+        "x": 1227.0,
+        "y": 728.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15408864092752499435",
+      "role": "Cell",
+      "label": "542 ms",
+      "bounds": {
+        "x": 1021.0,
+        "y": 318.0,
+        "w": 76.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15435763791879288787",
+      "role": "Row",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": 318.0,
+        "w": 953.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15451311576301559587",
+      "role": "ColumnHeader",
+      "label": "Cost",
+      "bounds": {
+        "x": 937.0,
+        "y": 198.0,
+        "w": 84.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15499788322202521000",
+      "role": "Cell",
+      "label": "0%",
+      "bounds": {
+        "x": 1122.0,
+        "y": -124.0,
+        "w": 104.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15540833919698717319",
+      "role": "Button",
+      "label": "Sort by Target",
+      "bounds": {
+        "x": 622.0,
+        "y": 204.0,
+        "w": 16.0,
+        "h": 16.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15586513666601715603",
+      "role": "Cell",
+      "label": "HH:MM:SS",
+      "bounds": {
+        "x": 289.0,
+        "y": 648.0,
+        "w": 112.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15609540036460531170",
+      "role": "ListItem",
+      "label": "Usage",
+      "bounds": {
+        "x": 438.0,
+        "y": 23.0,
+        "w": 39.0,
+        "h": 23.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15728615752186255752",
+      "role": "Cell",
+      "label": "4 points",
+      "bounds": {
+        "x": 937.0,
+        "y": 228.0,
+        "w": 84.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15855548581453674000",
+      "role": "Row",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": 228.0,
+        "w": 953.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15863665546626356763",
+      "role": "Cell",
+      "label": "repo-view",
+      "bounds": {
+        "x": 644.0,
+        "y": 318.0,
+        "w": 89.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15871096365875944800",
+      "role": "ColumnHeader",
+      "label": "Surface",
+      "bounds": {
+        "x": 644.0,
+        "y": 198.0,
+        "w": 89.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15896913122773166921",
+      "role": "Cell",
+      "label": "0%",
+      "bounds": {
+        "x": 1122.0,
+        "y": -64.0,
+        "w": 104.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16045969676197308538",
+      "role": "Cell",
+      "label": "paginate",
+      "bounds": {
+        "x": 733.0,
+        "y": 288.0,
+        "w": 84.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16102674614153258938",
+      "role": "Cell",
+      "label": "home-prs",
+      "bounds": {
+        "x": 289.0,
+        "y": -154.0,
+        "w": 465.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16156354753426637531",
+      "role": "Group",
+      "label": "Diagnostics",
+      "bounds": {
+        "x": 288.0,
+        "y": 111.0,
+        "w": 955.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16290881155517438877",
+      "role": "ColumnHeader",
+      "label": "Time",
+      "bounds": {
+        "x": 289.0,
+        "y": 198.0,
+        "w": 112.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16347773368147231169",
+      "role": "Cell",
+      "label": "pr-detail",
+      "bounds": {
+        "x": 289.0,
+        "y": -244.0,
+        "w": 465.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16632615603560704637",
+      "role": "Cell",
+      "label": "200 OK",
+      "bounds": {
+        "x": 817.0,
+        "y": 378.0,
+        "w": 120.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16638813525957087608",
+      "role": "Tab",
+      "label": "90d",
+      "bounds": {
+        "x": 1158.0,
+        "y": 65.0,
+        "w": 49.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16677895011563043269",
+      "role": "ColumnHeader",
+      "label": "Error rate",
+      "bounds": {
+        "x": 1122.0,
+        "y": -304.0,
+        "w": 104.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16756989404751162399",
+      "role": "Cell",
+      "label": "repo-view",
+      "bounds": {
+        "x": 644.0,
+        "y": 588.0,
+        "w": 89.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16838445744094918025",
+      "role": "Cell",
+      "label": "28 KB",
+      "bounds": {
+        "x": 1161.0,
+        "y": 228.0,
+        "w": 64.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16987810214911463253",
+      "role": "Cell",
+      "label": "1.1 s",
+      "bounds": {
+        "x": 1030.0,
+        "y": 26.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17032225802707133406",
+      "role": "Tab",
+      "label": "auth",
+      "bounds": {
+        "x": 546.0,
+        "y": -858.0,
+        "w": 53.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17058598315598581685",
+      "role": "Tab",
+      "label": "24h",
+      "bounds": {
+        "x": 1013.0,
+        "y": 65.0,
+        "w": 49.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17097679801204537346",
+      "role": "ColumnHeader",
+      "label": "p50",
+      "bounds": {
+        "x": 846.0,
+        "y": -304.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17231552642517097214",
+      "role": "Cell",
+      "label": "repo-pulls",
+      "bounds": {
+        "x": 401.0,
+        "y": 558.0,
+        "w": 121.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17294091831426304839",
+      "role": "Cell",
+      "label": "6 ms",
+      "bounds": {
+        "x": 1097.0,
+        "y": 288.0,
+        "w": 64.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17406255856387632965",
+      "role": "Cell",
+      "label": "8 ms",
+      "bounds": {
+        "x": 1097.0,
+        "y": 468.0,
+        "w": 64.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17452010592348627483",
+      "role": "Tab",
+      "label": "All",
+      "bounds": {
+        "x": 361.0,
+        "y": -858.0,
+        "w": 41.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17536141891596330377",
+      "role": "ComboBox",
+      "label": "Then by",
+      "bounds": {
+        "x": 570.0,
+        "y": -818.0,
+        "w": 150.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17540194732271795633",
+      "role": "Cell",
+      "label": "482 ms",
+      "bounds": {
+        "x": 1021.0,
+        "y": 558.0,
+        "w": 76.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17549007800094390834",
+      "role": "Cell",
+      "label": "356 ms",
+      "bounds": {
+        "x": 1021.0,
+        "y": 288.0,
+        "w": 76.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17797650178392938270",
+      "role": "Cell",
+      "label": "repo-commits",
+      "bounds": {
+        "x": 401.0,
+        "y": 498.0,
+        "w": 121.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17810822171593142179",
+      "role": "Cell",
+      "label": "view-shown",
+      "bounds": {
+        "x": 733.0,
+        "y": 408.0,
+        "w": 84.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17921699859109180445",
+      "role": "Cell",
+      "label": "1.7%",
+      "bounds": {
+        "x": 1122.0,
+        "y": -34.0,
+        "w": 104.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17950893018358632770",
+      "role": "Button",
+      "label": "Sort by Operation",
+      "bounds": {
+        "x": 732.0,
+        "y": -298.0,
+        "w": 16.0,
+        "h": 16.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17997275261583034520",
+      "role": "Cell",
+      "label": "view-shown",
+      "bounds": {
+        "x": 733.0,
+        "y": 558.0,
+        "w": 84.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "18287157626965845599",
+      "role": "Cell",
+      "label": "pr-page",
+      "bounds": {
+        "x": 644.0,
+        "y": 408.0,
+        "w": 89.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "18344391846322761472",
+      "role": "Cell",
+      "label": "90",
+      "bounds": {
+        "x": 754.0,
+        "y": -244.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "18348175161712967359",
+      "role": "Cell",
+      "label": "304 Not modified",
+      "bounds": {
+        "x": 817.0,
+        "y": 528.0,
+        "w": 120.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "18400816236931902840",
+      "role": "Row",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": 198.0,
+        "w": 953.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "18426560428539220672",
+      "role": "Cell",
+      "label": "200 OK",
+      "bounds": {
+        "x": 817.0,
+        "y": 468.0,
+        "w": 120.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    }
+  ]
+}

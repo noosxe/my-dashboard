@@ -1,0 +1,392 @@
+{
+  "name": "usage-budget",
+  "frame_number": 0,
+  "taken_at": 0,
+  "nodes": [
+    {
+      "accesskit_id": "0",
+      "role": "Window",
+      "label": "Dashboard",
+      "bounds": null,
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "914798575727734911",
+      "role": "Tab",
+      "label": "Requests",
+      "bounds": {
+        "x": 364.0,
+        "y": 65.0,
+        "w": 83.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2108810803643324527",
+      "role": "Button",
+      "label": "Back",
+      "bounds": {
+        "x": 312.0,
+        "y": 22.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3217704588140911019",
+      "role": "Tab",
+      "label": "30d",
+      "bounds": {
+        "x": 1107.0,
+        "y": 65.0,
+        "w": 49.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3229520539080433524",
+      "role": "TreeItem",
+      "label": "GitHub",
+      "bounds": {
+        "x": 29.0,
+        "y": 117.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3261854790063394328",
+      "role": "Group",
+      "label": "REST requests. No response from GitHub in this range yet. as of HH:MM. 0 requests recorded in the last 24 hours",
+      "bounds": {
+        "x": 288.0,
+        "y": 157.0,
+        "w": 471.0,
+        "h": 134.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3401610582491939323",
+      "role": "Button",
+      "label": "Toggle sidebar",
+      "bounds": {
+        "x": 280.0,
+        "y": 22.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": true
+    },
+    {
+      "accesskit_id": "3637489377782405096",
+      "role": "Tab",
+      "label": "1h",
+      "bounds": {
+        "x": 970.0,
+        "y": 65.0,
+        "w": 41.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4546305082667777820",
+      "role": "Status",
+      "label": "0 requests · as of MMM D, HH:MM · no history yet",
+      "bounds": {
+        "x": 288.0,
+        "y": 105.0,
+        "w": 955.0,
+        "h": 23.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5213037196393554084",
+      "role": "Button",
+      "label": "Forward",
+      "bounds": {
+        "x": 338.0,
+        "y": 22.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5242195142294137531",
+      "role": "TreeItem",
+      "label": "Home",
+      "bounds": {
+        "x": 29.0,
+        "y": 89.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5742238570407476047",
+      "role": "Link",
+      "label": "Home",
+      "bounds": {
+        "x": 374.0,
+        "y": 23.0,
+        "w": 38.0,
+        "h": 23.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5861259399387492613",
+      "role": "TreeItem",
+      "label": "Favicon",
+      "bounds": {
+        "x": 29.0,
+        "y": 145.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6091544011070761169",
+      "role": "TabList",
+      "label": "Usage view: Budget",
+      "bounds": {
+        "x": 288.0,
+        "y": 65.0,
+        "w": 163.0,
+        "h": 32.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6462305681043987258",
+      "role": "Group",
+      "label": null,
+      "bounds": {
+        "x": 0.0,
+        "y": 0.0,
+        "w": 1276.0,
+        "h": 773.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "7203641530178083475",
+      "role": "Tab",
+      "label": "Budget",
+      "bounds": {
+        "x": 292.0,
+        "y": 65.0,
+        "w": 70.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "7764287516785282749",
+      "role": "TabList",
+      "label": "Range: 24h",
+      "bounds": {
+        "x": 840.0,
+        "y": 65.0,
+        "w": 371.0,
+        "h": 32.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8425583789808420738",
+      "role": "Label",
+      "label": "No GitHub responses yet. Open a GitHub page; spend, history and avoidable cost appear after the first response.",
+      "bounds": {
+        "x": 288.0,
+        "y": 315.0,
+        "w": 955.0,
+        "h": 55.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9438247757243532218",
+      "role": "Button",
+      "label": "Refresh",
+      "bounds": {
+        "x": 1219.0,
+        "y": 69.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9506547542591259583",
+      "role": "Tab",
+      "label": "7d",
+      "bounds": {
+        "x": 1064.0,
+        "y": 65.0,
+        "w": 41.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9926332332232753660",
+      "role": "Tab",
+      "label": "Current window",
+      "bounds": {
+        "x": 844.0,
+        "y": 65.0,
+        "w": 124.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11303176058894345178",
+      "role": "TabList",
+      "label": null,
+      "bounds": {
+        "x": 840.0,
+        "y": 65.0,
+        "w": 371.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11367346040704634731",
+      "role": "Group",
+      "label": "GraphQL points. No response from GitHub in this range yet. as of HH:MM. 0 points recorded in the last 24 hours",
+      "bounds": {
+        "x": 771.0,
+        "y": 157.0,
+        "w": 472.0,
+        "h": 134.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12818898106091981080",
+      "role": "TreeItem",
+      "label": "Settings",
+      "bounds": {
+        "x": 29.0,
+        "y": 201.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14831572709305685087",
+      "role": "TreeItem",
+      "label": "Usage",
+      "bounds": {
+        "x": 29.0,
+        "y": 173.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15320400995491321174",
+      "role": "Button",
+      "label": "Notifications, 0 unread",
+      "bounds": {
+        "x": 1227.0,
+        "y": 728.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15375605707400114070",
+      "role": "Tab",
+      "label": "90d",
+      "bounds": {
+        "x": 1158.0,
+        "y": 65.0,
+        "w": 49.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15609540036460531170",
+      "role": "ListItem",
+      "label": "Usage",
+      "bounds": {
+        "x": 438.0,
+        "y": 23.0,
+        "w": 39.0,
+        "h": 23.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15795390497041608147",
+      "role": "Tab",
+      "label": "24h",
+      "bounds": {
+        "x": 1013.0,
+        "y": 65.0,
+        "w": 49.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "18003597865930138943",
+      "role": "TabList",
+      "label": null,
+      "bounds": {
+        "x": 288.0,
+        "y": 65.0,
+        "w": 163.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    }
+  ]
+}

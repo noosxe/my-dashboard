@@ -1,0 +1,1432 @@
+{
+  "name": "usage-budget-seeded",
+  "frame_number": 0,
+  "taken_at": 0,
+  "nodes": [
+    {
+      "accesskit_id": "0",
+      "role": "Window",
+      "label": "Dashboard",
+      "bounds": null,
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "364720877318993958",
+      "role": "Button",
+      "label": "GitHub API: REST: no response yet; GraphQL: no response yet; session: 5 requests (3 GraphQL, 2 REST, 0 auth)",
+      "bounds": {
+        "x": 1090.0,
+        "y": 730.0,
+        "w": 129.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "654880191853223385",
+      "role": "Cell",
+      "label": "1",
+      "bounds": {
+        "x": 989.0,
+        "y": 868.0,
+        "w": 92.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "679638893446888869",
+      "role": "Cell",
+      "label": "module-home",
+      "bounds": {
+        "x": 289.0,
+        "y": 868.0,
+        "w": 200.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "924737647440861100",
+      "role": "Cell",
+      "label": "repo-view",
+      "bounds": {
+        "x": 289.0,
+        "y": 778.0,
+        "w": 200.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1187140284781281300",
+      "role": "Row",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": 868.0,
+        "w": 953.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1606925074422775377",
+      "role": "Row",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": 778.0,
+        "w": 953.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2108810803643324527",
+      "role": "Button",
+      "label": "Back",
+      "bounds": {
+        "x": 312.0,
+        "y": 22.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2211760277590812159",
+      "role": "Label",
+      "label": "Bar chart of recorded points by group: pr-page 1,816, repo-view 1,668, home-card 400, issue-page 282, module-home 108",
+      "bounds": {
+        "x": 288.0,
+        "y": 557.0,
+        "w": 955.0,
+        "h": 148.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2531241436596016537",
+      "role": "ColumnHeader",
+      "label": "Free (304)",
+      "bounds": {
+        "x": 885.0,
+        "y": 718.0,
+        "w": 104.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2620062159173846358",
+      "role": "Cell",
+      "label": "0",
+      "bounds": {
+        "x": 989.0,
+        "y": 748.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2921356125616391403",
+      "role": "Cell",
+      "label": "1,668",
+      "bounds": {
+        "x": 489.0,
+        "y": 778.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2951026226237510614",
+      "role": "ColumnHeader",
+      "label": "Share",
+      "bounds": {
+        "x": 581.0,
+        "y": 718.0,
+        "w": 120.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3229520539080433524",
+      "role": "TreeItem",
+      "label": "GitHub",
+      "bounds": {
+        "x": 29.0,
+        "y": 117.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3230585949927108386",
+      "role": "ProgressIndicator",
+      "label": "99% left",
+      "bounds": {
+        "x": 305.0,
+        "y": 252.0,
+        "w": 395.0,
+        "h": 8.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3401610582491939323",
+      "role": "Button",
+      "label": "Toggle sidebar",
+      "bounds": {
+        "x": 280.0,
+        "y": 22.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": true
+    },
+    {
+      "accesskit_id": "3666602380577182387",
+      "role": "Row",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": 718.0,
+        "w": 953.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3826106336838913660",
+      "role": "TabList",
+      "label": null,
+      "bounds": {
+        "x": 346.0,
+        "y": 411.0,
+        "w": 148.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3968188678573719825",
+      "role": "Button",
+      "label": "Sort by Surface",
+      "bounds": {
+        "x": 467.0,
+        "y": 724.0,
+        "w": 16.0,
+        "h": 16.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4229371755828887079",
+      "role": "Cell",
+      "label": "0",
+      "bounds": {
+        "x": 989.0,
+        "y": 838.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4370753685537482374",
+      "role": "Cell",
+      "label": "5",
+      "bounds": {
+        "x": 989.0,
+        "y": 808.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4480912406697884557",
+      "role": "Tab",
+      "label": "7d",
+      "bounds": {
+        "x": 1064.0,
+        "y": 65.0,
+        "w": 41.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4600037058168083548",
+      "role": "Cell",
+      "label": "9%",
+      "bounds": {
+        "x": 581.0,
+        "y": 808.0,
+        "w": 120.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4652255530956893007",
+      "role": "Button",
+      "label": "Sort by Requests",
+      "bounds": {
+        "x": 771.0,
+        "y": 724.0,
+        "w": 16.0,
+        "h": 16.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4726449384894890429",
+      "role": "Cell",
+      "label": "39%",
+      "bounds": {
+        "x": 581.0,
+        "y": 778.0,
+        "w": 120.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4900697196339378634",
+      "role": "Tab",
+      "label": "Current window",
+      "bounds": {
+        "x": 844.0,
+        "y": 65.0,
+        "w": 124.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5016667708191720511",
+      "role": "Cell",
+      "label": "314",
+      "bounds": {
+        "x": 701.0,
+        "y": 778.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5023059158755283331",
+      "role": "ListItem",
+      "label": "session-inventory, Errors: paid on requests that failed. 2 points, <1% of the range's spend",
+      "bounds": {
+        "x": 288.0,
+        "y": 1425.0,
+        "w": 955.0,
+        "h": 42.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5074341062665764218",
+      "role": "Cell",
+      "label": "6.6",
+      "bounds": {
+        "x": 793.0,
+        "y": 838.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5213037196393554084",
+      "role": "Button",
+      "label": "Forward",
+      "bounds": {
+        "x": 338.0,
+        "y": 22.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5242195142294137531",
+      "role": "TreeItem",
+      "label": "Home",
+      "bounds": {
+        "x": 29.0,
+        "y": 89.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5329908189960724272",
+      "role": "Cell",
+      "label": "161",
+      "bounds": {
+        "x": 701.0,
+        "y": 808.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5336322383272957325",
+      "role": "Button",
+      "label": "Sort by Errors",
+      "bounds": {
+        "x": 1059.0,
+        "y": 724.0,
+        "w": 16.0,
+        "h": 16.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5377426371632461741",
+      "role": "Group",
+      "label": "REST requests. 4,996 left of 5,000. 99% left. Resets HH:MM (in 23 min). On track. as of HH:MM · snapshot 1 min old. 153 requests recorded in the last 24 hours",
+      "bounds": {
+        "x": 288.0,
+        "y": 157.0,
+        "w": 471.0,
+        "h": 230.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5642526951600527859",
+      "role": "Tab",
+      "label": "Requests",
+      "bounds": {
+        "x": 364.0,
+        "y": 65.0,
+        "w": 83.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5742238570407476047",
+      "role": "Link",
+      "label": "Home",
+      "bounds": {
+        "x": 374.0,
+        "y": 23.0,
+        "w": 38.0,
+        "h": 23.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5861259399387492613",
+      "role": "TreeItem",
+      "label": "Favicon",
+      "bounds": {
+        "x": 29.0,
+        "y": 145.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5937847619971308459",
+      "role": "ComboBox",
+      "label": "Then by",
+      "bounds": {
+        "x": 1083.0,
+        "y": 467.0,
+        "w": 160.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6264011053461755970",
+      "role": "Cell",
+      "label": "3%",
+      "bounds": {
+        "x": 581.0,
+        "y": 868.0,
+        "w": 120.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6276360709949600765",
+      "role": "TabList",
+      "label": null,
+      "bounds": {
+        "x": 288.0,
+        "y": 65.0,
+        "w": 163.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6462305681043987258",
+      "role": "Group",
+      "label": null,
+      "bounds": {
+        "x": 0.0,
+        "y": 0.0,
+        "w": 1276.0,
+        "h": 773.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6552620485030317542",
+      "role": "Cell",
+      "label": "0",
+      "bounds": {
+        "x": 885.0,
+        "y": 838.0,
+        "w": 104.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "7324096109453335440",
+      "role": "Cell",
+      "label": "pr-page",
+      "bounds": {
+        "x": 289.0,
+        "y": 748.0,
+        "w": 200.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "7475983239231629864",
+      "role": "Row",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": 838.0,
+        "w": 953.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "7581829546705662240",
+      "role": "Cell",
+      "label": "2.6",
+      "bounds": {
+        "x": 793.0,
+        "y": 808.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "7895768028873123941",
+      "role": "Row",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": 748.0,
+        "w": 953.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8248543224288001751",
+      "role": "Cell",
+      "label": "12.3",
+      "bounds": {
+        "x": 793.0,
+        "y": 748.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8256681408339363956",
+      "role": "ProgressIndicator",
+      "label": "97% left",
+      "bounds": {
+        "x": 788.0,
+        "y": 252.0,
+        "w": 396.0,
+        "h": 8.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8400299601404871024",
+      "role": "ColumnHeader",
+      "label": "Unknown cost",
+      "bounds": {
+        "x": 1081.0,
+        "y": 718.0,
+        "w": 120.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8539779341107700429",
+      "role": "Status",
+      "label": "1,071 requests · as of MMM D, HH:MM · history from MMM D, HH:MM",
+      "bounds": {
+        "x": 288.0,
+        "y": 105.0,
+        "w": 955.0,
+        "h": 23.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8740433900979175430",
+      "role": "Cell",
+      "label": "issue-page",
+      "bounds": {
+        "x": 289.0,
+        "y": 838.0,
+        "w": 200.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8820084391046365101",
+      "role": "ColumnHeader",
+      "label": "Avg cost",
+      "bounds": {
+        "x": 793.0,
+        "y": 718.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8854342606227697348",
+      "role": "ListItem",
+      "label": "home-prs, Timer and refocus: spent by a poll, refocus or probe, not by a page you opened. 273 points, 6% of the range's spend",
+      "bounds": {
+        "x": 288.0,
+        "y": 1299.0,
+        "w": 955.0,
+        "h": 42.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8903078941653901996",
+      "role": "Button",
+      "label": "Refresh",
+      "bounds": {
+        "x": 1219.0,
+        "y": 69.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8967977435771491949",
+      "role": "Cell",
+      "label": "14",
+      "bounds": {
+        "x": 1081.0,
+        "y": 778.0,
+        "w": 120.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9084867670602744536",
+      "role": "Cell",
+      "label": "7",
+      "bounds": {
+        "x": 1081.0,
+        "y": 808.0,
+        "w": 120.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9226198652941067800",
+      "role": "Cell",
+      "label": "58",
+      "bounds": {
+        "x": 701.0,
+        "y": 868.0,
+        "w": 92.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9239869180687859178",
+      "role": "ColumnHeader",
+      "label": "Cost",
+      "bounds": {
+        "x": 489.0,
+        "y": 718.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9339621949345107468",
+      "role": "Cell",
+      "label": "3",
+      "bounds": {
+        "x": 1081.0,
+        "y": 748.0,
+        "w": 120.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10048156253134413109",
+      "role": "Button",
+      "label": "Sort by Cost",
+      "bounds": {
+        "x": 559.0,
+        "y": 724.0,
+        "w": 16.0,
+        "h": 16.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10085018269510683778",
+      "role": "TabList",
+      "label": "Usage view: Budget",
+      "bounds": {
+        "x": 288.0,
+        "y": 65.0,
+        "w": 163.0,
+        "h": 32.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10349970571506739044",
+      "role": "Tab",
+      "label": "90d",
+      "bounds": {
+        "x": 1158.0,
+        "y": 65.0,
+        "w": 49.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10623389145295541612",
+      "role": "Tab",
+      "label": "GraphQL",
+      "bounds": {
+        "x": 410.0,
+        "y": 411.0,
+        "w": 80.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10700423022106951307",
+      "role": "Cell",
+      "label": "3",
+      "bounds": {
+        "x": 1081.0,
+        "y": 868.0,
+        "w": 120.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10732223105450477427",
+      "role": "Button",
+      "label": "Sort by Avg cost",
+      "bounds": {
+        "x": 863.0,
+        "y": 724.0,
+        "w": 16.0,
+        "h": 16.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10769755361148233121",
+      "role": "Tab",
+      "label": "24h",
+      "bounds": {
+        "x": 1013.0,
+        "y": 65.0,
+        "w": 49.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10780307923716420739",
+      "role": "Cell",
+      "label": "home-card",
+      "bounds": {
+        "x": 289.0,
+        "y": 808.0,
+        "w": 200.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11008579463697132325",
+      "role": "Group",
+      "label": "Spend per window",
+      "bounds": {
+        "x": 288.0,
+        "y": 923.0,
+        "w": 955.0,
+        "h": 266.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11205209336947784278",
+      "role": "TabList",
+      "label": "Budget: GraphQL",
+      "bounds": {
+        "x": 346.0,
+        "y": 411.0,
+        "w": 148.0,
+        "h": 32.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11319604054847764360",
+      "role": "Cell",
+      "label": "282",
+      "bounds": {
+        "x": 489.0,
+        "y": 838.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11416289957766541745",
+      "role": "Button",
+      "label": "Sort by Unknown cost",
+      "bounds": {
+        "x": 1179.0,
+        "y": 724.0,
+        "w": 16.0,
+        "h": 16.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11429877843438666300",
+      "role": "Group",
+      "label": "Where it went",
+      "bounds": {
+        "x": 288.0,
+        "y": 467.0,
+        "w": 955.0,
+        "h": 432.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11435182454042655091",
+      "role": "ListItem",
+      "label": "card-totals, Errors: paid on requests that failed. 2 points, <1% of the range's spend",
+      "bounds": {
+        "x": 288.0,
+        "y": 1383.0,
+        "w": 955.0,
+        "h": 42.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11757761775158096494",
+      "role": "TabList",
+      "label": "Range: 24h",
+      "bounds": {
+        "x": 840.0,
+        "y": 65.0,
+        "w": 371.0,
+        "h": 32.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11804561170558092143",
+      "role": "Cell",
+      "label": "7%",
+      "bounds": {
+        "x": 581.0,
+        "y": 838.0,
+        "w": 120.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11931369906050876423",
+      "role": "Tab",
+      "label": "Budget",
+      "bounds": {
+        "x": 292.0,
+        "y": 65.0,
+        "w": 70.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12080138885199089693",
+      "role": "ComboBox",
+      "label": "Group by",
+      "bounds": {
+        "x": 857.0,
+        "y": 467.0,
+        "w": 160.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12160232313120648756",
+      "role": "List",
+      "label": "Avoidable spend",
+      "bounds": {
+        "x": 288.0,
+        "y": 1298.0,
+        "w": 955.0,
+        "h": 169.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12342611839027801800",
+      "role": "Label",
+      "label": "GitHub's reported spend per window: 25 GraphQL windows; peak MMM D, HH:MM–HH:MM, 432 of 5,000 points (Normal). The limit 5,000 is above the chart's scale. Recorded by this app across these windows: 4,274 points over 727 requests (27 with no reported cost).",
+      "bounds": {
+        "x": 288.0,
+        "y": 989.0,
+        "w": 955.0,
+        "h": 200.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12401391732185899006",
+      "role": "Grid",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": 718.0,
+        "w": 953.0,
+        "h": 180.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12655331700876734248",
+      "role": "Cell",
+      "label": "0",
+      "bounds": {
+        "x": 1081.0,
+        "y": 838.0,
+        "w": 120.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12818898106091981080",
+      "role": "TreeItem",
+      "label": "Settings",
+      "bounds": {
+        "x": 29.0,
+        "y": 201.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13068906626825873829",
+      "role": "Cell",
+      "label": "2.0",
+      "bounds": {
+        "x": 793.0,
+        "y": 868.0,
+        "w": 92.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13110133154750591576",
+      "role": "Cell",
+      "label": "43",
+      "bounds": {
+        "x": 701.0,
+        "y": 838.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13121624245350992371",
+      "role": "Cell",
+      "label": "0",
+      "bounds": {
+        "x": 885.0,
+        "y": 808.0,
+        "w": 104.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13141333686742188117",
+      "role": "Cell",
+      "label": "1,816",
+      "bounds": {
+        "x": 489.0,
+        "y": 748.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13187637604270215930",
+      "role": "Cell",
+      "label": "400",
+      "bounds": {
+        "x": 489.0,
+        "y": 808.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13482917622273702144",
+      "role": "Group",
+      "label": "GraphQL points. 4,885 left of 5,000. 97% left. Resets HH:MM (in 41 min). On track. as of HH:MM · snapshot under a minute old. 4,274 points recorded in the last 24 hours",
+      "bounds": {
+        "x": 771.0,
+        "y": 157.0,
+        "w": 472.0,
+        "h": 230.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13764826193681978428",
+      "role": "Row",
+      "label": null,
+      "bounds": {
+        "x": 289.0,
+        "y": 808.0,
+        "w": 953.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13788337923005238058",
+      "role": "Cell",
+      "label": "0",
+      "bounds": {
+        "x": 885.0,
+        "y": 748.0,
+        "w": 104.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13896106007911273879",
+      "role": "ListItem",
+      "label": "repo-pulls, Errors: paid on requests that failed. 5 points, <1% of the range's spend",
+      "bounds": {
+        "x": 288.0,
+        "y": 1341.0,
+        "w": 955.0,
+        "h": 42.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14242487935198979678",
+      "role": "Cell",
+      "label": "151",
+      "bounds": {
+        "x": 701.0,
+        "y": 748.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14689142555855219588",
+      "role": "ColumnHeader",
+      "label": "Errors",
+      "bounds": {
+        "x": 989.0,
+        "y": 718.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14831572709305685087",
+      "role": "TreeItem",
+      "label": "Usage",
+      "bounds": {
+        "x": 29.0,
+        "y": 173.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15032733270241127795",
+      "role": "Cell",
+      "label": "0",
+      "bounds": {
+        "x": 885.0,
+        "y": 868.0,
+        "w": 104.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15108927345496713665",
+      "role": "ColumnHeader",
+      "label": "Requests",
+      "bounds": {
+        "x": 701.0,
+        "y": 718.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15120606740363832895",
+      "role": "TabList",
+      "label": null,
+      "bounds": {
+        "x": 840.0,
+        "y": 65.0,
+        "w": 371.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15135518321779074209",
+      "role": "Group",
+      "label": "Avoidable spend",
+      "bounds": {
+        "x": 288.0,
+        "y": 1213.0,
+        "w": 955.0,
+        "h": 254.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15320400995491321174",
+      "role": "Button",
+      "label": "Notifications, 0 unread",
+      "bounds": {
+        "x": 1227.0,
+        "y": 728.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15528712135138207742",
+      "role": "ColumnHeader",
+      "label": "Surface",
+      "bounds": {
+        "x": 289.0,
+        "y": 718.0,
+        "w": 200.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15609540036460531170",
+      "role": "ListItem",
+      "label": "Usage",
+      "bounds": {
+        "x": 438.0,
+        "y": 23.0,
+        "w": 39.0,
+        "h": 23.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15874083979699428076",
+      "role": "Cell",
+      "label": "108",
+      "bounds": {
+        "x": 489.0,
+        "y": 868.0,
+        "w": 92.0,
+        "h": 30.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16638813525957087608",
+      "role": "Tab",
+      "label": "30d",
+      "bounds": {
+        "x": 1107.0,
+        "y": 65.0,
+        "w": 49.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16812190679944061847",
+      "role": "Button",
+      "label": "Sort by Free (304)",
+      "bounds": {
+        "x": 967.0,
+        "y": 724.0,
+        "w": 16.0,
+        "h": 16.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16912232099745890176",
+      "role": "Tab",
+      "label": "REST",
+      "bounds": {
+        "x": 350.0,
+        "y": 411.0,
+        "w": 58.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17058598315598581685",
+      "role": "Tab",
+      "label": "1h",
+      "bounds": {
+        "x": 970.0,
+        "y": 65.0,
+        "w": 41.0,
+        "h": 32.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17115496505224801837",
+      "role": "Cell",
+      "label": "42%",
+      "bounds": {
+        "x": 581.0,
+        "y": 748.0,
+        "w": 120.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17136752543407122485",
+      "role": "Cell",
+      "label": "5.6",
+      "bounds": {
+        "x": 793.0,
+        "y": 778.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17426970866721226139",
+      "role": "Cell",
+      "label": "0",
+      "bounds": {
+        "x": 885.0,
+        "y": 778.0,
+        "w": 104.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "18270327472714944624",
+      "role": "Cell",
+      "label": "2",
+      "bounds": {
+        "x": 989.0,
+        "y": 778.0,
+        "w": 92.0,
+        "h": 29.0
+      },
+      "focusable": false,
+      "focused": false
+    }
+  ]
+}
