@@ -71,19 +71,18 @@ click 14831572709305685087 --wait-frame
 wait-label "requests · as of"
 assert-label "as of"
 audit
-# The page opens on the Budget view (docs/0082 D1). The golden keeps
-# its pre-redesign name until #700 renames it `usage-budget`.
-assert-baseline usage-overview
+# The page opens on the Budget view (docs/0082 D1). Both usage stops
+# audit without a structural golden while the views are placeholders:
+# the pre-redesign goldens retired with #696, and #700 captures the
+# new `usage-budget` / `usage-requests` pair over the seeded ledger.
 
 # The Requests view is the usage page's other half (docs/0082 D1; the
 # quota tab it replaced retired with #696). The view-switch segment's
 # id derives like the sidebar's: stable on this fresh-boot route. Over
-# the empty ledger both views show the page-level Empty (0082 D18); the
-# golden pins that shape until #700's seeded re-capture.
+# the empty ledger both views show the page-level Empty (0082 D18).
 click 914798575727734911 --wait-frame
 assert-label "No requests recorded yet"
 audit
-assert-baseline usage-requests
 
 # Usage analytics → notification hub. The status bell is a popover
 # trigger (no Click action): the click lands via the announced

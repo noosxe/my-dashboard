@@ -692,9 +692,10 @@ mod tests {
             "tab-order coverage stays paired with the audit (0065 D3)"
         );
         // #535: every audited stop also asserts its structural golden —
-        // the walk above ends home→github→usage-overview→usage-requests→
-        // hub→home-return, and each stop pins the tree shape (the quota
-        // tab's stop became the Requests view's with docs/0082 D1).
+        // the walk visits home→usage (Budget, Requests)→hub→home-return→
+        // github, and each stop pins the tree shape. The two usage stops
+        // are the one exception while the views are placeholders: their
+        // goldens retired with #696 and #700 captures the new pair.
         let mut baselines: Vec<&str> = script
             .steps
             .iter()
@@ -706,14 +707,7 @@ mod tests {
         baselines.sort_unstable();
         assert_eq!(
             baselines,
-            [
-                "github",
-                "home",
-                "home-return",
-                "hub",
-                "usage-overview",
-                "usage-requests"
-            ],
+            ["github", "home", "home-return", "hub"],
             "every audit.txt stop asserts its committed golden (0065 D5)"
         );
     }
