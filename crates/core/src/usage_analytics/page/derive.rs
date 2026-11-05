@@ -8,9 +8,14 @@
 //! always show both budgets; only band 2 reads `Group by`), so each band
 //! is reused from the previous derivation when its own inputs are
 //! unchanged ([`Band::stale`]): picking a budget re-derives bands 2–4,
-//! a `Group by` change band 2 alone. #698 adds the Requests bands here.
+//! a `Group by` change band 2 alone. The Requests view's bands follow
+//! the same pattern in [`requests`].
 
 use std::sync::Arc;
+
+mod requests;
+
+pub(super) use requests::{RequestBand, RequestQuery, RequestsData, span as request_span};
 
 use super::UsageView;
 use super::range::{self, BUDGET_MODULE};
@@ -38,7 +43,8 @@ impl Default for SpendGroup {
 
 /// Everything a view's derivation depends on besides the rows. A
 /// control change that leaves the key unchanged re-derives nothing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Not `Copy`: the Module facet carries a name.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct ViewKey {
     pub as_of_ms: u64,
     pub view: UsageView,
@@ -48,6 +54,9 @@ pub(super) struct ViewKey {
     /// D7's grouping; the default on the Requests view, which never
     /// reads it, so a Budget-only control derives nothing there.
     pub spend: SpendGroup,
+    /// D10's query bar and the log's sort; the default on the Budget
+    /// view, for the same reason.
+    pub requests: RequestQuery,
 }
 
 impl ViewKey {
@@ -57,6 +66,7 @@ impl ViewKey {
         preset: Preset,
         budget: Budget,
         spend: SpendGroup,
+        requests: RequestQuery,
     ) -> Self {
         ViewKey {
             as_of_ms,
@@ -66,6 +76,10 @@ impl ViewKey {
             spend: match view {
                 UsageView::Budget => spend,
                 UsageView::Requests => SpendGroup::default(),
+            },
+            requests: match view {
+                UsageView::Budget => RequestQuery::default(),
+                UsageView::Requests => requests,
             },
         }
     }
@@ -120,6 +134,8 @@ pub(super) struct ViewData {
     /// The Budget bands, last derived for a Budget-view key. Kept while
     /// the Requests view is active, so switching back reuses them.
     pub budget: Option<BudgetData>,
+    /// The Requests bands, likewise kept while Budget is active.
+    pub requests: Option<RequestsData>,
 }
 
 /// The active view's band procedures over the frozen rows (D15a),
@@ -130,11 +146,17 @@ pub(super) fn derive_views(
     prev: Option<&ViewData>,
 ) -> ViewData {
     let prev_budget = prev.and_then(|p| p.budget.as_ref());
-    let budget = match key.view {
-        UsageView::Budget => Some(derive_budget(rows, key, prev_budget)),
-        UsageView::Requests => prev_budget.cloned(),
-    };
-    ViewData { budget }
+    let prev_requests = prev.and_then(|p| p.requests.as_ref());
+    match key.view {
+        UsageView::Budget => ViewData {
+            budget: Some(derive_budget(rows, key, prev_budget)),
+            requests: prev_requests.cloned(),
+        },
+        UsageView::Requests => ViewData {
+            requests: Some(requests::derive_requests(rows, &key, prev_requests)),
+            budget: prev_budget.cloned(),
+        },
+    }
 }
 
 fn derive_budget(rows: &[UsageRecord], key: ViewKey, prev: Option<&BudgetData>) -> BudgetData {
@@ -146,7 +168,7 @@ fn derive_budget(rows: &[UsageRecord], key: ViewKey, prev: Option<&BudgetData>) 
         preset: key.preset,
     };
     BudgetData {
-        key,
+        key: key.clone(),
         cards: keep(Band::Cards).map_or_else(
             || Arc::new(cards(rows, key.as_of_ms, key.preset)),
             |p| p.cards.clone(),
@@ -230,7 +252,7 @@ pub(super) struct Landed {
 }
 
 /// The controls a read derives for, as they stood when it started.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(super) struct Controls {
     pub view: UsageView,
     pub preset: Preset,
@@ -238,6 +260,7 @@ pub(super) struct Controls {
     /// applies the D7 default (Q6).
     pub picked_budget: Option<Budget>,
     pub spend: SpendGroup,
+    pub requests: RequestQuery,
 }
 
 /// The read's background half after the store returns: the budget,
@@ -257,8 +280,9 @@ pub(super) fn land(
         controls.preset,
         budget,
         controls.spend,
+        controls.requests,
     );
-    let views = derive_views(&rows, key, None);
+    let views = derive_views(&rows, key.clone(), None);
     Landed {
         rows,
         degraded,
@@ -295,6 +319,7 @@ mod tests {
             preset,
             picked_budget: None,
             spend: SpendGroup::default(),
+            requests: RequestQuery::default(),
         }
     }
 
@@ -312,6 +337,7 @@ mod tests {
             Preset::Trailing(Span::H24),
             budget,
             spend,
+            RequestQuery::default(),
         )
     }
 
@@ -334,6 +360,7 @@ mod tests {
                 preset: Preset::Trailing(Span::H1),
                 budget: Budget::Graphql,
                 spend: SpendGroup::default(),
+                requests: RequestQuery::default(),
             }
         );
         assert_eq!(landed.rows.len(), 2);
@@ -341,6 +368,7 @@ mod tests {
             landed.views.budget, None,
             "Requests derives no Budget bands"
         );
+        assert!(landed.views.requests.is_some());
     }
 
     #[test]
@@ -370,7 +398,7 @@ mod tests {
         let rebudget = key(Budget::Graphql, SpendGroup::default());
         let later = ViewKey {
             as_of_ms: AS_OF + 1,
-            ..base
+            ..base.clone()
         };
         let all = [Band::Cards, Band::Where, Band::History, Band::Avoidable];
         let stale = |to: &ViewKey| -> Vec<Band> {
@@ -397,7 +425,7 @@ mod tests {
                 then_by: None,
             },
         );
-        let second = derive_views(&rows, regroup, Some(&first));
+        let second = derive_views(&rows, regroup.clone(), Some(&first));
         let (a, b) = (first.budget.unwrap(), second.budget.clone().unwrap());
         assert!(Arc::ptr_eq(&a.cards, &b.cards));
         assert!(Arc::ptr_eq(&a.history, &b.history));
@@ -411,9 +439,10 @@ mod tests {
             Preset::Trailing(Span::H24),
             Budget::Rest,
             SpendGroup::default(),
+            RequestQuery::default(),
         );
-        let on_requests = derive_views(&rows, req, Some(&second));
-        assert_eq!(on_requests.budget.as_ref().map(|d| d.key), Some(regroup));
+        let on_requests = derive_views(&rows, req.clone(), Some(&second));
+        assert_eq!(on_requests.budget.as_ref().map(|d| &d.key), Some(&regroup));
         assert!(!on_requests.budget.unwrap().ready(Band::Cards, &req));
     }
 
@@ -429,6 +458,7 @@ mod tests {
             Preset::Trailing(Span::D7),
             Budget::Rest,
             spend,
+            RequestQuery::default(),
         );
         assert_eq!(k.spend, SpendGroup::default());
     }

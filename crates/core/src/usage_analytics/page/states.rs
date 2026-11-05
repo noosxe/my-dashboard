@@ -1,7 +1,6 @@
 //! The page-level states (docs/0082 D18): loading while the background
 //! read is in flight (D11 gate), the page-level Empty when the store
-//! holds nothing, the degraded-store chip, and the placeholder the
-//! views show until #697 and #698 fill them.
+//! holds nothing, and the degraded-store chip.
 
 use gpui::prelude::*;
 use gpui::{App, div, px};
@@ -20,10 +19,6 @@ const LOADING_CHART_H: f32 = 220.0; // the chart block
 /// D18's degraded-store words (0057 D6, 0063 F4).
 pub(super) const DEGRADED_COPY: &str =
     "History paused: storage unavailable, showing this session only";
-
-/// The views' body until their surfaces land (#697 Budget, #698
-/// Requests): a neutral D18-style Empty, not a promise.
-pub(super) const REBUILDING_COPY: &str = "This view is being rebuilt.";
 
 /// The page-level Empty (D18): the store holds no records at all, so
 /// "widen the range" would be wrong advice. Worded per view.
@@ -62,14 +57,6 @@ pub(super) fn page_empty(view: UsageView, cx: &App) -> impl IntoElement {
         .id("usage-empty")
         .role(gpui::accesskit::Role::Label)
         .aria_label(copy)
-}
-
-/// A view's placeholder body, under the view's own id.
-pub(super) fn rebuilding(id: &'static str, cx: &App) -> impl IntoElement {
-    empty_state(REBUILDING_COPY, cx)
-        .id(id)
-        .role(gpui::accesskit::Role::Label)
-        .aria_label(REBUILDING_COPY)
 }
 
 /// The degraded chip on the honesty line (D18/D5): the icon carries the

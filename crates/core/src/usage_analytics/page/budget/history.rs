@@ -347,6 +347,7 @@ pub(super) fn chart(h: &Arc<WindowHistory>, tz_offset_ms: i64, cx: &App) -> Opti
             tz_offset_ms,
             marks,
             ticks: axis.ticks,
+            format: chart::ValueFormat::Count,
             guides: axis
                 .guides
                 .into_iter()

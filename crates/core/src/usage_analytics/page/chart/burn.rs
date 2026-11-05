@@ -19,7 +19,9 @@ use gpui_component::plot::{
     tooltip::{CrossLine, Tooltip},
 };
 
-use super::{DASH, GuideStyle, Y_GUTTER, inner, paint_guide, paint_value_axis, time_ticks};
+use super::{
+    DASH, GuideStyle, ValueFormat, Y_GUTTER, inner, paint_guide, paint_value_axis, time_ticks,
+};
 use crate::usage_analytics::page::honesty::{fmt_count, format_clock};
 
 /// The point mark's diameter (docs/0002 D10: a named canvas size).
@@ -83,7 +85,15 @@ impl Plot for BurnChart {
             .iter()
             .filter_map(|v| y.tick(v).map(|py| (*v, py)))
             .collect();
-        paint_value_axis(&bounds, &ticks, muted, border.opacity(0.5), window, cx);
+        paint_value_axis(
+            &bounds,
+            &ticks,
+            ValueFormat::Count,
+            muted,
+            border.opacity(0.5),
+            window,
+            cx,
+        );
 
         if let [(ts, v)] = self.steps.as_slice() {
             // D18: one sample is a point, its value and a drop line.

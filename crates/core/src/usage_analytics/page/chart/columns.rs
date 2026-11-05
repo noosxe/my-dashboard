@@ -19,7 +19,8 @@ use gpui_component::plot::{
 };
 
 use super::{
-    GuideStyle, R_GUTTER, TOP_PAD, Y_GUTTER, inner, paint_guide, paint_value_axis, time_ticks,
+    GuideStyle, R_GUTTER, TOP_PAD, ValueFormat, Y_GUTTER, inner, paint_guide, paint_value_axis,
+    time_ticks,
 };
 
 /// One column: its span on the time axis, its height (`None` is a gap)
@@ -71,6 +72,9 @@ pub(in crate::usage_analytics::page) struct ColumnsChart {
     pub marks: Vec<ColumnMark>,
     /// The value-axis ticks; the last is the axis top.
     pub ticks: Vec<f64>,
+    /// How the ticks read (counts for spend, D8; counts or cost for the
+    /// Requests trend, D10).
+    pub format: ValueFormat,
     pub guides: Vec<Guide>,
     /// The off-scale limit marker (Q3), drawn with an up arrow:
     /// `("limit 5,000", "above scale")`.
@@ -132,7 +136,15 @@ impl Plot for ColumnsChart {
             .iter()
             .filter_map(|v| y.tick(v).map(|py| (*v, py)))
             .collect();
-        paint_value_axis(&bounds, &ticks, muted, border.opacity(0.5), window, cx);
+        paint_value_axis(
+            &bounds,
+            &ticks,
+            self.format,
+            muted,
+            border.opacity(0.5),
+            window,
+            cx,
+        );
 
         let bars: Vec<(f32, f32, f32, Hsla)> = self
             .marks

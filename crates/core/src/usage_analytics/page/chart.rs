@@ -7,8 +7,9 @@
 //!
 //! This file holds what every chart shares: the tick maths (pure,
 //! tested), the plot gutters and the a11y frame. Each chart is its own
-//! module: [`columns`] (time columns), [`burn`] (the step burn-down)
-//! and [`hbars`] (horizontal bars).
+//! module: [`columns`] (time columns), [`burn`] (the step burn-down),
+//! [`steps`] (a measure's step line over time buckets) and [`hbars`]
+//! (horizontal bars).
 
 use gpui::prelude::*;
 use gpui::{AnyElement, Bounds, Hsla, Pixels, SharedString, TextAlign, Window, div, point, px};
@@ -20,6 +21,7 @@ use gpui_component::plot::{
 pub(super) mod burn;
 pub(super) mod columns;
 pub(super) mod hbars;
+pub(super) mod steps;
 
 const MINUTE_MS: u64 = 60_000;
 const HOUR_MS: u64 = 60 * MINUTE_MS;
@@ -53,6 +55,27 @@ pub(super) fn value_ticks(max: f64) -> Vec<f64> {
     let step = step.max(1.0);
     let n = (max / step).ceil() as usize;
     (0..=n.max(1)).map(|i| i as f64 * step).collect()
+}
+
+/// How a chart's values read on its axis and labels: counts
+/// (`1,200`), durations (`500 ms`, `1.5 s`) or percentages (`2.5%`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ValueFormat {
+    Count,
+    Duration,
+    Percent,
+}
+
+impl ValueFormat {
+    pub(super) fn label(self, v: f64) -> String {
+        use crate::usage_analytics::page::format;
+        match self {
+            ValueFormat::Count => format::count(v.max(0.0).round() as u64),
+            ValueFormat::Duration => format::duration(v.max(0.0).round() as u64),
+            ValueFormat::Percent if v.fract().abs() < f64::EPSILON => format!("{v:.0}%"),
+            ValueFormat::Percent => format!("{v:.1}%"),
+        }
+    }
 }
 
 /// A tick on the time axis: where, and what it reads.
@@ -124,6 +147,7 @@ pub(super) fn inner(outer: &Bounds<Pixels>, axis_gutter: f32) -> Bounds<Pixels> 
 pub(super) fn paint_value_axis(
     outer: &Bounds<Pixels>,
     ticks: &[(f64, f32)],
+    format: ValueFormat,
     color: Hsla,
     grid: Hsla,
     window: &mut Window,
@@ -133,7 +157,7 @@ pub(super) fn paint_value_axis(
         .iter()
         .map(|(v, y)| {
             Text::new(
-                crate::usage_analytics::page::honesty::fmt_count(*v as u64),
+                format.label(*v),
                 point(px(Y_GUTTER - 6.0), px(TOP_PAD + y - TEXT_SIZE / 2.0)),
                 color,
             )
@@ -259,6 +283,20 @@ mod tests {
         let at = |ms: u64| east.iter().find(|t| t.ms == ms).map(|t| t.label.as_str());
         assert_eq!(at(midnight - 4 * HOUR_MS), Some("Nov 5"));
         assert_eq!(at(midnight - 5 * HOUR_MS), Some("23:00"));
+    }
+
+    #[test]
+    fn values_read_in_their_own_unit() {
+        assert_eq!(ValueFormat::Count.label(1_200.0), "1,200");
+        assert_eq!(ValueFormat::Duration.label(500.0), "500 ms");
+        assert_eq!(ValueFormat::Duration.label(1_500.0), "1.5 s");
+        assert_eq!(ValueFormat::Percent.label(5.0), "5%");
+        assert_eq!(ValueFormat::Percent.label(2.5), "2.5%");
+        // Duration ticks land on readable steps.
+        assert_eq!(
+            value_ticks(1_900.0),
+            [0.0, 500.0, 1_000.0, 1_500.0, 2_000.0]
+        );
     }
 
     #[test]
