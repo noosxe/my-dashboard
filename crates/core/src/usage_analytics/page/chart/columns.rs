@@ -6,8 +6,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, Bounds, ElementId, Hsla, IntoElement as _, Pixels, Point, SharedString,
-    TextAlign, Window, point, px,
+    AnyElement, App, Bounds, ElementId, Hsla, IntoElement as _, PathBuilder, Pixels, Point,
+    SharedString, TextAlign, Window, point, px,
 };
 use gpui_component::ActiveTheme as _;
 use gpui_component::plot::{
@@ -44,6 +44,24 @@ pub(in crate::usage_analytics::page) struct Guide {
 /// A hovered column's tooltip: title and labelled rows.
 pub(in crate::usage_analytics::page) type Tip = (String, Vec<(String, String)>);
 
+/// The off-scale marker's arrow (docs/0002 D10: a named canvas size).
+const ARROW_W: f32 = 7.0;
+
+/// A small up arrow at `(x, y)` (the top-left of a label line).
+fn paint_up_arrow(outer: &Bounds<Pixels>, x: f32, y: f32, color: Hsla, window: &mut Window) {
+    let o = outer.origin;
+    let at = |dx: f32, dy: f32| point(o.x + px(x + dx), o.y + px(y + dy));
+    let mut path = PathBuilder::stroke(px(1.2));
+    path.move_to(at(ARROW_W / 2.0, TEXT_HEIGHT));
+    path.line_to(at(ARROW_W / 2.0, 1.0));
+    path.move_to(at(0.5, ARROW_W / 2.0 + 0.5));
+    path.line_to(at(ARROW_W / 2.0, 1.0));
+    path.line_to(at(ARROW_W - 0.5, ARROW_W / 2.0 + 0.5));
+    if let Ok(p) = path.build() {
+        window.paint_path(p, color);
+    }
+}
+
 #[derive(IntoPlot)]
 pub(in crate::usage_analytics::page) struct ColumnsChart {
     pub id: &'static str,
@@ -54,7 +72,8 @@ pub(in crate::usage_analytics::page) struct ColumnsChart {
     /// The value-axis ticks; the last is the axis top.
     pub ticks: Vec<f64>,
     pub guides: Vec<Guide>,
-    /// The off-scale limit marker (Q3): `("↑ limit 5,000", "above scale")`.
+    /// The off-scale limit marker (Q3), drawn with an up arrow:
+    /// `("limit 5,000", "above scale")`.
     pub off_scale: Option<(String, String)>,
     /// The hovered column's tooltip, formatted on hover only.
     pub tip: Rc<dyn Fn(usize) -> Option<Tip>>,
@@ -160,10 +179,13 @@ impl Plot for ColumnsChart {
 
         if let Some((line, sub)) = &self.off_scale {
             let gx = bounds.size.width.as_f32() - R_GUTTER + 6.0;
+            // The marker's up arrow (Q3), drawn: the label font has no
+            // arrow glyph, and a fallback font would tint it.
+            paint_up_arrow(&bounds, gx, TOP_PAD, foreground, window);
             PlotLabel::new(vec![
                 Text::new(
                     SharedString::from(line.clone()),
-                    point(px(gx), px(TOP_PAD)),
+                    point(px(gx + ARROW_W + 3.0), px(TOP_PAD)),
                     foreground,
                 ),
                 Text::new(

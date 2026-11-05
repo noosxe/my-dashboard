@@ -205,12 +205,17 @@ impl TableDelegate for SpendTable {
         let key: SharedString = format!("{col:?}").to_lowercase().into();
         let mut c = Column::new(key, col.name(self.group_by));
         if col == Col::Key {
-            return c.width(px(220.)).sort(self.sort_of(col));
+            return c.width(px(200.)).sort(self.sort_of(col));
         }
-        c = c.text_right().width(px(104.));
+        // Wide enough for each header plus upstream's sort icon.
+        c = c.text_right().width(px(match col {
+            Col::Free => 104.,
+            Col::Unknown => 120.,
+            _ => 92.,
+        }));
         if col == Col::Share {
             // Share follows cost; sorting it would be a second cost sort.
-            return c.width(px(124.));
+            return c.width(px(120.));
         }
         c.sort(self.sort_of(col))
     }

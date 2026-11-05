@@ -5,7 +5,7 @@
 
 use gpui::prelude::*;
 use gpui::{AnyElement, App, FontWeight, SharedString, div};
-use gpui_component::{ActiveTheme, Sizable as _, h_flex, tag::Tag, v_flex};
+use gpui_component::{ActiveTheme, h_flex, tag::Tag, v_flex};
 
 use super::{band_frame, format};
 use crate::usage_analytics::surfaces::{Avoidable, AvoidableCategory, AvoidableEntry, Preset};
@@ -92,12 +92,7 @@ fn row(ix: usize, e: &AvoidableEntry, a: &Avoidable, cx: &App) -> impl IntoEleme
                 .flex_none()
                 .child(e.op.clone()),
         )
-        .child(
-            Tag::secondary()
-                .small()
-                .flex_none()
-                .child(category(e.category)),
-        )
+        .child(Tag::secondary().flex_none().child(category(e.category)))
         .child(
             div()
                 .flex_1()

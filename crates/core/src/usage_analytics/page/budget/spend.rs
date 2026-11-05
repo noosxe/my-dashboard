@@ -141,7 +141,7 @@ pub(super) fn summary(w: &WhereItWent, preset: Preset, group_by: SpendDimension)
     }
     let name = super::budget_name(w.budget);
     let mut s = format!(
-        "This app recorded {} {name} {} across {} {}",
+        "This app's recorded spend: {} {name} {} over {} {}",
         format::count(w.totals.known_cost),
         format::unit(w.totals.known_cost, w.budget),
         format::requests(w.totals.requests),
@@ -333,7 +333,7 @@ mod tests {
             )
             .as_deref(),
             Some(
-                "This app recorded 10,625 GraphQL points across 1,318 requests in the last 24 hours; top surface pr-page with 62 (62%)."
+                "This app's recorded spend: 10,625 GraphQL points over 1,318 requests in the last 24 hours; top surface pr-page with 62 (62%)."
             )
         );
         let with_unknown = summary(
@@ -344,7 +344,7 @@ mod tests {
         assert_eq!(
             with_unknown.as_deref(),
             Some(
-                "This app recorded 10,625 GraphQL points across 1,318 requests in this window. 3 requests had no reported cost."
+                "This app's recorded spend: 10,625 GraphQL points over 1,318 requests in this window. 3 requests had no reported cost."
             )
         );
     }

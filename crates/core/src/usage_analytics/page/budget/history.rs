@@ -61,7 +61,7 @@ pub(super) fn columns_axis(s: &ScaleInputs) -> Axis {
             guides.push((l, "limit", true));
         } else {
             off_scale = Some((
-                format!("↑ limit {}", format::count(l as u64)),
+                format!("limit {}", format::count(l as u64)),
                 "above scale".to_string(),
             ));
         }
@@ -167,14 +167,12 @@ pub(super) fn summary(h: &WindowHistory, preset: Preset) -> Option<String> {
                 });
             Some(match peak {
                 Some(d) => format!(
-                    "GitHub's closest approach to the {name} limit per day, {} days; highest {}, {}.",
-                    columns.len(),
+                    "GitHub's closest approach to the {name} limit, per day; highest {}, {}.",
                     format::day(d.day_start_ms),
                     drop_words(d.peak_drop, scale.limit, d.state, h.budget)
                 ),
                 None => format!(
-                    "{} days of {name} windows; GitHub reported no limit for them, so they have no height.",
-                    columns.len()
+                    "GitHub reported no {name} limit in this range, so the days have no height."
                 ),
             })
         }
@@ -234,10 +232,18 @@ pub(super) fn chart_label(h: &WindowHistory, line: &str) -> String {
         }),
         HistoryView::BurnDown(_) | HistoryView::NoWindow => return line.to_string(),
     };
-    let mut s = format!(
-        "{line} Recorded by this app across these windows: {}.",
+    let mut s = line.to_string();
+    let scale = match &h.view {
+        HistoryView::Windows { scale, .. } | HistoryView::Days { scale, .. } => Some(scale),
+        _ => None,
+    };
+    if let Some((limit, _)) = scale.and_then(|sc| columns_axis(sc).off_scale) {
+        s.push_str(&format!(" The {limit} is above the chart's scale."));
+    }
+    s.push_str(&format!(
+        " Recorded by this app across these windows: {}.",
         recorded_words(cost, requests, unknown, b)
-    );
+    ));
     if h.unwindowed.requests > 0 {
         s.push_str(&format!(
             " {} fell outside every reported window.",
@@ -435,7 +441,7 @@ mod tests {
         assert!(a.guides.is_empty(), "no guide falls inside 0–20");
         assert_eq!(
             a.off_scale,
-            Some(("↑ limit 5,000".into(), "above scale".into()))
+            Some(("limit 5,000".into(), "above scale".into()))
         );
     }
 
