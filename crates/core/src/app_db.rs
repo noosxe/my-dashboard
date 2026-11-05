@@ -636,6 +636,10 @@ impl UsageSink for SQLiteStore {
 }
 
 impl UsageSource for SQLiteStore {
+    fn is_degraded(&self) -> bool {
+        self.degraded.load(Ordering::Relaxed)
+    }
+
     fn records_between(&self, from: u64, to: u64) -> Vec<UsageRecord> {
         if self.degraded.load(Ordering::Relaxed) {
             return self.fallback.records_between(from, to);

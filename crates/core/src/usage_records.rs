@@ -153,6 +153,12 @@ pub trait UsageSource: Send + Sync {
     /// bound keeps post-freeze flights out of a frozen `as_of` view,
     /// docs/0054 D10), in arrival order.
     fn records_between(&self, from: u64, to: u64) -> Vec<UsageRecord>;
+    /// Persistence is paused and rows are memory-only (docs/0057 D6):
+    /// the usage page's honesty line says history is paused (docs/0082
+    /// D18). A store that never persists has nothing to pause.
+    fn is_degraded(&self) -> bool {
+        false
+    }
     /// Sugar: everything retained from `from` on.
     fn records_since(&self, from: u64) -> Vec<UsageRecord> {
         self.records_between(from, u64::MAX)
