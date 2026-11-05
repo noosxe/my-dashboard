@@ -3,7 +3,8 @@
 //! builds at all.
 //!
 //! With the GitHub fixture mode on (`DASHBOARD_GITHUB_FIXTURE`),
-//! `DASHBOARD_GITHUB_USAGE_SEED=<days>` (1–30) appends a synthetic,
+//! `DASHBOARD_GITHUB_USAGE_SEED=<days>` (1–90, the retention window,
+//! docs/0057 D7) appends a synthetic,
 //! deterministic flight history to the usage store at module init —
 //! before any window exists — so the usage page opens populated. The
 //! history ends at the capture clock's "now"
@@ -31,12 +32,17 @@ use dashboard_core::usage_records::{Transport, UsageRecord, UsageSink, UsageSour
 use crate::service::{Kind, Mutation};
 use crate::usage::{Surface, Trigger};
 
-/// The seed variable: whole days of history (1–30).
+/// The seed variable: whole days of history (1–90: the store's
+/// retention, so the usage page's 90-day reach can be captured,
+/// docs/0082 D11).
 pub(crate) const SEED_ENV: &str = "DASHBOARD_GITHUB_USAGE_SEED";
 
 /// The PRNG seed — fixed, so a given anchor and day count always
 /// produce the same ledger.
 const SEED: u64 = 0x0081_0536;
+
+/// The longest seed: the store's 90-day retention (docs/0057 D7).
+const MAX_DAYS: u32 = 90;
 
 const HOUR_MS: u64 = 3_600_000;
 const DAY_MS: u64 = 24 * HOUR_MS;
@@ -319,9 +325,11 @@ pub(crate) fn seed_days(fixture: bool) -> Option<u32> {
         return None;
     }
     match raw.trim().parse::<u32>() {
-        Ok(d @ 1..=30) => Some(d),
+        Ok(d @ 1..=MAX_DAYS) => Some(d),
         _ => {
-            log::warn!("usage seed: {SEED_ENV}={raw} is not a day count in 1..=30 — ignored");
+            log::warn!(
+                "usage seed: {SEED_ENV}={raw} is not a day count in 1..={MAX_DAYS} — ignored"
+            );
             None
         }
     }
@@ -445,6 +453,170 @@ mod tests {
                 }
                 last = Some((cycle, rem));
             }
+        }
+    }
+
+    /// docs/0082 D11's measurement gate: a 90-day read over the seeded
+    /// ledger at heavy-day volume, against one frame (16 ms). Ignored by
+    /// default (it writes ~10⁵ rows to a scratch SQLite file); run with
+    /// `cargo test -p dashboard-github --release usage_read_gate --
+    /// --ignored --nocapture`. The result is recorded in docs/0082 D11.
+    #[test]
+    #[ignore]
+    fn usage_read_gate() {
+        use dashboard_core::app_db::SQLiteStore;
+        use dashboard_core::usage_analytics as ua;
+        use std::time::Instant;
+
+        let anchor = dashboard_core::freshness::clock_epoch_ms();
+        let seeded = generate(anchor, 90);
+        let start = anchor - 90 * DAY_MS;
+        let day_of = |ts: u64| (ts - start) / DAY_MS;
+        let mut per_day = vec![0usize; 90];
+        for r in &seeded {
+            per_day[day_of(r.ts_epoch_ms) as usize] += 1;
+        }
+        let (heavy_day, heavy_n) = per_day
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, n)| **n)
+            .map(|(d, n)| (d as u64, *n))
+            .unwrap();
+        // Every day a heavy day: the heaviest seeded day, replayed 90×.
+        let heavy: Vec<_> = (0..90u64)
+            .flat_map(|k| {
+                seeded
+                    .iter()
+                    .filter(move |r| day_of(r.ts_epoch_ms) == heavy_day)
+                    .map(move |r| {
+                        let mut r = r.clone();
+                        r.ts_epoch_ms = r.ts_epoch_ms - heavy_day * DAY_MS + k * DAY_MS;
+                        r
+                    })
+            })
+            .collect();
+
+        let median = |mut v: Vec<f64>| {
+            v.sort_by(f64::total_cmp);
+            v[v.len() / 2]
+        };
+        for (name, rows) in [("seeded 90d", seeded.clone()), ("heavy 90d", heavy)] {
+            let path = std::env::temp_dir().join(format!(
+                "usage-read-gate-{}-{}.sqlite",
+                std::process::id(),
+                name.replace(' ', "-")
+            ));
+            let _ = std::fs::remove_file(&path);
+            let store = SQLiteStore::open_at(path.clone());
+            for r in &rows {
+                store.record(r.clone());
+            }
+            store.flush_blocking();
+            let from = anchor - 90 * DAY_MS;
+            let mut read_ms = Vec::new();
+            let mut got = Vec::new();
+            for _ in 0..5 {
+                let t = Instant::now();
+                got = store.records_between(from, anchor);
+                read_ms.push(t.elapsed().as_secs_f64() * 1e3);
+            }
+            // The page's recompute at 90d: the interim bodies' procedures
+            // (docs/0082 §11 item 2) plus the header's budget cards.
+            let window = ua::WindowSpec::trailing(anchor, 90 * DAY_MS);
+            let filters = ua::Filters::default();
+            let mut calc_ms = Vec::new();
+            for _ in 0..5 {
+                let t = Instant::now();
+                let _ = ua::overview(&got, &ua::OverviewQuery { window });
+                let _ = ua::quota_ranking(
+                    &got,
+                    &ua::QuotaQuery {
+                        window,
+                        group_by: ua::Dimension::Surface,
+                        then_by: None,
+                        filters: filters.clone(),
+                    },
+                );
+                let _ = ua::latency_ranking(
+                    &got,
+                    &ua::LatencyQuery {
+                        window,
+                        group_by: ua::Dimension::Operation,
+                        then_by: None,
+                        filters: filters.clone(),
+                        metric: ua::LatencyMetric::P90,
+                    },
+                );
+                let _ = ua::latency_trend(
+                    &got,
+                    &ua::TrendQuery {
+                        window,
+                        filters: filters.clone(),
+                    },
+                );
+                let _ = ua::slowest_flights(
+                    &got,
+                    &ua::SlowestQuery {
+                        window,
+                        filters: filters.clone(),
+                        limit: 20,
+                    },
+                );
+                let _ = ua::latency_glance(
+                    &got,
+                    &ua::GlanceQuery {
+                        window,
+                        filters: filters.clone(),
+                    },
+                );
+                let _ = ua::duration_histogram(
+                    &got,
+                    &ua::HistogramQuery {
+                        window,
+                        filters: filters.clone(),
+                    },
+                );
+                let _ = ua::revalidation_comparison(
+                    &got,
+                    &ua::RevalidationQuery {
+                        window,
+                        filters: filters.clone(),
+                    },
+                );
+                let _ = ua::payload_split(
+                    &got,
+                    &ua::PayloadSplitQuery {
+                        window,
+                        filters: filters.clone(),
+                    },
+                );
+                let _ = ua::contention(
+                    &got,
+                    &ua::ContentionQuery {
+                        window,
+                        filters: filters.clone(),
+                    },
+                );
+                let _ = ua::surfaces::budget_cards(
+                    &got,
+                    &ua::surfaces::BudgetCardsQuery {
+                        module: "github".into(),
+                        as_of_ms: anchor,
+                        preset: ua::surfaces::Preset::CurrentWindow,
+                        rest_paused_until_ms: None,
+                        graphql_paused_until_ms: None,
+                    },
+                );
+                calc_ms.push(t.elapsed().as_secs_f64() * 1e3);
+            }
+            println!(
+                "{name}: {} rows (heaviest seeded day {heavy_n}) · read median {:.1} ms · recompute median {:.1} ms",
+                got.len(),
+                median(read_ms),
+                median(calc_ms),
+            );
+            drop(store);
+            let _ = std::fs::remove_file(&path);
         }
     }
 

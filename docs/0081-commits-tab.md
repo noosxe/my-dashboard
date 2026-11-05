@@ -824,7 +824,8 @@ adds a debug-build-only fixture mode:
   off the usage page; only the seeded ledger shows there, which is
   what makes it deterministic.
 - **Seeded usage ledger** *(#536's mechanism)*. With fixture mode on,
-  `DASHBOARD_GITHUB_USAGE_SEED=<days>` (1–30) appends a synthetic,
+  `DASHBOARD_GITHUB_USAGE_SEED=<days>` (1–90, the store's retention;
+  30 until docs/0082 D11 needed 90-day captures) appends a synthetic,
   deterministic flight history to the usage store at module init,
   before any window exists. So the usage page's first open reads it,
   and no Refresh is needed. The generator (`usage_seed.rs`) isn't
