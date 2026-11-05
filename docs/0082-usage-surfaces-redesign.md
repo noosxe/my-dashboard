@@ -1148,8 +1148,9 @@ receipt**: the HTML mockups don't replace any receipt below.
   (Q10). The chip names the GraphQL pause with its resume time and
   keeps REST live, and the Budget view it opens marks only the GraphQL
   card Exhausted. Under the pinned clock the cards' counts come from
-  the seed, not the rate variant (#716); the Low and Critical variants
-  are #701's.
+  the seed, not the rate variant (#716). The other variants, one per
+  D5 state (`healthy`, `low`, `critical`, `exhausted`, docs/0081
+  §12.1), receipt the chip through the docs/0071 recipe.
 
 ## 11 Implementation plan (issues filed after this doc merges)
 

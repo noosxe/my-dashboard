@@ -191,8 +191,8 @@ scripts/verify.sh sh -c '
 The usage surfaces (docs/0081 §12.1) run over the same fixtures, with
 two opt-in extras. `DASHBOARD_GITHUB_USAGE_SEED=<days>` seeds a
 deterministic ledger, so the usage page opens populated.
-`DASHBOARD_GITHUB_FIXTURE_RATE=healthy|low|exhausted` gives the footer
-chip a budget. Both are anchored to the pinned clock, so their numbers
+`DASHBOARD_GITHUB_FIXTURE_RATE=healthy|low|critical|exhausted|graphql-exhausted`
+gives the footer chip a budget, one variant per docs/0082 D5 state. Both are anchored to the pinned clock, so their numbers
 and countdowns are stable. One session per rate variant (the variant is
 read at boot):
 
@@ -216,7 +216,8 @@ scripts/verify.sh sh -c '
 
 Expected chip labels: `healthy` reads "GitHub API: REST: 4,812 of
 5,000 requests remaining, resets in 41 minutes; GraphQL: 4,655 of
-5,000 points …"; `low` reads 312 / 188, each marked "Critical";
+5,000 points …" (Normal, no state word); `low` reads 1,040 / 960,
+each marked "Low"; `critical` reads 312 / 188, each marked "Critical";
 `exhausted` reads "REST: paused, resumes at HH:MM in 37 minutes;
 GraphQL: paused, …"; `graphql-exhausted` pauses GraphQL only and
 leaves REST at 4,812 (docs/0082 Q10). The chip is the button that

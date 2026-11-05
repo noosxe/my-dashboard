@@ -251,8 +251,8 @@ rules apply per bucket. Shipped with #699 (0082 §11 item 5):
 a server reset — the book's display, the chip's countdown and tooltip,
 the pause gate and the probe cooldown — reads `usage::budget_now()`.
 That is the wall clock, pinned under `DASHBOARD_FIXED_NOW` in debug
-builds, so the fixture rate variants (`healthy` / `low` / `exhausted`)
-render the D5 chip states the same way on any calendar day.
+builds, so the fixture rate variants (`healthy` / `low` / `critical` /
+`exhausted` / `graphql-exhausted`) render the D5 chip states the same way on any calendar day.
 
 ## D5 — The footer chip: module-contributed status items
 
