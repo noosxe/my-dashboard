@@ -185,7 +185,7 @@ Methods (pure, all logic lives here):
 | at least one snapshot present | both buckets, `remaining` exactly as last reported (no local prediction); a REST bucket with no snapshot yet renders an ellipsis, the GraphQL bucket renders `?` (the probe cannot supply it — §2) |
 | a bucket past its `reset_at` without a newer snapshot | that bucket keeps last-known and flags stale — its tooltip line swaps the countdown for `as of HH:MM`, and the spoken label has the per-bucket detail; arm the probe |
 | `rate_limited_until` in future (the operational backoff) | exhausted presentation, countdown from `rate_limited_until` |
-| no snapshot from either bucket (fresh connect) | skeleton "GH … · GQL ?" placeholder until the first response lands |
+| no snapshot from either bucket (fresh connect) | skeleton "GH … · GQL ?" placeholder until the first response lands (*superseded by docs/0082 D13:* each missing budget reads `REST —` / `GraphQL —`) |
 
 **Stale-window probe**: `GET /rate_limit` (free, D2 seam, books 0)
 armed by the tick lane on ungated ticks when the **REST** sub-budget is
@@ -289,13 +289,17 @@ opens the Budget view.
   values are the server's, verbatim, never locally predicted.
 - Copy (terse, one bar line):
   - normal: `GH 3,712 · GQL 4,950` — **remaining values only**; the
-    limits and windows live in the hover tooltip and the spoken label
+    limits and windows live in the hover tooltip and the spoken label.
+    *Superseded by docs/0082 D13:* full budget names and the D5 state
+    word, `REST 3,712 · ⚠ GraphQL 1,140 Low`.
   - exhausted: `GH rate-limited · resumes 12m` (warning color; the
     global pause, D4). *Superseded by docs/0082 D13:* per budget,
     `GraphQL paused · resumes 15:41`, the other budget staying live.
   - placeholder: `GH … · GQL ?` before the first snapshots; either
     bucket alone still renders, the missing one as an ellipsis (REST) or
-    `?` (GraphQL — only real GraphQL traffic can fill it, §2)
+    `?` (GraphQL — only real GraphQL traffic can fill it, §2).
+    *Superseded by docs/0082 D13:* a missing budget reads `REST —` /
+    `GraphQL —`, so a fresh connect shows `REST — · GraphQL —`.
 - **Hover tooltip** (two lines, one per bucket, built fresh at hover
   time from the same ledger — gpui's `InteractiveElement::tooltip`
   works on plain divs, no interactivity needed):
@@ -304,6 +308,9 @@ opens the Budget view.
     for `· as of HH:MM` (the countdown already ran out). During a
     rate-limit pause the tooltip still shows the budgets (the pause is
     display-mapped, D4, and the tooltip reads the book directly).
+    *Superseded by docs/0082 D13:* the lines name the budgets
+    (`REST 3,712/5,000 resets in 13m`, `GraphQL — no response yet`,
+    `GraphQL paused · resumes 15:41 (in 12m)`).
   - It is additive garnish for sighted mouse users: keyboard and
     screen-reader users cannot reach a hover tooltip, so the aria
     label below stays the sole a11y carrier (0049) — nothing lives
