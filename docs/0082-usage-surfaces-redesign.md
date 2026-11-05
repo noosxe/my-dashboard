@@ -237,6 +237,20 @@ Facets that belong to one view live in that view's query bar, not in
 the header. At 1024×700 the header row fits on one line (mockups,
 §10).
 
+Mechanics (#696):
+- **The budget `Current window` follows** is the D7 default (Q6),
+  re-derived from the cards' procedure on every read, until #697's
+  Budget selector lets the user pick it. The per-budget pause reaches
+  the page with #699; until then the default sees records only.
+- **Under `Current window` without an open window** (D15a) the line
+  reads `0 requests · no open REST window · as of …`, and the views
+  are empty.
+- **Before any record exists** the line ends `no history yet`. While
+  the read is in flight (D11) it reads `Reading history · as of …`.
+- **The header is one fixed band** above the view body, capped and
+  centred like the content (D20). The honesty line is one `Status`
+  node whose label also carries D18's degraded words.
+
 ## 5 Budget view (the user audience)
 
 The bands below run top to bottom in one scroll. Every band derives
@@ -533,14 +547,41 @@ the band is accepted as mostly a REST and long-range tool (Q12).
   GraphQL windows reset at different times, so bands 2–4 use the
   window of the budget picked in D7's selector, and the honesty line
   names it (D3). The cards always show both budgets' current windows.
+- **`Current window` and the Requests view** (#696): the preset is
+  page-global, so the Requests view, which has no `Current window`,
+  reads the trailing `1h` under it, the one span that always covers a
+  budget window. Picking a span there replaces the preset. Switching
+  back to Budget with the preset untouched restores `Current window`.
 - **The read bound grows to 90 days** to match 0057 D7's retention
   (amends 0054 D13).
-- **[P] The read stays on the UI thread** (0057 D8, an owner-accepted
-  rule), with a gate: the implementation PR measures a 90-day read over
-  the seeded ledger at a heavy-day volume. If it takes more than one
-  frame (16 ms), it moves to the background executor with a designed
-  loading state (D18), as 0054 D9 first allowed. Trade-off: the UI
-  thread stays simple until the measurement says otherwise.
+- **The read runs on the background executor**, with a designed
+  loading state (D18), because the gate tripped. The gate (0057 D8's
+  owner-accepted UI-thread read, kept until a 90-day read measured
+  above one frame) was measured in #696:
+  - **Ledger:** the seeded ledger (`DASHBOARD_GITHUB_USAGE_SEED`, whose
+    cap grew from 30 to 90 days for this) over 90 days: about 96,600
+    rows, heaviest day 1,157. The "heavy-day" variant replays that
+    heaviest day 90 times: about 101,500 rows.
+  - **Store:** the app's SQLite store (docs/0057), written and flushed
+    to a scratch file, read with `records_between` over
+    `[as_of − 90 d, as_of)`, median of five.
+  - **Result (optimized build):** 71 ms seeded, 74 ms heavy. In the
+    dev build: 280 ms and 288 ms. Both are far above 16 ms.
+  - **Also measured:** recomputing the page's views over those rows
+    (#696's interim bodies plus the header's budget cards) takes
+    48–55 ms optimized and about 215 ms in the dev build. That
+    recompute still runs on the UI thread on every control change
+    (0054 D10's pure recomputation); see the next bullet.
+  - **Receipt:** the ignored test `usage_read_gate` in
+    `crates/modules/github/src/usage_seed.rs`.
+- **[P] The views' derivation joins the read off the UI thread** when
+  #697 and #698 replace the interim bodies: refresh runs read plus
+  band procedures in one background task, and a control change that
+  re-derives over 90 days does the same, behind the band skeletons.
+  Trade-off: every band gains a loading state on range changes, but a
+  90-day flip no longer stalls the UI thread for several frames.
+- **A superseded read is dropped:** each read carries a generation,
+  and only the newest refresh lands.
 
 ### D12 — Liveness [P]
 
@@ -733,12 +774,15 @@ Every band has the three states (0065 rubric #18, [DG]):
   identical band empties would be noise, and "widen the range" is
   wrong advice when no history exists. The Requests view words its
   empty the same way.
-- **Loading:** only if D11's gate moves the read off-thread; skeletons
-  per band.
+- **Loading:** D11's gate moved the read off-thread, so the page has
+  a loading state: until the read lands, the view body shows skeletons
+  and the honesty line reads "Reading history". #696 draws one
+  page-level skeleton; #697 and #698 give each band its own.
 - **Degraded store:** when `is_degraded()` (0057 D6, 0063 F4), the
   honesty line adds "History paused: storage unavailable, showing this
-  session only": a storage icon in `warning`, the words in
-  `foreground` (D5).
+  session only": a storage icon (Lucide `database`) in `warning`, the
+  words in `foreground` (D5). The flag reaches the page through
+  `UsageSource::is_degraded`, read with the rows.
 - **Single-sample series:** draw as points, never as an empty frame
   (D10a).
 
@@ -748,6 +792,11 @@ Every band has the three states (0065 rubric #18, [DG]):
   view switch are one Tab stop each, with arrow keys inside (or every
   segment a stop, per upstream behaviour). The tab-stop cycle must
   close on every view (`tree --tab-stops` receipt).
+  - Upstream's segmented `TabBar` has no keyboard path at the pin, so
+    the page wraps each one in a focusable `TabList` node (#696). It
+    is one Tab stop with the framework focus ring. Left/Up and
+    Right/Down move the selection, Home and End jump to the ends, and
+    its accessible name carries the selection ("Range: 24h").
 - **Tables implement `cell_label`** with their existing cell text
   (closes the app side of #351). Select options carry labels.
 - **One a11y summary per chart**, kept as the D8 contract of 0054. It
@@ -772,6 +821,11 @@ Every band has the three states (0065 rubric #18, [DG]):
 - At the minimum window width, the header fits on one line (verified
   at 1024×700 in the mockups); if a future control makes it wrap, it
   wraps as one deliberate second row.
+- **The shell (#696)** owns the cap and the one page scroll: the fixed
+  header, then a single scrolling body whose content is capped at
+  1,200 px and centred. Views size to their content inside it and never
+  scroll on their own. The two-column breakpoint is the bands' layout
+  (#697, #698).
 
 ### D21 — Vocabulary
 
@@ -889,6 +943,25 @@ The split is proposed and refined when the issues are filed:
    projection guard, per-day peaks, avoidable ranking).
 2. **Page shell:** the D1 view switch, the D3 header, the D11 presets
    and read bound with the measurement gate, D18 and D19 header work.
+   - **Interim view bodies** keep `main` usable between the shell and
+     the views. The retired tabs' bodies are rehosted under the new
+     switch: Budget shows the old Overview and Quota usage bodies,
+     Requests shows the old Request latency body. Above them sits the
+     old facet bar (transport, module, errors only), as a view-body
+     query bar rather than in the header (D3).
+   - The interim bodies read the header's range, `Current window`
+     included: the selected budget's window bounds every interim
+     figure. Items 3 and 4 replace them.
+   - Two fixes keep them usable at the new reach and on the keyboard:
+     - each burn-down panel draws at most 480 points (the lowest
+       `remaining` per chunk, so the closest approach survives). A
+       90-day window holds tens of thousands of snapshots, and drawing
+       them all every frame froze the page;
+     - their tables leave the Tab order. Upstream's `DataTable` binds
+       Tab to "next column", so a table that is a Tab stop traps the
+       walk (D19). The tables stay usable with the pointer.
+   - Other pre-existing issues in those bodies ship with them, such as
+     the `flights` wording and fixed-height tables.
 3. **Budget view:** D4–D9 bands, including the app-owned time-axis
    chart (D10a).
 4. **Requests view:** D10, including the virtualized request log.
