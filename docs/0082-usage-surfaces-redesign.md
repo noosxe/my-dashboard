@@ -88,6 +88,7 @@ decisions:**
 | Q9 | The chip shows on every page | D13; amends docs/0050 D5 |
 | Q10 | Exhaustion is per budget: one `rate_limited_until` per bucket | D5, D13; amends docs/0050 D4 |
 | #709 | Budget history shows GitHub's reported drop; this app's recorded spend over time is the Requests view's cost trend (calculator review, 2026-11-05) | D1, D8, D10, D15a |
+| #709 | **Source follows audience** is the usage section's general rule ("this should be our philosophy for the usage section for the app in general") | §4 principle; D1, D6–D10 |
 
 **Adopted per mockup recommendation** (the owner accepted the
 mockups' recommendations wholesale):
@@ -164,6 +165,23 @@ seeded ledger (2026-11-04, docs/0071) found the following:
 
 ## 4 Audiences and page structure
 
+### Principle — Source follows audience
+
+The general rule for the usage section (owner decision, §2.1). Later
+work cites it as "source follows audience (0082 §4)".
+
+- **User-facing usage figures come from the provider's own
+  reporting**: GitHub's `remaining`, `limit` and reset, and the drop
+  it reports.
+- **Developer-facing figures come from this app's records**:
+  per-request cost, latency and attribution.
+- Some user-facing bands can only be answered from records, because
+  the provider doesn't attribute spend (D7, D9). Their summary says so
+  explicitly.
+- **One figure never silently mixes the two sources.** A figure
+  derived from both, like #705's external-consumer estimate (D6), says
+  so where it is shown.
+
 ### D1 — Two views on one page, one per audience
 
 `Page::Usage` stays shell-hosted (0054 D1: sidebar entry, breadcrumb,
@@ -175,9 +193,10 @@ segmented control at the head of the page:
 | **Budget** | the owner as a user | Q-a, Q-b, Q-c, Q-d | yes |
 | **Requests** | the owner as the dashboard's developer | Q-e, Q-f | no |
 
-- **Budget = GitHub's reporting; Requests = this app's records** (§2.1,
-  #709). Budget's attribution bands (D7, D9) are recorded by necessity,
-  because GitHub doesn't attribute spend, and they say so.
+- **Budget = GitHub's reporting; Requests = this app's records**: the
+  source follows the audience (§4 principle). Budget's attribution
+  bands (D7, D9) are recorded by necessity, because GitHub doesn't
+  attribute spend, and they say so.
 - The view choice is component-local, like 0054 D3's tab state. It
   keeps the frozen `as_of` and the range.
 - The chip (D13) belongs to the Budget audience and navigates to the
@@ -317,9 +336,12 @@ The 3600 s window length is GitHub's documented primary window,
 re-verified on 2026-11-05 against GitHub's REST and GraphQL rate-limit
 pages: both budgets are "per hour", and the reset is UTC epoch seconds.
 
-The drop minus this app's Σ known cost in the same window is the
-**external-consumer** spend. D6 doesn't show it; it is the input of
-the deferred external-consumer estimate (§11, #705).
+The pace is GitHub's report alone, because the cards are user-facing
+(§4 principle). The drop minus this app's Σ known cost in the same
+window is the **external-consumer** spend. It mixes both sources by
+construction, so D6 doesn't show it. It is the input of the deferred
+external-consumer estimate (§11, #705), which must say it is derived
+from both sources.
 
 Trade-off: early in a window it is noisy, hence the guard; a burst
 right after the guard can over-warn. Counting only recorded cost was
@@ -352,7 +374,7 @@ A query bar plus one chart and one table, both fed by one aggregate.
   REST the unit is "requests", which would collide with the request
   count column (Q11); the band's summary line names the unit and says
   the figures are this app's recorded spend, so they're never
-  mistaken for GitHub's totals (D1). The
+  mistaken for GitHub's totals (§4 principle). The
   table is sortable (upstream `perform_sort`), sized to its content
   (D20), and each cell exposes its text (D19). Nested rows label their
   own dimension ("operation: notifications") and are all shown.
@@ -373,9 +395,9 @@ Spend over time, shown **per quota window**, never as a cycle selector
   drawn via `reference_line` (now available at the pin; see 0054
   D15's note), a dashed `as of` marker and the reset marked at the
   right edge. The value axis is the whole budget, 0 to the limit.
-- **Heights are GitHub's reported drop** (§2.1, #709): `limit − min
-  remaining`, other clients included, because the Budget view answers
-  "what did GitHub count" (D1). This app's recorded spend over time
+- **Heights are GitHub's reported drop** (§2.1, #709; §4 principle):
+  `limit − min remaining`, other clients included, because the Budget
+  view answers "what did GitHub count". This app's recorded spend over time
   lives in the Requests view's cost trend (D10). The recorded figures
   stay in each column's tooltip and a11y summary. A window or day
   with no reported ceiling has no height, so the view leaves a gap
@@ -427,7 +449,7 @@ The band shows a short list (top 5): op, a category tag, a one-line
 reason, cost and share of the budget's range spend. "Show these
 requests" is the same drill as D7. Its summary line says
 "Heuristics, not proof" and, like D7's, that the figures are this
-app's recorded spend.
+app's recorded spend (§4 principle).
 
 Trade-off: these are heuristics, not proof of waste. "Fetched but
 never viewed" would be the strongest signal, and it needs visit
@@ -449,8 +471,10 @@ the band is accepted as mostly a REST and long-range tool (Q12).
     a trend never pools requests and points (D2, Q7); with any other
     Transport value the option is disabled with a one-line reason.
     This cost trend is where **this app's recorded spend over time**
-    lives, "how much this app spent" (§2.1, #709); the Budget view's
-    history shows GitHub's reported drop instead (D8).
+    lives, "how much this app spent" (§2.1, #709). The Requests view is
+    developer-facing, so every figure here comes from records (§4
+    principle). The Budget view's history shows GitHub's reported drop
+    instead (D8).
 - **Bands:**
   1. **Glance strip:** one tile per transport (REST, GraphQL, `auth`,
      `local`) with p90, p50 and the request count; a transport with no
