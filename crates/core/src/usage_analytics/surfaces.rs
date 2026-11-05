@@ -575,15 +575,20 @@ fn project(remaining: u32, d: &WindowDrop) -> Projection {
     }
 }
 
-/// D7 (Q6): the budget with the smaller remaining fraction; REST on a
-/// tie, or when either fraction is unknown (no snapshot or no
-/// ceiling).
+/// D7 (Q6): the budget with the smaller remaining fraction of an open
+/// window; REST on a tie, or when either fraction is unknown. An
+/// exhausted (or paused) budget counts as 0 %; no snapshot, no
+/// ceiling or a closed window (its numbers predate a refill) count as
+/// unknown.
 pub fn default_budget(cards: &[BudgetCard]) -> Budget {
     let pct = |b: Budget| {
-        cards
-            .iter()
-            .find(|c| c.budget == b)
-            .and_then(|c| c.snapshot.as_ref())
+        let c = cards.iter().find(|c| c.budget == b)?;
+        if c.state == Some(ThresholdState::Exhausted) {
+            return Some(0.0);
+        }
+        c.snapshot
+            .as_ref()
+            .filter(|s| s.window_open)
             .and_then(|s| s.remaining_pct)
     };
     match (pct(Budget::Rest), pct(Budget::Graphql)) {
