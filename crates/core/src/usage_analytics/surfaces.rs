@@ -777,6 +777,51 @@ pub struct HistoryQuery {
     pub tz_offset_ms: i64,
 }
 
+/// The D8 history band's `Source` toggle (owner decision on #709):
+/// the two data sources side by side, never one declared "real".
+/// The calculator returns both on every column, plus a [`ScaleInputs`]
+/// per source, so flipping the toggle is a pure re-render: no query
+/// input, no recompute, and a CLI/MCP consumer sees both.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HistorySource {
+    /// GitHub's reported drop, `limit − min remaining`: includes other
+    /// clients sharing the token. The default.
+    #[default]
+    Reported,
+    /// This app's Σ known cost.
+    Recorded,
+}
+
+impl HistorySource {
+    /// Toggle label (D8).
+    pub fn label(self) -> &'static str {
+        match self {
+            HistorySource::Reported => "Reported by GitHub",
+            HistorySource::Recorded => "Recorded by this app",
+        }
+    }
+
+    pub fn all() -> [HistorySource; 2] {
+        [HistorySource::Reported, HistorySource::Recorded]
+    }
+}
+
+/// One [`ScaleInputs`] per source; the view reads the active one.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SourceScales {
+    pub reported: ScaleInputs,
+    pub recorded: ScaleInputs,
+}
+
+impl SourceScales {
+    pub fn get(&self, source: HistorySource) -> &ScaleInputs {
+        match source {
+            HistorySource::Reported => &self.reported,
+            HistorySource::Recorded => &self.recorded,
+        }
+    }
+}
+
 /// What the view needs to choose D8's axis (Q3); the choice itself
 /// (about 90 % of the limit) stays in the view.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -838,17 +883,29 @@ pub struct BurnDown {
 pub struct WindowColumn {
     pub start_ms: u64,
     pub reset_ms: u64,
-    /// The column height (D8): Σ known cost of the window's records
+    /// The Recorded height: Σ known cost of the window's records
     /// inside the range (edge windows are clipped to it).
-    pub cost: u64,
+    pub recorded_cost: u64,
     pub requests: u64,
     pub unknown: u64,
-    /// GitHub's deepest reported drop in the window, `limit − min
-    /// remaining`; `None` without a ceiling.
-    pub peak_drop: Option<u32>,
+    /// The Reported height: GitHub's deepest drop in the window,
+    /// `limit − min remaining`. `None` without a ceiling: no Reported
+    /// column (a gap), while Recorded still draws.
+    pub reported_drop: Option<u32>,
     pub limit: Option<u32>,
-    /// The worst D5 state the window reached (its colour).
+    /// The worst D5 state the window reached (its colour, in both
+    /// sources: always from the reported minimum).
     pub state: Option<ThresholdState>,
+}
+
+impl WindowColumn {
+    /// The column height under `source`; `None` is a gap.
+    pub fn height(&self, source: HistorySource) -> Option<u64> {
+        match source {
+            HistorySource::Reported => self.reported_drop.map(u64::from),
+            HistorySource::Recorded => Some(self.recorded_cost),
+        }
+    }
 }
 
 /// One column per day (30 and 90 days).
@@ -857,25 +914,45 @@ pub struct DayColumn {
     /// Local midnight (per `tz_offset_ms`).
     pub day_start_ms: u64,
     pub day_end_ms: u64,
-    /// The column height (D8, owner decision on #709): the day's
-    /// peak window drop as GitHub reports it, `limit − min remaining`,
-    /// including other clients' spend. `None` when none of the day's
-    /// windows reported a ceiling: the view draws no column there (an
-    /// honest gap, never a 0-height bar) and the tooltip and a11y
-    /// summary still give the recorded figures below.
-    pub peak_drop: Option<u32>,
-    /// The window with that peak drop (earliest on a tie).
-    pub peak_window_reset_ms: Option<u64>,
-    /// The largest per-window Σ known cost of the day: this app's own
-    /// recorded peak (tooltip and a11y summary).
-    pub peak_window_cost: u64,
+    /// The Reported height: the day's largest window drop as GitHub
+    /// reports it (`limit − min remaining`, other clients included).
+    /// `None` when none of the day's windows reported a ceiling: no
+    /// Reported column (a gap, never a 0-height bar).
+    pub reported_peak_drop: Option<u32>,
+    /// The window with that drop (earliest on a tie).
+    pub reported_peak_reset_ms: Option<u64>,
+    /// The Recorded height: the day's largest per-window Σ known cost.
+    pub recorded_peak_cost: u64,
+    /// The window with that cost (earliest on a tie); `None` on a day
+    /// without windows.
+    pub recorded_peak_reset_ms: Option<u64>,
     /// The day's recorded total (tooltip and a11y summary, D8).
     pub total_cost: u64,
     pub requests: u64,
     pub unknown: u64,
     pub windows: u64,
-    /// The worst state any of the day's windows reached.
+    /// The worst state any of the day's windows reached (from the
+    /// reported minimum, in both sources).
     pub state: Option<ThresholdState>,
+}
+
+impl DayColumn {
+    /// The column height under `source`; `None` is a gap. A day without
+    /// windows has a Recorded height of 0.
+    pub fn height(&self, source: HistorySource) -> Option<u64> {
+        match source {
+            HistorySource::Reported => self.reported_peak_drop.map(u64::from),
+            HistorySource::Recorded => Some(self.recorded_peak_cost),
+        }
+    }
+
+    /// The window behind the height under `source`.
+    pub fn peak_reset_ms(&self, source: HistorySource) -> Option<u64> {
+        match source {
+            HistorySource::Reported => self.reported_peak_reset_ms,
+            HistorySource::Recorded => self.recorded_peak_reset_ms,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -886,13 +963,13 @@ pub enum HistoryView {
     /// "Spend per window" (ranges ≤ 7 days).
     Windows {
         columns: Vec<WindowColumn>,
-        scale: ScaleInputs,
+        scales: SourceScales,
     },
     /// "Peak window per day" (30 and 90 days). Every day of the range
     /// is present, empty days included.
     Days {
         columns: Vec<DayColumn>,
-        scale: ScaleInputs,
+        scales: SourceScales,
     },
 }
 
@@ -936,25 +1013,30 @@ pub fn window_history(rows: &[UsageRecord], q: &HistoryQuery) -> WindowHistory {
         .max_by(|a, b| a.ts_epoch_ms.cmp(&b.ts_epoch_ms).then(a.seq.cmp(&b.seq)))
         .and_then(|r| r.limit_after);
 
+    // Each source's data max: the tallest height it draws (gaps skip).
+    let scales = |max: &dyn Fn(HistorySource) -> u64| SourceScales {
+        reported: ScaleInputs::spent(max(HistorySource::Reported), limit),
+        recorded: ScaleInputs::spent(max(HistorySource::Recorded), limit),
+    };
     out.view = match span {
         Span::H1 | Span::H24 | Span::D7 => {
-            let data_max = columns.iter().map(|c| c.cost).max().unwrap_or(0);
-            HistoryView::Windows {
-                columns,
-                scale: ScaleInputs::spent(data_max, limit),
-            }
+            let scales = scales(&|src| {
+                columns
+                    .iter()
+                    .filter_map(|c| c.height(src))
+                    .max()
+                    .unwrap_or(0)
+            });
+            HistoryView::Windows { columns, scales }
         }
         Span::D30 | Span::D90 => {
             let b = bounds.expect("trailing presets always resolve");
             let days = day_columns(&columns, b, q.tz_offset_ms);
-            let data_max = days
-                .iter()
-                .filter_map(|d| d.peak_drop)
-                .max()
-                .map_or(0, u64::from);
+            let scales =
+                scales(&|src| days.iter().filter_map(|d| d.height(src)).max().unwrap_or(0));
             HistoryView::Days {
                 columns: days,
-                scale: ScaleInputs::spent(data_max, limit),
+                scales,
             }
         }
     };
@@ -1006,10 +1088,10 @@ fn window_columns(scoped: &[&UsageRecord]) -> (Vec<WindowColumn>, SpendTotals) {
                 WindowColumn {
                     start_ms: reset.saturating_sub(WINDOW_MS),
                     reset_ms: reset,
-                    cost: 0,
+                    recorded_cost: 0,
                     requests: 0,
                     unknown: 0,
-                    peak_drop: None,
+                    reported_drop: None,
                     limit: None,
                     state: None,
                 },
@@ -1034,7 +1116,7 @@ fn window_columns(scoped: &[&UsageRecord]) -> (Vec<WindowColumn>, SpendTotals) {
             Some((col, _)) => {
                 col.requests += 1;
                 match r.cost {
-                    Some(c) => col.cost += c as u64,
+                    Some(c) => col.recorded_cost += c as u64,
                     None => col.unknown += 1,
                 }
             }
@@ -1045,7 +1127,7 @@ fn window_columns(scoped: &[&UsageRecord]) -> (Vec<WindowColumn>, SpendTotals) {
         .into_values()
         .map(|(mut col, min_remaining)| {
             if let (Some(limit), Some(min)) = (col.limit, min_remaining) {
-                col.peak_drop = Some(limit.saturating_sub(min));
+                col.reported_drop = Some(limit.saturating_sub(min));
                 col.state = ThresholdState::of(min, Some(limit));
             }
             col
@@ -1067,9 +1149,10 @@ fn day_columns(windows: &[WindowColumn], b: Bounds, tz_offset_ms: i64) -> Vec<Da
         days.push(DayColumn {
             day_start_ms: day,
             day_end_ms: day + DAY_MS,
-            peak_window_cost: 0,
-            peak_window_reset_ms: None,
-            peak_drop: None,
+            reported_peak_drop: None,
+            reported_peak_reset_ms: None,
+            recorded_peak_cost: 0,
+            recorded_peak_reset_ms: None,
             total_cost: 0,
             requests: 0,
             unknown: 0,
@@ -1086,16 +1169,19 @@ fn day_columns(windows: &[WindowColumn], b: Bounds, tz_offset_ms: i64) -> Vec<Da
             continue;
         };
         d.windows += 1;
-        d.total_cost += w.cost;
+        d.total_cost += w.recorded_cost;
         d.requests += w.requests;
         d.unknown += w.unknown;
         // Windows arrive in reset order, so `>` keeps the earliest on
         // a tie; a window without a ceiling never displaces one with.
-        if w.peak_drop.is_some() && w.peak_drop > d.peak_drop {
-            d.peak_drop = w.peak_drop;
-            d.peak_window_reset_ms = Some(w.reset_ms);
+        if w.reported_drop.is_some() && w.reported_drop > d.reported_peak_drop {
+            d.reported_peak_drop = w.reported_drop;
+            d.reported_peak_reset_ms = Some(w.reset_ms);
         }
-        d.peak_window_cost = d.peak_window_cost.max(w.cost);
+        if d.recorded_peak_reset_ms.is_none() || w.recorded_cost > d.recorded_peak_cost {
+            d.recorded_peak_cost = w.recorded_cost;
+            d.recorded_peak_reset_ms = Some(w.reset_ms);
+        }
         d.state = d.state.max(w.state);
     }
     days
