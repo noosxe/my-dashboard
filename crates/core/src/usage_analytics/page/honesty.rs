@@ -72,7 +72,7 @@ pub(super) fn format_date_time(epoch_ms: u64) -> String {
 }
 
 /// Thousands-grouped counts: `1,087 requests`.
-fn fmt_count(n: u64) -> String {
+pub(super) fn fmt_count(n: u64) -> String {
     let s = n.to_string();
     let mut out = String::with_capacity(s.len() + s.len() / 3);
     for (i, ch) in s.chars().enumerate() {

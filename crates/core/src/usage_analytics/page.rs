@@ -5,8 +5,8 @@
 //! Code layout (0082 D15a): this file owns the page state, the read
 //! lifecycle and the render composition; each concern lives next door —
 //! [`header`], [`range`], [`honesty`], [`states`], [`layout`],
-//! [`derive`] — and each view has its own module ([`budget`],
-//! [`requests`]).
+//! [`derive`], [`chart`] — and each view has its own module
+//! ([`budget`], [`requests`]).
 
 use std::sync::Arc;
 
@@ -17,6 +17,7 @@ use super::surfaces::{self, Bounds, Budget, Preset};
 use crate::usage_records::{self, UsageRecord};
 
 mod budget;
+mod chart;
 mod derive;
 mod header;
 mod honesty;
@@ -25,7 +26,7 @@ mod range;
 mod requests;
 mod states;
 
-use derive::{Landed, ViewData, ViewKey};
+use derive::{Band, Controls, Landed, SpendGroup, ViewData, ViewKey};
 use honesty::Honesty;
 use range::{BUDGET_MODULE, DEFAULT_PRESET, READ_SPAN};
 
@@ -102,39 +103,58 @@ pub struct UsagePage {
     view: UsageView,
     /// The page-global range preset (D11), 24h by default.
     preset: Preset,
-    /// The budget `Current window` follows (Q5). Until #697's Budget
-    /// selector lands it is the D7 default: the budget with the smaller
-    /// remaining fraction, re-derived on every read.
+    /// The budget bands 2–4 and `Current window` follow (D7, Q5): the
+    /// user's pick, or else the D7 default (the budget with the smaller
+    /// remaining fraction), re-derived on every read.
     budget: Budget,
-    /// D19: the view switch and the range switch, one Tab stop each.
-    /// `None` only in pure-derivation tests.
-    focus: Option<(FocusHandle, FocusHandle)>,
+    /// The Budget selector's pick, if the user made one. It is
+    /// component-local like the view (D1): kept across refreshes, gone
+    /// when the page closes.
+    picked_budget: Option<Budget>,
+    /// D7's `Group by` / `Then by`.
+    spend: SpendGroup,
+    /// D19: the view switch, the range switch and the Budget selector,
+    /// one Tab stop each. `None` only in pure-derivation tests.
+    focus: Option<Focus>,
+    /// The Budget view's own controls (D7's selects). `None` only in
+    /// pure-derivation tests.
+    budget_controls: Option<budget::Controls>,
     /// Kept in step with rows, view, preset and budget by
     /// [`UsagePage::derive`]; `render` only reads it.
     derived: Derived,
-    /// The active view's data (D11 decision: derived off the UI
-    /// thread). `None` while a derivation is in flight — the bands show
-    /// their skeletons.
+    /// The newest landed derivation (D11 decision: derived off the UI
+    /// thread). It stays while a newer one is in flight; each band
+    /// compares its own inputs against `views_key` and shows its
+    /// skeleton while stale (D18).
     views: Option<Arc<ViewData>>,
-    /// The key `views` was (or is being) derived for.
+    /// The key the newest derivation was started for.
     views_key: Option<ViewKey>,
     /// Drops a superseded derivation: the newest control change wins.
     views_gen: u64,
     _views_task: Option<Task<()>>,
 }
 
+/// The page's own Tab stops (D19).
+struct Focus {
+    view: FocusHandle,
+    range: FocusHandle,
+    budget: FocusHandle,
+}
+
 impl UsagePage {
-    pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let mut page = Self::frozen_at(
             // docs/0081 §12.1: pinned under DASHBOARD_FIXED_NOW.
             crate::freshness::clock_epoch_ms(),
             Vec::new(),
         );
         page.read = ReadState::Loading;
-        page.focus = Some((
-            cx.focus_handle().tab_stop(true),
-            cx.focus_handle().tab_stop(true),
-        ));
+        page.focus = Some(Focus {
+            view: cx.focus_handle().tab_stop(true),
+            range: cx.focus_handle().tab_stop(true),
+            budget: cx.focus_handle().tab_stop(true),
+        });
+        page.budget_controls = Some(budget::Controls::new(page.spend, window, cx));
         // One load on first open (D10): the page never opens empty
         // demanding a click.
         page.reload(cx);
@@ -154,7 +174,10 @@ impl UsagePage {
             view: UsageView::Budget,
             preset: DEFAULT_PRESET,
             budget: Budget::Rest,
+            picked_budget: None,
+            spend: SpendGroup::default(),
             focus: None,
+            budget_controls: None,
             derived: Derived::default(),
             views: None,
             views_key: None,
@@ -173,7 +196,7 @@ impl UsagePage {
     fn reload(&mut self, cx: &mut Context<Self>) {
         let from = self.as_of_ms.saturating_sub(READ_SPAN.ms());
         let to = self.as_of_ms;
-        let (view, preset) = (self.view, self.preset);
+        let controls = self.controls();
         let source = usage_records::source(cx);
         self.read_gen += 1;
         let generation = self.read_gen;
@@ -182,7 +205,7 @@ impl UsagePage {
             let landed = cx
                 .background_spawn(async move {
                     let rows = source.records_between(from, to);
-                    derive::land(rows, source.is_degraded(), to, view, preset)
+                    derive::land(rows, source.is_degraded(), to, controls)
                 })
                 .await;
             this.update(cx, |page, cx| {
@@ -212,14 +235,31 @@ impl UsagePage {
         self.derive();
     }
 
+    /// The controls a read derives for.
+    fn controls(&self) -> Controls {
+        Controls {
+            view: self.view,
+            preset: self.preset,
+            picked_budget: self.picked_budget,
+            spend: self.spend,
+        }
+    }
+
     /// The active view's key as the controls stand.
     fn view_key(&self) -> ViewKey {
-        ViewKey::new(self.as_of_ms, self.view, self.preset, self.budget)
+        ViewKey::new(
+            self.as_of_ms,
+            self.view,
+            self.preset,
+            self.budget,
+            self.spend,
+        )
     }
 
     /// Re-derive the active view's data on the background executor if
-    /// its key changed (D11 decision): the bands show skeletons until it
-    /// lands, and a superseded derivation never lands.
+    /// its key changed (D11 decision): the stale bands show skeletons
+    /// until it lands, unchanged bands are carried over, and a
+    /// superseded derivation never lands.
     fn rederive_views(&mut self, cx: &mut Context<Self>) {
         let key = self.view_key();
         if self.read != ReadState::Ready || self.views_key == Some(key) {
@@ -227,12 +267,12 @@ impl UsagePage {
         }
         self.views_gen += 1;
         let generation = self.views_gen;
-        self.views = None;
         self.views_key = Some(key);
         let rows = self.rows.clone();
+        let prev = self.views.clone();
         self._views_task = Some(cx.spawn(async move |this, cx| {
             let views = cx
-                .background_spawn(async move { derive::derive_views(&rows, key) })
+                .background_spawn(async move { derive::derive_views(&rows, key, prev.as_deref()) })
                 .await;
             this.update(cx, |page, cx| {
                 if page.views_gen == generation {
@@ -263,6 +303,35 @@ impl UsagePage {
         self.select(self.view, preset);
         self.rederive_views(cx);
         cx.notify();
+    }
+
+    /// The Budget selector (D7): bands 2–4 and `Current window` follow
+    /// the pick; the cards always show both budgets.
+    fn set_budget(&mut self, budget: Budget, cx: &mut Context<Self>) {
+        self.picked_budget = Some(budget);
+        if self.budget != budget {
+            self.budget = budget;
+            self.derive();
+        }
+        self.rederive_views(cx);
+        cx.notify();
+    }
+
+    /// D7's `Group by` / `Then by`: band 2 alone re-derives.
+    fn set_spend(&mut self, spend: SpendGroup, cx: &mut Context<Self>) {
+        self.spend = spend;
+        self.rederive_views(cx);
+        cx.notify();
+    }
+
+    /// Whether `band`'s newest data matches the controls; `false` shows
+    /// its skeleton (D18).
+    fn band_ready(&self, band: Band) -> bool {
+        let target = self.view_key();
+        self.views
+            .as_ref()
+            .and_then(|v| v.budget.as_ref())
+            .is_some_and(|b| b.ready(band, &target))
     }
 
     /// A control change (D10): pure recomputation over the frozen rows.
@@ -335,11 +404,14 @@ impl Render for UsagePage {
         let header = self.render_header(window, cx);
         let body: AnyElement = if self.read == ReadState::Loading {
             states::loading().into_any_element()
-        } else if self.rows.is_empty() {
-            states::page_empty(self.view, cx).into_any_element()
         } else {
             match self.view {
-                UsageView::Budget => budget::body(cx).into_any_element(),
+                // The Budget view owns its D18 Empty: the no-snapshot
+                // cards stay above the page-level message.
+                UsageView::Budget => self.render_budget(window, cx).into_any_element(),
+                UsageView::Requests if self.rows.is_empty() => {
+                    states::page_empty(self.view, cx).into_any_element()
+                }
                 UsageView::Requests => requests::body(cx).into_any_element(),
             }
         };
@@ -481,8 +553,7 @@ mod tests {
             vec![rec(AS_OF - 10)],
             false,
             AS_OF,
-            p.view,
-            p.preset,
+            p.controls(),
         ));
         assert_eq!(p.derived, p.derive_inputs());
         assert_eq!(
@@ -501,12 +572,14 @@ mod tests {
             ],
             false,
             AS_OF,
-            p.view,
-            p.preset,
+            p.controls(),
         ));
         assert_eq!(p.budget, Budget::Graphql, "20 % left beats 80 %");
         assert!(p.views.is_some());
         assert_eq!(p.views_key, Some(p.view_key()));
+        for band in [Band::Cards, Band::Where, Band::History, Band::Avoidable] {
+            assert!(p.band_ready(band), "{band:?}");
+        }
     }
 
     #[gpui::test]
@@ -522,12 +595,12 @@ mod tests {
             assert!(p.views.is_some(), "the read lands with its views");
             assert_eq!(p.views_key, Some(p.view_key()));
         });
-        // A key change: skeletons (no views) until the background
-        // derivation lands; the newest of two changes wins.
+        // A key change: the stale bands show skeletons until the
+        // background derivation lands; the newest of two changes wins.
         page.update(cx, |p, cx| {
             let gen0 = p.views_gen;
             p.set_preset(Preset::Trailing(Span::D7), cx);
-            assert!(p.views.is_none(), "bands wait on the derivation");
+            assert!(!p.band_ready(Band::Cards), "bands wait on the derivation");
             p.set_view(UsageView::Requests, cx);
             assert_eq!(p.views_gen, gen0 + 2);
         });
@@ -546,6 +619,36 @@ mod tests {
             p.set_preset(Preset::CurrentWindow, cx);
             assert_eq!(p.views_gen, gen1);
             assert!(p.views.is_some());
+        });
+        // Back on Budget at 7d: the bands derive once more, then a
+        // budget pick re-derives bands 2–4 and leaves the cards drawn.
+        page.update(cx, |p, cx| {
+            p.set_view(UsageView::Budget, cx);
+            p.set_preset(Preset::Trailing(Span::D7), cx);
+        });
+        cx.run_until_parked();
+        page.update(cx, |p, cx| {
+            let other = match p.budget {
+                Budget::Rest => Budget::Graphql,
+                Budget::Graphql => Budget::Rest,
+            };
+            p.set_budget(other, cx);
+            assert!(p.band_ready(Band::Cards), "the cards show both budgets");
+            assert!(!p.band_ready(Band::History));
+            assert_eq!(p.picked_budget, Some(other));
+        });
+        cx.run_until_parked();
+        page.update(cx, |p, cx| {
+            assert!(p.band_ready(Band::History));
+            // A refresh keeps the pick (component-local, D1).
+            let picked = p.budget;
+            p.refresh(cx);
+            assert_eq!(p.controls().picked_budget, Some(picked));
+        });
+        cx.run_until_parked();
+        cx.update(|cx| {
+            let p = page.read(cx);
+            assert!(p.band_ready(Band::Where));
         });
     }
 
