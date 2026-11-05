@@ -19,7 +19,7 @@ VIEWER = "fixture-user"
 REPO = "atlas"
 FULL = f"{VIEWER}/{REPO}"
 # The committed bodies carry no rate data (`rateLimit: null`): the
-# default capture keeps the chip at "GH … · GQL ?" and the goldens
+# default capture keeps the chip at "REST — · GraphQL —" and the goldens
 # unchanged. A rate variant (rate/<name>.json, selected with
 # DASHBOARD_GITHUB_FIXTURE_RATE) is stamped onto every response at serve
 # time instead — headers, GraphQL `data.rateLimit` and the /rate_limit

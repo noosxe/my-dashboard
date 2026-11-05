@@ -17,8 +17,9 @@
 //!   `rest/user_orgs.json`).
 //!
 //! - `rate/<variant>.json` — a rate-limit variant (`healthy`, `low`,
-//!   `critical`, `exhausted`, `graphql-exhausted`), selected with `DASHBOARD_GITHUB_FIXTURE_RATE`. Unset,
-//!   no response carries rate data (the chip stays `GH … · GQL ?`).
+//!   `critical`, `exhausted`, `graphql-exhausted`), selected with
+//!   `DASHBOARD_GITHUB_FIXTURE_RATE`. Unset, no response carries rate
+//!   data (the chip stays `REST — · GraphQL —`).
 //!
 //! A missing file answers 404 and logs a warning naming the path, so a
 //! capture that hits an unfixtured lane says so in `logs`.
