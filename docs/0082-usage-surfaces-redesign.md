@@ -250,6 +250,11 @@ Mechanics (#696):
 - **The header is one fixed band** above the view body, capped and
   centred like the content (D20). The honesty line is one `Status`
   node whose label also carries D18's degraded words.
+- **The line never scans rows per frame.** Its count, the oldest
+  record and the selected budget's window are derived once per read
+  and per control change (view, preset, budget) and cached on the page;
+  rendering only reads them. A 90-day read is ~10⁵ rows, and hovers
+  and focus changes re-render.
 
 ## 5 Budget view (the user audience)
 

@@ -61,6 +61,19 @@ enum ReadState {
     Ready,
 }
 
+/// The honesty line's inputs that scan the rows (D3), derived once per
+/// read and per control change — never per frame: with the 90-day read
+/// that is ~10⁵ rows, and hovers and focus changes re-render.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+struct Derived {
+    /// Requests inside the active view's bounds.
+    requests: usize,
+    /// The oldest retained record in the read.
+    oldest_ms: Option<u64>,
+    /// The selected budget's open window at `as_of` (Q5), if any.
+    current_window: Option<surfaces::CurrentWindow>,
+}
+
 /// State discipline (0054 D10): `as_of_ms` moves — and the store is
 /// read — on first open and on refresh only. Every control change is a
 /// pure recomputation over `rows`.
@@ -93,6 +106,9 @@ pub struct UsagePage {
     /// D19: the view switch and the range switch, one Tab stop each.
     /// `None` only in pure-derivation tests.
     focus: Option<(FocusHandle, FocusHandle)>,
+    /// Kept in step with rows, view, preset and budget by
+    /// [`UsagePage::derive`]; `render` only reads it.
+    derived: Derived,
 }
 
 impl UsagePage {
@@ -116,7 +132,7 @@ impl UsagePage {
     /// A page over already-read `rows` at `as_of_ms`, with the page
     /// defaults (Budget, 24h) and no focus handles.
     fn frozen_at(as_of_ms: u64, rows: Vec<UsageRecord>) -> Self {
-        Self {
+        let mut page = Self {
             as_of_ms,
             rows: Arc::new(rows),
             degraded: false,
@@ -127,7 +143,10 @@ impl UsagePage {
             preset: DEFAULT_PRESET,
             budget: Budget::Rest,
             focus: None,
-        }
+            derived: Derived::default(),
+        };
+        page.derive();
+        page
     }
 
     /// The bounded read, half-open on both ends — the upper bound is
@@ -174,6 +193,7 @@ impl UsagePage {
             },
         )
         .default_budget;
+        self.derive();
     }
 
     /// The refresh button's action (0054 D10): the ONLY path that moves
@@ -185,12 +205,44 @@ impl UsagePage {
         self.reload(cx);
     }
 
-    fn set_view(&mut self, view: UsageView, _cx: &mut Context<Self>) {
-        self.view = view;
+    fn set_view(&mut self, view: UsageView, cx: &mut Context<Self>) {
+        self.select(view, self.preset);
+        cx.notify();
     }
 
-    fn set_preset(&mut self, preset: Preset, _cx: &mut Context<Self>) {
+    fn set_preset(&mut self, preset: Preset, cx: &mut Context<Self>) {
+        self.select(self.view, preset);
+        cx.notify();
+    }
+
+    /// A control change (D10): pure recomputation over the frozen rows.
+    fn select(&mut self, view: UsageView, preset: Preset) {
+        self.view = view;
         self.preset = preset;
+        self.derive();
+    }
+
+    /// Refresh the cached honesty inputs from rows, view, preset and
+    /// budget. Every path that changes one of them ends here.
+    fn derive(&mut self) {
+        self.derived = self.derive_inputs();
+    }
+
+    /// The honesty inputs, computed from scratch (the full row scans).
+    fn derive_inputs(&self) -> Derived {
+        let current_window =
+            surfaces::current_window(&self.rows, BUDGET_MODULE, self.budget, self.as_of_ms);
+        let requests = self.bounds().map_or(0, |b| {
+            self.rows
+                .iter()
+                .filter(|r| r.ts_epoch_ms >= b.from_ms && r.ts_epoch_ms < b.to_ms)
+                .count()
+        });
+        Derived {
+            requests,
+            oldest_ms: self.rows.iter().map(|r| r.ts_epoch_ms).min(),
+            current_window,
+        }
     }
 
     /// The preset the active view reads (D11).
@@ -209,30 +261,16 @@ impl UsagePage {
         )
     }
 
-    /// Requests inside the active view's bounds — the honesty line's
-    /// count (pure; no re-read).
-    fn visible_count(&self) -> usize {
-        self.bounds().map_or(0, |b| {
-            self.rows
-                .iter()
-                .filter(|r| r.ts_epoch_ms >= b.from_ms && r.ts_epoch_ms < b.to_ms)
-                .count()
-        })
-    }
-
+    /// The honesty line's state: cached inputs only, no row scan.
     fn honesty(&self) -> Honesty {
-        let budget_window = (self.effective_preset() == Preset::CurrentWindow).then(|| {
-            (
-                self.budget,
-                surfaces::current_window(&self.rows, BUDGET_MODULE, self.budget, self.as_of_ms),
-            )
-        });
+        let budget_window = (self.effective_preset() == Preset::CurrentWindow)
+            .then_some((self.budget, self.derived.current_window));
         Honesty {
             loading: self.read == ReadState::Loading,
             as_of_ms: self.as_of_ms,
-            requests: self.visible_count(),
+            requests: self.derived.requests,
             budget_window,
-            oldest_ms: self.rows.iter().map(|r| r.ts_epoch_ms).min(),
+            oldest_ms: self.derived.oldest_ms,
         }
     }
 
@@ -301,15 +339,15 @@ mod tests {
             ],
         );
         // 24h (default): [as_of − 24h, as_of) — both edges counted once.
-        assert_eq!(p.visible_count(), 2);
-        p.preset = Preset::Trailing(Span::H1);
-        assert_eq!(p.visible_count(), 1);
-        p.preset = Preset::Trailing(Span::D90);
-        assert_eq!(p.visible_count(), 3);
+        assert_eq!(p.derived.requests, 2);
+        p.select(p.view, Preset::Trailing(Span::H1));
+        assert_eq!(p.derived.requests, 1);
+        p.select(p.view, Preset::Trailing(Span::D90));
+        assert_eq!(p.derived.requests, 3);
         // D1: a view switch keeps the range and the freeze.
-        p.view = UsageView::Requests;
+        p.select(UsageView::Requests, p.preset);
         assert_eq!(
-            (p.preset, p.as_of_ms, p.visible_count()),
+            (p.preset, p.as_of_ms, p.derived.requests),
             (Preset::Trailing(Span::D90), AS_OF, 3)
         );
     }
@@ -327,8 +365,9 @@ mod tests {
                 snap(AS_OF - MIN, Transport::Rest, 4_000, rest_reset),
             ],
         );
-        p.preset = Preset::CurrentWindow;
+        p.select(p.view, Preset::CurrentWindow);
         p.budget = Budget::Graphql;
+        p.derive();
         assert_eq!(
             p.bounds(),
             Some(Bounds {
@@ -336,15 +375,16 @@ mod tests {
                 to_ms: AS_OF
             })
         );
-        assert_eq!(p.visible_count(), 2, "the 30-min-old row predates it");
+        assert_eq!(p.derived.requests, 2, "the 30-min-old row predates it");
         assert!(p.honesty().line().contains(" · GraphQL window "));
         p.budget = Budget::Rest;
-        assert_eq!(p.visible_count(), 3, "REST's window is older");
+        p.derive();
+        assert_eq!(p.derived.requests, 3, "REST's window is older");
         assert!(p.honesty().line().contains(" · REST window "));
         // Requests names no window: it reads the trailing hour.
-        p.view = UsageView::Requests;
+        p.select(UsageView::Requests, p.preset);
         assert!(!p.honesty().line().contains("window"));
-        assert_eq!(p.visible_count(), 3);
+        assert_eq!(p.derived.requests, 3);
     }
 
     #[test]
@@ -354,13 +394,44 @@ mod tests {
             AS_OF,
             vec![snap(AS_OF - 30 * MIN, Transport::Rest, 4_000, AS_OF - MIN)],
         );
-        p.preset = Preset::CurrentWindow;
+        p.select(p.view, Preset::CurrentWindow);
         assert_eq!(p.bounds(), None);
-        assert_eq!(p.visible_count(), 0);
+        assert_eq!(p.derived.requests, 0);
         assert!(
             p.honesty()
                 .line()
                 .starts_with("0 requests · no open REST window · as of ")
+        );
+    }
+
+    #[test]
+    fn the_cached_honesty_inputs_track_every_control_change() {
+        let gql_reset = AS_OF + 40 * MIN;
+        let mut p = UsagePage::frozen_at(
+            AS_OF,
+            vec![
+                rec(AS_OF - 2 * Span::D7.ms()),
+                rec(AS_OF - 30 * MIN),
+                snap(AS_OF - MIN, Transport::Graphql, 1_000, gql_reset),
+            ],
+        );
+        assert_eq!(p.derived, p.derive_inputs());
+        for (view, preset) in [
+            (UsageView::Budget, Preset::Trailing(Span::D30)),
+            (UsageView::Budget, Preset::CurrentWindow),
+            (UsageView::Requests, Preset::CurrentWindow),
+            (UsageView::Requests, Preset::Trailing(Span::H1)),
+        ] {
+            p.select(view, preset);
+            assert_eq!(p.derived, p.derive_inputs(), "{view:?} {preset:?}");
+            assert_eq!(p.derived.oldest_ms, Some(AS_OF - 2 * Span::D7.ms()));
+        }
+        // A read lands: the cache follows the new rows.
+        p.apply_read(vec![rec(AS_OF - 10)], false);
+        assert_eq!(p.derived, p.derive_inputs());
+        assert_eq!(
+            (p.derived.requests, p.derived.oldest_ms),
+            (1, Some(AS_OF - 10))
         );
     }
 
@@ -403,7 +474,8 @@ mod tests {
         });
         cx.update(|cx| {
             let p = page.read(cx);
-            assert_eq!((p.rows.len(), p.visible_count()), (1, 1));
+            assert_eq!((p.rows.len(), p.derived.requests), (1, 1));
+            assert_eq!(p.derived, p.derive_inputs(), "the setters re-derive");
             assert_eq!(p.as_of_ms, as_of0);
         });
 
