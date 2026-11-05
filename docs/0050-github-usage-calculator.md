@@ -1,12 +1,13 @@
 # 0050 — GitHub API Usage Calculator
 
 > **Amended by docs/0082** (usage surfaces redesign): the chip uses
-> words instead of `GH`/`GQL`, colours each budget by the shared
-> threshold ladder, and becomes the button that opens the Budget view
-> (0082 D5, D13). Budget warnings, a non-goal here, arrive as one
-> Critical toast per budget per window (0082 D5). The verbatim-numbers
-> rule (D1) and the buckets, probe and exhaustion mapping (D2–D4) are
-> unchanged.
+> words instead of `GH`/`GQL`, marks each budget by the shared
+> threshold ladder, shows on every page, and becomes the button that
+> opens the Budget view (0082 D5, D13). Budget warnings, a non-goal
+> here, arrive as one Critical toast per budget per window (0082 D5).
+> The pause becomes **per budget**: one `rate_limited_until` per
+> bucket (D4 below, 0082 §2.1 Q10). The verbatim-numbers rule (D1) and
+> the buckets and probe (D2–D3) are unchanged.
 
 > **Extended by docs/0053** (usage records): the ledger keeps the live
 > budget and the chip; a per-flight records pipeline now runs beside it
@@ -209,11 +210,20 @@ the two agree by construction because both originate from the same
 responses. The chip never writes fetch-affecting state.
 
 With two separate buckets, an exhausted REST budget technically leaves
-GraphQL points available — but the pause stays **global** here: a
-single `rate_limited_until` halts both lanes. That is the conservative
-choice (the fetching side has no per-transport gate today); splitting
-the pause per transport is deliberately out of scope and stays a
-recorded follow-up decision, not shipped behavior.
+GraphQL points available. As first shipped, the pause was **global**: a
+single `rate_limited_until` halted both lanes, the conservative choice
+while the fetching side had no per-transport gate.
+
+*Per-budget pause (amendment, docs/0082 §2.1 Q10):* the pause becomes
+**per bucket**: one `rate_limited_until` for REST `core` and one for
+GraphQL, each armed by its own bucket's `remaining == 0` and each
+gating only its own transport's fetches. An exhausted GraphQL budget
+no longer stops REST traffic, and the reverse. The display reads each
+bucket's pause next to its snapshot, so they still agree by
+construction, and the chip shows the paused budget only
+(`GraphQL paused · resumes 15:41`, 0082 D13). The docs/0036 backoff
+rules apply per bucket. This ships with the 0082 chip work (0082 §11
+item 5); until then the global pause above is the shipped behavior.
 
 *Capture clock (amendment, docs/0081 §12.1):* every comparison against
 a server reset — the book's display, the chip's countdown and tooltip,
@@ -237,7 +247,8 @@ contribution after the in-flight spinners. The shell passes the active
 iff `Page::Module("github")`, exactly the issue's scoping (Home and
 Settings show nothing). This is the "don't reimplement per page" shape:
 future modules plug in with one closure, and the bar owns ordering and
-lifecycle.
+lifecycle. *Amended by docs/0082 D13:* the GitHub chip renders on every
+page; the per-provider visibility hook itself stays.
 
 **The chip itself** is a small self-refreshing view (`UsageChip`):
 
@@ -251,7 +262,8 @@ lifecycle.
   - normal: `GH 3,712 · GQL 4,950` — **remaining values only**; the
     limits and windows live in the hover tooltip and the spoken label
   - exhausted: `GH rate-limited · resumes 12m` (warning color; the
-    global pause, D4)
+    global pause, D4). *Superseded by docs/0082 D13:* per budget,
+    `GraphQL paused · resumes 15:41`, the other budget staying live.
   - placeholder: `GH … · GQL ?` before the first snapshots; either
     bucket alone still renders, the missing one as an ellipsis (REST) or
     `?` (GraphQL — only real GraphQL traffic can fill it, §2)
