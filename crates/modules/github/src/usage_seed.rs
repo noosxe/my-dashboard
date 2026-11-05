@@ -459,8 +459,10 @@ mod tests {
     /// docs/0082 D11's measurement gate: a 90-day read over the seeded
     /// ledger at heavy-day volume, against one frame (16 ms). Ignored by
     /// default (it writes ~10⁵ rows to a scratch SQLite file); run with
-    /// `cargo test -p dashboard-github --release usage_read_gate --
-    /// --ignored --nocapture`. The result is recorded in docs/0082 D11.
+    /// `CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS=true cargo test -p
+    /// dashboard-module-github --release usage_read_gate -- --ignored
+    /// --nocapture` (the seed is debug-assertions only). The result is
+    /// recorded in docs/0082 D11.
     #[test]
     #[ignore]
     fn usage_read_gate() {
@@ -520,91 +522,74 @@ mod tests {
                 got = store.records_between(from, anchor);
                 read_ms.push(t.elapsed().as_secs_f64() * 1e3);
             }
-            // The page's recompute at 90d: the interim bodies' procedures
-            // (docs/0082 §11 item 2) plus the header's budget cards.
-            let window = ua::WindowSpec::trailing(anchor, 90 * DAY_MS);
-            let filters = ua::Filters::default();
+            // The derivation the views will run at 90d (docs/0082 D11
+            // [P]): every Budget-view procedure for both budgets plus
+            // the Requests view's trend and log, over the one read.
+            use ua::surfaces as sf;
             let mut calc_ms = Vec::new();
             for _ in 0..5 {
                 let t = Instant::now();
-                let _ = ua::overview(&got, &ua::OverviewQuery { window });
-                let _ = ua::quota_ranking(
+                let _ = sf::budget_cards(
                     &got,
-                    &ua::QuotaQuery {
-                        window,
-                        group_by: ua::Dimension::Surface,
-                        then_by: None,
-                        filters: filters.clone(),
-                    },
-                );
-                let _ = ua::latency_ranking(
-                    &got,
-                    &ua::LatencyQuery {
-                        window,
-                        group_by: ua::Dimension::Operation,
-                        then_by: None,
-                        filters: filters.clone(),
-                        metric: ua::LatencyMetric::P90,
-                    },
-                );
-                let _ = ua::latency_trend(
-                    &got,
-                    &ua::TrendQuery {
-                        window,
-                        filters: filters.clone(),
-                    },
-                );
-                let _ = ua::slowest_flights(
-                    &got,
-                    &ua::SlowestQuery {
-                        window,
-                        filters: filters.clone(),
-                        limit: 20,
-                    },
-                );
-                let _ = ua::latency_glance(
-                    &got,
-                    &ua::GlanceQuery {
-                        window,
-                        filters: filters.clone(),
-                    },
-                );
-                let _ = ua::duration_histogram(
-                    &got,
-                    &ua::HistogramQuery {
-                        window,
-                        filters: filters.clone(),
-                    },
-                );
-                let _ = ua::revalidation_comparison(
-                    &got,
-                    &ua::RevalidationQuery {
-                        window,
-                        filters: filters.clone(),
-                    },
-                );
-                let _ = ua::payload_split(
-                    &got,
-                    &ua::PayloadSplitQuery {
-                        window,
-                        filters: filters.clone(),
-                    },
-                );
-                let _ = ua::contention(
-                    &got,
-                    &ua::ContentionQuery {
-                        window,
-                        filters: filters.clone(),
-                    },
-                );
-                let _ = ua::surfaces::budget_cards(
-                    &got,
-                    &ua::surfaces::BudgetCardsQuery {
+                    &sf::BudgetCardsQuery {
                         module: "github".into(),
                         as_of_ms: anchor,
-                        preset: ua::surfaces::Preset::CurrentWindow,
+                        preset: sf::Preset::Trailing(sf::Span::D90),
                         rest_paused_until_ms: None,
                         graphql_paused_until_ms: None,
+                    },
+                );
+                for budget in sf::Budget::all() {
+                    let scope = sf::BudgetScope {
+                        module: "github".into(),
+                        budget,
+                        as_of_ms: anchor,
+                        preset: sf::Preset::Trailing(sf::Span::D90),
+                    };
+                    let _ = sf::where_it_went(
+                        &got,
+                        &sf::WhereQuery {
+                            scope: scope.clone(),
+                            group_by: sf::SpendDimension::Surface,
+                            then_by: None,
+                        },
+                    );
+                    let _ = sf::window_history(
+                        &got,
+                        &sf::HistoryQuery {
+                            scope: scope.clone(),
+                            tz_offset_ms: 0,
+                        },
+                    );
+                    let _ = sf::avoidable(&got, &sf::AvoidableQuery { scope });
+                }
+                let filters = sf::RequestFilters {
+                    transport: None,
+                    module: None,
+                    status_class: None,
+                };
+                let _ = sf::request_trend(
+                    &got,
+                    &sf::RequestTrendQuery {
+                        as_of_ms: anchor,
+                        span: sf::Span::D90,
+                        tz_offset_ms: 0,
+                        filters: filters.clone(),
+                        measure: sf::Measure::P90,
+                        group_by: ua::Dimension::Operation,
+                        then_by: None,
+                    },
+                );
+                let _ = sf::request_log(
+                    &got,
+                    &sf::RequestLogQuery {
+                        as_of_ms: anchor,
+                        span: sf::Span::D90,
+                        filters,
+                        sort: sf::LogSort {
+                            key: sf::LogSortKey::Time,
+                            descending: true,
+                        },
                     },
                 );
                 calc_ms.push(t.elapsed().as_secs_f64() * 1e3);
