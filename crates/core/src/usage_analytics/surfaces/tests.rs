@@ -467,12 +467,13 @@ fn where_it_went_top_eight_plus_other_and_then_by() {
 // --- D8 history -------------------------------------------------------------------
 
 #[test]
-fn per_window_columns_carry_both_sources_and_state() {
+fn per_window_columns_rise_to_the_reported_drop() {
     let r1 = AS_OF - 3 * HOUR_MS;
     let r2 = AS_OF - HOUR_MS;
     let mut costly = rest_snap(r1 - 30 * MIN, 1_000, r1);
     costly.cost = Some(5);
-    // The open window's response carried no ceiling.
+    // The open window's response carried no ceiling, and it is the
+    // costliest by this app's records.
     let mut no_ceiling = rest_snap(AS_OF - 10 * MIN, 4_000, AS_OF + 30 * MIN);
     no_ceiling.limit_after = None;
     no_ceiling.cost = Some(9);
@@ -493,23 +494,28 @@ fn per_window_columns_carry_both_sources_and_state() {
             tz_offset_ms: 0,
         },
     );
-    let HistoryView::Windows { columns, scales } = &h.view else {
+    let HistoryView::Windows { columns, scale } = &h.view else {
         panic!("≤ 7 days draws per-window columns: {:?}", h.view);
     };
     assert_eq!(columns.len(), 3);
     let (a, b, c) = (&columns[0], &columns[1], &columns[2]);
     assert_eq!((a.start_ms, a.reset_ms), (r1 - WINDOW_MS, r1));
-    assert_eq!((a.recorded_cost, a.requests), (6, 2));
-    assert_eq!(a.reported_drop, Some(4_000));
+    // Heights are GitHub's drops; no ceiling is a gap.
+    assert_eq!(
+        columns.iter().map(|c| c.peak_drop).collect::<Vec<_>>(),
+        vec![Some(4_000), Some(100), None]
+    );
     assert_eq!(a.state, Some(ThresholdState::Low), "reached 20 % left");
-    assert_eq!((b.recorded_cost, b.reported_drop), (1, Some(100)));
     assert_eq!(b.state, Some(ThresholdState::Normal));
-    // Both sources' heights; no ceiling is a Reported gap only.
-    use HistorySource::{Recorded, Reported};
-    let heights = |src| columns.iter().map(|c| c.height(src)).collect::<Vec<_>>();
-    assert_eq!(heights(Reported), vec![Some(4_000), Some(100), None]);
-    assert_eq!(heights(Recorded), vec![Some(6), Some(1), Some(9)]);
     assert_eq!(c.state, None, "no ceiling, no fraction, no state");
+    // The recorded figures stay for the tooltip and a11y summary.
+    assert_eq!(
+        columns
+            .iter()
+            .map(|c| (c.cost, c.requests))
+            .collect::<Vec<_>>(),
+        vec![(6, 2), (1, 1), (9, 1)]
+    );
     assert_eq!(
         h.unwindowed,
         SpendTotals {
@@ -518,15 +524,12 @@ fn per_window_columns_carry_both_sources_and_state() {
             unknown: 0
         }
     );
-    // Auto-scale inputs (Q3), per source: the data max and the guides
-    // in spent terms (75 % and 90 % of the limit).
-    assert_eq!(scales.get(Reported).data_max, 4_000);
-    assert_eq!(scales.get(Recorded).data_max, 9);
-    for scale in [&scales.reported, &scales.recorded] {
-        assert_eq!(scale.limit, Some(5_000));
-        assert_eq!(scale.low_guide, Some(3_750.0));
-        assert_eq!(scale.critical_guide, Some(4_500.0));
-    }
+    // Auto-scale inputs (Q3): the tallest drop (not the costliest
+    // recorded window) and the guides in spent terms (75 % and 90 %).
+    assert_eq!(scale.data_max, 4_000);
+    assert_eq!(scale.limit, Some(5_000));
+    assert_eq!(scale.low_guide, Some(3_750.0));
+    assert_eq!(scale.critical_guide, Some(4_500.0));
 }
 
 #[test]
@@ -554,7 +557,7 @@ fn per_day_columns_show_each_days_peak_window() {
             tz_offset_ms: 0,
         },
     );
-    let HistoryView::Days { columns, scales } = &h.view else {
+    let HistoryView::Days { columns, scale } = &h.view else {
         panic!("30 days draws per-day columns: {:?}", h.view);
     };
     // 30 days back from 13:47 touches 31 calendar days; every one is
@@ -566,14 +569,14 @@ fn per_day_columns_show_each_days_peak_window() {
             .all(|w| w[1].day_start_ms == w[0].day_end_ms)
     );
     let d0 = columns.iter().find(|d| d.day_start_ms == day0).unwrap();
-    // Each source picks its own peak window: the reported drop names
-    // the cheap window, the recorded cost the costlier one.
-    use HistorySource::{Recorded, Reported};
-    assert_eq!(d0.height(Reported), Some(3_000));
-    assert_eq!(d0.peak_reset_ms(Reported), Some(day0 + 3 * HOUR_MS));
-    assert_eq!(d0.height(Recorded), Some(12));
-    assert_eq!(d0.peak_reset_ms(Recorded), Some(day0 + 9 * HOUR_MS));
-    assert_eq!((d0.total_cost, d0.windows), (17, 2));
+    // The height is the reported drop (owner decision on #709), and it
+    // names its own window — not the costlier one by recorded spend.
+    assert_eq!(d0.peak_drop, Some(3_000));
+    assert_eq!(d0.peak_window_reset_ms, Some(day0 + 3 * HOUR_MS));
+    assert_eq!(
+        (d0.peak_window_cost, d0.total_cost, d0.windows),
+        (12, 17, 2)
+    );
     assert_eq!(d0.state, Some(ThresholdState::Normal));
     let day = |ix: u64| {
         columns
@@ -581,24 +584,17 @@ fn per_day_columns_show_each_days_peak_window() {
             .find(|d| d.day_start_ms == day0 + ix * DAY_MS)
             .unwrap()
     };
-    assert_eq!(day(1).reported_peak_drop, Some(4_600));
+    assert_eq!(day(1).peak_drop, Some(4_600));
     assert_eq!(day(1).state, Some(ThresholdState::Critical));
     let d2 = day(2);
-    // No ceiling: a Reported gap, while Recorded still draws.
-    assert_eq!(
-        (d2.height(Reported), d2.peak_reset_ms(Reported)),
-        (None, None)
-    );
-    assert_eq!(d2.height(Recorded), Some(7));
+    assert_eq!((d2.peak_drop, d2.peak_window_reset_ms), (None, None));
     assert_eq!((d2.windows, d2.total_cost, d2.state), (1, 7, None));
     let empty = columns.iter().find(|d| d.windows == 0).unwrap();
-    assert_eq!((empty.height(Reported), empty.state), (None, None));
-    assert_eq!(empty.height(Recorded), Some(0));
-    // Each source's data max is its own tallest column.
-    assert_eq!(scales.get(Reported).data_max, 4_600);
-    assert_eq!(scales.get(Recorded).data_max, 12);
-    assert_eq!(scales.reported.limit, Some(5_000));
-    assert_eq!(scales.reported.critical_guide, Some(4_500.0));
+    assert_eq!((empty.peak_drop, empty.state), (None, None));
+    // Auto-scale data max is the tallest drop, not the costliest window.
+    assert_eq!(scale.data_max, 4_600);
+    assert_eq!(scale.limit, Some(5_000));
+    assert_eq!(scale.critical_guide, Some(4_500.0));
 }
 
 #[test]
