@@ -1,10 +1,10 @@
 # 0082 — Usage surfaces redesign: two audiences, intent first
 
-- **Issue:** implementation issues are filed after this doc merges
-  (§11). Review umbrella: #439, whose "visual layer only" rule the
+- **Issue:** implementation #695–#700 (§11). Review umbrella: #439, whose "visual layer only" rule the
   owner lifted on 2026-11-04 for meaningful improvements.
 - **Amends:** docs/0054 §2, D2, D3, D4, D5, D6, D9, D11, D13, D15 and
-  D17; docs/0050 D5 and its non-goals; docs/0053 §1 (the goal
+  D17; docs/0050 D4 (the pause becomes per budget), D5 (the chip shows
+  on every page) and its non-goals; docs/0053 §1 (the goal
   questions get metrics); docs/0057 D8 (read reach); docs/0068 D6
   (status only).
 - **Keeps:** docs/0050 D1–D4 (verbatim server numbers, buckets, the
@@ -17,10 +17,12 @@
   receipts), docs/0074 and 0078 (bundled theme presets), docs/0080
   G3/D7 (poll receipts), docs/0081 §12.1 (GitHub fixtures).
 
-> **Proposed decisions.** Every decision marked **[P]** is a proposal
-> that needs owner review. Each one states its trade-off in a line or
-> two, and the owner corrects them in review. Unmarked decisions are
-> owner decisions already taken (§2) or plain consequences of them.
+> **Decision status.** The owner reviewed the mockups on 2026-11-05
+> (§2.1) and settled the proposals they covered; those decisions are
+> no longer marked. A decision still marked **[P]** was not covered by
+> the mockup review and stays a proposal: it states its trade-off in a
+> line or two, for correction in review. Unmarked decisions are owner
+> decisions (§2, §2.1) or plain consequences of them.
 
 ## 1 Summary
 
@@ -50,8 +52,7 @@ Beyond the split, this doc:
 
 The order is fixed by the owner (§2):
 1. **This doc.**
-2. **Mockups**, captured as receipts in the docs/0071 container over
-   seeded fixtures (§10).
+2. **Mockups**, rendered as static HTML at the owner's request (§10).
 3. **Owner approval.**
 4. **Implementation.**
 
@@ -69,6 +70,38 @@ The order is fixed by the owner (§2):
 5. **The fixture prerequisites are built separately**, in parallel:
    the seeded ledger (#536 mechanism) and rate-limit data in the GitHub
    fixtures. They are prerequisites for §10, not part of this doc.
+
+### 2.1 Mockup review (2026-11-05)
+
+The owner reviewed the HTML mockups (§10) and the 14 questions they
+raised (Q1–Q14; not §3's intent questions Q-a to Q-f). **Owner
+decisions:**
+
+| # | Decision | Where |
+|---|---|---|
+| Q1 | State colour goes on the icon, the bar and chart marks; state words and numbers stay in `foreground` | D5, D13 |
+| Q2 | The budget cards stay side by side down to about 640 px of content | D4, D20 |
+| Q3 | History auto-scales to the data, with an off-scale limit marker when the limit is above the data range | D8 |
+| Q4 | The pace is the drop in `limit − remaining_after` across the current window, not only this app's recorded cost | D6 |
+| Q6 | The default budget selection is the budget with the smaller remaining fraction | D7 |
+| Q8 | Diagnostics sit above the request log; the log comes last and fills the viewport | D10, D20 |
+| Q9 | The chip shows on every page | D13; amends docs/0050 D5 |
+| Q10 | Exhaustion is per budget: one `rate_limited_until` per bucket | D5, D13; amends docs/0050 D4 |
+
+**Adopted per mockup recommendation** (the owner accepted the
+mockups' recommendations wholesale):
+
+| # | Decision | Where |
+|---|---|---|
+| Q5 | `Current window` follows the selected budget's window; the cards always show both budgets | D8, D11 |
+| Q7 | The `cost` measure is offered only when a single quota transport (REST or GraphQL) is selected | D10 |
+| Q11 | Cost tables title the cost column `Cost`, so REST's unit doesn't collide with the request count | D7, D21 |
+| Q12 | The avoidable list is accepted as mostly a REST and long-range tool | D9 |
+| Q13 | The view switch leads the header on the left; range presets and refresh sit on the right | D3 |
+| Q14 | Step lines draw a `chart_1` area fill beneath them | D10a, D14 |
+
+The mockups' own deviations from the first draft of this doc are
+folded into the decisions below and adopted the same way.
 
 ## 3 Intent: what the docs asked these surfaces to answer
 
@@ -168,14 +201,18 @@ resolves the contradiction between 0054 D5 and D11 in D11's favour.
 ### D3 — The shared page header
 
 Fixed above the scrolling view body (0054 D17 stays):
-- the view switch;
-- the **range presets** (D11);
-- the refresh button (0054 D10, unchanged);
+- the view switch, leading the row on the left (Q13): it changes the
+  whole page, so it reads first;
+- the **range presets** (D11) and the refresh button (0054 D10,
+  unchanged), right-aligned on the same row;
 - the **honesty line**, which carries dates (D10):
   `1,087 requests · as of Nov 4, 19:21 · history from Oct 25, 19:22`.
+  Under `Current window` it also names the window, which differs per
+  budget: `45 requests · GraphQL window 14:41–15:41 · as of …`.
 
 Facets that belong to one view live in that view's query bar, not in
-the header.
+the header. At 1024×700 the header row fits on one line (mockups,
+§10).
 
 ## 5 Budget view (the user audience)
 
@@ -184,17 +221,25 @@ from the frozen window (0054 D10) through calculator procedures (D15).
 
 ### D4 — Band 1: twin budget cards (Q-a)
 
-Two cards with identical anatomy, side by side (stacked below the
-D20 breakpoint), one per budget:
+Two cards with identical anatomy, side by side (stacked only below
+the D20 breakpoint, about 640 px of content; Q2), one per budget:
 
 ```
-REST requests                       GraphQL points
-3,712 left of 5,000                 4,950 left of 5,000
-▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░  74%           ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░  99%
+REST requests                       GraphQL points           ⚠ Low
+3,712 left of 5,000                 1,140 left of 5,000
+▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░  74%           ▓▓▓▓░░░░░░░░░░░░░░░░  22%
 Resets 14:00 (in 13 min)            Resets 13:52 (in 5 min)
-≈ runs out ~13:58 at this pace      On track
-as of 13:47 · snapshot 2 min old    as of 13:47 · snapshot 0 min old
+On track                            ≈ runs out ~13:50 at this pace
+as of 13:47 · snapshot 2 min old    as of 13:47 · snapshot 1 min old
+· 153 requests recorded in 24h      · 10,625 points recorded in 24h
 ```
+
+- **The state badge** (Low, Critical, Exhausted) sits at the right of
+  the title: an icon in the D5 token plus the word in `foreground`.
+  Normal shows no badge.
+- **The meta line** ends with the range's recorded spend for that
+  budget ("10,625 points recorded in the last 24h"); this is where the
+  retired Overview "points spent" card lands (§9).
 
 - **Numbers** come from the latest `remaining_after` / `limit_after` /
   `cycle_reset_epoch` with `ts < as_of` for that budget. They are
@@ -203,10 +248,16 @@ as of 13:47 · snapshot 2 min old    as of 13:47 · snapshot 0 min old
 - **The bar** is a `Progress`, coloured by the D5 threshold ladder.
 - **The reset time** is shown as clock time plus a countdown taken
   from `as_of`. It is the fact the page used to lack.
-- **The projection** follows D6 and is marked `≈`.
+- **The projection** follows D6 and is marked `≈`. Below D6's guard
+  the line reads "Not enough responses in this window to project", so
+  the card keeps its shape. An **exhausted** budget replaces the line
+  with "GitHub paused GraphQL requests; they resume at the reset" and
+  shows an empty bar.
+- The snapshot age reads "snapshot under a minute old" below one
+  minute, never "0 min old".
 - The cards don't move when GitHub traffic lands. The chip does (D12).
 
-### D5 — The threshold ladder [P]
+### D5 — The threshold ladder
 
 One ladder, shared by the cards, the chip and history columns:
 
@@ -215,10 +266,20 @@ One ladder, shared by the cards, the chip and history columns:
 | Normal | remaining > 25% | `muted_foreground` (chip) / `primary` (bar) |
 | Low | remaining ≤ 25% | `warning` |
 | Critical | remaining ≤ 10% | `danger` |
-| Exhausted | `rate_limited_until` in the future (0050 D4) | `danger` plus the "resumes" copy |
+| Exhausted | that budget's `rate_limited_until` in the future (0050 D4, per budget since Q10) | `danger` plus the "resumes" copy |
 
-- Each state also carries a word ("Low", "Critical"), so colour is
-  never the only signal (0065 rubric #17).
+- **The token colours marks, never text** (Q1): the state icon, the
+  `Progress` fill, history columns and chart marks. State words and
+  numbers stay in `foreground`. The kit tokens can't carry text: in
+  Default Light `warning` (yellow-500) is about 2:1 on white and
+  `danger` (red-500) about 3.8:1, and the Default Dark
+  `warning_foreground` on `warning` pair fails too, so coloured text
+  would fail the docs/0065 D4 contrast gate.
+- Each state also carries an icon and a word ("Low", "Critical",
+  "Exhausted"), so colour is never the only signal (0065 rubric #17).
+- **Exhaustion is per budget** (Q10): an exhausted GraphQL budget
+  pauses GraphQL requests only; REST keeps fetching and keeps its own
+  state.
 - **[P] The thresholds are fixed in v1, not user-configurable.**
   Trade-off: a power user can't tune them, but there's no settings
   surface to build or test.
@@ -229,18 +290,20 @@ One ladder, shared by the cards, the chip and history columns:
   warnings" non-goal. Trade-off: one more toast source, but a dry
   budget otherwise stays silent until fetches pause.
 
-### D6 — The in-window projection replaces runway [P]
+### D6 — The in-window projection replaces runway
 
 0054 D11's runway is retired: hourly windows make a cross-window pace
 meaningless. Instead, per budget and inside the **current window
 only**:
 
-- `spent` = Σ known cost of records whose `cycle_reset_epoch` equals the
-  current reset.
+- `spent` = `limit_after − remaining_after` of the latest snapshot
+  whose `cycle_reset_epoch` equals the current reset (Q4). This is the
+  window's whole drop as GitHub reports it, so it includes other
+  clients sharing the token, not only this app's recorded cost.
 - `elapsed` = `as_of − (reset − 3600 s)`.
 - `pace = spent / elapsed`.
-- **Shown only when** at least 5 costed requests exist **and** at least
-  5 minutes have elapsed in the window:
+- **Shown only when** at least 5 responses carrying a snapshot exist
+  in the window **and** at least 5 minutes have elapsed in it:
   - "≈ runs out ~HH:MM at this pace" when
     `as_of + remaining / pace < reset`;
   - "On track" otherwise.
@@ -249,17 +312,27 @@ It is still the page's only projection, and it is always marked `≈`.
 The 3600 s window length is GitHub's documented primary window; the
 implementation PR re-verifies it against current GitHub docs.
 
+The drop minus this app's Σ known cost in the same window is the
+**external-consumer** spend. D6 doesn't show it; it is the input of
+the deferred external-consumer estimate (§11, #705).
+
 Trade-off: early in a window it is noisy, hence the guard; a burst
-right after the guard can over-warn. Dropping projection entirely was
-the alternative, but "will I run dry before the reset" is the one
+right after the guard can over-warn. Counting only recorded cost was
+the first draft; it would say "On track" next to a Critical badge
+whenever another client drains the token. Dropping projection entirely
+was the alternative, but "will I run dry before the reset" is the one
 forward-looking question users actually have.
 
 ### D7 — Band 2: where it went (Q-b)
 
 A query bar plus one chart and one table, both fed by one aggregate.
 
-- **Query bar:**
-  - `Budget: REST | GraphQL` (D2);
+- **Budget selector:** `Budget: REST | GraphQL` (D2) sits in a
+  view-level bar between band 1 and band 2, because bands 2, 3 and 4
+  all depend on it. Its default is the budget with the **smaller
+  remaining fraction** (Q6), REST on a tie or with no snapshot. The
+  cards (band 1) always show both budgets.
+- **Band query bar:**
   - `Group by` over Surface, Trigger, Operation, Target or Module;
   - an optional `Then by`.
 
@@ -268,11 +341,14 @@ A query bar plus one chart and one table, both fed by one aggregate.
 - **Chart:** one horizontal `BarChart` showing the top 8 plus "other",
   with value labels and a value axis. A compound key (`Then by`)
   draws only the top-level groups. Nested members live in the table.
-- **Table:** it mirrors the chart. Columns: key · cost · share (with an
-  inline share bar) · requests · avg cost · free (304) · errors ·
-  unknown. The table is sortable (upstream `perform_sort`), sized to
-  its content (D20), and each cell exposes its text (D19). Nested rows
-  label their own dimension.
+- **Table:** it mirrors the chart. Columns: key · `Cost` · share (with
+  an inline share bar) · requests · avg cost · free (304) · errors ·
+  unknown cost. The cost column is titled `Cost`, never the unit: for
+  REST the unit is "requests", which would collide with the request
+  count column (Q11); the band's summary line names the unit. The
+  table is sortable (upstream `perform_sort`), sized to its content
+  (D20), and each cell exposes its text (D19). Nested rows label their
+  own dimension ("operation: notifications") and are all shown.
 - **The donut is removed** (amends 0054 D6). It repeated the bar
   chart's data with less precision.
 - **[P] Drill-down:** activating a table row offers "Show these
@@ -280,28 +356,43 @@ A query bar plus one chart and one table, both fed by one aggregate.
   filter. Trade-off: a cross-view jump, but the request log lives in
   only one place (D9).
 
-### D8 — Band 3: history across windows (Q-c) [P]
+### D8 — Band 3: history across windows (Q-c)
 
 Spend over time, shown **per quota window**, never as a cycle selector
 (0054 D2's reason stands: cycles are per budget and independent).
 
 - **Range = Current window:** a step burn-down of `remaining_after`
-  across the window, with the limit drawn via `reference_line` (now
-  available at the pin; see 0054 D15's note) and the reset marked at
-  the right edge.
+  across the selected budget's current window (Q5), with the limit
+  drawn via `reference_line` (now available at the pin; see 0054
+  D15's note), a dashed `as of` marker and the reset marked at the
+  right edge. The value axis is the whole budget, 0 to the limit.
 - **Range ≤ 7 days:** one column per window of the selected budget.
-  Column height = the window's Σ known cost. A `reference_line` marks
-  the limit. Each column is coloured by the threshold the window
-  reached (D5).
+  Column height = the window's Σ known cost. Each column is coloured
+  by the threshold the window reached (D5).
 - **Range 30 or 90 days:** one column per day, showing that day's
   **peak** window spend (its closest approach to the limit). The
   tooltip and a11y summary add the day's total.
+- **The value axis auto-scales to the data** (Q3). When the data
+  reaches about 90% of the limit, the axis shows the whole budget, and
+  the limit (`reference_line`) and the **Low and Critical guides** (at
+  75% and 90% of the limit spent; for the burn-down, at 25% and 10%
+  remaining) are drawn. Otherwise the axis fits the data, draws only
+  the guides that fall inside it, and shows an **off-scale limit
+  marker** in the right gutter: "↑ limit 5,000 · above scale". REST
+  spend is typically 10–20 requests per window, which a 5,000 scale
+  draws as nothing.
+- The guides give each column's state a position signal as well as a
+  colour (0065 rubric #17). This matters in one-hue presets: in
+  Catppuccin Mocha a Low column is pale yellow next to white `chart_1`
+  columns.
 
 Trade-off: per-day peaks hide the shape inside a day, but 720 hourly
-columns can't be read. Per-window columns aren't stacked by group:
-D14 keeps categories off colour.
+columns can't be read. An auto-scaled axis makes columns from
+different ranges or budgets incomparable by height; the summary line
+and the off-scale marker keep the absolute scale readable. Per-window
+columns aren't stacked by group: D14 keeps categories off colour.
 
-### D9 — Band 4: avoidable spend (Q-d) [P]
+### D9 — Band 4: avoidable spend (Q-d)
 
 This gives 0053's "rarely worth their cost" a metric. For the
 selected budget, rank **operations** by avoidable cost:
@@ -313,12 +404,20 @@ selected budget, rank **operations** by avoidable cost:
 - **Errors:** cost paid on flights that failed (non-2xx/3xx, network
   error).
 
-The band shows a short list (top 5) with cost and share. "Show
-these requests" is the same drill as D7.
+The categories are **exclusive**, checked in this order: errors, then
+revalidation gap, then timer and refocus. One request's cost is never
+counted twice.
+
+The band shows a short list (top 5): op, a category tag, a one-line
+reason, cost and share of the budget's range spend. "Show these
+requests" is the same drill as D7. Its summary line says
+"Heuristics, not proof".
 
 Trade-off: these are heuristics, not proof of waste. "Fetched but
 never viewed" would be the strongest signal, and it needs visit
-records (#334), which are deferred.
+records (#334), which are deferred. GraphQL never returns 304, so for
+GraphQL the list holds only refocus spend and errors and stays short;
+the band is accepted as mostly a REST and long-range tool (Q12).
 
 ## 6 Requests view (the developer audience)
 
@@ -329,23 +428,39 @@ records (#334), which are deferred.
     `Module`, `Status class` (2xx, 304, 4xx, 5xx, network);
   - `Group by` and `Then by` (0054 D4's cap);
   - `Measure`: count, cost, p50, p90, max or error rate. Default p90
-    (0054 D12 keeps its reasoning).
+    (0054 D12 keeps its reasoning). `cost` is offered only when the
+    Transport facet is a single quota transport (REST or GraphQL), so
+    a trend never pools requests and points (D2, Q7); with any other
+    Transport value the option is disabled with a one-line reason.
 - **Bands:**
-  1. **Glance strip:** p50 and p90 per transport, a >1 s count and an
-     error count.
+  1. **Glance strip:** one tile per transport (REST, GraphQL, `auth`,
+     `local`) with p90, p50 and the request count; a transport with no
+     requests in range shows "—". Then a "Slower than 1 s" count (with
+     its share) and an error count (4xx, 5xx and network). Six tiles
+     in one row from about 900 px of content, three per row below.
   2. **One trend chart** of the selected measure over time. Counts and
-     cost are drawn as bars, percentiles as step lines (D10a).
+     cost are drawn as bars, percentiles as step lines (D10a). Buckets
+     are aligned to the clock (whole hours, 6-hour blocks or days).
   3. **Ranking table** mirroring the trend, by group.
-  4. **Request log:** a virtualized, sortable `DataTable` of every
-     flight in the selection. Columns: time · op · target ·
-     surface · trigger · status (with a plain-language reason) · cost ·
-     duration · queue · bytes. The default sort is newest first, and
-     sorting by duration gives the old "slowest flights" view. It
-     replaces the top-20 list (0054 D12.3). It is also where 0080's
-     `service-tick × poll` receipts and 0068's agent rows are found.
-  5. **Diagnostics** (a collapsed disclosure): the duration histogram,
+  4. **Diagnostics** (a collapsed disclosure): the duration histogram,
      the payload × duration grid, contention, and the 304-vs-200
-     comparison (0054 §6, #337/#410), unchanged in content.
+     comparison (0054 §6, #337/#410), unchanged in content. It sits
+     above the log (Q8), so it stays reachable without scrolling
+     through the log.
+  5. **Request log**, always last: a virtualized, sortable `DataTable`
+     of every request in the selection. It fills the scroll viewport
+     (Q8): page scroll brings the log to the top of the viewport, then
+     the log scrolls its own rows, and nothing sits below it (D20).
+     Columns: time · op · target · surface · trigger · status (with a
+     plain-language reason, "304 Not modified", "Network error · timed
+     out") · cost · duration · queue · size. The cost cell spells its
+     unit, because the log mixes transports: "12 points", "1 request",
+     "free (304)", "unknown", "no budget" (`auth`, `local`). Times
+     carry the date for rows outside the `as_of` day. The default sort
+     is newest first, and sorting by duration gives the old "slowest
+     requests" view. It replaces the top-20 list (0054 D12.3). It is
+     also where 0080's `service-tick × poll` receipts and 0068's agent
+     rows are found.
 
 **D10a — Time and axes (both views).**
 - Every time chart draws a **proportional time axis**. It needs an
@@ -357,14 +472,24 @@ records (#334), which are deferred.
 - Labels gain the date for ranges over 1 day.
 - Natural (spline) curves are not used: they overshoot below zero and
   invent peaks between buckets.
+- Step lines draw a `chart_1` area fill beneath them (Q14). In Default
+  Light `chart_1` (#93c5fd) is about 1.9:1 on white, too faint as a
+  bare line; the area keeps the series legible without a second
+  token (D14).
+- A single-sample series is a marked point with its value label and a
+  drop line (D18).
 
 ## 7 Cross-cutting decisions
 
-### D11 — Range presets and reach [P]
+### D11 — Range presets and reach
 
 - **Presets:** `Current window` (Budget view only), `1h`, `24h`, `7d`,
   `30d`, `90d`. Default: `24h`. This amends 0054 D2. Custom start/end
   stays a follow-up.
+- **`Current window` follows the selected budget** (Q5): the REST and
+  GraphQL windows reset at different times, so bands 2–4 use the
+  window of the budget picked in D7's selector, and the honesty line
+  names it (D3). The cards always show both budgets' current windows.
 - **The read bound grows to 90 days** to match 0057 D7's retention
   (amends 0054 D13).
 - **[P] The read stays on the UI thread** (0057 D8, an owner-accepted
@@ -386,38 +511,56 @@ screen consistent with every other one. A live hero was the
 alternative; it would be the page's only live element and would break
 the freeze receipt's guarantee.
 
-### D13 — The chip [P]
+### D13 — The chip
 
 The chip keeps its verbatim numbers and spoken label (0050 D5). It
-changes in four ways:
+changes in these ways:
 
 - **Words, not abbreviations:** `REST 3,712 · GraphQL 4,950`. The
   tooltip gives the limits and resets.
-- **The D5 ladder colours each budget's number** independently, with
-  the state word in the spoken label.
+- **The D5 ladder marks each budget independently** (Q1): a budget in
+  Low or Critical shows the state icon in the D5 token, then its name,
+  number and state word in `foreground` and semibold:
+  `REST 3,712 · ⚠ GraphQL 1,140 Low`. Normal budgets stay in
+  `muted_foreground` with no icon. The state word is visible, not only
+  spoken, so colour is never the only signal (0065 rubric #17); the
+  spoken label carries it too.
+- **Exhaustion is per budget** (Q10; amends 0050 D4): the paused
+  budget reads `GraphQL paused · resumes 15:41` with the pause icon in
+  `danger`, while the other budget keeps its live number. The spoken
+  label names which budget is paused and when it resumes. This
+  replaces the single global `GH rate-limited · resumes 12m` copy.
+- **The chip shows on every page** (Q9; amends 0050 D5's "render iff
+  `Page::Module("github")`"). Budget health matters wherever the app
+  spends it: the home cards and background polls spend it off the
+  GitHub pages too.
 - **The chip itself becomes the button** that opens the Budget view.
-  The separate pie icon is removed. It keeps `.id("github-usage")`, its
-  role becomes a button, and its tooltip and aria label are unchanged
-  in content.
+  The separate pie icon is removed. It keeps `.id("github-usage")`,
+  its role becomes a button, and its tooltip keeps its content.
 - The placeholders `…` / `?` become `REST —` / `GraphQL —`, with a
   tooltip explaining "no response yet".
 
-Trade-off: the chip is about 30 px wider. The status bar's right
-region has room at the app's minimum width; the mockup phase verifies
-this at 1024 px.
+Trade-off: the chip is wider (about 30 px in normal state, more with a
+state word or pause copy). The mockups verified that the status bar's
+right region holds every state at 1024 px (§10).
 
-### D14 — Colour never encodes category [P]
+### D14 — Colour never encodes category
 
 The bundled presets (0078) give `chart_1…chart_5` as tints of one hue,
 so category colours can't be relied on. Rules:
-- at most one data series per chart, in `chart_1`;
+- at most one data series per chart, in `chart_1`; step lines add a
+  `chart_1` area fill beneath them (D10a, Q14);
 - categories are encoded by position and label, never by hue (bars
   plus a mirroring table; no donut, no stacked colours);
 - the two budgets are distinguished by panel and label;
-- state colours come only from the semantic tokens (D5).
+- state colours come only from the semantic tokens (D5), on marks and
+  icons only, and are paired with a position signal where a chart
+  shows states (D8's guides).
 
 Trade-off: no multi-series overlays. In exchange, no app-owned palette
-bytes (0078) and every preset stays legible.
+bytes (0078) and every preset stays legible. In Catppuccin Mocha
+`chart_1` resolves to white (`blue.lighten(0.4)` clamps), which the
+mockups checked.
 
 ### D15 — One calculator, new procedures [P]
 
@@ -456,13 +599,22 @@ Every band has the three states (0065 rubric #18, [DG]):
 
 - **Empty:** a band-specific `Empty` with one sentence and the next
   step ("No GitHub responses in this range. Widen the range or open a
-  GitHub page.").
+  GitHub page."). When the store holds **no records at all** (a fresh
+  install), the Budget view shows the no-snapshot cards (D4) and one
+  page-level `Empty` in place of bands 2–4, without the Budget
+  selector: "No GitHub responses yet. Open a GitHub page; spend,
+  history and avoidable cost appear after the first response." Three
+  identical band empties would be noise, and "widen the range" is
+  wrong advice when no history exists. The Requests view words its
+  empty the same way.
 - **Loading:** only if D11's gate moves the read off-thread; skeletons
   per band.
 - **Degraded store:** when `is_degraded()` (0057 D6, 0063 F4), the
   honesty line adds "History paused: storage unavailable, showing this
-  session only", in `warning` with a word.
-- **Single-sample series:** draw as points, never as an empty frame.
+  session only": a storage icon in `warning`, the words in
+  `foreground` (D5).
+- **Single-sample series:** draw as points, never as an empty frame
+  (D10a).
 
 ### D19 — Keyboard and accessibility
 
@@ -481,13 +633,19 @@ Every band has the three states (0065 rubric #18, [DG]):
 
 - **Content width is capped** (about 1200 px) and centred, so wide
   windows don't stretch the charts.
-- **Two columns from about 1100 px**, one below. The budget cards stack
-  first.
+- **Two columns down to about 640 px of content width** (Q2), one
+  below; the breakpoint is measured on the content area, not the
+  window. At the app's minimum size (1024×700, about 720 px of
+  content) the budget cards stay side by side; stacking them there
+  filled the whole first viewport in the mockups.
 - **No nested scroll:** the D7 and D10 tables size to their content up
-  to a cap, and the request log is the one virtualized table. Today's
+  to a cap. The request log is the one virtualized table, and it is
+  the last band, filling the scroll viewport (D10, Q8): page scroll
+  hands over to the log's own rows, with nothing below it. Today's
   fixed 300 px tables inside a scrolling page go away.
-- At the minimum window width, the header fits on one line, or wraps
-  as one deliberate second row; the mockups verify this at 1024×700.
+- At the minimum window width, the header fits on one line (verified
+  at 1024×700 in the mockups); if a future control makes it wrap, it
+  wraps as one deliberate second row.
 
 ### D21 — Vocabulary
 
@@ -497,6 +655,12 @@ Every band has the three states (0065 rubric #18, [DG]):
 - One casing everywhere (`REST`, `GraphQL`, `auth`, `local` as facet
   labels).
 - No `Σ`, and no abbreviations outside the chip's tooltip.
+- Cost columns are titled `Cost` (D7, Q11); the unit lives in the
+  summary line and, in the mixed-transport request log, in each cell.
+- Fixed wording: "snapshot under a minute old" (never "0 min old"),
+  "Slower than 1 s", and the band titles "Where it went", "Spend per
+  window" (≤ 7 days), "Peak window per day" (30 and 90 days), "This
+  window" (Current window) and "Avoidable spend".
 
 ### D22 — Anchors [P]
 
@@ -527,6 +691,9 @@ gallery remains the widget-level one.
 | 12 | "Rarely worth their cost" has no metric | D9 |
 | 13 | No doc names the pages' user | D1, owner decision |
 | 14 | 0054 D9 "reads off-main" vs 0057 D8 "UI-thread reads, owner-accepted" | 0057 D8 rules until the D11 measurement gate. The 0054 D9 bullet is annotated |
+| 15 | 0050 D4's global pause vs two independent budgets (0050 §2) | Q10: one `rate_limited_until` per bucket; 0050 D4 amended |
+| 16 | D20 "no nested scroll" vs a virtualized log above Diagnostics (first draft of D10) | Q8: Diagnostics above, the log last and viewport-filling |
+| 17 | D5/D13 colouring state text vs the kit's `warning`/`danger` contrast | Q1: the tokens colour marks and icons only |
 
 ## 9 Where today's content goes
 
@@ -556,16 +723,28 @@ gallery remains the widget-level one.
   without it). It needs a normal, a Low, a Critical and an exhausted
   variant, so the cards and the chip can be captured in every D5 state.
 
-**Mockups** (step 2 of the process):
-- captured in the docs/0071 container over the fixtures and seed:
-  screenshot plus tree;
+**Mockups** (step 2 of the process, done 2026-11-05):
+- **rendered as static HTML at the owner's request**, because the
+  redesigned views don't exist in code yet. Every colour is mapped
+  from the app's theme tokens, the data is a port of the seed
+  generator over fixture identities, and each frame was rendered to
+  PNG at its exact window size with headless Chromium. They replace
+  the container captures this section first planned;
 - both views, at 1280×800 and 1024×700;
-- in Default Light, Default Dark and one kit preset;
-- every D5 state of the cards and the chip;
+- in Default Light, Default Dark and Catppuccin Mocha (its `chart_*`
+  slots are one hue, the stress case for D14);
+- every D5 state of the cards and the chip, and the chip on a
+  non-usage page (D13);
 - the D18 states.
 
-They name the anchor (D22) and are reviewed against docs/0065
-Appendix A. Mockups are throwaway branches or images, not merged code.
+They named Linear as the anchor (D22) and were critiqued against
+docs/0065 Appendix A (Claude models judging with their own vision,
+AGENTS.md). Two review rounds settled the decisions in §2.1. The
+mockups are throwaway artefacts, not merged code, and are not in the
+repository.
+
+The **docs/0071 container stays the source of every implementation
+receipt**: the HTML mockups don't replace any receipt below.
 
 **Implementation receipts** (step 4, per AGENTS.md):
 - `audit`;
@@ -587,7 +766,8 @@ The split is proposed and refined when the issues are filed:
 3. **Budget view:** D4–D9 bands, including the app-owned time-axis
    chart (D10a).
 4. **Requests view:** D10, including the virtualized request log.
-5. **Chip:** D13 and the D5 ladder, plus the D5 Critical toast.
+5. **Chip:** D13 and the D5 ladder, plus the D5 Critical toast, the
+   chip on every page, and the per-budget pause (0050 D4 amended).
 6. **Receipts:** goldens, the freeze script rewrite, and the
    `cell_label` and Select-label a11y (it may ride with 3 and 4).
 
@@ -598,13 +778,15 @@ implementation merges (AGENTS.md):
 - user-configurable thresholds (D5);
 - visit-based waste (#334);
 - an external-consumer estimate (other clients draining the shared
-  budget, derivable from `remaining_after` deltas);
+  budget: D6's window drop minus this app's recorded cost; #705);
 - CSV export.
 
 ## 12 Non-goals
 
 - **Changes to collection, the record schema or storage** (docs/0053,
   0057, 0063). The redesign reads existing fields only.
+  The per-budget pause (D5, Q10) changes the fetch gate, not what is
+  recorded.
 - **Live updating of the page** (D12; 0054 D10 stays).
 - **Secondary rate limits.** GitHub exposes no queryable state for
   them.
