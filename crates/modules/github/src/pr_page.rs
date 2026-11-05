@@ -2160,18 +2160,23 @@ impl PrDetailPage {
         // (docs/0052 D3 — the transport classes only priced the deleted
         // cadences).
         let origin = Origin::new(Surface::PrPage, Trigger::Refocus);
+        // Each lane obeys its own budget's pause (docs/0082 Q10).
+        let open = {
+            let state = self.state.clone();
+            move |kind: Kind, cx: &Context<Self>| !state.read(cx).gated_for(kind.lane())
+        };
         let detail_stale = self
             .state
             .read(cx)
             .pr_entry(&self.repo, self.number)
             .is_none_or(|e| crate::service::DetailClock(Some(e)).wants_refresh(min_age));
-        if detail_stale {
+        if detail_stale && open(Kind::PrDetail, cx) {
             self.fetch_detail(origin, cx);
         }
-        if self.files.wants_refresh(min_age) {
+        if self.files.wants_refresh(min_age) && open(Kind::PrFiles, cx) {
             self.fetch_files(origin, cx);
         }
-        if self.threads.wants_refresh(min_age) {
+        if self.threads.wants_refresh(min_age) && open(Kind::PrThreads, cx) {
             self.fetch_threads(origin, cx);
         }
         // A skipped refocus still re-renders so the relative age

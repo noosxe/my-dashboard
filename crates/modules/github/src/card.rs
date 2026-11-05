@@ -135,7 +135,9 @@ impl GithubCard {
     fn fire_card_totals(&mut self, origin: Origin, cx: &mut Context<Self>) {
         let (spec, gated) = {
             let s = self.state.read(cx);
-            (s.card_totals_spec(origin), s.gated())
+            let spec = s.card_totals_spec(origin);
+            let gated = s.gated_for(spec.kind.lane());
+            (spec, gated)
         };
         if gated {
             return;

@@ -45,6 +45,12 @@ RATE_VARIANTS = {
         "graphql": {"limit": 5000, "remaining": 0, "reset_in_secs": 2220},
         "graphql_cost": 1,
     },
+    # docs/0082 Q10: one budget paused, the other live (REST healthy).
+    "graphql-exhausted": {
+        "rest": {"limit": 5000, "remaining": 4812, "reset_in_secs": 2460},
+        "graphql": {"limit": 5000, "remaining": 0, "reset_in_secs": 2220},
+        "graphql_cost": 1,
+    },
 }
 TOTAL = 120
 PAGE = 50

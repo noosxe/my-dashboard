@@ -11,7 +11,8 @@ use std::sync::Arc;
 use gpui::prelude::*;
 use gpui::{AnyElement, App};
 
-use super::{band_frame, format, ladder};
+use super::{band_frame, format};
+use crate::usage_analytics::ladder;
 use crate::usage_analytics::page::chart::{
     self,
     burn::BurnChart,

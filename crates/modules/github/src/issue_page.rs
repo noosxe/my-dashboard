@@ -384,6 +384,7 @@ impl IssueDetailPage {
             .read(cx)
             .issue_entry(&self.repo, self.number)
             .is_none_or(|e| crate::service::IssueDetailClock(Some(e)).wants_refresh(min_age))
+            && !self.state.read(cx).gated_for(Kind::IssueDetail.lane())
         {
             self.fetch_detail(Origin::new(Surface::IssuePage, Trigger::Refocus), cx);
         }

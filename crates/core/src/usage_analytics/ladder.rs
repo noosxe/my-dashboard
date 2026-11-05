@@ -2,6 +2,10 @@
 //! token colours marks only (the state icon, the `Progress` fill and
 //! chart marks); its word stays in `foreground`, and an icon goes with
 //! every non-normal state, so colour is never the only signal.
+//!
+//! Shared by the Budget view's cards and history and by the GitHub
+//! module's status-bar chip (D13), so the words, icons and tokens can't
+//! drift apart.
 
 use gpui::{App, Hsla};
 use gpui_component::{ActiveTheme, IconName};
@@ -10,7 +14,7 @@ use crate::usage_analytics::surfaces::ThresholdState;
 
 /// The state's word, shown beside its icon; `None` for Normal, which
 /// shows no badge (D4).
-pub(super) fn word(state: ThresholdState) -> Option<&'static str> {
+pub fn word(state: ThresholdState) -> Option<&'static str> {
     match state {
         ThresholdState::Normal => None,
         ThresholdState::Low => Some("Low"),
@@ -21,7 +25,7 @@ pub(super) fn word(state: ThresholdState) -> Option<&'static str> {
 
 /// The state's icon, from gpui-component's default bundle (Lucide): an
 /// `IconName`, so a glyph the bundle lacks can't silently draw nothing.
-pub(super) fn icon(state: ThresholdState) -> IconName {
+pub fn icon(state: ThresholdState) -> IconName {
     match state {
         ThresholdState::Normal | ThresholdState::Low => IconName::TriangleAlert,
         ThresholdState::Critical => IconName::CircleAlert,
@@ -30,8 +34,9 @@ pub(super) fn icon(state: ThresholdState) -> IconName {
 }
 
 /// The mark colour (D5): `primary` for a normal bar, `warning` for
-/// Low, `danger` for Critical and Exhausted.
-pub(super) fn bar_color(state: Option<ThresholdState>, cx: &App) -> Hsla {
+/// Low, `danger` for Critical and Exhausted. A non-normal state's icon
+/// takes the same token.
+pub fn bar_color(state: Option<ThresholdState>, cx: &App) -> Hsla {
     let theme = cx.theme();
     match state {
         None | Some(ThresholdState::Normal) => theme.primary,
@@ -42,7 +47,7 @@ pub(super) fn bar_color(state: Option<ThresholdState>, cx: &App) -> Hsla {
 
 /// A chart mark's colour (D5, D14): `chart_1` for normal columns, the
 /// state tokens otherwise.
-pub(super) fn mark_color(state: Option<ThresholdState>, cx: &App) -> Hsla {
+pub fn mark_color(state: Option<ThresholdState>, cx: &App) -> Hsla {
     match state {
         None | Some(ThresholdState::Normal) => cx.theme().chart_1,
         other => bar_color(other, cx),

@@ -210,7 +210,7 @@ socket never bound, CLI surfaces `DISABLED` with the config path).
 
 | Op | Params | Reads | Notes |
 |---|---|---|---|
-| `app_status` | — | `auth`, `connected()`, `user`, `snapshot_age`, `rate_limited_until`, `access_expires_at`, ledger `high_water` | the "am I looking at live data?" op; no network |
+| `app_status` | — | `auth`, `connected()`, `user`, `snapshot_age`, `rate_limited_until` (per budget since docs/0082 Q10: `{"rest": <epoch\|null>, "graphql": <epoch\|null>}`), `access_expires_at`, ledger `high_water` | the "am I looking at live data?" op; no network |
 | `list_repos` | `org?` | `repos` inventory (metadata) + `snapshot_age` | caps apply (0029 §2); `truncation.total_known` carries the cursor-catch-up caveat |
 | `notifications_unread` | `repo?` | global (or repo-derived) unread list | honest name: the state holds **unread** only |
 | `repo_prs` / `repo_issues` | `repo`, `state?` | session record if landed | else structured `not_held` + hint to use phase-2 `refresh` |

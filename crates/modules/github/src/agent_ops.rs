@@ -745,6 +745,11 @@ mod tests {
         assert_eq!(result["auth"], json!("connected"));
         assert!(result["usage_high_water"].is_u64());
         assert_eq!(result["truncation"]["total_known"], json!(1));
+        // One pause per budget (docs/0082 Q10).
+        assert_eq!(
+            result["rate_limited_until"],
+            json!({"rest": null, "graphql": null})
+        );
     }
 
     #[gpui::test]

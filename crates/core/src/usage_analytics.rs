@@ -15,6 +15,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::usage_records::UsageRecord;
 
+/// The D5 threshold ladder as drawn, shared with the status-bar chip.
+pub mod ladder;
+/// What a budget-owning module hands the page live (0082 D13, Q10).
+pub mod live;
 /// The usage page (0082 D1–D3, D18–D20).
 pub mod page;
 /// The redesigned surfaces' procedures (docs/0082 D15).

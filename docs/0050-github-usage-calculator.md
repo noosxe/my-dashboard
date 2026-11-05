@@ -7,7 +7,8 @@
 > here, arrive as one Critical toast per budget per window (0082 D5).
 > The pause becomes **per budget**: one `rate_limited_until` per
 > bucket (D4 below, 0082 §2.1 Q10). The verbatim-numbers rule (D1) and
-> the buckets and probe (D2–D3) are unchanged.
+> the buckets and probe (D2–D3) are unchanged. All of this shipped with
+> #699.
 
 > **Extended by docs/0053** (usage records): the ledger keeps the live
 > budget and the chip; a per-flight records pipeline now runs beside it
@@ -222,8 +223,29 @@ no longer stops REST traffic, and the reverse. The display reads each
 bucket's pause next to its snapshot, so they still agree by
 construction, and the chip shows the paused budget only
 (`GraphQL paused · resumes 15:41`, 0082 D13). The docs/0036 backoff
-rules apply per bucket. This ships with the 0082 chip work (0082 §11
-item 5); until then the global pause above is the shipped behavior.
+rules apply per bucket. Shipped with #699 (0082 §11 item 5):
+
+- `GithubState::rate_limited_until` is a `RateLimitPause { rest,
+  graphql }` (`crates/modules/github/src/rate_pause.rs`). Every fetch
+  kind maps to the one transport its runner uses (`Kind::lane`, an
+  exhaustive match), so a header reporting `remaining == 0` arms the
+  lane of the response's kind, and a GraphQL body's `rateLimit` arms
+  GraphQL. Each lane clears at its own reset, on the tick.
+- The gate has three forms: `auth_gated` (disconnected, mid connect,
+  token rejected, refresh pending), `gated_for(lane)` (auth or that
+  lane's pause) and `fully_gated` (every lane gated). Every site that
+  obeyed the global gate now checks the lane of what it fires; the
+  refocus trigger, which fans out across lanes, stops only when fully
+  gated, and each lane it refreshes checks its own.
+- The tick's bootstrap is the GraphQL inventory: a GraphQL pause
+  defers it, and its notifications ride along only while REST is live
+  (the notifications lane's own triggers fetch them otherwise). The
+  free probe is REST and waits for the REST pause only.
+- The agent `app_status` op reports `rate_limited_until` as
+  `{"rest": <epoch|null>, "graphql": <epoch|null>}` (docs/0068).
+- Unchanged: the gate covers the same sites as before. Fetches that
+  never checked the global gate (detail-page opens, mutations) still
+  don't.
 
 *Capture clock (amendment, docs/0081 §12.1):* every comparison against
 a server reset — the book's display, the chip's countdown and tooltip,
@@ -247,8 +269,13 @@ contribution after the in-flight spinners. The shell passes the active
 iff `Page::Module("github")`, exactly the issue's scoping (Home and
 Settings show nothing). This is the "don't reimplement per page" shape:
 future modules plug in with one closure, and the bar owns ordering and
-lifecycle. *Amended by docs/0082 D13:* the GitHub chip renders on every
-page; the per-provider visibility hook itself stays.
+lifecycle. *Amended by docs/0082 D13 (shipped, #699):* the GitHub chip
+renders on every page; the per-provider visibility hook itself stays.
+The chip now lives in `crates/modules/github/src/usage_chip.rs`, and
+the copy below is superseded by 0082 D13's: words instead of
+abbreviations, the D5 ladder per budget, `REST —` / `GraphQL —`
+placeholders, and the chip itself as the button (role Button) that
+opens the Budget view.
 
 **The chip itself** is a small self-refreshing view (`UsageChip`):
 
@@ -311,6 +338,8 @@ Single implementation issue (cohesive, one seam):
 
 - Usage history/graphs and budget warnings (possible follow-ups; the
   ledger already carries the raw session counters they would need).
+  *Lifted by docs/0082:* the usage page carries the history (0082 §5),
+  and the D5 Critical toast is the budget warning (shipped, #699).
 - Other providers' rate limits.
 - Secondary-bucket chips (auth/device-flow budgets stay count-only +
   tooltip; they surface operationally through existing logs/backoff).
@@ -329,9 +358,11 @@ Single implementation issue (cohesive, one seam):
   other's snapshot, and no local prediction is folded in; a stale REST
   window self-heals via the free probe.
 - The chip appears only on GitHub module pages, updates live (including
-  background auto-refresh), and is labeled per docs/0049 D1.
+  background auto-refresh), and is labeled per docs/0049 D1. *Amended
+  by docs/0082 D13:* it appears on every page.
 - Exhaustion display derives from `rate_limited_until` — one operational
-  source of truth, unchanged backoff behavior.
+  source of truth, unchanged backoff behavior. *Amended by docs/0082
+  Q10:* one per bucket, each gating only its own transport.
 - Account switch resets the ledger; same-account token rotation doesn't.
 
 ## Human checks (owner)

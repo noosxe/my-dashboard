@@ -335,6 +335,18 @@ One ladder, shared by the cards, the chip and history columns:
   docs/0062 per-source mute covers). This lifts 0050's "budget
   warnings" non-goal. Trade-off: one more toast source, but a dry
   budget otherwise stays silent until fetches pause.
+  - *As shipped (#699):* the chip's 1 Hz beat watches both budgets, so
+    the toast fires on whichever page is open. The hub's dedupe key
+    refreshes a visible toast rather than dropping a repeat (0058 D4),
+    so the chip remembers which window each budget raised for and
+    raises once per window. A budget that skips Critical (a pause, or
+    0 left) raises once too, worded as used up; the pause arming later
+    in a raised window raises nothing more. A stale window (rolled past
+    its reset with no newer response) raises nothing. Copy: title
+    `GitHub GraphQL budget critical`, message `188 of 5,000 points
+    left; the budget resets at 12:23.`; used up: `GitHub GraphQL
+    budget used up`, `GraphQL requests pause until the budget resets
+    at 12:37.`
 
 ### D6 — The in-window projection replaces runway
 
@@ -693,6 +705,33 @@ changes in these ways:
 - The placeholders `…` / `?` become `REST —` / `GraphQL —`, with a
   tooltip explaining "no response yet".
 
+*As shipped (#699):*
+- The chip is a ghost `Button` (`github-usage`, role Button). Its
+  accessible name is the spoken form: `GitHub API: REST: 3,712 of
+  5,000 requests remaining, resets in 13 minutes; GraphQL: 1,140 of
+  5,000 points remaining, Low, resets in 9 minutes; session: …`; a
+  paused budget speaks `GraphQL: paused, resumes at 15:41 in 37
+  minutes`, a missing one `REST: no response yet`. A click (or Enter
+  on the focused button) opens the usage page on the Budget view, and
+  switches an already-open page back from Requests, keeping its freeze
+  and range (D1).
+- The tooltip has one line per budget (`REST 3,712/5,000 resets in
+  13m`, `GraphQL paused · resumes 15:41 (in 37m)`, `GraphQL — no
+  response yet`, or `· as of 14:03` for a stale window), then `Opens
+  the Budget view`.
+- The words, icons and tokens come from the shared ladder
+  (`usage_analytics/ladder.rs`), so the chip and the cards can't drift.
+  A stale window (rolled past its reset, no newer response) draws no
+  state: its number says nothing about the refilled budget.
+- The budget cards read the same per-budget pause: the page reads it
+  with its freeze (`usage_analytics/live.rs`), so a paused budget's
+  card is Exhausted while the other card keeps its own state.
+- Code: `crates/modules/github/src/usage_chip.rs` (the view and its
+  1 Hz beat), `usage_chip/model.rs` (the pure chip model, segments,
+  label and tooltip), `usage_chip/critical.rs` (the toast's
+  once-per-window rule), and `rate_pause.rs` (the per-budget gate,
+  0050 D4).
+
 Trade-off: the chip is wider (about 30 px in normal state, more with a
 state word or pause copy). The mockups verified that the status bar's
 right region holds every state at 1024 px (§10).
@@ -833,6 +872,8 @@ and tests next to the code they cover. Under `crates/core/src/`:
 |---|---|
 | `usage_analytics.rs` | Shared vocabulary: `Dimension`, `is_error`, `percentile_of`, and the agent's `Range` (0068 §6) |
 | `usage_analytics/surfaces.rs` | The procedures above (pure; stays where it is, so #697 and #698 build on an unmoved API) |
+| `usage_analytics/ladder.rs` | D5 as drawn: state words, icons and mark colours, shared by the Budget view and the GitHub chip (#699) |
+| `usage_analytics/live.rs` | What a budget-owning module hands the page live (#699): its per-budget pause reader (Q10) and the chip's "open the Budget view" request (D13) |
 | `usage_analytics/page.rs` | `UsagePage`: state, the read lifecycle (D11), render composition |
 | `usage_analytics/page/header.rs` | The D3 header: view switch, range switch, Refresh, honesty row; the D19 segmented wrapper |
 | `usage_analytics/page/range.rs` | D11 presets, Requests' `Current window` rule, bounds resolution through `BudgetScope` |
@@ -844,7 +885,6 @@ and tests next to the code they cover. Under `crates/core/src/`:
 | `usage_analytics/page/band_frame.rs`, `format.rs` | Both views: a band's frame (title, summary, empty, skeleton) and shared number, duration, size, time and range wording |
 | `usage_analytics/page/budget.rs` | The Budget view (#697): band order, the budget selector, the skeletons |
 | `usage_analytics/page/budget/cards.rs` | D4/D6: the twin cards and their copy |
-| `usage_analytics/page/budget/ladder.rs` | D5: state words, icons and mark colours |
 | `usage_analytics/page/budget/spend.rs`, `spend_table.rs` | D7: the query bar, summary, chart rows and the sortable table |
 | `usage_analytics/page/budget/history.rs` | D8: titles, the auto-scaled axis and guides, summaries and tooltips |
 | `usage_analytics/page/budget/avoidable.rs` | D9: the top-5 list |

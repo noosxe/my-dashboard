@@ -369,7 +369,9 @@ impl NotificationDetailPage {
     /// docs/0052 D3: the refocus trigger lands here.
     pub(crate) fn refresh_if_stale(&mut self, min_age: Duration, cx: &mut Context<Self>) {
         // One composed gate (docs/0037 D4) — see pr_page::refresh_if_stale.
-        if self.thread.wants_refresh(min_age) {
+        if self.thread.wants_refresh(min_age)
+            && !self.state.read(cx).gated_for(Kind::ThreadDetail.lane())
+        {
             self.fetch_thread(Origin::new(Surface::NotificationPage, Trigger::Refocus), cx);
         }
         // A skipped refocus still re-renders so the relative age
