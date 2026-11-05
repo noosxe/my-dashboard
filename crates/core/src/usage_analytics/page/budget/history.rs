@@ -108,13 +108,10 @@ fn drop_words(
     }
 }
 
-/// "3,900 points over 412 requests (2 with no reported cost)".
+/// "3,900 points over 412 requests (2 with no reported cost)"; for
+/// REST "12 requests counted against the limit, of 14 sent".
 fn recorded_words(cost: u64, requests: u64, unknown: u64, b: Budget) -> String {
-    let mut s = format!(
-        "{} over {}",
-        format::amount(cost, b),
-        format::requests(requests)
-    );
+    let mut s = format::cost_of_sent(cost, requests, b, false);
     if unknown > 0 {
         s.push_str(&format!(" ({unknown} with no reported cost)"));
     }

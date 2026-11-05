@@ -223,11 +223,13 @@ impl UsagePage {
 
     /// Land a finished read: the rows, the degraded flag, the budget
     /// `Current window` follows and the views derived for `landed.key`.
+    /// A pick made while the read was in flight wins over the read's
+    /// budget (D7); the caller's `rederive_views` then derives for it.
     fn apply_read(&mut self, landed: Landed) {
         self.rows = Arc::new(landed.rows);
         self.degraded = landed.degraded;
         self.read = ReadState::Ready;
-        self.budget = landed.budget;
+        self.budget = self.picked_budget.unwrap_or(landed.budget);
         // Supersedes any derivation still running for the old rows.
         self.views_gen += 1;
         self.views = Some(Arc::new(landed.views));
@@ -580,6 +582,30 @@ mod tests {
         for band in [Band::Cards, Band::Where, Band::History, Band::Avoidable] {
             assert!(p.band_ready(band), "{band:?}");
         }
+    }
+
+    #[test]
+    fn a_read_that_started_before_a_pick_never_overwrites_it() {
+        let mut p = UsagePage::frozen_at(AS_OF, Vec::new());
+        // The read starts with nothing picked, so it lands the default.
+        let landed = derive::land(
+            vec![
+                snap(AS_OF - MIN, Transport::Graphql, 1_000, AS_OF + 40 * MIN),
+                snap(AS_OF - MIN, Transport::Rest, 4_000, AS_OF + 10 * MIN),
+            ],
+            false,
+            AS_OF,
+            p.controls(),
+        );
+        assert_eq!(landed.budget, Budget::Graphql);
+        p.picked_budget = Some(Budget::Rest);
+        p.apply_read(landed);
+        assert_eq!(p.budget, Budget::Rest, "the pick wins");
+        assert_ne!(
+            p.views_key,
+            Some(p.view_key()),
+            "the landed views are for the old budget, so the caller re-derives"
+        );
     }
 
     #[gpui::test]
