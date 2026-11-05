@@ -35,7 +35,14 @@ RATE_VARIANTS = {
         "graphql": {"limit": 5000, "remaining": 4655, "reset_in_secs": 1380},
         "graphql_cost": 1,
     },
+    # docs/0082 D5 ladder: Low is <= 25 % left (20.8 % / 19.2 %).
     "low": {
+        "rest": {"limit": 5000, "remaining": 1040, "reset_in_secs": 2460},
+        "graphql": {"limit": 5000, "remaining": 960, "reset_in_secs": 1380},
+        "graphql_cost": 1,
+    },
+    # Critical is <= 10 % left (6.2 % / 3.8 %).
+    "critical": {
         "rest": {"limit": 5000, "remaining": 312, "reset_in_secs": 2460},
         "graphql": {"limit": 5000, "remaining": 188, "reset_in_secs": 1380},
         "graphql_cost": 1,

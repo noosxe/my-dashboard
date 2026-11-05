@@ -784,7 +784,7 @@ adds a debug-build-only fixture mode:
   `REST — · GraphQL —` and the existing goldens don't move. Rate data comes
   from an opt-in variant (below).
 - **Rate-limit variants** *(amendment, #536 prerequisites)*.
-  `DASHBOARD_GITHUB_FIXTURE_RATE=healthy|low|exhausted|graphql-exhausted`
+  `DASHBOARD_GITHUB_FIXTURE_RATE=healthy|low|critical|exhausted|graphql-exhausted`
   selects
   `rate/<variant>.json`: one static snapshot per bucket (`limit`,
   `remaining`, `reset_in_secs`, plus the GraphQL `graphql_cost`). The
@@ -795,10 +795,13 @@ adds a debug-build-only fixture mode:
   body (`resources.core` from the variant, the measured full phantom for
   `resources.graphql`, docs/0050 §2) without a committed file. The
   numbers never decrement, because request order isn't deterministic
-  and a static snapshot is. `healthy` is 4,812 / 4,655 of 5,000, `low`
-  is 312 / 188, `exhausted` is 0 / 0, and `graphql-exhausted` (#699)
-  is 4,812 / 0, so only the GraphQL budget pauses (docs/0082 Q10). In `exhausted`, both buckets
-  reset together, so the pause countdown doesn't depend on which
+  and a static snapshot is. One variant per docs/0082 D5 state:
+  `healthy` is 4,812 / 4,655 of 5,000 (Normal), `low` is 1,040 / 960
+  (Low, about 20 %), `critical` is 312 / 188 (Critical, #701 renamed it
+  from the old `low`, which never reached Low), `exhausted` is 0 / 0,
+  and `graphql-exhausted` (#699) is 4,812 / 0, so only the GraphQL
+  budget pauses (docs/0082 Q10). In `exhausted`, both buckets reset
+  together, so the pause countdown doesn't depend on which
   response lands first. Bodies still serve with status 200, so the
   surfaces behind the paused chip stay populated. Unset, nothing
   changes. An unknown variant logs `github fixture: rate variant …
@@ -816,7 +819,7 @@ adds a debug-build-only fixture mode:
   - the usage page's frozen `as_of` (docs/0054 D10);
   - the usage store's 90-day retention prune (docs/0057 D7).
 
-  So `low` reads `REST 312 Critical · GraphQL 188 Critical` with "resets in 41m" / "23m" on
+  So `critical` reads `REST 312 Critical · GraphQL 188 Critical` with "resets in 41m" / "23m" on
   any calendar day. In `exhausted`, the pause never expires inside a
   pinned session, because the frozen clock never reaches the reset.
   The probe fires at most once per pinned session (its cooldown never

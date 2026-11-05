@@ -14,10 +14,10 @@
 #     --size 1280x800 --binary /tmp/target/debug/my-dashboard
 # Run (in-container): dashboard-debug run crates/debug/verify/usage-chip-paused.txt
 #
-# The other D5 states (a Low variant at about 20 %, Critical, the
-# both-exhausted run) and their goldens belong to #701; the cards'
-# remaining counts come from the seed, not the rate variant, until
-# #716 lands, so this receipt asserts the pause, not the counts.
+# The other D5 states (`low`, `critical`, the both-exhausted run) are
+# receipted on the chip by the docs/0071 recipe; the cards' remaining
+# counts come from the seed, not the rate variant, until #716 lands,
+# so this receipt asserts the pause, not the counts.
 
 --session paused
 

@@ -17,7 +17,7 @@
 //!   `rest/user_orgs.json`).
 //!
 //! - `rate/<variant>.json` — a rate-limit variant (`healthy`, `low`,
-//!   `exhausted`), selected with `DASHBOARD_GITHUB_FIXTURE_RATE`. Unset,
+//!   `critical`, `exhausted`, `graphql-exhausted`), selected with `DASHBOARD_GITHUB_FIXTURE_RATE`. Unset,
 //!   no response carries rate data (the chip stays `GH … · GQL ?`).
 //!
 //! A missing file answers 404 and logs a warning naming the path, so a
@@ -45,8 +45,8 @@ use crate::usage::budget_now;
 /// The fixture directory variable.
 pub(crate) const FIXTURE_ENV: &str = "DASHBOARD_GITHUB_FIXTURE";
 
-/// The rate-limit variant variable (`healthy` | `low` | `exhausted`, or
-/// any `<dir>/rate/<name>.json`).
+/// The rate-limit variant variable (`healthy` | `low` | `critical` |
+/// `exhausted` | `graphql-exhausted`, or any `<dir>/rate/<name>.json`).
 pub(crate) const RATE_ENV: &str = "DASHBOARD_GITHUB_FIXTURE_RATE";
 
 /// One bucket of a rate variant file.
@@ -387,7 +387,7 @@ mod tests {
         dir
     }
 
-    const LOW: RateVariant = RateVariant {
+    const CRITICAL: RateVariant = RateVariant {
         rest: RateBucket {
             limit: 5000,
             remaining: 312,
@@ -410,7 +410,7 @@ mod tests {
         )
         .unwrap();
         std::fs::write(dir.join("rest/user.json"), r#"{"login":"fixture-user"}"#).unwrap();
-        let http = FixtureHttp::with_rate(dir.clone(), Some(LOW));
+        let http = FixtureHttp::with_rate(dir.clone(), Some(CRITICAL));
         let now = budget_now();
 
         let gql = http
@@ -470,21 +470,37 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
-    /// The committed variants parse, and `exhausted` resets both
-    /// buckets together, so the pause's countdown doesn't depend on
-    /// which bucket answered first.
+    /// The committed variants parse and sit on the docs/0082 D5 ladder
+    /// they're named for (Low ≤ 25 %, Critical ≤ 10 %), and `exhausted`
+    /// resets both buckets together, so the pause's countdown doesn't
+    /// depend on which bucket answered first.
     #[test]
     fn committed_variants_parse() {
+        use dashboard_core::usage_analytics::surfaces::ThresholdState;
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../debug/verify/fixtures/github/rate");
         let load = |name: &str| -> RateVariant {
             let text = std::fs::read_to_string(dir.join(format!("{name}.json"))).unwrap();
             serde_json::from_str(&text).unwrap()
         };
-        let (healthy, low, exhausted) = (load("healthy"), load("low"), load("exhausted"));
-        assert!(healthy.rest.remaining > 4000 && healthy.graphql.remaining > 4000);
-        assert!(low.rest.remaining < 500 && low.graphql.remaining < 500);
-        assert!(low.rest.remaining > 0 && low.graphql.remaining > 0);
+        let (healthy, low, critical, exhausted, gql_exhausted) = (
+            load("healthy"),
+            load("low"),
+            load("critical"),
+            load("exhausted"),
+            load("graphql-exhausted"),
+        );
+        // Each variant lands on the state it's named for, per bucket.
+        let states = |v: &RateVariant| {
+            [v.rest, v.graphql].map(|b| ThresholdState::of(b.remaining, Some(b.limit)).unwrap())
+        };
+        assert_eq!(states(&healthy), [ThresholdState::Normal; 2]);
+        assert_eq!(states(&low), [ThresholdState::Low; 2]);
+        assert_eq!(states(&critical), [ThresholdState::Critical; 2]);
+        assert_eq!(
+            states(&gql_exhausted),
+            [ThresholdState::Normal, ThresholdState::Exhausted]
+        );
         assert_eq!(
             (exhausted.rest.remaining, exhausted.graphql.remaining),
             (0, 0)
