@@ -139,12 +139,9 @@ pub(super) fn summary(w: &WhereItWent, preset: Preset, group_by: SpendDimension)
     if w.totals.requests == 0 {
         return None;
     }
-    let name = super::budget_name(w.budget);
     let mut s = format!(
-        "This app's recorded spend: {} {name} {} over {} {}",
-        format::count(w.totals.known_cost),
-        format::unit(w.totals.known_cost, w.budget),
-        format::requests(w.totals.requests),
+        "This app's recorded spend: {} {}",
+        format::cost_of_sent(w.totals.known_cost, w.totals.requests, w.budget, true),
         format::range_phrase(preset)
     );
     if let Some(top) = w.groups.first().filter(|g| g.cost > 0) {
@@ -345,6 +342,25 @@ mod tests {
             with_unknown.as_deref(),
             Some(
                 "This app's recorded spend: 10,625 GraphQL points over 1,318 requests in this window. 3 requests had no reported cost."
+            )
+        );
+    }
+
+    #[test]
+    fn a_rest_summary_tells_counted_requests_from_sent_ones() {
+        let mut w = where_(vec![group("pr-page", 71)], 2);
+        w.budget = Budget::Rest;
+        w.totals.known_cost = 159;
+        w.totals.requests = 347;
+        assert_eq!(
+            summary(
+                &w,
+                Preset::Trailing(crate::usage_analytics::surfaces::Span::H24),
+                SpendDimension::Surface
+            )
+            .as_deref(),
+            Some(
+                "This app's recorded spend: 159 REST requests counted against the limit, of 347 sent in the last 24 hours; top surface pr-page with 71 (71%). 2 requests had no reported cost."
             )
         );
     }

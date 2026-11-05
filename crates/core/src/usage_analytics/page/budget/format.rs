@@ -30,6 +30,30 @@ pub(in crate::usage_analytics::page) fn unit(n: u64, budget: Budget) -> &'static
     }
 }
 
+/// A cost against the requests that carried it (D21). GraphQL's two
+/// numbers have different units: "4,227 points over 719 requests".
+/// REST's are both requests, so the words say which is which: "159
+/// requests counted against the limit, of 347 sent" (the sent total
+/// includes the 304s that cost nothing). `named` puts the budget's
+/// name before the unit ("159 REST requests …").
+pub(in crate::usage_analytics::page) fn cost_of_sent(
+    cost: u64,
+    sent: u64,
+    budget: Budget,
+    named: bool,
+) -> String {
+    let name = match (named, budget) {
+        (false, _) => "",
+        (true, Budget::Rest) => "REST ",
+        (true, Budget::Graphql) => "GraphQL ",
+    };
+    let spent = format!("{} {name}{}", count(cost), unit(cost, budget));
+    match budget {
+        Budget::Rest => format!("{spent} counted against the limit, of {} sent", count(sent)),
+        Budget::Graphql => format!("{spent} over {}", requests(sent)),
+    }
+}
+
 /// `1 request` / `1,318 requests`: request counts, whatever the budget.
 pub(in crate::usage_analytics::page) fn requests(n: u64) -> String {
     format!("{} request{}", count(n), if n == 1 { "" } else { "s" })
@@ -161,6 +185,26 @@ pub(in crate::usage_analytics::page) use honesty::format_clock as clock;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_cost_of_sent_never_reads_requests_over_requests() {
+        assert_eq!(
+            cost_of_sent(159, 347, Budget::Rest, true),
+            "159 REST requests counted against the limit, of 347 sent"
+        );
+        assert_eq!(
+            cost_of_sent(1, 1, Budget::Rest, false),
+            "1 request counted against the limit, of 1 sent"
+        );
+        assert_eq!(
+            cost_of_sent(4_227, 719, Budget::Graphql, true),
+            "4,227 GraphQL points over 719 requests"
+        );
+        assert_eq!(
+            cost_of_sent(1, 1, Budget::Graphql, false),
+            "1 point over 1 request"
+        );
+    }
 
     #[test]
     fn amounts_name_the_budget_unit_and_agree_in_number() {
