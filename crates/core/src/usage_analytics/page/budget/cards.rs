@@ -31,9 +31,11 @@ pub(super) struct CardCopy {
     pub reset: Option<(String, String)>,
     /// The projection (D6) or the line that keeps the card's shape.
     pub status: String,
-    /// "as of 13:47 · snapshot 2 min old · 153 requests recorded in the
-    /// last 24 hours".
+    /// "as of 13:47 · snapshot 2 min old".
     pub meta: String,
+    /// "153 requests recorded in the last 24 hours": the meta line's
+    /// second row (D4's sketch), this app's own figure.
+    pub recorded: String,
 }
 
 impl CardCopy {
@@ -54,7 +56,8 @@ impl CardCopy {
                 bar: None,
                 reset: None,
                 status: "No response from GitHub in this range yet".into(),
-                meta: format!("{as_of} · {recorded}"),
+                meta: as_of,
+                recorded,
             };
         };
         let headline = (
@@ -101,10 +104,8 @@ impl CardCopy {
             bar,
             reset,
             status,
-            meta: format!(
-                "{as_of} · {} · {recorded}",
-                format::snapshot_age(snap.snapshot_age_ms)
-            ),
+            meta: format!("{as_of} · {}", format::snapshot_age(snap.snapshot_age_ms)),
+            recorded,
         }
     }
 
@@ -125,6 +126,7 @@ impl CardCopy {
         }
         bits.push(self.status.clone());
         bits.push(self.meta.clone());
+        bits.push(self.recorded.clone());
         bits.join(". ")
     }
 }
@@ -179,8 +181,7 @@ fn budget_card(c: &BudgetCard, copy: CardCopy, cx: &App) -> impl IntoElement {
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(theme.foreground)
                             .child(
-                                Icon::empty()
-                                    .path(ladder::icon_path(state))
+                                Icon::new(ladder::icon(state))
                                     .small()
                                     .text_color(ladder::bar_color(Some(state), cx)),
                             )
@@ -236,7 +237,8 @@ fn budget_card(c: &BudgetCard, copy: CardCopy, cx: &App) -> impl IntoElement {
                 .mt_auto()
                 .text_xs()
                 .text_color(theme.muted_foreground)
-                .child(copy.meta),
+                .child(div().child(copy.meta))
+                .child(div().child(copy.recorded)),
         )
 }
 
@@ -293,12 +295,8 @@ mod tests {
         assert_eq!(c.bar, Some((22.8, "22%".into())));
         assert_eq!(c.reset.as_ref().map(|r| r.1.as_str()), Some("(in 5 min)"));
         assert!(c.status.starts_with("≈ runs out ~"), "{}", c.status);
-        assert!(
-            c.meta
-                .ends_with(" · snapshot 1 min old · 10,625 points recorded in the last 24 hours"),
-            "{}",
-            c.meta
-        );
+        assert!(c.meta.ends_with(" · snapshot 1 min old"), "{}", c.meta);
+        assert_eq!(c.recorded, "10,625 points recorded in the last 24 hours");
     }
 
     #[test]
@@ -349,7 +347,7 @@ mod tests {
         assert_eq!(c.headline, None);
         assert_eq!(c.bar, None);
         assert_eq!(c.status, "No response from GitHub in this range yet");
-        assert!(c.meta.ends_with("10,625 points recorded in this window"));
+        assert_eq!(c.recorded, "10,625 points recorded in this window");
     }
 
     #[test]

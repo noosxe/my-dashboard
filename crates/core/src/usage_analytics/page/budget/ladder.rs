@@ -4,7 +4,7 @@
 //! every non-normal state, so colour is never the only signal.
 
 use gpui::{App, Hsla};
-use gpui_component::ActiveTheme;
+use gpui_component::{ActiveTheme, IconName};
 
 use crate::usage_analytics::surfaces::ThresholdState;
 
@@ -19,12 +19,13 @@ pub(super) fn word(state: ThresholdState) -> Option<&'static str> {
     }
 }
 
-/// The state's icon (Lucide, bundled with gpui-component).
-pub(super) fn icon_path(state: ThresholdState) -> &'static str {
+/// The state's icon, from gpui-component's default bundle (Lucide): an
+/// `IconName`, so a glyph the bundle lacks can't silently draw nothing.
+pub(super) fn icon(state: ThresholdState) -> IconName {
     match state {
-        ThresholdState::Normal | ThresholdState::Low => "icons/triangle-alert.svg",
-        ThresholdState::Critical => "icons/octagon-alert.svg",
-        ThresholdState::Exhausted => "icons/circle-pause.svg",
+        ThresholdState::Normal | ThresholdState::Low => IconName::TriangleAlert,
+        ThresholdState::Critical => IconName::CircleAlert,
+        ThresholdState::Exhausted => IconName::Pause,
     }
 }
 
@@ -58,9 +59,5 @@ mod tests {
         assert_eq!(word(ThresholdState::Low), Some("Low"));
         assert_eq!(word(ThresholdState::Critical), Some("Critical"));
         assert_eq!(word(ThresholdState::Exhausted), Some("Exhausted"));
-        assert_ne!(
-            icon_path(ThresholdState::Critical),
-            icon_path(ThresholdState::Exhausted)
-        );
     }
 }

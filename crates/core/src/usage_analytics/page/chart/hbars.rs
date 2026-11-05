@@ -20,6 +20,9 @@ pub(in crate::usage_analytics::page) const ROW_H: f32 = 26.0;
 const KEY_W: f32 = 150.0; // the key labels, left
 const VALUE_PAD: f32 = 64.0; // room for the value label past the longest bar
 const BAR_H: f32 = 12.0;
+/// The key labels read at the body's small size, larger than the axis
+/// ticks: they name the categories (D14: position and label).
+const KEY_TEXT: f32 = 12.0;
 
 /// The chart's height for `rows` bars.
 pub(in crate::usage_analytics::page) fn height(rows: usize) -> f32 {
@@ -66,7 +69,7 @@ impl Plot for HBarChart {
             .map(|(i, (k, _))| {
                 let key = truncate_text_to_width(
                     &SharedString::from(k.clone()),
-                    px(TEXT_SIZE),
+                    px(KEY_TEXT),
                     KEY_W - 12.0,
                     window,
                 );
@@ -74,10 +77,11 @@ impl Plot for HBarChart {
                     key,
                     point(
                         px(KEY_W - 12.0),
-                        px(i as f32 * ROW_H + (ROW_H - TEXT_SIZE) / 2.0),
+                        px(i as f32 * ROW_H + (ROW_H - KEY_TEXT) / 2.0),
                     ),
                     foreground,
                 )
+                .font_size(px(KEY_TEXT))
                 .align(TextAlign::Right)
             })
             .collect();
