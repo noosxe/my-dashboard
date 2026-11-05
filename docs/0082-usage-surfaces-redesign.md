@@ -87,7 +87,7 @@ decisions:**
 | Q8 | Diagnostics sit above the request log; the log comes last and fills the viewport | D10, D20 |
 | Q9 | The chip shows on every page | D13; amends docs/0050 D5 |
 | Q10 | Exhaustion is per budget: one `rate_limited_until` per bucket | D5, D13; amends docs/0050 D4 |
-| #709 | History source toggle, default Reported, not persisted: show both data sources rather than declaring one "real" (calculator review, 2026-11-05) | D8, D15a |
+| #709 | Budget history shows GitHub's reported drop; this app's recorded spend over time is the Requests view's cost trend (calculator review, 2026-11-05) | D1, D8, D10, D15a |
 
 **Adopted per mockup recommendation** (the owner accepted the
 mockups' recommendations wholesale):
@@ -175,6 +175,9 @@ segmented control at the head of the page:
 | **Budget** | the owner as a user | Q-a, Q-b, Q-c, Q-d | yes |
 | **Requests** | the owner as the dashboard's developer | Q-e, Q-f | no |
 
+- **Budget = GitHub's reporting; Requests = this app's records** (§2.1,
+  #709). Budget's attribution bands (D7, D9) are recorded by necessity,
+  because GitHub doesn't attribute spend, and they say so.
 - The view choice is component-local, like 0054 D3's tab state. It
   keeps the frozen `as_of` and the range.
 - The chip (D13) belongs to the Budget audience and navigates to the
@@ -347,7 +350,9 @@ A query bar plus one chart and one table, both fed by one aggregate.
   an inline share bar) · requests · avg cost · free (304) · errors ·
   unknown cost. The cost column is titled `Cost`, never the unit: for
   REST the unit is "requests", which would collide with the request
-  count column (Q11); the band's summary line names the unit. The
+  count column (Q11); the band's summary line names the unit and says
+  the figures are this app's recorded spend, so they're never
+  mistaken for GitHub's totals (D1). The
   table is sortable (upstream `perform_sort`), sized to its content
   (D20), and each cell exposes its text (D19). Nested rows label their
   own dimension ("operation: notifications") and are all shown.
@@ -368,33 +373,20 @@ Spend over time, shown **per quota window**, never as a cycle selector
   drawn via `reference_line` (now available at the pin; see 0054
   D15's note), a dashed `as of` marker and the reset marked at the
   right edge. The value axis is the whole budget, 0 to the limit.
-- **Source toggle** (owner decision, §2.1): the history band's query
-  bar carries `Source: Reported by GitHub | Recorded by this app`,
-  defaulting to Reported. The choice is component-local and isn't
-  persisted, like D1's view switch. The two sources differ whenever
-  other clients share the token, so both are shown and neither is
-  declared "real". The band's summary line names the active source.
-  - **Reported** heights are GitHub's drop, `limit − min remaining`,
-    which includes other clients.
-  - **Recorded** heights are this app's Σ known cost.
-  - A window or day without a ceiling has no Reported value, so the
-    view leaves a gap there; Recorded still draws.
-  - **State colouring** comes from the reported minimum in both
-    sources: the D5 ladder is GitHub's numbers.
-  - The toggle applies to the columns only. The `Current window`
-    burn-down is `remaining_after`, which is already GitHub's report.
-- Every other band has one source: the cards and D6 are GitHub's
-  report, and where-it-went (D7) and avoidable (D9) are this app's
-  records.
+- **Heights are GitHub's reported drop** (§2.1, #709): `limit − min
+  remaining`, other clients included, because the Budget view answers
+  "what did GitHub count" (D1). This app's recorded spend over time
+  lives in the Requests view's cost trend (D10). The recorded figures
+  stay in each column's tooltip and a11y summary. A window or day
+  with no reported ceiling has no height, so the view leaves a gap
+  there.
 - **Range ≤ 7 days:** one column per window of the selected budget.
-  Reported height = the window's drop; Recorded height = its Σ known
-  cost. Each column is coloured by the threshold the window reached
-  (D5).
+  Column height = the window's drop. Each column is coloured by the
+  threshold the window reached (D5), from the same reported minimum.
 - **Range 30 or 90 days:** one column per day, showing that day's
-  **peak window**: the largest drop (Reported) or the largest
-  per-window Σ known cost (Recorded), each its own closest approach to
-  the limit. The tooltip and a11y summary add the day's recorded
-  total.
+  **peak window drop**, its closest approach to the limit. The
+  tooltip and a11y summary add the day's recorded total and recorded
+  peak.
 - **The value axis auto-scales to the data** (Q3). When the data
   reaches about 90% of the limit, the axis shows the whole budget, and
   the limit (`reference_line`) and the **Low and Critical guides** (at
@@ -434,7 +426,8 @@ counted twice.
 The band shows a short list (top 5): op, a category tag, a one-line
 reason, cost and share of the budget's range spend. "Show these
 requests" is the same drill as D7. Its summary line says
-"Heuristics, not proof".
+"Heuristics, not proof" and, like D7's, that the figures are this
+app's recorded spend.
 
 Trade-off: these are heuristics, not proof of waste. "Fetched but
 never viewed" would be the strongest signal, and it needs visit
@@ -455,6 +448,9 @@ the band is accepted as mostly a REST and long-range tool (Q12).
     Transport facet is a single quota transport (REST or GraphQL), so
     a trend never pools requests and points (D2, Q7); with any other
     Transport value the option is disabled with a one-line reason.
+    This cost trend is where **this app's recorded spend over time**
+    lives, "how much this app spent" (§2.1, #709); the Budget view's
+    history shows GitHub's reported drop instead (D8).
 - **Bands:**
   1. **Glance strip:** one tile per transport (REST, GraphQL, `auth`,
      `local`) with p90, p50 and the request count; a transport with no
@@ -650,24 +646,18 @@ The implementation settles these mechanical points:
 - **Where it went.** The output keeps every group. Groups beyond the
   top 8 also fold into one `other` row.
 - **History.**
-  - **Both sources are first-class** (D8's toggle).
-    - Every column carries both values, and `height(HistorySource)`
-      reads the active one. `None` means a gap, never a 0-height bar.
-    - The view gets `SourceScales { reported, recorded }`, a
-      `ScaleInputs` per source, each with its own `data_max`.
-    - The query takes no source, so flipping the toggle is a pure
-      re-render, and a CLI/MCP consumer sees both.
-  - A per-window column carries `recorded_cost` (Σ known cost) and
-    `reported_drop` (`limit − min remaining`, `None` without a
-    ceiling). The state it reached is the D5 ladder over that minimum,
-    in both sources, and reaching 0 counts as Exhausted.
-  - A day column carries `reported_peak_drop` and `recorded_peak_cost`,
-    each the largest among the day's windows. `reported_peak_reset_ms`
-    and `recorded_peak_reset_ms` name each peak's window (earliest on
-    a tie; `peak_reset_ms(source)` reads the active one). It also
-    carries the day's `total_cost` for the tooltip and a11y summary.
-    A day with no ceiling has no Reported height, and an empty day's
-    Recorded height is 0.
+  - Every column's height is a reported drop. `None` means no ceiling,
+    and the view leaves a gap there, never a 0-height bar.
+    `ScaleInputs.data_max` is the tallest drop for both column kinds.
+  - A per-window column's height is `peak_drop` (`limit − min
+    remaining`). It also carries the window's recorded `cost`
+    (Σ known cost), `requests` and `unknown` for the tooltip and a11y
+    summary. The state it reached is the D5 ladder over that minimum,
+    and reaching 0 counts as Exhausted.
+  - A day column's height is `peak_drop`, the largest drop among its
+    windows, and `peak_window_reset_ms` names that window (earliest on
+    a tie). It also carries the recorded peak (`peak_window_cost`) and
+    total (`total_cost`) for the tooltip and a11y summary.
   - A window belongs to the local day it starts on. The caller passes
     the UTC offset, because the calculator reads no clock. Every day
     of a 30- or 90-day range is present, empty days included.
