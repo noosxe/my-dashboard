@@ -57,6 +57,8 @@ const MEASURES: [Measure; 6] = [
 
 /// Q7's reason, on the disabled `Cost` option.
 pub(super) const COST_REASON: &str = "Pick REST or GraphQL: requests and points never pool";
+/// The same reason, short enough for the option's one line.
+const COST_HINT: &str = "· REST or GraphQL only";
 
 /// One picker option: its value, its label and, when it can't be picked,
 /// why.
@@ -89,14 +91,20 @@ impl<V: Clone + PartialEq + 'static> SelectItem for Choice<V> {
     }
 
     fn render(&self, _: &mut Window, cx: &mut App) -> impl IntoElement {
-        v_flex()
+        // One line: the list lays its rows out at one uniform height, so
+        // a second line would overdraw the next option. The node carries
+        // the full title: upstream's list row makes no named node (#661).
+        h_flex()
+            .id(self.title.clone())
+            .role(gpui::accesskit::Role::Label)
+            .aria_label(self.title())
+            .gap_1()
             .child(self.title.clone())
-            .when_some(self.reason, |this, r| {
+            .when(self.reason.is_some(), |this| {
                 this.child(
                     div()
-                        .text_xs()
                         .text_color(cx.theme().muted_foreground)
-                        .child(r),
+                        .child(COST_HINT),
                 )
             })
     }

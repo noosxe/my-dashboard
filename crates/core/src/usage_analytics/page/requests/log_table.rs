@@ -24,19 +24,34 @@ use crate::usage_analytics::surfaces::{
     CostCell, LogRow, LogSort, LogSortKey, RequestLog, StatusClass,
 };
 
-/// The columns in order, each with the calculator's sort key.
-const COLS: [(LogSortKey, &str, f32); 10] = [
-    (LogSortKey::Time, "Time", 136.),
-    (LogSortKey::Operation, "Operation", 150.),
-    (LogSortKey::Target, "Target", 170.),
-    (LogSortKey::Surface, "Surface", 112.),
-    (LogSortKey::Trigger, "Trigger", 104.),
-    (LogSortKey::Status, "Status", 150.),
-    (LogSortKey::Cost, "Cost", 104.),
-    (LogSortKey::Duration, "Duration", 92.),
-    (LogSortKey::Queue, "Queue", 80.),
-    (LogSortKey::Size, "Size", 72.),
+/// The columns in order: the calculator's sort key, the header, the
+/// narrowest width that still reads, and the share of any extra band
+/// width the column takes (the free-text columns grow; figures don't).
+const COLS: [(LogSortKey, &str, f32, f32); 10] = [
+    (LogSortKey::Time, "Time", 112., 0.),
+    (LogSortKey::Operation, "Operation", 120., 0.35),
+    (LogSortKey::Target, "Target", 120., 0.4),
+    (LogSortKey::Surface, "Surface", 88., 0.25),
+    (LogSortKey::Trigger, "Trigger", 84., 0.),
+    (LogSortKey::Status, "Status", 120., 0.),
+    (LogSortKey::Cost, "Cost", 84., 0.),
+    (LogSortKey::Duration, "Duration", 76., 0.),
+    (LogSortKey::Queue, "Queue", 64., 0.),
+    (LogSortKey::Size, "Size", 64., 0.),
 ];
+
+/// The table's border plus its vertical scrollbar's gutter.
+const TABLE_CHROME_W: f32 = 18.;
+
+/// Every column's width in a band `content_w` wide. The minimums sum to
+/// 932 px, so all ten fit from a 1280 px window (about 955 px of
+/// content); narrower, the table scrolls sideways rather than
+/// squeezing a figure out of view.
+pub(super) fn widths(content_w: f32) -> [f32; 10] {
+    let min: f32 = COLS.iter().map(|c| c.2).sum();
+    let extra = (content_w - TABLE_CHROME_W - min).max(0.);
+    COLS.map(|(_, _, w, grow)| (w + extra * grow).floor())
+}
 
 /// The sort a header click asks for: upstream cycles a column Default →
 /// Descending → Ascending → Default, and Default is newest first.
@@ -79,6 +94,7 @@ pub(super) struct LogTable {
     source: Option<Arc<RequestLog>>,
     as_of_ms: u64,
     tz_offset_ms: i64,
+    widths: [f32; 10],
 }
 
 impl LogTable {
@@ -88,7 +104,17 @@ impl LogTable {
             source: None,
             as_of_ms: 0,
             tz_offset_ms: 0,
+            widths: widths(0.),
         }
+    }
+
+    /// Fit the columns to `content_w`; true when they changed and the
+    /// caller must refresh the table so the header re-reads them.
+    pub(super) fn fit(&mut self, content_w: f32) -> bool {
+        let w = widths(content_w);
+        let changed = w != self.widths;
+        self.widths = w;
+        changed
     }
 
     pub(super) fn shows(&self, data: &Arc<RequestLog>) -> bool {
@@ -122,7 +148,8 @@ impl TableDelegate for LogTable {
     }
 
     fn column(&self, col_ix: usize, _: &App) -> Column {
-        let (key, name, width) = COLS.get(col_ix).copied().unwrap_or(COLS[0]);
+        let (key, name, ..) = COLS.get(col_ix).copied().unwrap_or(COLS[0]);
+        let width = self.widths.get(col_ix).copied().unwrap_or(COLS[0].2);
         let s = self.sort();
         // Newest first is the default: the Time column shows it.
         let sort = match (s.key == key, s.descending) {
@@ -277,5 +304,15 @@ mod tests {
             }
         );
         assert_eq!(sort_for(3, ColumnSort::Default), LogSort::default());
+    }
+
+    #[test]
+    fn all_ten_columns_fit_a_1280_window_and_only_text_grows() {
+        let at_1280 = widths(955.);
+        assert!(at_1280.iter().sum::<f32>() <= 955. - TABLE_CHROME_W);
+        let wide = widths(1200.);
+        assert_eq!(wide[7], at_1280[7], "Duration keeps its width");
+        assert!(wide[2] > at_1280[2], "Target takes the extra");
+        assert_eq!(widths(700.), widths(0.), "narrower: the minimums");
     }
 }
