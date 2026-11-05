@@ -21,6 +21,12 @@ use crate::{
     tab_stops, tree_diff, tree_dump, tree_snapshot, wait_for_frame,
 };
 
+/// `wait-label`'s budget and poll step: long enough for a page's
+/// background read to land (docs/0082 D11), short enough that a broken
+/// hop fails the receipt promptly.
+const WAIT_LABEL_TIMEOUT_MS: u64 = 5_000;
+const WAIT_LABEL_POLL_MS: u64 = 100;
+
 /// `screenshot [--name stem]` (D10): grim against the session's
 /// compositor, into `screenshots/<stem>-<n>.png`.
 pub fn screenshot(session: Option<&str>, stem: &str) -> i32 {
@@ -716,6 +722,33 @@ fn run_step(conn: &mut Conn, session: Option<&str>, op: &StepOp) -> StepOutcome 
                     "no label contains {substr:?} ({} nodes scanned)",
                     nodes.len()
                 )),
+            }
+        }
+        StepOp::WaitLabel(substr) => {
+            let deadline =
+                std::time::Instant::now() + std::time::Duration::from_millis(WAIT_LABEL_TIMEOUT_MS);
+            loop {
+                let nodes = match snapshot_nodes(conn) {
+                    Ok(nodes) => nodes,
+                    Err(code) => return StepOutcome::Failed(format!("dump failed (exit {code})")),
+                };
+                if let Some(node) = nodes
+                    .iter()
+                    .find(|n| n.label.as_deref().is_some_and(|l| l.contains(substr)))
+                {
+                    return StepOutcome::Ok(format!(
+                        " label {:?} on #{}",
+                        node.label.as_deref().unwrap_or_default(),
+                        node.accesskit_id
+                    ));
+                }
+                if std::time::Instant::now() >= deadline {
+                    return StepOutcome::Failed(format!(
+                        "no label contained {substr:?} within {WAIT_LABEL_TIMEOUT_MS} ms ({} nodes scanned)",
+                        nodes.len()
+                    ));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(WAIT_LABEL_POLL_MS));
             }
         }
         StepOp::AssertNoLabel(substr) => {

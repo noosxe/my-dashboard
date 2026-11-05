@@ -37,6 +37,10 @@ pub enum StepOp {
     Diff(String, String),
     /// `assert-label <substr>` — some node label contains the substring.
     AssertLabel(String),
+    /// `wait-label <substr>` — poll until some node label contains the
+    /// substring (bounded): settles on a page whose content lands after
+    /// a background read (docs/0082 D11), where a frame wait can race.
+    WaitLabel(String),
     /// `assert-no-label <substr>` — no node label contains it.
     AssertNoLabel(String),
     /// `assert-focus <accesskit_id>` — the focused node is this one.
@@ -208,16 +212,16 @@ fn parse_line(text: &str, line_no: usize) -> Result<StepOp, String> {
             };
             Ok(StepOp::Diff(a.clone(), b.clone()))
         }
-        "assert-label" | "assert-no-label" => {
+        "assert-label" | "assert-no-label" | "wait-label" => {
             let [substr] = rest else {
                 return Err(err(&format!(
                     "{verb} needs exactly one <substr> (quote spaces)"
                 )));
             };
-            Ok(if verb == "assert-label" {
-                StepOp::AssertLabel(substr.clone())
-            } else {
-                StepOp::AssertNoLabel(substr.clone())
+            Ok(match verb.as_str() {
+                "assert-label" => StepOp::AssertLabel(substr.clone()),
+                "wait-label" => StepOp::WaitLabel(substr.clone()),
+                _ => StepOp::AssertNoLabel(substr.clone()),
             })
         }
         "assert-focus" => {
@@ -509,6 +513,14 @@ mod tests {
             StepOp::Diff("opened".into(), "after-tabs".into())
         );
         assert_eq!(script.steps[5].op, StepOp::AssertLabel("as of".into()));
+        assert_eq!(
+            parse_script("--session qa\nwait-label \"0 requests\"")
+                .unwrap()
+                .steps[0]
+                .op,
+            StepOp::WaitLabel("0 requests".into())
+        );
+        assert!(parse_script("--session qa\nwait-label").is_err());
         assert_eq!(script.steps[7].op, StepOp::Screenshot("opened".into()));
     }
 
@@ -680,8 +692,9 @@ mod tests {
             "tab-order coverage stays paired with the audit (0065 D3)"
         );
         // #535: every audited stop also asserts its structural golden —
-        // the walk above ends home→github→usage-overview→usage-quota→
-        // hub→home-return, and each stop pins the tree shape.
+        // the walk above ends home→github→usage-overview→usage-requests→
+        // hub→home-return, and each stop pins the tree shape (the quota
+        // tab's stop became the Requests view's with docs/0082 D1).
         let mut baselines: Vec<&str> = script
             .steps
             .iter()
@@ -699,7 +712,7 @@ mod tests {
                 "home-return",
                 "hub",
                 "usage-overview",
-                "usage-quota"
+                "usage-requests"
             ],
             "every audit.txt stop asserts its committed golden (0065 D5)"
         );

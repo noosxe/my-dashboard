@@ -104,8 +104,47 @@ fn parse_bounds(value: Option<&Value>) -> Option<Bounds> {
 /// diff must never read capture-local values. A time is `H:MM` or
 /// `HH:MM` (optionally `:SS`), not part of a longer digit run and not
 /// glued to alphanumerics on either side ("v1.2.3", "a1:23" and
-/// "123:45" are left alone).
+/// "123:45" are left alone). Dated stamps ("as of Nov 4, 19:21", the
+/// usage honesty line since docs/0082 D3) also lose their day: a
+/// `Mon D,` month-day becomes `MMM D,`.
 fn normalize_wall_clock(label: &str) -> String {
+    normalize_month_days(&normalize_times(label))
+}
+
+const MONTHS: [&str; 12] = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+/// `Mon D,` / `Mon DD,` → `MMM D,`, only as a whole word on the left.
+fn normalize_month_days(label: &str) -> String {
+    let b = label.as_bytes();
+    let mut out = String::with_capacity(label.len());
+    let mut i = 0;
+    while i < b.len() {
+        let word_start = i == 0 || !b[i - 1].is_ascii_alphanumeric();
+        if word_start && let Some(len) = month_day_len(&b[i..]) {
+            out.push_str("MMM D,");
+            i += len;
+            continue;
+        }
+        let ch = label[i..].chars().next().unwrap_or_default();
+        out.push(ch);
+        i += ch.len_utf8().max(1);
+    }
+    out
+}
+
+/// The byte length of a `Mon D,` / `Mon DD,` prefix, if `b` starts
+/// with one.
+fn month_day_len(b: &[u8]) -> Option<usize> {
+    if b.len() < 6 || !MONTHS.iter().any(|m| b.starts_with(m.as_bytes())) || b[3] != b' ' {
+        return None;
+    }
+    let digits = b[4..].iter().take_while(|c| c.is_ascii_digit()).count();
+    ((1..=2).contains(&digits) && b.get(4 + digits) == Some(&b',')).then_some(5 + digits)
+}
+
+fn normalize_times(label: &str) -> String {
     let b = label.as_bytes();
     let digit = |i: usize| b.get(i).is_some_and(|c| c.is_ascii_digit());
     let alnum = |i: usize| b.get(i).is_some_and(|c| c.is_ascii_alphanumeric());
@@ -518,6 +557,14 @@ mod tests {
         );
         assert_eq!(normalize_wall_clock("a1:23"), "a1:23");
         assert_eq!(normalize_wall_clock("23:15x"), "23:15x");
+        // The dated honesty line (docs/0082 D3).
+        assert_eq!(
+            normalize_wall_clock("12 requests · as of Nov 4, 19:21 · history from Oct 25, 9:02"),
+            "12 requests · as of MMM D, HH:MM · history from MMM D, HH:MM"
+        );
+        assert_eq!(normalize_wall_clock("Monday Nov 12"), "Monday Nov 12");
+        assert_eq!(normalize_wall_clock("XNov 4, 1"), "XNov 4, 1");
+        assert_eq!(normalize_wall_clock("Nov 123, x"), "Nov 123, x");
     }
 
     #[test]
