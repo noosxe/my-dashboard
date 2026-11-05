@@ -6,6 +6,7 @@ Working rules for AI agents in this repository. Follow precisely.
 
 - **`main` is protected.** All changes go through PRs; the product owner reviews, human-tests, and merges. Never push to `main`, never commit directly to it.
 - **Stay focused.** Keep work scoped to the current task. If something unrelated needs fixing or you see an improvement opportunity, file a GitHub issue — do not fold it into the current PR.
+- **Focused modules, not huge files.** New code goes into a module tree where each file has one clear concern (a few hundred lines is the target), with tests next to the code they cover. Don't keep growing the existing multi-thousand-line files (for example `pr_page.rs`, `service.rs`, `page.rs`). When a feature touches one of them, put the new code in a new submodule. Splitting an existing large file is its own focused PR, filed as an issue, never folded into a feature PR.
 - **Ask for help freely.** Do not guess where a decision is the product owner's to make. Blocking questions are cheap; wrong assumptions are not.
 - **Everything you write is public.** The repo is public: source, commit messages, issues, PR bodies, comments and the wiki can all be read by anyone. Never write any of the following into them:
   - names of the owner's private repositories;
