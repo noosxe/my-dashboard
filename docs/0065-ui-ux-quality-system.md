@@ -157,7 +157,9 @@ PR body is the review.
 
 First capture round shipped 2026-10-13 (#535): `home`, `home-return`,
 `github`, `usage-overview`, `usage-quota`, `hub`, plus `settings` and
-`favicon` staged with their expected-red hops (#530). Three notes
+`favicon` staged with their expected-red hops (#530). The two usage goldens
+retired with the usage page shell (#696, docs/0082 §9); #700 captures
+the redesigned pair. Three notes
 tighten the original sketch: (1) the diff includes window-relative
 bounds and the `focused` flag, so the same-environment rule (D6)
 applies to structure too — goldens are captured and asserted in the

@@ -162,6 +162,9 @@ Riding the rail needs one additive change: **`Transport::Local`**
 (0057 D4 chain untouched); old rows and old readers are unaffected, the
 0054 transport filter grows the entry. Amendment note rides the
 implementation PR (§8).
+The 0054 transport filter was removed with the old usage page (#696,
+docs/0082 §9); the Requests view's transport facet (0082 D10, #698)
+takes over the `local` entry.
 
 ### D10 — Bridge ids (0010 D10)
 

@@ -22,6 +22,10 @@ collection.
 >
 > D10 (frozen `as_of`) and D13 (one calculator) stand. The sections
 > below remain the record of what shipped in 2026-09/10.
+>
+> **Removed from the code in #696** (0082 §9, §11 item 2): the three
+> tab bodies, their render code and the calculator procedures only they
+> used. Sections that describe that UI carry a pointer to 0082.
 
 ## 1. Problem & goals
 
@@ -63,6 +67,8 @@ Shell-level page, not a github sub-page:
   the button).
 
 ## 3. Page skeleton
+
+> **Removed in #696.** The page is now 0082's shell: D1 view switch, D3 header, D18–D20.
 
 ```
 ┌──────────────────────────────────────────────────────┐
@@ -153,6 +159,8 @@ the seeded fixture ledger ends at.)*
   it would be liveness by the back door.
 
 ## 4. Use case #1 — Quota usage analytics
+
+> **Removed in #696.** The Quota usage tab's content moves to the Budget view's where-it-went band (0082 D7).
 
 Goal: *see what we use our quota on.* The tab answers it as one
 question: **pick dimensions, see a ranking.**
@@ -252,6 +260,8 @@ as the sidebar item gap)* The range picker and
 tabs are keyboard-operable like all shell controls (docs/0049 rules).
 
 ## 5. Overview tab — quota at a glance (v1)
+
+> **Removed in #696.** The Overview tab's cards and charts move to the Budget view (0082 D4–D8) and the Requests view (0082 D10); 0082 §9 maps each one.
 
 The first tab: general indicators, partial by design (no completeness
 claims). v1 is a card strip (D11) plus a chart row (D15) answering the
@@ -377,6 +387,8 @@ the hard way:
 
 ## 6. Use case #2 — Request latency
 
+> **Removed in #696.** The Request latency tab's content moves to the Requests view (0082 D10).
+
 Goal: *see how slow our requests are, where, and why* — the developer's
 and the agent's tab. Every record already carries `duration_ms`
 (transport wall time: connect + request + server + response read; it
@@ -449,6 +461,8 @@ first instant, ops), a queue card (p50/p90 of `queue_ms`, waits
 trend.)*
 
 ## 7. The analytics calculator (shared engine)
+
+> **Removed in #696.** The per-tab procedures below are gone; the calculator is now 0082 D15a's per-surface procedures. D13's rule (one pure calculator, thin renderers) stands.
 
 **D13 — One pure calculator, every tab, thin renderers.** All
 computation lives in one core module (`dashboard_core::usage_analytics`),
@@ -728,6 +742,8 @@ any `None` degrades gracefully across every consumer.
   p50/p90 strip stay deferred in #337 (scope amended by comment).
 
 ## 12. Errata (post-ship fix, 2026-09-27)
+
+> **Removed in #696.** The line panels and `tick_stride` this errata describes were removed with the Overview and latency bodies; the new time axis is 0082 D10a.
 
 **Chart x-axis tick density.** The overview and trend line panels shipped
 with upstream `LineChart`'s default `tick_margin` of 1 — one x label per
