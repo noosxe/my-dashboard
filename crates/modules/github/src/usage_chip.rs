@@ -110,7 +110,10 @@ impl Render for UsageChip {
         let (segments, label) = content(&model, session);
         let theme = cx.theme();
         let (muted, foreground) = (theme.muted_foreground, theme.foreground);
-        let mut row = h_flex().gap_1().items_center();
+        // The budgets sit a step further apart than an icon from its
+        // words, so the separator between them never reads as the `·`
+        // inside `paused · resumes` (0065 rubric #14).
+        let mut row = h_flex().gap_2().items_center();
         for (i, seg) in segments.into_iter().enumerate() {
             if i > 0 {
                 row = row.child(div().text_color(muted).child("·"));

@@ -207,19 +207,20 @@ scripts/verify.sh sh -c '
   cargo run -p dashboard-debug -- session start --name usage --size 1280x800 \
     --binary /tmp/target/debug/my-dashboard
   export DASHBOARD_DEBUG_SESSION=usage
-  # The chip shows on the GitHub page (sidebar id: repo-commits.txt).
-  cargo run -p dashboard-debug -- click 3229520539080433524 --wait-frame
+  # The chip shows on every page (docs/0082 Q9), Home included.
   sleep 4
   cargo run -p dashboard-debug -- tree | grep "GitHub API"
   cargo run -p dashboard-debug -- session stop usage
 '
 ```
 
-Expected chip labels: `healthy` reads "REST: 4,812 of 5,000 requests
-remaining, resets in 41 minutes; GraphQL: 4,655 of 5,000 points …";
-`low` reads 312 / 188; `exhausted` reads "GitHub API rate limited,
-fetches resume in 37 minutes". The usage page (the chip's "Usage
-analytics" button) opens on the seeded week, as of the pinned 12:00.
+Expected chip labels: `healthy` reads "GitHub API: REST: 4,812 of
+5,000 requests remaining, resets in 41 minutes; GraphQL: 4,655 of
+5,000 points …"; `low` reads 312 / 188, each marked "Critical";
+`exhausted` reads "REST: paused, resumes at HH:MM in 37 minutes;
+GraphQL: paused, …"; `graphql-exhausted` pauses GraphQL only and
+leaves REST at 4,812 (docs/0082 Q10). The chip is the button that
+opens the usage page on its Budget view, as of the pinned 12:00.
 
 Interactive inspection: `scripts/verify.sh bash`.
 

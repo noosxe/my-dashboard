@@ -25,32 +25,6 @@
       "focused": false
     },
     {
-      "accesskit_id": "217595502132819374",
-      "role": "Group",
-      "label": "github: commits tab rows and day headers (#700) — fixture-user, committed 1h, CI: passing, 0000000",
-      "bounds": {
-        "x": 568.0,
-        "y": 300.0,
-        "w": 675.0,
-        "h": 57.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "221733533974236250",
-      "role": "ListItem",
-      "label": null,
-      "bounds": {
-        "x": 568.0,
-        "y": 414.0,
-        "w": 675.0,
-        "h": 57.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
       "accesskit_id": "324947352407062764",
       "role": "Tab",
       "label": "Notifications",
@@ -77,6 +51,45 @@
       "focused": false
     },
     {
+      "accesskit_id": "364720877318993958",
+      "role": "Button",
+      "label": "GitHub API: REST: no response yet; GraphQL: no response yet; session: 8 requests (6 GraphQL, 2 REST, 0 auth)",
+      "bounds": {
+        "x": 1090.0,
+        "y": 730.0,
+        "w": 129.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "517477302221836786",
+      "role": "Group",
+      "label": "docs: record the stage notes (#698) — Dev Box, committed 11h, CI: failing, 3c6ef36",
+      "bounds": {
+        "x": 568.0,
+        "y": 414.0,
+        "w": 675.0,
+        "h": 57.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1066922949848201191",
+      "role": "ListItem",
+      "label": null,
+      "bounds": {
+        "x": 568.0,
+        "y": 414.0,
+        "w": 675.0,
+        "h": 57.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
       "accesskit_id": "2108810803643324527",
       "role": "Button",
       "label": "Back",
@@ -87,32 +100,6 @@
         "h": 24.0
       },
       "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "2154133863749087709",
-      "role": "ListItem",
-      "label": null,
-      "bounds": {
-        "x": 568.0,
-        "y": 506.0,
-        "w": 675.0,
-        "h": 57.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "2181373740715913657",
-      "role": "ListItem",
-      "label": null,
-      "bounds": {
-        "x": 568.0,
-        "y": 357.0,
-        "w": 675.0,
-        "h": 57.0
-      },
-      "focusable": false,
       "focused": false
     },
     {
@@ -129,12 +116,25 @@
       "focused": false
     },
     {
-      "accesskit_id": "2357905833261408053",
+      "accesskit_id": "2497271221817435994",
+      "role": "Button",
+      "label": "Copy SHA 9e3779b",
+      "bounds": {
+        "x": 1215.0,
+        "y": 388.0,
+        "w": 20.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2999323279623052650",
       "role": "ListItem",
       "label": null,
       "bounds": {
         "x": 568.0,
-        "y": 620.0,
+        "y": 506.0,
         "w": 675.0,
         "h": 57.0
       },
@@ -142,12 +142,25 @@
       "focused": false
     },
     {
-      "accesskit_id": "2708305253081335852",
+      "accesskit_id": "3026563156656987462",
       "role": "ListItem",
       "label": null,
       "bounds": {
         "x": 568.0,
-        "y": 563.0,
+        "y": 357.0,
+        "w": 675.0,
+        "h": 57.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3203095249202481858",
+      "role": "ListItem",
+      "label": null,
+      "bounds": {
+        "x": 568.0,
+        "y": 620.0,
         "w": 675.0,
         "h": 57.0
       },
@@ -181,29 +194,42 @@
       "focused": false
     },
     {
-      "accesskit_id": "3567484234363192090",
-      "role": "Button",
-      "label": "Copy SHA 0000000",
+      "accesskit_id": "3550018313159860609",
+      "role": "Group",
+      "label": "core: freshness label reads the lane clock (#696) — octocat, committed 21h, Unverified, 78dde6c",
       "bounds": {
-        "x": 1215.0,
-        "y": 331.0,
-        "w": 20.0,
-        "h": 20.0
+        "x": 568.0,
+        "y": 563.0,
+        "w": 675.0,
+        "h": 57.0
       },
-      "focusable": true,
+      "focusable": false,
       "focused": false
     },
     {
-      "accesskit_id": "3582108867402403885",
-      "role": "Button",
-      "label": "Copy SHA daa66d1",
+      "accesskit_id": "3553494669022409657",
+      "role": "ListItem",
+      "label": null,
       "bounds": {
-        "x": 1215.0,
-        "y": 537.0,
-        "w": 20.0,
-        "h": 20.0
+        "x": 568.0,
+        "y": 563.0,
+        "w": 675.0,
+        "h": 57.0
       },
-      "focusable": true,
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4528846751515686237",
+      "role": "Group",
+      "label": "favicon: inspector spacing follows the 4px scale (#695) — Dev Box, committed 1d, Verified, CI: passing, 1715607",
+      "bounds": {
+        "x": 568.0,
+        "y": 620.0,
+        "w": 675.0,
+        "h": 57.0
+      },
+      "focusable": false,
       "focused": false
     },
     {
@@ -246,6 +272,19 @@
       "focused": false
     },
     {
+      "accesskit_id": "5807880845163460860",
+      "role": "Button",
+      "label": "Copy SHA 3c6ef36",
+      "bounds": {
+        "x": 1215.0,
+        "y": 445.0,
+        "w": 20.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
       "accesskit_id": "5861259399387492613",
       "role": "TreeItem",
       "label": "Favicon",
@@ -259,16 +298,16 @@
       "focused": false
     },
     {
-      "accesskit_id": "5980461915544204726",
-      "role": "Group",
-      "label": "usage: split GraphQL and REST buckets (#694) — fixture-user, committed 1d, CI: passing, b54cda2",
+      "accesskit_id": "6147226658770961618",
+      "role": "List",
+      "label": null,
       "bounds": {
         "x": 568.0,
-        "y": 677.0,
+        "y": 265.0,
         "w": 675.0,
-        "h": 57.0
+        "h": 411.0
       },
-      "focusable": false,
+      "focusable": true,
       "focused": false
     },
     {
@@ -298,12 +337,25 @@
       "focused": false
     },
     {
-      "accesskit_id": "6646939825242907513",
+      "accesskit_id": "7929201712284048125",
+      "role": "Button",
+      "label": "Copy SHA 1715607",
+      "bounds": {
+        "x": 1215.0,
+        "y": 651.0,
+        "w": 20.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8263533494976394999",
       "role": "Group",
-      "label": "ci: cache the cargo registry between jobs (#697) — fixture-user, committed 16h, CI: pending, daa66d1",
+      "label": "build: pin the toolchain in all four places (#699) — octocat, committed 6h, Verified, CI: passing, 9e3779b",
       "bounds": {
         "x": 568.0,
-        "y": 506.0,
+        "y": 357.0,
         "w": 675.0,
         "h": 57.0
       },
@@ -311,29 +363,16 @@
       "focused": false
     },
     {
-      "accesskit_id": "7759980002134126254",
-      "role": "Group",
-      "label": "docs: record the stage notes (#698) — Dev Box, committed 11h, CI: failing, 3c6ef36",
+      "accesskit_id": "9232639835492375280",
+      "role": "Button",
+      "label": "Copy SHA 0000000",
       "bounds": {
-        "x": 568.0,
-        "y": 414.0,
-        "w": 675.0,
-        "h": 57.0
+        "x": 1215.0,
+        "y": 331.0,
+        "w": 20.0,
+        "h": 20.0
       },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "8989899905502859829",
-      "role": "Group",
-      "label": "core: freshness label reads the lane clock (#696) — octocat, committed 21h, Unverified, 78dde6c",
-      "bounds": {
-        "x": 568.0,
-        "y": 563.0,
-        "w": 675.0,
-        "h": 57.0
-      },
-      "focusable": false,
+      "focusable": true,
       "focused": false
     },
     {
@@ -363,45 +402,6 @@
       "focused": false
     },
     {
-      "accesskit_id": "9968728343858685457",
-      "role": "Group",
-      "label": "favicon: inspector spacing follows the 4px scale (#695) — Dev Box, committed 1d, Verified, CI: passing, 1715607",
-      "bounds": {
-        "x": 568.0,
-        "y": 620.0,
-        "w": 675.0,
-        "h": 57.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "10057857290799839945",
-      "role": "Button",
-      "label": "Copy SHA 9e3779b",
-      "bounds": {
-        "x": 1215.0,
-        "y": 388.0,
-        "w": 20.0,
-        "h": 20.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "10344333004932293887",
-      "role": "Button",
-      "label": "Copy SHA 78dde6c",
-      "bounds": {
-        "x": 1215.0,
-        "y": 594.0,
-        "w": 20.0,
-        "h": 20.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
       "accesskit_id": "10789357359616730678",
       "role": "Button",
       "label": "Mine",
@@ -415,16 +415,16 @@
       "focused": false
     },
     {
-      "accesskit_id": "10832232269558921901",
-      "role": "Label",
-      "label": "GitHub API usage pending; session: 8 requests (6 GraphQL, 2 REST, 0 auth)",
+      "accesskit_id": "11075402219275273073",
+      "role": "Button",
+      "label": "Copy SHA b54cda2",
       "bounds": {
-        "x": 1120.0,
-        "y": 730.0,
-        "w": 71.0,
-        "h": 19.0
+        "x": 1215.0,
+        "y": 708.0,
+        "w": 20.0,
+        "h": 20.0
       },
-      "focusable": false,
+      "focusable": true,
       "focused": false
     },
     {
@@ -467,6 +467,19 @@
       "focused": true
     },
     {
+      "accesskit_id": "12271276095907408724",
+      "role": "Group",
+      "label": "usage: split GraphQL and REST buckets (#694) — fixture-user, committed 1d, CI: passing, b54cda2",
+      "bounds": {
+        "x": 568.0,
+        "y": 677.0,
+        "w": 675.0,
+        "h": 57.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
       "accesskit_id": "12482848471666265815",
       "role": "Tab",
       "label": "Commits",
@@ -480,32 +493,6 @@
       "focused": false
     },
     {
-      "accesskit_id": "12495125864836962310",
-      "role": "Heading",
-      "label": "Commits on Oct 22, 2026",
-      "bounds": {
-        "x": 568.0,
-        "y": 471.0,
-        "w": 675.0,
-        "h": 35.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "12746888743394341120",
-      "role": "List",
-      "label": null,
-      "bounds": {
-        "x": 568.0,
-        "y": 265.0,
-        "w": 675.0,
-        "h": 411.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
       "accesskit_id": "12818898106091981080",
       "role": "TreeItem",
       "label": "Settings",
@@ -514,19 +501,6 @@
         "y": 201.0,
         "w": 230.0,
         "h": 28.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "12845364995733037228",
-      "role": "Heading",
-      "label": "Commits on Oct 23, 2026",
-      "bounds": {
-        "x": 568.0,
-        "y": 265.0,
-        "w": 675.0,
-        "h": 35.0
       },
       "focusable": false,
       "focused": false
@@ -571,14 +545,40 @@
       "focused": false
     },
     {
-      "accesskit_id": "13703415087319394219",
+      "accesskit_id": "13224457983499371769",
       "role": "Group",
-      "label": "build: pin the toolchain in all four places (#699) — octocat, committed 6h, Verified, CI: passing, 9e3779b",
+      "label": "github: commits tab rows and day headers (#700) — fixture-user, committed 1h, CI: passing, 0000000",
       "bounds": {
         "x": 568.0,
-        "y": 357.0,
+        "y": 300.0,
         "w": 675.0,
         "h": 57.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13340315280778036115",
+      "role": "Heading",
+      "label": "Commits on MMM D, 2026",
+      "bounds": {
+        "x": 568.0,
+        "y": 471.0,
+        "w": 675.0,
+        "h": 35.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13690554411674111033",
+      "role": "Heading",
+      "label": "Commits on MMM D, 2026",
+      "bounds": {
+        "x": 568.0,
+        "y": 265.0,
+        "w": 675.0,
+        "h": 35.0
       },
       "focusable": false,
       "focused": false
@@ -623,12 +623,12 @@
       "focused": false
     },
     {
-      "accesskit_id": "15489787781199343212",
+      "accesskit_id": "15569355956651076665",
       "role": "Button",
-      "label": "Copy SHA 1715607",
+      "label": "Copy SHA 78dde6c",
       "bounds": {
         "x": 1215.0,
-        "y": 651.0,
+        "y": 594.0,
         "w": 20.0,
         "h": 20.0
       },
@@ -636,27 +636,14 @@
       "focused": false
     },
     {
-      "accesskit_id": "16120504739687943893",
+      "accesskit_id": "15985788932874329324",
       "role": "Button",
-      "label": "Copy SHA b54cda2",
+      "label": "Copy SHA daa66d1",
       "bounds": {
         "x": 1215.0,
-        "y": 708.0,
+        "y": 537.0,
         "w": 20.0,
         "h": 20.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "16129109161026522213",
-      "role": "Button",
-      "label": "Usage analytics",
-      "bounds": {
-        "x": 1195.0,
-        "y": 728.0,
-        "w": 24.0,
-        "h": 24.0
       },
       "focusable": true,
       "focused": false
@@ -675,19 +662,6 @@
       "focused": false
     },
     {
-      "accesskit_id": "16704905186801979308",
-      "role": "Button",
-      "label": "Copy SHA 3c6ef36",
-      "bounds": {
-        "x": 1215.0,
-        "y": 445.0,
-        "w": 20.0,
-        "h": 20.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
       "accesskit_id": "16733615844705559476",
       "role": "TabList",
       "label": null,
@@ -696,19 +670,6 @@
         "y": 185.0,
         "w": 675.0,
         "h": 36.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "17072528965658697971",
-      "role": "ListItem",
-      "label": null,
-      "bounds": {
-        "x": 568.0,
-        "y": 677.0,
-        "w": 675.0,
-        "h": 57.0
       },
       "focusable": false,
       "focused": false
@@ -727,7 +688,33 @@
       "focused": false
     },
     {
-      "accesskit_id": "17546512577981587020",
+      "accesskit_id": "17851181199040169660",
+      "role": "Group",
+      "label": "ci: cache the cargo registry between jobs (#697) — fixture-user, committed 16h, CI: pending, daa66d1",
+      "bounds": {
+        "x": 568.0,
+        "y": 506.0,
+        "w": 675.0,
+        "h": 57.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17917718381532662912",
+      "role": "ListItem",
+      "label": null,
+      "bounds": {
+        "x": 568.0,
+        "y": 677.0,
+        "w": 675.0,
+        "h": 57.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "18391701993922660825",
       "role": "ListItem",
       "label": null,
       "bounds": {
