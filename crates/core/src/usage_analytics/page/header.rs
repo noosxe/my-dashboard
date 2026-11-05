@@ -36,9 +36,9 @@ impl UsagePage {
             focus.map(|f| &f.view),
             UsageView::all().iter().map(|v| v.label()).collect(),
             view_ix,
-            |this, ix, cx| {
+            |this, ix, window, cx| {
                 if let Some(view) = UsageView::all().get(ix) {
-                    this.set_view(*view, cx);
+                    this.switch_view(*view, window, cx);
                 }
             },
             window,
@@ -50,7 +50,7 @@ impl UsagePage {
             focus.map(|f| &f.range),
             presets.iter().map(|p| preset_label(*p)).collect(),
             preset_ix,
-            |this, ix, cx| {
+            |this, ix, _, cx| {
                 if let Some(p) = range::presets(this.view).get(ix) {
                     this.set_preset(*p, cx);
                 }
@@ -134,7 +134,7 @@ pub(super) fn segmented_stop<F>(
     cx: &mut Context<UsagePage>,
 ) -> impl IntoElement + use<F>
 where
-    F: Fn(&mut UsagePage, usize, &mut Context<UsagePage>) + Clone + 'static,
+    F: Fn(&mut UsagePage, usize, &mut Window, &mut Context<UsagePage>) + Clone + 'static,
 {
     let count = labels.len();
     let current = labels.get(selected).copied().unwrap_or_default();
@@ -142,8 +142,8 @@ where
     let bar = TabBar::new(SharedString::from(format!("{id}-tabs")))
         .segmented()
         .selected_index(selected)
-        .on_click(cx.listener(move |this, ix: &usize, _, cx| {
-            pick(this, *ix, cx);
+        .on_click(cx.listener(move |this, ix: &usize, window, cx| {
+            pick(this, *ix, window, cx);
             cx.notify();
         }))
         .children(labels.into_iter().map(|l| Tab::new().label(l)));
@@ -156,13 +156,13 @@ where
         .rounded(cx.theme().radius_lg)
         .when_some(focus, |this, f| this.track_focus(f))
         .when(focused, |this| this.focus_ring_style(window, cx))
-        .on_key_down(cx.listener(move |this, ev: &KeyDownEvent, _, cx| {
+        .on_key_down(cx.listener(move |this, ev: &KeyDownEvent, window, cx| {
             let Some(next) = arrow_target(ev.keystroke.key.as_str(), selected, count) else {
                 return;
             };
             cx.stop_propagation();
             if next != selected {
-                on_select(this, next, cx);
+                on_select(this, next, window, cx);
                 cx.notify();
             }
         }))

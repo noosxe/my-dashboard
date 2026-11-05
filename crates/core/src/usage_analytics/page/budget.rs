@@ -134,7 +134,7 @@ impl UsagePage {
             self.focus.as_ref().map(|f| &f.budget),
             Budget::all().iter().map(|b| budget_label(*b)).collect(),
             selected,
-            |this, ix, cx| {
+            |this, ix, _, cx| {
                 if let Some(b) = Budget::all().get(ix) {
                     this.set_budget(*b, cx);
                 }

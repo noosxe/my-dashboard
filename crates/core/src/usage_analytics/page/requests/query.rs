@@ -7,8 +7,8 @@
 use std::sync::Arc;
 
 use gpui::prelude::*;
-use gpui::{App, Context, Entity, Focusable as _, SharedString, Window, div, px};
-use gpui_component::select::{Select, SelectEvent, SelectItem, SelectState};
+use gpui::{App, Context, Entity, FocusHandle, Focusable as _, Window, div, px};
+use gpui_component::select::{Select, SelectEvent, SelectState};
 use gpui_component::table::TableState;
 use gpui_component::{ActiveTheme, IndexPath, Sizable as _, Size, h_flex, v_flex};
 
@@ -17,6 +17,7 @@ use super::log_table::LogTable;
 use super::ranking::RankingTable;
 use crate::usage_analytics::Dimension;
 use crate::usage_analytics::page::UsagePage;
+use crate::usage_analytics::page::choice::Choice;
 use crate::usage_analytics::page::derive::RequestQuery;
 use crate::usage_analytics::page::header::segmented_stop;
 use crate::usage_analytics::surfaces::{Measure, StatusClass};
@@ -59,64 +60,6 @@ const MEASURES: [Measure; 6] = [
 pub(super) const COST_REASON: &str = "Pick REST or GraphQL: requests and points never pool";
 /// The same reason, short enough for the option's one line.
 const COST_HINT: &str = "· REST or GraphQL only";
-
-/// One picker option: its value, its label and, when it can't be picked,
-/// why.
-#[derive(Debug, Clone, PartialEq)]
-pub(super) struct Choice<V> {
-    value: V,
-    title: SharedString,
-    reason: Option<&'static str>,
-}
-
-impl<V: Clone + PartialEq> Choice<V> {
-    fn new(value: V, title: impl Into<SharedString>) -> Self {
-        Choice {
-            value,
-            title: title.into(),
-            reason: None,
-        }
-    }
-}
-
-impl<V: Clone + PartialEq + 'static> SelectItem for Choice<V> {
-    type Value = V;
-
-    fn title(&self) -> SharedString {
-        // What assistive technology reads stands on its own (D19).
-        match self.reason {
-            Some(r) => format!("{}, unavailable: {r}", self.title).into(),
-            None => self.title.clone(),
-        }
-    }
-
-    fn render(&self, _: &mut Window, cx: &mut App) -> impl IntoElement {
-        // One line: the list lays its rows out at one uniform height, so
-        // a second line would overdraw the next option. The node carries
-        // the full title: upstream's list row makes no named node (#661).
-        h_flex()
-            .id(self.title.clone())
-            .role(gpui::accesskit::Role::Label)
-            .aria_label(self.title())
-            .gap_1()
-            .child(self.title.clone())
-            .when(self.reason.is_some(), |this| {
-                this.child(
-                    div()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(COST_HINT),
-                )
-            })
-    }
-
-    fn value(&self) -> &V {
-        &self.value
-    }
-
-    fn disabled(&self) -> bool {
-        self.reason.is_some()
-    }
-}
 
 type Picker<V> = Entity<SelectState<Vec<Choice<V>>>>;
 
@@ -163,10 +106,13 @@ pub(super) fn then_choices(group_by: Dimension) -> Vec<Choice<Option<Dimension>>
 pub(super) fn measure_choices(cost_allowed: bool) -> Vec<Choice<Measure>> {
     MEASURES
         .into_iter()
-        .map(|m| Choice {
-            value: m,
-            title: format::measure(m).into(),
-            reason: (m == Measure::Cost && !cost_allowed).then_some(COST_REASON),
+        .map(|m| {
+            let choice = Choice::new(m, format::measure(m));
+            if m == Measure::Cost && !cost_allowed {
+                choice.unavailable(COST_REASON, COST_HINT)
+            } else {
+                choice
+            }
         })
         .collect()
 }
@@ -334,6 +280,20 @@ impl Controls {
             self.cost_offered = allowed;
         }
     }
+
+    /// Every focus handle these controls own (D19): what a view switch
+    /// checks before it unmounts them.
+    pub(in crate::usage_analytics::page) fn focus_handles(&self, cx: &App) -> Vec<FocusHandle> {
+        vec![
+            self.module.focus_handle(cx),
+            self.status.focus_handle(cx),
+            self.group_by.focus_handle(cx),
+            self.then_by.focus_handle(cx),
+            self.measure.focus_handle(cx),
+            self.ranking.focus_handle(cx),
+            self.log.focus_handle(cx),
+        ]
+    }
 }
 
 /// A select in its fixed-width slot.
@@ -369,7 +329,7 @@ impl UsagePage {
                 .map(|t| t.map_or(ALL, format::transport))
                 .collect(),
             selected,
-            |this, ix, cx| {
+            |this, ix, _, cx| {
                 if let Some(t) = TRANSPORTS.get(ix) {
                     let q = with_transport(&this.requests, *t);
                     this.set_request_query(q, cx);
@@ -420,6 +380,7 @@ impl UsagePage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gpui_component::select::SelectItem as _;
 
     #[test]
     fn cost_is_offered_only_for_a_single_quota_transport() {

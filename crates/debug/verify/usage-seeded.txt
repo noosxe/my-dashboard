@@ -1,0 +1,79 @@
+# usage-seeded.txt — the redesigned usage page over the seeded ledger
+# (docs/0082 §10, #700). Both views audit, walk a closed Tab cycle
+# (D19) and assert their structural goldens (0065 D5) while populated:
+# the Q13 header (the view switch leads on the left, the range presets
+# and Refresh sit on the right), every band with rows and cells, and the
+# Q8 request log that fills the viewport once the page scrolls to it.
+#
+# Prerequisites: the containerized env (docs/0071) with the GitHub
+# fixtures (docs/0081 §12.1), the pinned clock and a 90-day seed, and a
+# session named `seeded` at 1280x800:
+#   export DASHBOARD_GITHUB_FIXTURE=/work/crates/debug/verify/fixtures/github
+#   export DASHBOARD_FIXED_NOW=2026-10-23T12:00:00Z
+#   export DASHBOARD_GITHUB_USAGE_SEED=90
+#   cargo run -q -p dashboard-debug -- session start --name seeded \
+#     --size 1280x800 --binary /tmp/target/debug/my-dashboard
+# Run (in-container): dashboard-debug run crates/debug/verify/usage-seeded.txt
+#
+# Ids are the fresh-boot route's (audit.txt's walk-order note): Home →
+# the sidebar `Usage` item → the view switch. Signed in through the
+# fixtures, the footer chip shows (docs/0082 Q9), so these ids differ
+# from audit.txt's signed-out ones. Under the pinned clock, live
+# flights land after `as of` and stay off the page: only the seed shows.
+
+--session seeded
+
+# Home → usage analytics via the sidebar TreeItem. The page opens on
+# the Budget view (D1) at 24h and reads off the UI thread (D11): settle
+# on the seeded count, never the "Reading history" line.
+click 14831572709305685087 --wait-frame
+wait-label "1,071 requests · as of"
+assert-label "Usage view: Budget"
+assert-label "GraphQL points. 4,885 left of 5,000"
+audit
+tab-stops
+assert-baseline usage-budget-seeded
+
+# The Requests view: settle on the trend chart's summary, which lands with
+# the view's derivation (D11), then the same three receipts.
+click 5642526951600527859 --wait-frame
+wait-label "Step chart of p90 duration per hourly bucket, 24 buckets"
+assert-label "Usage view: Requests"
+audit
+tab-stops
+assert-baseline usage-requests-seeded
+
+# D19: a view switch made while a view control holds focus hands focus
+# to the view switch, so Tab keeps moving (#700). Focus the Requests
+# view's `Group by` as a pointer pick leaves it, then switch by pointer.
+focus 3905572511914019534
+click 11931369906050876423 --wait-frame
+wait-label "1,071 requests · as of"
+assert-focus 10085018269510683778
+tab-stops
+
+# Back to Requests by keyboard: the view switch takes the arrow keys
+# (D19). The walk ended on its first stop, so focus the switch again.
+focus 10085018269510683778
+key right
+wait-label "Usage view: Requests"
+wait-label "Step chart of p90 duration per hourly bucket, 24 buckets"
+
+# Q8: one wheel over the glance scrolls the page to its end. The
+# request log is the last band and fills the scroll viewport; the golden
+# pins its bounds there (D20). The scroll's frame lands before the next
+# dump (a bare wait-frame after it would wait for a second frame that
+# never comes), and the audit covers the scrolled page.
+mouse scroll 760 320 -20000
+assert-label "Request log"
+audit
+assert-baseline usage-requests-log
+
+# Diagnostics opens by keyboard (Enter on the disclosure): each chart
+# keeps one a11y summary (D19), and the cycle still closes. No frame
+# wait after `focus`: the walk above may have left focus there already.
+focus 12249287888388558240
+key enter
+wait-label "Bar chart of requests by duration band"
+audit
+tab-stops
