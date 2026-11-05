@@ -621,8 +621,10 @@ The implementation settles these mechanical points:
     `external = spent − recorded_cost` (for #705). `external` can be
     slightly negative from record timing at the window edge, so
     consumers clamp it.
-  - D7's default goes to REST whenever either remaining fraction is
-    unknown, as well as on a tie.
+  - D7's default compares the remaining fraction of an open window;
+    a paused budget counts as 0 %; unknown or closed windows count as
+    unknown. It goes to REST whenever either fraction is unknown, as
+    well as on a tie.
 - **Where it went.** The output keeps every group. Groups beyond the
   top 8 also fold into one `other` row.
 - **History.**

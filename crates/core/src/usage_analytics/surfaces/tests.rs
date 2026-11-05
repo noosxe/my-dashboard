@@ -337,6 +337,24 @@ fn default_budget_is_the_smaller_fraction_rest_on_tie_or_missing() {
         "no REST snapshot"
     );
     assert_eq!(pick(Vec::new()), Budget::Rest, "no snapshot at all");
+    assert_eq!(
+        pick(vec![
+            rest_snap(AS_OF - MIN, 4_000, open),
+            // A lower fraction from a window that has since reset.
+            gql_snap(AS_OF - 30 * MIN, 100, AS_OF - 10 * MIN)
+        ]),
+        Budget::Rest,
+        "a closed window's fraction is stale, so unknown"
+    );
+
+    // A paused budget counts as 0 % even over a stale healthy snapshot.
+    let rows = vec![
+        rest_snap(AS_OF - MIN, 1_000, open),
+        gql_snap(AS_OF - MIN, 4_900, open),
+    ];
+    let mut q = cards_query(DAY);
+    q.graphql_paused_until_ms = Some(AS_OF + 5 * MIN);
+    assert_eq!(budget_cards(&rows, &q).default_budget, Budget::Graphql);
 }
 
 // --- D7 where it went -----------------------------------------------------------
