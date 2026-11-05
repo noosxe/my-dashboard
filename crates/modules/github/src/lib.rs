@@ -29,9 +29,11 @@ pub mod notification_page;
 pub mod page;
 mod pickers;
 pub mod pr_page;
+mod rate_pause;
 pub mod service;
 pub mod settings;
 pub mod usage;
+mod usage_chip;
 #[cfg(debug_assertions)]
 mod usage_seed;
 
@@ -43,7 +45,7 @@ use gpui::*;
 
 use dashboard_core::Module;
 use dashboard_core::module::{ModuleEntry, ModuleIcon, ModuleMeta, SettingsProvider, StatusItemFn};
-use dashboard_core::nav::{Navigator, Page};
+use dashboard_core::nav::Navigator;
 
 use crate::auth::{KeyringTokenStore, TokenStore};
 use crate::card::GITHUB_MARK;
@@ -247,17 +249,26 @@ impl Module for GithubModule {
         let nav_support = Arc::new(page::GithubNav {
             page: main_page.downgrade(),
         });
-        // Footer chip (docs/0050 D5): one view for the app's lifetime;
-        // the status-item closure scopes it to the GitHub module pages
-        // (the provider-decides-visibility contract).
+        // Footer chip (docs/0050 D5): one view for the app's lifetime,
+        // shown on every page (docs/0082 D13, Q9): the home card and
+        // background polls spend the budget off the GitHub pages too.
         let usage_chip =
-            cx.new(|cx| usage::UsageChip::new(state.clone(), usage.clone(), nav.clone(), cx));
-        let status_item: StatusItemFn = Arc::new(move |page, _cx| match page {
-            Page::Module(id) if id.as_ref() == "github" => {
-                Some(usage_chip.clone().into_any_element())
-            }
-            _ => None,
-        });
+            cx.new(|cx| usage_chip::UsageChip::new(state.clone(), usage.clone(), nav.clone(), cx));
+        let status_item: StatusItemFn =
+            Arc::new(move |_page, _cx| Some(usage_chip.clone().into_any_element()));
+        // The usage page reads each budget's pause with its freeze, so a
+        // paused budget's card reads Exhausted (docs/0082 Q10).
+        let pause_state = state.clone();
+        dashboard_core::usage_analytics::live::set_pause_reader(
+            cx,
+            Arc::new(move |cx| {
+                let pause = pause_state.read(cx).rate_limited_until;
+                dashboard_core::usage_analytics::live::BudgetPauses {
+                    rest_until_ms: pause.rest.map(|s| s.saturating_mul(1_000)),
+                    graphql_until_ms: pause.graphql.map(|s| s.saturating_mul(1_000)),
+                }
+            }),
+        );
         ModuleEntry::new(
             Self::meta(),
             overview.into(),

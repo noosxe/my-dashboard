@@ -47,6 +47,7 @@ use crate::auth::{
 };
 use crate::gql::{self, Org, Repo, User};
 use crate::http::{Http, HttpError, RateLimit, SharedToken, Verb};
+use crate::rate_pause::{Lane, RateLimitPause};
 use crate::usage::{
     Origin, RecordingHttp, Surface, Trigger, UsageLedger, budget_now, parse_rate_limit_body,
     recording_for_auth,
@@ -2544,8 +2545,10 @@ pub struct GithubState {
     /// The card's totals lane (docs/0051 D2): summed open PRs/issues
     /// from `CardTotals`, `None` until the first landing (skeleton then).
     pub card_totals: Option<CardTotals>,
-    /// Rate-limit pause: UTC epoch seconds until requests resume (Q9).
-    pub rate_limited_until: Option<u64>,
+    /// Rate-limit pause (Q9), one per primary bucket (docs/0050 D4 as
+    /// amended by docs/0082 Q10): UTC epoch seconds until that lane's
+    /// requests resume.
+    pub rate_limited_until: RateLimitPause,
     /// When the access token dies (docs/0011 §4.1); `None` = no expiry.
     /// Non-secret, unlike the tokens themselves.
     pub access_expires_at: Option<u64>,
@@ -2764,7 +2767,7 @@ impl GithubState {
             repo_notifications: BTreeMap::new(),
             selected: None,
             card_totals: None,
-            rate_limited_until: None,
+            rate_limited_until: RateLimitPause::default(),
             access_expires_at,
             pending_refresh: false,
             gate: Arc::new(AuthGate::new()),
@@ -2825,32 +2828,42 @@ impl GithubState {
         self.in_flight.remove(key);
     }
 
-    /// Rate-limit / auth gate (Q9): no requests while disconnected, mid
-    /// connect-flow, token-rejected, or paused until the window resets.
-    pub(crate) fn gated(&self) -> bool {
+    /// The auth gate (Q9): no requests while disconnected, mid
+    /// connect-flow, token-rejected, or with a refresh pending.
+    pub(crate) fn auth_gated(&self) -> bool {
         // A pending (proactive) refresh defers fetches — they would 401
         // against a dying token (docs/0028 §3.4).
-        if self.pending_refresh {
-            return true;
-        }
-        if !self.auth.connected() {
-            return true;
-        }
-        match self.rate_limited_until {
-            Some(until) => budget_now() < until,
-            None => false,
-        }
+        self.pending_refresh || !self.auth.connected()
+    }
+
+    /// The fetch gate for one lane (docs/0050 D4, per budget since
+    /// docs/0082 Q10): the auth gate, or that lane's own rate-limit
+    /// pause. The other lane's pause never gates it.
+    pub(crate) fn gated_for(&self, lane: Lane) -> bool {
+        self.auth_gated() || self.rate_limited_until.paused(lane, budget_now())
+    }
+
+    /// Nothing can fly: the auth gate, or both lanes paused. For
+    /// triggers that fan out across lanes; each fetch they plan still
+    /// checks its own lane.
+    pub(crate) fn fully_gated(&self) -> bool {
+        Lane::ALL.into_iter().all(|lane| self.gated_for(lane))
+    }
+
+    /// Arm `lane`'s pause until its bucket resets (docs/0050 D4).
+    fn pause_lane(&mut self, lane: Lane, until: u64, why: std::fmt::Arguments<'_>) {
+        self.rate_limited_until.arm(lane, until);
+        log::warn!("{why} — {} paused until epoch {until}", lane.name());
     }
 
     /// Plan this tick's work (docs/0007 D6). Consumes `needs_bootstrap`.
     pub fn plan_tick(&mut self, _tick: u64) -> Vec<FetchSpec> {
-        // Gate first: a rate-limit pause (or auth loss) defers bootstrap
-        // too — the flag survives until the window passes.
-        if let Some(until) = self.rate_limited_until
-            && budget_now() >= until
-        {
-            self.rate_limited_until = None;
-            log::info!("rate-limit window passed — resuming fetches");
+        // Each lane's pause clears at its own reset (docs/0050 D4).
+        for lane in self.rate_limited_until.expire(budget_now()) {
+            log::info!(
+                "{} rate-limit window passed — resuming fetches",
+                lane.name()
+            );
         }
         // Proactive refresh arming (docs/0028 §3.4) — before the gates:
         // the refresh call spends no API budget, so it is armed even
@@ -2870,7 +2883,7 @@ impl GithubState {
             );
             self.pending_refresh = true;
         }
-        if self.gated() {
+        if self.auth_gated() {
             return Vec::new();
         }
         let mut specs = Vec::new();
@@ -2881,8 +2894,9 @@ impl GithubState {
         // only on ungated ticks — an active pause holds the book's
         // last snapshot until the pause clears, then this fires on
         // the same tick that cleared it (the snapshot rolled past
-        // `reset_at` with it).
-        {
+        // `reset_at` with it). The probe is REST: only the REST pause
+        // holds it.
+        if !self.gated_for(Lane::Rest) {
             let mut book = self.usage.lock().unwrap();
             let now = budget_now();
             if book.probe_due(now) {
@@ -2897,20 +2911,23 @@ impl GithubState {
                 ));
             }
         }
-        if self.needs_bootstrap {
+        // The bootstrap is the GraphQL inventory: a GraphQL pause
+        // defers it (the flag survives until that window passes). Its
+        // notifications ride along only while REST is live; otherwise
+        // the notifications lane's own triggers fetch them later.
+        if self.needs_bootstrap && !self.gated_for(Lane::Graphql) {
             self.needs_bootstrap = false;
             specs.push(
                 self.session_inventory_spec(Origin::new(Surface::ServiceTick, Trigger::Bootstrap)),
             );
-            specs.push(self.spec(
-                Kind::Notifications,
-                api::notifications_url(1),
-                Some(MAX_PAGES),
-                Origin::new(Surface::ServiceTick, Trigger::Bootstrap),
-            ));
-            return specs;
-        }
-        if self.gated() {
+            if !self.gated_for(Lane::Rest) {
+                specs.push(self.spec(
+                    Kind::Notifications,
+                    api::notifications_url(1),
+                    Some(MAX_PAGES),
+                    Origin::new(Surface::ServiceTick, Trigger::Bootstrap),
+                ));
+            }
             return specs;
         }
         // docs/0052 D1: the tick plans no content lanes —
@@ -2940,7 +2957,7 @@ impl GithubState {
         min_age: Duration,
         origin: Origin,
     ) -> Option<FetchSpec> {
-        if self.gated() {
+        if self.gated_for(Kind::Notifications.lane()) {
             return None;
         }
         let backed_off = self.notifications_attempted_at.is_some_and(|at| {
@@ -3079,7 +3096,7 @@ impl GithubState {
         key: &CommitsKey,
         origin: Origin,
     ) -> Option<FetchSpec> {
-        if self.gated() {
+        if self.gated_for(Kind::RepoCommitsMore.lane()) {
             return None;
         }
         // A filtered book pages with the same `$author` it landed with
@@ -4689,13 +4706,15 @@ impl GithubState {
                 return;
             }
             _ => {
-                if result.rate.is_some_and(|r| r.remaining == 0) {
-                    self.rate_limited_until = result.rate.map(|r| r.reset_epoch);
-                    log::warn!(
-                        "{}: rate-limited (HTTP {}) — paused until epoch {}",
-                        result.kind.kind_name(),
-                        result.status,
-                        self.rate_limited_until.unwrap_or(0)
+                if let Some(rate) = result.rate.filter(|r| r.remaining == 0) {
+                    self.pause_lane(
+                        result.kind.lane(),
+                        rate.reset_epoch,
+                        format_args!(
+                            "{}: rate-limited (HTTP {})",
+                            result.kind.kind_name(),
+                            result.status
+                        ),
                     );
                 } else {
                     log::warn!("{}: HTTP {}", result.kind.kind_name(), result.status);
@@ -4703,12 +4722,11 @@ impl GithubState {
                 return;
             }
         }
-        if result.rate.is_some_and(|r| r.remaining == 0) {
-            self.rate_limited_until = result.rate.map(|r| r.reset_epoch);
-            log::warn!(
-                "{}: rate-limited — paused until epoch {}",
-                result.kind.kind_name(),
-                self.rate_limited_until.unwrap_or(0)
+        if let Some(rate) = result.rate.filter(|r| r.remaining == 0) {
+            self.pause_lane(
+                result.kind.lane(),
+                rate.reset_epoch,
+                format_args!("{}: rate-limited", result.kind.kind_name()),
             );
         }
         let Some(body) = result.body.as_deref() else {
@@ -4738,10 +4756,10 @@ impl GithubState {
                         };
                         if let Some(rl) = &data.rate_limit
                             && rl.remaining <= 0 {
-                                self.rate_limited_until = Some(rl.reset_epoch());
-                                log::warn!(
-                                    "inventory: GraphQL point budget exhausted — paused until {}",
-                                    rl.reset_at
+                                self.pause_lane(
+                                    Lane::Graphql,
+                                    rl.reset_epoch(),
+                                    format_args!("inventory: GraphQL point budget exhausted"),
                                 );
                             }
                         // One run, one atomic apply (docs/0007 D4).
@@ -4779,10 +4797,10 @@ impl GithubState {
                         };
                         if let Some(rl) = &data.rate_limit
                             && rl.remaining <= 0 {
-                                self.rate_limited_until = Some(rl.reset_epoch());
-                                log::warn!(
-                                    "card-totals: GraphQL point budget exhausted — paused until {}",
-                                    rl.reset_at
+                                self.pause_lane(
+                                    Lane::Graphql,
+                                    rl.reset_epoch(),
+                                    format_args!("card-totals: GraphQL point budget exhausted"),
                                 );
                             }
                         if let Some(page) = data.viewer.repositories {
@@ -5078,10 +5096,10 @@ impl GithubState {
         if let Some(rl) = &data.rate_limit
             && rl.remaining <= 0
         {
-            self.rate_limited_until = Some(rl.reset_epoch());
-            log::warn!(
-                "{name}: GraphQL point budget exhausted — paused until {}",
-                rl.reset_at
+            self.pause_lane(
+                Lane::Graphql,
+                rl.reset_epoch(),
+                format_args!("{name}: GraphQL point budget exhausted"),
             );
         }
         let Some(repo) = data.repository else {
@@ -5239,7 +5257,7 @@ impl GithubState {
         // chance accounting (docs/0028 §3.4) — also on the reconnect path.
         self.gate.installed();
         self.auth = AuthStatus::Connected;
-        self.rate_limited_until = None;
+        self.rate_limited_until.clear();
         self.needs_bootstrap = true;
         // A fresh credential re-arms the auth alert (docs/0058 §13):
         // the next terminal failure is a new incident.
@@ -5330,7 +5348,7 @@ impl GithubState {
         self.next_pending_token = 0;
         self.etags.clear();
         self.selected = None;
-        self.rate_limited_until = None;
+        self.rate_limited_until.clear();
         // Per-token budget (docs/0050 D3): the usage book goes with
         // the account — a reconnect starts a fresh one.
         self.usage.lock().unwrap().reset();
@@ -7271,11 +7289,11 @@ mod tests {
         assert!(state.plan_tick(1).is_empty());
 
         state.auth = AuthStatus::Connected;
-        state.rate_limited_until = Some(u64::MAX);
+        state.rate_limited_until = RateLimitPause::both(u64::MAX);
         assert!(state.plan_tick(3).is_empty());
 
         // After the window passes, the tick resumes.
-        state.rate_limited_until = Some(0);
+        state.rate_limited_until = RateLimitPause::both(0);
         assert!(!state.plan_tick(1).is_empty());
     }
     #[test]
@@ -7346,9 +7364,12 @@ mod tests {
         state.notifications_attempted_at = Some(Instant::now() - Duration::from_secs(61));
         assert!(wants(&state), "past the streak-1 delay the lane re-fires");
 
-        // The rate-limit pause silences the trigger (docs/0036 D4).
-        state.rate_limited_until = Some(u64::MAX);
-        assert!(!wants(&state), "the pause gates the trigger");
+        // The REST pause silences the trigger (docs/0036 D4); a GraphQL
+        // pause doesn't (docs/0082 Q10).
+        state.rate_limited_until.arm(Lane::Graphql, u64::MAX);
+        assert!(wants(&state), "a GraphQL pause leaves the REST lane live");
+        state.rate_limited_until.arm(Lane::Rest, u64::MAX);
+        assert!(!wants(&state), "the REST pause gates the trigger");
     }
 
     // docs/0038 D7: a 304 counts as success in the lane's books — the
@@ -7802,8 +7823,15 @@ mod tests {
             "viewer":{"login":"noosxe","avatarUrl":"a","organizations":{"nodes":[]},
             "repositories":{"totalCount":0,"nodes":[]}}}}"#;
         state.apply(inventory_result(body, None));
-        assert_eq!(state.rate_limited_until, Some(1_893_456_000));
-        assert!(state.plan_tick(5).is_empty());
+        // The GraphQL body pauses the GraphQL lane only (docs/0082 Q10).
+        assert_eq!(state.rate_limited_until.graphql, Some(1_893_456_000));
+        assert_eq!(state.rate_limited_until.rest, None);
+        assert!(
+            state
+                .plan_tick(5)
+                .iter()
+                .all(|spec| spec.kind.lane() == Lane::Rest)
+        );
     }
 
     // --- Repo-scoped lanes (docs/0077) ---------------------------------
@@ -8566,8 +8594,16 @@ mod tests {
             &spec,
             std::time::Instant::now(),
         ));
-        assert_eq!(state.rate_limited_until, Some(9_999_999_999));
-        assert!(state.plan_tick(1).is_empty());
+        // A REST 403 pauses REST only (docs/0082 Q10).
+        assert_eq!(state.rate_limited_until.rest, Some(9_999_999_999));
+        assert_eq!(state.rate_limited_until.graphql, None);
+        assert!(
+            state
+                .plan_tick(1)
+                .iter()
+                .all(|spec| spec.kind.lane() == Lane::Graphql),
+            "only the GraphQL lane plans"
+        );
     }
 
     // --- Card + persistence ----------------------------------------------
@@ -11694,7 +11730,12 @@ mod tests {
             commits_body(4, Some("c4 1"), &["c4", "c3"]),
             None,
         ));
-        state.rate_limited_until = Some(now_epoch() + 600);
+        // A REST pause leaves the GraphQL lane paging (docs/0082 Q10).
+        state.rate_limited_until.arm(Lane::Rest, budget_now() + 600);
+        assert!(!state.gated_for(Lane::Graphql));
+        state
+            .rate_limited_until
+            .arm(Lane::Graphql, budget_now() + 600);
         assert!(
             state
                 .commits_more_spec("o/r", &CommitsKey::default(), Origin::BACKGROUND)

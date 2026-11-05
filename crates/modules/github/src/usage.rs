@@ -1,6 +1,6 @@
-//! API-usage calculator (docs/0050): count every GitHub-bound request,
-//! account for it the way GitHub does, and show the budget in a footer
-//! chip while the GitHub module is on screen.
+//! API-usage calculator (docs/0050): count every GitHub-bound request
+//! and account for it the way GitHub does. The footer chip that shows
+//! the budget lives next door in [`crate::usage_chip`].
 //!
 //! The core decision (0050 §1): **GitHub's server-reported numbers are
 //! the ledger.** There is no client-side cost formula anywhere — every
@@ -11,34 +11,23 @@
 //!
 //! Two primary budgets, not one (0050 D1): GitHub enforces REST (`core`)
 //! and GraphQL as **separate** primary limits with separate counters and
-//! separate windows — each response reports its own API's bucket, and
-//! the chip shows both remaining values (`GH 3,712 · GQL 4,950`), with
-//! the `x/y` + per-window detail in a hover tooltip and the spoken
-//! label. A GraphQL value shows `?` until the first GraphQL response
-//! lands: `GET /rate_limit`'s `resources.graphql` is a phantom
-//! (always 5,000/0-used, §2) and can never supply it.
+//! separate windows — each response reports its own API's bucket. A
+//! GraphQL value stays missing until the first GraphQL response lands:
+//! `GET /rate_limit`'s `resources.graphql` is a phantom (always
+//! 5,000/0-used, §2) and can never supply it.
 //!
 //! Sections: the pure book (D3, unit-tested without gpui) → the
-//! counting seam (D2, a decorator around `dyn Http`) → the footer chip
-//! (D5, a self-refreshing view contributed through
-//! `ModuleEntry::status_item`).
+//! counting seam (D2, a decorator around `dyn Http`).
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use gpui::*;
-use gpui_component::{
-    ActiveTheme as _, IconName, Sizable as _,
-    button::{Button, ButtonVariants},
-    h_flex, v_flex,
-};
+use gpui::SharedString;
 
-use dashboard_core::nav::{Navigator, Page};
 use dashboard_core::usage_records::{RecordDraft, Recorder, Transport};
 
 use crate::http::{Http, HttpError, HttpResult, RateLimit, Verb};
-use crate::service::GithubState;
 
 /// Shared ledger handle — the `SharedToken` precedent (docs/0050 D2): a
 /// small cross-thread slot between the background request path (the
@@ -147,14 +136,11 @@ pub(crate) enum UsageDisplay {
     Pending,
     /// At least one bucket's snapshot is present. `rest` / `graphql`
     /// are the two separate primary budgets (D1); `None` = that bucket
-    /// has not reported yet (rendered as an ellipsis).
+    /// has not reported yet (rendered as a placeholder).
     Budget {
         rest: Option<BucketDisplay>,
         graphql: Option<BucketDisplay>,
     },
-    /// The operational backoff (`rate_limited_until`) is in future —
-    /// shown over any snapshot (0050 D4).
-    Exhausted { resumes_in_secs: u64 },
 }
 
 /// One sub-budget's books: the last server snapshot plus this bucket's
@@ -323,17 +309,10 @@ impl UsageBook {
         )
     }
 
-    /// The single display derivation (D3 table). `rate_limited_until`
-    /// is read, never written, here — it stays the operational truth
-    /// (D4).
-    pub(crate) fn display(&self, now: u64, rate_limited_until: Option<u64>) -> UsageDisplay {
-        if let Some(until) = rate_limited_until
-            && until > now
-        {
-            return UsageDisplay::Exhausted {
-                resumes_in_secs: until - now,
-            };
-        }
+    /// The single display derivation (D3 table). The per-budget pause
+    /// (`rate_limited_until`, D4) is not the book's: the chip lays it
+    /// over each bucket ([`crate::usage_chip`]).
+    pub(crate) fn display(&self, now: u64) -> UsageDisplay {
         let rest = self.rest.display(now);
         let graphql = self.graphql.display(now);
         if rest.is_none() && graphql.is_none() {
@@ -905,294 +884,6 @@ impl Http for CountingHttp {
 }
 
 // ---------------------------------------------------------------------------
-// The footer chip (D5) — contributed through `ModuleEntry::status_item`.
-// ---------------------------------------------------------------------------
-
-/// Self-refreshing status chip (docs/0050 D5): renders the display
-/// derivation of the shared book, and re-renders only when its content
-/// actually changes. Created once in `lib.rs::init`; the status-item
-/// closure shows it only while the GitHub module page is active.
-pub(crate) struct UsageChip {
-    state: Entity<GithubState>,
-    usage: UsageLedger,
-    /// The chip → page hook (docs/0054 §1): the details affordance
-    /// navigates to the analytics page. The chip's own popover is
-    /// unchanged — this only adds the way in.
-    nav: Entity<Navigator>,
-}
-
-impl UsageChip {
-    pub fn new(
-        state: Entity<GithubState>,
-        usage: UsageLedger,
-        nav: Entity<Navigator>,
-        cx: &mut Context<Self>,
-    ) -> Self {
-        // 1 Hz self-refresh (D5): one short mutex read per second; the
-        // notify fires only on an actual content change, so a stable
-        // budget draws nothing. The chip is captured for the app's
-        // lifetime by the status-item closure, so this loop never
-        // outlives anything it reads.
-        let timer_state = state.clone();
-        let timer_usage = usage.clone();
-        cx.spawn(async move |this, cx| {
-            let mut last_key: Option<String> = None;
-            loop {
-                cx.background_executor()
-                    .timer(std::time::Duration::from_secs(1))
-                    .await;
-                let key = cx.update(|cx| {
-                    let rate_limited_until = timer_state.read(cx).rate_limited_until;
-                    let book = timer_usage.lock().unwrap();
-                    format!("{:?}", book.display(budget_now(), rate_limited_until))
-                });
-                if last_key.as_deref() != Some(key.as_str()) {
-                    last_key = Some(key);
-                    let _ = this.update(cx, |_, cx| cx.notify());
-                }
-            }
-        })
-        .detach();
-        Self { state, usage, nav }
-    }
-
-    fn current_display(&self, cx: &App) -> (UsageDisplay, (u64, u64, u64, u64)) {
-        let rate_limited_until = self.state.read(cx).rate_limited_until;
-        let book = self.usage.lock().unwrap();
-        (
-            book.display(budget_now(), rate_limited_until),
-            book.session_counters(),
-        )
-    }
-}
-
-/// Thousands-group a number for the chip body (`4,821`) — the D5 copy.
-fn group_thousands(n: u32) -> String {
-    let s = n.to_string();
-    let mut out = String::with_capacity(s.len() + s.len() / 3);
-    for (i, ch) in s.chars().enumerate() {
-        if i > 0 && (s.len() - i).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(ch);
-    }
-    out
-}
-
-/// Compact countdown for the chip body (`41m`, `1h 05m`) — the D5 copy.
-fn compact_duration(secs: u64) -> String {
-    let m = secs / 60;
-    if m < 60 {
-        format!("{m}m")
-    } else {
-        format!("{}h {:02}m", m / 60, m % 60)
-    }
-}
-
-/// Spoken countdown for the a11y label (`41 minutes`, `1 hour 5 minutes`).
-fn spoken_duration(secs: u64) -> String {
-    let m = secs / 60;
-    if m < 60 {
-        format!("{m} minutes")
-    } else {
-        format!("{} hours {} minutes", m / 60, m % 60)
-    }
-}
-
-/// `14:03` from an epoch — the stale display's "as of" wall clock.
-fn local_hhmm(epoch: u64) -> String {
-    use chrono::TimeZone as _;
-    chrono::Local
-        .timestamp_opt(epoch as i64, 0)
-        .single()
-        .map(|t| t.format("%H:%M").to_string())
-        .unwrap_or_else(|| "??:??".into())
-}
-
-/// One bucket's chip-body fragment: remaining only (`3,712`) — the
-/// limits and windows live in the hover tooltip and the spoken label
-/// (D5).
-fn bucket_short(d: Option<BucketDisplay>) -> String {
-    match d {
-        None => "…".to_string(),
-        Some(d) => group_thousands(d.remaining),
-    }
-}
-
-/// The chip body from a display derivation: `GH 3,712 · GQL 4,950` —
-/// remaining values only (D5). A REST bucket with no snapshot yet
-/// shows `…`; the GraphQL bucket shows `?` until the first real
-/// GraphQL response lands (the probe cannot supply it — §2).
-fn chip_body(display: &UsageDisplay) -> (String, bool) {
-    match display {
-        UsageDisplay::Pending => ("GH … · GQL ?".to_string(), false),
-        UsageDisplay::Budget { rest, graphql } => (
-            format!(
-                "GH {} · GQL {}",
-                bucket_short(*rest),
-                graphql.map_or_else(|| "?".to_string(), |d| group_thousands(d.remaining))
-            ),
-            false,
-        ),
-        UsageDisplay::Exhausted { resumes_in_secs } => (
-            format!(
-                "GH rate-limited · resumes {}",
-                compact_duration(*resumes_in_secs)
-            ),
-            true,
-        ),
-    }
-}
-
-/// One bucket's hover-tooltip line: `GH 3,712/5,000 resets in 13m` —
-/// the line a stale window trades for its "as of" clock, since its
-/// countdown already ran out (D5). `missing` is the no-snapshot
-/// placeholder — `…/…` for REST, `?` for the probe-unservable GQL.
-fn tooltip_line(name: &str, missing: &str, d: Option<BucketDisplay>) -> String {
-    match d {
-        None => format!("{name} {missing}"),
-        Some(d) => {
-            let head = format!(
-                "{name} {}/{}",
-                group_thousands(d.remaining),
-                group_thousands(d.limit)
-            );
-            if d.stale {
-                match d.snapshot_at {
-                    Some(at) => format!("{head} · as of {}", local_hhmm(at)),
-                    None => head,
-                }
-            } else {
-                format!("{head} resets in {}", compact_duration(d.resets_in_secs))
-            }
-        }
-    }
-}
-
-/// One bucket's spoken fragment for the a11y label.
-fn bucket_label(name: &str, unit: &str, d: Option<BucketDisplay>) -> String {
-    match d {
-        None => format!("{name}: no data yet"),
-        Some(d) => {
-            let mut out = format!(
-                "{name}: {} of {} {} remaining, resets in {}",
-                group_thousands(d.remaining),
-                group_thousands(d.limit),
-                unit,
-                spoken_duration(d.resets_in_secs)
-            );
-            if d.stale
-                && let Some(at) = d.snapshot_at
-            {
-                out = format!("{out}, last updated {}", local_hhmm(at));
-            }
-            out
-        }
-    }
-}
-
-impl Render for UsageChip {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let (display, counters) = self.current_display(cx);
-        let (total, graphql, rest, auth) = counters;
-        let session =
-            format!("session: {total} requests ({graphql} GraphQL, {rest} REST, {auth} auth)");
-
-        // Spoken form per D5 — the sole a11y carrier (a hover tooltip
-        // is mouse-only): both sub-budgets spelled out with their own
-        // windows and units, plus session counters and staleness.
-        let label = match &display {
-            UsageDisplay::Pending => format!("GitHub API usage pending; {session}"),
-            UsageDisplay::Budget { rest, graphql } => format!(
-                "GitHub API: {}; {}; {session}",
-                bucket_label("REST", "requests", *rest),
-                bucket_label("GraphQL", "points", *graphql)
-            ),
-            UsageDisplay::Exhausted { resumes_in_secs } => format!(
-                "GitHub API rate limited, fetches resume in {}; {session}",
-                spoken_duration(*resumes_in_secs)
-            ),
-        };
-        let (body, warning) = chip_body(&display);
-
-        let color = if warning {
-            cx.theme().warning
-        } else {
-            cx.theme().muted_foreground
-        };
-        // The hover tooltip (D5): built fresh at hover time from the
-        // same ledger — `GH x/y resets in Zm` / `GQL x/y resets in Zm`.
-        // It is deliberately additive detail for sighted mouse users;
-        // the aria label above stays the sole a11y carrier (0049).
-        let tooltip_usage = self.usage.clone();
-        // The details affordance (docs/0054 §1): a small icon button
-        // beside the chip body — the chip's numbers stay one glance;
-        // "what does this mean over time" is a navigation away.
-        let nav = self.nav.clone();
-        let chip = h_flex()
-            .gap_1()
-            .id("github-usage")
-            .role(accesskit::Role::Label)
-            .aria_label(label)
-            .text_color(color)
-            .child(SharedString::from(body))
-            .tooltip(move |_window, cx| {
-                // Read the book as it is when the tooltip opens; the
-                // rate-limit pause is passed `None` so the tooltip shows
-                // the budget detail even while the chip reads Exhausted.
-                let book = tooltip_usage.lock().unwrap();
-                let display = book.display(budget_now(), None);
-                let lines = match display {
-                    UsageDisplay::Budget { rest, graphql } => {
-                        vec![
-                            tooltip_line("GH", "…/…", rest),
-                            tooltip_line("GQL", "?", graphql),
-                        ]
-                    }
-                    _ => vec!["GH …/…".to_string(), "GQL …/…".to_string()],
-                };
-                cx.new(|_| UsageTooltip { lines }).into()
-            });
-        h_flex().gap_1().items_center().child(chip).child(
-            Button::new("github-usage-details")
-                .ghost()
-                .small()
-                .icon(IconName::ChartPie)
-                .accessibility_label("Usage analytics")
-                .tooltip("Usage analytics — cards, burn-down and latency trends")
-                .on_click(move |_, _, cx| {
-                    nav.update(cx, |nav, cx| nav.go(Page::Usage, cx));
-                }),
-        )
-    }
-}
-
-/// The chip's hover tooltip (D5): two lines, one per primary budget.
-struct UsageTooltip {
-    lines: Vec<String>,
-}
-
-impl Render for UsageTooltip {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.theme();
-        let (popover, foreground, border) = (theme.popover, theme.popover_foreground, theme.border);
-        v_flex()
-            .id("github-usage-tooltip")
-            .role(accesskit::Role::Label)
-            .aria_label(self.lines.join("; "))
-            .bg(popover)
-            .text_color(foreground)
-            .border_1()
-            .border_color(border)
-            .rounded_sm()
-            .px_2()
-            .py_1()
-            .gap_1()
-            .children(self.lines.iter().cloned().map(SharedString::from))
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Tests (docs/0050 D6) — the pure book is the bulk; the seam is exercised
 // over the scripted mock transport.
 // ---------------------------------------------------------------------------
@@ -1204,9 +895,8 @@ mod tests {
     // attribute and blow the proc-macro stack (rustc SIGSEGV; the
     // page.rs tests note). Import selectively.
     use super::{
-        Bucket, BudgetSnapshot, CountingHttp, UsageBook, UsageDisplay, UsageLedger, bucket_label,
-        chip_body, compact_duration, group_thousands, parse_rate_limit_body, spoken_duration,
-        tooltip_line,
+        Bucket, BudgetSnapshot, CountingHttp, UsageBook, UsageDisplay, UsageLedger,
+        parse_rate_limit_body,
     };
     use crate::http::{HttpError, HttpResult, RateLimit, Verb};
     use std::sync::{Arc, Mutex};
@@ -1261,7 +951,7 @@ mod tests {
     #[test]
     fn no_snapshot_displays_pending() {
         let book = UsageBook::default();
-        assert_eq!(book.display(1_000, None), UsageDisplay::Pending);
+        assert_eq!(book.display(1_000), UsageDisplay::Pending);
     }
 
     #[test]
@@ -1280,7 +970,7 @@ mod tests {
         book.on_request_start(Bucket::Primary, true);
         book.on_response(Bucket::Primary, true, Some(snap(5000, 4_950, 2_570)), 1_000);
         assert_eq!(
-            stripped(book.display(2_000, None)),
+            stripped(book.display(2_000)),
             budget(
                 Some((3_700, 5000, 780, false)),
                 Some((4_950, 5000, 570, false)),
@@ -1295,7 +985,7 @@ mod tests {
             1_500,
         );
         assert_eq!(
-            stripped(book.display(2_000, None)),
+            stripped(book.display(2_000)),
             budget(
                 Some((3_690, 5000, 780, false)),
                 Some((4_950, 5000, 570, false)),
@@ -1309,7 +999,7 @@ mod tests {
         book.on_request_start(Bucket::Primary, true);
         book.on_response(Bucket::Primary, true, Some(snap(5000, 4_999, 2_000)), 1_000);
         assert_eq!(
-            stripped(book.display(1_200, None)),
+            stripped(book.display(1_200)),
             budget(None, Some((4_999, 5000, 800, false)))
         );
     }
@@ -1326,7 +1016,7 @@ mod tests {
         book.on_request_start(Bucket::Primary, false);
         book.on_request_start(Bucket::Primary, true);
         assert_eq!(
-            stripped(book.display(1_100, None)),
+            stripped(book.display(1_100)),
             budget(Some((5, 5000, 900, false)), Some((2, 5000, 900, false)))
         );
 
@@ -1334,14 +1024,14 @@ mod tests {
         // last snapshot stands until a carrying response replaces it.
         book.on_response(Bucket::Primary, true, None, 1_150);
         assert_eq!(
-            stripped(book.display(1_200, None)),
+            stripped(book.display(1_200)),
             budget(Some((5, 5000, 800, false)), Some((2, 5000, 800, false)))
         );
         // A REST transport failure clears one bookkept slot; the
         // shown values still mirror the last snapshot verbatim.
         book.on_failure(Bucket::Primary, false);
         assert_eq!(
-            stripped(book.display(1_300, None)),
+            stripped(book.display(1_300)),
             budget(Some((5, 5000, 700, false)), Some((2, 5000, 700, false)))
         );
     }
@@ -1352,7 +1042,7 @@ mod tests {
         book.on_response(Bucket::Primary, false, Some(snap(5000, 120, 2_000)), 1_000);
         book.on_response(Bucket::Primary, true, Some(snap(5000, 4_940, 3_000)), 1_000);
         // Past the REST window: REST goes stale, GraphQL does not.
-        let UsageDisplay::Budget { rest, graphql } = book.display(2_100, None) else {
+        let UsageDisplay::Budget { rest, graphql } = book.display(2_100) else {
             panic!("expected a budget display");
         };
         let rest = rest.expect("rest snapshot");
@@ -1361,29 +1051,6 @@ mod tests {
         assert_eq!(rest.resets_in_secs, 0);
         assert!(!graphql.stale);
         assert_eq!(graphql.resets_in_secs, 900);
-    }
-
-    #[test]
-    fn rate_limited_backoff_wins_over_any_snapshot() {
-        // D4: the operational pause is global today — an exhausted
-        // bucket halts both lanes; the display defers to it.
-        let mut book = UsageBook::default();
-        book.on_response(Bucket::Primary, false, Some(snap(5000, 0, 9_000)), 1_000);
-        book.on_response(Bucket::Primary, true, Some(snap(5000, 4_000, 9_000)), 1_000);
-        assert_eq!(
-            stripped(book.display(2_000, Some(5_000))),
-            UsageDisplay::Exhausted {
-                resumes_in_secs: 3_000
-            }
-        );
-        // An expired backoff defers to the snapshots again.
-        assert_eq!(
-            stripped(book.display(5_001, Some(5_000))),
-            budget(
-                Some((0, 5000, 3_999, false)),
-                Some((4_000, 5000, 3_999, false))
-            )
-        );
     }
 
     #[test]
@@ -1399,7 +1066,7 @@ mod tests {
         // starts are bookkept but shown values stay verbatim.
         book.seed_snapshots(snap(5000, 5_000, 2_000), snap(5000, 5_000, 2_000), 1_000);
         assert_eq!(
-            stripped(book.display(1_100, None)),
+            stripped(book.display(1_100)),
             budget(
                 Some((5_000, 5000, 900, false)),
                 Some((5_000, 5000, 900, false)),
@@ -1408,7 +1075,7 @@ mod tests {
         // Auth/other requests never touch either primary book.
         book.on_failure(Bucket::Auth, false);
         assert_eq!(
-            stripped(book.display(1_100, None)),
+            stripped(book.display(1_100)),
             budget(
                 Some((5_000, 5000, 900, false)),
                 Some((5_000, 5000, 900, false))
@@ -1418,7 +1085,7 @@ mod tests {
         book.on_response(Bucket::Primary, true, None, 1_200);
         book.on_response(Bucket::Primary, true, None, 1_200);
         assert_eq!(
-            stripped(book.display(1_300, None)),
+            stripped(book.display(1_300)),
             budget(
                 Some((5_000, 5000, 700, false)),
                 Some((5_000, 5000, 700, false))
@@ -1434,7 +1101,7 @@ mod tests {
         book.on_response(Bucket::Primary, false, Some(snap(5000, 2, 2_000)), 1_000);
         book.mark_probe(1_000);
         book.reset();
-        assert_eq!(book.display(1_100, None), UsageDisplay::Pending);
+        assert_eq!(book.display(1_100), UsageDisplay::Pending);
         assert_eq!(book.session_counters(), (0, 0, 0, 0));
         assert!(book.probe_due(1_100)); // cooldown wiped too
     }
@@ -1473,7 +1140,7 @@ mod tests {
         // The probe folds `resources.core` only.
         book.fold_probe(snap(5000, 3_712, 2_780), 2_000);
         assert_eq!(
-            stripped(book.display(2_000, None)),
+            stripped(book.display(2_000)),
             budget(
                 Some((3_712, 5000, 780, false)),
                 Some((29, 5000, 570, false)), // untouched — traffic's number
@@ -1483,7 +1150,7 @@ mod tests {
         // A later probe re-folds core; graphql still never moves.
         book.fold_probe(snap(5000, 3_700, 2_780), 2_500);
         assert_eq!(
-            stripped(book.display(2_500, None)),
+            stripped(book.display(2_500)),
             budget(Some((3_700, 5000, 280, false)), Some((29, 5000, 70, false)),)
         );
     }
@@ -1535,7 +1202,7 @@ mod tests {
         let book = ledger.lock().unwrap();
         assert_eq!(book.session_counters(), (2, 1, 1, 0));
         assert_eq!(
-            stripped(book.display(2_000, None)),
+            stripped(book.display(2_000)),
             budget(
                 Some((3_700, 5000, 780, false)),
                 None, // GraphQL answer carried no rate info
@@ -1560,7 +1227,7 @@ mod tests {
             .unwrap();
 
         let book = ledger.lock().unwrap();
-        let UsageDisplay::Budget { rest, graphql } = book.display(1_000, None) else {
+        let UsageDisplay::Budget { rest, graphql } = book.display(1_000) else {
             panic!("expected a budget display");
         };
         assert_eq!(rest, None); // no REST traffic — core bucket untouched
@@ -1622,7 +1289,7 @@ mod tests {
         // Auth POST → auth lane; example.com → Other (no lane);
         // no primary REST traffic at all.
         assert_eq!(book.session_counters(), (2, 0, 0, 1));
-        assert_eq!(book.display(1_000, None), UsageDisplay::Pending);
+        assert_eq!(book.display(1_000), UsageDisplay::Pending);
     }
 
     #[test]
@@ -1638,7 +1305,7 @@ mod tests {
         );
         let book = ledger.lock().unwrap();
         assert_eq!(book.session_counters(), (1, 0, 1, 0)); // primary REST lane
-        assert_eq!(book.display(1_000, None), UsageDisplay::Pending);
+        assert_eq!(book.display(1_000), UsageDisplay::Pending);
     }
 
     // --- probe body + formatters -------------------------------------------
@@ -1674,106 +1341,5 @@ mod tests {
         .to_string();
         assert_eq!(parse_rate_limit_body(&gql_only), None);
         assert_eq!(parse_rate_limit_body("[]"), None);
-    }
-
-    #[test]
-    fn chip_copy_formatters() {
-        assert_eq!(group_thousands(0), "0");
-        assert_eq!(group_thousands(5000), "5,000");
-        assert_eq!(group_thousands(4821), "4,821");
-        assert_eq!(compact_duration(41 * 60), "41m");
-        assert_eq!(compact_duration(65 * 60), "1h 05m");
-        assert_eq!(spoken_duration(41 * 60), "41 minutes");
-        assert_eq!(spoken_duration(65 * 60), "1 hours 5 minutes");
-        let none = super::BucketDisplay {
-            remaining: 1,
-            limit: 1,
-            resets_in_secs: 0,
-            stale: false,
-            snapshot_at: None,
-        };
-        assert_eq!(bucket_label("REST", "requests", None), "REST: no data yet");
-        assert_eq!(
-            bucket_label("GraphQL", "points", Some(none)),
-            "GraphQL: 1 of 1 points remaining, resets in 0 minutes"
-        );
-    }
-
-    #[test]
-    fn chip_body_shows_remaining_only() {
-        let rest = super::BucketDisplay {
-            remaining: 3_712,
-            limit: 5_000,
-            resets_in_secs: 13 * 60,
-            stale: false,
-            snapshot_at: Some(1_000),
-        };
-        let gql = super::BucketDisplay {
-            remaining: 4_950,
-            limit: 5_000,
-            resets_in_secs: 9 * 60,
-            stale: false,
-            snapshot_at: Some(1_000),
-        };
-        // No limits, no windows in the visible body (D5) — those moved
-        // to the tooltip and the spoken label.
-        assert_eq!(
-            chip_body(&UsageDisplay::Budget {
-                rest: Some(rest),
-                graphql: Some(gql),
-            }),
-            ("GH 3,712 · GQL 4,950".to_string(), false)
-        );
-        // A missing bucket renders an ellipsis, the other still shows.
-        assert_eq!(
-            chip_body(&UsageDisplay::Budget {
-                rest: None,
-                graphql: Some(gql)
-            }),
-            ("GH … · GQL 4,950".to_string(), false)
-        );
-        assert_eq!(
-            chip_body(&UsageDisplay::Pending),
-            ("GH … · GQL ?".to_string(), false)
-        );
-        assert_eq!(
-            chip_body(&UsageDisplay::Exhausted {
-                resumes_in_secs: 12 * 60
-            }),
-            ("GH rate-limited · resumes 12m".to_string(), true)
-        );
-    }
-
-    #[test]
-    fn tooltip_lines_carry_limit_and_window() {
-        let rest = super::BucketDisplay {
-            remaining: 3_712,
-            limit: 5_000,
-            resets_in_secs: 13 * 60,
-            stale: false,
-            snapshot_at: Some(1_000),
-        };
-        let gql = super::BucketDisplay {
-            remaining: 4_950,
-            limit: 5_000,
-            resets_in_secs: 9 * 60,
-            stale: false,
-            snapshot_at: Some(1_000),
-        };
-        assert_eq!(
-            tooltip_line("GH", "…/…", Some(rest)),
-            "GH 3,712/5,000 resets in 13m"
-        );
-        assert_eq!(
-            tooltip_line("GQL", "?", Some(gql)),
-            "GQL 4,950/5,000 resets in 9m"
-        );
-        assert_eq!(tooltip_line("GQL", "?", None), "GQL ?");
-        assert_eq!(tooltip_line("GH", "…/…", None), "GH …/…");
-        // A stale window swaps its countdown for the as-of clock —
-        // the exact clock is local-time, so assert the shape.
-        let stale = super::BucketDisplay { stale: true, ..gql };
-        let line = tooltip_line("GQL", "?", Some(stale));
-        assert!(line.starts_with("GQL 4,950/5,000 · as of "), "got: {line}");
     }
 }

@@ -19,6 +19,7 @@ pub(super) use requests::{RequestBand, RequestQuery, RequestsData, span as reque
 
 use super::UsageView;
 use super::range::{self, BUDGET_MODULE};
+use crate::usage_analytics::live::BudgetPauses;
 use crate::usage_analytics::surfaces::{
     self, Avoidable, AvoidableQuery, Budget, BudgetCards, BudgetCardsQuery, BudgetScope,
     HistoryQuery, Preset, SpendDimension, WhereItWent, WhereQuery, WindowHistory,
@@ -57,6 +58,9 @@ pub(super) struct ViewKey {
     /// D10's query bar and the log's sort; the default on the Budget
     /// view, for the same reason.
     pub requests: RequestQuery,
+    /// The per-budget pause read with the freeze (Q10); the cards show
+    /// a paused budget as Exhausted.
+    pub pauses: BudgetPauses,
 }
 
 impl ViewKey {
@@ -81,7 +85,14 @@ impl ViewKey {
                 UsageView::Budget => RequestQuery::default(),
                 UsageView::Requests => requests,
             },
+            pauses: BudgetPauses::default(),
         }
+    }
+
+    /// The key with the pauses read at the freeze.
+    pub(super) fn with_pauses(mut self, pauses: BudgetPauses) -> Self {
+        self.pauses = pauses;
+        self
     }
 }
 
@@ -101,7 +112,7 @@ impl Band {
     pub(super) fn stale(self, shown: &ViewKey, target: &ViewKey) -> bool {
         let window = shown.as_of_ms != target.as_of_ms || shown.preset != target.preset;
         match self {
-            Band::Cards => window,
+            Band::Cards => window || shown.pauses != target.pauses,
             Band::History | Band::Avoidable => window || shown.budget != target.budget,
             Band::Where => window || shown.budget != target.budget || shown.spend != target.spend,
         }
@@ -170,7 +181,7 @@ fn derive_budget(rows: &[UsageRecord], key: ViewKey, prev: Option<&BudgetData>) 
     BudgetData {
         key: key.clone(),
         cards: keep(Band::Cards).map_or_else(
-            || Arc::new(cards(rows, key.as_of_ms, key.preset)),
+            || Arc::new(cards(rows, key.as_of_ms, key.preset, key.pauses)),
             |p| p.cards.clone(),
         ),
         spend: keep(Band::Where).map_or_else(
@@ -212,17 +223,17 @@ fn derive_budget(rows: &[UsageRecord], key: ViewKey, prev: Option<&BudgetData>) 
     }
 }
 
-/// Band 1 (D4) for `preset`: both budgets, whatever is selected.
-fn cards(rows: &[UsageRecord], as_of_ms: u64, preset: Preset) -> BudgetCards {
+/// Band 1 (D4) for `preset`: both budgets, whatever is selected, each
+/// Exhausted while its own pause is in force (Q10).
+fn cards(rows: &[UsageRecord], as_of_ms: u64, preset: Preset, pauses: BudgetPauses) -> BudgetCards {
     surfaces::budget_cards(
         rows,
         &BudgetCardsQuery {
             module: BUDGET_MODULE.into(),
             as_of_ms,
             preset,
-            // The per-budget pause reaches the page with #699.
-            rest_paused_until_ms: None,
-            graphql_paused_until_ms: None,
+            rest_paused_until_ms: pauses.rest_until_ms,
+            graphql_paused_until_ms: pauses.graphql_until_ms,
         },
     )
 }
@@ -238,8 +249,8 @@ pub(super) fn local_offset_ms(as_of_ms: u64) -> i64 {
 }
 
 /// The D7 default (Q6): the budget with the smaller remaining fraction.
-pub(super) fn default_budget(rows: &[UsageRecord], as_of_ms: u64) -> Budget {
-    cards(rows, as_of_ms, Preset::CurrentWindow).default_budget
+pub(super) fn default_budget(rows: &[UsageRecord], as_of_ms: u64, pauses: BudgetPauses) -> Budget {
+    cards(rows, as_of_ms, Preset::CurrentWindow, pauses).default_budget
 }
 
 /// A finished read, derived in the read's background task.
@@ -261,6 +272,8 @@ pub(super) struct Controls {
     pub picked_budget: Option<Budget>,
     pub spend: SpendGroup,
     pub requests: RequestQuery,
+    /// The pauses read with the freeze (Q10).
+    pub pauses: BudgetPauses,
 }
 
 /// The read's background half after the store returns: the budget,
@@ -273,7 +286,7 @@ pub(super) fn land(
 ) -> Landed {
     let budget = controls
         .picked_budget
-        .unwrap_or_else(|| default_budget(&rows, as_of_ms));
+        .unwrap_or_else(|| default_budget(&rows, as_of_ms, controls.pauses));
     let key = ViewKey::new(
         as_of_ms,
         controls.view,
@@ -281,7 +294,8 @@ pub(super) fn land(
         budget,
         controls.spend,
         controls.requests,
-    );
+    )
+    .with_pauses(controls.pauses);
     let views = derive_views(&rows, key.clone(), None);
     Landed {
         rows,
@@ -320,6 +334,7 @@ mod tests {
             picked_budget: None,
             spend: SpendGroup::default(),
             requests: RequestQuery::default(),
+            pauses: BudgetPauses::default(),
         }
     }
 
@@ -361,6 +376,7 @@ mod tests {
                 budget: Budget::Graphql,
                 spend: SpendGroup::default(),
                 requests: RequestQuery::default(),
+                pauses: BudgetPauses::default(),
             }
         );
         assert_eq!(landed.rows.len(), 2);
@@ -383,6 +399,39 @@ mod tests {
             (Budget::Rest, Budget::Rest)
         );
         assert_eq!(b.cards.cards.len(), 2, "the cards always show both");
+    }
+
+    #[test]
+    fn a_pause_read_with_the_freeze_reaches_the_cards() {
+        use crate::usage_analytics::surfaces::ThresholdState;
+        // REST paused (Q10): its card reads Exhausted, GraphQL keeps its
+        // own state, and the paused budget becomes the D7 default.
+        let mut c = controls(UsageView::Budget, Preset::Trailing(Span::H24));
+        let pauses = BudgetPauses {
+            rest_until_ms: Some(AS_OF + 10 * MIN),
+            graphql_until_ms: None,
+        };
+        c.pauses = pauses;
+        let landed = land(rows(), false, AS_OF, c);
+        assert_eq!(landed.budget, Budget::Rest, "a paused budget has 0 left");
+        assert_eq!(landed.key.pauses, pauses);
+        let cards = landed.views.budget.expect("Budget bands").cards;
+        let state = |b: Budget| cards.cards.iter().find(|c| c.budget == b).unwrap().state;
+        assert_eq!(state(Budget::Rest), Some(ThresholdState::Exhausted));
+        assert_eq!(state(Budget::Graphql), Some(ThresholdState::Low));
+        // A pause the freeze has outlived is no pause.
+        let mut c = controls(UsageView::Budget, Preset::Trailing(Span::H24));
+        c.pauses.rest_until_ms = Some(AS_OF - MIN);
+        let cards = land(rows(), false, AS_OF, c).views.budget.unwrap().cards;
+        assert_ne!(
+            cards
+                .cards
+                .iter()
+                .find(|c| c.budget == Budget::Rest)
+                .unwrap()
+                .state,
+            Some(ThresholdState::Exhausted)
+        );
     }
 
     #[test]

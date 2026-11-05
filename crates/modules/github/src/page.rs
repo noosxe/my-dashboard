@@ -540,11 +540,12 @@ impl GithubPage {
         ) {
             return;
         }
-        // The rate-limit pause (and auth loss / a pending proactive
-        // refresh) silences the whole trigger — the same gate the tick
-        // loop obeys (docs/0036 D4): a refocus never feeds an
-        // exhausted point budget.
-        if self.state.read(cx).gated() {
+        // Auth loss, a pending proactive refresh or both budgets paused
+        // silence the whole trigger — the same gate the tick loop obeys
+        // (docs/0036 D4). With one budget paused, each lane below checks
+        // its own (docs/0082 Q10): a refocus never feeds an exhausted
+        // budget.
+        if self.state.read(cx).fully_gated() {
             return;
         }
         // Mutual exclusion (docs/0020 D1) — at most one slot is Some.
@@ -579,7 +580,8 @@ impl GithubPage {
                     crate::service::FOCUS_MIN_AGE,
                     Origin::new(Surface::RepoView, Trigger::Refocus),
                 )
-            }) {
+            }) && !self.state.read(cx).gated_for(spec.kind.lane())
+            {
                 let window = self.window;
                 let page = cx.entity();
                 cx.spawn(async move |_this, cx| {
@@ -600,7 +602,11 @@ impl GithubPage {
                     crate::service::FOCUS_MIN_AGE,
                     Origin::new(Surface::ModuleHome, Trigger::Refocus),
                 )
-            }) {
+            }) && !self
+                .state
+                .read(cx)
+                .gated_for(Kind::AccountPullRequests.lane())
+            {
                 let window = self.window;
                 let page = cx.entity();
                 cx.spawn(async move |_this, cx| {
@@ -1350,7 +1356,11 @@ impl GithubPage {
         }
         let (connected, gated, selected) = {
             let s = self.state.read(cx);
-            (s.auth.connected(), s.gated(), s.selected.clone())
+            (
+                s.auth.connected(),
+                s.gated_for(tab.lane().budget()),
+                s.selected.clone(),
+            )
         };
         if !connected || gated {
             return;
@@ -1969,7 +1979,10 @@ impl GithubPage {
     fn fetch_home_prs_shown(&mut self, cx: &mut Context<Self>) {
         let (connected, gated) = {
             let s = self.state.read(cx);
-            (s.auth.connected(), s.gated())
+            (
+                s.auth.connected(),
+                s.gated_for(Kind::AccountPullRequests.lane()),
+            )
         };
         if !connected || gated {
             return;
@@ -3715,7 +3728,11 @@ impl GithubPage {
     fn fetch_ref_branches(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let (connected, gated, selected) = {
             let s = self.state.read(cx);
-            (s.auth.connected(), s.gated(), s.selected.clone())
+            (
+                s.auth.connected(),
+                s.gated_for(Kind::RepoBranches.lane()),
+                s.selected.clone(),
+            )
         };
         let Some(full) = selected else {
             return;
@@ -3876,7 +3893,7 @@ impl GithubPage {
     fn offer_commits_book(&mut self, full: &str, window: &mut Window, cx: &mut Context<Self>) {
         let (connected, gated) = {
             let s = self.state.read(cx);
-            (s.auth.connected(), s.gated())
+            (s.auth.connected(), s.gated_for(Kind::RepoCommits.lane()))
         };
         if !connected || gated {
             return;
@@ -5490,11 +5507,16 @@ mod tests {
             "a fresh attempt backoffs the retry"
         );
 
-        // The rate-limit pause silences the whole beat (docs/0036 D4):
-        // no slot, a repo selected, rows never landed — still nothing.
+        // The pause of the lane's own budget silences the beat (docs/0036
+        // D4, per budget since docs/0082 Q10): no slot, a repo selected,
+        // rows never landed — the pulls lane is GraphQL, so a GraphQL
+        // pause leaves nothing to fire.
         cx.update(|_, cx| {
             page.update(cx, |p, _| p.pr = None);
-            state.update(cx, |s, _| s.rate_limited_until = Some(u64::MAX / 2));
+            state.update(cx, |s, _| {
+                s.rate_limited_until
+                    .arm(crate::rate_pause::Lane::Graphql, u64::MAX / 2)
+            });
             page.update(cx, |p, cx| p.refresh_open_page(cx));
         });
         cx.run_until_parked();
@@ -5509,7 +5531,7 @@ mod tests {
         // was never landed this session → its single spec dispatches
         // (docs/0035 D2, docs/0077 D3).
         cx.update(|_, cx| {
-            state.update(cx, |s, _| s.rate_limited_until = None);
+            state.update(cx, |s, _| s.rate_limited_until.clear());
             page.update(cx, |p, cx| p.refresh_open_page(cx));
         });
         cx.run_until_parked();

@@ -7,8 +7,9 @@ use gpui::prelude::*;
 use gpui::{App, FontWeight, SharedString, div, px};
 use gpui_component::{ActiveTheme, Icon, Sizable as _, h_flex, progress::Progress, v_flex};
 
-use super::{format, ladder};
+use super::format;
 use crate::ui::{CardVariant, card, section_header};
+use crate::usage_analytics::ladder;
 use crate::usage_analytics::surfaces::{
     BudgetCard, BudgetCards, Preset, Projection, ThresholdState,
 };

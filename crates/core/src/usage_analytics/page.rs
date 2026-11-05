@@ -14,6 +14,7 @@ use std::sync::Arc;
 use gpui::prelude::*;
 use gpui::{AnyElement, Context, FocusHandle, Render, ScrollHandle, Task, Window};
 
+use super::live::{self, BudgetPauses};
 use super::surfaces::{self, Bounds, Budget, Preset};
 use crate::usage_records::{self, UsageRecord};
 
@@ -98,6 +99,9 @@ pub struct UsagePage {
     /// Whether the last read found the store degraded (docs/0057 D6):
     /// the honesty line says history is paused (D18).
     degraded: bool,
+    /// The per-budget pause read with the freeze (Q10): moves with
+    /// `as_of_ms`, never per frame.
+    pauses: BudgetPauses,
     read: ReadState,
     /// Drops a superseded read: the newest refresh wins.
     read_gen: u64,
@@ -177,6 +181,12 @@ impl UsagePage {
         });
         page.budget_controls = Some(budget::Controls::new(page.spend, window, cx));
         page.requests_controls = Some(requests::Controls::new(&page.requests, window, cx));
+        // The chip opens the Budget view (D13), even on a page already
+        // open on Requests.
+        cx.observe_global::<live::BudgetViewRequest>(|page, cx| {
+            page.set_view(UsageView::Budget, cx)
+        })
+        .detach();
         // One load on first open (D10): the page never opens empty
         // demanding a click.
         page.reload(cx);
@@ -190,6 +200,7 @@ impl UsagePage {
             as_of_ms,
             rows: Arc::new(rows),
             degraded: false,
+            pauses: BudgetPauses::default(),
             read: ReadState::Ready,
             read_gen: 0,
             _read_task: None,
@@ -222,6 +233,8 @@ impl UsagePage {
     fn reload(&mut self, cx: &mut Context<Self>) {
         let from = self.as_of_ms.saturating_sub(READ_SPAN.ms());
         let to = self.as_of_ms;
+        // The pause is live state, read with the freeze like the rows.
+        self.pauses = live::pauses(cx);
         let controls = self.controls();
         let source = usage_records::source(cx);
         self.read_gen += 1;
@@ -271,6 +284,7 @@ impl UsagePage {
             picked_budget: self.picked_budget,
             spend: self.spend,
             requests: self.requests.clone(),
+            pauses: self.pauses,
         }
     }
 
@@ -284,6 +298,7 @@ impl UsagePage {
             self.spend,
             self.requests.clone(),
         )
+        .with_pauses(self.pauses)
     }
 
     /// Re-derive the active view's data on the background executor if
@@ -634,6 +649,32 @@ mod tests {
             Some(p.view_key()),
             "the landed views are for the old budget, so the caller re-derives"
         );
+    }
+
+    #[gpui::test]
+    fn the_chip_opens_the_budget_view_and_the_read_carries_the_pause(cx: &mut TestAppContext) {
+        cx.update(gpui_component::init);
+        let store = Arc::new(MemorySink::default());
+        cx.update(|cx| init_with(cx, store.clone() as Arc<dyn UsageStore>));
+        let pauses = BudgetPauses {
+            rest_until_ms: None,
+            graphql_until_ms: Some(u64::MAX),
+        };
+        cx.update(|cx| live::set_pause_reader(cx, Arc::new(move |_| pauses)));
+        let nav = cx.new(|_| crate::nav::Navigator::default());
+        let (page, _window_ctx) = cx.add_window_view(UsagePage::new);
+        cx.run_until_parked();
+        page.update(cx, |p, cx| {
+            assert_eq!(p.pauses, pauses, "the freeze reads the live pause");
+            assert_eq!(p.view_key().pauses, pauses);
+            p.set_view(UsageView::Requests, cx);
+        });
+        cx.update(|cx| live::open_budget_view(&nav, cx));
+        cx.run_until_parked();
+        cx.update(|cx| {
+            assert_eq!(page.read(cx).view, UsageView::Budget);
+            assert_eq!(nav.read(cx).page, crate::nav::Page::Usage);
+        });
     }
 
     #[gpui::test]

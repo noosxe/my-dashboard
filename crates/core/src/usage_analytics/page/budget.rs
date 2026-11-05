@@ -20,7 +20,6 @@ mod avoidable;
 mod cards;
 mod format;
 mod history;
-mod ladder;
 mod spend;
 mod spend_table;
 
