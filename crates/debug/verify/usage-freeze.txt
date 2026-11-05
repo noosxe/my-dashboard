@@ -22,9 +22,10 @@ wait-frame
 
 snapshot opened
 
-# flip the range: 1h → 1w
-mouse down 400 85
-mouse up 400 85
+# flip the range: 24h → 7d (the right-aligned presets, docs/0082 D3;
+# the full rewrite for the new header is #700)
+mouse down 1085 81
+mouse up 1085 81
 wait-frame
 
 snapshot after-range

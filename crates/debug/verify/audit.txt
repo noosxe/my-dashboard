@@ -66,26 +66,30 @@ assert-baseline home
 # shifts every later element-path id. Structure is unchanged on every
 # surface but favicon (id-agnostic compare in that PR).
 click 14831572709305685087 --wait-frame
+# The page reads its history off the UI thread (docs/0082 D11): settle
+# on the loaded honesty line, never the "Reading history" one.
+wait-label "requests · as of"
 assert-label "as of"
 audit
+# The page opens on the Budget view (docs/0082 D1). The golden keeps
+# its pre-redesign name until #700 renames it `usage-budget`.
 assert-baseline usage-overview
 
-# The quota tab is the usage surface's other half (#535); its golden
-# pins the empty-ledger shape (a seeded-ledger re-capture is tracked
-# separately).
-# Its id moved with the GitHub page's Commits list (docs/0081 §12, an
-# entity built in the page's deferred boot step): usage, quota and hub
-# ids re-keyed with structure identical (id-agnostic compare in that
-# PR); the sidebar, bell and home-card ids held. Moved again, the same
-# way, with the Commits tab's branch selector (docs/0081 §13), built in
-# that same step.
-click 16590358183187069862 --wait-frame
-assert-label "Group by dimension"
-assert-baseline usage-quota
+# The Requests view is the usage page's other half (docs/0082 D1; the
+# quota tab it replaced retired with #696). The view-switch segment's
+# id derives like the sidebar's: stable on this fresh-boot route. Over
+# the empty ledger both views show the page-level Empty (0082 D18); the
+# golden pins that shape until #700's seeded re-capture.
+click 914798575727734911 --wait-frame
+assert-label "No requests recorded yet"
+audit
+assert-baseline usage-requests
 
 # Usage analytics → notification hub. The status bell is a popover
 # trigger (no Click action): the click lands via the announced
 # bounds-center fallback.
+# The hub golden pins the page beneath the popover too: it re-captured
+# with the Requests view underneath (#696).
 click 15320400995491321174 --wait-frame
 assert-label "Clear all"
 audit

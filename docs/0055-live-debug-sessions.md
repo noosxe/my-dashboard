@@ -417,7 +417,9 @@ screenshot opened
 ```
 
 Lines: the D6/D7 verbs plus `assert-label <substr>`,
-`assert-no-label <substr>`, `assert-focus <accesskit_id>`, `diff <a>
+`assert-no-label <substr>`, `wait-label <substr>` (polls up to 5 s for
+the label; for content that lands after a background read, such as the
+usage page since docs/0082 D11), `assert-focus <accesskit_id>`, `diff <a>
 <b>` (prints; `assert-diff-label <a> <b> <substr>` when a receipt
 needs "this label *changed* between snapshots"). `click` takes the
 CLI's atomic `--wait-frame[=ms]` (#530): the counter is sampled before
