@@ -1661,5 +1661,8 @@ pub fn request_log(rows: &[UsageRecord], q: &RequestLogQuery) -> RequestLog {
     }
 }
 
+/// D10's glance strip and Diagnostics (#698).
+pub mod diagnostics;
+
 #[cfg(test)]
 mod tests;

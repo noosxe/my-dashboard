@@ -1,4 +1,4 @@
-//! What every Budget band shares (docs/0082 D18, D21): the titled
+//! What every band of both views shares (docs/0082 D18, D21): the titled
 //! section, the muted summary line, the band-specific Empty, and the
 //! skeleton a band shows while its derivation is in flight.
 
@@ -11,14 +11,15 @@ use crate::ui::{empty_state, section_header};
 /// A band: its title (and the band's query bar, if any) over the body.
 pub(super) fn section(
     id: &'static str,
-    title: &'static str,
+    title: impl Into<SharedString>,
     bar: Option<impl IntoElement>,
     body: AnyElement,
 ) -> AnyElement {
+    let title = title.into();
     v_flex()
         .id(id)
         .role(gpui::accesskit::Role::Group)
-        .aria_label(title)
+        .aria_label(title.clone())
         .w_full()
         .gap_2()
         .child(

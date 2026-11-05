@@ -13,11 +13,10 @@ use gpui_component::{ActiveTheme, h_flex, v_flex};
 use super::derive::{Band, BudgetData};
 use super::header::segmented_stop;
 use super::range::budget_label;
-use super::{UsagePage, UsageView, derive, states};
+use super::{UsagePage, UsageView, band_frame, derive, states};
 use crate::usage_analytics::surfaces::Budget;
 
 mod avoidable;
-mod band_frame;
 mod cards;
 mod format;
 mod history;

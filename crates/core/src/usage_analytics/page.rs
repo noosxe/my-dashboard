@@ -5,20 +5,23 @@
 //! Code layout (0082 D15a): this file owns the page state, the read
 //! lifecycle and the render composition; each concern lives next door —
 //! [`header`], [`range`], [`honesty`], [`states`], [`layout`],
-//! [`derive`], [`chart`] — and each view has its own module
+//! [`derive`], [`chart`], [`band_frame`], [`format`] — and each view has
+//! its own module
 //! ([`budget`], [`requests`]).
 
 use std::sync::Arc;
 
 use gpui::prelude::*;
-use gpui::{AnyElement, Context, FocusHandle, Render, Task, Window};
+use gpui::{AnyElement, Context, FocusHandle, Render, ScrollHandle, Task, Window};
 
 use super::surfaces::{self, Bounds, Budget, Preset};
 use crate::usage_records::{self, UsageRecord};
 
+mod band_frame;
 mod budget;
 mod chart;
 mod derive;
+mod format;
 mod header;
 mod honesty;
 mod layout;
@@ -26,7 +29,7 @@ mod range;
 mod requests;
 mod states;
 
-use derive::{Band, Controls, Landed, SpendGroup, ViewData, ViewKey};
+use derive::{Band, Controls, Landed, RequestQuery, SpendGroup, ViewData, ViewKey};
 use honesty::Honesty;
 use range::{BUDGET_MODULE, DEFAULT_PRESET, READ_SPAN};
 
@@ -113,12 +116,24 @@ pub struct UsagePage {
     picked_budget: Option<Budget>,
     /// D7's `Group by` / `Then by`.
     spend: SpendGroup,
-    /// D19: the view switch, the range switch and the Budget selector,
-    /// one Tab stop each. `None` only in pure-derivation tests.
+    /// D10's query bar and the request log's sort.
+    requests: RequestQuery,
+    /// Whether D10's Diagnostics disclosure is open (collapsed by
+    /// default, component-local like the view).
+    diagnostics_open: bool,
+    /// D19: the view switch, the range switch, the Budget selector and
+    /// the Requests view's own stops, one Tab stop each. `None` only in
+    /// pure-derivation tests.
     focus: Option<Focus>,
     /// The Budget view's own controls (D7's selects). `None` only in
     /// pure-derivation tests.
     budget_controls: Option<budget::Controls>,
+    /// The Requests view's own controls (D10's selects and tables).
+    /// `None` only in pure-derivation tests.
+    requests_controls: Option<requests::Controls>,
+    /// The page scroll (D20): the request log sizes itself to its
+    /// viewport (Q8).
+    body_scroll: ScrollHandle,
     /// Kept in step with rows, view, preset and budget by
     /// [`UsagePage::derive`]; `render` only reads it.
     derived: Derived,
@@ -139,6 +154,10 @@ struct Focus {
     view: FocusHandle,
     range: FocusHandle,
     budget: FocusHandle,
+    /// D10's Transport facet (segmented).
+    transport: FocusHandle,
+    /// D10's Diagnostics disclosure.
+    diagnostics: FocusHandle,
 }
 
 impl UsagePage {
@@ -153,8 +172,11 @@ impl UsagePage {
             view: cx.focus_handle().tab_stop(true),
             range: cx.focus_handle().tab_stop(true),
             budget: cx.focus_handle().tab_stop(true),
+            transport: cx.focus_handle().tab_stop(true),
+            diagnostics: cx.focus_handle().tab_stop(true),
         });
         page.budget_controls = Some(budget::Controls::new(page.spend, window, cx));
+        page.requests_controls = Some(requests::Controls::new(&page.requests, window, cx));
         // One load on first open (D10): the page never opens empty
         // demanding a click.
         page.reload(cx);
@@ -176,8 +198,12 @@ impl UsagePage {
             budget: Budget::Rest,
             picked_budget: None,
             spend: SpendGroup::default(),
+            requests: RequestQuery::default(),
+            diagnostics_open: false,
             focus: None,
             budget_controls: None,
+            requests_controls: None,
+            body_scroll: ScrollHandle::new(),
             derived: Derived::default(),
             views: None,
             views_key: None,
@@ -244,6 +270,7 @@ impl UsagePage {
             preset: self.preset,
             picked_budget: self.picked_budget,
             spend: self.spend,
+            requests: self.requests.clone(),
         }
     }
 
@@ -255,6 +282,7 @@ impl UsagePage {
             self.preset,
             self.budget,
             self.spend,
+            self.requests.clone(),
         )
     }
 
@@ -264,12 +292,12 @@ impl UsagePage {
     /// superseded derivation never lands.
     fn rederive_views(&mut self, cx: &mut Context<Self>) {
         let key = self.view_key();
-        if self.read != ReadState::Ready || self.views_key == Some(key) {
+        if self.read != ReadState::Ready || self.views_key.as_ref() == Some(&key) {
             return;
         }
         self.views_gen += 1;
         let generation = self.views_gen;
-        self.views_key = Some(key);
+        self.views_key = Some(key.clone());
         let rows = self.rows.clone();
         let prev = self.views.clone();
         self._views_task = Some(cx.spawn(async move |this, cx| {
@@ -414,10 +442,10 @@ impl Render for UsagePage {
                 UsageView::Requests if self.rows.is_empty() => {
                     states::page_empty(self.view, cx).into_any_element()
                 }
-                UsageView::Requests => requests::body(cx).into_any_element(),
+                UsageView::Requests => self.render_requests(window, cx),
             }
         };
-        layout::frame(header, body, cx)
+        layout::frame(header, body, &self.body_scroll, cx)
     }
 }
 
