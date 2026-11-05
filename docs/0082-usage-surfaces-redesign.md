@@ -381,8 +381,9 @@ A query bar plus one chart and one table, both fed by one aggregate.
   view-level bar between band 1 and band 2, because bands 2, 3 and 4
   all depend on it. Its default is the budget with the **smaller
   remaining fraction** (Q6), REST on a tie or with no snapshot. A
-  budget the user picks holds across Refresh and range changes for
-  the page's life; only an unpicked selector follows the default. The
+  pick is component-local: it holds across Refresh and range changes
+  until the page closes, is not persisted, and the Q6 default applies
+  only while nothing has been picked. The
   cards (band 1) always show both budgets.
 - **Band query bar:**
   - `Group by` over Surface, Trigger, Operation, Target or Module;
