@@ -1515,6 +1515,8 @@ impl PrDetailPage {
             .items_center()
             .px_3()
             .py_2()
+            // The check rows' chevron column, so names align down the tab.
+            .child(div().flex_none().size_3())
             .child(
                 Icon::new(IconName::Pause)
                     .size_4()
@@ -4491,9 +4493,8 @@ impl PrDetailPage {
 
     /// Checks tab (D7): summary header outside the scroll (derived
     /// counts, pure fn; over the query's cap, the server's totals and the
-    /// cap row, #747), then one row per `statusCheckRollup.contexts`
-    /// member — icon + tone from the unified state, trailing
-    /// details-link button when the union member carries a URL.
+    /// cap row, #747), the waiting section, then one row per
+    /// `statusCheckRollup.contexts` member, failures first (#792).
     fn render_checks(&self, detail: Option<&gql::PrDetail>, cx: &Context<Self>) -> AnyElement {
         let Some(d) = detail else {
             if let Some(err) = self.detail_load_error(cx) {
@@ -4521,97 +4522,22 @@ impl PrDetailPage {
             .when(!checks::cap::is_capped(&d.checks), |header| {
                 header.border_b_1().border_color(cx.theme().border)
             })
-            .child(section_header(checks::cap::checks_header(
-                &d.checks,
-                d.rollup_state.as_deref(),
-                &counts,
-                waiting,
-            )));
+            .child(checks::header::render_header_line(
+                checks::header::header_parts(
+                    &d.checks,
+                    d.rollup_state.as_deref(),
+                    &counts,
+                    waiting,
+                ),
+                cx,
+            ));
         let mut rows: Vec<AnyElement> = self.render_gated_section(cx);
-        rows.extend(d.checks.nodes.iter().enumerate().map(|(i, check)| {
-            let (icon, color) = check_visual(check.state, cx);
-            let target = CheckTarget::of(d.head_oid.as_deref(), check);
-            let expanded = self.expanded_check.as_ref() == Some(&target.key);
-            // docs/0039 D3 as amended by docs/0076 D1: Actions-origin
-            // rows expand in every running state — the live watch owns
-            // in-progress ones. Status contexts and third-party checks
-            // keep the external-link affordance; docs/0066 Waiting rows
-            // stay with the gated-run flow.
-            let loggable = check.origin == gql::CheckOrigin::Actions
-                && check.state != gql::CheckState::Waiting;
-            let row = h_flex()
-                .id(SharedString::from(format!("pr-check-{i}")))
-                .gap_2()
-                .items_center()
-                .px_3()
-                .py_2()
-                // #397: running rows spin, GitHub-style; Spinner
-                // covers reduced-motion (static, zero frames) and
-                // keeps the animation inside the glyph's box.
-                .child(if check.state == gql::CheckState::Pending {
-                    Spinner::new().icon(icon).color(color).into_any_element()
-                } else {
-                    Icon::new(icon)
-                        .size_4()
-                        .text_color(color)
-                        .into_any_element()
-                })
-                .child(
-                    div()
-                        .text_sm()
-                        .min_w_0()
-                        .flex_1()
-                        .truncate()
-                        .child(check.name.clone()),
-                );
-            let row = row.when(loggable, |row| {
-                let page = cx.entity();
-                let target = target.clone();
-                row.child(
-                    // The wrapper carries the probe selector (docs/0010
-                    // D10 id discipline lives on the Button itself).
-                    div()
-                        .debug_selector(move || format!("check-log-toggle-{i}"))
-                        .child(
-                            Button::new(SharedString::from(format!("check-log-toggle-{i}")))
-                                .ghost()
-                                .xsmall()
-                                .icon(if expanded {
-                                    IconName::ChevronDown
-                                } else {
-                                    IconName::ChevronRight
-                                })
-                                .tooltip(if expanded { "Hide log" } else { "View log" })
-                                // docs/0049 D1: expand/collapse
-                                // semantics on the log toggle.
-                                .accessibility_label(if expanded { "Hide log" } else { "View log" })
-                                .toggled(expanded)
-                                .on_click(move |_, _, cx| {
-                                    page.update(cx, |this, cx| this.toggle_check_log(&target, cx))
-                                }),
-                        ),
-                )
-            });
-            let row = row.when_some(check.details_url.clone(), |row, url| {
-                row.child(
-                    Button::new(SharedString::from(format!("pr-check-open-{i}")))
-                        .ghost()
-                        .xsmall()
-                        .icon(IconName::ExternalLink)
-                        .tooltip("View details")
-                        .accessibility_label("Open check on GitHub")
-                        .on_click(move |_, _, cx| cx.open_url(&url)),
-                )
-            });
-            v_flex()
-                .border_b_1()
-                .border_color(cx.theme().border)
-                .child(row)
-                .when(expanded && loggable, |col| {
-                    col.child(self.render_check_log_pane(i, check, &target, cx))
-                })
-                .into_any_element()
-        }));
+        rows.extend(
+            checks::order::display_order(&d.checks.nodes)
+                .into_iter()
+                .enumerate()
+                .map(|(i, check)| self.render_check_row(i, check, d.head_oid.as_deref(), cx)),
+        );
         v_flex()
             .id("pr-checks")
             .flex_1()
@@ -6971,31 +6897,6 @@ pub(crate) fn checks_counts(nodes: &[gql::PrCheck]) -> ChecksCounts {
     counts
 }
 
-/// The D7 summary line: `"8 checks · 7 passed · 1 failed"` — the total
-/// always renders (singular/plural aware); buckets only when non-zero.
-/// `waiting` is the gated-runs count (docs/0066 D3): those runs aren't
-/// rollup members and prepend their own section, but the total includes
-/// them so the line agrees with the tab's counter (#783).
-pub(crate) fn checks_header_line(counts: &ChecksCounts, waiting: usize) -> String {
-    let total = counts.total + waiting;
-    let mut line = format!("{total} check{}", if total == 1 { "" } else { "s" });
-    for (n, word) in [
-        (counts.passed, "passed"),
-        (counts.failed, "failed"),
-        (counts.pending, "running"),
-        (waiting, "waiting"),
-        (counts.muted, "skipped"),
-    ] {
-        if n > 0 {
-            line.push_str(" · ");
-            line.push_str(&n.to_string());
-            line.push(' ');
-            line.push_str(word);
-        }
-    }
-    line
-}
-
 /// D6 copy for a failed gate action — actionable, never a raw dump. The
 /// 403 names the two real causes (token scope, reviewer list); a gone
 /// run explains and the caller refetches; anything else stays short.
@@ -7023,7 +6924,7 @@ fn gate_error_copy(f: &crate::service::GateActionFailure, decision: &str) -> Str
 /// muted. Running rows render the LoaderCircle spinning upstream
 /// (`Spinner`) at the call site — #397, decoration only; reduced
 /// motion renders it static.
-fn check_visual(state: gql::CheckState, cx: &Context<PrDetailPage>) -> (IconName, Hsla) {
+fn check_visual(state: gql::CheckState, cx: &App) -> (IconName, Hsla) {
     match state {
         gql::CheckState::Success => (IconName::CircleCheck, cx.theme().success),
         gql::CheckState::Failure => (IconName::CircleX, cx.theme().danger),
@@ -7272,12 +7173,11 @@ mod tests {
     use crate::pr_page::{
         BusyOp, ChecksCounts, ChecksTone, ErrorScope, FinishEvent, LineComposer, MergeLineTone,
         MergeMethod, PrDetailPage, PrMetaEditor, PrStateTone, PrTab, ReviewTone, TimelineKind,
-        allowed_methods, checks_counts, checks_header_line, checks_summary_line,
-        comment_action_allowed, composer_body_allowed, default_method, gate_error_copy,
-        merge_enabled, merge_state_line, pr_assignees_arming, pr_labels_arming,
-        pr_milestone_arming, pr_reviewers_arming, pr_state_tone, review_batch_allowed,
-        review_event, review_state_label, rollup_summary, short_sha, split_repo, timeline_order,
-        update_branch_enabled,
+        allowed_methods, checks_counts, checks_summary_line, comment_action_allowed,
+        composer_body_allowed, default_method, gate_error_copy, merge_enabled, merge_state_line,
+        pr_assignees_arming, pr_labels_arming, pr_milestone_arming, pr_reviewers_arming,
+        pr_state_tone, review_batch_allowed, review_event, review_state_label, rollup_summary,
+        short_sha, split_repo, timeline_order, update_branch_enabled,
     };
     use crate::service::{GithubCache, GithubState, PendingKind, update_branch_error_copy};
     use crate::usage::Origin;
@@ -9226,6 +9126,9 @@ mod tests {
         gql::PrCheck {
             check_run_id: None,
             suite_id: None,
+            workflow: None,
+            started_at: None,
+            completed_at: None,
             name: name.into(),
             state,
             details_url: None,
@@ -10173,78 +10076,6 @@ mod tests {
             vcx.debug_bounds("check-log-toggle-2").is_none(),
             "status context row: no expander (D3)"
         );
-    }
-
-    #[test]
-    fn checks_header_line_segments() {
-        // The doc example: "8 checks · 7 passed · 1 failed".
-        assert_eq!(
-            checks_header_line(
-                &ChecksCounts {
-                    total: 8,
-                    passed: 7,
-                    failed: 1,
-                    ..Default::default()
-                },
-                0
-            ),
-            "8 checks · 7 passed · 1 failed"
-        );
-        // Singular total, zero buckets dropped.
-        assert_eq!(
-            checks_header_line(
-                &ChecksCounts {
-                    total: 1,
-                    passed: 1,
-                    ..Default::default()
-                },
-                0
-            ),
-            "1 check · 1 passed"
-        );
-        // Every bucket present, "running" for pending (GitHub's
-        // in-flight wording), "skipped" for neutral.
-        assert_eq!(
-            checks_header_line(
-                &ChecksCounts {
-                    total: 4,
-                    passed: 1,
-                    failed: 1,
-                    pending: 1,
-                    muted: 1,
-                    waiting: 0
-                },
-                0
-            ),
-            "4 checks · 1 passed · 1 failed · 1 running · 1 skipped"
-        );
-    }
-
-    #[test]
-    fn checks_header_line_waits_for_approval() {
-        // docs/0066 D3: waiting rides the header line as its own bucket…
-        assert_eq!(
-            checks_header_line(
-                &ChecksCounts {
-                    total: 2,
-                    passed: 1,
-                    failed: 1,
-                    ..Default::default()
-                },
-                2
-            ),
-            "4 checks · 1 passed · 1 failed · 2 waiting"
-        );
-        // …and the total agrees with the tab on a gated-only PR too (#783).
-        assert_eq!(
-            checks_header_line(&ChecksCounts::default(), 2),
-            "2 checks · 2 waiting"
-        );
-        assert_eq!(
-            checks_header_line(&ChecksCounts::default(), 1),
-            "1 check · 1 waiting"
-        );
-        assert_eq!(checks_header_line(&ChecksCounts::default(), 0), "0 checks");
     }
 
     #[test]

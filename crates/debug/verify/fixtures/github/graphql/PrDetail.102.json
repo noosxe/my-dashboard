@@ -9834,12 +9834,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1000
+         "databaseId": 1000,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": null,
         "conclusion": null,
         "databaseId": 100,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/100",
         "name": "matrix (os-00, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T11:57:00Z",
         "status": "IN_PROGRESS"
        },
        {
@@ -9848,12 +9855,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1010
+         "databaseId": 1010,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 101,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/101",
         "name": "matrix (os-01, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:58:08Z",
         "status": "COMPLETED"
        },
        {
@@ -9862,12 +9876,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1020
+         "databaseId": 1020,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 102,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/102",
         "name": "matrix (os-02, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:57:31Z",
         "status": "COMPLETED"
        },
        {
@@ -9876,12 +9897,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1030
+         "databaseId": 1030,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 103,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/103",
         "name": "matrix (os-03, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:56:54Z",
         "status": "COMPLETED"
        },
        {
@@ -9890,12 +9918,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1040
+         "databaseId": 1040,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 104,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/104",
         "name": "matrix (os-04, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:56:17Z",
         "status": "COMPLETED"
        },
        {
@@ -9904,12 +9939,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1050
+         "databaseId": 1050,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 105,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/105",
         "name": "matrix (os-05, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:55:40Z",
         "status": "COMPLETED"
        },
        {
@@ -9918,12 +9960,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1060
+         "databaseId": 1060,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 106,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/106",
         "name": "matrix (os-06, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:55:03Z",
         "status": "COMPLETED"
        },
        {
@@ -9932,12 +9981,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1070
+         "databaseId": 1070,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 107,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/107",
         "name": "matrix (os-07, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:54:26Z",
         "status": "COMPLETED"
        },
        {
@@ -9946,12 +10002,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1080
+         "databaseId": 1080,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 108,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/108",
         "name": "matrix (os-08, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:59:22Z",
         "status": "COMPLETED"
        },
        {
@@ -9960,12 +10023,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1090
+         "databaseId": 1090,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 109,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/109",
         "name": "matrix (os-09, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:58:45Z",
         "status": "COMPLETED"
        },
        {
@@ -9974,12 +10044,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1100
+         "databaseId": 1100,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": null,
         "conclusion": null,
         "databaseId": 110,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/110",
         "name": "matrix (os-10, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T11:57:00Z",
         "status": "IN_PROGRESS"
        },
        {
@@ -9988,12 +10065,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1110
+         "databaseId": 1110,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 111,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/111",
         "name": "matrix (os-11, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:57:31Z",
         "status": "COMPLETED"
        },
        {
@@ -10002,12 +10086,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1120
+         "databaseId": 1120,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 112,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/112",
         "name": "matrix (os-12, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:56:54Z",
         "status": "COMPLETED"
        },
        {
@@ -10016,12 +10107,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1130
+         "databaseId": 1130,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 113,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/113",
         "name": "matrix (os-13, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:56:17Z",
         "status": "COMPLETED"
        },
        {
@@ -10030,12 +10128,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1140
+         "databaseId": 1140,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 114,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/114",
         "name": "matrix (os-14, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:55:40Z",
         "status": "COMPLETED"
        },
        {
@@ -10044,12 +10149,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1150
+         "databaseId": 1150,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 115,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/115",
         "name": "matrix (os-15, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:55:03Z",
         "status": "COMPLETED"
        },
        {
@@ -10058,12 +10170,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1160
+         "databaseId": 1160,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 116,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/116",
         "name": "matrix (os-16, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:54:26Z",
         "status": "COMPLETED"
        },
        {
@@ -10072,12 +10191,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1170
+         "databaseId": 1170,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 117,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/117",
         "name": "matrix (os-17, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:59:22Z",
         "status": "COMPLETED"
        },
        {
@@ -10086,12 +10212,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1180
+         "databaseId": 1180,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 118,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/118",
         "name": "matrix (os-18, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:58:45Z",
         "status": "COMPLETED"
        },
        {
@@ -10100,12 +10233,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1190
+         "databaseId": 1190,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 119,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/119",
         "name": "matrix (os-19, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:58:08Z",
         "status": "COMPLETED"
        },
        {
@@ -10114,12 +10254,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1200
+         "databaseId": 1200,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": null,
         "conclusion": null,
         "databaseId": 120,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/120",
         "name": "matrix (os-20, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T11:57:00Z",
         "status": "IN_PROGRESS"
        },
        {
@@ -10128,12 +10275,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1210
+         "databaseId": 1210,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 121,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/121",
         "name": "matrix (os-21, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:56:54Z",
         "status": "COMPLETED"
        },
        {
@@ -10142,12 +10296,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1220
+         "databaseId": 1220,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 122,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/122",
         "name": "matrix (os-22, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:56:17Z",
         "status": "COMPLETED"
        },
        {
@@ -10156,12 +10317,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1230
+         "databaseId": 1230,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 123,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/123",
         "name": "matrix (os-23, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:55:40Z",
         "status": "COMPLETED"
        },
        {
@@ -10170,12 +10338,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1240
+         "databaseId": 1240,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 124,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/124",
         "name": "matrix (os-24, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:55:03Z",
         "status": "COMPLETED"
        },
        {
@@ -10184,12 +10359,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1250
+         "databaseId": 1250,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 125,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/125",
         "name": "matrix (os-25, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:54:26Z",
         "status": "COMPLETED"
        },
        {
@@ -10198,12 +10380,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1260
+         "databaseId": 1260,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 126,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/126",
         "name": "matrix (os-26, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:59:22Z",
         "status": "COMPLETED"
        },
        {
@@ -10212,12 +10401,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1270
+         "databaseId": 1270,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 127,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/127",
         "name": "matrix (os-27, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:58:45Z",
         "status": "COMPLETED"
        },
        {
@@ -10226,12 +10422,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1280
+         "databaseId": 1280,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 128,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/128",
         "name": "matrix (os-28, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:58:08Z",
         "status": "COMPLETED"
        },
        {
@@ -10240,12 +10443,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1290
+         "databaseId": 1290,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 129,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/129",
         "name": "matrix (os-29, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:57:31Z",
         "status": "COMPLETED"
        },
        {
@@ -10254,12 +10464,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1300
+         "databaseId": 1300,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": null,
         "conclusion": null,
         "databaseId": 130,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/130",
         "name": "matrix (os-30, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T11:57:00Z",
         "status": "IN_PROGRESS"
        },
        {
@@ -10268,12 +10485,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1310
+         "databaseId": 1310,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 131,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/131",
         "name": "matrix (os-31, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:56:17Z",
         "status": "COMPLETED"
        },
        {
@@ -10282,12 +10506,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1320
+         "databaseId": 1320,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 132,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/132",
         "name": "matrix (os-32, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:55:40Z",
         "status": "COMPLETED"
        },
        {
@@ -10296,12 +10527,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1330
+         "databaseId": 1330,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 133,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/133",
         "name": "matrix (os-33, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:55:03Z",
         "status": "COMPLETED"
        },
        {
@@ -10310,12 +10548,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1340
+         "databaseId": 1340,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 134,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/134",
         "name": "matrix (os-34, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:54:26Z",
         "status": "COMPLETED"
        },
        {
@@ -10324,12 +10569,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1350
+         "databaseId": 1350,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 135,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/135",
         "name": "matrix (os-35, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:59:22Z",
         "status": "COMPLETED"
        },
        {
@@ -10338,12 +10590,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1360
+         "databaseId": 1360,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 136,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/136",
         "name": "matrix (os-36, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:58:45Z",
         "status": "COMPLETED"
        },
        {
@@ -10352,12 +10611,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1370
+         "databaseId": 1370,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 137,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/137",
         "name": "matrix (os-37, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:58:08Z",
         "status": "COMPLETED"
        },
        {
@@ -10366,12 +10632,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1380
+         "databaseId": 1380,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 138,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/138",
         "name": "matrix (os-38, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:57:31Z",
         "status": "COMPLETED"
        },
        {
@@ -10380,12 +10653,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1390
+         "databaseId": 1390,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 139,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/139",
         "name": "matrix (os-39, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:56:54Z",
         "status": "COMPLETED"
        },
        {
@@ -10394,12 +10674,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1400
+         "databaseId": 1400,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": null,
         "conclusion": null,
         "databaseId": 140,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/140",
         "name": "matrix (os-40, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T11:57:00Z",
         "status": "IN_PROGRESS"
        },
        {
@@ -10408,12 +10695,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1410
+         "databaseId": 1410,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 141,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/141",
         "name": "matrix (os-41, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:55:40Z",
         "status": "COMPLETED"
        },
        {
@@ -10422,12 +10716,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1420
+         "databaseId": 1420,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 142,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/142",
         "name": "matrix (os-42, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:55:03Z",
         "status": "COMPLETED"
        },
        {
@@ -10436,12 +10737,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1430
+         "databaseId": 1430,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 143,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/143",
         "name": "matrix (os-43, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:54:26Z",
         "status": "COMPLETED"
        },
        {
@@ -10450,12 +10758,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1440
+         "databaseId": 1440,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 144,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/144",
         "name": "matrix (os-44, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:59:22Z",
         "status": "COMPLETED"
        },
        {
@@ -10464,12 +10779,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1450
+         "databaseId": 1450,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 145,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/145",
         "name": "matrix (os-45, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:58:45Z",
         "status": "COMPLETED"
        },
        {
@@ -10478,12 +10800,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1460
+         "databaseId": 1460,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 146,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/146",
         "name": "matrix (os-46, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:58:08Z",
         "status": "COMPLETED"
        },
        {
@@ -10492,12 +10821,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1470
+         "databaseId": 1470,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 147,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/147",
         "name": "matrix (os-47, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:57:31Z",
         "status": "COMPLETED"
        },
        {
@@ -10506,12 +10842,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1480
+         "databaseId": 1480,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 148,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/148",
         "name": "matrix (os-48, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:56:54Z",
         "status": "COMPLETED"
        },
        {
@@ -10520,12 +10863,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1490
+         "databaseId": 1490,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 149,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/149",
         "name": "matrix (os-49, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:56:17Z",
         "status": "COMPLETED"
        },
        {
@@ -10534,12 +10884,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1500
+         "databaseId": 1500,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": null,
         "conclusion": null,
         "databaseId": 150,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/150",
         "name": "matrix (os-50, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T11:57:00Z",
         "status": "IN_PROGRESS"
        },
        {
@@ -10548,12 +10905,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1510
+         "databaseId": 1510,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 151,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/151",
         "name": "matrix (os-51, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:55:03Z",
         "status": "COMPLETED"
        },
        {
@@ -10562,12 +10926,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1520
+         "databaseId": 1520,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 152,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/152",
         "name": "matrix (os-52, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:54:26Z",
         "status": "COMPLETED"
        },
        {
@@ -10576,12 +10947,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1530
+         "databaseId": 1530,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 153,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/153",
         "name": "matrix (os-53, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:59:22Z",
         "status": "COMPLETED"
        },
        {
@@ -10590,12 +10968,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1540
+         "databaseId": 1540,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 154,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/154",
         "name": "matrix (os-54, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:58:45Z",
         "status": "COMPLETED"
        },
        {
@@ -10604,12 +10989,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1550
+         "databaseId": 1550,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 155,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/155",
         "name": "matrix (os-55, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:58:08Z",
         "status": "COMPLETED"
        },
        {
@@ -10618,12 +11010,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1560
+         "databaseId": 1560,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 156,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/156",
         "name": "matrix (os-56, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:57:31Z",
         "status": "COMPLETED"
        },
        {
@@ -10632,12 +11031,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1570
+         "databaseId": 1570,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 157,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/157",
         "name": "matrix (os-57, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:56:54Z",
         "status": "COMPLETED"
        },
        {
@@ -10646,12 +11052,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1580
+         "databaseId": 1580,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 158,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/158",
         "name": "matrix (os-58, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:56:17Z",
         "status": "COMPLETED"
        },
        {
@@ -10660,12 +11073,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1590
+         "databaseId": 1590,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 159,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/159",
         "name": "matrix (os-59, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:55:40Z",
         "status": "COMPLETED"
        },
        {
@@ -10674,12 +11094,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1600
+         "databaseId": 1600,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": null,
         "conclusion": null,
         "databaseId": 160,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/160",
         "name": "matrix (os-60, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T11:57:00Z",
         "status": "IN_PROGRESS"
        },
        {
@@ -10688,12 +11115,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1610
+         "databaseId": 1610,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 161,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/161",
         "name": "matrix (os-61, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:54:26Z",
         "status": "COMPLETED"
        },
        {
@@ -10702,12 +11136,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1620
+         "databaseId": 1620,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 162,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/162",
         "name": "matrix (os-62, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:59:22Z",
         "status": "COMPLETED"
        },
        {
@@ -10716,12 +11157,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1630
+         "databaseId": 1630,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 163,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/163",
         "name": "matrix (os-63, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:58:45Z",
         "status": "COMPLETED"
        },
        {
@@ -10730,12 +11178,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1640
+         "databaseId": 1640,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 164,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/164",
         "name": "matrix (os-64, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:58:08Z",
         "status": "COMPLETED"
        },
        {
@@ -10744,12 +11199,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1650
+         "databaseId": 1650,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 165,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/165",
         "name": "matrix (os-65, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:57:31Z",
         "status": "COMPLETED"
        },
        {
@@ -10758,12 +11220,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1660
+         "databaseId": 1660,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 166,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/166",
         "name": "matrix (os-66, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:56:54Z",
         "status": "COMPLETED"
        },
        {
@@ -10772,12 +11241,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1670
+         "databaseId": 1670,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 167,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/167",
         "name": "matrix (os-67, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:56:17Z",
         "status": "COMPLETED"
        },
        {
@@ -10786,12 +11262,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1680
+         "databaseId": 1680,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 168,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/168",
         "name": "matrix (os-68, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:55:40Z",
         "status": "COMPLETED"
        },
        {
@@ -10800,12 +11283,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1690
+         "databaseId": 1690,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 169,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/169",
         "name": "matrix (os-69, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:55:03Z",
         "status": "COMPLETED"
        },
        {
@@ -10814,12 +11304,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1700
+         "databaseId": 1700,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": null,
         "conclusion": null,
         "databaseId": 170,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/170",
         "name": "matrix (os-70, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T11:57:00Z",
         "status": "IN_PROGRESS"
        },
        {
@@ -10828,12 +11325,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1710
+         "databaseId": 1710,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 171,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/171",
         "name": "matrix (os-71, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:59:22Z",
         "status": "COMPLETED"
        },
        {
@@ -10842,12 +11346,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1720
+         "databaseId": 1720,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 172,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/172",
         "name": "matrix (os-72, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:58:45Z",
         "status": "COMPLETED"
        },
        {
@@ -10856,12 +11367,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1730
+         "databaseId": 1730,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 173,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/173",
         "name": "matrix (os-73, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:58:08Z",
         "status": "COMPLETED"
        },
        {
@@ -10870,12 +11388,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1740
+         "databaseId": 1740,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 174,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/174",
         "name": "matrix (os-74, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:57:31Z",
         "status": "COMPLETED"
        },
        {
@@ -10884,12 +11409,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1750
+         "databaseId": 1750,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 175,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/175",
         "name": "matrix (os-75, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:56:54Z",
         "status": "COMPLETED"
        },
        {
@@ -10898,12 +11430,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1760
+         "databaseId": 1760,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 176,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/176",
         "name": "matrix (os-76, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:56:17Z",
         "status": "COMPLETED"
        },
        {
@@ -10912,12 +11451,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1770
+         "databaseId": 1770,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 177,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/177",
         "name": "matrix (os-77, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:55:40Z",
         "status": "COMPLETED"
        },
        {
@@ -10926,12 +11472,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1780
+         "databaseId": 1780,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 178,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/178",
         "name": "matrix (os-78, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:55:03Z",
         "status": "COMPLETED"
        },
        {
@@ -10940,12 +11493,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1790
+         "databaseId": 1790,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 179,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/179",
         "name": "matrix (os-79, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:54:26Z",
         "status": "COMPLETED"
        },
        {
@@ -10954,12 +11514,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1800
+         "databaseId": 1800,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": null,
         "conclusion": null,
         "databaseId": 180,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/180",
         "name": "matrix (os-80, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T11:57:00Z",
         "status": "IN_PROGRESS"
        },
        {
@@ -10968,12 +11535,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1810
+         "databaseId": 1810,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 181,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/181",
         "name": "matrix (os-81, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:58:45Z",
         "status": "COMPLETED"
        },
        {
@@ -10982,12 +11556,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1820
+         "databaseId": 1820,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 182,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/182",
         "name": "matrix (os-82, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:58:08Z",
         "status": "COMPLETED"
        },
        {
@@ -10996,12 +11577,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1830
+         "databaseId": 1830,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 183,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/183",
         "name": "matrix (os-83, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:57:31Z",
         "status": "COMPLETED"
        },
        {
@@ -11010,12 +11598,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1840
+         "databaseId": 1840,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 184,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/184",
         "name": "matrix (os-84, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:56:54Z",
         "status": "COMPLETED"
        },
        {
@@ -11024,12 +11619,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1850
+         "databaseId": 1850,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 185,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/185",
         "name": "matrix (os-85, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:56:17Z",
         "status": "COMPLETED"
        },
        {
@@ -11038,12 +11640,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1860
+         "databaseId": 1860,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 186,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/186",
         "name": "matrix (os-86, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:55:40Z",
         "status": "COMPLETED"
        },
        {
@@ -11052,12 +11661,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1870
+         "databaseId": 1870,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 187,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/187",
         "name": "matrix (os-87, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:55:03Z",
         "status": "COMPLETED"
        },
        {
@@ -11066,12 +11682,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1880
+         "databaseId": 1880,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 188,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/188",
         "name": "matrix (os-88, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:54:26Z",
         "status": "COMPLETED"
        },
        {
@@ -11080,12 +11703,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1890
+         "databaseId": 1890,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 189,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/189",
         "name": "matrix (os-89, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:59:22Z",
         "status": "COMPLETED"
        },
        {
@@ -11094,12 +11724,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1900
+         "databaseId": 1900,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": null,
         "conclusion": null,
         "databaseId": 190,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/190",
         "name": "matrix (os-90, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T11:57:00Z",
         "status": "IN_PROGRESS"
        },
        {
@@ -11108,12 +11745,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1910
+         "databaseId": 1910,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 191,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/191",
         "name": "matrix (os-91, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:58:08Z",
         "status": "COMPLETED"
        },
        {
@@ -11122,12 +11766,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1920
+         "databaseId": 1920,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 192,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/192",
         "name": "matrix (os-92, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:57:31Z",
         "status": "COMPLETED"
        },
        {
@@ -11136,12 +11787,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1930
+         "databaseId": 1930,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 193,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/193",
         "name": "matrix (os-93, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:56:54Z",
         "status": "COMPLETED"
        },
        {
@@ -11150,12 +11808,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1940
+         "databaseId": 1940,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 194,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/194",
         "name": "matrix (os-94, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:56:17Z",
         "status": "COMPLETED"
        },
        {
@@ -11164,12 +11829,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1950
+         "databaseId": 1950,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 195,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/195",
         "name": "matrix (os-95, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:55:40Z",
         "status": "COMPLETED"
        },
        {
@@ -11178,12 +11850,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1960
+         "databaseId": 1960,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 196,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/196",
         "name": "matrix (os-96, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:55:03Z",
         "status": "COMPLETED"
        },
        {
@@ -11192,12 +11871,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1970
+         "databaseId": 1970,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 197,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/197",
         "name": "matrix (os-97, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:54:26Z",
         "status": "COMPLETED"
        },
        {
@@ -11206,12 +11892,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1980
+         "databaseId": 1980,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 198,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/198",
         "name": "matrix (os-98, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:59:22Z",
         "status": "COMPLETED"
        },
        {
@@ -11220,12 +11913,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 1990
+         "databaseId": 1990,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 199,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/199",
         "name": "matrix (os-99, a long job name that keeps going to stress the row width)",
+        "startedAt": "2026-10-23T10:58:45Z",
         "status": "COMPLETED"
        }
       ],

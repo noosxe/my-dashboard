@@ -158,12 +158,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 10
+         "databaseId": 10,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 1,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/1",
         "name": "build",
+        "startedAt": "2026-10-23T10:58:45Z",
         "status": "COMPLETED"
        }
       ],

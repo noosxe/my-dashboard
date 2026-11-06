@@ -413,11 +413,13 @@ fn a_refreshed_row_after_a_re_run_closes_the_old_pane_and_opens_the_new_log(
         vec![wire_check("build", 3, 10), wire_check("build", 2, 20)],
     ));
     assert!(!rig.pane_is_open(0), "the job the pane showed is gone");
+    assert!(!rig.pane_is_open(1));
     assert_eq!(rig.log_text(&a), None);
 
     let rerun = CheckTarget::new(Some("head1"), "build", Some(3), Some(10));
     rig.toggle(&rerun);
-    assert!(rig.pane_is_open(0));
+    // Namesakes order by run id (`checks::order`), so the re-run lists second.
+    assert!(rig.pane_is_open(1));
     assert_eq!(rig.log_text(&rerun).as_deref(), Some("log of the re-run"));
     assert_eq!(rig.log_text(&b), None);
 }

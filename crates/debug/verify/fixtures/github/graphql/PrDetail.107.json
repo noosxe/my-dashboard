@@ -421,12 +421,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 10
+         "databaseId": 10,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "SUCCESS",
         "databaseId": 1,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/1",
         "name": "build",
+        "startedAt": "2026-10-23T10:58:45Z",
         "status": "COMPLETED"
        },
        {
@@ -435,12 +442,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 20
+         "databaseId": 20,
+         "workflowRun": {
+          "workflow": {
+           "name": "Release"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "FAILURE",
         "databaseId": 2,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/2",
         "name": "build",
+        "startedAt": "2026-10-23T10:58:08Z",
         "status": "COMPLETED"
        },
        {
@@ -449,12 +463,19 @@
          "app": {
           "slug": "github-actions"
          },
-         "databaseId": 30
+         "databaseId": 30,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
         },
+        "completedAt": "2026-10-23T11:00:00Z",
         "conclusion": "CANCELLED",
         "databaseId": 3,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/3",
         "name": "lint",
+        "startedAt": "2026-10-23T10:57:31Z",
         "status": "COMPLETED"
        }
       ],
