@@ -57,6 +57,7 @@ use std::time::Duration;
 pub(crate) const ANCHOR_FADE: Duration = Duration::from_secs(3);
 
 mod catch_up;
+mod checks;
 mod detail_read;
 mod files_etag;
 mod gate_decision;
@@ -4463,7 +4464,8 @@ impl PrDetailPage {
     }
 
     /// Checks tab (D7): summary header outside the scroll (derived
-    /// counts, pure fn), then one row per `statusCheckRollup.contexts`
+    /// counts, pure fn; over the query's cap, the server's totals and the
+    /// cap row, #747), then one row per `statusCheckRollup.contexts`
     /// member — icon + tone from the unified state, trailing
     /// details-link button when the union member carries a URL.
     fn render_checks(&self, detail: Option<&gql::PrDetail>, cx: &Context<Self>) -> AnyElement {
@@ -4477,6 +4479,7 @@ impl PrDetailPage {
         // docs/0066 D3: gated-only PRs (no check runs pre-approval) render
         // their waiting section instead of the "no checks" empty cell.
         if d.checks.nodes.is_empty()
+            && d.checks.total_count == 0
             && gated_rows.is_none_or(|rows| rows.is_empty())
             && self.gate_error.is_none()
         {
@@ -4489,9 +4492,15 @@ impl PrDetailPage {
             .flex_none()
             .px_3()
             .py_2()
-            .border_b_1()
-            .border_color(cx.theme().border)
-            .child(section_header(checks_header_line(&counts, waiting)));
+            .when(!checks::cap::is_capped(&d.checks), |header| {
+                header.border_b_1().border_color(cx.theme().border)
+            })
+            .child(section_header(checks::cap::checks_header(
+                &d.checks,
+                d.rollup_state.as_deref(),
+                &counts,
+                waiting,
+            )));
         let mut rows: Vec<AnyElement> = self.render_gated_section(cx);
         rows.extend(d.checks.nodes.iter().enumerate().map(|(i, check)| {
             let (icon, color) = check_visual(check.state, cx);
@@ -4581,6 +4590,7 @@ impl PrDetailPage {
             .flex_1()
             .min_h_0()
             .child(header)
+            .children(checks::cap::render_cap_row(d, cx))
             .child(
                 div()
                     .id("pr-checks-scroll")
@@ -6904,7 +6914,8 @@ fn short_sha(oid: &str) -> String {
 }
 
 /// Counts derived from the parsed contexts list (D7) — the summary
-/// header and nothing else; the rollup `state` stays on the rail.
+/// header and nothing else. They cover the listed rows only: over the cap
+/// the header takes its total and verdict from the server (`checks::cap`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ChecksCounts {
     pub total: usize,

@@ -75,6 +75,7 @@ assert-no-label "Leave a comment"
 mouse down 578 254
 mouse up 578 254 --wait-frame
 wait-label "View log"
+assert-label "View all 137 checks on GitHub"
 mouse down 690 254
 mouse up 690 254 --wait-frame
 wait-label "Diff for crates/manifest/src/parser.rs"
