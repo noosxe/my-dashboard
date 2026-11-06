@@ -4336,9 +4336,16 @@ impl PrDetailPage {
                     Some(d.comments.total_count + d.reviews.total_count),
                 ),
                 tab_label("Commits", Some(d.commits.total_count)),
-                // The contexts connection's server-side count (D7) —
-                // 0 for a PR without checks, same as GitHub shows.
-                tab_label("Checks", Some(d.checks.total_count)),
+                // The contexts connection's server-side count (D7) plus
+                // the runs waiting for approval (docs/0066 D3, #783).
+                tab_label(
+                    "Checks",
+                    checks::counter::checks_tab_count(
+                        d.checks.total_count,
+                        self.gated.data().map_or(0, |rows| rows.len()),
+                        self.gated.in_flight,
+                    ),
+                ),
                 tab_label("Files changed", d.changed_files),
             ],
             None => vec![
@@ -4610,7 +4617,7 @@ impl PrDetailPage {
             .flex_1()
             .min_h_0()
             .child(header)
-            .children(checks::cap::render_cap_row(d, cx))
+            .children(checks::cap::render_cap_row(d, waiting, cx))
             .child(
                 div()
                     .id("pr-checks-scroll")
@@ -6967,20 +6974,11 @@ pub(crate) fn checks_counts(nodes: &[gql::PrCheck]) -> ChecksCounts {
 /// The D7 summary line: `"8 checks · 7 passed · 1 failed"` — the total
 /// always renders (singular/plural aware); buckets only when non-zero.
 /// `waiting` is the gated-runs count (docs/0066 D3): those runs aren't
-/// rollup members, they prepend their own section. With no rollup checks
-/// at all the line is just the waiting count — else the old "0 checks".
+/// rollup members and prepend their own section, but the total includes
+/// them so the line agrees with the tab's counter (#783).
 pub(crate) fn checks_header_line(counts: &ChecksCounts, waiting: usize) -> String {
-    if counts.total == 0 {
-        if waiting > 0 {
-            return format!("{waiting} waiting for approval");
-        }
-        return "0 checks".into();
-    }
-    let mut line = format!(
-        "{} check{}",
-        counts.total,
-        if counts.total == 1 { "" } else { "s" }
-    );
+    let total = counts.total + waiting;
+    let mut line = format!("{total} check{}", if total == 1 { "" } else { "s" });
     for (n, word) in [
         (counts.passed, "passed"),
         (counts.failed, "failed"),
@@ -10235,13 +10233,18 @@ mod tests {
                 },
                 2
             ),
-            "2 checks · 1 passed · 1 failed · 2 waiting"
+            "4 checks · 1 passed · 1 failed · 2 waiting"
         );
-        // …and a gated-only PR (no rollup checks at all) leads with it.
+        // …and the total agrees with the tab on a gated-only PR too (#783).
         assert_eq!(
             checks_header_line(&ChecksCounts::default(), 2),
-            "2 waiting for approval"
+            "2 checks · 2 waiting"
         );
+        assert_eq!(
+            checks_header_line(&ChecksCounts::default(), 1),
+            "1 check · 1 waiting"
+        );
+        assert_eq!(checks_header_line(&ChecksCounts::default(), 0), "0 checks");
     }
 
     #[test]

@@ -10,6 +10,7 @@ use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::{ActiveTheme, IconName, Sizable, h_flex};
 
 use crate::gql;
+use crate::pr_page::checks::counter::checks_total;
 use crate::pr_page::{ChecksCounts, PrDetailPage, checks_header_line};
 
 /// Is the list a part of the rollup? Also true when nodes dropped out of a
@@ -34,7 +35,8 @@ fn rollup_verdict(rollup: Option<&str>) -> &'static str {
 
 /// The header line. An uncapped list keeps the D7 line. A capped one leads
 /// with the server's total and verdict and scopes the buckets to the rows:
-/// `"137 checks · some failed · first 100: 90 passed · 10 running"`.
+/// `"137 checks · some failed · first 100: 90 passed · 10 running"`. Runs
+/// waiting for approval join the total, as on the tab (#783).
 pub(crate) fn checks_header(
     checks: &gql::PrChecks,
     rollup: Option<&str>,
@@ -44,7 +46,11 @@ pub(crate) fn checks_header(
     if !is_capped(checks) {
         return checks_header_line(counts, waiting);
     }
-    let mut line = format!("{} checks · {}", checks.total_count, rollup_verdict(rollup));
+    let mut line = format!(
+        "{} checks · {}",
+        checks_total(checks.total_count, waiting),
+        rollup_verdict(rollup)
+    );
     if waiting > 0 {
         line.push_str(&format!(" · {waiting} waiting"));
     }
@@ -68,13 +74,19 @@ pub(crate) fn checks_header(
     line
 }
 
-/// The caption beside the hand-off, in the Commits tab's words (D6).
-pub(crate) fn cap_caption(checks: &gql::PrChecks) -> String {
-    format!(
+/// The caption beside the hand-off, in the Commits tab's words (D6). The
+/// cap only limits the rollup's rows, so waiting runs are named apart: the
+/// header's total includes them and the list always shows them.
+pub(crate) fn cap_caption(checks: &gql::PrChecks, waiting: usize) -> String {
+    let caption = format!(
         "Showing first {} of {} checks",
         checks.nodes.len(),
         checks.total_count
-    )
+    );
+    match waiting {
+        0 => caption,
+        n => format!("{caption}, plus {n} waiting"),
+    }
 }
 
 /// Where the full list lives: the PR's own checks page.
@@ -87,6 +99,7 @@ pub(crate) fn checks_page_url(pr_url: &str) -> Option<String> {
 /// seen after scrolling past what it qualifies.
 pub(in crate::pr_page) fn render_cap_row(
     d: &gql::PrDetail,
+    waiting: usize,
     cx: &Context<PrDetailPage>,
 ) -> Option<AnyElement> {
     if !is_capped(&d.checks) {
@@ -120,7 +133,7 @@ pub(in crate::pr_page) fn render_cap_row(
                 div()
                     .text_xs()
                     .text_color(cx.theme().muted_foreground)
-                    .child(cap_caption(&d.checks)),
+                    .child(cap_caption(&d.checks, waiting)),
             )
             .children(view_all)
             .into_any_element(),
@@ -189,7 +202,7 @@ mod tests {
             header(&checks, Some("FAILURE"), 0),
             "137 checks · some failed · first 100: 100 passed"
         );
-        assert_eq!(cap_caption(&checks), "Showing first 100 of 137 checks");
+        assert_eq!(cap_caption(&checks, 0), "Showing first 100 of 137 checks");
     }
 
     #[test]
@@ -213,11 +226,16 @@ mod tests {
 
     #[test]
     fn waiting_runs_ride_the_capped_line_outside_the_row_scope() {
-        // docs/0066 D3: gated runs aren't rollup members or rows.
+        // docs/0066 D3: gated runs aren't rollup members or rows, but the
+        // total counts them, as the tab does (#783).
         let checks = listed(137, &[(CheckState::Success, 100)]);
         assert_eq!(
             header(&checks, Some("PENDING"), 2),
-            "137 checks · in progress · 2 waiting · first 100: 100 passed"
+            "139 checks · in progress · 2 waiting · first 100: 100 passed"
+        );
+        assert_eq!(
+            cap_caption(&checks, 2),
+            "Showing first 100 of 137 checks, plus 2 waiting"
         );
     }
 

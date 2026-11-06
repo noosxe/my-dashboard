@@ -124,16 +124,46 @@ fn the_populated_scenario_covers_every_section() {
         "actions/runs?branch=x&event=pull_request&status=action_required&per_page=50",
     ))
     .unwrap();
-    assert_eq!(page.workflow_runs.len(), 2);
-    for run in &page.workflow_runs {
-        assert_eq!(run.head_sha.as_deref(), Some(sha(&d)));
-        assert_eq!(run.conclusion.as_deref(), Some("action_required"));
-    }
+    let held: Vec<_> = page
+        .workflow_runs
+        .iter()
+        .filter(|run| run.head_sha.as_deref() == Some(sha(&d)))
+        .collect();
+    assert_eq!(held.len(), 2);
+    assert!(
+        page.workflow_runs
+            .iter()
+            .all(|run| run.conclusion.as_deref() == Some("action_required"))
+    );
     let probe = |id: u64| -> Vec<PendingDeploymentNode> {
         serde_json::from_str(&rest(&format!("actions/runs/{id}/pending_deployments"))).unwrap()
     };
-    assert!(probe(page.workflow_runs[0].id).is_empty(), "fork gate");
-    assert_eq!(probe(page.workflow_runs[1].id).len(), 1, "env gate");
+    assert!(probe(held[0].id).is_empty(), "fork gate");
+    assert_eq!(probe(held[1].id).len(), 1, "env gate");
+}
+
+/// #783: a PR whose only CI is gated has no rollup, and its waiting runs
+/// are the whole Checks total.
+#[test]
+fn the_gated_only_scenario_has_only_waiting_runs() {
+    let d = detail(109);
+    assert_eq!(d.checks.total_count, 0);
+    assert!(d.checks.nodes.is_empty());
+    let page: GatedRunsPage = serde_json::from_str(&rest(
+        "actions/runs?branch=x&event=pull_request&status=action_required&per_page=50",
+    ))
+    .unwrap();
+    let held: Vec<_> = page
+        .workflow_runs
+        .iter()
+        .filter(|run| run.head_sha.as_deref() == Some(sha(&d)))
+        .collect();
+    assert_eq!(held.len(), 2);
+    for run in held {
+        let probe = rest(&format!("actions/runs/{}/pending_deployments", run.id));
+        let pending: Vec<PendingDeploymentNode> = serde_json::from_str(&probe).unwrap();
+        assert!(pending.is_empty(), "fork gate");
+    }
 }
 
 #[test]
@@ -218,7 +248,7 @@ fn the_lane_lists_the_scenarios_on_beacon_only() {
     assert_eq!(repo["nameWithOwner"], "fixture-user/beacon");
     let rows = gql::repo_from_value(repo).unwrap().prs.nodes;
     let numbers: Vec<i64> = rows.iter().map(|r| r.number).collect();
-    assert_eq!(numbers, (101..=108).collect::<Vec<_>>());
+    assert_eq!(numbers, (101..=109).collect::<Vec<_>>());
     let atlas = lane("atlas");
     assert_eq!(atlas["data"]["repository"]["pullRequests"]["totalCount"], 0);
 }

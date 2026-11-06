@@ -120,6 +120,10 @@ Gated rows render as their own section above the queued/running check rows:
   their reserved tail; waiting rows prepend.
 - Rollup chip: waiting count gets its own slot; a PR whose only CI activity is
   gated shows *waiting*, not *passing* or *no checks*.
+- **Waiting runs count as checks** (owner decision 2026-11-06, #783): the
+  Checks tab counter and the pane header's total both include them, though
+  they aren't rollup members. A gated-only PR reads "Checks (2)" over "2 checks
+  · 2 waiting" (docs/0016 D7), not "Checks (0)".
 - **The conversation rail says the same thing** (rail amendment, review
   round): the merge/close rail's checks summary (docs/0016 D5) shows
   "N waiting for approval" in warning tone instead of the rollup line
