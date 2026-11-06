@@ -1693,15 +1693,17 @@ fn run_issue_detail(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
 fn run_thread_detail(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
     let mut status = 0u16;
     let mut rate = None;
+    let mut etag = None;
     let mut network = None;
     let mut body = None;
     log::debug!("thread-detail: {}", spec.ident.as_deref().unwrap_or("?"));
     let sent_at = Instant::now();
-    match http.request(Verb::Get, &spec.url, None, None) {
+    match http.request(Verb::Get, &spec.url, None, spec.etag.as_deref()) {
         Err(HttpError(m)) => network = Some(m),
         Ok(result) => {
             status = result.status;
             rate = result.rate;
+            etag = result.etag;
             log::debug!(
                 "thread-detail: → {} in {}ms",
                 status,
@@ -1716,7 +1718,7 @@ fn run_thread_detail(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
         kind: spec.kind,
         ident: spec.ident.clone(),
         status,
-        etag: None,
+        etag,
         rate,
         body,
         network,

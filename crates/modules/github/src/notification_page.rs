@@ -397,6 +397,12 @@ impl NotificationDetailPage {
             });
             self.thread.fail(format!("GitHub answered HTTP {status}"));
         } else if let Some(body) = result.body {
+            // docs/0038 D4: the 200 never reaches `apply`, so stamp the
+            // etag here or no refresh ever revalidates (#803).
+            let (kind, ident, etag) =
+                (result.kind, result.ident.as_deref(), result.etag.as_deref());
+            self.state
+                .update(cx, |s, _| s.store_etag(kind, ident, etag));
             match serde_json::from_str::<api::Thread>(&body) {
                 Ok(thread) => {
                     log::info!(
@@ -738,6 +744,8 @@ impl Render for NotificationDetailPage {
             .child(self.render_meta(cx))
     }
 }
+
+mod thread_etag;
 
 #[cfg(test)]
 mod tests {
