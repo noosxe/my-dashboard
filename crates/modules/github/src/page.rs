@@ -4432,6 +4432,7 @@ pub(crate) fn ci_row_glyph(
             "CI: waiting for approval",
         ),
         gql::CheckState::Neutral => (IconName::Dash, cx.theme().muted_foreground, "CI: no status"),
+        gql::CheckState::Cancelled => (IconName::Ban, cx.theme().muted_foreground, "CI: cancelled"),
     }
 }
 

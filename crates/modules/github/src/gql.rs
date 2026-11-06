@@ -957,6 +957,10 @@ pub enum CheckState {
     /// "won't run until a human acts"; Pending means "will run".
     Waiting,
     Neutral,
+    /// A run stopped partway (`CANCELLED` / `cancelled`). Muted like
+    /// [`CheckState::Neutral`] (docs/0016 D7), but it says "cancelled" and
+    /// not "skipped": it started, it did not finish (#817).
+    Cancelled,
 }
 
 /// `statusCheckRollup.state` → unified tone for the PR rows (#67).
@@ -979,9 +983,8 @@ pub fn check_run_state(status: Option<&str>, conclusion: Option<&str>) -> CheckS
     match conclusion {
         Some("SUCCESS") => CheckState::Success,
         Some("FAILURE") | Some("TIMED_OUT") | Some("ACTION_REQUIRED") => CheckState::Failure,
-        Some("NEUTRAL") | Some("SKIPPED") | Some("STALE") | Some("CANCELLED") => {
-            CheckState::Neutral
-        }
+        Some("NEUTRAL") | Some("SKIPPED") | Some("STALE") => CheckState::Neutral,
+        Some("CANCELLED") => CheckState::Cancelled,
         // No conclusion yet — the status field carries the phase. Only
         // treat completed-with-unknown-conclusion as terminal-failure;
         // everything else (QUEUED / IN_PROGRESS / WAITING / null) is
@@ -1007,9 +1010,8 @@ pub fn rest_check_state(status: Option<&str>, conclusion: Option<&str>) -> Check
             | Some("timed_out")
             | Some("action_required")
             | Some("startup_failure") => CheckState::Failure,
-            Some("skipped") | Some("neutral") | Some("cancelled") | Some("stale") => {
-                CheckState::Neutral
-            }
+            Some("skipped") | Some("neutral") | Some("stale") => CheckState::Neutral,
+            Some("cancelled") => CheckState::Cancelled,
             // Terminal with an unknown conclusion — treat like the
             // GraphQL mapper's completed-unknown arm.
             Some(_) => CheckState::Failure,
@@ -3977,13 +3979,24 @@ mod tests {
                 "conclusion {conclusion}"
             );
         }
-        for conclusion in ["NEUTRAL", "SKIPPED", "STALE", "CANCELLED"] {
+        for conclusion in ["NEUTRAL", "SKIPPED", "STALE"] {
             assert_eq!(
                 check_run_state(Some("COMPLETED"), Some(conclusion)),
                 CheckState::Neutral,
                 "conclusion {conclusion}"
             );
         }
+        // #817: a cancelled run is its own state, not a skipped one.
+        assert_eq!(
+            check_run_state(Some("COMPLETED"), Some("CANCELLED")),
+            CheckState::Cancelled
+        );
+        // #817: STARTUP_FAILURE (REST-only in practice; GraphQL's enum has it
+        // too) is a failure, via the unknown-conclusion arm.
+        assert_eq!(
+            check_run_state(Some("COMPLETED"), Some("STARTUP_FAILURE")),
+            CheckState::Failure
+        );
         // Unknown future conclusion on a completed run: failure, not
         // silently-neutral (a red run that reads as muted would mislead).
         assert_eq!(
@@ -4025,13 +4038,17 @@ mod tests {
                 "conclusion {conclusion}"
             );
         }
-        for conclusion in ["skipped", "neutral", "cancelled", "stale"] {
+        for conclusion in ["skipped", "neutral", "stale"] {
             assert_eq!(
                 rest_check_state(Some("completed"), Some(conclusion)),
                 CheckState::Neutral,
                 "conclusion {conclusion}"
             );
         }
+        assert_eq!(
+            rest_check_state(Some("completed"), Some("cancelled")),
+            CheckState::Cancelled
+        );
         // docs/0076 D2: live phases (and unknown terminals) — Pending is
         // the watch's spinner; unknown-terminal mirrors the GraphQL arm.
         for status in [Some("queued"), Some("in_progress"), Some("waiting"), None] {

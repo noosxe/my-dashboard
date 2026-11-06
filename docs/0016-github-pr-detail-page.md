@@ -409,17 +409,21 @@ relative age. A muted caption when `commits.totalCount > nodes.len()`:
   log keep the chevron column empty so names align, and gated rows do the same.
 - **Rows** from `statusCheckRollup.contexts(first: 100)`: name, state → icon +
   tone (`SUCCESS` success / `FAILURE` danger / `PENDING`/`QUEUED`/`IN_PROGRESS`
-  warning or spinner / `NEUTRAL`/`SKIPPED` muted), and a details affordance
+  warning or spinner / `NEUTRAL`/`SKIPPED`/`CANCELLED` muted), and a details affordance
   that opens `detailsUrl`/`targetUrl` in the browser when present. CheckRun vs
   StatusContext union parsed per node (0007 D3 degradation).
   **Shipped (stage 3, 2026-09-03):** union shape verified live (§3);
   `CheckRun`'s `status`+`conclusion` pair unifies into
-  `CheckState { Success Failure Pending Neutral }` — conclusion-bearing runs
-  map terminal (`TIMED_OUT`/`ACTION_REQUIRED` → failure, `STALE`/`CANCELLED` →
-  muted, an unknown future conclusion reads as failure, never silently muted),
+  `CheckState { Success Failure Pending Neutral Cancelled }` — conclusion-bearing
+  runs map terminal (`TIMED_OUT`/`ACTION_REQUIRED` → failure, `STALE`/`NEUTRAL`/
+  `SKIPPED` → muted "skipped", `CANCELLED` → muted too but its own state, #817;
+  an unknown future conclusion reads as failure, never silently muted),
   null-conclusion runs map pending; running rows use the `LoaderCircle` icon in
-  warning tone, and pending/neutral buckets word as "running"/"skipped" in the
-  summary line. The details affordance is a trailing external-link button; rows
+  warning tone, and pending/neutral/cancelled buckets word as "running"/"skipped"/"cancelled"
+  in the summary line (e.g. "3 checks · 1 passed · 1 skipped · 1 cancelled"),
+  and the row's accessible name says "cancelled". A cancelled run keeps the
+  muted tone and the "rest" sort rank but gets the `Ban` glyph, not the
+  skipped dash: it started and did not finish (#817). The details affordance is a trailing external-link button; rows
   without a URL show none.
   StatusContext rows map their `StatusState` the same way: SUCCESS →
   success, ERROR/FAILURE → danger, PENDING and EXPECTED (a required

@@ -24,6 +24,7 @@ fn state_word(state: gql::CheckState) -> &'static str {
         gql::CheckState::Pending => "running",
         gql::CheckState::Waiting => "waiting",
         gql::CheckState::Neutral => "skipped",
+        gql::CheckState::Cancelled => "cancelled",
     }
 }
 
@@ -217,6 +218,21 @@ mod tests {
         assert_eq!(
             toggle_label(&check(None), true),
             "Hide log for build, failed, 1m 42s"
+        );
+    }
+
+    #[test]
+    fn a_cancelled_row_is_not_called_skipped() {
+        let mut c = check(None);
+        c.state = CheckState::Cancelled;
+        assert_eq!(
+            toggle_label(&c, false),
+            "View log for build, cancelled, 1m 42s"
+        );
+        c.state = CheckState::Neutral;
+        assert_eq!(
+            toggle_label(&c, false),
+            "View log for build, skipped, 1m 42s"
         );
     }
 
