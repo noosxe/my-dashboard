@@ -135,6 +135,18 @@ their own behavior (docs/0016 stage 4/5: Files REST walk, checks pane) —
 they render from the landed detail as today, just out of the store instead
 of out of the page.
 
+**The detail read's result lands on the store, not the page (#743).** The
+flight record (`books.in_flight`) lives on the document, so whoever armed
+the read, the result clears it: the page that dispatched folds the landed
+detail into its own caches too, but a page dropped mid-flight (Esc) no
+longer takes the result with it. The spawn lands or fails the read on the
+state entity regardless (`pr_page/detail_read.rs`), the same
+session-scoped rule as D4's resolver. A reopen during the flight is
+skipped by the shared dispatch guard and picks the landed detail up from
+the store. The Files and Threads reads are page-owned records (they die
+with the page; the shared guard clears either way), so they are not
+affected.
+
 **The lane holds an index, not rows (docs/0073):** the home lane's row
 copies (`HomePullRequests::nodes`) were the third surface holding PR
 facts — the one that let a confirmed merge go unnoticed until the next
