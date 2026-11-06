@@ -75,6 +75,10 @@ version pressure).
 > touch pan). The wire event stays `"type": "scroll_wheel"`. Dispatch
 > entry points moved to `window.rs:5633` (`dispatch_event`) and `:5591`
 > (`dispatch_keystroke`), signatures unchanged.
+>
+> **Re-verified at gpui-pre `=0.3.11` (gpui-kit v0.9.0, 2026-11-06):** the
+> bridge compiles unchanged against 0.3.11; the `parse_with_os` and
+> `ScrollEvent` surfaces above are untouched.
 
 **Component tree dump — public, ungated, but incomplete:**
 

@@ -766,6 +766,19 @@
       "focused": false
     },
     {
+      "accesskit_id": "3025518860557082095",
+      "role": "Grid",
+      "label": null,
+      "bounds": {
+        "x": 288.0,
+        "y": 1212.0,
+        "w": 955.0,
+        "h": 510.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
       "accesskit_id": "3041786462062729826",
       "role": "Cell",
       "label": "1.6 s",
@@ -3132,19 +3145,6 @@
       "focused": false
     },
     {
-      "accesskit_id": "11956908557982449280",
-      "role": "Grid",
-      "label": null,
-      "bounds": {
-        "x": 289.0,
-        "y": 1213.0,
-        "w": 953.0,
-        "h": 508.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
       "accesskit_id": "12009024917237946249",
       "role": "Cell",
       "label": "5.3%",
@@ -3439,19 +3439,6 @@
         "y": 921.0,
         "w": 465.0,
         "h": 29.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "13735398936442087110",
-      "role": "Grid",
-      "label": null,
-      "bounds": {
-        "x": 289.0,
-        "y": 711.0,
-        "w": 953.0,
-        "h": 390.0
       },
       "focusable": false,
       "focused": false
@@ -4000,6 +3987,19 @@
         "h": 29.0
       },
       "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15455932680596545594",
+      "role": "Grid",
+      "label": null,
+      "bounds": {
+        "x": 288.0,
+        "y": 710.0,
+        "w": 955.0,
+        "h": 392.0
+      },
+      "focusable": true,
       "focused": false
     },
     {
