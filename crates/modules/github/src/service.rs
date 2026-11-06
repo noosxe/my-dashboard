@@ -4291,7 +4291,16 @@ impl GithubState {
     /// is a shared fact: the fresh detail's state updates the summary
     /// layer on the spot (a reopen/close is visible in the repo view
     /// without waiting for the next snapshot).
-    pub(crate) fn land_issue_detail(&mut self, repo: &str, number: i64, detail: gql::IssueDetail) {
+    ///
+    /// A read that predates a confirmed write is refused (D4, #806): the
+    /// flight closes, the body goes, and nothing claims freshness.
+    /// Returns whether the detail landed.
+    pub(crate) fn land_issue_detail(
+        &mut self,
+        repo: &str,
+        number: i64,
+        detail: gql::IssueDetail,
+    ) -> bool {
         let key = PrKey::new(repo, number);
         let Some(entry) = self.issues.get_mut(&key) else {
             log::debug!(
@@ -4299,8 +4308,15 @@ impl GithubState {
                 repo,
                 n = number
             );
-            return;
+            return false;
         };
+        if entry.books.read_outdated {
+            log::debug!("issue-store: {repo}#{number} read predates a confirmed write, dropped");
+            entry.books.in_flight = false;
+            entry.detail_at = None;
+            self.persist_issue(repo, number);
+            return false;
+        }
         entry.summary.state = detail.state.clone();
         // The detail is the freshest read the store holds (docs/0020:
         // one query on open, no cache) — its label set supersedes the
@@ -4325,6 +4341,7 @@ impl GithubState {
         entry.books.fail_streak = 0;
         self.evict_details();
         self.persist_issue(repo, number);
+        true
     }
 
     /// The user acknowledged a failure (the page-modal era cleared the
@@ -4339,6 +4356,7 @@ impl GithubState {
     pub(crate) fn begin_issue_detail_read(&mut self, repo: &str, number: i64) {
         if let Some(entry) = self.issues.get_mut(&PrKey::new(repo, number)) {
             entry.books.in_flight = true;
+            entry.books.read_outdated = false;
             entry.books.attempted_at = Some(Instant::now());
         }
     }
@@ -4396,6 +4414,10 @@ impl GithubState {
         }
         let kind = op.kind;
         entry.pending = None;
+        // docs/0072 D4 (#806): a read flying now was dispatched before
+        // this confirmation, so it may not show the write. Marked here
+        // rather than in the page's refetch: the page may be gone.
+        entry.books.read_outdated |= entry.books.in_flight;
         let confirmed = match kind {
             IssuePendingKind::Close => Some("CLOSED"),
             IssuePendingKind::Reopen => Some("OPEN"),
