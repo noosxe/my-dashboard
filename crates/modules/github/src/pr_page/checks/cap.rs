@@ -44,11 +44,7 @@ pub(crate) fn checks_header(
     if !is_capped(checks) {
         return checks_header_line(counts, waiting);
     }
-    let mut line = format!(
-        "{} checks · {}",
-        checks.total_count,
-        rollup_verdict(rollup)
-    );
+    let mut line = format!("{} checks · {}", checks.total_count, rollup_verdict(rollup));
     if waiting > 0 {
         line.push_str(&format!(" · {waiting} waiting"));
     }

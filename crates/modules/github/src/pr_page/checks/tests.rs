@@ -343,3 +343,156 @@ fn the_cap_row_shows_only_over_the_cap(cx: &mut TestAppContext) {
     rig.land(hundred(100));
     assert!(rig.vcx.debug_bounds("pr-checks-truncated").is_none());
 }
+
+/// Same head, a re-run: check run 1 / job 1 is replaced by check run 3 /
+/// job 3 in the same suite.
+fn re_run_first_build(rig: &Rig<'_>) {
+    rig.route(
+        "/commits/head1/check-runs?check_name=build",
+        serde_json::json!({"check_runs": [
+            {"id": 3, "name": "build", "check_suite": {"id": 10}, "app": {"slug": "github-actions"}},
+            {"id": 2, "name": "build", "check_suite": {"id": 20}, "app": {"slug": "github-actions"}},
+        ]}),
+    );
+    rig.route(
+        "/actions/runs/100/jobs",
+        serde_json::json!({"total_count": 1, "jobs": [{
+            "id": 3, "name": "build", "status": "completed",
+            "check_run_url": "https://api.github.com/repos/o/r/check-runs/3",
+        }]}),
+    );
+    rig.route("/actions/jobs/3/logs", "log of the re-run");
+}
+
+#[gpui::test]
+fn re_expanding_the_same_job_resolves_again_but_never_redownloads(cx: &mut TestAppContext) {
+    let mut rig = Rig::open(cx);
+    let (a, _) = two_builds(&rig);
+    rig.land(two_builds_detail());
+
+    rig.toggle(&a);
+    rig.toggle(&a); // collapse
+    rig.toggle(&a);
+
+    assert_eq!(rig.log_text(&a).as_deref(), Some("log of job 1"));
+    assert_eq!(rig.asked("/check-runs?check_name=build"), 2);
+    assert_eq!(rig.asked("/actions/jobs/1/logs"), 1);
+}
+
+#[gpui::test]
+fn a_re_run_on_the_same_head_replaces_the_log_before_the_row_refreshes(cx: &mut TestAppContext) {
+    let mut rig = Rig::open(cx);
+    let (a, _) = two_builds(&rig);
+    rig.land(two_builds_detail());
+    rig.toggle(&a);
+    rig.toggle(&a); // collapse
+    assert_eq!(rig.log_text(&a).as_deref(), Some("log of job 1"));
+
+    // The detail is still the old one: the row carries check run 1.
+    re_run_first_build(&rig);
+    rig.toggle(&a);
+
+    assert_eq!(rig.log_text(&a).as_deref(), Some("log of the re-run"));
+    assert_eq!(rig.asked("/actions/jobs/3/logs"), 1);
+}
+
+#[gpui::test]
+fn a_refreshed_row_after_a_re_run_closes_the_old_pane_and_opens_the_new_log(
+    cx: &mut TestAppContext,
+) {
+    let mut rig = Rig::open(cx);
+    let (a, b) = two_builds(&rig);
+    rig.land(two_builds_detail());
+    rig.toggle(&a);
+    re_run_first_build(&rig);
+
+    rig.land(detail_body(
+        "head1",
+        "FAILURE",
+        2,
+        vec![wire_check("build", 3, 10), wire_check("build", 2, 20)],
+    ));
+    assert!(!rig.pane_is_open(0), "the job the pane showed is gone");
+    assert_eq!(rig.log_text(&a), None);
+
+    let rerun = CheckTarget::new(Some("head1"), "build", Some(3), Some(10));
+    rig.toggle(&rerun);
+    assert!(rig.pane_is_open(0));
+    assert_eq!(rig.log_text(&rerun).as_deref(), Some("log of the re-run"));
+    assert_eq!(rig.log_text(&b), None);
+}
+
+#[gpui::test]
+fn a_new_head_drops_every_log_and_refetches(cx: &mut TestAppContext) {
+    let mut rig = Rig::open(cx);
+    let (a, _) = two_builds(&rig);
+    rig.land(two_builds_detail());
+    rig.toggle(&a);
+    let cached = |rig: &mut Rig<'_>, job| {
+        let page = rig.page.clone();
+        rig.vcx.read(|cx| page.read(cx).job_logs.contains(job))
+    };
+    assert!(cached(&mut rig, 1));
+
+    // A push. Re-using the id proves the head alone invalidates.
+    rig.land(detail_body(
+        "head2",
+        "PENDING",
+        1,
+        vec![wire_check("build", 1, 10)],
+    ));
+    assert!(!rig.pane_is_open(0), "the head change closes the pane");
+    assert_eq!(rig.log_text(&a), None, "the old head's pane state is gone");
+    assert!(!cached(&mut rig, 1), "the old head's tails are gone");
+
+    rig.route(
+        "/commits/head2/check-runs?check_name=build",
+        serde_json::json!({"check_runs": [
+            {"id": 1, "name": "build", "check_suite": {"id": 10}, "app": {"slug": "github-actions"}},
+        ]}),
+    );
+    rig.route("/actions/jobs/1/logs", "log on the new head");
+    rig.toggle(&CheckTarget::new(Some("head2"), "build", Some(1), Some(10)));
+
+    assert_eq!(rig.asked("/commits/head2/check-runs"), 1);
+    assert_eq!(rig.asked("/actions/jobs/1/logs"), 2);
+    assert_eq!(rig.log_text(&a).as_deref(), Some("log on the new head"));
+}
+
+#[gpui::test]
+fn a_new_head_disarms_the_live_watch(cx: &mut TestAppContext) {
+    let mut rig = Rig::open(cx);
+    let (a, _) = two_builds(&rig);
+    rig.route(
+        "/actions/runs/100/jobs",
+        serde_json::json!({"total_count": 1, "jobs": [
+            {"id": 1, "name": "build", "status": "in_progress"},
+        ]}),
+    );
+    rig.land(two_builds_detail());
+    rig.toggle(&a);
+    let ticks = rig.asked("/actions/runs/100/jobs");
+
+    rig.land(detail_body("head2", "PENDING", 0, vec![]));
+    rig.vcx
+        .background_executor
+        .advance_clock(crate::pr_page::check_watch_tick());
+    rig.settle();
+
+    assert_eq!(rig.asked("/actions/runs/100/jobs"), ticks, "no more ticks");
+}
+
+#[gpui::test]
+fn coming_back_to_a_row_while_its_chain_flies_still_lands(cx: &mut TestAppContext) {
+    let mut rig = Rig::open(cx);
+    let (a, b) = two_builds(&rig);
+    rig.land(two_builds_detail());
+
+    rig.toggle_only(&a);
+    rig.toggle_only(&b);
+    rig.toggle_only(&a);
+    rig.settle();
+
+    assert_eq!(rig.log_text(&a).as_deref(), Some("log of job 1"));
+    assert!(rig.pane_is_open(0));
+}

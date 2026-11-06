@@ -48,7 +48,12 @@ pub(crate) fn pick_check_run(
 
 /// The trailing id of a job's documented `check_run_url`.
 fn linked_check_run(job: &JobNode) -> Option<u64> {
-    job.check_run_url.as_deref()?.rsplit('/').next()?.parse().ok()
+    job.check_run_url
+        .as_deref()?
+        .rsplit('/')
+        .next()?
+        .parse()
+        .ok()
 }
 
 /// Step 3: the job linked to the picked check run, else the only job with
@@ -155,7 +160,11 @@ mod tests {
     fn a_job_without_a_link_matches_its_exact_name_when_unambiguous() {
         let jobs = || vec![job(50, "build (linux)", None), job(60, "build", None)];
         assert_eq!(pick_job(jobs(), Some(1), "build").unwrap().id, 60);
-        assert!(pick_job(jobs(), None, "gone").unwrap_err().contains("renamed"));
+        assert!(
+            pick_job(jobs(), None, "gone")
+                .unwrap_err()
+                .contains("renamed")
+        );
         let twins = vec![job(50, "build", None), job(60, "build", None)];
         assert!(pick_job(twins, None, "build").is_err());
     }

@@ -114,8 +114,8 @@ text — nothing to `serde_json`), and only non-200 results reach
 No beat lane, no `wants_refresh`, no backoff interplay: a **completed** job's
 log is immutable (a CI re-run creates a *new* run with new job ids — D5's
 resolution step picks those up naturally). Fetching once per expand and
-keeping the text is therefore not staleness-prone, and the freshness system's
-core question ("when does this surface re-fetch?") has the degenerate answer
+keeping the text per job id is therefore not staleness-prone (D5), and the
+freshness system's core question ("when does this surface re-fetch?") has the degenerate answer
 "never". Not etag-gated either — there is no conditional variant of the logs
 endpoint.
 
@@ -169,11 +169,18 @@ row, `check-log-pane-{idx}` on the pane.
 ### D5 — Resolution memoization and error surface
 
 - The fetched (truncated) log is cached **per job id** — immutable content
-  (D2); re-expanding is instant, no re-fetch.
-- The resolution chain re-runs on each expand of an uncached row: it is the
-  step that stays correct across CI re-runs (new suite/job ids under the same
-  SHA+name) and it is three cheap GETs. Memoizing the *resolution* would go
-  stale on re-runs; memoizing the *content* cannot.
+  (D2).
+- **Amended by #747**: the resolution chain re-runs on **every** expand, cached
+  log or not: it's the step that stays correct across CI re-runs (new job ids
+  under the same SHA+name), and only it can tell whether the row still means
+  the cached job. A log cached by row or name went stale exactly this way. So a
+  re-expand shows the loading line for the three resolution GETs, then lands the
+  same job's log with no download, or fetches a re-run's new job. Memoizing the
+  *resolution* would go stale on re-runs; memoizing the *content* cannot.
+- **Head changes** (#747): a detail landing with a new head SHA closes the open
+  pane, disarms its watch and clears the pane states and the cache. On the same
+  head, a row that left the list (a re-run replaced its check run) drops its
+  pane state, and an open pane on it closes; the cache keeps its job.
 - Chain failure (name-match miss, 404/410 job or run gone, empty page) → the
   pane renders an inline error line with a **Retry** button (re-runs the
   chain) and the external link. Auth/rate-limit non-200s forward through
@@ -186,8 +193,8 @@ row, `check-log-pane-{idx}` on the pane.
 - `api.rs`: URL builders for the four endpoints (owner/repo/sha/suite/run/job).
 - `service.rs`: `Kind::JobLog` variant + dispatch; apply() gains only the
   non-200 arm (no landing logic — page-owned).
-- `pr_page.rs`: `CheckLog` page state (per `(repo, job_id)` cached tails +
-  in-flight/error markers), expand/collapse handlers, resolution orchestration
+- `pr_page.rs`: page state (panes per row key, `pr_page/checks/`: identity,
+  picks and the per-job-id tails, #747), expand/collapse handlers, resolution orchestration
   (sequential `run_specs` steps — the page drives the 4-call chain, each step
   dispatching the next on landing, mirroring how thread ops chain refetches),
   and the render changes in `render_checks`.
