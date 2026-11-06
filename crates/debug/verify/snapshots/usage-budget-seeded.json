@@ -974,6 +974,19 @@
       "focused": false
     },
     {
+      "accesskit_id": "11900576328120346848",
+      "role": "Grid",
+      "label": null,
+      "bounds": {
+        "x": 288.0,
+        "y": 717.0,
+        "w": 955.0,
+        "h": 182.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
       "accesskit_id": "11931369906050876423",
       "role": "Tab",
       "label": "Budget",
@@ -1021,19 +1034,6 @@
         "y": 989.0,
         "w": 955.0,
         "h": 200.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "12401391732185899006",
-      "role": "Grid",
-      "label": null,
-      "bounds": {
-        "x": 289.0,
-        "y": 718.0,
-        "w": 953.0,
-        "h": 180.0
       },
       "focusable": false,
       "focused": false

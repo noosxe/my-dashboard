@@ -73,6 +73,10 @@ The product owner wants GitHub-style master–detail instead:
 >
 > **Re-verified at the v0.8.1 pin `99576db` (2026-10-26):** `select.rs`
 > is byte-identical to v0.8.0; the §8 wrapper-div workaround stands.
+>
+> **Re-verified at the v0.9.0 pin `7591a35` (2026-11-06):** `select.rs`
+> is byte-identical to v0.8.1 (`git diff 99576db 7591a35`); the two
+> `size_full` sites (:554/:896) and the §8 wrapper-div workaround stand.
 
 All of this ships upstream today; no new dependencies:
 

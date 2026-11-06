@@ -156,6 +156,11 @@ Out (non-goals):
 > (`ScrollEvent` rename, OS-aware `cmd-enter`/`ctrl-enter` binding, the
 > `secondary(cx)` modifier helper); the tab/timeline split behavior is
 > untouched.
+>
+> **Re-verified at the v0.9.0 pin `7591a35` (2026-11-06):** `select.rs`,
+> `tab/`, `sidebar/`, `list/` and `input/state.rs` are byte-identical to
+> v0.8.1 (`git diff 99576db 7591a35`); the `size_full` trap and the
+> tab/timeline split behavior stand.
 
 - `ui::tab::{Tab, TabBar}` with `.underline()` variant — the GitHub-style tab
   chrome; `selected_index` + `on_click` drive an enum in our state.

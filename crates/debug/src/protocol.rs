@@ -286,7 +286,7 @@ impl InputEvent {
     /// `TouchPhase::Moved` from a `ScrollSource::Pointer` (a wheel or
     /// trackpad, not a GPUI-recognized touch pan). `os` is the app's
     /// `cx.platform_info().os`: the CLI keystroke is a dynamic string,
-    /// so `secondary-` needs it to resolve (gpui-pre 0.3.10).
+    /// so `secondary-` needs it to resolve (gpui-pre 0.3.11).
     pub fn to_synthetic_input(&self, os: OperatingSystem) -> Result<SyntheticInput, RpcError> {
         fn point(x: f32, y: f32) -> Point<gpui::Pixels> {
             Point { x: px(x), y: px(y) }
@@ -507,7 +507,7 @@ mod tests {
 
     #[test]
     fn secondary_modifier_resolves_per_host_os() {
-        // gpui-pre 0.3.10: dynamic keystrokes resolve `secondary-` against
+        // gpui-pre 0.3.11: dynamic keystrokes resolve `secondary-` against
         // the OS the caller passes (cmd on macOS, ctrl elsewhere).
         let p =
             params(serde_json::json!({"event": {"type": "key_down", "keystroke": "secondary-s"}}));
