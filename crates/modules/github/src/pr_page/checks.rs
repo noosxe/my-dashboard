@@ -7,6 +7,7 @@ pub(super) mod counter;
 pub(super) mod header;
 pub(crate) mod identity;
 pub(crate) mod log_cache;
+pub(crate) mod log_error;
 pub(super) mod order;
 pub(crate) mod resolve;
 mod row;

@@ -22,7 +22,9 @@ pub(crate) fn pick_check_run(
         .filter(|c| c.app.as_ref().and_then(|a| a.slug.as_deref()) == Some(ACTIONS_SLUG))
         .collect();
     if actions.is_empty() {
-        return Err("No GitHub Actions check with this name on the head commit");
+        return Err(
+            "GitHub no longer lists this check on the latest commit. Refresh the page, or open it on GitHub.",
+        );
     }
     let position = target
         .check_run_id
@@ -42,7 +44,7 @@ pub(crate) fn pick_check_run(
         .or((actions.len() == 1).then_some(0));
     match position {
         Some(i) => Ok(actions.swap_remove(i)),
-        None => Err("Several checks share this name and this one has changed — refresh the page"),
+        None => Err("Several checks share this name and this one has changed. Refresh the page."),
     }
 }
 
@@ -74,9 +76,11 @@ pub(crate) fn pick_job(
         }
     }
     match named.len() {
-        0 => Err("No job with this name in the workflow run — it may have been renamed"),
+        0 => Err(
+            "This job isn't in the workflow run any more. It may have been renamed. Open the check on GitHub.",
+        ),
         1 => Ok(named.remove(0)),
-        _ => Err("Several jobs in this workflow run share this name — open it on github.com"),
+        _ => Err("Several jobs in this workflow run share this name. Open the check on GitHub."),
     }
 }
 

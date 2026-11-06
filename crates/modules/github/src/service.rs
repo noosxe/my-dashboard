@@ -48,6 +48,7 @@ use crate::auth::{
 use crate::gql::{self, Org, Repo, User};
 use crate::http::{Http, HttpError, RateLimit, SharedToken, Verb};
 use crate::pr_page::checks::identity::CheckTarget;
+use crate::pr_page::checks::log_error;
 use crate::pr_page::checks::resolve::{pick_check_run, pick_job};
 use crate::rate_pause::{Lane, RateLimitPause};
 use crate::run_jobs::JobsFetchError;
@@ -5667,7 +5668,7 @@ pub(crate) async fn resolve_check_job(
             })
         });
     }
-    let http_err = |status: u16| format!("GitHub answered HTTP {status}");
+    let http_err = log_error::http_copy;
 
     // Step 1 — the check run, filtered server-side by name on the head
     // commit, then picked by row identity; Actions-origin enforced here too
@@ -5675,7 +5676,7 @@ pub(crate) async fn resolve_check_job(
     let url = api::check_runs_for_sha_url(owner, name, head_oid, &target.name);
     let result = fetch(state.clone(), &spec_for, url, cx).await;
     if let Some(m) = result.network {
-        return Err(format!("Network error: {m}"));
+        return Err(log_error::network_copy(&m));
     }
     if result.status != 200 {
         let status = result.status;
@@ -5683,19 +5684,19 @@ pub(crate) async fn resolve_check_job(
         return Err(http_err(status));
     }
     let page: api::CheckRunsPage = serde_json::from_str(result.body.as_deref().unwrap_or_default())
-        .map_err(|e| format!("Malformed check-runs payload ({e})"))?;
+        .map_err(|e| log_error::malformed_copy("check-runs", &e.to_string()))?;
     let node = pick_check_run(page.check_runs, target)?;
     let check_run_id = node.id.or(target.check_run_id);
     let suite_id = node
         .check_suite
         .map(|s| s.id)
-        .ok_or("The matching check carries no suite id")?;
+        .ok_or("GitHub didn't say which workflow run this check belongs to. Open it on GitHub.")?;
 
     // Step 2 — the one workflow run behind the suite.
     let url = api::workflow_runs_by_suite_url(owner, name, suite_id);
     let result = fetch(state.clone(), &spec_for, url, cx).await;
     if let Some(m) = result.network {
-        return Err(format!("Network error: {m}"));
+        return Err(log_error::network_copy(&m));
     }
     if result.status != 200 {
         let status = result.status;
@@ -5704,12 +5705,12 @@ pub(crate) async fn resolve_check_job(
     }
     let page: api::WorkflowRunsPage =
         serde_json::from_str(result.body.as_deref().unwrap_or_default())
-            .map_err(|e| format!("Malformed workflow-runs payload ({e})"))?;
+            .map_err(|e| log_error::malformed_copy("workflow-runs", &e.to_string()))?;
     let run_id = page
         .workflow_runs
         .first()
         .map(|r| r.id)
-        .ok_or("No workflow run found for this check")?;
+        .ok_or("The workflow run behind this check is gone. It may have been deleted.")?;
 
     // Step 3 — the run's jobs (docs/0039 D1: the sanctioned
     // iterate-and-match), by check-run link and then exact name.
@@ -5724,13 +5725,15 @@ pub(crate) async fn resolve_check_job(
         Err(JobsFetchError::Failed(result)) => {
             let result = *result;
             if let Some(m) = result.network {
-                return Err(format!("Network error: {m}"));
+                return Err(log_error::network_copy(&m));
             }
             let status = result.status;
             forward_non_200(result, &state, cx).await;
             return Err(http_err(status));
         }
-        Err(JobsFetchError::Malformed(e)) => return Err(format!("Malformed jobs payload ({e})")),
+        Err(JobsFetchError::Malformed(e)) => {
+            return Err(log_error::malformed_copy("jobs", &e.to_string()));
+        }
     };
     let job = pick_job(page.jobs, check_run_id, &target.name)?;
     Ok(ResolvedCheckJob { run_id, job })
@@ -5813,10 +5816,10 @@ pub(crate) async fn fetch_job_logs(
 ) -> Result<(String, bool), String> {
     match fetch_job_logs_typed(state, repo, job_id, ident, true, cx).await {
         Ok(landed) => Ok(landed),
-        Err(JobLogsError::NotFound) => Err("GitHub answered HTTP 404".into()),
-        Err(JobLogsError::Http(status)) => Err(format!("GitHub answered HTTP {status}")),
-        Err(JobLogsError::Network(m)) => Err(format!("Network error: {m}")),
-        Err(JobLogsError::Malformed(e)) => Err(format!("Malformed log payload ({e})")),
+        Err(JobLogsError::NotFound) => Err(log_error::http_copy(404)),
+        Err(JobLogsError::Http(status)) => Err(log_error::http_copy(status)),
+        Err(JobLogsError::Network(m)) => Err(log_error::network_copy(&m)),
+        Err(JobLogsError::Malformed(e)) => Err(log_error::malformed_copy("log", &e)),
     }
 }
 

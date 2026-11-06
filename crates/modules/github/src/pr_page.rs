@@ -65,6 +65,7 @@ mod write_refetch;
 
 use checks::identity::{CheckKey, CheckTarget};
 use checks::log_cache::{JobLogCache, LandedLog};
+use checks::log_error;
 
 use crate::api::{self, PrFile};
 use crate::drafts::{self, DraftHandle};
@@ -394,7 +395,7 @@ async fn run_check_log_watch(
         ticks += 1;
         if ticks > CHECK_WATCH_MAX_TICKS {
             return CheckWatchOutcome::Landed(Err(
-                "Still running — reopen the check for a live view".into(),
+                "This job is still running. Reopen the check for a live view.".into(),
             ));
         }
         match fetch_run_jobs(state.clone(), &repo, resolved.run_id, &ident, cx).await {
@@ -415,27 +416,23 @@ async fn run_check_log_watch(
                             materialization_misses += 1;
                             if materialization_misses >= CHECK_LOG_404_RETRIES {
                                 return CheckWatchOutcome::Landed(Err(
-                                    "The job finished but its log is not available yet — retry in a moment"
+                                    "The job finished but its log isn't available yet. Retry in a moment."
                                         .into(),
                                 ));
                             }
                         }
                         Err(JobLogsError::Http(status)) => {
-                            return CheckWatchOutcome::Landed(Err(format!(
-                                "GitHub answered HTTP {status}"
-                            )));
+                            return CheckWatchOutcome::Landed(Err(log_error::http_copy(status)));
                         }
                         Err(JobLogsError::Network(m)) => {
                             net_misses += 1;
                             if net_misses >= CHECK_WATCH_NET_FAILS {
-                                return CheckWatchOutcome::Landed(Err(format!(
-                                    "Network error: {m}"
-                                )));
+                                return CheckWatchOutcome::Landed(Err(log_error::network_copy(&m)));
                             }
                         }
                         Err(JobLogsError::Malformed(e)) => {
-                            return CheckWatchOutcome::Landed(Err(format!(
-                                "Malformed log payload ({e})"
+                            return CheckWatchOutcome::Landed(Err(log_error::malformed_copy(
+                                "log", &e,
                             )));
                         }
                     }
@@ -451,7 +448,7 @@ async fn run_check_log_watch(
                 }
                 None => {
                     return CheckWatchOutcome::Landed(Err(
-                        "No job with this name in the workflow run — it may have been renamed or re-run"
+                        "This job isn't in the workflow run any more. It may have been renamed or re-run."
                             .into(),
                     ));
                 }
@@ -459,14 +456,14 @@ async fn run_check_log_watch(
             Err(JobsTickError::Network(m)) => {
                 net_misses += 1;
                 if net_misses >= CHECK_WATCH_NET_FAILS {
-                    return CheckWatchOutcome::Landed(Err(format!("Network error: {m}")));
+                    return CheckWatchOutcome::Landed(Err(log_error::network_copy(&m)));
                 }
             }
             Err(JobsTickError::Http(status)) => {
-                return CheckWatchOutcome::Landed(Err(format!("GitHub answered HTTP {status}")));
+                return CheckWatchOutcome::Landed(Err(log_error::http_copy(status)));
             }
             Err(JobsTickError::Malformed(e)) => {
-                return CheckWatchOutcome::Landed(Err(format!("Malformed jobs payload ({e})")));
+                return CheckWatchOutcome::Landed(Err(log_error::malformed_copy("jobs", &e)));
             }
         }
     }
@@ -1861,7 +1858,9 @@ impl PrDetailPage {
         let Some(head_oid) = self.detail(cx).and_then(|d| d.head_oid.clone()) else {
             self.check_logs.insert(
                 target.key.clone(),
-                CheckLogState::Failed("No head commit on this pull request".into()),
+                CheckLogState::Failed(
+                    "This pull request has no head commit, so it has no logs.".into(),
+                ),
             );
             cx.notify();
             return;
@@ -4607,38 +4606,11 @@ impl PrDetailPage {
                             .child(text.clone())
                             .into_any_element()
                     })
-                    .children(open_full)
+                    .child(h_flex().children(open_full))
                     .into_any_element()
             }
             Some(CheckLogState::Failed(message)) => {
-                let page = cx.entity();
-                let target = target.clone();
-                let open_full = check.details_url.clone().map(|url| {
-                    Button::new(SharedString::from(format!("check-log-full-{i}")))
-                        .ghost()
-                        .xsmall()
-                        .label("Open on github.com")
-                        .on_click(move |_, _, cx| cx.open_url(&url))
-                });
-                v_flex()
-                    .gap_1()
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(cx.theme().danger)
-                            .child(message.clone()),
-                    )
-                    .child(
-                        Button::new(SharedString::from(format!("check-log-retry-{i}")))
-                            .ghost()
-                            .xsmall()
-                            .label("Retry")
-                            .on_click(move |_, _, cx| {
-                                page.update(cx, |this, cx| this.retry_check_log(&target, cx))
-                            }),
-                    )
-                    .children(open_full)
-                    .into_any_element()
+                self.render_check_log_failure(i, message, check, target, cx)
             }
             Some(CheckLogState::Live { steps, updated_at }) => {
                 // docs/0076 D4: the live pane — the header line, then
@@ -9462,7 +9434,7 @@ mod tests {
         cx.update(|cx| {
             page.update(cx, |p, _| match p.check_logs.get(&build_target().key) {
                 Some(CheckLogState::Failed(message)) => {
-                    assert!(message.contains("No job with this name"), "{message}");
+                    assert!(message.contains("may have been renamed"), "{message}");
                 }
                 other => panic!("expected Failed, got {other:?}"),
             });
@@ -9970,7 +9942,7 @@ mod tests {
             let p = page.read(cx);
             match p.check_logs.get(&build_target().key) {
                 Some(CheckLogState::Failed(message)) => {
-                    assert!(message.contains("Still running"), "{message}");
+                    assert!(message.contains("still running"), "{message}");
                 }
                 other => panic!("expected Failed at the cap, got {other:?}"),
             }
