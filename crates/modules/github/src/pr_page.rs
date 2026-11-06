@@ -57,6 +57,7 @@ use std::time::Duration;
 pub(crate) const ANCHOR_FADE: Duration = Duration::from_secs(3);
 
 mod catch_up;
+mod detail_read;
 
 use crate::api::{self, PrFile};
 use crate::drafts::{self, DraftHandle};
@@ -1043,6 +1044,7 @@ impl PrDetailPage {
         // own guard when the run lands — the wrapper's skip decision is
         // for the stateless lanes only (docs/0031 §8).
         let key = (spec.kind, spec.ident.clone());
+        let (repo, number) = (self.repo.clone(), self.number);
         let armed = self.state.update(cx, |s, _| s.in_flight_arm(key.clone()));
         if !armed {
             log::debug!("pr-detail: skipped — an identical read is in flight");
@@ -1054,113 +1056,77 @@ impl PrDetailPage {
         cx.spawn(async move |this, cx| {
             let result = run_spec_tracked(state.clone(), spec, cx).await;
             cx.update(|cx| state.update(cx, |s, _| s.in_flight_clear(&key)));
-            let _ = this.update(cx, |page, cx| page.apply_detail_result(result, cx));
+            // docs/0072 D2 (#743): the read's flight record lives on the
+            // store's entry, so the result lands there even when the page
+            // that armed it is gone. A dropped page would otherwise leave
+            // `in_flight` set forever.
+            let result = std::cell::Cell::new(Some(result));
+            let _ = this.update(cx, |page, cx| {
+                if let Some(r) = result.take() {
+                    page.apply_detail_result(r, cx);
+                }
+            });
+            if let Some(r) = result.take() {
+                detail_read::land_orphaned(&state, &repo, number, r, cx);
+            }
         })
         .detach();
     }
 
+    /// The page-alive path of a landed detail read: the store half
+    /// (`detail_read::land_detail_result`, which also runs when the page
+    /// is gone) and then everything the page keeps beside the store.
     fn apply_detail_result(&mut self, result: crate::service::SpecResult, cx: &mut Context<Self>) {
-        if let Some(m) = &result.network {
-            let message = format!("Network error: {m}");
-            self.state.update(cx, |s, _| {
-                s.fail_detail_read(&self.repo, self.number, message)
-            });
-        } else if result.status != 200 {
-            // Forward failures to the state entity so the shared 401
-            // (reactive refresh / TokenRejected) and 403 (rate-limit pause)
-            // handling runs exactly as for every other fetch — those paths
-            // act on status before any kind match (docs/0016 D2).
-            let status = result.status;
-            self.state.update(cx, |s, cx| {
-                s.apply(result);
-                cx.notify();
-            });
-            let message = format!("GitHub answered HTTP {status}");
-            self.state.update(cx, |s, _| {
-                s.fail_detail_read(&self.repo, self.number, message)
-            });
-        } else if let Some(body) = result.body {
-            match serde_json::from_str::<gql::Envelope<gql::PrDetailData>>(body.as_str()) {
-                Ok(env) => {
-                    for e in &env.errors {
-                        log::warn!("pr-detail: {}", e.message);
-                    }
-                    match env
-                        .data
-                        .and_then(|d| d.repository)
-                        .as_ref()
-                        .and_then(gql::pr_detail_from_value)
-                    {
-                        Some(detail) => {
-                            log::info!(
-                                "pr-detail applied: {}#{} — {} comments, {} reviews, {} commits",
-                                self.repo,
-                                detail.number,
-                                detail.comments.nodes.len(),
-                                detail.reviews.nodes.len(),
-                                detail.commits.nodes.len()
-                            );
-                            self.md = build_md_cache(&self.repo, &detail);
-                            // Thread keys live in the same cache — a detail
-                            // refetch wipes it, so re-fold them (0030 D1).
-                            self.extend_threads_md();
-                            // 0019 D4: an editor/confirm whose node is gone
-                            // with the new payload has nothing left to edit —
-                            // drop it (deleted elsewhere, refetch race).
-                            let still_there = |id: &str| {
-                                node_kind(&detail.comments.nodes, &detail.reviews.nodes, id)
-                                    .is_some()
-                            };
-                            if let Some((id, _)) = &self.timeline_edit
-                                && !still_there(id)
-                            {
-                                self.timeline_edit = None;
-                            }
-                            if let Some(id) = &self.delete_confirm
-                                && !still_there(id)
-                            {
-                                self.delete_confirm = None;
-                            }
-                            self.state
-                                .update(cx, |s, _| s.land_detail(&self.repo, self.number, detail));
-                            // docs/0043 D5: a picker open across the
-                            // refetch realigns to the new payload
-                            // (0022 §11 — choices preserved by id).
-                            if self.meta_edit.is_some() {
-                                let source = match self.meta_edit.as_ref().unwrap() {
-                                    PrMetaEditor::Labels(_) => PickerSource::Labels,
-                                    PrMetaEditor::Assignees(_) => PickerSource::Assignees,
-                                    PrMetaEditor::Reviewers(_) => PickerSource::Reviewers,
-                                    PrMetaEditor::Milestone { .. } => PickerSource::Milestones,
-                                };
-                                self.realign_open_picker(source, cx);
-                            }
-                            // docs/0026 D9: the payload is in — try to arm
-                            // the notification jump against it.
-                            self.resolve_comment_anchor(cx);
-                            // docs/0066 D2: the detail landed — arm the
-                            // gated-runs sweep for the (possibly new) head.
-                            self.fetch_gated(cx);
-                        }
-                        None => {
-                            log::warn!("pr-detail: repository/pullRequest null — keeping header");
-                            self.state.update(cx, |s, _| {
-                                s.fail_detail_read(
-                                    &self.repo,
-                                    self.number,
-                                    "PR not found (removed, or access lost)".into(),
-                                )
-                            });
-                        }
-                    }
-                }
-                Err(e) => {
-                    log::warn!("pr-detail payload: {e}");
-                    self.state.update(cx, |s, _| {
-                        s.fail_detail_read(&self.repo, self.number, "Malformed payload".into())
-                    });
-                }
+        let (repo, number) = (self.repo.clone(), self.number);
+        let landed = self.state.update(cx, |s, cx| {
+            detail_read::land_detail_result(s, cx, &repo, number, result)
+        });
+        if let Some(detail) = landed {
+            log::info!(
+                "pr-detail applied: {}#{} — {} comments, {} reviews, {} commits",
+                self.repo,
+                detail.number,
+                detail.comments.nodes.len(),
+                detail.reviews.nodes.len(),
+                detail.commits.nodes.len()
+            );
+            self.md = build_md_cache(&self.repo, &detail);
+            // Thread keys live in the same cache — a detail
+            // refetch wipes it, so re-fold them (0030 D1).
+            self.extend_threads_md();
+            // 0019 D4: an editor/confirm whose node is gone
+            // with the new payload has nothing left to edit —
+            // drop it (deleted elsewhere, refetch race).
+            let still_there =
+                |id: &str| node_kind(&detail.comments.nodes, &detail.reviews.nodes, id).is_some();
+            if let Some((id, _)) = &self.timeline_edit
+                && !still_there(id)
+            {
+                self.timeline_edit = None;
             }
+            if let Some(id) = &self.delete_confirm
+                && !still_there(id)
+            {
+                self.delete_confirm = None;
+            }
+            // docs/0043 D5: a picker open across the
+            // refetch realigns to the new payload
+            // (0022 §11 — choices preserved by id).
+            if self.meta_edit.is_some() {
+                let source = match self.meta_edit.as_ref().unwrap() {
+                    PrMetaEditor::Labels(_) => PickerSource::Labels,
+                    PrMetaEditor::Assignees(_) => PickerSource::Assignees,
+                    PrMetaEditor::Reviewers(_) => PickerSource::Reviewers,
+                    PrMetaEditor::Milestone { .. } => PickerSource::Milestones,
+                };
+                self.realign_open_picker(source, cx);
+            }
+            // docs/0026 D9: the payload is in — try to arm
+            // the notification jump against it.
+            self.resolve_comment_anchor(cx);
+            // docs/0066 D2: the detail landed — arm the
+            // gated-runs sweep for the (possibly new) head.
+            self.fetch_gated(cx);
         }
         cx.notify();
     }
