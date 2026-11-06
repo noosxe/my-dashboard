@@ -53,7 +53,30 @@ design builds on no undocumented contract.
 
 ## 3 Decisions
 
-### D1 — Resolution chain: documented endpoints only, keyed by (head SHA, check name)
+### D1 — Resolution chain: documented endpoints only, keyed by row identity on the head SHA
+
+**Amended by #747**: names aren't unique. Two workflows can each have a `build`
+job, so the name only filters; the row's identity picks. The detail query
+selects `CheckRun.databaseId` and `checkSuite.databaseId` (live-verified
+2026-11-06 on a public repo: `databaseId` is the REST check run's `id`, the
+suite's is its `check_suite.id`, and the job's documented `check_run_url` ends
+in the same id).
+
+- **Row key**: the check run's database id. Accordion, pane state and in-flight
+  arm all use it. Without an id (a payload cached before the field, or a null)
+  the fallback is (head SHA, name, suite id); the suite stands in for the
+  workflow, since each workflow run has its own.
+- **Step 1** keeps the server-side name filter, then takes the exact id, else
+  the row's suite if one run matches it, else the only Actions run with this
+  name. A row from before a re-run carries an id the `latest` filter no longer
+  lists. With several candidates and nothing to tell them apart, the pane shows
+  an inline error asking for a refresh: never a namesake's log.
+- **Step 3** takes the job whose `check_run_url` names the picked check run,
+  else the only job with this exact name. Same-named jobs with no link are an
+  inline error.
+- **The live watch** follows the resolved job by job id, not by name.
+
+The numbered chain below stands as the shape of the calls.
 
 Expanding a check row runs a lazy, user-invoked chain of documented REST GETs:
 

@@ -420,9 +420,11 @@
         "checkSuite": {
          "app": {
           "slug": "github-actions"
-         }
+         },
+         "databaseId": 10
         },
         "conclusion": "SUCCESS",
+        "databaseId": 1,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/1",
         "name": "build",
         "status": "COMPLETED"
@@ -432,9 +434,11 @@
         "checkSuite": {
          "app": {
           "slug": "github-actions"
-         }
+         },
+         "databaseId": 20
         },
         "conclusion": "FAILURE",
+        "databaseId": 2,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/2",
         "name": "build",
         "status": "COMPLETED"
@@ -444,9 +448,11 @@
         "checkSuite": {
          "app": {
           "slug": "github-actions"
-         }
+         },
+         "databaseId": 30
         },
         "conclusion": "CANCELLED",
+        "databaseId": 3,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/3",
         "name": "lint",
         "status": "COMPLETED"

@@ -3,3 +3,8 @@
 //! cache. `pr_page.rs` keeps only the render and event hooks.
 
 pub(super) mod cap;
+pub(crate) mod identity;
+pub(crate) mod resolve;
+
+#[cfg(test)]
+mod tests;
