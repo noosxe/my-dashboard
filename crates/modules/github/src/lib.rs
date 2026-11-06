@@ -30,6 +30,7 @@ pub mod page;
 mod pickers;
 pub mod pr_page;
 mod rate_pause;
+mod run_jobs;
 pub mod service;
 pub mod settings;
 pub mod usage;

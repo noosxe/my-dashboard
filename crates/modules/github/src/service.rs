@@ -48,6 +48,7 @@ use crate::auth::{
 use crate::gql::{self, Org, Repo, User};
 use crate::http::{Http, HttpError, RateLimit, SharedToken, Verb};
 use crate::rate_pause::{Lane, RateLimitPause};
+use crate::run_jobs::JobsFetchError;
 use crate::usage::{
     Origin, RecordingHttp, Surface, Trigger, UsageLedger, budget_now, parse_rate_limit_body,
     recording_for_auth,
@@ -5713,17 +5714,24 @@ pub(crate) async fn resolve_check_job(
     // Step 3 — the run's jobs, name-matched (docs/0039 D1: the sanctioned
     // iterate-and-match, exact names on both sides, matrices included).
     let url = api::run_jobs_url(owner, name, run_id);
-    let result = fetch(state.clone(), &spec_for, url, cx).await;
-    if let Some(m) = result.network {
-        return Err(format!("Network error: {m}"));
-    }
-    if result.status != 200 {
-        let status = result.status;
-        forward_non_200(result, &state, cx).await;
-        return Err(http_err(status));
-    }
-    let page: api::JobsPage = serde_json::from_str(result.body.as_deref().unwrap_or_default())
-        .map_err(|e| format!("Malformed jobs payload ({e})"))?;
+    let page = match crate::run_jobs::fetch_all_jobs(&url, |u| {
+        let (state, mut cx) = (state.clone(), cx.clone());
+        async move { fetch(state, &spec_for, u, &mut cx).await }
+    })
+    .await
+    {
+        Ok(page) => page,
+        Err(JobsFetchError::Failed(result)) => {
+            let result = *result;
+            if let Some(m) = result.network {
+                return Err(format!("Network error: {m}"));
+            }
+            let status = result.status;
+            forward_non_200(result, &state, cx).await;
+            return Err(http_err(status));
+        }
+        Err(JobsFetchError::Malformed(e)) => return Err(format!("Malformed jobs payload ({e})")),
+    };
     let job = page
         .jobs
         .into_iter()
@@ -5849,22 +5857,30 @@ pub(crate) async fn fetch_run_jobs(
         variables: None,
     };
     let url = api::run_jobs_url(owner, name, run_id);
-    let result = run_spec_tracked(state.clone(), spec_for(url), cx).await;
-    if let Some(m) = result.network {
-        return Err(JobsTickError::Network(m));
+    match crate::run_jobs::fetch_all_jobs(&url, |u| {
+        let (state, mut cx) = (state.clone(), cx.clone());
+        let spec = spec_for(u);
+        async move { run_spec_tracked(state, spec, &mut cx).await }
+    })
+    .await
+    {
+        Ok(page) => Ok(page),
+        Err(JobsFetchError::Failed(result)) => {
+            let result = *result;
+            if let Some(m) = result.network {
+                return Err(JobsTickError::Network(m));
+            }
+            let status = result.status;
+            cx.update(|cx| {
+                state.update(cx, |s, cx| {
+                    s.apply(result);
+                    cx.notify();
+                })
+            });
+            Err(JobsTickError::Http(status))
+        }
+        Err(JobsFetchError::Malformed(e)) => Err(JobsTickError::Malformed(e)),
     }
-    if result.status != 200 {
-        let status = result.status;
-        cx.update(|cx| {
-            state.update(cx, |s, cx| {
-                s.apply(result);
-                cx.notify();
-            })
-        });
-        return Err(JobsTickError::Http(status));
-    }
-    serde_json::from_str(result.body.as_deref().unwrap_or_default())
-        .map_err(|e| JobsTickError::Malformed(format!("{e}")))
 }
 
 // ---------------------------------------------------------------------------
