@@ -10,7 +10,7 @@ fn attention_rank(state: CheckState) -> u8 {
     match state {
         CheckState::Failure => 0,
         CheckState::Pending | CheckState::Waiting => 1,
-        CheckState::Success | CheckState::Neutral => 2,
+        CheckState::Success | CheckState::Neutral | CheckState::Cancelled => 2,
     }
 }
 
@@ -62,8 +62,12 @@ mod tests {
             row("skipped", CheckState::Neutral, None, 2),
             row("running", CheckState::Pending, None, 3),
             row("failed", CheckState::Failure, None, 4),
+            row("cancelled", CheckState::Cancelled, None, 5),
         ];
-        assert_eq!(names(&nodes), ["failed", "running", "passed", "skipped"]);
+        assert_eq!(
+            names(&nodes),
+            ["failed", "running", "cancelled", "passed", "skipped"]
+        );
     }
 
     #[test]

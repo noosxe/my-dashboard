@@ -55,6 +55,7 @@ fn listed_parts(counts: &ChecksCounts, waiting: usize) -> Vec<HeaderPart> {
             (counts.pending, "running"),
             (waiting, "waiting"),
             (counts.muted, "skipped"),
+            (counts.cancelled, "cancelled"),
         ]
         .into_iter()
         .filter(|(n, _)| *n > 0)
@@ -120,12 +121,31 @@ mod tests {
             failed,
             pending,
             muted,
+            cancelled: 0,
             waiting: 0,
         }
     }
 
     fn line(c: &ChecksCounts, waiting: usize) -> String {
         read(&listed_parts(c, waiting))
+    }
+
+    #[test]
+    fn cancelled_runs_say_cancelled_not_skipped() {
+        let c = ChecksCounts {
+            total: 3,
+            passed: 1,
+            muted: 1,
+            cancelled: 1,
+            ..ChecksCounts::default()
+        };
+        assert_eq!(line(&c, 0), "3 checks · 1 passed · 1 skipped · 1 cancelled");
+        let only = ChecksCounts {
+            total: 1,
+            cancelled: 1,
+            ..ChecksCounts::default()
+        };
+        assert_eq!(line(&only, 0), "1 check · 1 cancelled");
     }
 
     #[test]

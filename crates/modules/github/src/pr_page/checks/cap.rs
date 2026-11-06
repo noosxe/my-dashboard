@@ -65,6 +65,7 @@ pub(crate) fn capped_parts(
         (counts.passed, "passed", PartTone::Muted),
         (counts.pending, "running", PartTone::Muted),
         (counts.muted, "skipped", PartTone::Muted),
+        (counts.cancelled, "cancelled", PartTone::Muted),
     ]
     .into_iter()
     .filter(|(n, _, _)| *n > 0);

@@ -6849,6 +6849,9 @@ pub(crate) struct ChecksCounts {
     pub failed: usize,
     pub pending: usize,
     pub muted: usize,
+    /// Cancelled runs (#817): muted in tone, counted apart so the line says
+    /// "cancelled" and not "skipped".
+    pub cancelled: usize,
     /// docs/0066 D3 — not a rollup bucket: the gated runs live in their
     /// own section; the count rides the header line.
     pub waiting: usize,
@@ -6864,6 +6867,7 @@ pub(crate) fn checks_counts(nodes: &[gql::PrCheck]) -> ChecksCounts {
             gql::CheckState::Pending => counts.pending += 1,
             gql::CheckState::Waiting => counts.waiting += 1,
             gql::CheckState::Neutral => counts.muted += 1,
+            gql::CheckState::Cancelled => counts.cancelled += 1,
         }
     }
     counts
@@ -6893,9 +6897,9 @@ fn gate_error_copy(f: &crate::service::GateActionFailure, decision: &str) -> Str
 
 /// Unified check state → (icon, theme color) for the D7 row mapping:
 /// SUCCESS success / FAILURE danger / running warning / NEUTRAL+SKIPPED
-/// muted. Running rows render the LoaderCircle spinning upstream
-/// (`Spinner`) at the call site — #397, decoration only; reduced
-/// motion renders it static.
+/// muted, CANCELLED muted with its own glyph. Running rows render the
+/// LoaderCircle spinning upstream (`Spinner`) at the call site — #397,
+/// decoration only; reduced motion renders it static.
 fn check_visual(state: gql::CheckState, cx: &App) -> (IconName, Hsla) {
     match state {
         gql::CheckState::Success => (IconName::CircleCheck, cx.theme().success),
@@ -6905,6 +6909,8 @@ fn check_visual(state: gql::CheckState, cx: &App) -> (IconName, Hsla) {
         // static; a spinner would promise progress GitHub isn't making).
         gql::CheckState::Waiting => (IconName::Pause, cx.theme().warning),
         gql::CheckState::Neutral => (IconName::Dash, cx.theme().muted_foreground),
+        // #817: Ban (circle-slash) reads "stopped", apart from the skipped dash.
+        gql::CheckState::Cancelled => (IconName::Ban, cx.theme().muted_foreground),
     }
 }
 fn error_cell(message: &str, cx: &App) -> AnyElement {
@@ -9116,15 +9122,17 @@ mod tests {
             check("lint", gql::CheckState::Failure),
             check("e2e", gql::CheckState::Pending),
             check("cla", gql::CheckState::Neutral),
+            check("nightly", gql::CheckState::Cancelled),
         ];
         assert_eq!(
             checks_counts(&nodes),
             ChecksCounts {
-                total: 5,
+                total: 6,
                 passed: 2,
                 failed: 1,
                 pending: 1,
                 muted: 1,
+                cancelled: 1,
                 waiting: 0
             }
         );
