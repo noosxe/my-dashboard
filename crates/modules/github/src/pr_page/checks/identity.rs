@@ -12,6 +12,13 @@ use crate::gql::PrCheck;
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct CheckKey(String);
 
+impl CheckKey {
+    /// The in-flight and fetch-record identity of this row's chain.
+    pub(crate) fn ident(&self, repo: &str, number: i64) -> String {
+        format!("{repo}#{number}#{}", self.0)
+    }
+}
+
 /// What the log chain needs to know about the expanded row.
 #[derive(Clone, Debug)]
 pub(crate) struct CheckTarget {
@@ -48,9 +55,8 @@ impl CheckTarget {
         Self::new(head_oid, &check.name, check.check_run_id, check.suite_id)
     }
 
-    /// The in-flight and fetch-record identity of this row's chain.
     pub(crate) fn ident(&self, repo: &str, number: i64) -> String {
-        format!("{repo}#{number}#{}", self.key.0)
+        self.key.ident(repo, number)
     }
 }
 

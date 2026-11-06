@@ -4,6 +4,7 @@
 
 pub(super) mod cap;
 pub(crate) mod identity;
+pub(crate) mod log_cache;
 pub(crate) mod resolve;
 
 #[cfg(test)]

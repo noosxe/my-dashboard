@@ -64,6 +64,7 @@ mod gate_decision;
 mod write_refetch;
 
 use checks::identity::{CheckKey, CheckTarget};
+use checks::log_cache::{JobLogCache, LandedLog};
 
 use crate::api::{self, PrFile};
 use crate::drafts::{self, DraftHandle};
@@ -111,8 +112,9 @@ pub(crate) enum PrPageEvent {
 /// One check row's log-pane lifecycle (docs/0039 D4/D5). Content is the
 /// pane-ready tail (already escape-stripped and \r-folded), so a render
 /// clone is an Arc bump, not a 512 KiB copy. `Live` is the docs/0076
-/// carve-out — mutable watch state until the first `Ready`, after which
-/// immutability resumes (a completed job's log never changes).
+/// carve-out — mutable watch state until the first `Ready`. A `Ready` is
+/// the log of the job the row last resolved to, so every expand resolves
+/// again (`checks::log_cache`).
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum CheckLogState {
     /// The resolution chain is running.
@@ -229,7 +231,7 @@ fn check_watch_tick() -> std::time::Duration {
 /// (Ready or the inline error); `Disarmed` touches nothing — a collapse,
 /// a newer expand, a dropped page or sign-out owns the pane now.
 enum CheckWatchOutcome {
-    Landed(Result<(String, bool), String>),
+    Landed(Result<LandedLog, String>),
     Disarmed,
 }
 
@@ -353,16 +355,23 @@ async fn run_check_log_watch(
     cx: &mut AsyncApp,
 ) -> CheckWatchOutcome {
     let ident = target.ident(&repo, number);
-    let resolved = match resolve_check_job(state.clone(), &repo, number, &head_oid, &target, cx)
-        .await
-    {
-        Ok(resolved) => resolved,
-        Err(e) => return CheckWatchOutcome::Landed(Err(e)),
-    };
+    let resolved =
+        match resolve_check_job(state.clone(), &repo, number, &head_oid, &target, cx).await {
+            Ok(resolved) => resolved,
+            Err(e) => return CheckWatchOutcome::Landed(Err(e)),
+        };
     // Completed at resolve time: the old chain's path, byte-for-byte.
     if resolved.job.status.as_deref() == Some("completed") {
+        let job_id = resolved.job.id;
+        // docs/0039 D5: the same job's log never changes.
+        let cached = this.update(cx, |page, _| page.job_logs.get(job_id));
+        if let Ok(Some(log)) = cached {
+            return CheckWatchOutcome::Landed(Ok(log));
+        }
         return CheckWatchOutcome::Landed(
-            fetch_job_logs(state, &repo, resolved.job.id, &ident, cx).await,
+            fetch_job_logs(state, &repo, job_id, &ident, cx)
+                .await
+                .map(|tail| LandedLog::new(job_id, tail)),
         );
     }
     // Live: initial paint from the resolve payload (docs/0076 D2).
@@ -396,7 +405,9 @@ async fn run_check_log_watch(
                     match fetch_job_logs_typed(state.clone(), &repo, job.id, &ident, false, cx)
                         .await
                     {
-                        Ok(landed) => return CheckWatchOutcome::Landed(Ok(landed)),
+                        Ok(tail) => {
+                            return CheckWatchOutcome::Landed(Ok(LandedLog::new(job.id, tail)));
+                        }
                         // docs/0076 D3: the blob can lag completion by
                         // seconds — pending, never an error, until the
                         // retries run out.
@@ -611,10 +622,13 @@ pub(crate) struct PrDetailPage {
     /// parsed list (a refresh refetches it).
     pub(crate) files: Fetch<Vec<PrFile>>,
     /// Check log panes (docs/0039 D4/D5), keyed by row identity: names
-    /// repeat across workflows (#747). `Ready` content is immutable (a
-    /// completed job's log never changes) and cached per job fetch;
-    /// `Failed` keeps the message until a Retry re-runs the chain.
+    /// repeat across workflows (#747). `Failed` keeps the message until a
+    /// Retry or an expand re-runs the chain.
     check_logs: BTreeMap<CheckKey, CheckLogState>,
+    /// Log tails per job id (docs/0039 D5).
+    pub(crate) job_logs: JobLogCache,
+    /// The head the logs and panes belong to; a new one drops them all.
+    checks_head: Option<String>,
     /// The one open log pane's scroll (D4 accordion — at most one pane);
     /// driven to the bottom on every expand/land so the failure is on
     /// screen first.
@@ -837,6 +851,8 @@ impl PrDetailPage {
             method_select: None,
             files: Fetch::new(),
             check_logs: BTreeMap::new(),
+            job_logs: JobLogCache::default(),
+            checks_head: None,
             expanded_check: None,
             check_log_scroll: ScrollHandle::new(),
             check_watch_gen: 0,
@@ -1107,6 +1123,8 @@ impl PrDetailPage {
                 detail.commits.nodes.len()
             );
             self.md = build_md_cache(&self.repo, &detail);
+            // #747: a new head or a replaced check run outdates its logs.
+            self.reconcile_check_logs(&detail, cx);
             // Thread keys live in the same cache — a detail
             // refetch wipes it, so re-fold them (0030 D1).
             self.extend_threads_md();
@@ -1801,30 +1819,20 @@ impl PrDetailPage {
     // --- check log panes (docs/0039) ----------------------------------------
 
     /// Expander toggle (D4): the accordion is one-open-at-a-time;
-    /// re-toggling the open row collapses it. Cached `Ready` content
-    /// re-expands instantly (immutable, D5); everything else chains.
+    /// re-toggling the open row collapses it. Every expand re-runs the
+    /// resolution, the step that stays correct across re-runs (D5); a job
+    /// whose log is cached then lands without a download.
     fn toggle_check_log(&mut self, target: &CheckTarget, cx: &mut Context<Self>) {
-        if self.expanded_check.as_ref() == Some(&target.key) {
-            // Disarm the live watch (docs/0076 D1): the gen bump makes
-            // the loop's next gate exit without touching the page, and
-            // clearing the arm lets a re-expand start a fresh chain.
-            self.check_watch_gen += 1;
-            let ident = target.ident(&self.repo, self.number);
-            self.state
-                .update(cx, |s, _| s.in_flight_clear(&(Kind::JobLog, Some(ident))));
-            self.expanded_check = None;
+        let was_open = self.expanded_check.as_ref() == Some(&target.key);
+        // A collapse or a move disarms the open row's watch and chain, so
+        // coming back to that row starts afresh.
+        self.disarm_expanded_check(cx);
+        if was_open {
             cx.notify();
             return;
         }
-        // Any new expand invalidates the previous watch's generation.
-        self.check_watch_gen += 1;
         self.expanded_check = Some(target.key.clone());
-        if !matches!(
-            self.check_logs.get(&target.key),
-            Some(CheckLogState::Ready { .. })
-        ) {
-            self.start_check_log_chain(target, cx);
-        }
+        self.start_check_log_chain(target, cx);
         // The failure lives at the tail (D4) — every expansion opens at
         // the bottom; the flag is consumed by the pane's next paint.
         self.check_log_scroll.scroll_to_bottom();
@@ -1856,6 +1864,7 @@ impl PrDetailPage {
             cx.notify();
             return;
         };
+        self.checks_head.get_or_insert_with(|| head_oid.clone());
         let key = (Kind::JobLog, Some(target.ident(&self.repo, self.number)));
         let armed = self.state.update(cx, |s, _| s.in_flight_arm(key.clone()));
         if !armed {
@@ -1894,10 +1903,13 @@ impl PrDetailPage {
                         page.check_logs.insert(
                             target.key.clone(),
                             match res {
-                                Ok((text, truncated)) => CheckLogState::Ready {
-                                    text: SharedString::from(text),
-                                    truncated,
-                                },
+                                Ok(log) => {
+                                    page.job_logs.insert(&log);
+                                    CheckLogState::Ready {
+                                        text: log.text,
+                                        truncated: log.truncated,
+                                    }
+                                }
                                 Err(e) => CheckLogState::Failed(e),
                             },
                         );
@@ -9256,7 +9268,6 @@ mod tests {
         CheckTarget::new(Some("abc123"), "build", None, None)
     }
 
-
     /// The summary row literal shared by the log-pane probes (the real
     /// page builds it from the snapshot row that opened the page).
     fn probe_summary(key: &str, number: i64) -> gql::PullRequest {
@@ -9843,7 +9854,10 @@ mod tests {
             let p = page.read(cx);
             assert!(p.expanded_check.is_none());
             assert!(
-                matches!(p.check_logs.get(&build_target().key), Some(CheckLogState::Live { .. })),
+                matches!(
+                    p.check_logs.get(&build_target().key),
+                    Some(CheckLogState::Live { .. })
+                ),
                 "disarm leaves the pane state alone"
             );
         });
