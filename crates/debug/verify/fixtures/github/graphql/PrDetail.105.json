@@ -153,6 +153,7 @@
     "title": "Loader: drop the legacy manifest format",
     "url": "https://github.com/fixture-user/beacon/pull/105",
     "viewerCanAssign": false,
+    "viewerCanClose": false,
     "viewerCanLabel": false,
     "viewerCanReact": true,
     "viewerCanUpdate": false,

@@ -583,6 +583,7 @@ mod tests {
             draft: false,
             viewer_can_update: false,
             viewer_can_update_branch: false,
+            viewer_can_close: false,
             viewer_can_react: false,
             reaction_groups: Vec::new(),
             labels: Vec::new(),

@@ -232,6 +232,7 @@ class Timeline:
             author=user("octo-dev"),
             viewerCanUpdate=True,
             viewerCanUpdateBranch=False,
+            viewerCanClose=True,
             viewerCanReact=True,
             viewerCanLabel=True,
             viewerCanAssign=True,
@@ -372,7 +373,7 @@ class Timeline:
             self.check_run("build", "COMPLETED", "SUCCESS", 1),
             self.check_run("clippy", "COMPLETED", "SUCCESS", 2),
         ]
-        read_only = dict(viewerCanUpdate=False, viewerCanLabel=False, viewerCanAssign=False)
+        read_only = dict(viewerCanClose=False, viewerCanUpdate=False, viewerCanLabel=False, viewerCanAssign=False)
         return {
             101: {"pr": self.populated(101)},
             102: {"pr": self.overflow(102)},

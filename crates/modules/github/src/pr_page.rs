@@ -61,11 +61,13 @@ pub(crate) mod checks;
 mod detail_read;
 mod files_etag;
 mod gate_decision;
+mod merge_gate;
 mod write_refetch;
 
 use checks::identity::{CheckKey, CheckTarget};
 use checks::log_cache::{JobLogCache, LandedLog};
 use checks::log_error;
+use merge_gate::{close_visible, merge_enabled, merge_visible};
 
 use crate::api::{self, PrFile};
 use crate::drafts::{self, DraftHandle};
@@ -3136,13 +3138,16 @@ impl PrDetailPage {
         let Some(d) = self.detail(cx).cloned() else {
             return;
         };
-        if !merge_enabled(
-            d.state.as_deref(),
-            d.draft,
-            d.mergeable.as_deref(),
-            self.busy.is_some() || self.store_pending(cx).is_some(),
-            self.methods.is_empty(),
-        ) {
+        if !merge_visible(d.viewer_permission.as_deref())
+            || !merge_enabled(
+                d.state.as_deref(),
+                d.draft,
+                d.mergeable.as_deref(),
+                d.merge_state_status.as_deref(),
+                self.busy.is_some() || self.store_pending(cx).is_some(),
+                self.methods.is_empty(),
+            )
+        {
             return;
         }
         let method = self.selected_method(cx).unwrap_or(MergeMethod::Merge);
@@ -3163,7 +3168,8 @@ impl PrDetailPage {
         let Some(d) = self.detail(cx).cloned() else {
             return;
         };
-        if self.busy.is_some()
+        if !close_visible(d.viewer_can_close)
+            || self.busy.is_some()
             || self.store_pending(cx).is_some()
             || d.id.is_empty()
             || d.state.as_deref() != Some("OPEN")
@@ -5603,10 +5609,13 @@ impl PrDetailPage {
             MergeLineTone::Danger => cx.theme().danger,
             MergeLineTone::Muted => cx.theme().muted_foreground,
         };
+        let show_merge = merge_visible(d.viewer_permission.as_deref());
+        let show_close = close_visible(d.viewer_can_close);
         let can_merge = merge_enabled(
             d.state.as_deref(),
             d.draft,
             d.mergeable.as_deref(),
+            d.merge_state_status.as_deref(),
             any_busy,
             self.methods.is_empty(),
         );
@@ -5619,7 +5628,9 @@ impl PrDetailPage {
         // Method selector (D5): shown only when the repo allows a real
         // choice; a single method makes the button carry the verb.
         let method_row = match (&self.method_select, self.methods.len()) {
-            (Some(select), n) if n > 1 => Select::new(select).small().w_full().into_any_element(),
+            (Some(select), n) if n > 1 && show_merge => {
+                Select::new(select).small().w_full().into_any_element()
+            }
             _ => div().into_any_element(),
         };
         let merge_label: SharedString = if pending == Some(PendingKind::Merge) {
@@ -5660,36 +5671,36 @@ impl PrDetailPage {
                                 matches!(pending, Some(PendingKind::Merge | PendingKind::Close)),
                                 |row| row.child(Spinner::new().small()),
                             )
-                            .child(
-                                Button::new("pr-merge")
-                                    .label(merge_label)
-                                    .primary()
-                                    .small()
-                                    .disabled(!can_merge)
-                                    .tooltip(if pending.is_some() {
-                                        SharedString::from("Working")
-                                    } else {
-                                        merge_disabled_reason(can_merge, line)
-                                    })
-                                    .on_click(
-                                        cx.listener(|this, _, window, cx| {
+                            .when(show_merge, |row| {
+                                row.child(
+                                    Button::new("pr-merge")
+                                        .label(merge_label)
+                                        .primary()
+                                        .small()
+                                        .disabled(!can_merge)
+                                        .tooltip(if pending.is_some() {
+                                            SharedString::from("Working")
+                                        } else {
+                                            merge_disabled_reason(can_merge, line)
+                                        })
+                                        .on_click(cx.listener(|this, _, window, cx| {
                                             this.merge_pr(window, cx)
-                                        }),
-                                    ),
-                            )
-                            .child(
-                                Button::new("pr-close")
-                                    .label("Close pull request")
-                                    .danger()
-                                    .ghost()
-                                    .small()
-                                    .disabled(any_busy || d.state.as_deref() != Some("OPEN"))
-                                    .on_click(
-                                        cx.listener(|this, _, window, cx| {
+                                        })),
+                                )
+                            })
+                            .when(show_close, |row| {
+                                row.child(
+                                    Button::new("pr-close")
+                                        .label("Close pull request")
+                                        .danger()
+                                        .ghost()
+                                        .small()
+                                        .disabled(any_busy || d.state.as_deref() != Some("OPEN"))
+                                        .on_click(cx.listener(|this, _, window, cx| {
                                             this.close_pr(window, cx)
-                                        }),
-                                    ),
-                            ),
+                                        })),
+                                )
+                            }),
                     ),
             )
             .into_any_element()
@@ -6591,18 +6602,6 @@ pub(crate) fn merge_state_line(status: Option<&str>) -> (&'static str, MergeLine
     }
 }
 
-/// Merge-button gating (D5): open, not draft, server-says-MERGEABLE, idle,
-/// and at least one allowed method.
-pub(crate) fn merge_enabled(
-    state: Option<&str>,
-    draft: bool,
-    mergeable: Option<&str>,
-    busy: bool,
-    no_methods: bool,
-) -> bool {
-    state == Some("OPEN") && !draft && mergeable == Some("MERGEABLE") && !busy && !no_methods
-}
-
 /// Tooltip for the Merge button — the state line doubles as the reason.
 fn merge_disabled_reason(can_merge: bool, line: &str) -> SharedString {
     if can_merge {
@@ -7152,7 +7151,7 @@ mod tests {
         BusyOp, ChecksCounts, ChecksTone, ErrorScope, FinishEvent, LineComposer, MergeLineTone,
         MergeMethod, PrDetailPage, PrMetaEditor, PrStateTone, PrTab, ReviewTone, TimelineKind,
         allowed_methods, checks_counts, checks_summary_line, comment_action_allowed,
-        composer_body_allowed, default_method, gate_error_copy, merge_enabled, merge_state_line,
+        composer_body_allowed, default_method, gate_error_copy, merge_state_line,
         pr_assignees_arming, pr_labels_arming, pr_milestone_arming, pr_reviewers_arming,
         pr_state_tone, review_batch_allowed, review_event, review_state_label, rollup_summary,
         short_sha, split_repo, timeline_order, update_branch_enabled,
@@ -7303,6 +7302,9 @@ mod tests {
     fn merge_probe() -> gql::PrDetail {
         let mut d = probe_detail();
         d.mergeable = Some("MERGEABLE".into());
+        d.merge_state_status = Some("CLEAN".into());
+        d.viewer_permission = Some("WRITE".into());
+        d.viewer_can_close = true;
         d
     }
 
@@ -10511,63 +10513,6 @@ mod tests {
         assert_eq!(review_event("Approve"), Some("APPROVE"));
         assert_eq!(review_event("Request changes"), Some("REQUEST_CHANGES"));
         assert_eq!(review_event("Comment"), None);
-    }
-
-    #[test]
-    fn merge_enabled_table() {
-        let yes = (Some("OPEN"), false, Some("MERGEABLE"), false, false);
-        assert!(merge_enabled(yes.0, yes.1, yes.2, yes.3, yes.4));
-        // Each disqualifier alone flips it off.
-        assert!(!merge_enabled(
-            Some("MERGED"),
-            false,
-            Some("MERGEABLE"),
-            false,
-            false
-        ));
-        assert!(!merge_enabled(
-            Some("CLOSED"),
-            false,
-            Some("MERGEABLE"),
-            false,
-            false
-        ));
-        assert!(!merge_enabled(
-            Some("OPEN"),
-            true,
-            Some("MERGEABLE"),
-            false,
-            false
-        ));
-        assert!(!merge_enabled(
-            Some("OPEN"),
-            false,
-            Some("CONFLICTING"),
-            false,
-            false
-        ));
-        assert!(!merge_enabled(
-            Some("OPEN"),
-            false,
-            Some("UNKNOWN"),
-            false,
-            false
-        ));
-        assert!(!merge_enabled(Some("OPEN"), false, None, false, false));
-        assert!(!merge_enabled(
-            Some("OPEN"),
-            false,
-            Some("MERGEABLE"),
-            true,
-            false
-        ));
-        assert!(!merge_enabled(
-            Some("OPEN"),
-            false,
-            Some("MERGEABLE"),
-            false,
-            true
-        ));
     }
 
     #[test]

@@ -181,6 +181,7 @@
     "title": "Tests: widen the manifest round-trip corpus",
     "url": "https://github.com/fixture-user/beacon/pull/106",
     "viewerCanAssign": false,
+    "viewerCanClose": false,
     "viewerCanLabel": false,
     "viewerCanReact": true,
     "viewerCanUpdate": false,
