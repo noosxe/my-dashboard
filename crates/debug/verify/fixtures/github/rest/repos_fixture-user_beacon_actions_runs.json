@@ -1,0 +1,27 @@
+{
+ "total_count": 2,
+ "workflow_runs": [
+  {
+   "conclusion": "action_required",
+   "created_at": "2026-10-23T09:00:00Z",
+   "event": "pull_request",
+   "head_branch": "feature/trailing-commas",
+   "head_sha": "0000065bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "id": 7001,
+   "name": "fork-ci",
+   "run_number": 311,
+   "status": "completed"
+  },
+  {
+   "conclusion": "action_required",
+   "created_at": "2026-10-23T10:00:00Z",
+   "event": "pull_request",
+   "head_branch": "feature/trailing-commas",
+   "head_sha": "0000065bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "id": 7002,
+   "name": "deploy-staging",
+   "run_number": 312,
+   "status": "completed"
+  }
+ ]
+}

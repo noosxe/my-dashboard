@@ -679,14 +679,20 @@ fn run_step(conn: &mut Conn, session: Option<&str>, op: &StepOp) -> StepOutcome 
                 wait_frame: None,
             },
         ),
-        StepOp::Mouse { action, x, y, dy } => verb(
+        StepOp::Mouse {
+            action,
+            x,
+            y,
+            dy,
+            wait_frame,
+        } => verb(
             conn,
             &Command::Mouse {
                 action: *action,
                 x: *x,
                 y: *y,
                 dy: *dy,
-                wait_frame: None,
+                wait_frame: *wait_frame,
             },
         ),
         StepOp::WaitFrame => verb(

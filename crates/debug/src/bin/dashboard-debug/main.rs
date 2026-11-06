@@ -852,7 +852,7 @@ fn baseline_verb(conn: &mut Conn, surface: &str, update: bool, window: &Option<u
             return 1;
         }
     };
-    let diff = dashboard_debug::snapshot::diff(&baseline, &sanitized);
+    let diff = dashboard_debug::snapshot::structural_diff(&baseline, &sanitized);
     if diff.entries.is_empty() {
         println!(
             "baseline {surface}: clean ({} nodes)",

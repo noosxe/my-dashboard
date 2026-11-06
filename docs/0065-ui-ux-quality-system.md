@@ -177,6 +177,14 @@ the exact step order of the receipt that asserts it (focus moves
 matter). The seeded-ledger capture that #536 tracked is the fixture
 seed plus `usage-seeded.txt`.
 
+A golden compares structure, not ids *(amendment, #769)*: a removed and
+an added node with the same role, label, bounds and focus state are one
+node that re-keyed, so they aren't drift. Ids inside a view hash its
+entity id, which depends on how many entities came before, and the PR
+page's differ between identical walks. `tree --diff` still reports every
+id, and a stale id in a script still fails loudly with `4005
+UNKNOWN_NODE`.
+
 ### D6 — Pixel goldens (Linux, Playwright semantics)
 
 Committed baselines keyed by size × theme; re-capture in a pinned

@@ -1,0 +1,21 @@
+{
+ "data": {
+  "rateLimit": null,
+  "repository": {
+   "milestones": {
+    "nodes": [
+     {
+      "id": "M_1",
+      "state": "OPEN",
+      "title": "v1.4 parser cleanup"
+     },
+     {
+      "id": "M_3",
+      "state": "OPEN",
+      "title": "v1.5"
+     }
+    ]
+   }
+  }
+ }
+}

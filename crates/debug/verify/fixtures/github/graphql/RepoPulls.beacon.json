@@ -1,0 +1,352 @@
+{
+ "data": {
+  "rateLimit": null,
+  "repository": {
+   "databaseId": 2001,
+   "description": "A second fixture repository",
+   "hasIssuesEnabled": true,
+   "id": "R_beacon",
+   "isArchived": false,
+   "isPrivate": false,
+   "name": "beacon",
+   "nameWithOwner": "fixture-user/beacon",
+   "owner": {
+    "login": "fixture-user"
+   },
+   "pullRequests": {
+    "nodes": [
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/octo-dev",
+       "login": "octo-dev"
+      },
+      "databaseId": 50101,
+      "isDraft": false,
+      "labels": {
+       "nodes": [
+        {
+         "color": "d73a4a",
+         "name": "bug"
+        },
+        {
+         "color": "1d76db",
+         "name": "area:parser"
+        },
+        {
+         "color": "fbca04",
+         "name": "needs-review"
+        }
+       ],
+       "totalCount": 3
+      },
+      "number": 101,
+      "reviewRequests": {
+       "nodes": [
+        {
+         "requestedReviewer": {
+          "__typename": "User",
+          "login": "reviewer-d"
+         }
+        },
+        {
+         "requestedReviewer": {
+          "__typename": "User",
+          "login": "reviewer-e"
+         }
+        },
+        {
+         "requestedReviewer": {
+          "__typename": "Team"
+         }
+        }
+       ],
+       "totalCount": 3
+      },
+      "state": "OPEN",
+      "statusCheckRollup": {
+       "state": "FAILURE"
+      },
+      "title": "Parser: accept trailing commas in manifest lists",
+      "updatedAt": "2026-10-23T11:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/pull/101"
+     },
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/octo-dev",
+       "login": "octo-dev"
+      },
+      "databaseId": 50102,
+      "isDraft": false,
+      "labels": {
+       "nodes": [
+        {
+         "color": "d73a4a",
+         "name": "area:subsystem-00"
+        },
+        {
+         "color": "1d76db",
+         "name": "area:subsystem-01"
+        },
+        {
+         "color": "fbca04",
+         "name": "area:subsystem-02"
+        },
+        {
+         "color": "0e8a16",
+         "name": "area:subsystem-03"
+        },
+        {
+         "color": "5319e7",
+         "name": "area:subsystem-04"
+        },
+        {
+         "color": "d73a4a",
+         "name": "area:subsystem-05"
+        },
+        {
+         "color": "1d76db",
+         "name": "area:subsystem-06"
+        },
+        {
+         "color": "fbca04",
+         "name": "area:subsystem-07"
+        }
+       ],
+       "totalCount": 34
+      },
+      "number": 102,
+      "reviewRequests": {
+       "nodes": [
+        {
+         "requestedReviewer": {
+          "__typename": "User",
+          "login": "reviewer-00"
+         }
+        },
+        {
+         "requestedReviewer": {
+          "__typename": "User",
+          "login": "reviewer-01"
+         }
+        },
+        {
+         "requestedReviewer": {
+          "__typename": "User",
+          "login": "reviewer-02"
+         }
+        },
+        {
+         "requestedReviewer": {
+          "__typename": "User",
+          "login": "reviewer-03"
+         }
+        },
+        {
+         "requestedReviewer": {
+          "__typename": "User",
+          "login": "reviewer-04"
+         }
+        },
+        {
+         "requestedReviewer": {
+          "__typename": "User",
+          "login": "reviewer-05"
+         }
+        },
+        {
+         "requestedReviewer": {
+          "__typename": "User",
+          "login": "reviewer-06"
+         }
+        },
+        {
+         "requestedReviewer": {
+          "__typename": "User",
+          "login": "reviewer-07"
+         }
+        },
+        {
+         "requestedReviewer": {
+          "__typename": "User",
+          "login": "reviewer-08"
+         }
+        },
+        {
+         "requestedReviewer": {
+          "__typename": "User",
+          "login": "reviewer-09"
+         }
+        },
+        {
+         "requestedReviewer": {
+          "__typename": "Team"
+         }
+        },
+        {
+         "requestedReviewer": {
+          "__typename": "Team"
+         }
+        },
+        {
+         "requestedReviewer": {
+          "__typename": "Team"
+         }
+        }
+       ],
+       "totalCount": 13
+      },
+      "state": "OPEN",
+      "statusCheckRollup": {
+       "state": "PENDING"
+      },
+      "title": "Parser and loader overhaul: accept trailing commas, keep the strict-mode error, split the manifest grammar into its own module and migrate every call site in the workspace to the new entry points, now",
+      "updatedAt": "2026-10-23T10:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/pull/102"
+     },
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/octo-dev",
+       "login": "octo-dev"
+      },
+      "databaseId": 50103,
+      "isDraft": true,
+      "labels": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "number": 103,
+      "reviewRequests": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "state": "OPEN",
+      "statusCheckRollup": null,
+      "title": "WIP: loader cleanup",
+      "updatedAt": "2026-10-23T09:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/pull/103"
+     },
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/octo-dev",
+       "login": "octo-dev"
+      },
+      "databaseId": 50104,
+      "isDraft": false,
+      "labels": {
+       "nodes": [
+        {
+         "color": "0e8a16",
+         "name": "docs"
+        }
+       ],
+       "totalCount": 1
+      },
+      "number": 104,
+      "reviewRequests": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "state": "OPEN",
+      "statusCheckRollup": {
+       "state": "SUCCESS"
+      },
+      "title": "Docs: fix the manifest grammar example",
+      "updatedAt": "2026-10-23T08:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/pull/104"
+     },
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/octo-dev",
+       "login": "octo-dev"
+      },
+      "databaseId": 50105,
+      "isDraft": false,
+      "labels": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "number": 105,
+      "reviewRequests": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "state": "OPEN",
+      "statusCheckRollup": null,
+      "title": "Loader: drop the legacy manifest format",
+      "updatedAt": "2026-10-23T07:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/pull/105"
+     },
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/octo-dev",
+       "login": "octo-dev"
+      },
+      "databaseId": 50106,
+      "isDraft": false,
+      "labels": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "number": 106,
+      "reviewRequests": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "state": "OPEN",
+      "statusCheckRollup": {
+       "state": "SUCCESS"
+      },
+      "title": "Tests: widen the manifest round-trip corpus",
+      "updatedAt": "2026-10-23T06:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/pull/106"
+     },
+     {
+      "author": null,
+      "databaseId": 50107,
+      "isDraft": false,
+      "labels": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "number": 107,
+      "reviewRequests": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "state": "OPEN",
+      "statusCheckRollup": {
+       "state": "FAILURE"
+      },
+      "title": "Parser: report the column in manifest errors",
+      "updatedAt": "2026-10-23T05:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/pull/107"
+     },
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/octo-dev",
+       "login": "octo-dev"
+      },
+      "databaseId": 50108,
+      "isDraft": false,
+      "labels": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "number": 108,
+      "reviewRequests": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "state": "OPEN",
+      "statusCheckRollup": null,
+      "title": "Loader: a PR that fails its detail read",
+      "updatedAt": "2026-10-23T03:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/pull/108"
+     }
+    ],
+    "totalCount": 8
+   },
+   "pushedAt": "2026-10-23T12:00:00Z"
+  }
+ }
+}

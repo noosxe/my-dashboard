@@ -252,6 +252,28 @@ scripts/verify.sh sh -c '
 '
 ```
 
+The PR detail page (docs/0081 §12.1, #769) runs over the same fixtures.
+`pr-page.txt` opens all eight scenarios from `fixture-user/beacon` in one
+session, walks their tabs and asserts the Conversation goldens for the
+populated, draft and merged states:
+
+```sh
+scripts/verify.sh sh -c '
+  set -e
+  cargo build -p dashboard-app
+  export DASHBOARD_GITHUB_FIXTURE=/work/crates/debug/verify/fixtures/github
+  export DASHBOARD_FIXED_NOW=2026-10-23T12:00:00Z
+  cargo run -p dashboard-debug -- session start --name prpage --size 1280x800 \
+    --binary /tmp/target/debug/my-dashboard
+  cargo run -p dashboard-debug -- run crates/debug/verify/pr-page.txt
+  cargo run -p dashboard-debug -- session stop prpage
+'
+```
+
+The script leaves out `audit` and `tab-stops` until #768 and #733 land,
+since both exit red at the first Conversation stop (its header says where
+they go). A PR-page PR runs them as one-off verbs at the stop it touches.
+
 Interactive inspection: `scripts/verify.sh bash`.
 
 Freshness caution: cargo tracks host edits by mtime, and macOS bind

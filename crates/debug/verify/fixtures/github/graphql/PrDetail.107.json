@@ -1,0 +1,472 @@
+{
+ "data": {
+  "rateLimit": null,
+  "repository": {
+   "mergeCommitAllowed": true,
+   "pullRequest": {
+    "assignees": {
+     "nodes": [],
+     "totalCount": 0
+    },
+    "author": null,
+    "baseRefName": "main",
+    "body": "## Summary\n\nAccept trailing commas in the manifest parser, so hand-edited files stop\nfailing the load with an opaque error.\n\n- `parse_manifest` tolerates one trailing comma per list\n- the error now names the offending line\n\n```rust\nlet manifest = parse_manifest(input)?;\n```\n\nSee the [grammar notes](https://example.com/grammar) for the full list.\n",
+    "changedFiles": 3,
+    "comments": {
+     "nodes": [
+      {
+       "author": null,
+       "body": "Ghost-authored comment.",
+       "createdAt": "2026-10-21T11:00:00Z",
+       "databaseId": 9001,
+       "id": "IC_1",
+       "reactionGroups": [
+        {
+         "content": "THUMBS_UP",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "THUMBS_DOWN",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "LAUGH",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "HOORAY",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "CONFUSED",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "HEART",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "ROCKET",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "EYES",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        }
+       ],
+       "updatedAt": "2026-10-21T11:00:00Z",
+       "viewerCanDelete": false,
+       "viewerCanReact": true,
+       "viewerCanUpdate": false
+      }
+     ],
+     "totalCount": 1
+    },
+    "commits": {
+     "nodes": [
+      {
+       "commit": {
+        "author": {
+         "avatarUrl": "https://avatars.invalid/unlinked",
+         "name": "Unlinked Author",
+         "user": null
+        },
+        "committedDate": "2026-10-20T12:00:00Z",
+        "messageHeadline": "parser: accept trailing commas in manifest lists",
+        "oid": "0000001aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+       }
+      },
+      {
+       "commit": {
+        "author": {
+         "avatarUrl": "https://avatars.invalid/unlinked",
+         "name": "Unlinked Author",
+         "user": null
+        },
+        "committedDate": "2026-10-20T13:00:00Z",
+        "messageHeadline": "tests: cover the trailing-comma cases",
+        "oid": "0000002aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+       }
+      }
+     ],
+     "totalCount": 2
+    },
+    "createdAt": "2026-10-19T12:00:00Z",
+    "files": {
+     "totalCount": 3
+    },
+    "headRefName": "feature/trailing-commas",
+    "headRefOid": "000006bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "id": "PR_107",
+    "isDraft": false,
+    "labels": {
+     "nodes": [],
+     "totalCount": 0
+    },
+    "mergeStateStatus": "UNSTABLE",
+    "mergeable": "MERGEABLE",
+    "milestone": null,
+    "number": 107,
+    "reactionGroups": [
+     {
+      "content": "THUMBS_UP",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "THUMBS_DOWN",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "LAUGH",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "HOORAY",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "CONFUSED",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "HEART",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "ROCKET",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "EYES",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     }
+    ],
+    "reviewRequests": {
+     "nodes": [],
+     "totalCount": 0
+    },
+    "reviews": {
+     "nodes": [
+      {
+       "author": {
+        "avatarUrl": "https://avatars.invalid/fixture-user",
+        "login": "fixture-user"
+       },
+       "body": "",
+       "id": "PRR_9",
+       "reactionGroups": [
+        {
+         "content": "THUMBS_UP",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "THUMBS_DOWN",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "LAUGH",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "HOORAY",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "CONFUSED",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "HEART",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "ROCKET",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "EYES",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        }
+       ],
+       "state": "PENDING",
+       "submittedAt": null,
+       "updatedAt": "2026-10-22T07:00:00Z",
+       "viewerCanDelete": true,
+       "viewerCanReact": false,
+       "viewerCanUpdate": true
+      },
+      {
+       "author": null,
+       "body": "Superseded.",
+       "id": "PRR_1",
+       "reactionGroups": [
+        {
+         "content": "THUMBS_UP",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "THUMBS_DOWN",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "LAUGH",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "HOORAY",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "CONFUSED",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "HEART",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "ROCKET",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "EYES",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        }
+       ],
+       "state": "DISMISSED",
+       "submittedAt": "2026-10-21T10:00:00Z",
+       "updatedAt": "2026-10-21T10:00:00Z",
+       "viewerCanDelete": false,
+       "viewerCanReact": true,
+       "viewerCanUpdate": false
+      },
+      {
+       "author": {
+        "avatarUrl": "https://avatars.invalid/reviewer-b",
+        "login": "reviewer-b"
+       },
+       "body": "",
+       "id": "PRR_2",
+       "reactionGroups": [
+        {
+         "content": "THUMBS_UP",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "THUMBS_DOWN",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "LAUGH",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "HOORAY",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "CONFUSED",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "HEART",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "ROCKET",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "EYES",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        }
+       ],
+       "state": "COMMENTED",
+       "submittedAt": "2026-10-21T12:00:00Z",
+       "updatedAt": "2026-10-21T12:00:00Z",
+       "viewerCanDelete": false,
+       "viewerCanReact": true,
+       "viewerCanUpdate": false
+      }
+     ],
+     "totalCount": 3
+    },
+    "state": "OPEN",
+    "statusCheckRollup": {
+     "contexts": {
+      "nodes": [
+       {
+        "__typename": "CheckRun",
+        "checkSuite": {
+         "app": {
+          "slug": "github-actions"
+         }
+        },
+        "conclusion": "SUCCESS",
+        "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/1",
+        "name": "build",
+        "status": "COMPLETED"
+       },
+       {
+        "__typename": "CheckRun",
+        "checkSuite": {
+         "app": {
+          "slug": "github-actions"
+         }
+        },
+        "conclusion": "FAILURE",
+        "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/2",
+        "name": "build",
+        "status": "COMPLETED"
+       },
+       {
+        "__typename": "CheckRun",
+        "checkSuite": {
+         "app": {
+          "slug": "github-actions"
+         }
+        },
+        "conclusion": "CANCELLED",
+        "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/3",
+        "name": "lint",
+        "status": "COMPLETED"
+       }
+      ],
+      "totalCount": 3
+     },
+     "state": "FAILURE"
+    },
+    "title": "Parser: report the column in manifest errors",
+    "url": "https://github.com/fixture-user/beacon/pull/107",
+    "viewerCanAssign": true,
+    "viewerCanLabel": true,
+    "viewerCanReact": true,
+    "viewerCanUpdate": true,
+    "viewerCanUpdateBranch": false
+   },
+   "rebaseMergeAllowed": false,
+   "squashMergeAllowed": false,
+   "viewerPermission": "ADMIN"
+  }
+ }
+}

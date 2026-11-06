@@ -1,0 +1,192 @@
+# pr-page.txt — the PR detail page over the committed scenarios (docs/0081
+# §12.1, #769): each state opens from fixture-user/beacon's Open PRs lane in
+# one session, and each tab shows its content. Structural goldens pin the
+# Conversation tab of the populated, draft and merged scenarios (0065 D5).
+#
+# Prerequisites: the containerized env (docs/0071) with the GitHub
+# fixtures and the pinned clock, and a session named `prpage` at 1280x800:
+#   export DASHBOARD_GITHUB_FIXTURE=/work/crates/debug/verify/fixtures/github
+#   export DASHBOARD_FIXED_NOW=2026-10-23T12:00:00Z
+#   dashboard-debug session start --name prpage --size 1280x800 \
+#     --binary /tmp/target/debug/my-dashboard
+# Run (in-container): dashboard-debug run crates/debug/verify/pr-page.txt
+#
+# Rows and tabs take bridge mouse clicks at their centres, frozen for this
+# fixture set at 1280x800 and re-derived with `tree` when they move. Rows
+# because an AT-SPI click on one does nothing and they take no keyboard
+# focus yet (#657). Tabs because the ids under the PR page hash its entity
+# id, so they differ between identical walks; only chrome ids are stable
+# here, and goldens compare structure rather than ids (0065 D5). The tree
+# has no title or commit-row nodes (#768), so the Commits stops can only
+# show that the Conversation content left.
+#
+# Not here yet, because they would stop the walk at the first scenario:
+# `audit` FAILs on the unlabeled combo boxes (#768) and `tab-stops` exits
+# at the comment box's Tab trap (#733). Add both at each Conversation stop,
+# after its `assert-baseline`, when those land. Until then a PR-page PR
+# runs them as one-off verbs at the stop it touches.
+
+--session prpage
+
+# Home → GitHub → beacon, through the list's own filter + keyboard.
+assert-label "Open GitHub module"
+click 3229520539080433524 --wait-frame
+assert-label "Filter repositories"
+click 13046189450844208135
+type beacon
+key down
+key enter
+wait-label "PR #108: Loader: a PR that fails its detail read"
+
+# 101: open and blocked, everything populated.
+mouse down 900 337
+mouse up 900 337
+wait-label "Conversation (5)"
+assert-label "#101"
+assert-label "Review approval"
+assert-label "Leave a comment"
+assert-baseline github-pr-populated
+mouse down 447 155
+mouse up 447 155 --wait-frame
+assert-no-label "Leave a comment"
+mouse down 535 155
+mouse up 535 155 --wait-frame
+wait-label "Approve gated workflow run fork-ci"
+assert-label "Review gated workflow run deploy-staging"
+assert-label "View log"
+mouse down 639 155
+mouse up 639 155 --wait-frame
+wait-label "Diff for crates/manifest/src/parser.rs"
+assert-label "Review thread — reviewer-b · line 11"
+assert-label "Review thread — reviewer-b · lines 11–12"
+assert-label "Outdated conversations (1)"
+click 2108810803643324527 --wait-frame
+wait-label "PR #108: Loader: a PR that fails its detail read"
+
+# 102: overflow stress. The checks tab counts the 137 total.
+mouse down 900 376
+mouse up 900 376
+wait-label "Conversation (252)"
+assert-label "#102"
+assert-label "Update branch"
+mouse down 472 254
+mouse up 472 254 --wait-frame
+assert-no-label "Leave a comment"
+mouse down 578 254
+mouse up 578 254 --wait-frame
+wait-label "View log"
+mouse down 690 254
+mouse up 690 254 --wait-frame
+wait-label "Diff for crates/manifest/src/parser.rs"
+click 2108810803643324527 --wait-frame
+wait-label "PR #108: Loader: a PR that fails its detail read"
+
+# 103: draft with nothing filled in.
+mouse down 900 414
+mouse up 900 414
+wait-label "Conversation (0)"
+assert-label "#103"
+assert-label "Leave a comment"
+assert-baseline github-pr-draft
+mouse down 447 155
+mouse up 447 155 --wait-frame
+assert-no-label "Leave a comment"
+mouse down 535 155
+mouse up 535 155 --wait-frame
+assert-no-label "View log"
+mouse down 639 155
+mouse up 639 155 --wait-frame
+wait-label "Diff for crates/manifest/src/parser.rs"
+click 2108810803643324527 --wait-frame
+wait-label "PR #108: Loader: a PR that fails its detail read"
+
+# 104: merged, squash only.
+mouse down 900 452
+mouse up 900 452
+wait-label "Conversation (1)"
+assert-label "#104"
+assert-no-label "Merge pull request"
+assert-baseline github-pr-merged
+mouse down 447 155
+mouse up 447 155 --wait-frame
+assert-no-label "Leave a comment"
+mouse down 535 155
+mouse up 535 155 --wait-frame
+wait-label "View log"
+mouse down 639 155
+mouse up 639 155 --wait-frame
+wait-label "Diff for crates/manifest/src/parser.rs"
+click 2108810803643324527 --wait-frame
+wait-label "PR #108: Loader: a PR that fails its detail read"
+
+# 105: closed with conflicts, read-only viewer.
+mouse down 900 490
+mouse up 900 490
+wait-label "Conversation (0)"
+assert-label "#105"
+assert-no-label "Merge pull request"
+assert-no-label "Edit"
+mouse down 447 155
+mouse up 447 155 --wait-frame
+assert-no-label "Leave a comment"
+mouse down 535 155
+mouse up 535 155 --wait-frame
+assert-no-label "View log"
+mouse down 639 155
+mouse up 639 155 --wait-frame
+wait-label "Diff for crates/manifest/src/parser.rs"
+click 2108810803643324527 --wait-frame
+wait-label "PR #108: Loader: a PR that fails its detail read"
+
+# 106: open and clean, read-only viewer.
+mouse down 900 527
+mouse up 900 527
+wait-label "Conversation (0)"
+assert-label "#106"
+assert-no-label "Edit"
+mouse down 447 155
+mouse up 447 155 --wait-frame
+assert-no-label "Leave a comment"
+mouse down 535 155
+mouse up 535 155 --wait-frame
+wait-label "View log"
+mouse down 639 155
+mouse up 639 155 --wait-frame
+wait-label "Diff for crates/manifest/src/parser.rs"
+click 2108810803643324527 --wait-frame
+wait-label "PR #108: Loader: a PR that fails its detail read"
+
+# 107: pending review, ghost author, duplicate check names.
+mouse down 900 564
+mouse up 900 564
+wait-label "Conversation (4)"
+assert-label "#107"
+assert-label "Delete"
+mouse down 447 155
+mouse up 447 155 --wait-frame
+assert-no-label "Leave a comment"
+mouse down 535 155
+mouse up 535 155 --wait-frame
+wait-label "View log"
+mouse down 639 155
+mouse up 639 155 --wait-frame
+wait-label "Diff for crates/manifest/src/parser.rs"
+click 2108810803643324527 --wait-frame
+wait-label "PR #108: Loader: a PR that fails its detail read"
+
+# 108: the detail read fails; the header stays from the row, every tab
+# stays up, and the Files tab's own read fails with its retry.
+mouse down 900 601
+mouse up 900 601
+wait-label "Conversation"
+assert-label "#108"
+assert-no-label "Leave a comment"
+mouse down 415 155
+mouse up 415 155 --wait-frame
+assert-no-label "Leave a comment"
+mouse down 483 155
+mouse up 483 155 --wait-frame
+assert-no-label "View log"
+mouse down 565 155
+mouse up 565 155 --wait-frame
+wait-label "Retry loading changed files"

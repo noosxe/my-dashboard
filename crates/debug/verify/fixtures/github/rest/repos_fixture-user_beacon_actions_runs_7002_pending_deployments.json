@@ -1,0 +1,14 @@
+[
+ [
+  {
+   "current_user_can_approve": true,
+   "environment": {
+    "html_url": "https://github.com/fixture-user/beacon/deployments/activity_log?environments_filter=staging",
+    "id": 41,
+    "name": "staging"
+   },
+   "reviewers": [],
+   "wait_timer": 0
+  }
+ ]
+]

@@ -1,0 +1,18 @@
+{
+ "data": {
+  "rateLimit": null,
+  "repository": {
+   "pullRequest": null
+  }
+ },
+ "errors": [
+  {
+   "message": "Could not resolve to a PullRequest with the number of 108.",
+   "path": [
+    "repository",
+    "pullRequest"
+   ],
+   "type": "NOT_FOUND"
+  }
+ ]
+}
