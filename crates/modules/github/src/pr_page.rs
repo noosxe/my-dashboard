@@ -56,6 +56,8 @@ use std::time::Duration;
 /// the fade clears it (GitHub-like flash).
 pub(crate) const ANCHOR_FADE: Duration = Duration::from_secs(3);
 
+mod catch_up;
+
 use crate::api::{self, PrFile};
 use crate::drafts::{self, DraftHandle};
 use crate::files::{self, FileEntry, FileListDelegate, FilesView, build_file_forest, path_matches};
@@ -3897,20 +3899,6 @@ impl PrDetailPage {
             self.fetch_detail(Origin::new(Surface::PrPage, Trigger::MutationRefetch), cx);
         }
         cx.notify();
-    }
-    /// docs/0072 D3 — a summary landing moved the rollup under the
-    /// cached detail: revalidate once (the landing arms `rollup_dirty`;
-    /// the read's landing clears it). No-op when a read is already
-    /// flying, the session is down, or nothing drifted.
-    fn catch_up(&mut self, cx: &mut Context<Self>) {
-        let drift = self
-            .state
-            .read(cx)
-            .pr_entry(&self.repo, self.number)
-            .is_some_and(|e| e.rollup_dirty && !e.books.in_flight);
-        if drift && self.state.read(cx).auth.connected() {
-            self.fetch_detail(Origin::new(Surface::PrPage, Trigger::Drift), cx);
-        }
     }
 
     /// The optimistic write in flight on this document, if any (D4).

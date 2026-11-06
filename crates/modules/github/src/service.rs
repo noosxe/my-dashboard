@@ -2447,6 +2447,11 @@ pub(crate) struct PrEntry {
     /// detail is behind the fresher layer until the next read lands.
     /// Set by `land_summary`, cleared by `land_detail`.
     pub(crate) rollup_dirty: bool,
+    /// docs/0072 D3 (#731) — a read was dispatched against this arming
+    /// of `rollup_dirty`, so the page's catch-up must not fire again. A
+    /// failed read keeps `rollup_dirty` (reopen still revalidates) and
+    /// this; a landing that moves the rollup re-arms by clearing it.
+    pub(crate) rollup_catch_up_spent: bool,
 }
 
 impl PrEntry {
@@ -3844,6 +3849,7 @@ impl GithubState {
                 pending: None,
                 error: None,
                 rollup_dirty: false,
+                rollup_catch_up_spent: false,
             },
         );
         true
@@ -3886,6 +3892,7 @@ impl GithubState {
             // and only `land_detail` clears the mark.
             if entry.summary.status != row.status && entry.detail.is_some() {
                 entry.rollup_dirty = true;
+                entry.rollup_catch_up_spent = false;
             }
             entry.summary = row.clone();
             entry.summary_at = Instant::now();
@@ -3903,6 +3910,7 @@ impl GithubState {
                 pending: None,
                 error: None,
                 rollup_dirty: false,
+                rollup_catch_up_spent: false,
             },
         );
         self.persist_pull(repo, row.number);
@@ -3933,6 +3941,7 @@ impl GithubState {
             entry.summary.status = Some(rollup.clone());
         }
         entry.rollup_dirty = false;
+        entry.rollup_catch_up_spent = false;
         entry.detail = Some(detail);
         entry.detail_at = Some(Instant::now());
         entry.books.in_flight = false;
@@ -3949,6 +3958,7 @@ impl GithubState {
         if let Some(entry) = self.pulls.get_mut(&PrKey::new(repo, number)) {
             entry.books.in_flight = true;
             entry.books.attempted_at = Some(Instant::now());
+            entry.rollup_catch_up_spent = entry.rollup_dirty;
         }
     }
 
