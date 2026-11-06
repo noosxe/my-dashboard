@@ -342,9 +342,31 @@
       "title": "Loader: a PR that fails its detail read",
       "updatedAt": "2026-10-23T03:00:00Z",
       "url": "https://github.com/fixture-user/beacon/pull/108"
+     },
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/octo-dev",
+       "login": "octo-dev"
+      },
+      "databaseId": 50109,
+      "isDraft": false,
+      "labels": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "number": 109,
+      "reviewRequests": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "state": "OPEN",
+      "statusCheckRollup": null,
+      "title": "CI: a fork PR whose only runs wait for approval",
+      "updatedAt": "2026-10-23T02:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/pull/109"
      }
     ],
-    "totalCount": 8
+    "totalCount": 9
    },
    "pushedAt": "2026-10-23T12:00:00Z"
   }

@@ -45,6 +45,7 @@ wait-label "Conversation (5)"
 assert-label "#101"
 assert-label "Review approval"
 assert-label "Leave a comment"
+wait-label "Checks (9)"
 assert-baseline github-pr-populated
 mouse down 447 155
 mouse up 447 155 --wait-frame
@@ -88,6 +89,7 @@ mouse up 900 414
 wait-label "Conversation (0)"
 assert-label "#103"
 assert-label "Leave a comment"
+wait-label "Checks (0)"
 assert-baseline github-pr-draft
 mouse down 447 155
 mouse up 447 155 --wait-frame
@@ -191,3 +193,16 @@ assert-no-label "View log"
 mouse down 565 155
 mouse up 565 155 --wait-frame
 wait-label "Retry loading changed files"
+click 2108810803643324527 --wait-frame
+wait-label "PR #109: CI: a fork PR whose only runs wait for approval"
+
+# 109: the only CI is gated (#783). The counter reads the waiting runs.
+mouse down 900 638
+mouse up 900 638
+wait-label "Checks (2)"
+assert-label "#109"
+mouse down 535 155
+mouse up 535 155 --wait-frame
+wait-label "Approve gated workflow run fork-ci"
+assert-label "Approve gated workflow run fork-lint"
+assert-no-label "View log"

@@ -366,13 +366,19 @@ relative age. A muted caption when `commits.totalCount > nodes.len()`:
 
 - **Summary header** (outside the scroll): "8 checks · 7 passed · 1 failed",
   counts derived from the contexts list (pure fn).
+- **The counter includes runs waiting for approval** (#783): the tab reads
+  `contexts.totalCount` plus the gated runs (docs/0066 D3), and the header's
+  total is the same number, so a PR whose only CI is gated reads "Checks (2)"
+  and "2 checks · 2 waiting", never "Checks (0)". The tab stays bare while the
+  sweep is out and nothing has been found, rather than flash a wrong 0 (D3).
 - **Over the cap** (#747, `contexts.totalCount` > rows): the rows can't speak
   for the rollup, so a capped list never reads as complete. The header leads
   with the server's total and the `statusCheckRollup.state` verdict and scopes
   the buckets to the rows: "137 checks · some failed · first 100: 90 passed ·
   10 running" (verdict words: all passed, some failed, some errored, in
   progress, queued, status unknown). A row pinned under the header, sharing its rule, captions "Showing
-  first 100 of 137 checks" with a "View all on GitHub" button to the PR's
+  first 100 of 137 checks" (", plus 2 waiting" when runs are held: the cap
+  limits rollup rows only, and the total above includes those runs) with a "View all on GitHub" button to the PR's
   `/checks` page. It's pinned rather than last in the list, as the Commits
   caption is, because on a 100-row list the end is off screen. Rows beyond the
   first 100 aren't paginated. Nodes dropped from a degraded payload count as

@@ -36,6 +36,8 @@ REACTIONS = [
 ROW_COLORS = ["d73a4a", "1d76db", "fbca04", "0e8a16", "5319e7"]
 GATED_FORK_RUN = 7001
 GATED_ENV_RUN = 7002
+GATED_ONLY_PR = 109
+GATED_ONLY_RUNS = (7003, 7004)
 
 BODY = """## Summary
 
@@ -440,6 +442,13 @@ class Timeline:
                     comments=conn([self.comment(1, None, "Ghost-authored comment.", 49)]),
                 ),
             },
+            # The only CI is held for approval: no rollup, two gated runs.
+            GATED_ONLY_PR: {
+                "pr": self.pull_request(
+                    GATED_ONLY_PR,
+                    "CI: a fork PR whose only runs wait for approval",
+                ),
+            },
         }
 
     def thread(self, i, path, line, hours, body, **over):
@@ -504,12 +513,12 @@ class Timeline:
             ),
         ]
 
-    def gated_runs(self, head_sha):
-        def run(run_id, name, run_number, hours):
+    def gated_runs(self, head_sha, gated_only_sha):
+        def run(run_id, name, run_number, hours, sha=head_sha):
             return {
                 "id": run_id,
                 "name": name,
-                "head_sha": head_sha,
+                "head_sha": sha,
                 "head_branch": BRANCH,
                 "run_number": run_number,
                 "status": "completed",
@@ -518,7 +527,12 @@ class Timeline:
                 "created_at": self.ago(hours),
             }
 
-        runs = [run(GATED_FORK_RUN, "fork-ci", 311, 3), run(GATED_ENV_RUN, "deploy-staging", 312, 2)]
+        runs = [
+            run(GATED_FORK_RUN, "fork-ci", 311, 3),
+            run(GATED_ENV_RUN, "deploy-staging", 312, 2),
+            run(GATED_ONLY_RUNS[0], "fork-ci", 321, 5, gated_only_sha),
+            run(GATED_ONLY_RUNS[1], "fork-lint", 322, 5, gated_only_sha),
+        ]
         return {"total_count": len(runs), "workflow_runs": runs}
 
 
@@ -653,11 +667,14 @@ def write_pr_scenarios(write, now, iso):
     rows = [
         lane_row(scenario["pr"], line.ago(1 + i))
         for i, scenario in enumerate(scenarios.values())
+        if scenario["pr"]["number"] != GATED_ONLY_PR
     ]
     error_row = lane_row(
         line.pull_request(missing, "Loader: a PR that fails its detail read"), line.ago(9)
     )
     rows.append(error_row)
+    # Last, so the rows above keep the positions the receipts click.
+    rows.append(lane_row(scenarios[GATED_ONLY_PR]["pr"], line.ago(10)))
     write(
         f"graphql/RepoPulls.{REPO}.json",
         {
@@ -688,7 +705,9 @@ def write_pr_scenarios(write, now, iso):
     # probe tells the two gates apart: empty = fork gate, a pending
     # environment = environment gate.
     runs_prefix = f"rest/repos_{OWNER}_{REPO}_actions_runs"
-    write(f"{runs_prefix}.json", line.gated_runs(oid(101)))
+    write(f"{runs_prefix}.json", line.gated_runs(oid(101), oid(GATED_ONLY_PR)))
+    for run_id in GATED_ONLY_RUNS:
+        write(f"{runs_prefix}_{run_id}_pending_deployments.json", [])
     write(f"{runs_prefix}_{GATED_FORK_RUN}_pending_deployments.json", [])
     write(
         f"{runs_prefix}_{GATED_ENV_RUN}_pending_deployments.json",
