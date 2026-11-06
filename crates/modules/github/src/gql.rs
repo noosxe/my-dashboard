@@ -741,7 +741,7 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
           totalCount
           nodes {
             __typename
-            ... on CheckRun { name status conclusion detailsUrl checkSuite { app { slug } } }
+            ... on CheckRun { databaseId name status conclusion detailsUrl checkSuite { databaseId app { slug } } }
             ... on StatusContext { context state targetUrl }
           }
         }
@@ -920,6 +920,16 @@ pub struct PrCheck {
     pub state: CheckState,
     pub details_url: Option<String>,
     pub origin: CheckOrigin,
+    /// `CheckRun.databaseId`, the row's identity (#747): names repeat
+    /// across workflows. Live-verified 2026-11-06: it equals the REST
+    /// check run's `id` and the trailing id of its job's `check_run_url`.
+    /// `None` on a status context or a payload cached before this field.
+    #[serde(default)]
+    pub check_run_id: Option<u64>,
+    /// `checkSuite.databaseId`: one per workflow run, the REST
+    /// `check_suite.id`. Tells same-named rows apart after a re-run.
+    #[serde(default)]
+    pub suite_id: Option<u64>,
 }
 
 /// Unified check outcome for tone/icon mapping (D7).
@@ -2229,6 +2239,10 @@ fn gql_pr_checks(pr: &serde_json::Value) -> PrChecks {
                                 } else {
                                     CheckOrigin::OtherCheckRun
                                 },
+                                check_run_id: node.get("databaseId").and_then(|v| v.as_u64()),
+                                suite_id: node
+                                    .pointer("/checkSuite/databaseId")
+                                    .and_then(|v| v.as_u64()),
                             })
                         }
                         Some("StatusContext") => Some(PrCheck {
@@ -2236,6 +2250,8 @@ fn gql_pr_checks(pr: &serde_json::Value) -> PrChecks {
                             state: status_context_state(node.get("state").and_then(|v| v.as_str())),
                             details_url: url(),
                             origin: CheckOrigin::StatusContext,
+                            check_run_id: None,
+                            suite_id: None,
                         }),
                         _ => None,
                     }
@@ -4049,9 +4065,10 @@ mod tests {
                 "statusCheckRollup": {
                   "state": "FAILURE",
                   "contexts": {"totalCount": 5, "nodes": [
-                    {"__typename": "CheckRun", "name": "build", "status": "COMPLETED",
+                    {"__typename": "CheckRun", "databaseId": 11, "name": "build",
+                     "status": "COMPLETED",
                      "conclusion": "SUCCESS", "detailsUrl": "https://ci/build",
-                     "checkSuite": {"app": {"slug": "github-actions"}}},
+                     "checkSuite": {"databaseId": 22, "app": {"slug": "github-actions"}}},
                     {"__typename": "CheckRun", "name": "test", "status": "IN_PROGRESS",
                      "conclusion": null, "detailsUrl": null,
                      "checkSuite": {"app": {"slug": "github-actions"}}},
@@ -4078,6 +4095,11 @@ mod tests {
         let nodes = &d.checks.nodes;
         assert_eq!(nodes.len(), 5);
         assert_eq!(d.head_oid.as_deref(), Some("f00dfeed"));
+        // #747: the row identity; absent ids stay absent.
+        assert_eq!(d.checks.nodes[0].check_run_id, Some(11));
+        assert_eq!(d.checks.nodes[0].suite_id, Some(22));
+        assert_eq!(d.checks.nodes[1].check_run_id, None);
+        assert_eq!(d.checks.nodes[3].suite_id, None);
         // docs/0039 D3: the origin survives normalization — Actions by
         // suite slug, third-party check runs and statuses distinct.
         assert_eq!(nodes[0].name, "build");

@@ -214,9 +214,11 @@
         "checkSuite": {
          "app": {
           "slug": "github-actions"
-         }
+         },
+         "databaseId": 10
         },
         "conclusion": "SUCCESS",
+        "databaseId": 1,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/1",
         "name": "build",
         "status": "COMPLETED"
@@ -226,9 +228,11 @@
         "checkSuite": {
          "app": {
           "slug": "github-actions"
-         }
+         },
+         "databaseId": 20
         },
         "conclusion": "SUCCESS",
+        "databaseId": 2,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/2",
         "name": "clippy",
         "status": "COMPLETED"

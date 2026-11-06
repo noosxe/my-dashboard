@@ -147,6 +147,8 @@ mod tests {
                         state: *state,
                         details_url: None,
                         origin: CheckOrigin::Actions,
+                        check_run_id: None,
+                        suite_id: None,
                     },
                     *n,
                 )

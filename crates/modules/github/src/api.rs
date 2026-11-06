@@ -287,6 +287,9 @@ pub struct CheckRunsPage {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct CheckRunNode {
+    /// Equals GraphQL `CheckRun.databaseId` (live-verified 2026-11-06).
+    #[serde(default)]
+    pub id: Option<u64>,
     pub name: String,
     #[serde(default)]
     pub status: Option<String>,
@@ -417,6 +420,9 @@ pub struct JobsPage {
 pub struct JobNode {
     pub id: u64,
     pub name: String,
+    /// `…/check-runs/{id}`: the documented job → check run link (#747).
+    #[serde(default)]
+    pub check_run_url: Option<String>,
     /// Live-watch fields (docs/0076 D7): additive parse — minimal
     /// payloads (older fixtures, third-party summaries) still parse.
     #[serde(default)]

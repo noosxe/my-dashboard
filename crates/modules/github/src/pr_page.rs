@@ -57,11 +57,13 @@ use std::time::Duration;
 pub(crate) const ANCHOR_FADE: Duration = Duration::from_secs(3);
 
 mod catch_up;
-mod checks;
+pub(crate) mod checks;
 mod detail_read;
 mod files_etag;
 mod gate_decision;
 mod write_refetch;
+
+use checks::identity::{CheckKey, CheckTarget};
 
 use crate::api::{self, PrFile};
 use crate::drafts::{self, DraftHandle};
@@ -346,12 +348,13 @@ async fn run_check_log_watch(
     repo: String,
     number: i64,
     head_oid: String,
-    name: String,
+    target: CheckTarget,
     watch_gen: u64,
     cx: &mut AsyncApp,
 ) -> CheckWatchOutcome {
-    let ident = format!("{repo}#{number}#{name}");
-    let resolved = match resolve_check_job(state.clone(), &repo, number, &head_oid, &name, cx).await
+    let ident = target.ident(&repo, number);
+    let resolved = match resolve_check_job(state.clone(), &repo, number, &head_oid, &target, cx)
+        .await
     {
         Ok(resolved) => resolved,
         Err(e) => return CheckWatchOutcome::Landed(Err(e)),
@@ -363,7 +366,7 @@ async fn run_check_log_watch(
         );
     }
     // Live: initial paint from the resolve payload (docs/0076 D2).
-    if !paint_live(&this, watch_gen, &name, &resolved.job, cx) {
+    if !paint_live(&this, watch_gen, &target.key, &resolved.job, cx) {
         return CheckWatchOutcome::Disarmed;
     }
     let mut ticks = 0u32;
@@ -386,7 +389,9 @@ async fn run_check_log_watch(
             ));
         }
         match fetch_run_jobs(state.clone(), &repo, resolved.run_id, &ident, cx).await {
-            Ok(jobs) => match jobs.jobs.iter().find(|j| j.name == name) {
+            // The resolved job by id: a same-named sibling is not this job,
+            // and a re-run's new job id reads as gone.
+            Ok(jobs) => match jobs.jobs.iter().find(|j| j.id == resolved.job.id) {
                 Some(job) if job.status.as_deref() == Some("completed") => {
                     match fetch_job_logs_typed(state.clone(), &repo, job.id, &ident, false, cx)
                         .await
@@ -429,7 +434,7 @@ async fn run_check_log_watch(
                 Some(job) => {
                     materialization_misses = 0;
                     net_misses = 0;
-                    if !paint_live(&this, watch_gen, &name, job, cx) {
+                    if !paint_live(&this, watch_gen, &target.key, job, cx) {
                         return CheckWatchOutcome::Disarmed;
                     }
                 }
@@ -462,7 +467,7 @@ async fn run_check_log_watch(
 fn paint_live(
     this: &gpui::WeakEntity<PrDetailPage>,
     watch_gen: u64,
-    name: &str,
+    key: &CheckKey,
     job: &crate::api::JobNode,
     cx: &mut AsyncApp,
 ) -> bool {
@@ -471,7 +476,7 @@ fn paint_live(
             return;
         }
         page.check_logs.insert(
-            name.to_string(),
+            key.clone(),
             CheckLogState::Live {
                 steps: check_step_rows(job),
                 updated_at: std::time::Instant::now(),
@@ -605,11 +610,11 @@ pub(crate) struct PrDetailPage {
     /// Files tab is first opened, then one REST walk; `Ready` keeps the
     /// parsed list (a refresh refetches it).
     pub(crate) files: Fetch<Vec<PrFile>>,
-    /// Check log panes (docs/0039 D4/D5), keyed by check name — unique
-    /// across the head ref's checks. `Ready` content is immutable (a
+    /// Check log panes (docs/0039 D4/D5), keyed by row identity: names
+    /// repeat across workflows (#747). `Ready` content is immutable (a
     /// completed job's log never changes) and cached per job fetch;
     /// `Failed` keeps the message until a Retry re-runs the chain.
-    check_logs: BTreeMap<String, CheckLogState>,
+    check_logs: BTreeMap<CheckKey, CheckLogState>,
     /// The one open log pane's scroll (D4 accordion — at most one pane);
     /// driven to the bottom on every expand/land so the failure is on
     /// screen first.
@@ -657,7 +662,7 @@ pub(crate) struct PrDetailPage {
     reply_mention_sub: Option<gpui::Subscription>,
     thread_mention_sub: Option<gpui::Subscription>,
     /// The accordion: at most one expanded check at a time (D4).
-    expanded_check: Option<String>,
+    expanded_check: Option<CheckKey>,
     /// Review-threads fetch lifecycle (docs/0030 D1): lazy like the
     /// files walk — one GraphQL one-shot when the Files tab first opens,
     /// refetched on refresh (once loaded) and after thread mutations.
@@ -1798,13 +1803,13 @@ impl PrDetailPage {
     /// Expander toggle (D4): the accordion is one-open-at-a-time;
     /// re-toggling the open row collapses it. Cached `Ready` content
     /// re-expands instantly (immutable, D5); everything else chains.
-    fn toggle_check_log(&mut self, name: &str, cx: &mut Context<Self>) {
-        if self.expanded_check.as_deref() == Some(name) {
+    fn toggle_check_log(&mut self, target: &CheckTarget, cx: &mut Context<Self>) {
+        if self.expanded_check.as_ref() == Some(&target.key) {
             // Disarm the live watch (docs/0076 D1): the gen bump makes
             // the loop's next gate exit without touching the page, and
             // clearing the arm lets a re-expand start a fresh chain.
             self.check_watch_gen += 1;
-            let ident = format!("{}#{}#{}", self.repo, self.number, name);
+            let ident = target.ident(&self.repo, self.number);
             self.state
                 .update(cx, |s, _| s.in_flight_clear(&(Kind::JobLog, Some(ident))));
             self.expanded_check = None;
@@ -1813,9 +1818,12 @@ impl PrDetailPage {
         }
         // Any new expand invalidates the previous watch's generation.
         self.check_watch_gen += 1;
-        self.expanded_check = Some(name.to_string());
-        if !matches!(self.check_logs.get(name), Some(CheckLogState::Ready { .. })) {
-            self.start_check_log_chain(name, cx);
+        self.expanded_check = Some(target.key.clone());
+        if !matches!(
+            self.check_logs.get(&target.key),
+            Some(CheckLogState::Ready { .. })
+        ) {
+            self.start_check_log_chain(target, cx);
         }
         // The failure lives at the tail (D4) — every expansion opens at
         // the bottom; the flag is consumed by the pane's next paint.
@@ -1826,9 +1834,9 @@ impl PrDetailPage {
     /// Retry (D5): drop the failed state and re-run the chain — the
     /// resolution steps re-resolve, so a re-run's new job ids are picked
     /// up naturally.
-    fn retry_check_log(&mut self, name: &str, cx: &mut Context<Self>) {
-        self.check_logs.remove(name);
-        self.start_check_log_chain(name, cx);
+    fn retry_check_log(&mut self, target: &CheckTarget, cx: &mut Context<Self>) {
+        self.check_logs.remove(&target.key);
+        self.start_check_log_chain(target, cx);
     }
 
     /// docs/0076 D1: is this generation the currently-armed watch?
@@ -1836,32 +1844,31 @@ impl PrDetailPage {
         self.check_watch_gen == watch_gen
     }
 
-    fn start_check_log_chain(&mut self, name: &str, cx: &mut Context<Self>) {
+    fn start_check_log_chain(&mut self, target: &CheckTarget, cx: &mut Context<Self>) {
         if !self.state.read(cx).auth.connected() {
             return; // the page is about to be torn down by the auth gate
         }
         let Some(head_oid) = self.detail(cx).and_then(|d| d.head_oid.clone()) else {
             self.check_logs.insert(
-                name.to_string(),
+                target.key.clone(),
                 CheckLogState::Failed("No head commit on this pull request".into()),
             );
             cx.notify();
             return;
         };
-        let ident = format!("{}#{}#{}", self.repo, self.number, name);
-        let key = (Kind::JobLog, Some(ident.clone()));
+        let key = (Kind::JobLog, Some(target.ident(&self.repo, self.number)));
         let armed = self.state.update(cx, |s, _| s.in_flight_arm(key.clone()));
         if !armed {
             log::debug!("check-log: skipped — an identical chain is in flight");
             return;
         }
         self.check_logs
-            .insert(name.to_string(), CheckLogState::Running);
+            .insert(target.key.clone(), CheckLogState::Running);
         cx.notify();
         let state = self.state.clone();
         let repo = self.repo.clone();
         let number = self.number;
-        let name = name.to_string();
+        let target = target.clone();
         let watch_gen = self.check_watch_gen;
         cx.spawn(async move |this, cx| {
             let outcome = run_check_log_watch(
@@ -1870,7 +1877,7 @@ impl PrDetailPage {
                 repo,
                 number,
                 head_oid,
-                name.clone(),
+                target.clone(),
                 watch_gen,
                 cx,
             )
@@ -1885,7 +1892,7 @@ impl PrDetailPage {
                 match outcome {
                     CheckWatchOutcome::Landed(res) => {
                         page.check_logs.insert(
-                            name.clone(),
+                            target.key.clone(),
                             match res {
                                 Ok((text, truncated)) => CheckLogState::Ready {
                                     text: SharedString::from(text),
@@ -4504,7 +4511,8 @@ impl PrDetailPage {
         let mut rows: Vec<AnyElement> = self.render_gated_section(cx);
         rows.extend(d.checks.nodes.iter().enumerate().map(|(i, check)| {
             let (icon, color) = check_visual(check.state, cx);
-            let expanded = self.expanded_check.as_deref() == Some(check.name.as_str());
+            let target = CheckTarget::of(d.head_oid.as_deref(), check);
+            let expanded = self.expanded_check.as_ref() == Some(&target.key);
             // docs/0039 D3 as amended by docs/0076 D1: Actions-origin
             // rows expand in every running state — the live watch owns
             // in-progress ones. Status contexts and third-party checks
@@ -4539,7 +4547,7 @@ impl PrDetailPage {
                 );
             let row = row.when(loggable, |row| {
                 let page = cx.entity();
-                let name = check.name.clone();
+                let target = target.clone();
                 row.child(
                     // The wrapper carries the probe selector (docs/0010
                     // D10 id discipline lives on the Button itself).
@@ -4560,7 +4568,7 @@ impl PrDetailPage {
                                 .accessibility_label(if expanded { "Hide log" } else { "View log" })
                                 .toggled(expanded)
                                 .on_click(move |_, _, cx| {
-                                    page.update(cx, |this, cx| this.toggle_check_log(&name, cx))
+                                    page.update(cx, |this, cx| this.toggle_check_log(&target, cx))
                                 }),
                         ),
                 )
@@ -4581,7 +4589,7 @@ impl PrDetailPage {
                 .border_color(cx.theme().border)
                 .child(row)
                 .when(expanded && loggable, |col| {
-                    col.child(self.render_check_log_pane(i, check, cx))
+                    col.child(self.render_check_log_pane(i, check, &target, cx))
                 })
                 .into_any_element()
         }));
@@ -4611,9 +4619,10 @@ impl PrDetailPage {
         &self,
         i: usize,
         check: &gql::PrCheck,
+        target: &CheckTarget,
         cx: &Context<Self>,
     ) -> AnyElement {
-        let body: AnyElement = match self.check_logs.get(check.name.as_str()) {
+        let body: AnyElement = match self.check_logs.get(&target.key) {
             None | Some(CheckLogState::Running) => div()
                 .text_sm()
                 .text_color(cx.theme().muted_foreground)
@@ -4658,7 +4667,7 @@ impl PrDetailPage {
             }
             Some(CheckLogState::Failed(message)) => {
                 let page = cx.entity();
-                let name = check.name.clone();
+                let target = target.clone();
                 let open_full = check.details_url.clone().map(|url| {
                     Button::new(SharedString::from(format!("check-log-full-{i}")))
                         .ghost()
@@ -4680,7 +4689,7 @@ impl PrDetailPage {
                             .xsmall()
                             .label("Retry")
                             .on_click(move |_, _, cx| {
-                                page.update(cx, |this, cx| this.retry_check_log(&name, cx))
+                                page.update(cx, |this, cx| this.retry_check_log(&target, cx))
                             }),
                     )
                     .children(open_full)
@@ -9205,6 +9214,8 @@ mod tests {
     }
     fn check(name: &str, state: gql::CheckState) -> gql::PrCheck {
         gql::PrCheck {
+            check_run_id: None,
+            suite_id: None,
             name: name.into(),
             state,
             details_url: None,
@@ -9237,7 +9248,14 @@ mod tests {
 
     // --- check log panes (docs/0039) ------------------------------------
 
-    use super::{CheckLogState, prepare_log_body};
+    use super::{CheckLogState, CheckTarget, prepare_log_body};
+
+    /// The `build` row of the log probes: head `abc123`, no ids in the
+    /// payload, so the identity fallback.
+    fn build_target() -> CheckTarget {
+        CheckTarget::new(Some("abc123"), "build", None, None)
+    }
+
 
     /// The summary row literal shared by the log-pane probes (the real
     /// page builds it from the snapshot row that opened the page).
@@ -9408,7 +9426,7 @@ mod tests {
             });
         });
         vcx.update(|_, cx| {
-            page.update(cx, |p, cx| p.toggle_check_log("build", cx));
+            page.update(cx, |p, cx| p.toggle_check_log(&build_target(), cx));
         });
         vcx.run_until_parked();
         let recorded = mock.recorded();
@@ -9431,7 +9449,7 @@ mod tests {
         });
         let (landed, offset) = vcx.read(|cx| {
             let p = page.read(cx);
-            let landed = match p.check_logs.get("build") {
+            let landed = match p.check_logs.get(&build_target().key) {
                 Some(CheckLogState::Ready { text, truncated }) => {
                     assert!(!truncated);
                     assert!(text.starts_with("step1\nstep2 failed\n"));
@@ -9526,11 +9544,11 @@ mod tests {
             page
         });
         cx.update(|cx| {
-            page.update(cx, |p, cx| p.toggle_check_log("build", cx));
+            page.update(cx, |p, cx| p.toggle_check_log(&build_target(), cx));
         });
         cx.run_until_parked();
         cx.update(|cx| {
-            page.update(cx, |p, _| match p.check_logs.get("build") {
+            page.update(cx, |p, _| match p.check_logs.get(&build_target().key) {
                 Some(CheckLogState::Failed(message)) => {
                     assert!(message.contains("No job with this name"), "{message}");
                 }
@@ -9691,14 +9709,14 @@ mod tests {
             page
         });
         vcx.update(|_, cx| {
-            page.update(cx, |p, cx| p.toggle_check_log("build", cx));
+            page.update(cx, |p, cx| p.toggle_check_log(&build_target(), cx));
         });
         vcx.run_until_parked();
         // docs/0076 D2: the resolve payload paints the Live pane —
         // steps mapped, no log yet, no failure.
         vcx.read(|cx| {
             let p = page.read(cx);
-            match p.check_logs.get("build") {
+            match p.check_logs.get(&build_target().key) {
                 Some(CheckLogState::Live { steps, .. }) => {
                     assert_eq!(steps.len(), 2);
                     assert_eq!(steps[0].name, "Set up job");
@@ -9714,7 +9732,7 @@ mod tests {
         vcx.read(|cx| {
             let p = page.read(cx);
             assert!(matches!(
-                p.check_logs.get("build"),
+                p.check_logs.get(&build_target().key),
                 Some(CheckLogState::Live { .. })
             ));
         });
@@ -9723,7 +9741,7 @@ mod tests {
         vcx.run_until_parked();
         vcx.read(|cx| {
             let p = page.read(cx);
-            match p.check_logs.get("build") {
+            match p.check_logs.get(&build_target().key) {
                 Some(CheckLogState::Ready { text, truncated }) => {
                     assert!(!truncated);
                     assert_eq!(text.as_ref(), "build ok");
@@ -9805,14 +9823,14 @@ mod tests {
             page
         });
         vcx.update(|_, cx| {
-            page.update(cx, |p, cx| p.toggle_check_log("build", cx));
+            page.update(cx, |p, cx| p.toggle_check_log(&build_target(), cx));
         });
         vcx.run_until_parked();
         let recorded_before = mock.recorded().len();
         // Collapse: the gen bump disarms the watch — the parked tick
         // exits at its gate without touching the network or the pane.
         vcx.update(|_, cx| {
-            page.update(cx, |p, cx| p.toggle_check_log("build", cx));
+            page.update(cx, |p, cx| p.toggle_check_log(&build_target(), cx));
         });
         bg.advance_clock(crate::pr_page::check_watch_tick());
         vcx.run_until_parked();
@@ -9825,7 +9843,7 @@ mod tests {
             let p = page.read(cx);
             assert!(p.expanded_check.is_none());
             assert!(
-                matches!(p.check_logs.get("build"), Some(CheckLogState::Live { .. })),
+                matches!(p.check_logs.get(&build_target().key), Some(CheckLogState::Live { .. })),
                 "disarm leaves the pane state alone"
             );
         });
@@ -9926,7 +9944,7 @@ mod tests {
             page
         });
         vcx.update(|_, cx| {
-            page.update(cx, |p, cx| p.toggle_check_log("build", cx));
+            page.update(cx, |p, cx| p.toggle_check_log(&build_target(), cx));
         });
         vcx.run_until_parked();
         // Tick one: job completed but the blob lags — docs/0076 D3 says
@@ -9936,7 +9954,7 @@ mod tests {
         vcx.read(|cx| {
             let p = page.read(cx);
             assert!(matches!(
-                p.check_logs.get("build"),
+                p.check_logs.get(&build_target().key),
                 Some(CheckLogState::Live { .. })
             ));
         });
@@ -9945,7 +9963,7 @@ mod tests {
         vcx.run_until_parked();
         vcx.read(|cx| {
             let p = page.read(cx);
-            match p.check_logs.get("build") {
+            match p.check_logs.get(&build_target().key) {
                 Some(CheckLogState::Ready { text, .. }) => {
                     assert_eq!(text.as_ref(), "landed after the blob caught up");
                 }
@@ -10026,7 +10044,7 @@ mod tests {
             page
         });
         vcx.update(|_, cx| {
-            page.update(cx, |p, cx| p.toggle_check_log("build", cx));
+            page.update(cx, |p, cx| p.toggle_check_log(&build_target(), cx));
         });
         vcx.run_until_parked();
         for _ in 0..=crate::pr_page::CHECK_WATCH_MAX_TICKS {
@@ -10035,7 +10053,7 @@ mod tests {
         }
         vcx.read(|cx| {
             let p = page.read(cx);
-            match p.check_logs.get("build") {
+            match p.check_logs.get(&build_target().key) {
                 Some(CheckLogState::Failed(message)) => {
                     assert!(message.contains("Still running"), "{message}");
                 }

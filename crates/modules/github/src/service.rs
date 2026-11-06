@@ -47,6 +47,8 @@ use crate::auth::{
 };
 use crate::gql::{self, Org, Repo, User};
 use crate::http::{Http, HttpError, RateLimit, SharedToken, Verb};
+use crate::pr_page::checks::identity::CheckTarget;
+use crate::pr_page::checks::resolve::{pick_check_run, pick_job};
 use crate::rate_pause::{Lane, RateLimitPause};
 use crate::run_jobs::JobsFetchError;
 use crate::usage::{
@@ -5621,7 +5623,8 @@ pub(crate) struct ResolvedCheckJob {
 }
 
 /// The docs/0039 D1 resolution chain, steps 1–3 (docs/0076 D7 split):
-/// from the expanded check's (head SHA, name) to its matched job. Each
+/// from the expanded check's row identity on the head SHA to its job (the
+/// picks live in `pr_page::checks::resolve`). Each
 /// hop's non-200 forwards through [`GithubState::apply`] for the shared
 /// auth/rate-limit handling before the chain fails; network errors
 /// surface without the forward (the files-walk convention, docs/0016
@@ -5631,13 +5634,13 @@ pub(crate) async fn resolve_check_job(
     repo: &str,
     number: i64,
     head_oid: &str,
-    check_name: &str,
+    target: &CheckTarget,
     cx: &mut AsyncApp,
 ) -> Result<ResolvedCheckJob, String> {
     let Some((owner, name)) = repo.split_once('/') else {
         return Err("Malformed repository id".into());
     };
-    let ident = format!("{repo}#{number}#{check_name}");
+    let ident = target.ident(repo, number);
     let spec_for = |url: String| FetchSpec {
         // docs/0039 D4: check-run logs fetch on expand.
         origin: Origin::new(Surface::PrPage, Trigger::Expand),
@@ -5666,10 +5669,10 @@ pub(crate) async fn resolve_check_job(
     }
     let http_err = |status: u16| format!("GitHub answered HTTP {status}");
 
-    // Step 1 — the check run, matched server-side by name on the head
-    // commit; Actions-origin enforced here too (a third-party check with
-    // the same name must not win the match).
-    let url = api::check_runs_for_sha_url(owner, name, head_oid, check_name);
+    // Step 1 — the check run, filtered server-side by name on the head
+    // commit, then picked by row identity; Actions-origin enforced here too
+    // (a third-party check with the same name must not win the match).
+    let url = api::check_runs_for_sha_url(owner, name, head_oid, &target.name);
     let result = fetch(state.clone(), &spec_for, url, cx).await;
     if let Some(m) = result.network {
         return Err(format!("Network error: {m}"));
@@ -5681,11 +5684,8 @@ pub(crate) async fn resolve_check_job(
     }
     let page: api::CheckRunsPage = serde_json::from_str(result.body.as_deref().unwrap_or_default())
         .map_err(|e| format!("Malformed check-runs payload ({e})"))?;
-    let node = page
-        .check_runs
-        .into_iter()
-        .find(|c| c.app.as_ref().and_then(|a| a.slug.as_deref()) == Some("github-actions"))
-        .ok_or("No GitHub Actions check with this name on the head commit")?;
+    let node = pick_check_run(page.check_runs, target)?;
+    let check_run_id = node.id.or(target.check_run_id);
     let suite_id = node
         .check_suite
         .map(|s| s.id)
@@ -5711,8 +5711,8 @@ pub(crate) async fn resolve_check_job(
         .map(|r| r.id)
         .ok_or("No workflow run found for this check")?;
 
-    // Step 3 — the run's jobs, name-matched (docs/0039 D1: the sanctioned
-    // iterate-and-match, exact names on both sides, matrices included).
+    // Step 3 — the run's jobs (docs/0039 D1: the sanctioned
+    // iterate-and-match), by check-run link and then exact name.
     let url = api::run_jobs_url(owner, name, run_id);
     let page = match crate::run_jobs::fetch_all_jobs(&url, |u| {
         let (state, mut cx) = (state.clone(), cx.clone());
@@ -5732,11 +5732,7 @@ pub(crate) async fn resolve_check_job(
         }
         Err(JobsFetchError::Malformed(e)) => return Err(format!("Malformed jobs payload ({e})")),
     };
-    let job = page
-        .jobs
-        .into_iter()
-        .find(|j| j.name == check_name)
-        .ok_or("No job with this name in the workflow run — it may have been renamed")?;
+    let job = pick_job(page.jobs, check_run_id, &target.name)?;
     Ok(ResolvedCheckJob { run_id, job })
 }
 

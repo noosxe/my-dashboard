@@ -570,9 +570,11 @@
         "checkSuite": {
          "app": {
           "slug": "github-actions"
-         }
+         },
+         "databaseId": 10
         },
         "conclusion": "SUCCESS",
+        "databaseId": 1,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/1",
         "name": "build (ubuntu-latest)",
         "status": "COMPLETED"
@@ -582,9 +584,11 @@
         "checkSuite": {
          "app": {
           "slug": "github-actions"
-         }
+         },
+         "databaseId": 20
         },
         "conclusion": "FAILURE",
+        "databaseId": 2,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/2",
         "name": "build (macos-latest)",
         "status": "COMPLETED"
@@ -594,9 +598,11 @@
         "checkSuite": {
          "app": {
           "slug": "github-actions"
-         }
+         },
+         "databaseId": 30
         },
         "conclusion": "SUCCESS",
+        "databaseId": 3,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/3",
         "name": "clippy",
         "status": "COMPLETED"
@@ -606,9 +612,11 @@
         "checkSuite": {
          "app": {
           "slug": "github-actions"
-         }
+         },
+         "databaseId": 40
         },
         "conclusion": null,
+        "databaseId": 4,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/4",
         "name": "test (workspace)",
         "status": "IN_PROGRESS"
@@ -618,9 +626,11 @@
         "checkSuite": {
          "app": {
           "slug": "github-actions"
-         }
+         },
+         "databaseId": 50
         },
         "conclusion": "SKIPPED",
+        "databaseId": 5,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/5",
         "name": "deploy-preview",
         "status": "COMPLETED"
@@ -630,9 +640,11 @@
         "checkSuite": {
          "app": {
           "slug": "scanner-app"
-         }
+         },
+         "databaseId": 60
         },
         "conclusion": "SUCCESS",
+        "databaseId": 6,
         "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/6",
         "name": "external-scanner",
         "status": "COMPLETED"

@@ -115,11 +115,12 @@ def requests(*logins, teams=0):
 def check_run(name, status, conclusion, job=1, app="github-actions"):
     return {
         "__typename": "CheckRun",
+        "databaseId": job,
         "name": name,
         "status": status,
         "conclusion": conclusion,
         "detailsUrl": f"https://github.com/{FULL}/actions/runs/1/job/{job}",
-        "checkSuite": {"app": {"slug": app}},
+        "checkSuite": {"databaseId": job * 10, "app": {"slug": app}},
     }
 
 
