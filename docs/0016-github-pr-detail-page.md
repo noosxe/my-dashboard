@@ -328,12 +328,47 @@ A `GroupBox` at the rail top:
   booleans ride along on the detail query via the `repository` wrapper).
   Default: MERGE when allowed, else the first allowed. One method = the Select
   hides (no choice to make), the button label carries the verb.
-- **Actions:** primary `Merge` button (disabled while `mergeable ≠ MERGEABLE`,
-  draft, or busy) → `mergePullRequest { pullRequestId, mergeMethod }`;
-  secondary `Close` (`Button::danger`) → `closePullRequest`. While in flight
-  both disable + spinner; on success the refetch repaints the header state
-  badge and the panel swaps to a terminal note ("Merged ✓"/"Closed") — the
-  next snapshot tick removes the row from the repo view list (no extra work).
+- **Actions:** primary `Merge` button → `mergePullRequest { pullRequestId,
+  mergeMethod }`; secondary `Close` (`Button::danger`) → `closePullRequest`.
+  While in flight both disable + spinner; on success the refetch repaints the
+  header state badge and the panel swaps to a terminal note ("Merged ✓"/
+  "Closed") — the next snapshot tick removes the row from the repo view list
+  (no extra work).
+
+  **Gating (amended 2026-11-06, #708 + #737; `pr_page/merge_gate.rs`).**
+  Two separate questions. *Visibility* is about the viewer and **hides** the
+  control (the sidebar's rule for edit controls); *enablement* is about the
+  PR and **disables** it, with the state line as the tooltip.
+
+  - **Visible:** Close shows when `PullRequest.viewerCanClose` is true.
+    Merge shows when `Repository.viewerPermission` is `WRITE`, `MAINTAIN` or
+    `ADMIN`. `MODERATE`, `TRIAGE`, `READ`, an unknown value, or an absent
+    field hide it. The schema has no `viewerCanMerge`; `viewerPermission` is
+    the nearest signal and is a floor, not a guarantee (branch rulesets can
+    still refuse a writer — the server stays the authority and the failure
+    surfaces inline). A degraded payload without `viewerCanClose` parses as
+    false, so Close hides rather than guesses. The panel itself (state line,
+    update-branch row) stays for every viewer; the method selector hides with
+    Merge.
+  - **Enabled (Merge):** open, not draft, idle, at least one allowed method,
+    `mergeable == MERGEABLE` **and** `mergeStateStatus` in the allowlist
+    `CLEAN`, `HAS_HOOKS`, `UNSTABLE`. `mergeable` reports only merge
+    conflicts; branch protection (required reviews and checks, strict
+    up-to-date) lives in `mergeStateStatus`. Verified against the live
+    GraphQL `MergeStateStatus` enum (descriptions): `CLEAN` "Mergeable and
+    passing commit status", `HAS_HOOKS` "Mergeable with passing commit status
+    and pre-receive hooks", `UNSTABLE` "Mergeable with non-passing commit
+    status" — all mergeable. `BLOCKED` ("The merge is blocked"), `BEHIND`
+    ("The head ref is out of date"), `DIRTY` ("The merge commit cannot be
+    cleanly created") and `UNKNOWN` ("The state cannot currently be
+    determined") disable it, as does any absent or unrecognised value (an
+    allowlist, so a value GitHub adds later fails closed). The live enum has
+    no `DRAFT`; the state-line mapping keeps it as harmless legacy and draft
+    is gated on `isDraft`.
+  - **Not handled:** bypassing protection as an admin. The schema's
+    `viewerCanMergeAsAdmin` ("bypass branch protections and merge the pull
+    request immediately") would support it; it is tracked in #821.
+  - Close is also enabled only while `state == OPEN` and idle.
 - **Checks mini-summary** below the panel: rollup state + "View checks" link
   that switches to the Checks tab (no browser round-trip).
 

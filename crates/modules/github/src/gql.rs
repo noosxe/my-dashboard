@@ -704,6 +704,8 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
       # is up to date or the viewer can't update it (server truth; the
       # client never ANDs mergeStateStatus in).
       viewerCanUpdateBranch
+      # docs/0016 D5 (#737): the Close button's per-viewer gate.
+      viewerCanClose
       # docs/0023 D1 on the PR surfaces (#196): the body, review summaries
       # and issue comments are all Reactable — one shared group shape.
       viewerCanReact
@@ -826,6 +828,9 @@ pub struct PrDetail {
     /// docs/0067 D2 — `viewerCanUpdateBranch`: the update-branch gate
     /// (server truth for "may update AND needs update"). Absent ⇒ false.
     pub viewer_can_update_branch: bool,
+    /// docs/0016 D5 (#737) — `viewerCanClose`; degraded default false
+    /// hides the Close button.
+    pub viewer_can_close: bool,
     /// docs/0023 D1 on the PR body (#196) — gates the body's `+` picker.
     pub viewer_can_react: bool,
     /// docs/0023 D3 — the body's reaction groups. Absent fields degrade
@@ -2153,6 +2158,10 @@ pub fn pr_detail_from_value(value: &serde_json::Value) -> Option<PrDetail> {
             .unwrap_or(false),
         // docs/0023 D1 on the PR body (#196) — same degraded defaults as
         // the comment parse.
+        viewer_can_close: pr
+            .get("viewerCanClose")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
         viewer_can_react: pr
             .get("viewerCanReact")
             .and_then(|v| v.as_bool())
@@ -4237,7 +4246,7 @@ mod tests {
             r#"{"data":{"repository":{"mergeCommitAllowed":true,"squashMergeAllowed":false,"rebaseMergeAllowed":true,"pullRequest":"#,
         );
         body.push_str(
-            r#"{"id":"PR_9","viewerCanUpdate":true,"viewerCanUpdateBranch":true,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","statusCheckRollup":{"state":"SUCCESS"}}"#,
+            r#"{"id":"PR_9","viewerCanUpdate":true,"viewerCanUpdateBranch":true,"viewerCanClose":true,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","statusCheckRollup":{"state":"SUCCESS"}}"#,
         );
         body.push_str("}}}");
         let env: Envelope<PrDetailData> = serde_json::from_str(&body).unwrap();
@@ -4245,6 +4254,7 @@ mod tests {
         let d = pr_detail_from_value(&value).unwrap();
         assert!(d.viewer_can_update);
         assert!(d.viewer_can_update_branch);
+        assert!(d.viewer_can_close);
         assert_eq!(d.mergeable.as_deref(), Some("MERGEABLE"));
         assert_eq!(d.merge_state_status.as_deref(), Some("CLEAN"));
         assert_eq!(d.rollup_state.as_deref(), Some("SUCCESS"));
@@ -4268,6 +4278,7 @@ mod tests {
         let d = pr_detail_from_value(&value).unwrap();
         assert!(!d.viewer_can_update);
         assert!(!d.viewer_can_update_branch);
+        assert!(!d.viewer_can_close);
         assert_eq!(d.mergeable, None);
         assert_eq!(d.merge_state_status, None);
         assert_eq!(d.rollup_state, None);

@@ -44,6 +44,9 @@ mouse up 900 337
 wait-label "Conversation (5)"
 assert-label "#101"
 assert-label "Review approval"
+# Blocked, viewed by an admin: Merge shows (disabled, #708), Close shows.
+assert-label "Merge pull request"
+assert-label "Close pull request"
 assert-label "Leave a comment"
 wait-label "Checks (9)"
 assert-baseline github-pr-populated
@@ -128,6 +131,7 @@ mouse up 900 490
 wait-label "Conversation (0)"
 assert-label "#105"
 assert-no-label "Merge pull request"
+assert-no-label "Close pull request"
 assert-no-label "Edit"
 mouse down 447 155
 mouse up 447 155 --wait-frame
@@ -146,6 +150,11 @@ mouse down 900 527
 mouse up 900 527
 wait-label "Conversation (0)"
 assert-label "#106"
+# A read-only viewer gets neither button (#737). The Checks counter is the
+# detail read landing; the buttons are judged only after it.
+wait-label "Checks (1)"
+assert-no-label "Merge pull request"
+assert-no-label "Close pull request"
 assert-no-label "Edit"
 mouse down 447 155
 mouse up 447 155 --wait-frame
@@ -164,6 +173,8 @@ mouse down 900 564
 mouse up 900 564
 wait-label "Conversation (4)"
 assert-label "#107"
+assert-label "Merge pull request"
+assert-label "Close pull request"
 assert-label "Delete"
 mouse down 447 155
 mouse up 447 155 --wait-frame

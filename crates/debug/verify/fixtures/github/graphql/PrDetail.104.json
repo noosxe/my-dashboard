@@ -259,6 +259,7 @@
     "title": "Docs: fix the manifest grammar example",
     "url": "https://github.com/fixture-user/beacon/pull/104",
     "viewerCanAssign": true,
+    "viewerCanClose": true,
     "viewerCanLabel": true,
     "viewerCanReact": true,
     "viewerCanUpdate": true,

@@ -125,6 +125,7 @@
     "title": "WIP: loader cleanup",
     "url": "https://github.com/fixture-user/beacon/pull/103",
     "viewerCanAssign": true,
+    "viewerCanClose": true,
     "viewerCanLabel": true,
     "viewerCanReact": true,
     "viewerCanUpdate": true,

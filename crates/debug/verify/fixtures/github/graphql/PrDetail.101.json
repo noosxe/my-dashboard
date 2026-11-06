@@ -701,6 +701,7 @@
     "title": "Parser: accept trailing commas in manifest lists",
     "url": "https://github.com/fixture-user/beacon/pull/101",
     "viewerCanAssign": true,
+    "viewerCanClose": true,
     "viewerCanLabel": true,
     "viewerCanReact": true,
     "viewerCanUpdate": true,

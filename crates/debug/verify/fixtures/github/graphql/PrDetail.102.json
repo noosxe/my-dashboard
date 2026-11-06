@@ -11936,6 +11936,7 @@
     "title": "Parser and loader overhaul: accept trailing commas, keep the strict-mode error, split the manifest grammar into its own module and migrate every call site in the workspace to the new entry points, now",
     "url": "https://github.com/fixture-user/beacon/pull/102",
     "viewerCanAssign": true,
+    "viewerCanClose": true,
     "viewerCanLabel": true,
     "viewerCanReact": true,
     "viewerCanUpdate": true,

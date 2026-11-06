@@ -153,6 +153,7 @@
     "title": "CI: a fork PR whose only runs wait for approval",
     "url": "https://github.com/fixture-user/beacon/pull/109",
     "viewerCanAssign": true,
+    "viewerCanClose": true,
     "viewerCanLabel": true,
     "viewerCanReact": true,
     "viewerCanUpdate": true,

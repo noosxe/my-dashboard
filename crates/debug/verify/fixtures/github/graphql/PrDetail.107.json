@@ -486,6 +486,7 @@
     "title": "Parser: report the column in manifest errors",
     "url": "https://github.com/fixture-user/beacon/pull/107",
     "viewerCanAssign": true,
+    "viewerCanClose": true,
     "viewerCanLabel": true,
     "viewerCanReact": true,
     "viewerCanUpdate": true,
