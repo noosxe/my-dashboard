@@ -89,6 +89,7 @@ return `Waiting` — only the REST sweep mints it.
 ### D2 — Discovery: one sweep per CI-pane render
 
 `GET /repos/{o}/{r}/actions/runs?branch={head_branch}&event=pull_request&status=action_required&per_page=50`
+with `head_branch` percent-encoded as a query value (a branch like `fix/#12` must not truncate the query),
 filtered client-side by `head_sha == PR head_sha` (the branch name is not unique
 across forks; the SHA filter is the correctness guarantee — verified live that the
 endpoint honors `branch` + `event` and returns `head_sha` on every row).
