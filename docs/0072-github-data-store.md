@@ -157,6 +157,20 @@ the open page revalidate in the background via its store subscription
 (`Trigger::Drift`). Unchanged landings never mark, so the common tick
 case keeps the full TTL; only the catch-up landing clears the mark.
 
+**The catch-up fires at most once per arming (#731).** The trigger is the
+page's own store subscription, and a failed read notifies the store too,
+so the catch-up carries its own gates. Any detail read dispatched while the
+mark is armed spends that arming, including the reopen read and a manual
+refresh. A failed read keeps the mark, so a reopen still revalidates and
+the row keeps the fresher glyph, but the page does not retry on its own.
+The read recovers through a manual refresh, a reopen, the refocus
+trigger, or a landing that moves the rollup again, which re-arms the
+catch-up. An unspent arming also waits for the read lane's failure backoff
+(docs/0036 D2) and for the detail lane's gate: signed out, or a paused
+GraphQL budget (docs/0050 D4, per budget since docs/0082 Q10). A held
+arming is not spent, and there is no timer: the first store notification
+past the gate fires it.
+
 ### D4 — Optimistic, store-scoped mutations
 
 Merge click: server-truth gates checked as today (`mergeable`, `draft`,
