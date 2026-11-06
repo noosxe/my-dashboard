@@ -117,7 +117,7 @@ pub enum Command {
     /// `logs [-f]`
     Logs { follow: bool },
     /// `writes` — the fixture write record, one JSON line per write
-    /// (docs/0010 D12).
+    /// (docs/0010 D11).
     Writes,
     /// `assert-write <op> [key=value…]` — some recorded write has this
     /// op and these variable values (D12); exit 1 when none does.
@@ -203,8 +203,8 @@ pub const USAGE: &str = "usage: dashboard-debug [--session <name>] <verb> [args]
   mouse move|down|up <x> <y> [--wait-frame[=ms]]     raw pointer dispatch
   mouse scroll <x> <y> <dy> [--wait-frame[=ms]]      scroll wheel dispatch
   logs [-f]                        ring log tail (follow with -f)
-  writes                           fixture writes answered so far, one JSON line each (D12)
-  assert-write <op> [key=value…]   a recorded write matches op + dotted variable paths (D12)
+  writes                           fixture writes answered so far, one JSON line each (D11)
+  assert-write <op> [key=value…]   a recorded write matches op + dotted variable paths (D11)
   shell                            REPL over these verbs
 
   session start [--name n] [--binary path] [--size WxH] [--timeout s]

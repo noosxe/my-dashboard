@@ -1,4 +1,4 @@
-//! The fixture write record (docs/0081 §12.1, docs/0010 D12): every write
+//! The fixture write record (docs/0081 §12.1, docs/0010 D11): every write
 //! the offline GitHub transport answers is appended here, and the debug
 //! bridge serves the list as `app.writes` so a receipt can assert what a
 //! click actually sent. Only the fixture transport records; with no
