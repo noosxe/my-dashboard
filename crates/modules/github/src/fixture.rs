@@ -28,6 +28,9 @@
 //!   `DASHBOARD_GITHUB_FIXTURE_RATE`. Unset, no response carries rate
 //!   data (the chip stays `REST — · GraphQL —`).
 //!
+//! Writes (mutations, REST POST/PATCH/DELETE) are answered from their own
+//! files and recorded; see [`writes`].
+//!
 //! A missing file answers 404 and logs a warning naming the path, so a
 //! capture that hits an unfixtured lane says so in `logs`.
 //!
@@ -287,14 +290,18 @@ pub(crate) fn graphql_files(op: &str, variables: &serde_json::Value) -> Vec<Stri
     files
 }
 
-/// `https://api.github.com/user/orgs?per_page=100` → `user_orgs`.
-pub(crate) fn rest_key(url: &str) -> String {
+/// `https://api.github.com/user/orgs?per_page=100` → `user/orgs`.
+pub(crate) fn url_path(url: &str) -> &str {
     let path = url
         .split_once("://")
         .map(|(_, rest)| rest.split_once('/').map(|(_, p)| p).unwrap_or(""))
         .unwrap_or(url);
-    let path = path.split('?').next().unwrap_or("");
-    path.trim_matches('/').replace('/', "_")
+    path.split('?').next().unwrap_or("").trim_matches('/')
+}
+
+/// `https://api.github.com/user/orgs?per_page=100` → `user_orgs`.
+pub(crate) fn rest_key(url: &str) -> String {
+    url_path(url).replace('/', "_")
 }
 
 impl Http for FixtureHttp {
@@ -302,13 +309,12 @@ impl Http for FixtureHttp {
         &self,
         verb: Verb,
         url: &str,
-        _body: Option<&str>,
+        body: Option<&str>,
         _etag: Option<&str>,
     ) -> Result<HttpResult, HttpError> {
         if verb != Verb::Get {
-            // Writes are not part of any capture; refuse loudly.
-            log::warn!("github fixture: refusing {verb:?} {url}");
-            return Err(HttpError("fixture mode is read-only".into()));
+            // Answered from `rest/<path>.<verb>.json` or refused (writes.rs).
+            return writes::rest(&self.dir, verb, url, body);
         }
         let key = rest_key(url);
         let Some(rate) = self.rate else {
@@ -337,6 +343,9 @@ impl Http for FixtureHttp {
         let Some(op) = operation_name(query) else {
             return Err(HttpError("fixture: unnamed GraphQL operation".into()));
         };
+        if writes::is_mutation(query) {
+            return writes::graphql(&self.dir, op, variables);
+        }
         let mut res = self.serve_first(graphql_files(op, variables));
         if let Some(rate) = self.rate {
             let now = budget_now();
@@ -348,6 +357,9 @@ impl Http for FixtureHttp {
         Ok(res)
     }
 }
+
+#[path = "fixture/writes.rs"]
+mod writes;
 
 #[cfg(test)]
 #[path = "fixture/pr_scenarios.rs"]

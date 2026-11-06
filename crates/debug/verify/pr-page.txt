@@ -178,8 +178,8 @@ assert-label "Close pull request"
 assert-label "Delete"
 # Merge and Close confirm before they send (#738): each opens an inline
 # confirm that names what it will do, Esc and Cancel back out, and the
-# buttons come back. Fixture writes are refused (#812), so no confirming
-# click here: the confirming buttons are only asserted present. Clicks
+# buttons come back. Only backing out is walked here; the confirming
+# clicks and the recorded writes are pr-writes.txt (#812). Clicks
 # are bridge mouse clicks at the buttons' centres (ids under the PR page
 # differ between walks), frozen at 1280x800.
 mouse down 1022 276

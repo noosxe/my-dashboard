@@ -1,0 +1,21 @@
+{
+ "body": [
+  {
+   "created_at": "2026-10-23T10:00:00Z",
+   "creator": null,
+   "description": null,
+   "environment": "staging",
+   "id": 41,
+   "node_id": "D_fixture41",
+   "payload": {},
+   "ref": "feature/trailing-commas",
+   "repository_url": "https://api.github.com/repos/fixture-user/beacon",
+   "sha": "0000065bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "statuses_url": "https://api.github.com/repos/fixture-user/beacon/deployments/41/statuses",
+   "task": "deploy",
+   "updated_at": "2026-10-23T10:00:00Z",
+   "url": "https://api.github.com/repos/fixture-user/beacon/deployments/41"
+  }
+ ],
+ "status": 200
+}

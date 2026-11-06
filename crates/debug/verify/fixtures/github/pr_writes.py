@@ -1,0 +1,72 @@
+"""Answers for the writes the PR page sends (docs/0081 §12.1, #812).
+
+Called from generate.py. The fixture transport answers a mutation from
+graphql/<Mutation>.json and a REST write from rest/<path>.<verb>.json
+(an envelope {"status", "body"}); a write with no file is refused. The
+answers are static: the refetch after a write still serves the pre-write
+read files, so a receipt asserts the recorded write
+(`dashboard-debug assert-write`), not a changed page.
+
+Payload shapes are the selections the app's documents ask for, checked
+against the live GraphQL schema (MergePullRequestPayload.pullRequest,
+ClosePullRequestPayload.pullRequest, AddCommentPayload.clientMutationId,
+AddPullRequestReviewPayload.pullRequestReview; PullRequestState and
+PullRequestReviewState values) and the REST reference (approve a fork
+run: 201; review pending deployments: 200 with an array of deployments).
+"""
+
+from pr_scenarios import (
+    FULL,
+    GATED_ENV_RUN,
+    GATED_FORK_RUN,
+    GATED_ONLY_RUNS,
+    OWNER,
+    REPO,
+)
+
+
+def write_pr_writes(write):
+    def mutation(name, field, payload):
+        write(f"graphql/{name}.json", {"data": {field: payload}})
+
+    mutation("PrMerge", "mergePullRequest", {"pullRequest": {"state": "MERGED"}})
+    mutation("PrClose", "closePullRequest", {"pullRequest": {"state": "CLOSED"}})
+    mutation("PrAddComment", "addComment", {"clientMutationId": None})
+    mutation(
+        "PrAddReview",
+        "addPullRequestReview",
+        {"pullRequestReview": {"id": "PRR_fixture", "state": "APPROVED"}},
+    )
+
+    runs = f"rest/repos_{OWNER}_{REPO}_actions_runs"
+    # The fork gate: approve is 201, no meaningful body.
+    for run_id in (GATED_FORK_RUN, *GATED_ONLY_RUNS):
+        write(
+            f"{runs}_{run_id}_approve.post.json",
+            {"status": 201, "body": {}},
+        )
+    # The environment gate: approve or reject answers the deployments.
+    write(
+        f"{runs}_{GATED_ENV_RUN}_pending_deployments.post.json",
+        {
+            "status": 200,
+            "body": [
+                {
+                    "url": f"https://api.github.com/repos/{FULL}/deployments/41",
+                    "id": 41,
+                    "node_id": "D_fixture41",
+                    "sha": "0000065bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    "ref": "feature/trailing-commas",
+                    "task": "deploy",
+                    "payload": {},
+                    "environment": "staging",
+                    "description": None,
+                    "creator": None,
+                    "created_at": "2026-10-23T10:00:00Z",
+                    "updated_at": "2026-10-23T10:00:00Z",
+                    "statuses_url": f"https://api.github.com/repos/{FULL}/deployments/41/statuses",
+                    "repository_url": f"https://api.github.com/repos/{FULL}",
+                }
+            ],
+        },
+    )

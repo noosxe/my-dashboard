@@ -15,7 +15,7 @@ Owner decisions (2026-09-02), recorded:
 
 - **v1 = seven commands** (§3 D6 table): `tree.dump`, `input.dispatch`,
   `input.click_node`, `input.focus_node`, `window.list`, `window.geometry`,
-  `app.logs` — plus `app.quit` (0055 D11, the one later addition).
+  `app.logs` — plus `app.quit` (0055 D11) and `app.writes` (D11 below), the later additions.
 - **MCP bridge deferred** — v1 ships a CLI; MCP is revisited only if the
   CLI cannot provide what agents need.
 - **No upstream filings** — upstream gpui gaps are worked around in-repo;
@@ -419,6 +419,33 @@ cheap way; hover-only mouse moves do not repaint. Node ids also change
 across unmount/remount of the same element (ids derive from the element
 path), so re-dump before addressing a node that a navigation may have
 re-created.
+
+### D11 — `app.writes`: the fixture write record (#812)
+
+In fixture mode (docs/0081 §12.1) the GitHub transport answers writes
+from response files instead of refusing them, so a receipt can click
+Merge, Close, Comment or Approve. It also appends each answered write to
+a process-wide record, `dashboard_core::write_log` (last 512; the
+transport and the bridge live in different crates, and both depend on
+core). The bridge serves it inline on the socket thread, like `app.logs`:
+
+| Method | Params | Result |
+|---|---|---|
+| `app.writes` | `{since?}` | `{writes: [{seq, kind, op, vars}], next_cursor}` — `kind` is `graphql` or `rest`; `op` is the mutation name (`PrMerge`) or `<VERB> /<path>` (`POST /repos/o/r/actions/runs/7/approve`); `vars` is the request variables (`{"input": {…}}`) or the parsed REST body (`null` if none) |
+
+CLI verbs (also receipt-script steps):
+
+- `writes` — print every recorded write, one JSON line each.
+- `assert-write <op> [key=value…]` — red unless some recorded write has
+  this `op` and, for every pair, `vars` holds that value at the dotted
+  path (`input.mergeMethod=SQUASH`, `input.pullRequestId=PR_107`; array
+  items by index). A JSON string compares as text, anything else as its
+  JSON rendering. The newest match wins; the failure names what *was*
+  recorded.
+
+Nothing records outside fixture mode: only the fixture transport calls
+`write_log::record`, and it is built only in debug builds with
+`DASHBOARD_GITHUB_FIXTURE` set.
 
 ## 4. Risks
 

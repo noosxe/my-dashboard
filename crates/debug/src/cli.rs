@@ -116,6 +116,15 @@ pub enum Command {
     Doctor,
     /// `logs [-f]`
     Logs { follow: bool },
+    /// `writes` — the fixture write record, one JSON line per write
+    /// (docs/0010 D12).
+    Writes,
+    /// `assert-write <op> [key=value…]` — some recorded write has this
+    /// op and these variable values (D12); exit 1 when none does.
+    AssertWrite {
+        op: String,
+        pairs: Vec<(String, String)>,
+    },
     /// `shell`
     Shell,
     /// `session start|status|stop|env` — the lifecycle verbs (docs/0055
@@ -194,6 +203,8 @@ pub const USAGE: &str = "usage: dashboard-debug [--session <name>] <verb> [args]
   mouse move|down|up <x> <y> [--wait-frame[=ms]]     raw pointer dispatch
   mouse scroll <x> <y> <dy> [--wait-frame[=ms]]      scroll wheel dispatch
   logs [-f]                        ring log tail (follow with -f)
+  writes                           fixture writes answered so far, one JSON line each (D12)
+  assert-write <op> [key=value…]   a recorded write matches op + dotted variable paths (D12)
   shell                            REPL over these verbs
 
   session start [--name n] [--binary path] [--size WxH] [--timeout s]
@@ -416,11 +427,28 @@ pub fn parse_args(args: &[String]) -> Result<Command, String> {
             let follow = rest.iter().any(|arg| arg == "-f");
             Ok(Command::Logs { follow })
         }
+        "writes" if rest.is_empty() => Ok(Command::Writes),
+        "assert-write" => {
+            let (op, pairs) = parse_assert_write(rest)?;
+            Ok(Command::AssertWrite { op, pairs })
+        }
         "session" => parse_session(rest),
         "shell" if rest.is_empty() => Ok(Command::Shell),
         _ => Err(USAGE.to_string()),
     }
 }
+/// `assert-write` arguments, shared with the receipt script grammar.
+pub fn parse_assert_write(rest: &[String]) -> Result<(String, Vec<(String, String)>), String> {
+    let Some((op, pairs)) = rest.split_first() else {
+        return Err("assert-write needs an <op> [key=value…]".into());
+    };
+    let pairs = pairs
+        .iter()
+        .map(|p| crate::writes::parse_pair(p))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok((op.clone(), pairs))
+}
+
 /// `critique --panel` arguments (#539 §2): exactly one frame source — a
 /// surface name or `--image <path>` — plus optional lineup, brief and
 /// output overrides.

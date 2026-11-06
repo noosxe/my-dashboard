@@ -188,6 +188,24 @@ scripts/verify.sh sh -c '
 '
 ```
 
+Write flows run the same way: the fixture transport answers writes from
+response files and records them (docs/0081 §12.1), and a receipt asserts
+what a click sent with `assert-write` (docs/0010 D11). `pr-writes.txt`
+(session `prwrites`) walks comment, Merge, Close and a gated-run approve:
+
+```sh
+scripts/verify.sh sh -c '
+  set -e
+  cargo build -p dashboard-app
+  export DASHBOARD_GITHUB_FIXTURE=/work/crates/debug/verify/fixtures/github
+  export DASHBOARD_FIXED_NOW=2026-10-23T12:00:00Z
+  cargo run -p dashboard-debug -- session start --name prwrites --size 1280x800 \
+    --binary /tmp/target/debug/my-dashboard
+  cargo run -p dashboard-debug -- run crates/debug/verify/pr-writes.txt
+  cargo run -p dashboard-debug -- session stop prwrites
+'
+```
+
 The usage surfaces (docs/0081 §12.1) run over the same fixtures, with
 two opt-in extras. `DASHBOARD_GITHUB_USAGE_SEED=<days>` seeds a
 deterministic ledger, so the usage page opens populated.
