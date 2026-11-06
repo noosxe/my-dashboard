@@ -6,12 +6,19 @@ DASHBOARD_GITHUB_FIXTURE=<this dir> (see crates/modules/github/src/
 fixture.rs for the lookup rules). Captures also pin
 DASHBOARD_FIXED_NOW=2026-10-23T12:00:00Z so relative ages are stable.
 
+The PR page's scenarios live in pr_scenarios.py, called from main().
+
 Run from anywhere: python3 crates/debug/verify/fixtures/github/generate.py
 """
 
 import json
 import os
+import sys
 from datetime import datetime, timedelta, timezone
+
+sys.dont_write_bytecode = True  # no __pycache__ beside the fixtures
+
+from pr_scenarios import write_pr_scenarios
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 NOW = datetime(2026, 10, 23, 12, 0, tzinfo=timezone.utc)
@@ -339,6 +346,7 @@ def main():
     write("rest/user.json", {"login": VIEWER, "id": 1, "avatar_url": None, "name": "Fixture User"})
     for name, variant in RATE_VARIANTS.items():
         write(f"rate/{name}.json", variant)
+    write_pr_scenarios(write, NOW, iso)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,185 @@
+{
+ "data": {
+  "rateLimit": null,
+  "repository": {
+   "mergeCommitAllowed": true,
+   "pullRequest": {
+    "assignees": {
+     "nodes": [],
+     "totalCount": 0
+    },
+    "author": {
+     "avatarUrl": "https://avatars.invalid/octo-dev",
+     "login": "octo-dev"
+    },
+    "baseRefName": "main",
+    "body": "## Summary\n\nAccept trailing commas in the manifest parser, so hand-edited files stop\nfailing the load with an opaque error.\n\n- `parse_manifest` tolerates one trailing comma per list\n- the error now names the offending line\n\n```rust\nlet manifest = parse_manifest(input)?;\n```\n\nSee the [grammar notes](https://example.com/grammar) for the full list.\n",
+    "changedFiles": 3,
+    "comments": {
+     "nodes": [],
+     "totalCount": 0
+    },
+    "commits": {
+     "nodes": [
+      {
+       "commit": {
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-20T12:00:00Z",
+        "messageHeadline": "parser: accept trailing commas in manifest lists",
+        "oid": "0000001aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+       }
+      },
+      {
+       "commit": {
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-20T13:00:00Z",
+        "messageHeadline": "tests: cover the trailing-comma cases",
+        "oid": "0000002aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+       }
+      },
+      {
+       "commit": {
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-20T14:00:00Z",
+        "messageHeadline": "docs: note the manifest grammar change",
+        "oid": "0000003aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+       }
+      }
+     ],
+     "totalCount": 3
+    },
+    "createdAt": "2026-10-19T12:00:00Z",
+    "files": {
+     "totalCount": 3
+    },
+    "headRefName": "feature/trailing-commas",
+    "headRefOid": "000006abbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "id": "PR_106",
+    "isDraft": false,
+    "labels": {
+     "nodes": [],
+     "totalCount": 0
+    },
+    "mergeStateStatus": "CLEAN",
+    "mergeable": "MERGEABLE",
+    "milestone": null,
+    "number": 106,
+    "reactionGroups": [
+     {
+      "content": "THUMBS_UP",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "THUMBS_DOWN",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "LAUGH",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "HOORAY",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "CONFUSED",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "HEART",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "ROCKET",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "EYES",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     }
+    ],
+    "reviewRequests": {
+     "nodes": [],
+     "totalCount": 0
+    },
+    "reviews": {
+     "nodes": [],
+     "totalCount": 0
+    },
+    "state": "OPEN",
+    "statusCheckRollup": {
+     "contexts": {
+      "nodes": [
+       {
+        "__typename": "CheckRun",
+        "checkSuite": {
+         "app": {
+          "slug": "github-actions"
+         }
+        },
+        "conclusion": "SUCCESS",
+        "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/1",
+        "name": "build",
+        "status": "COMPLETED"
+       }
+      ],
+      "totalCount": 1
+     },
+     "state": "SUCCESS"
+    },
+    "title": "Tests: widen the manifest round-trip corpus",
+    "url": "https://github.com/fixture-user/beacon/pull/106",
+    "viewerCanAssign": false,
+    "viewerCanLabel": false,
+    "viewerCanReact": true,
+    "viewerCanUpdate": false,
+    "viewerCanUpdateBranch": false
+   },
+   "rebaseMergeAllowed": true,
+   "squashMergeAllowed": true,
+   "viewerPermission": "READ"
+  }
+ }
+}

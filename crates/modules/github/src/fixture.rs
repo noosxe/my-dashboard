@@ -12,6 +12,13 @@
 //! - `graphql/<Operation>.author.json` — the body when the request's
 //!   `$author` variable is set (the commits "mine" filter, docs/0081
 //!   §14), so a filtered book serves its own history.
+//! - `graphql/<Operation>.<number>.json` — the body when the request's
+//!   `$number` variable is set (the PR-scoped reads, `PrDetail` and
+//!   `PrThreads`), so one session serves several PR states.
+//! - `graphql/<Operation>.<repo>.json` — the body when the request's
+//!   `$name` variable names that repository (`RepoPulls.beacon.json`),
+//!   so PR rows can live on one repo while the others' lanes stay empty.
+//!   Both selectors fall back to `graphql/<Operation>.json`.
 //! - `rest/<path>.json` — the body for `GET /<path>`, slashes as `_`,
 //!   query string dropped (`/user/orgs?per_page=100` →
 //!   `rest/user_orgs.json`).
@@ -211,6 +218,16 @@ impl FixtureHttp {
         value.to_string()
     }
 
+    /// Serve the first candidate that exists; none → the last one's miss.
+    fn serve_first(&self, candidates: Vec<String>) -> HttpResult {
+        let graphql = PathBuf::from("graphql");
+        let picked = candidates
+            .iter()
+            .find(|c| self.dir.join(&graphql).join(c).is_file())
+            .or(candidates.last());
+        self.serve(graphql.join(picked.map_or("", |c| c.as_str())))
+    }
+
     fn serve(&self, rel: PathBuf) -> HttpResult {
         let path = self.dir.join(&rel);
         let Ok(text) = std::fs::read_to_string(&path) else {
@@ -251,14 +268,23 @@ pub(crate) fn operation_name(query: &str) -> Option<&str> {
     (!name.is_empty()).then_some(name)
 }
 
-/// The fixture file for one GraphQL request: `<op>.json`, or
-/// `<op>.author.json` when `$author` is set.
-pub(crate) fn graphql_file(op: &str, variables: &serde_json::Value) -> String {
+/// The fixture files for one GraphQL request, most specific first:
+/// `<op>.author.json` alone when `$author` is set (a filter must never
+/// answer unfiltered), else `<op>.<number>.json` for `$number`,
+/// `<op>.<name>.json` for `$name`, and the plain `<op>.json`.
+pub(crate) fn graphql_files(op: &str, variables: &serde_json::Value) -> Vec<String> {
     if variables.get("author").is_some_and(|a| !a.is_null()) {
-        format!("{op}.author.json")
-    } else {
-        format!("{op}.json")
+        return vec![format!("{op}.author.json")];
     }
+    let mut files = Vec::new();
+    if let Some(number) = variables.get("number").and_then(|n| n.as_i64()) {
+        files.push(format!("{op}.{number}.json"));
+    }
+    if let Some(name) = variables.get("name").and_then(|n| n.as_str()) {
+        files.push(format!("{op}.{name}.json"));
+    }
+    files.push(format!("{op}.json"));
+    files
 }
 
 /// `https://api.github.com/user/orgs?per_page=100` → `user_orgs`.
@@ -311,7 +337,7 @@ impl Http for FixtureHttp {
         let Some(op) = operation_name(query) else {
             return Err(HttpError("fixture: unnamed GraphQL operation".into()));
         };
-        let mut res = self.serve(PathBuf::from("graphql").join(graphql_file(op, variables)));
+        let mut res = self.serve_first(graphql_files(op, variables));
         if let Some(rate) = self.rate {
             let now = budget_now();
             res.rate = Some(rate.graphql.at(now));
@@ -324,8 +350,12 @@ impl Http for FixtureHttp {
 }
 
 #[cfg(test)]
+#[path = "fixture/pr_scenarios.rs"]
+mod pr_scenarios;
+
+#[cfg(test)]
 mod tests {
-    use super::{FixtureHttp, RateBucket, RateVariant, graphql_file, operation_name, rest_key};
+    use super::{FixtureHttp, RateBucket, RateVariant, graphql_files, operation_name, rest_key};
     use crate::http::{Http, Verb};
     use crate::usage::{budget_now, parse_rate_limit_body};
 
@@ -347,15 +377,43 @@ mod tests {
         assert_eq!(rest_key("https://api.github.com/user"), "user");
         let mine = serde_json::json!({ "first": 50, "author": { "id": "U_x" } });
         assert_eq!(
-            graphql_file("RepoCommits", &mine),
-            "RepoCommits.author.json"
+            graphql_files("RepoCommits", &mine),
+            ["RepoCommits.author.json"]
         );
         let all = serde_json::json!({ "first": 50, "author": null });
-        assert_eq!(graphql_file("RepoCommits", &all), "RepoCommits.json");
+        assert_eq!(graphql_files("RepoCommits", &all), ["RepoCommits.json"]);
         assert_eq!(
-            graphql_file("RepoCommits", &serde_json::Value::Null),
-            "RepoCommits.json"
+            graphql_files("RepoCommits", &serde_json::Value::Null),
+            ["RepoCommits.json"]
         );
+        let pr = serde_json::json!({ "owner": "o", "name": "beacon", "number": 101 });
+        assert_eq!(
+            graphql_files("PrDetail", &pr),
+            ["PrDetail.101.json", "PrDetail.beacon.json", "PrDetail.json"]
+        );
+    }
+
+    /// One session serves several PR states: the number's own file, the
+    /// plain file for every other number, and a 404 once neither exists.
+    #[test]
+    fn selectors_prefer_the_specific_file_and_fall_back() {
+        let dir = scratch("selector");
+        std::fs::write(dir.join("graphql/PrDetail.7.json"), r#"{"n":7}"#).unwrap();
+        std::fs::write(dir.join("graphql/RepoPulls.beacon.json"), r#"{"n":"b"}"#).unwrap();
+        std::fs::write(dir.join("graphql/RepoPulls.json"), r#"{"n":"plain"}"#).unwrap();
+        let http = FixtureHttp::with_rate(dir.clone(), None);
+        let ask = |q: &str, v: serde_json::Value| http.post_graphql(q, &v).unwrap();
+        let detail = "query PrDetail { x }";
+        let seven = ask(detail, serde_json::json!({ "name": "beacon", "number": 7 }));
+        assert_eq!(seven.body.as_deref(), Some(r#"{"n":7}"#));
+        let eight = ask(detail, serde_json::json!({ "name": "beacon", "number": 8 }));
+        assert_eq!(eight.status, 404);
+        let pulls = "query RepoPulls { x }";
+        let beacon = ask(pulls, serde_json::json!({ "name": "beacon" }));
+        assert_eq!(beacon.body.as_deref(), Some(r#"{"n":"b"}"#));
+        let atlas = ask(pulls, serde_json::json!({ "name": "atlas" }));
+        assert_eq!(atlas.body.as_deref(), Some(r#"{"n":"plain"}"#));
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

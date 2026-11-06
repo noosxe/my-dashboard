@@ -1,0 +1,14 @@
+{
+ "data": {
+  "rateLimit": null,
+  "repository": {
+   "pullRequest": {
+    "id": "PR_0",
+    "reviewThreads": {
+     "nodes": [],
+     "totalCount": 0
+    }
+   }
+  }
+ }
+}

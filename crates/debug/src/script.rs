@@ -22,12 +22,14 @@ pub enum StepOp {
     Key(String),
     /// `type <text>`
     Type(String),
-    /// `mouse move|down|up <x> <y>` / `mouse scroll <x> <y> <dy>`
+    /// `mouse move|down|up <x> <y>` / `mouse scroll <x> <y> <dy>`, each
+    /// with an optional atomic `--wait-frame[=ms]`.
     Mouse {
         action: MouseAction,
         x: f32,
         y: f32,
         dy: f32,
+        wait_frame: Option<u64>,
     },
     /// `wait-frame` — bare, the runner's default budget.
     WaitFrame,
@@ -345,6 +347,7 @@ fn parse_line(text: &str, line_no: usize) -> Result<StepOp, String> {
 }
 
 fn parse_mouse(rest: &[String]) -> Result<StepOp, String> {
+    let (rest, wait_frame) = split_wait_frame(rest)?;
     let Some((sub, args)) = rest.split_first() else {
         return Err("mouse needs move|down|up|scroll".into());
     };
@@ -366,7 +369,13 @@ fn parse_mouse(rest: &[String]) -> Result<StepOp, String> {
         };
         (parse_coord(x)?, parse_coord(y)?, 0.0)
     };
-    Ok(StepOp::Mouse { action, x, y, dy })
+    Ok(StepOp::Mouse {
+        action,
+        x,
+        y,
+        dy,
+        wait_frame,
+    })
 }
 
 fn parse_coord(token: &str) -> Result<f32, String> {
@@ -528,6 +537,14 @@ mod tests {
     fn mouse_and_assert_arity() {
         assert!(parse_script("mouse down 448 169").is_ok());
         assert!(parse_script("mouse scroll 10 20 -3").is_ok());
+        let waited = parse_script("mouse up 448 169 --wait-frame").unwrap();
+        assert!(matches!(
+            waited.steps[0].op,
+            StepOp::Mouse {
+                wait_frame: Some(_),
+                ..
+            }
+        ));
         assert!(
             parse_script("mouse wiggle 1 2")
                 .unwrap_err()

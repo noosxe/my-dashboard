@@ -1,0 +1,271 @@
+{
+ "data": {
+  "rateLimit": null,
+  "repository": {
+   "assignableUsers": {
+    "nodes": [
+     {
+      "avatarUrl": "https://avatars.invalid/user-00",
+      "id": "U_user-00",
+      "login": "user-00"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-01",
+      "id": "U_user-01",
+      "login": "user-01"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-02",
+      "id": "U_user-02",
+      "login": "user-02"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-03",
+      "id": "U_user-03",
+      "login": "user-03"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-04",
+      "id": "U_user-04",
+      "login": "user-04"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-05",
+      "id": "U_user-05",
+      "login": "user-05"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-06",
+      "id": "U_user-06",
+      "login": "user-06"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-07",
+      "id": "U_user-07",
+      "login": "user-07"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-08",
+      "id": "U_user-08",
+      "login": "user-08"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-09",
+      "id": "U_user-09",
+      "login": "user-09"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-10",
+      "id": "U_user-10",
+      "login": "user-10"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-11",
+      "id": "U_user-11",
+      "login": "user-11"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-12",
+      "id": "U_user-12",
+      "login": "user-12"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-13",
+      "id": "U_user-13",
+      "login": "user-13"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-14",
+      "id": "U_user-14",
+      "login": "user-14"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-15",
+      "id": "U_user-15",
+      "login": "user-15"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-16",
+      "id": "U_user-16",
+      "login": "user-16"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-17",
+      "id": "U_user-17",
+      "login": "user-17"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-18",
+      "id": "U_user-18",
+      "login": "user-18"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-19",
+      "id": "U_user-19",
+      "login": "user-19"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-20",
+      "id": "U_user-20",
+      "login": "user-20"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-21",
+      "id": "U_user-21",
+      "login": "user-21"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-22",
+      "id": "U_user-22",
+      "login": "user-22"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-23",
+      "id": "U_user-23",
+      "login": "user-23"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-24",
+      "id": "U_user-24",
+      "login": "user-24"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-25",
+      "id": "U_user-25",
+      "login": "user-25"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-26",
+      "id": "U_user-26",
+      "login": "user-26"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-27",
+      "id": "U_user-27",
+      "login": "user-27"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-28",
+      "id": "U_user-28",
+      "login": "user-28"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-29",
+      "id": "U_user-29",
+      "login": "user-29"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-30",
+      "id": "U_user-30",
+      "login": "user-30"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-31",
+      "id": "U_user-31",
+      "login": "user-31"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-32",
+      "id": "U_user-32",
+      "login": "user-32"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-33",
+      "id": "U_user-33",
+      "login": "user-33"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-34",
+      "id": "U_user-34",
+      "login": "user-34"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-35",
+      "id": "U_user-35",
+      "login": "user-35"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-36",
+      "id": "U_user-36",
+      "login": "user-36"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-37",
+      "id": "U_user-37",
+      "login": "user-37"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-38",
+      "id": "U_user-38",
+      "login": "user-38"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-39",
+      "id": "U_user-39",
+      "login": "user-39"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-40",
+      "id": "U_user-40",
+      "login": "user-40"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-41",
+      "id": "U_user-41",
+      "login": "user-41"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-42",
+      "id": "U_user-42",
+      "login": "user-42"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-43",
+      "id": "U_user-43",
+      "login": "user-43"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-44",
+      "id": "U_user-44",
+      "login": "user-44"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-45",
+      "id": "U_user-45",
+      "login": "user-45"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-46",
+      "id": "U_user-46",
+      "login": "user-46"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-47",
+      "id": "U_user-47",
+      "login": "user-47"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-48",
+      "id": "U_user-48",
+      "login": "user-48"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/user-49",
+      "id": "U_user-49",
+      "login": "user-49"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/octo-dev",
+      "id": "U_octo-dev",
+      "login": "octo-dev"
+     },
+     {
+      "avatarUrl": "https://avatars.invalid/fixture-user",
+      "id": "U_fixture-user",
+      "login": "fixture-user"
+     }
+    ]
+   }
+  }
+ }
+}

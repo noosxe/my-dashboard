@@ -1,0 +1,321 @@
+{
+ "data": {
+  "rateLimit": null,
+  "repository": {
+   "labels": {
+    "nodes": [
+     {
+      "color": "1d76db",
+      "id": "L_label-00",
+      "name": "label-00"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-01",
+      "name": "label-01"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-02",
+      "name": "label-02"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-03",
+      "name": "label-03"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-04",
+      "name": "label-04"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-05",
+      "name": "label-05"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-06",
+      "name": "label-06"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-07",
+      "name": "label-07"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-08",
+      "name": "label-08"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-09",
+      "name": "label-09"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-10",
+      "name": "label-10"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-11",
+      "name": "label-11"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-12",
+      "name": "label-12"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-13",
+      "name": "label-13"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-14",
+      "name": "label-14"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-15",
+      "name": "label-15"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-16",
+      "name": "label-16"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-17",
+      "name": "label-17"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-18",
+      "name": "label-18"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-19",
+      "name": "label-19"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-20",
+      "name": "label-20"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-21",
+      "name": "label-21"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-22",
+      "name": "label-22"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-23",
+      "name": "label-23"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-24",
+      "name": "label-24"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-25",
+      "name": "label-25"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-26",
+      "name": "label-26"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-27",
+      "name": "label-27"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-28",
+      "name": "label-28"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-29",
+      "name": "label-29"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-30",
+      "name": "label-30"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-31",
+      "name": "label-31"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-32",
+      "name": "label-32"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-33",
+      "name": "label-33"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-34",
+      "name": "label-34"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-35",
+      "name": "label-35"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-36",
+      "name": "label-36"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-37",
+      "name": "label-37"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-38",
+      "name": "label-38"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-39",
+      "name": "label-39"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-40",
+      "name": "label-40"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-41",
+      "name": "label-41"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-42",
+      "name": "label-42"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-43",
+      "name": "label-43"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-44",
+      "name": "label-44"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-45",
+      "name": "label-45"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-46",
+      "name": "label-46"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-47",
+      "name": "label-47"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-48",
+      "name": "label-48"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-49",
+      "name": "label-49"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-50",
+      "name": "label-50"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-51",
+      "name": "label-51"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-52",
+      "name": "label-52"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-53",
+      "name": "label-53"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-54",
+      "name": "label-54"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-55",
+      "name": "label-55"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-56",
+      "name": "label-56"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-57",
+      "name": "label-57"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-58",
+      "name": "label-58"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_label-59",
+      "name": "label-59"
+     },
+     {
+      "color": "d73a4a",
+      "id": "L_bug",
+      "name": "bug"
+     },
+     {
+      "color": "1d76db",
+      "id": "L_area:parser",
+      "name": "area:parser"
+     }
+    ]
+   }
+  }
+ }
+}

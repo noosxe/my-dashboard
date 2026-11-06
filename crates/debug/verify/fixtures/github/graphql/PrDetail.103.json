@@ -1,0 +1,138 @@
+{
+ "data": {
+  "rateLimit": null,
+  "repository": {
+   "mergeCommitAllowed": true,
+   "pullRequest": {
+    "assignees": {
+     "nodes": [],
+     "totalCount": 0
+    },
+    "author": {
+     "avatarUrl": "https://avatars.invalid/octo-dev",
+     "login": "octo-dev"
+    },
+    "baseRefName": "main",
+    "body": "",
+    "changedFiles": 1,
+    "comments": {
+     "nodes": [],
+     "totalCount": 0
+    },
+    "commits": {
+     "nodes": [
+      {
+       "commit": {
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-20T12:00:00Z",
+        "messageHeadline": "parser: accept trailing commas in manifest lists",
+        "oid": "0000001aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+       }
+      }
+     ],
+     "totalCount": 1
+    },
+    "createdAt": "2026-10-19T12:00:00Z",
+    "files": {
+     "totalCount": 1
+    },
+    "headRefName": "feature/trailing-commas",
+    "headRefOid": "0000067bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "id": "PR_103",
+    "isDraft": true,
+    "labels": {
+     "nodes": [],
+     "totalCount": 0
+    },
+    "mergeStateStatus": "DRAFT",
+    "mergeable": "MERGEABLE",
+    "milestone": null,
+    "number": 103,
+    "reactionGroups": [
+     {
+      "content": "THUMBS_UP",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "THUMBS_DOWN",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "LAUGH",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "HOORAY",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "CONFUSED",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "HEART",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "ROCKET",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "EYES",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     }
+    ],
+    "reviewRequests": {
+     "nodes": [],
+     "totalCount": 0
+    },
+    "reviews": {
+     "nodes": [],
+     "totalCount": 0
+    },
+    "state": "OPEN",
+    "statusCheckRollup": null,
+    "title": "WIP: loader cleanup",
+    "url": "https://github.com/fixture-user/beacon/pull/103",
+    "viewerCanAssign": true,
+    "viewerCanLabel": true,
+    "viewerCanReact": true,
+    "viewerCanUpdate": true,
+    "viewerCanUpdateBranch": false
+   },
+   "rebaseMergeAllowed": true,
+   "squashMergeAllowed": true,
+   "viewerPermission": "ADMIN"
+  }
+ }
+}

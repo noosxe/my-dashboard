@@ -6,7 +6,7 @@
 //! order-insensitive by construction, so two dumps of the same frame with
 //! different walk orders diff clean.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -376,6 +376,36 @@ pub fn diff(a: &Snapshot, b: &Snapshot) -> Diff {
     }
 }
 
+/// [`diff`] for a golden, where structure is the contract and ids aren't:
+/// a removed node and an added node with the same role, label, bounds and
+/// focus state are one node that re-keyed, not drift. Ids inside a view
+/// hash its entity id, which depends on how many entities came before
+/// (the PR page's differ between identical walks, #769), so a golden keyed
+/// on them alone would flip without the tree changing. A stale id in a
+/// script stays loud on its own (`4005 UNKNOWN_NODE`).
+pub fn structural_diff(a: &Snapshot, b: &Snapshot) -> Diff {
+    let same_shape = |x: &SnapshotNode, y: &SnapshotNode| {
+        (&x.role, &x.label, x.bounds, x.focusable, x.focused)
+            == (&y.role, &y.label, y.bounds, y.focusable, y.focused)
+    };
+    let mut full = diff(a, b);
+    let only_in = |snapshot: &'_ Snapshot, other: &Snapshot| -> Vec<SnapshotNode> {
+        let mut nodes = snapshot.nodes.clone();
+        nodes.retain(|n| !other.nodes.iter().any(|o| o.accesskit_id == n.accesskit_id));
+        nodes
+    };
+    let mut added_nodes = only_in(b, a);
+    let mut rekeyed = BTreeSet::new();
+    for old in only_in(a, b) {
+        if let Some(at) = added_nodes.iter().position(|new| same_shape(&old, new)) {
+            rekeyed.insert(added_nodes.swap_remove(at).accesskit_id);
+            rekeyed.insert(old.accesskit_id);
+        }
+    }
+    full.entries.retain(|e| !rekeyed.contains(&e.accesskit_id));
+    full
+}
+
 /// The human rendering: summary first, then one line per node with the
 /// D7 markers `−` (removed), `+` (added), `~` (changed).
 pub fn render_human(diff: &Diff) -> String {
@@ -708,6 +738,51 @@ mod tests {
         assert!(!valid_name("a/b"));
         assert!(!valid_name("with space"));
         assert!(!valid_name(&"x".repeat(65)));
+    }
+
+    #[test]
+    fn structural_diff_forgives_a_rekey_and_keeps_real_drift() {
+        let at = |id: &str, label: &str, y: f32| SnapshotNode {
+            accesskit_id: id.to_string(),
+            role: "Button".to_string(),
+            label: Some(label.to_string()),
+            bounds: Some(Bounds {
+                x: 0.0,
+                y,
+                w: 10.0,
+                h: 10.0,
+            }),
+            focusable: true,
+            focused: false,
+        };
+        // One node re-keyed: same shape under a new id, so it's clean.
+        let golden = snap(1, vec![at("1", "Edit", 0.0), at("2", "Edit", 20.0)]);
+        let rekeyed = snap(2, vec![at("9", "Edit", 0.0), at("2", "Edit", 20.0)]);
+        assert_eq!(diff(&golden, &rekeyed).entries.len(), 2);
+        assert!(structural_diff(&golden, &rekeyed).entries.is_empty());
+
+        // A new id at new bounds, or with a new label, is real drift.
+        let moved = snap(3, vec![at("9", "Edit", 5.0), at("2", "Edit", 20.0)]);
+        let moved = structural_diff(&golden, &moved);
+        assert_eq!((moved.added(), moved.removed()), (1, 1));
+        let renamed = snap(4, vec![at("9", "Save", 0.0), at("2", "Edit", 20.0)]);
+        let renamed = structural_diff(&golden, &renamed);
+        assert_eq!((renamed.added(), renamed.removed()), (1, 1));
+
+        // Same id, changed bounds: still a change. An extra twin of an
+        // existing node is still an addition.
+        let shifted = snap(5, vec![at("1", "Edit", 5.0), at("2", "Edit", 20.0)]);
+        assert_eq!(structural_diff(&golden, &shifted).changed(), 1);
+        let extra = snap(
+            6,
+            vec![
+                at("1", "Edit", 0.0),
+                at("2", "Edit", 20.0),
+                at("3", "Edit", 20.0),
+            ],
+        );
+        let extra = structural_diff(&golden, &extra);
+        assert_eq!((extra.added(), extra.removed()), (1, 0));
     }
 
     #[test]

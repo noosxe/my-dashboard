@@ -421,8 +421,8 @@ Lines: the D6/D7 verbs plus `assert-label <substr>`,
 the label; for content that lands after a background read, such as the
 usage page since docs/0082 D11), `assert-focus <accesskit_id>`, `diff <a>
 <b>` (prints; `assert-diff-label <a> <b> <substr>` when a receipt
-needs "this label *changed* between snapshots"). `click` takes the
-CLI's atomic `--wait-frame[=ms]` (#530): the counter is sampled before
+needs "this label *changed* between snapshots"). `click` and `mouse`
+take the CLI's atomic `--wait-frame[=ms]` (#530): the counter is sampled before
 the dispatch, which a separate `wait-frame` step can lose to a fast
 page — the usage hop rendered in that gap and timed out on a frame
 newer than the one it had already missed. `#` comments and
