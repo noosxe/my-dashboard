@@ -176,6 +176,43 @@ assert-label "#107"
 assert-label "Merge pull request"
 assert-label "Close pull request"
 assert-label "Delete"
+# Merge and Close confirm before they send (#738): each opens an inline
+# confirm that names what it will do, Esc and Cancel back out, and the
+# buttons come back. Fixture writes are refused (#812), so no confirming
+# click here: the confirming buttons are only asserted present. Clicks
+# are bridge mouse clicks at the buttons' centres (ids under the PR page
+# differ between walks), frozen at 1280x800.
+mouse down 1022 276
+mouse up 1022 276 --wait-frame
+assert-label "Merge feature/trailing-commas into main?"
+assert-label "Confirm merge"
+assert-label "Cancel"
+assert-no-label "Merge pull request"
+assert-no-label "Close pull request"
+key esc
+wait-label "Merge pull request"
+assert-no-label "Confirm merge"
+mouse down 1022 276
+mouse up 1022 276 --wait-frame
+wait-label "Confirm merge"
+mouse down 1101 307
+mouse up 1101 307 --wait-frame
+wait-label "Merge pull request"
+assert-no-label "Confirm merge"
+mouse down 1162 276
+mouse up 1162 276 --wait-frame
+assert-label "Close this pull request without merging? It can be reopened later."
+assert-label "Close without merging"
+assert-no-label "Merge pull request"
+key esc
+wait-label "Close pull request"
+mouse down 1162 276
+mouse up 1162 276 --wait-frame
+wait-label "Close without merging"
+mouse down 1149 330
+mouse up 1149 330 --wait-frame
+wait-label "Close pull request"
+assert-no-label "Close without merging"
 mouse down 447 155
 mouse up 447 155 --wait-frame
 assert-no-label "Leave a comment"

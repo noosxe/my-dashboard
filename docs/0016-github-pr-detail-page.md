@@ -335,6 +335,24 @@ A `GroupBox` at the rail top:
   "Closed") — the next snapshot tick removes the row from the repo view list
   (no extra work).
 
+  **Confirm (amended 2026-11-06, #738; `pr_page/merge_confirm.rs`).**
+  Neither button sends on one click: *Merge pull request* and *Close pull
+  request* open an inline confirm in the rail, in place of the button row
+  (docs/0065 Appendix A items 3 and 9 — destructive actions confirm, and
+  the user can back out). The Merge confirm names the selected method and
+  `head → base` ("Squash and merge feature/x into main?") with *Confirm
+  merge*; the Close confirm says it closes the PR without merging, with a
+  danger *Close without merging*. Both have *Cancel*, and `Esc` cancels
+  (topmost surface). Only the confirming button sends `mergePullRequest` /
+  `closePullRequest`. One confirm at a time, the update-branch rebase
+  confirm (docs/0067 D4) included: opening one closes the other. The
+  gates below stay authoritative at both steps — a confirm opens only
+  through an open gate, re-checks it when confirmed, and closes by itself
+  when the gate shuts (refetch, state change, busy op). The state machine
+  is independent of where the buttons sit, so Close keeps the confirm when
+  it moves into a `⋯` menu (#798). No commit-message editing or prefill
+  (`viewerMergeHeadlineText`/`viewerMergeBodyText`): deferred.
+
   **Gating (amended 2026-11-06, #708 + #737; `pr_page/merge_gate.rs`).**
   Two separate questions. *Visibility* is about the viewer and **hides** the
   control (the sidebar's rule for edit controls); *enablement* is about the
