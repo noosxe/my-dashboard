@@ -224,10 +224,12 @@ pub fn workflow_runs_by_suite_url(owner: &str, repo: &str, suite_id: u64) -> Str
     format!("{API_BASE}/repos/{owner}/{repo}/actions/runs?check_suite_id={suite_id}")
 }
 
-/// `GET /repos/{o}/{r}/actions/runs/{run_id}/jobs` — step 3: the run's
-/// jobs, name-matched client-side for the job id (docs/0039 D1).
+/// `GET /repos/{o}/{r}/actions/runs/{run_id}/jobs?per_page=100` — step 3:
+/// the run's jobs, name-matched client-side for the job id (docs/0039 D1).
+/// 100 is the endpoint's documented max (default 30, #757); further pages
+/// append `&page=N` (see `run_jobs`). `filter` stays at its `latest` default.
 pub fn run_jobs_url(owner: &str, repo: &str, run_id: u64) -> String {
-    format!("{API_BASE}/repos/{owner}/{repo}/actions/runs/{run_id}/jobs")
+    format!("{API_BASE}/repos/{owner}/{repo}/actions/runs/{run_id}/jobs?per_page=100")
 }
 
 /// docs/0066 D2 — the gated-runs sweep: server-filtered to runs waiting on
@@ -405,6 +407,8 @@ pub struct CheckSuiteNode {
 #[derive(Debug, Clone, Deserialize)]
 pub struct JobsPage {
     #[serde(default)]
+    pub total_count: u64,
+    #[serde(default)]
     pub jobs: Vec<JobNode>,
 }
 
@@ -504,7 +508,7 @@ mod tests {
         );
         assert_eq!(
             run_jobs_url("o", "r", 7),
-            format!("{API_BASE}/repos/o/r/actions/runs/7/jobs")
+            format!("{API_BASE}/repos/o/r/actions/runs/7/jobs?per_page=100")
         );
         assert_eq!(
             job_logs_url("o", "r", 9),

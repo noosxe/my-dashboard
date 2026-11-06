@@ -29,7 +29,9 @@ design builds on no undocumented contract.
    classic OAuth/PAT needs `repo` for private repos (we have it — docs/0005);
    fine-grained tokens need Actions read; public repos need no auth. The
    endpoint takes a **workflow job id**, not a check-run id.
-2. **Job listing** — `GET /repos/{owner}/{repo}/actions/runs/{run_id}/jobs`:
+2. **Job listing** — `GET /repos/{owner}/{repo}/actions/runs/{run_id}/jobs?per_page=100`
+   (100 is the documented max, default 30; further pages follow by
+   `total_count` via `&page=N`, #757; `filter` stays `latest`):
    `200 OK`, `{total_count, jobs: [{id, name, conclusion, …}]}`.
 3. **Run discovery by SHA** — `GET /repos/{owner}/{repo}/actions/runs` accepts
    `head_sha`: *"Only returns workflow runs that are associated with the
