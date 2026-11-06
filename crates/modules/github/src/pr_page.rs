@@ -61,13 +61,15 @@ pub(crate) mod checks;
 mod detail_read;
 mod files_etag;
 mod gate_decision;
+mod merge_confirm;
 mod merge_gate;
 mod write_refetch;
 
 use checks::identity::{CheckKey, CheckTarget};
 use checks::log_cache::{JobLogCache, LandedLog};
 use checks::log_error;
-use merge_gate::{close_visible, merge_enabled, merge_visible};
+use merge_confirm::{ConfirmKind, MergeConfirm};
+use merge_gate::{close_enabled, close_visible, merge_enabled, merge_visible};
 
 use crate::api::{self, PrFile};
 use crate::drafts::{self, DraftHandle};
@@ -613,6 +615,8 @@ pub(crate) struct PrDetailPage {
     /// two-step delete-confirm pattern; the panel renders it in place
     /// of the split button while up).
     update_rebase_confirm: bool,
+    /// Merge/Close confirm (#738); exclusive with the rebase confirm.
+    merge_confirm: MergeConfirm,
     /// Changed-files fetch lifecycle (D8): lazy — `Idle` until the
     /// Files tab is first opened, then one REST walk; `Ready` keeps the
     /// parsed list (a refresh refetches it).
@@ -846,6 +850,7 @@ impl PrDetailPage {
             timeline_edit: None,
             delete_confirm: None,
             update_rebase_confirm: false,
+            merge_confirm: MergeConfirm::default(),
             methods: Vec::new(),
             method_select: None,
             files: Fetch::new(),
@@ -3169,10 +3174,11 @@ impl PrDetailPage {
             return;
         };
         if !close_visible(d.viewer_can_close)
-            || self.busy.is_some()
-            || self.store_pending(cx).is_some()
-            || d.id.is_empty()
-            || d.state.as_deref() != Some("OPEN")
+            || !close_enabled(
+                d.state.as_deref(),
+                d.id.is_empty(),
+                self.busy.is_some() || self.store_pending(cx).is_some(),
+            )
         {
             return;
         }
@@ -3236,6 +3242,7 @@ impl PrDetailPage {
             return;
         }
         self.update_rebase_confirm = true;
+        self.merge_confirm.cancel();
         cx.notify();
     }
 
@@ -3762,6 +3769,9 @@ impl PrDetailPage {
     /// description editor, the rail pickers — and only closes the page
     /// when nothing is open.
     fn cancel_top_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if self.cancel_merge_confirm(window, cx) {
+            return true;
+        }
         if self.delete_confirm.take().is_some() || self.thread_delete_confirm.take().is_some() {
             cx.notify();
             return true;
@@ -5663,45 +5673,65 @@ impl PrDetailPage {
                                 .child(e.message.clone()),
                         )
                     })
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .items_center()
-                            .when(
-                                matches!(pending, Some(PendingKind::Merge | PendingKind::Close)),
-                                |row| row.child(Spinner::new().small()),
-                            )
-                            .when(show_merge, |row| {
-                                row.child(
-                                    Button::new("pr-merge")
-                                        .label(merge_label)
-                                        .primary()
-                                        .small()
-                                        .disabled(!can_merge)
-                                        .tooltip(if pending.is_some() {
-                                            SharedString::from("Working")
-                                        } else {
-                                            merge_disabled_reason(can_merge, line)
-                                        })
-                                        .on_click(cx.listener(|this, _, window, cx| {
-                                            this.merge_pr(window, cx)
-                                        })),
+                    .when_some(self.merge_confirm.current(), |col, kind| {
+                        col.child(self.render_merge_confirm(kind, d, cx))
+                    })
+                    .when(self.merge_confirm.current().is_none(), |col| {
+                        col.child(
+                            h_flex()
+                                .gap_2()
+                                .items_center()
+                                .when(
+                                    matches!(
+                                        pending,
+                                        Some(PendingKind::Merge | PendingKind::Close)
+                                    ),
+                                    |row| row.child(Spinner::new().small()),
                                 )
-                            })
-                            .when(show_close, |row| {
-                                row.child(
-                                    Button::new("pr-close")
-                                        .label("Close pull request")
-                                        .danger()
-                                        .ghost()
-                                        .small()
-                                        .disabled(any_busy || d.state.as_deref() != Some("OPEN"))
-                                        .on_click(cx.listener(|this, _, window, cx| {
-                                            this.close_pr(window, cx)
-                                        })),
-                                )
-                            }),
-                    ),
+                                .when(show_merge, |row| {
+                                    row.child(
+                                        Button::new("pr-merge")
+                                            .debug_selector(|| "pr-merge".to_string())
+                                            .label(merge_label)
+                                            .primary()
+                                            .small()
+                                            .disabled(!can_merge)
+                                            .tooltip(if pending.is_some() {
+                                                SharedString::from("Working")
+                                            } else {
+                                                merge_disabled_reason(can_merge, line)
+                                            })
+                                            .on_click(cx.listener(|this, _, window, cx| {
+                                                this.open_merge_confirm(
+                                                    ConfirmKind::Merge,
+                                                    window,
+                                                    cx,
+                                                )
+                                            })),
+                                    )
+                                })
+                                .when(show_close, |row| {
+                                    row.child(
+                                        Button::new("pr-close")
+                                            .debug_selector(|| "pr-close".to_string())
+                                            .label("Close pull request")
+                                            .danger()
+                                            .ghost()
+                                            .small()
+                                            .disabled(
+                                                any_busy || d.state.as_deref() != Some("OPEN"),
+                                            )
+                                            .on_click(cx.listener(|this, _, window, cx| {
+                                                this.open_merge_confirm(
+                                                    ConfirmKind::Close,
+                                                    window,
+                                                    cx,
+                                                )
+                                            })),
+                                    )
+                                }),
+                        )
+                    }),
             )
             .into_any_element()
     }
@@ -5953,6 +5983,7 @@ impl Focusable for PrDetailPage {
 impl Render for PrDetailPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_diff(cx);
+        self.sync_merge_confirm(cx);
         // docs/0026 D9: fire the armed jump the frame the target card
         // mounts — the anchor records its origin on paint, the offset lands
         // next frame. A card swapped for an editor/confirm (or a
@@ -10594,6 +10625,76 @@ mod tests {
         let _ = vcx.debug_bounds("pr-update-branch"); // flush frames
         assert!(vcx.debug_bounds("pr-update-branch").is_some());
         assert!(vcx.debug_bounds("pr-update-rebase-go").is_none());
+    }
+
+    #[gpui::test]
+    fn merge_and_rebase_confirms_exclude_each_other(cx: &mut gpui::TestAppContext) {
+        // #738: one confirm at a time; Esc backs out; losing the gate
+        // (state change) closes the confirm.
+        let (page, vcx) = probe_pr_anchored(cx, None);
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                let mut d = p.detail(cx).unwrap().clone();
+                d.id = "PR_1".into();
+                d.state = Some("OPEN".into());
+                d.draft = false;
+                d.mergeable = Some("MERGEABLE".into());
+                d.merge_state_status = Some("CLEAN".into());
+                d.viewer_permission = Some("WRITE".into());
+                d.viewer_can_close = true;
+                d.head_ref = Some("feature/x".into());
+                d.base_ref = Some("main".into());
+                d.viewer_can_update_branch = true;
+                d.head_oid = Some("abc123".into());
+                p.methods = vec![MergeMethod::Merge];
+                p.state
+                    .update(cx, |s, _| s.land_detail(&p.repo, p.number, d));
+                cx.notify();
+            });
+        });
+        let _ = vcx.debug_bounds("pr-merge");
+        vcx.update(|_, cx| page.update(cx, |p, cx| p.arm_update_rebase(cx)));
+        vcx.update(|window, cx| {
+            page.update(cx, |p, cx| {
+                p.open_merge_confirm(super::ConfirmKind::Merge, window, cx)
+            })
+        });
+        let _ = vcx.debug_bounds("pr-merge");
+        assert!(vcx.debug_bounds("pr-merge-confirm-go").is_some());
+        assert!(vcx.debug_bounds("pr-update-rebase-go").is_none());
+        assert!(vcx.debug_bounds("pr-merge").is_none(), "buttons swap out");
+        vcx.update(|window, cx| page.update(cx, |p, cx| assert!(p.cancel_top_editor(window, cx))));
+        let _ = vcx.debug_bounds("pr-merge");
+        assert!(vcx.debug_bounds("pr-merge-confirm-go").is_none());
+        assert!(vcx.debug_bounds("pr-merge").is_some());
+        vcx.update(|window, cx| {
+            page.update(cx, |p, cx| {
+                p.open_merge_confirm(super::ConfirmKind::Close, window, cx)
+            })
+        });
+        let _ = vcx.debug_bounds("pr-merge");
+        assert!(vcx.debug_bounds("pr-close-confirm-go").is_some());
+        vcx.update(|_, cx| page.update(cx, |p, cx| p.arm_update_rebase(cx)));
+        let _ = vcx.debug_bounds("pr-merge");
+        assert!(vcx.debug_bounds("pr-close-confirm-go").is_none());
+        // Gate loss: the PR closes under an open confirm.
+        vcx.update(|window, cx| {
+            page.update(cx, |p, cx| {
+                p.open_merge_confirm(super::ConfirmKind::Close, window, cx)
+            })
+        });
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                let mut d = p.detail(cx).unwrap().clone();
+                d.state = Some("CLOSED".into());
+                p.state
+                    .update(cx, |s, _| s.land_detail(&p.repo, p.number, d));
+                cx.notify();
+            });
+        });
+        let _ = vcx.debug_bounds("pr-merge");
+        assert!(vcx.debug_bounds("pr-close-confirm-go").is_none());
+        vcx.update(|_, cx| page.update(cx, |p, _| assert_eq!(p.merge_confirm.current(), None)));
     }
 
     #[test]

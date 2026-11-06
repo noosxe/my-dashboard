@@ -28,6 +28,12 @@ pub(crate) fn close_visible(viewer_can_close: bool) -> bool {
     viewer_can_close
 }
 
+/// Close-button gating: the PR is open, idle and addressable. Shared by
+/// the click path and the confirm so both ask the same question.
+pub(crate) fn close_enabled(state: Option<&str>, id_empty: bool, busy: bool) -> bool {
+    state == Some("OPEN") && !id_empty && !busy
+}
+
 /// Whether `mergeStateStatus` lets a normal merge through. Allowlist:
 /// `CLEAN`, `HAS_HOOKS` and `UNSTABLE` are documented as mergeable;
 /// `BLOCKED` (required reviews or checks), `BEHIND` (strict up-to-date
@@ -81,6 +87,16 @@ mod tests {
     fn close_visible_follows_the_server_flag() {
         assert!(close_visible(true));
         assert!(!close_visible(false));
+    }
+
+    #[test]
+    fn close_enabled_table() {
+        assert!(close_enabled(Some("OPEN"), false, false));
+        assert!(!close_enabled(Some("CLOSED"), false, false));
+        assert!(!close_enabled(Some("MERGED"), false, false));
+        assert!(!close_enabled(None, false, false));
+        assert!(!close_enabled(Some("OPEN"), true, false));
+        assert!(!close_enabled(Some("OPEN"), false, true));
     }
 
     #[test]
