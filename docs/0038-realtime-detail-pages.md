@@ -178,9 +178,13 @@ IDLE_MIN_AGE          = 60s  (every lane when disengaged — today's behavior)
 
 Extending conditional revalidation to `ThreadDetail` and `PrFiles`:
 
-- **Storage**: widen the etag save in `GithubState::apply` from the two list
-  kinds to `{Notifications, RepoNotifications, ThreadDetail, PrFiles}` —
-  `etag_key(kind, ident)` is already kind-generic; nothing else moves.
+- **Storage**: `etag_key(kind, ident)` is already kind-generic.
+  `GithubState::apply` stamps the etag for `{Notifications,
+  RepoNotifications}`; page-owned kinds never reach `apply` on a 200, so the
+  page's own 200 branch stamps it via `GithubState::store_etag`
+  (`PrFiles`: `apply_files_result`). For a paginated walk the stored etag is
+  **page 1's** — the conditional request is made against page 1, and
+  `run_rest` does not let later pages overwrite it.
 - **Landing**: page-owned kinds parse their own 200 bodies
   (`apply_detail_result` & siblings). Today a 304 falls into apply's
   catch-all and is silently dropped — data is unchanged (correct) but the

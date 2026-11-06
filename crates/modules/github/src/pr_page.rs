@@ -58,6 +58,7 @@ pub(crate) const ANCHOR_FADE: Duration = Duration::from_secs(3);
 
 mod catch_up;
 mod detail_read;
+mod files_etag;
 
 use crate::api::{self, PrFile};
 use crate::drafts::{self, DraftHandle};
@@ -1766,8 +1767,8 @@ impl PrDetailPage {
 
     /// The changed-files spec: one REST walk over
     /// `GET /repos/{o}/{r}/pulls/{n}/files`, page-stitched by the
-    /// transport (`run_rest`, 100/page). No ETag — page-owned like
-    /// [`Self::detail_spec`]. 30 pages = GitHub's 3000-file cap; the
+    /// transport (`run_rest`, 100/page). Revalidates on page 1's etag
+    /// (docs/0038 D4). 30 pages = GitHub's 3000-file cap; the
     /// walk stops at the first short page long before it.
     fn files_spec(repo: &str, number: i64, etag: Option<String>, origin: Origin) -> FetchSpec {
         let (owner, name) = split_repo(repo);
@@ -1956,6 +1957,13 @@ impl PrDetailPage {
                         self.number,
                         files.len()
                     );
+                    // docs/0038 D4: the 200 never reaches `apply`, so
+                    // stamp the (page-1) etag here or no refresh ever
+                    // revalidates (#750).
+                    let (kind, ident, etag) =
+                        (result.kind, result.ident.as_deref(), result.etag.as_deref());
+                    self.state
+                        .update(cx, |s, _| s.store_etag(kind, ident, etag));
                     self.files.land(files);
                     // No bulk memo clear here (docs/0040 D5, amended):
                     // entries self-invalidate per file by patch hash, so

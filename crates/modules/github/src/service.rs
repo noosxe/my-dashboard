@@ -789,6 +789,14 @@ impl<T> Fetch<T> {
         f
     }
 
+    /// Age a landed record so a freshness bump is observable.
+    #[cfg(test)]
+    pub(crate) fn backdate(&mut self, by: Duration) {
+        if let FetchStatus::Ready { fetched_at, .. } = &mut self.status {
+            *fetched_at = Instant::now() - by;
+        }
+    }
+
     pub(crate) fn begin(&mut self) {
         self.in_flight = true;
         self.attempted_at = Some(Instant::now());
@@ -1414,7 +1422,11 @@ fn run_rest(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
             }
             Ok(result) => {
                 status = result.status;
-                etag = result.etag;
+                // Page 1's etag is the one the conditional request is made
+                // against; later pages' must not overwrite it (#750).
+                if page == 1 {
+                    etag = result.etag;
+                }
                 rate = result.rate;
                 log::debug!(
                     "fetch {}: page {page} → {} in {}ms",
@@ -4981,12 +4993,18 @@ impl GithubState {
                 | Kind::ThreadDetail
                 | Kind::PrFiles
         ) {
-            if let Some(etag) = &result.etag {
-                self.etags
-                    .insert(etag_key(result.kind, result.ident.as_deref()), etag.clone());
-            }
-            self.cache.save_etags(&self.etags);
+            self.store_etag(result.kind, result.ident.as_deref(), result.etag.as_deref());
         }
+    }
+
+    /// Record (and persist) a resource's conditional-revalidation etag.
+    /// Page-owned kinds call this from their own 200 branch — `apply`
+    /// never sees those bodies (#750).
+    pub(crate) fn store_etag(&mut self, kind: Kind, ident: Option<&str>, etag: Option<&str>) {
+        if let Some(etag) = etag {
+            self.etags.insert(etag_key(kind, ident), etag.to_string());
+        }
+        self.cache.save_etags(&self.etags);
     }
 
     /// Merge snapshot repos into the list (docs/0007 D4): a completed run
@@ -7415,38 +7433,26 @@ mod tests {
         );
     }
 
-    // docs/0038 D4: the page-owned REST kinds store their etags — the
-    // page builders attach them on the next spec (when the lane holds
-    // data), so the engaged tier's polls revalidate for free.
+    // docs/0038 D4: `apply` stamps the etag for the kinds whose 200s it
+    // sees. Page-owned bodies never reach it, so this does NOT prove a
+    // page revalidates: the Files lane is covered at the transport in
+    // `pr_page::files_etag` (#750).
     #[test]
-    fn page_owned_rest_kinds_store_etags() {
+    fn apply_stamps_the_etag_for_forwarded_results() {
         let mut state = make_state(Arc::new(MockHttp::new(vec![])));
         state.auth = AuthStatus::Connected;
-
-        for (kind, ident) in [
-            (Kind::ThreadDetail, Some("th1".to_string())),
-            (Kind::PrFiles, Some("o/r#9".to_string())),
-        ] {
-            state.apply(SpecResult {
-                kind,
-                ident,
-                status: 200,
-                etag: Some("W/\"e1\"".into()),
-                rate: None,
-                // Page-owned: the 200 body is parsed page-side, never
-                // here — but a body must be present (apply returns
-                // before the etag bookkeeping otherwise).
-                body: Some("{}".into()),
-                network: None,
-                cursor: None,
-            });
-        }
+        state.apply(SpecResult {
+            kind: Kind::ThreadDetail,
+            ident: Some("th1".to_string()),
+            status: 200,
+            etag: Some("W/\"e1\"".into()),
+            rate: None,
+            body: Some("{}".into()),
+            network: None,
+            cursor: None,
+        });
         assert_eq!(
             state.etag_for(Kind::ThreadDetail, Some("th1")).as_deref(),
-            Some("W/\"e1\"")
-        );
-        assert_eq!(
-            state.etag_for(Kind::PrFiles, Some("o/r#9")).as_deref(),
             Some("W/\"e1\"")
         );
     }
