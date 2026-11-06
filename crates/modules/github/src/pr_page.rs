@@ -59,6 +59,7 @@ pub(crate) const ANCHOR_FADE: Duration = Duration::from_secs(3);
 mod catch_up;
 mod detail_read;
 mod files_etag;
+mod gate_decision;
 mod write_refetch;
 
 use crate::api::{self, PrFile};
@@ -629,10 +630,10 @@ pub(crate) struct PrDetailPage {
     /// lands and refetched with it (the manual-refresh contract,
     /// docs/0052 — nothing polls).
     pub(crate) gated: Fetch<Vec<crate::service::GatedRunRow>>,
-    /// Runs approved but still listed in the last sweep (propagation
-    /// lag): rendered "approved, starting…" until the next sweep drops
-    /// them (docs/0066 D5).
-    pub(crate) gate_approved: Vec<u64>,
+    /// Decided runs still listed in the last sweep (propagation lag):
+    /// rendered "approved, starting…" / "rejected" until the next sweep
+    /// drops them (docs/0066 D5).
+    pub(crate) gate_decisions: gate_decision::GateDecisions,
     /// The run id whose gate action is in flight; that row's buttons
     /// disable and its label reads "working…" (docs/0066 D5).
     pub(crate) gate_busy: Option<u64>,
@@ -837,7 +838,7 @@ impl PrDetailPage {
             diff_key: None,
             reply_rev: 0,
             gated: Fetch::new(),
-            gate_approved: Vec::new(),
+            gate_decisions: Default::default(),
             gate_busy: None,
             gate_review: None,
             gate_error: None,
@@ -1188,8 +1189,8 @@ impl PrDetailPage {
             Ok(rows) => {
                 // Approved-but-lingering runs keep their mark only while
                 // GitHub still lists them (D5); cleared ids drop out.
-                self.gate_approved
-                    .retain(|id| rows.iter().any(|r| r.run_id == *id));
+                self.gate_decisions
+                    .retain_listed(|id| rows.iter().any(|r| r.run_id == id));
                 self.gated.land(rows);
                 self.maybe_fetch_gated_fallback(cx);
             }
@@ -1388,9 +1389,8 @@ impl PrDetailPage {
         self.gate_busy = None;
         match result {
             Ok(()) => {
-                if !self.gate_approved.contains(&run_id) {
-                    self.gate_approved.push(run_id);
-                }
+                self.gate_decisions
+                    .record(run_id, gate_decision::GateDecision::parse(decision));
                 self.fetch_gated(cx);
             }
             Err(f) => {
@@ -1470,13 +1470,13 @@ impl PrDetailPage {
         cx: &Context<Self>,
     ) -> AnyElement {
         let busy = self.gate_busy == Some(gated.run_id);
-        let approved = self.gate_approved.contains(&gated.run_id);
+        let decided = self.gate_decisions.get(gated.run_id);
         let run_label = match gated.run_number {
             Some(n) => format!("{} — run #{n}", gated.name),
             None => gated.name.clone(),
         };
-        let label = if approved {
-            format!("{run_label} — approved, starting…")
+        let label = if let Some(d) = decided {
+            format!("{run_label} — {}", d.label())
         } else if busy {
             format!("{run_label} — working…")
         } else {
@@ -1507,7 +1507,7 @@ impl PrDetailPage {
             )
         });
         let open_review = self.gate_review.as_ref().map(|r| r.run_id) != Some(gated.run_id);
-        if !approved && !busy {
+        if decided.is_none() && !busy {
             match &gated.gate {
                 crate::service::GatedRunGate::ForkGate => {
                     row = row.child(
@@ -10355,7 +10355,16 @@ mod tests {
                     gate: crate::service::GatedRunGate::ForkGate,
                 }]);
                 p.apply_gate_action(7, "approved", Ok(()), cx);
-                assert_eq!(p.gate_approved, vec![7]);
+                p.apply_gate_action(8, "rejected", Ok(()), cx);
+                assert_eq!(
+                    p.gate_decisions.get(8),
+                    Some(super::gate_decision::GateDecision::Rejected),
+                    "a rejection is not recorded as an approval"
+                );
+                assert_eq!(
+                    p.gate_decisions.get(7),
+                    Some(super::gate_decision::GateDecision::Approved)
+                );
                 assert_eq!(p.gate_busy, None);
             });
         });
