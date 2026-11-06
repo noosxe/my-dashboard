@@ -185,7 +185,13 @@ link. `idx` is the row's position in display order, docs/0016 D7.)*
   pane state, and an open pane on it closes; the cache keeps its job.
 - Chain failure (name-match miss, 404/410 job or run gone, empty page) → the
   pane renders an inline error line with a **Retry** button (re-runs the
-  chain) and the external link. Auth/rate-limit non-200s forward through
+  chain) and an **Open on GitHub** button: a left-aligned row of outline buttons
+  that hug their labels (#815). The line says what went wrong and what to do,
+  never a raw status: a 404 or 410 reads "This log isn't available. It may have
+  expired, the run may have been deleted, or the job may not have finished
+  yet." A status only appears when the app has nothing plainer to say (a 5xx or
+  an unexpected code), and transport and parse details go to the log
+  (`checks::log_error`). Auth/rate-limit non-200s forward through
   `apply()` and surface via the existing global handling; a 403 that reaches
   the page (fine-grained token without Actions read — not our token shape,
   but degrade anyway) joins the inline-error path.
