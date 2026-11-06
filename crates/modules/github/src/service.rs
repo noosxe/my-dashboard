@@ -2439,6 +2439,11 @@ pub(crate) struct DetailBooks {
     pub(crate) last_error: Option<String>,
     pub(crate) attempted_at: Option<Instant>,
     pub(crate) fail_streak: u32,
+    /// docs/0072 D4 (#739) — a write confirmed after the current read
+    /// was dispatched, so that read predates it: `land_detail` refuses
+    /// its body, and the next read dispatch (the rerun, or a reopen)
+    /// clears the mark. `pr_page/write_refetch.rs` holds the rule.
+    pub(crate) read_outdated: bool,
 }
 
 /// docs/0072 D1 — one PR document: the summary layer (list lanes land
@@ -3934,8 +3939,11 @@ impl GithubState {
     /// detail layer stamps, the read books close (any land resets the
     /// failure streak), and the cap prunes (D9). The open flow always
     /// lands the summary first, so a document-less landing is a late
-    /// result after sign-out or eviction — dropped.
-    pub(crate) fn land_detail(&mut self, repo: &str, number: i64, detail: gql::PrDetail) {
+    /// result after sign-out or eviction — dropped. A read that predates
+    /// a confirmed write is refused too (D4, #739): the flight closes,
+    /// the body goes, and nothing claims freshness. Returns whether the
+    /// detail landed.
+    pub(crate) fn land_detail(&mut self, repo: &str, number: i64, detail: gql::PrDetail) -> bool {
         let key = PrKey::new(repo, number);
         let Some(entry) = self.pulls.get_mut(&key) else {
             log::debug!(
@@ -3943,8 +3951,15 @@ impl GithubState {
                 repo,
                 n = number
             );
-            return;
+            return false;
         };
+        if entry.books.read_outdated {
+            log::debug!("pr-store: {repo}#{number} read predates a confirmed write, dropped");
+            entry.books.in_flight = false;
+            entry.detail_at = None;
+            self.persist_pull(repo, number);
+            return false;
+        }
         // docs/0072 D3 — the rollup is a shared fact, propagated both
         // ways: the fresh detail's rollup updates the summary layer on
         // the spot (the home row's CI glyph reads it — no 60 s wait for
@@ -3963,6 +3978,7 @@ impl GithubState {
         entry.books.fail_streak = 0;
         self.evict_details();
         self.persist_pull(repo, number);
+        true
     }
 
     /// Arm the detail read on a document (docs/0072 D2): the dispatch
@@ -3971,6 +3987,7 @@ impl GithubState {
     pub(crate) fn begin_detail_read(&mut self, repo: &str, number: i64) {
         if let Some(entry) = self.pulls.get_mut(&PrKey::new(repo, number)) {
             entry.books.in_flight = true;
+            entry.books.read_outdated = false;
             entry.books.attempted_at = Some(Instant::now());
             entry.rollup_catch_up_spent = entry.rollup_dirty;
         }
@@ -4033,6 +4050,10 @@ impl GithubState {
         }
         let kind = op.kind;
         entry.pending = None;
+        // docs/0072 D4 (#739): a read flying now was dispatched before
+        // this confirmation, so it may not show the write. Marked here
+        // rather than in the page's refetch: the page may be gone.
+        entry.books.read_outdated |= entry.books.in_flight;
         let confirmed = match kind {
             PendingKind::Merge => Some("MERGED"),
             PendingKind::Close => Some("CLOSED"),

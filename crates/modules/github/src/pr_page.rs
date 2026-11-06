@@ -59,6 +59,7 @@ pub(crate) const ANCHOR_FADE: Duration = Duration::from_secs(3);
 mod catch_up;
 mod detail_read;
 mod files_etag;
+mod write_refetch;
 
 use crate::api::{self, PrFile};
 use crate::drafts::{self, DraftHandle};
@@ -659,6 +660,9 @@ pub(crate) struct PrDetailPage {
     /// files walk — one GraphQL one-shot when the Files tab first opens,
     /// refetched on refresh (once loaded) and after thread mutations.
     pub(crate) threads: Fetch<gql::PrThreads>,
+    /// docs/0072 D4 (#739): a write confirmed while a threads read flew
+    /// (`write_refetch.rs`).
+    threads_outdated: bool,
     /// Per-file expand state for the outdated/stray thread bucket
     /// (docs/0030 D3), keyed by path so a refetch never collapses it
     /// behind the user's back.
@@ -841,6 +845,7 @@ impl PrDetailPage {
             composer_sub: None,
             reply_sub: None,
             threads: Fetch::new(),
+            threads_outdated: false,
             line_composer: None,
             reply_composer: None,
             drafts: Vec::new(),
@@ -939,7 +944,9 @@ impl PrDetailPage {
             // docs/0072 D3: a summary landing moved the rollup under the
             // cached detail — the row shows the fresh layer already; the
             // page catches up in the background so both surfaces report
-            // the same status.
+            // the same status. A rerun a confirmed write queued goes
+            // first: it is the read the catch-up would have asked for.
+            page.rerun_outdated_reads(cx);
             page.catch_up(cx);
             cx.notify();
         })
@@ -1048,6 +1055,7 @@ impl PrDetailPage {
         let (repo, number) = (self.repo.clone(), self.number);
         let armed = self.state.update(cx, |s, _| s.in_flight_arm(key.clone()));
         if !armed {
+            self.note_outdated_detail(origin, cx);
             log::debug!("pr-detail: skipped — an identical read is in flight");
             return;
         }
@@ -1129,6 +1137,7 @@ impl PrDetailPage {
             // gated-runs sweep for the (possibly new) head.
             self.fetch_gated(cx);
         }
+        self.rerun_outdated_reads(cx);
         cx.notify();
     }
 
@@ -2113,15 +2122,22 @@ impl PrDetailPage {
         let key = (spec.kind, spec.ident.clone());
         let armed = self.state.update(cx, |s, _| s.in_flight_arm(key.clone()));
         if !armed {
+            self.note_outdated_threads(origin);
             log::debug!("pr-threads: skipped — an identical read is in flight");
             return;
         }
+        self.threads_outdated = false;
         self.threads.begin();
         cx.notify();
         cx.spawn(async move |this, cx| {
             let result = run_spec_tracked(state.clone(), spec, cx).await;
             cx.update(|cx| state.update(cx, |s, _| s.in_flight_clear(&key)));
-            let _ = this.update(cx, |page, cx| page.apply_threads_result(result, cx));
+            let landed = this.update(cx, |page, cx| page.apply_threads_result(result, cx));
+            if landed.is_err() {
+                // The guard just freed: a reopened page may hold a rerun
+                // that waits on it (docs/0072 D4, #739).
+                cx.update(|cx| state.update(cx, |_, cx| cx.notify()));
+            }
         })
         .detach();
     }
@@ -2172,7 +2188,7 @@ impl PrDetailPage {
                 cx.notify();
             });
             self.threads.fail(format!("GitHub answered HTTP {status}"));
-        } else {
+        } else if !self.discard_outdated_threads() {
             let parsed = result.body.as_deref().and_then(|body| {
                 serde_json::from_str::<gql::Envelope<gql::PrThreadsData>>(body)
                     .ok()
@@ -2206,6 +2222,7 @@ impl PrDetailPage {
                 }
             }
         }
+        self.rerun_outdated_reads(cx);
         cx.notify();
     }
 

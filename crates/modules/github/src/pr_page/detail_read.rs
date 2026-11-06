@@ -49,10 +49,9 @@ pub(super) fn land_detail_result(
                 .as_ref()
                 .and_then(gql::pr_detail_from_value)
             {
-                Some(detail) => {
-                    s.land_detail(repo, number, detail.clone());
-                    Some(detail)
-                }
+                Some(detail) => s
+                    .land_detail(repo, number, detail.clone())
+                    .then_some(detail),
                 None => {
                     log::warn!("pr-detail: repository/pullRequest null — keeping header");
                     s.fail_detail_read(
