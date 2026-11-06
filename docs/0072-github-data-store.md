@@ -123,7 +123,8 @@ details into the same document. The page-local `Fetch<gql::PrDetail>` dies:
 `PrDetailPage` reads its entry from the store and subscribes to
 `GithubState` for repaints. Freshness bookkeeping exists in exactly one
 place, and the dedup/in-flight instrumentation keeps working because the
-spec runners are unchanged.
+spec runners are unchanged. `land_detail` is also where a read that
+predates a confirmed write is refused (D4, #739).
 
 ### D3 — Reads are stale-while-revalidate
 
@@ -145,7 +146,9 @@ session-scoped rule as D4's resolver. A reopen during the flight is
 skipped by the shared dispatch guard and picks the landed detail up from
 the store. The Files and Threads reads are page-owned records (they die
 with the page; the shared guard clears either way), so they are not
-affected.
+affected. The one result the store refuses is a read older than a
+confirmed write (D4, #739): its flight record still clears, page or no
+page.
 
 **The lane holds an index, not rows (docs/0073):** the home lane's row
 copies (`HomePullRequests::nodes`) were the third surface holding PR
@@ -255,6 +258,40 @@ resolve toggles, rail metadata) keep their old path and old guards;
 migrating them later is mechanical. The issue page's stage-4 pass
 (#555) moved ITS whole set — including the reaction/lock toggles — onto
 the same machinery.
+
+**A read older than a confirmed write never lands (#739).** A write's
+refetch shares the dispatch guard with every other read, so it is skipped
+while one flies. That earlier read may not show the write, and landing it
+would hide the comment (or flip a patched merge back to `OPEN`) and stamp
+the document fresh, cancelling the void above. So a read is marked
+outdated (`books.read_outdated`, `pr_page/write_refetch.rs`) when a write
+confirms during its flight (`resolve_pending`) or when a write's refetch
+hits the guard (the page-modal writes, which never reach `resolve_pending`).
+A failed store write marks nothing.
+
+- **It does not land.** `land_detail` closes the flight, drops the body,
+  and voids `detail_at`, so nothing claims freshness. The document keeps
+  what it had. This holds with the page gone.
+- **Exactly one read replaces it,** once the flight has landed or failed.
+  Any dispatched read clears the mark, whichever trigger sent it, so a
+  failing replacement cannot re-trigger itself. The replacement goes out
+  as `Trigger::MutationRefetch` and is not held by the failure backoff, as
+  no write's refetch is, but it does wait for the lane's gate (docs/0050 D4):
+  a held mark fires on the first store notification past the gate, the
+  same as a held catch-up (D3). It is also the read a drift catch-up would
+  have asked for, so the two never add up to a third.
+- **No page, no replacement.** The voided stamp makes the next open
+  revalidate. A page reopened during the flight is skipped by the guard
+  and picks the replacement up through its store subscription.
+- **Threads follow the same rule on the page.** The threads record is
+  page-owned, so its mark is too, and it is set when a write's threads
+  refetch hits the guard. An outdated threads body does not land, and one
+  read replaces it. A flight left by a dropped page notifies the store when
+  it ends, so a reopened page that owes the replacement wakes up.
+- **Manual refresh is unchanged.** It still rides out a flying read
+  (docs/0031 D1/D2): no write made that read outdated. The Files lane has
+  no write refetch (only merge/close change patches, and those end the
+  page's useful life), so the rule does not reach it.
 
 **Stage 4 (#555) — issue documents join the store.** Issues live in
 their own `(repo, number)` map (`IssueEntry`: the snapshot's open-issue
