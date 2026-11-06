@@ -239,7 +239,8 @@ pub fn run_jobs_url(owner: &str, repo: &str, run_id: u64) -> String {
 /// carries `head_sha` on every row).
 pub fn gated_runs_url(owner: &str, repo: &str, head_branch: &str) -> String {
     format!(
-        "{API_BASE}/repos/{owner}/{repo}/actions/runs?branch={head_branch}&event=pull_request&status=action_required&per_page=50"
+        "{API_BASE}/repos/{owner}/{repo}/actions/runs?branch={}&event=pull_request&status=action_required&per_page=50",
+        encode_query_value(head_branch)
     )
 }
 
@@ -653,6 +654,32 @@ mod tests {
         for (input, want) in cases {
             assert_eq!(web_url(input).as_deref(), *want, "web_url({input})");
         }
+    }
+
+    #[test]
+    fn gated_runs_url_encodes_the_branch() {
+        let q = |b: &str| {
+            gated_runs_url("o", "r", b)
+                .split_once("branch=")
+                .unwrap()
+                .1
+                .split_once("&event=")
+                .unwrap()
+                .0
+                .to_string()
+        };
+        for (branch, want) in [
+            ("main", "main"),
+            ("fix/#12", "fix%2F%2312"),
+            ("a&b", "a%26b"),
+            ("feat+x", "feat%2Bx"),
+            ("my branch", "my%20branch"),
+            ("100%", "100%25"),
+            ("fix/ünï", "fix%2F%C3%BCn%C3%AF"),
+        ] {
+            assert_eq!(q(branch), want, "branch {branch:?}");
+        }
+        assert!(gated_runs_url("o", "r", "x#y").ends_with("&per_page=50"));
     }
 
     #[test]
