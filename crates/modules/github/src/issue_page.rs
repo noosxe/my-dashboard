@@ -161,6 +161,7 @@ use crate::pickers::{
 mod detail_read;
 #[cfg(test)]
 mod test_rig;
+mod write_refetch;
 
 impl EventEmitter<IssuePageEvent> for IssueDetailPage {}
 
@@ -279,6 +280,8 @@ impl IssueDetailPage {
         // landings (snapshot summary refreshes, optimistic ops) repaint
         // it, and the md cache rebuilds against the fresh detail.
         cx.observe(&page.state, |page, _, cx| {
+            // A rerun a confirmed write queued (docs/0072 D4, #806).
+            page.rerun_outdated_reads(cx);
             page.catch_up(cx);
             cx.notify();
         })
@@ -364,6 +367,7 @@ impl IssueDetailPage {
         let (repo, number) = (self.repo.clone(), self.number);
         let armed = self.state.update(cx, |s, _| s.in_flight_arm(key.clone()));
         if !armed {
+            self.note_outdated_detail(origin, cx);
             log::debug!("issue-detail: skipped — an identical read is in flight");
             return;
         }
@@ -458,6 +462,7 @@ impl IssueDetailPage {
             // the notification jump against it.
             self.resolve_comment_anchor(cx);
         }
+        self.rerun_outdated_reads(cx);
         cx.notify();
     }
 

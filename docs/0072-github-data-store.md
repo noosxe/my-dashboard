@@ -146,9 +146,11 @@ session-scoped rule as D4's resolver. A reopen during the flight is
 skipped by the shared dispatch guard and picks the landed detail up from
 the store. The Files and Threads reads are page-owned records (they die
 with the page; the shared guard clears either way), so they are not
-affected. The one result the store refuses is a read older than a
-confirmed write (D4, #739): its flight record still clears, page or no
-page.
+affected. The issue page follows the same rule (#806,
+`issue_page/detail_read.rs`): its detail result lands or fails the entry's
+flight record whether or not the page that armed it is alive. The one
+result the store refuses is a read older than a confirmed write (D4,
+#739): its flight record still clears, page or no page.
 
 **The lane holds an index, not rows (docs/0073):** the home lane's row
 copies (`HomePullRequests::nodes`) were the third surface holding PR
@@ -288,6 +290,12 @@ A failed store write marks nothing.
   refetch hits the guard. An outdated threads body does not land, and one
   read replaces it. A flight left by a dropped page notifies the store when
   it ends, so a reopened page that owes the replacement wakes up.
+- **The issue page follows the same rule (#806).** `land_issue_detail` /
+  `resolve_issue_pending` mark and refuse exactly like their PR twins, a
+  confirmed close or reopen patch is not overwritten by an older body, and
+  `issue_page/write_refetch.rs` queues the one replacement read. The issue
+  page has a single read lane (comments and timeline ride the detail
+  query), so there is no threads-style second record to guard.
 - **Manual refresh is unchanged.** It still rides out a flying read
   (docs/0031 D1/D2): no write made that read outdated. The Files lane has
   no write refetch (only merge/close change patches, and those end the

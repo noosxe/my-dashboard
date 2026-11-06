@@ -6,6 +6,7 @@
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use gpui::{AppContext as _, Entity, TestAppContext, VisualTestContext, WindowHandle};
 
@@ -14,6 +15,7 @@ use crate::fixture::operation_name;
 use crate::gql;
 use crate::http::{Http, HttpError, HttpResult, Verb};
 use crate::issue_page::IssueDetailPage;
+use crate::rate_pause::Lane;
 use crate::service::{AuthStatus, GithubCache, GithubState, IssuePendingKind, PrKey};
 use crate::usage::{Origin, Surface, Trigger};
 
@@ -271,6 +273,51 @@ impl Rig {
                     .expect("no write pending");
                 assert!(s.resolve_issue_pending(REPO, NUMBER, token));
             })
+        });
+    }
+
+    pub(super) fn pause_graphql(&self, cx: &mut TestAppContext, until: u64) {
+        cx.update(|cx| {
+            self.state.update(cx, |s, _| {
+                s.rate_limited_until = Default::default();
+                s.rate_limited_until.arm(Lane::Graphql, until);
+            })
+        });
+    }
+
+    pub(super) fn elapse_backoff(&self, cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            self.state.update(cx, |s, _| {
+                let entry = s
+                    .issues
+                    .get_mut(&PrKey::new(REPO, NUMBER))
+                    .expect("the document");
+                entry.books.attempted_at = Some(Instant::now() - Duration::from_secs(3600));
+            })
+        });
+    }
+
+    /// A background detail read leaves, unanswered.
+    pub(super) fn fly_detail(&self, cx: &mut TestAppContext, page: &Entity<IssueDetailPage>) {
+        self.void_freshness(cx);
+        cx.update(|cx| {
+            page.update(cx, |p, cx| p.fetch_detail(origin(Trigger::Refocus), cx));
+        });
+    }
+
+    /// A store write confirms and the live page sends its refetch, the
+    /// way `begin_store_mutation`'s continuation does.
+    pub(super) fn confirm_write(
+        &self,
+        cx: &mut TestAppContext,
+        page: &Entity<IssueDetailPage>,
+        kind: IssuePendingKind,
+    ) {
+        self.confirm_on_store(cx, kind);
+        cx.update(|cx| {
+            page.update(cx, |p, cx| {
+                p.fetch_detail(origin(Trigger::MutationRefetch), cx)
+            });
         });
     }
 
