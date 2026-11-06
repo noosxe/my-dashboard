@@ -46,7 +46,7 @@ pub enum StepOp {
     /// `assert-no-label <substr>` — no node label contains it.
     AssertNoLabel(String),
     /// `assert-write <op> [key=value…]` — a fixture write was recorded
-    /// (docs/0010 D12).
+    /// (docs/0010 D11).
     AssertWrite {
         op: String,
         pairs: Vec<(String, String)>,

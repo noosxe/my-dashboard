@@ -1,4 +1,4 @@
-//! `writes` / `assert-write` (docs/0010 D12): matching over the fixture
+//! `writes` / `assert-write` (docs/0010 D11): matching over the fixture
 //! write record served by `app.writes`.
 
 use serde_json::Value;

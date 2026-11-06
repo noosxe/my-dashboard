@@ -223,7 +223,7 @@ fn app_logs(ring: &RingLog, request: &Request) -> Response {
     }
 }
 
-/// `app.writes` (docs/0010 D12): the fixture write record, answered
+/// `app.writes` (docs/0010 D11): the fixture write record, answered
 /// inline from the process-wide log in `dashboard_core::write_log`.
 fn app_writes(request: &Request) -> Response {
     let Some(params) = crate::protocol::parse::<crate::protocol::WritesParams>(&request.params)
