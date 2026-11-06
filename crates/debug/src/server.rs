@@ -14,7 +14,8 @@ use serde_json::Value;
 use crate::jobs::{Job, WindowRegistry};
 use crate::logs::RingLog;
 use crate::protocol::{
-    AuthParams, METHOD_APP_LOGS, METHOD_AUTH, Request, Response, RpcError, error_code,
+    AuthParams, METHOD_APP_LOGS, METHOD_APP_WRITES, METHOD_AUTH, Request, Response, RpcError,
+    error_code,
 };
 
 const SOCKET_NAME: &str = "debug.sock";
@@ -170,6 +171,7 @@ where
                 RpcError::new(error_code::INVALID_PARAMS, "already authenticated"),
             ),
             Some(request) if request.method == METHOD_APP_LOGS => app_logs(ring, &request),
+            Some(request) if request.method == METHOD_APP_WRITES => app_writes(&request),
             Some(request) => {
                 let id = request.id;
                 match dispatch(request) {
@@ -219,6 +221,26 @@ fn app_logs(ring: &RingLog, request: &Request) -> Response {
             ),
         ),
     }
+}
+
+/// `app.writes` (docs/0010 D12): the fixture write record, answered
+/// inline from the process-wide log in `dashboard_core::write_log`.
+fn app_writes(request: &Request) -> Response {
+    let Some(params) = crate::protocol::parse::<crate::protocol::WritesParams>(&request.params)
+    else {
+        return Response::err(
+            request.id,
+            RpcError::new(
+                error_code::INVALID_PARAMS,
+                "app.writes params: {since?: u64}",
+            ),
+        );
+    };
+    let (writes, next_cursor) = dashboard_core::write_log::since(params.since.unwrap_or(0));
+    Response::ok(
+        request.id,
+        serde_json::json!({ "writes": writes, "next_cursor": next_cursor }),
+    )
 }
 
 fn read_line(reader: &mut BufReader<UnixStream>) -> Option<String> {

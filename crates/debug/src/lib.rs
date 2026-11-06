@@ -26,6 +26,7 @@ pub mod script;
 mod server;
 pub mod session;
 pub mod snapshot;
+pub mod writes;
 
 /// Start the debug bridge: create the runtime dir, socket and token file,
 /// spawn the accept thread and the main-thread job executor.

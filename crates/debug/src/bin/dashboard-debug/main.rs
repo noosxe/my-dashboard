@@ -469,6 +469,25 @@ pub(crate) fn run_command(conn: &mut Conn, command: &Command) -> i32 {
             wait_frame_receipt(conn, &None, *wait_frame, before)
         }
         Command::Logs { follow } => logs(conn, *follow),
+        Command::Writes => match fetch_writes(conn) {
+            Ok(writes) => {
+                for w in &writes {
+                    println!("{}", compact(w));
+                }
+                0
+            }
+            Err(code) => code,
+        },
+        Command::AssertWrite { op, pairs } => match assert_write(conn, op, pairs) {
+            Ok(line) => {
+                println!("{line}");
+                0
+            }
+            Err(msg) => {
+                eprintln!("{msg}");
+                1
+            }
+        },
         Command::Shell => unreachable!("shell handled in run()"),
         Command::Session(_) => unreachable!("session verbs handled before connecting"),
         // The receipt verbs own their session resolution and never
@@ -955,6 +974,35 @@ fn logs(conn: &mut Conn, follow: bool) -> i32 {
             continue;
         }
         std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+}
+
+/// `app.writes` from cursor 0: every recorded fixture write.
+pub(crate) fn fetch_writes(conn: &mut Conn) -> Result<Vec<Value>, i32> {
+    let response = conn.call("app.writes", json!({"since": 0}))?;
+    match response.get("result") {
+        Some(result) => Ok(result["writes"].as_array().cloned().unwrap_or_default()),
+        None => Err(report(&response)),
+    }
+}
+
+/// `assert-write`: the matching write's line, or what was recorded.
+pub(crate) fn assert_write(
+    conn: &mut Conn,
+    op: &str,
+    pairs: &[(String, String)],
+) -> Result<String, String> {
+    let writes = fetch_writes(conn).map_err(|code| format!("app.writes failed (exit {code})"))?;
+    match dashboard_debug::writes::find(&writes, op, pairs) {
+        Some(w) => Ok(format!(" write {}", compact(w))),
+        None => Err(format!(
+            "no recorded write {op:?} matching {pairs:?}; recorded: [{}]",
+            writes
+                .iter()
+                .map(|w| w["op"].as_str().unwrap_or("?"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
     }
 }
 

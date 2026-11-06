@@ -1,0 +1,10 @@
+{
+ "data": {
+  "addPullRequestReview": {
+   "pullRequestReview": {
+    "id": "PRR_fixture",
+    "state": "APPROVED"
+   }
+  }
+ }
+}

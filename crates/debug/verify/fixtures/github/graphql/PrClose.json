@@ -1,0 +1,9 @@
+{
+ "data": {
+  "closePullRequest": {
+   "pullRequest": {
+    "state": "CLOSED"
+   }
+  }
+ }
+}

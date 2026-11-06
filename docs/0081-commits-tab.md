@@ -770,8 +770,26 @@ adds a debug-build-only fixture mode:
   `GET /<path>` from `<dir>/rest/<path with / as _>.json`. A JSON array
   file is a sequence (the n-th request gets element n, the last
   repeats) for paginated lanes. A missing file answers 404 and logs
-  `github fixture: no file <path>`; writes are refused. Release builds
-  never read the variable.
+  `github fixture: no file <path>`. Release builds never read the
+  variable.
+- **Writes are answered and recorded (#812).** Static response files,
+  same selector shape as reads, no state: after a write, the refetch
+  still serves the pre-write read files. A GraphQL mutation reads
+  `graphql/<Mutation>.json` (`PrMerge`, `PrClose`, `PrAddComment`,
+  `PrAddReview`), preferring `<Mutation>.<number>.json` for a `$number`
+  variable and `<Mutation>.<node id>.json` for the input's
+  `pullRequestId` / `subjectId` / `id`. A REST write reads
+  `rest/<path>.<verb>.json` (verb lowercase, path keyed as for reads:
+  `rest/repos_o_r_actions_runs_7001_approve.post.json`), an envelope
+  `{"status": 2xx, "body": …}` because statuses differ (201 approve,
+  200 pending deployments). A write with no file is refused with an
+  error naming the missing file; nothing is recorded for it. Every
+  answered write is recorded (operation plus variables or body) and
+  asserted from receipts with `dashboard-debug writes` /
+  `assert-write` (docs/0010 D11). The generator (`pr_writes.py`) writes
+  the committed answers, shaped from the live GraphQL schema and the
+  REST reference. A write never leaves the process: the transport exists
+  only in debug builds with the variable set.
 - **`DASHBOARD_FIXED_NOW=<rfc3339>`** pins the clock behind
   `relative_age` (debug builds only), so row ages — and therefore the
   structural goldens — don't drift with the calendar.
@@ -836,8 +854,8 @@ adds a debug-build-only fixture mode:
   The rows live on `beacon` so atlas's empty lane, its golden and its
   walk-derived ids don't move. `RepoPulls` selects open PRs only, so rows
   for 104 and 105 read as `OPEN` and the page shows the detail's state,
-  like a row that went stale after the list landed. Writes stay refused
-  (#812), and the job-log chain isn't fixtured, so an expanded check row
+  like a row that went stale after the list landed. Writes are answered
+  from `pr_writes.py`'s files and asserted by `pr-writes.txt` (#812), and the job-log chain isn't fixtured, so an expanded check row
   shows its failure state. `crates/debug/verify/pr-page.txt` is the
   receipt (docs/0071 §4); `fixture/pr_scenarios.rs` proves every file
   parses with the page's own parsers.

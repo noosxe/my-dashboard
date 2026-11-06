@@ -45,6 +45,12 @@ pub enum StepOp {
     WaitLabel(String),
     /// `assert-no-label <substr>` — no node label contains it.
     AssertNoLabel(String),
+    /// `assert-write <op> [key=value…]` — a fixture write was recorded
+    /// (docs/0010 D12).
+    AssertWrite {
+        op: String,
+        pairs: Vec<(String, String)>,
+    },
     /// `assert-focus <accesskit_id>` — the focused node is this one.
     AssertFocus(String),
     /// `assert-diff-label <a> <b> <substr>` — a *changed* line of the
@@ -225,6 +231,10 @@ fn parse_line(text: &str, line_no: usize) -> Result<StepOp, String> {
                 "wait-label" => StepOp::WaitLabel(substr.clone()),
                 _ => StepOp::AssertNoLabel(substr.clone()),
             })
+        }
+        "assert-write" => {
+            let (op, pairs) = crate::cli::parse_assert_write(rest).map_err(|m| err(&m))?;
+            Ok(StepOp::AssertWrite { op, pairs })
         }
         "assert-focus" => {
             let [node] = rest else {

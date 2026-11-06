@@ -19,6 +19,7 @@ pub mod toasts;
 pub mod ui;
 pub mod usage_analytics;
 pub mod usage_records;
+pub mod write_log;
 
 pub use module::{Module, ModuleEntry, ModuleMeta};
 pub use nav::{Crumb, Navigator, Page};

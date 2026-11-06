@@ -20,6 +20,8 @@ pub const METHOD_INPUT_FOCUS_NODE: &str = "input.focus_node";
 pub const METHOD_WINDOW_LIST: &str = "window.list";
 pub const METHOD_WINDOW_GEOMETRY: &str = "window.geometry";
 pub const METHOD_APP_LOGS: &str = "app.logs";
+/// The fixture write record (docs/0010 D12): `{since?}` → `{writes, next_cursor}`.
+pub const METHOD_APP_WRITES: &str = "app.writes";
 /// Graceful shutdown request (0055 D11): the only protocol addition
 /// beyond 0010's seven commands. `{window?}` is accepted for shape
 /// symmetry but shutdown is app-wide (`App::quit`).
@@ -168,6 +170,12 @@ pub struct WindowGeometryParams {
 pub struct LogsParams {
     pub since: Option<u64>,
     pub limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+/// `app.writes` (docs/0010 D12).
+pub struct WritesParams {
+    pub since: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]

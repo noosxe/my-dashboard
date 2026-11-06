@@ -774,6 +774,10 @@ fn run_step(conn: &mut Conn, session: Option<&str>, op: &StepOp) -> StepOutcome 
                 None => StepOutcome::Ok(format!(" no label contains {substr:?}")),
             }
         }
+        StepOp::AssertWrite { op, pairs } => match crate::assert_write(conn, op, pairs) {
+            Ok(line) => StepOutcome::Ok(line),
+            Err(msg) => StepOutcome::Failed(msg),
+        },
         StepOp::AssertFocus(node) => {
             let dump = match tree_dump(conn, &None) {
                 Ok(dump) => dump,
