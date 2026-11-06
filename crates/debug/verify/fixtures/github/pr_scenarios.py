@@ -114,18 +114,6 @@ def requests(*logins, teams=0):
     return conn(nodes)
 
 
-def check_run(name, status, conclusion, job=1, app="github-actions"):
-    return {
-        "__typename": "CheckRun",
-        "databaseId": job,
-        "name": name,
-        "status": status,
-        "conclusion": conclusion,
-        "detailsUrl": f"https://github.com/{FULL}/actions/runs/1/job/{job}",
-        "checkSuite": {"databaseId": job * 10, "app": {"slug": app}},
-    }
-
-
 def status_context(context, state):
     return {
         "__typename": "StatusContext",
@@ -148,6 +136,30 @@ class Timeline:
 
     def ago(self, hours):
         return self.iso(self.now - timedelta(hours=hours))
+
+    def check_run(self, name, status, conclusion, job=1, app="github-actions", workflow="CI"):
+        """A run that finished an hour ago, or one started three minutes ago."""
+        actions = app == "github-actions"
+        ended = self.now - timedelta(hours=1)
+        # A skipped run reports the same start and end upstream.
+        took = 0 if conclusion == "SKIPPED" else 38 + job % 9 * 37
+        running = status != "COMPLETED"
+        started = self.now - timedelta(minutes=3) if running else ended - timedelta(seconds=took)
+        return {
+            "__typename": "CheckRun",
+            "databaseId": job,
+            "name": name,
+            "status": status,
+            "conclusion": conclusion,
+            "detailsUrl": f"https://github.com/{FULL}/actions/runs/1/job/{job}",
+            "startedAt": self.iso(started),
+            "completedAt": None if running else self.iso(ended),
+            "checkSuite": {
+                "databaseId": job * 10,
+                "app": {"slug": app},
+                "workflowRun": {"workflow": {"name": workflow}} if actions else None,
+            },
+        }
 
     def review(self, i, who, state, body, hours, mine=False):
         at = self.ago(hours)
@@ -241,12 +253,12 @@ class Timeline:
 
     def populated(self, number):
         contexts = [
-            check_run("build (ubuntu-latest)", "COMPLETED", "SUCCESS", 1),
-            check_run("build (macos-latest)", "COMPLETED", "FAILURE", 2),
-            check_run("clippy", "COMPLETED", "SUCCESS", 3),
-            check_run("test (workspace)", "IN_PROGRESS", None, 4),
-            check_run("deploy-preview", "COMPLETED", "SKIPPED", 5),
-            check_run("external-scanner", "COMPLETED", "SUCCESS", 6, app="scanner-app"),
+            self.check_run("build (ubuntu-latest)", "COMPLETED", "SUCCESS", 1),
+            self.check_run("build (macos-latest)", "COMPLETED", "FAILURE", 2),
+            self.check_run("clippy", "COMPLETED", "SUCCESS", 3, workflow="Lint"),
+            self.check_run("test (workspace)", "IN_PROGRESS", None, 4),
+            self.check_run("deploy-preview", "COMPLETED", "SKIPPED", 5, workflow="Preview"),
+            self.check_run("external-scanner", "COMPLETED", "SUCCESS", 6, app="scanner-app"),
             status_context("ci/legacy-status", "SUCCESS"),
         ]
         return self.pull_request(
@@ -332,7 +344,7 @@ class Timeline:
             statusCheckRollup=rollup(
                 "PENDING",
                 [
-                    check_run(
+                    self.check_run(
                         job_name.format(i),
                         "COMPLETED" if i % 10 else "IN_PROGRESS",
                         "SUCCESS" if i % 10 else None,
@@ -357,8 +369,8 @@ class Timeline:
     def scenarios(self):
         """Number → the PullRequest node and its repository envelope."""
         merged_checks = [
-            check_run("build", "COMPLETED", "SUCCESS", 1),
-            check_run("clippy", "COMPLETED", "SUCCESS", 2),
+            self.check_run("build", "COMPLETED", "SUCCESS", 1),
+            self.check_run("clippy", "COMPLETED", "SUCCESS", 2),
         ]
         read_only = dict(viewerCanUpdate=False, viewerCanLabel=False, viewerCanAssign=False)
         return {
@@ -411,7 +423,7 @@ class Timeline:
                     106,
                     "Tests: widen the manifest round-trip corpus",
                     statusCheckRollup=rollup(
-                        "SUCCESS", [check_run("build", "COMPLETED", "SUCCESS", 1)]
+                        "SUCCESS", [self.check_run("build", "COMPLETED", "SUCCESS", 1)]
                     ),
                     **read_only,
                 ),
@@ -427,9 +439,9 @@ class Timeline:
                     statusCheckRollup=rollup(
                         "FAILURE",
                         [
-                            check_run("build", "COMPLETED", "SUCCESS", 1),
-                            check_run("build", "COMPLETED", "FAILURE", 2),
-                            check_run("lint", "COMPLETED", "CANCELLED", 3),
+                            self.check_run("build", "COMPLETED", "SUCCESS", 1),
+                            self.check_run("build", "COMPLETED", "FAILURE", 2, workflow="Release"),
+                            self.check_run("lint", "COMPLETED", "CANCELLED", 3),
                         ],
                     ),
                     reviews=conn(

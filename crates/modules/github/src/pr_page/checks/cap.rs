@@ -11,7 +11,8 @@ use gpui_component::{ActiveTheme, IconName, Sizable, h_flex};
 
 use crate::gql;
 use crate::pr_page::checks::counter::checks_total;
-use crate::pr_page::{ChecksCounts, PrDetailPage, checks_header_line};
+use crate::pr_page::checks::header::{HeaderPart, PartTone};
+use crate::pr_page::{ChecksCounts, PrDetailPage};
 
 /// Is the list a part of the rollup? Also true when nodes dropped out of a
 /// degraded payload (docs/0007 D3): they are just as unaccounted for.
@@ -20,58 +21,62 @@ pub(crate) fn is_capped(checks: &gql::PrChecks) -> bool {
 }
 
 /// The overall verdict from `statusCheckRollup.state`. The rows can't give
-/// it: a failure past the cap is on no row.
-fn rollup_verdict(rollup: Option<&str>) -> &'static str {
+/// it: a failure past the cap is on no row. The bool marks a failing verdict.
+fn rollup_verdict(rollup: Option<&str>) -> (&'static str, bool) {
     match rollup {
-        Some("SUCCESS") => "all passed",
-        Some("FAILURE") => "some failed",
-        Some("ERROR") => "some errored",
+        Some("SUCCESS") => ("all passed", false),
+        Some("FAILURE") => ("some failed", true),
+        Some("ERROR") => ("some errored", true),
         // "running" is the bucket word: a line could say it twice.
-        Some("PENDING") => "in progress",
-        Some("EXPECTED") => "queued",
-        _ => "status unknown",
+        Some("PENDING") => ("in progress", false),
+        Some("EXPECTED") => ("queued", false),
+        _ => ("status unknown", false),
     }
 }
 
-/// The header line. An uncapped list keeps the D7 line. A capped one leads
-/// with the server's total and verdict and scopes the buckets to the rows:
-/// `"137 checks · some failed · first 100: 90 passed · 10 running"`. Runs
+/// The line for a capped list. It carries the server's total and verdict and
+/// scopes the buckets to the rows; a failing verdict leads, in tone (#792):
+/// `"some failed · 137 checks · first 100: 10 failed · 90 passed"`. Runs
 /// waiting for approval join the total, as on the tab (#783).
-pub(crate) fn checks_header(
+pub(crate) fn capped_parts(
     checks: &gql::PrChecks,
     rollup: Option<&str>,
     counts: &ChecksCounts,
     waiting: usize,
-) -> String {
-    if !is_capped(checks) {
-        return checks_header_line(counts, waiting);
-    }
-    let mut line = format!(
-        "{} checks · {}",
-        checks_total(checks.total_count, waiting),
-        rollup_verdict(rollup)
+) -> Vec<HeaderPart> {
+    let (verdict, failing) = rollup_verdict(rollup);
+    let total = HeaderPart::new(
+        format!("{} checks", checks_total(checks.total_count, waiting)),
+        PartTone::Total,
     );
+    let mut parts = if failing {
+        vec![HeaderPart::new(verdict, PartTone::Danger), total]
+    } else {
+        vec![total, HeaderPart::new(verdict, PartTone::Muted)]
+    };
     if waiting > 0 {
-        line.push_str(&format!(" · {waiting} waiting"));
-    }
-    let buckets: Vec<String> = [
-        (counts.passed, "passed"),
-        (counts.failed, "failed"),
-        (counts.pending, "running"),
-        (counts.muted, "skipped"),
-    ]
-    .into_iter()
-    .filter(|(n, _)| *n > 0)
-    .map(|(n, word)| format!("{n} {word}"))
-    .collect();
-    if !buckets.is_empty() {
-        line.push_str(&format!(
-            " · first {}: {}",
-            counts.total,
-            buckets.join(" · ")
+        parts.push(HeaderPart::new(
+            format!("{waiting} waiting"),
+            PartTone::Muted,
         ));
     }
-    line
+    let buckets = [
+        (counts.failed, "failed", PartTone::Danger),
+        (counts.passed, "passed", PartTone::Muted),
+        (counts.pending, "running", PartTone::Muted),
+        (counts.muted, "skipped", PartTone::Muted),
+    ]
+    .into_iter()
+    .filter(|(n, _, _)| *n > 0);
+    for (i, (n, word, tone)) in buckets.enumerate() {
+        let scope = if i == 0 {
+            format!("first {}: ", counts.total)
+        } else {
+            String::new()
+        };
+        parts.push(HeaderPart::new(format!("{scope}{n} {word}"), tone));
+    }
+    parts
 }
 
 /// The caption beside the hand-off, in the Commits tab's words (D6). The
@@ -144,6 +149,7 @@ pub(in crate::pr_page) fn render_cap_row(
 mod tests {
     use super::*;
     use crate::gql::{CheckOrigin, CheckState, PrCheck, PrChecks};
+    use crate::pr_page::checks::header::{header_parts, read};
     use crate::pr_page::checks_counts;
 
     fn listed(total: i64, states: &[(CheckState, usize)]) -> PrChecks {
@@ -158,6 +164,9 @@ mod tests {
                         origin: CheckOrigin::Actions,
                         check_run_id: None,
                         suite_id: None,
+                        workflow: None,
+                        started_at: None,
+                        completed_at: None,
                     },
                     *n,
                 )
@@ -170,7 +179,12 @@ mod tests {
     }
 
     fn header(checks: &PrChecks, rollup: Option<&str>, waiting: usize) -> String {
-        checks_header(checks, rollup, &checks_counts(&checks.nodes), waiting)
+        read(&header_parts(
+            checks,
+            rollup,
+            &checks_counts(&checks.nodes),
+            waiting,
+        ))
     }
 
     #[test]
@@ -179,7 +193,7 @@ mod tests {
         assert!(!is_capped(&checks));
         assert_eq!(
             header(&checks, Some("FAILURE"), 0),
-            "8 checks · 7 passed · 1 failed"
+            "1 failed · 8 checks · 7 passed"
         );
     }
 
@@ -200,7 +214,7 @@ mod tests {
         assert!(is_capped(&checks));
         assert_eq!(
             header(&checks, Some("FAILURE"), 0),
-            "137 checks · some failed · first 100: 100 passed"
+            "some failed · 137 checks · first 100: 100 passed"
         );
         assert_eq!(cap_caption(&checks, 0), "Showing first 100 of 137 checks");
     }
@@ -209,19 +223,32 @@ mod tests {
     fn the_verdict_follows_every_rollup_state() {
         let checks = listed(137, &[(CheckState::Pending, 100)]);
         for (rollup, verdict) in [
-            (Some("SUCCESS"), "all passed"),
-            (Some("FAILURE"), "some failed"),
-            (Some("ERROR"), "some errored"),
-            (Some("PENDING"), "in progress"),
-            (Some("EXPECTED"), "queued"),
-            (Some("NEW_STATE"), "status unknown"),
-            (None, "status unknown"),
+            (Some("SUCCESS"), "137 checks · all passed"),
+            (Some("FAILURE"), "some failed · 137 checks"),
+            (Some("ERROR"), "some errored · 137 checks"),
+            (Some("PENDING"), "137 checks · in progress"),
+            (Some("EXPECTED"), "137 checks · queued"),
+            (Some("NEW_STATE"), "137 checks · status unknown"),
+            (None, "137 checks · status unknown"),
         ] {
             assert_eq!(
                 header(&checks, rollup, 0),
-                format!("137 checks · {verdict} · first 100: 100 running")
+                format!("{verdict} · first 100: 100 running")
             );
         }
+    }
+
+    #[test]
+    fn a_failing_verdict_and_failed_rows_carry_the_tone() {
+        let checks = listed(137, &[(CheckState::Success, 90), (CheckState::Failure, 10)]);
+        let parts = header_parts(&checks, Some("FAILURE"), &checks_counts(&checks.nodes), 0);
+        assert_eq!(
+            read(&parts),
+            "some failed · 137 checks · first 100: 10 failed · 90 passed"
+        );
+        assert_eq!(parts[0].tone, PartTone::Danger);
+        assert_eq!(parts[2].tone, PartTone::Danger);
+        assert_eq!(parts[3].tone, PartTone::Muted);
     }
 
     #[test]

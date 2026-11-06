@@ -364,8 +364,10 @@ relative age. A muted caption when `commits.totalCount > nodes.len()`:
 
 ### D7 — Checks tab
 
-- **Summary header** (outside the scroll): "8 checks · 7 passed · 1 failed",
-  counts derived from the contexts list (pure fn).
+- **Summary header** (outside the scroll): "1 failed · 8 checks · 7 passed",
+  counts derived from the contexts list (pure fn). Failure leads, in danger tone
+  and semibold; the total follows in the foreground colour; the other buckets
+  are regular weight and muted (#792).
 - **The counter includes runs waiting for approval** (#783): the tab reads
   `contexts.totalCount` plus the gated runs (docs/0066 D3), and the header's
   total is the same number, so a PR whose only CI is gated reads "Checks (2)"
@@ -374,8 +376,9 @@ relative age. A muted caption when `commits.totalCount > nodes.len()`:
 - **Over the cap** (#747, `contexts.totalCount` > rows): the rows can't speak
   for the rollup, so a capped list never reads as complete. The header leads
   with the server's total and the `statusCheckRollup.state` verdict and scopes
-  the buckets to the rows: "137 checks · some failed · first 100: 90 passed ·
-  10 running" (verdict words: all passed, some failed, some errored, in
+  the buckets to the rows: "137 checks · in progress · first 100: 90 passed ·
+  10 running". A failing verdict leads in tone, as a failure count does:
+  "some failed · 137 checks · first 100: 10 failed · 90 passed" (verdict words: all passed, some failed, some errored, in
   progress, queued, status unknown). A row pinned under the header, sharing its rule, captions "Showing
   first 100 of 137 checks" (", plus 2 waiting" when runs are held: the cap
   limits rollup rows only, and the total above includes those runs) with a "View all on GitHub" button to the PR's
@@ -383,6 +386,27 @@ relative age. A muted caption when `commits.totalCount > nodes.len()`:
   caption is, because on a 100-row list the end is off screen. Rows beyond the
   first 100 aren't paginated. Nodes dropped from a degraded payload count as
   capped too: they're equally unaccounted for.
+- **Row order** (#792): failed first, then running, then everything else, so
+  the failure is the first row in view. Within a rank, rows cluster by workflow
+  (unlabelled rows last), then sort by name, then by check run id, so a refresh
+  doesn't reorder them. The view sorts; the list stays in the server's order.
+  Over the cap this orders the listed rows only. docs/0066 D3's waiting section
+  still sits above the rows: it is what the PR is held on, and it needs a person.
+- **Row anatomy** (#792): chevron, state icon, name, workflow (muted), time
+  (muted, right-aligned), external link. Same-named rows are told apart by the
+  workflow, `checkSuite.workflowRun.workflow.name`. Third-party checks and status
+  contexts have none. That field is nullable, so a token without Actions access
+  gets a partial error that stops there (logged, docs/0007 D5): the detail still
+  lands and the rows go unlabelled. The time is `completedAt − startedAt`
+  ("42s", "3m 05s", "1h 02m") on a finished run, and "started 3m ago" on a running
+  one rather than a counter that would freeze between refreshes (docs/0052). A
+  skipped run reports the same start and end, and shows nothing, as do status
+  contexts and queued runs.
+- **The whole row toggles the log** (#792, docs/0039 D3) on a row with one: the
+  row is one real button, so it stays in the tab order, and the chevron moves to
+  the leading edge, away from the external link. Its accessible name says what
+  the row shows: "View log for build in Release, failed, 1m 42s". Rows without a
+  log keep the chevron column empty so names align, and gated rows do the same.
 - **Rows** from `statusCheckRollup.contexts(first: 100)`: name, state → icon +
   tone (`SUCCESS` success / `FAILURE` danger / `PENDING`/`QUEUED`/`IN_PROGRESS`
   warning or spinner / `NEUTRAL`/`SKIPPED` muted), and a details affordance

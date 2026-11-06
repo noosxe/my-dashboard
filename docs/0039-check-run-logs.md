@@ -164,7 +164,9 @@ banner line above it: `Showing the last 512 KiB — open full log` linking
 `details_url`. The full body is never held beyond the truncation cut: the
 page stores only the kept tail. New debug ids per docs/0010 D10 (`.id()` +
 role on every interactive element): `check-log-toggle-{idx}` on the expander
-row, `check-log-pane-{idx}` on the pane.
+row, `check-log-pane-{idx}` on the pane. *(Amended, #792: the whole row is the
+expander, one button with a leading chevron, not a chevron beside the external
+link. `idx` is the row's position in display order, docs/0016 D7.)*
 
 ### D5 — Resolution memoization and error surface
 

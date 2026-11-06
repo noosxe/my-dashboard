@@ -741,7 +741,10 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
           totalCount
           nodes {
             __typename
-            ... on CheckRun { databaseId name status conclusion detailsUrl checkSuite { databaseId app { slug } } }
+            ... on CheckRun {
+              databaseId name status conclusion detailsUrl startedAt completedAt
+              checkSuite { databaseId app { slug } workflowRun { workflow { name } } }
+            }
             ... on StatusContext { context state targetUrl }
           }
         }
@@ -930,6 +933,16 @@ pub struct PrCheck {
     /// `check_suite.id`. Tells same-named rows apart after a re-run.
     #[serde(default)]
     pub suite_id: Option<u64>,
+    /// `checkSuite.workflowRun.workflow.name` (#792). Null on a third-party
+    /// check, and on a token without Actions access: the field is nullable,
+    /// so that error stops there and the rest of the detail lands.
+    #[serde(default)]
+    pub workflow: Option<String>,
+    /// `CheckRun.startedAt` / `completedAt`, RFC 3339 (#792).
+    #[serde(default)]
+    pub started_at: Option<String>,
+    #[serde(default)]
+    pub completed_at: Option<String>,
 }
 
 /// Unified check outcome for tone/icon mapping (D7).
@@ -2243,6 +2256,12 @@ fn gql_pr_checks(pr: &serde_json::Value) -> PrChecks {
                                 suite_id: node
                                     .pointer("/checkSuite/databaseId")
                                     .and_then(|v| v.as_u64()),
+                                workflow: node
+                                    .pointer("/checkSuite/workflowRun/workflow/name")
+                                    .and_then(|v| v.as_str())
+                                    .map(str::to_string),
+                                started_at: str_field("startedAt"),
+                                completed_at: str_field("completedAt"),
                             })
                         }
                         Some("StatusContext") => Some(PrCheck {
@@ -2252,6 +2271,9 @@ fn gql_pr_checks(pr: &serde_json::Value) -> PrChecks {
                             origin: CheckOrigin::StatusContext,
                             check_run_id: None,
                             suite_id: None,
+                            workflow: None,
+                            started_at: None,
+                            completed_at: None,
                         }),
                         _ => None,
                     }
@@ -4135,6 +4157,48 @@ mod tests {
         let value = env.data.unwrap().repository.unwrap();
         let d = pr_detail_from_value(&value).unwrap();
         assert_eq!(d.checks.nodes[0].origin, CheckOrigin::OtherCheckRun);
+    }
+
+    /// #792: a token without Actions access gets an error on `workflowRun`,
+    /// which is nullable, so it stops there: the detail still lands and the
+    /// row just has no workflow label.
+    #[test]
+    fn a_partial_error_on_the_workflow_run_only_drops_the_label() {
+        let body = pr_detail_body(
+            r#"{"number": 7, "title": "t", "statusCheckRollup": {"state": "FAILURE",
+                  "contexts": {"totalCount": 2, "nodes": [
+                    {"__typename": "CheckRun", "databaseId": 11, "name": "build",
+                     "status": "COMPLETED", "conclusion": "FAILURE",
+                     "startedAt": "2026-10-23T10:00:00Z",
+                     "completedAt": "2026-10-23T10:01:42Z",
+                     "checkSuite": {"databaseId": 22, "app": {"slug": "github-actions"},
+                                    "workflowRun": null}},
+                    {"__typename": "CheckRun", "databaseId": 12, "name": "test",
+                     "status": "COMPLETED", "conclusion": "SUCCESS",
+                     "checkSuite": {"databaseId": 23, "app": {"slug": "github-actions"},
+                                    "workflowRun": {"workflow": {"name": "CI"}}}}
+                  ]}}}"#,
+        );
+        let mut value: serde_json::Value = serde_json::from_str(&body).unwrap();
+        value["errors"] = serde_json::json!([{
+            "message": "Resource not accessible by personal access token"
+        }]);
+        let env: Envelope<PrDetailData> = serde_json::from_value(value).unwrap();
+        assert_eq!(env.errors.len(), 1);
+        let d = env
+            .data
+            .and_then(|d| d.repository)
+            .as_ref()
+            .and_then(pr_detail_from_value)
+            .expect("the detail lands");
+        let [build, test] = d.checks.nodes.as_slice() else {
+            panic!("two rows");
+        };
+        assert_eq!(build.workflow, None);
+        assert_eq!(build.started_at.as_deref(), Some("2026-10-23T10:00:00Z"));
+        assert_eq!(build.completed_at.as_deref(), Some("2026-10-23T10:01:42Z"));
+        assert_eq!(test.workflow.as_deref(), Some("CI"));
+        assert_eq!(test.started_at, None);
     }
 
     #[test]
