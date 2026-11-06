@@ -158,6 +158,10 @@ use crate::pickers::{
     assignee_rows, compute_replace_ids, label_rows, milestone_rows, picker_row_matches,
 };
 
+mod detail_read;
+#[cfg(test)]
+mod test_rig;
+
 impl EventEmitter<IssuePageEvent> for IssueDetailPage {}
 
 impl IssueDetailPage {
@@ -357,6 +361,7 @@ impl IssueDetailPage {
         // on the raw lane and clear their own guard when the run lands
         // (docs/0031 §8).
         let key = (spec.kind, spec.ident.clone());
+        let (repo, number) = (self.repo.clone(), self.number);
         let armed = self.state.update(cx, |s, _| s.in_flight_arm(key.clone()));
         if !armed {
             log::debug!("issue-detail: skipped — an identical read is in flight");
@@ -371,7 +376,18 @@ impl IssueDetailPage {
         cx.spawn(async move |this, cx| {
             let result = run_spec_tracked(state.clone(), spec, cx).await;
             cx.update(|cx| state.update(cx, |s, _| s.in_flight_clear(&key)));
-            let _ = this.update(cx, |page, cx| page.apply_detail_result(result, cx));
+            // docs/0072 D2 (#806, as #743): the flight record lives on the
+            // store's entry, so the result lands there even when the page
+            // that armed it is gone.
+            let result = std::cell::Cell::new(Some(result));
+            let _ = this.update(cx, |page, cx| {
+                if let Some(r) = result.take() {
+                    page.apply_detail_result(r, cx);
+                }
+            });
+            if let Some(r) = result.take() {
+                detail_read::land_orphaned(&state, &repo, number, r, cx);
+            }
         })
         .detach();
     }
@@ -394,116 +410,53 @@ impl IssueDetailPage {
         cx.notify();
     }
 
+    /// The page-alive path of a landed detail read: the store half
+    /// (`detail_read::land_detail_result`, which also runs when the page
+    /// is gone) and then everything the page keeps beside the store.
     fn apply_detail_result(&mut self, result: crate::service::SpecResult, cx: &mut Context<Self>) {
-        if let Some(m) = &result.network {
-            self.state.update(cx, |s, _| {
-                s.fail_issue_detail_read(
-                    &self.repo.clone(),
-                    self.number,
-                    format!("Network error: {m}"),
-                )
-            });
-        } else if result.status != 200 {
-            // Forward failures to the state entity so the shared 401/403
-            // handling runs exactly as for every other fetch (0020 D2).
-            let status = result.status;
-            self.state.update(cx, |s, cx| {
-                s.apply(result);
-                cx.notify();
-            });
-            self.state.update(cx, |s, _| {
-                s.fail_issue_detail_read(
-                    &self.repo.clone(),
-                    self.number,
-                    format!("GitHub answered HTTP {status}"),
-                )
-            });
-        } else if let Some(body) = result.body {
-            match serde_json::from_str::<gql::Envelope<gql::IssueDetailData>>(body.as_str()) {
-                Ok(env) => {
-                    for e in &env.errors {
-                        log::warn!("issue-detail: {}", e.message);
-                    }
-                    match env
-                        .data
-                        .and_then(|d| d.repository)
-                        .as_ref()
-                        .and_then(gql::issue_detail_from_value)
-                    {
-                        Some(detail) => {
-                            log::info!(
-                                "issue-detail applied: {}#{} — {} comments, {} events, {} labels",
-                                self.repo,
-                                detail.number,
-                                detail.comments.nodes.len(),
-                                detail.events.len(),
-                                detail.labels.len()
-                            );
-                            self.md = build_issue_md_cache(&self.repo, &detail);
-                            // 0019 D4 pattern: an editor/confirm whose node
-                            // is gone with the new payload has nothing left
-                            // to edit — drop it (deleted elsewhere,
-                            // refetch race).
-                            let still_there =
-                                |id: &str| detail.comments.nodes.iter().any(|c| c.id == id);
-                            if let Some((id, _)) = &self.timeline_edit
-                                && !still_there(id)
-                            {
-                                self.timeline_edit = None;
-                            }
-                            if let Some(id) = &self.delete_confirm
-                                && !still_there(id)
-                            {
-                                self.delete_confirm = None;
-                            }
-                            // 0022 D5: a fresh payload under an open
-                            // picker re-aligns its frozen draft by id —
-                            // checked flags can never silently misalign.
-                            let open_picker = match self.rail_edit {
-                                Some(RailEditor::Labels(_)) => Some(PickerSource::Labels),
-                                Some(RailEditor::Assignees(_)) => Some(PickerSource::Assignees),
-                                Some(RailEditor::Milestone { .. }) => {
-                                    Some(PickerSource::Milestones)
-                                }
-                                None => None,
-                            };
-                            if let Some(source) = open_picker {
-                                self.realign_open_picker(source, cx);
-                            }
-                            // docs/0072 stage 4 (#555): the payload lands
-                            // into the store — the page's render caches
-                            // are rebuilt above against it, and every
-                            // other surface reads the same document.
-                            self.state.update(cx, |s, _| {
-                                s.land_issue_detail(&self.repo.clone(), self.number, detail)
-                            });
-                            // docs/0026 D9: the payload is in — try to arm
-                            // the notification jump against it.
-                            self.resolve_comment_anchor(cx);
-                        }
-                        None => {
-                            log::warn!("issue-detail: repository/issue null — keeping header");
-                            self.state.update(cx, |s, _| {
-                                s.fail_issue_detail_read(
-                                    &self.repo.clone(),
-                                    self.number,
-                                    "Issue not found (removed, or access lost)".into(),
-                                )
-                            });
-                        }
-                    }
-                }
-                Err(e) => {
-                    log::warn!("issue-detail payload: {e}");
-                    self.state.update(cx, |s, _| {
-                        s.fail_issue_detail_read(
-                            &self.repo.clone(),
-                            self.number,
-                            "Malformed payload".into(),
-                        )
-                    });
-                }
+        let (repo, number) = (self.repo.clone(), self.number);
+        let landed = self.state.update(cx, |s, cx| {
+            detail_read::land_detail_result(s, cx, &repo, number, result)
+        });
+        if let Some(detail) = landed {
+            log::info!(
+                "issue-detail applied: {}#{} — {} comments, {} events, {} labels",
+                self.repo,
+                detail.number,
+                detail.comments.nodes.len(),
+                detail.events.len(),
+                detail.labels.len()
+            );
+            self.md = build_issue_md_cache(&self.repo, &detail);
+            // 0019 D4 pattern: an editor/confirm whose node
+            // is gone with the new payload has nothing left
+            // to edit — drop it (deleted elsewhere, refetch race).
+            let still_there = |id: &str| detail.comments.nodes.iter().any(|c| c.id == id);
+            if let Some((id, _)) = &self.timeline_edit
+                && !still_there(id)
+            {
+                self.timeline_edit = None;
             }
+            if let Some(id) = &self.delete_confirm
+                && !still_there(id)
+            {
+                self.delete_confirm = None;
+            }
+            // 0022 D5: a fresh payload under an open
+            // picker re-aligns its frozen draft by id —
+            // checked flags can never silently misalign.
+            let open_picker = match self.rail_edit {
+                Some(RailEditor::Labels(_)) => Some(PickerSource::Labels),
+                Some(RailEditor::Assignees(_)) => Some(PickerSource::Assignees),
+                Some(RailEditor::Milestone { .. }) => Some(PickerSource::Milestones),
+                None => None,
+            };
+            if let Some(source) = open_picker {
+                self.realign_open_picker(source, cx);
+            }
+            // docs/0026 D9: the payload is in — try to arm
+            // the notification jump against it.
+            self.resolve_comment_anchor(cx);
         }
         cx.notify();
     }
