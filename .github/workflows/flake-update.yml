@@ -1,0 +1,114 @@
+# Weekly flake update (docs/0027 D11): runs `nix flake update`, builds
+# the package on the new lock, and opens (or refreshes) one PR with the
+# build result in its body. The only workflow that uses Nix; ci.yml
+# stays Nix-free (docs/0027 §4).
+#
+# Token: the built-in GITHUB_TOKEN, no secrets. It needs the repository
+# setting "Allow GitHub Actions to create and approve pull requests".
+# GitHub does not start other workflows for PRs this token opens, so
+# ci.yml does not run on the update PR. That is acceptable on purpose:
+# ci.yml never reads flake.lock, and the build this job runs is the
+# check that matters for a lock change.
+name: Flake update
+
+on:
+  # Mondays 07:00 UTC, an hour after the weekly cargo-deny audit.
+  schedule:
+    - cron: "0 7 * * 1"
+  workflow_dispatch:
+
+# Nothing at the top level; the one job asks for exactly what it writes.
+permissions: {}
+
+concurrency:
+  group: flake-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: write # push the update branch
+      pull-requests: write # open or edit the update PR
+    env:
+      BRANCH: ci/flake-update
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      # Credentials persist for this job only: it pushes the update branch.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+        with:
+          # Upstream Nix, same as the dev setup; no FlakeHub login.
+          determinate: false
+
+      - name: nix flake update
+        id: update
+        run: |
+          nix flake update 2> update.log
+          cat update.log
+          if git diff --quiet -- flake.lock; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "flake.lock is already current."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: nix flake check and package build
+        id: build
+        if: steps.update.outputs.changed == 'true'
+        continue-on-error: true
+        # Explicit bash = -eo pipefail, so a failed build isn't masked by tee.
+        shell: bash
+        run: |
+          nix flake check --no-build
+          nix build .#packages.x86_64-linux.default -L --no-link 2>&1 | tee build.log
+
+      - name: Open or update the PR
+        if: steps.update.outputs.changed == 'true'
+        env:
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C "$BRANCH"
+          git commit -q -m "nix: update flake inputs" -- flake.lock
+          git push -f origin "$BRANCH"
+
+          {
+            echo "Weekly \`nix flake update\` ([run]($RUN_URL), docs/0027 D11)."
+            echo
+            echo '```'
+            grep -E "Updated input|'github:" update.log || true
+            echo '```'
+            echo
+            if [ "$BUILD_OUTCOME" = success ]; then
+              echo "**Build: passed.** \`nix flake check --no-build\` and \`nix build .#packages.x86_64-linux.default\` succeeded on the new lock."
+            else
+              echo "**Build: FAILED.** The new lock does not build; see the run log. Last lines:"
+              echo
+              echo '```'
+              tail -n 40 build.log 2>/dev/null || true
+              echo '```'
+            fi
+            echo
+            echo "ci.yml does not run on this PR (GITHUB_TOKEN-opened PRs start no workflows; ci.yml never reads flake.lock)."
+            echo
+            echo "## Human checks"
+            echo
+            echo "- [ ] Build on aarch64-darwin (\`nix build\`), not covered here"
+          } > body.md
+
+          if gh pr view "$BRANCH" --json state -q .state 2>/dev/null | grep -q OPEN; then
+            gh pr edit "$BRANCH" --body-file body.md
+          else
+            gh pr create --base main --head "$BRANCH" \
+              --title "nix: weekly flake input update" --body-file body.md
+          fi
+
+      # Red run when the new lock doesn't build, after the PR carries the log.
+      - name: Fail on build failure
+        if: steps.build.outcome == 'failure'
+        run: exit 1
