@@ -1,4 +1,4 @@
-# 0027 — CI: GitHub Actions Gates (fmt / clippy / test, self-sufficient, no Nix)
+# 0027 — CI: GitHub Actions Gates (fmt / clippy / test, self-sufficient, no Nix) + Weekly Flake Update
 
 ## 1. Summary
 
@@ -17,6 +17,11 @@ GitHub-hosted ubuntu runners (`ubuntu-24.04`) ship it by construction.
 Two gate jobs (`lint`, `test`) plus a `deny` dependency audit
 (`cargo-deny` against the committed `deny.toml`, also run weekly — D8),
 SHA-pinned third-party actions only, no secrets.
+
+One separate workflow does use Nix: the weekly flake update
+(`flake-update.yml`, D11) runs `nix flake update`, builds the package on
+the new lock and opens a PR carrying the result. It is maintenance, not a
+gate; the gate workflow stays nix-free.
 
 The runner platform is **GitHub-hosted** (`ubuntu-24.04` standard hosted
 runners, both jobs — switched from the owner's self-hosted docker runners
@@ -198,11 +203,15 @@ no secrets — the workflow is
 fork-safe by construction. Since then two more SHA-pinned actions joined
 under the same rule and the same dependabot coverage: `Swatinem/rust-cache`
 (#158) and `EmbarkStudios/cargo-deny-action` (D8), and
-`actions/cache/restore` + `actions/cache/save` (v6.1.0, D10).
+`actions/cache/restore` + `actions/cache/save` (v6.1.0, D10). The flake
+update workflow (D11) adds `DeterminateSystems/nix-installer-action`
+(v23), same rule.
 The workflow pins the `GITHUB_TOKEN` to `permissions: contents: read`
 at the top level, so it never falls back to the repository's default token
-scopes. No job writes to the repo, and the cache actions authenticate with
-the runner's cache token rather than `GITHUB_TOKEN`. Fork-PR runs also stay
+scopes. No `ci.yml` job writes to the repo, and the cache actions authenticate with
+the runner's cache token rather than `GITHUB_TOKEN`. The one writer is the
+D11 flake update job, in its own workflow: top-level `permissions: {}`,
+job-level `contents: write` + `pull-requests: write`, still no secrets. Fork-PR runs also stay
 behind GitHub's approval gate for outside contributors (a repository
 setting, not workflow YAML).
 
@@ -389,8 +398,10 @@ and the apt long tail is gone because the warm path downloads nothing.
 
 ### D6 — What deliberately stays out
 
-- **Nix package builds**: `nix build .#my-dashboard` is a nix derivation
-  by construction; with a nix-free CI it runs **local-only**. (The
+- **Nix package builds on PRs**: `nix build .#my-dashboard` is a nix
+  derivation by construction; the gate workflow is nix-free, so per-PR it
+  runs **local-only**. The weekly flake update (D11) builds it once a
+  week, on the new lock only. (The
   Catppuccin Whiskers/jq theme gates it used to sit beside are gone:
   Catppuccin ships as built-in presets, docs/0074, docs/0025 §9.)
 - **Release-mode build**: dev-profile clippy + test compile every crate;
@@ -398,8 +409,8 @@ and the apt long tail is gone because the warm path downloads nothing.
 - **Maintenance/scheduled jobs**: the platform is ephemeral, so there is
   nothing on the runner to prune (the persistent-host rationale is void);
   #155 stays open only until closed as obsolete. The weekly `deny` run
-  (D8) is the one scheduled job — it watches the advisory database, not
-  the runner.
+  (D8) and the weekly flake update (D11) are the scheduled jobs — they
+  watch the advisory database and nixpkgs, not the runner.
 - **Build-artifact caching**: #158.
 - **Required status checks**: enabling `lint`/`test` in branch protection is
   a repo-settings action for the owner (§6), not workflow code.
@@ -463,6 +474,47 @@ Initial triage (#639): six vulnerabilities (rustls, rustls-webpki,
 webpki-roots, quick-xml via zbus_xml) were fixed by lockfile bumps. Eight
 unmaintained advisories have no patched release and come in through the
 upstream GPUI stack, so they are ignored and tracked in #640.
+
+### D11 — Weekly flake update: `flake-update.yml`
+
+A separate workflow keeps `flake.lock` current, so nixpkgs
+(`nixos-unstable`) and the other inputs don't drift for months and then
+break in one big jump (the 2026-11-09 manual update had to opt the
+package out of nixpkgs' new `cargoUseSystemLibs` hook).
+
+**Triggers.** A weekly `schedule` (Mondays 07:00 UTC, an hour after the
+D8 audit) plus `workflow_dispatch` for a manual run.
+
+**Steps.** One job on `ubuntu-24.04`:
+
+1. Checkout, then upstream Nix via `DeterminateSystems/nix-installer-action`
+   (`determinate: false`: same Nix as the dev setup, no FlakeHub login).
+2. `nix flake update`. No change → the run ends green, no PR.
+3. `nix flake check --no-build`, then
+   `nix build .#packages.x86_64-linux.default`. A failure doesn't stop
+   the job yet.
+4. Commit `flake.lock` to the fixed branch `ci/flake-update` (force-push),
+   then open the PR, or refresh the body of the one already open. The body
+   lists the moved inputs and the build result; on failure it carries the
+   last lines of the build log.
+5. If the build failed, the run goes red after the PR is up, so a broken
+   update is both visible in Actions and labelled in the PR.
+
+Linux-only (owner decision 2026-11-09): hosted Linux runners can't build
+aarch64-darwin, and a macOS runner is deferred until Mac-only breakages
+show up. The PR's human-check list keeps the Mac build.
+
+**Token.** The built-in `GITHUB_TOKEN` (job-level `contents: write`,
+`pull-requests: write`), no secret. It requires the repository setting
+"Allow GitHub Actions to create and approve pull requests" (enabled
+2026-11-09). GitHub doesn't start other workflows for PRs that token
+opens, so `ci.yml` doesn't run on the update PR. That is accepted on
+purpose: `ci.yml` is nix-free and never reads `flake.lock`, and step 3 is
+the check a lock change needs. A personal or App token would only buy a
+`ci.yml` run that can't see the change.
+
+The workflow never merges; the owner reviews and merges the PR like any
+other.
 
 ## 4. Owner decisions (2026-09-07)
 
