@@ -131,6 +131,13 @@
           ];
           buildInputs = dynamicLibraries;
 
+          # nixpkgs' cargo setup hook (cargoUseSystemLibs) forces -sys
+          # crates onto system libraries (LIBSQLITE3_SYS_USE_PKG_CONFIG,
+          # AWS_LC_SYS_USE_SYSTEM, …). Opt out: the bundled SQLite
+          # amalgamation is a design decision (docs/0057 D1 — same build
+          # on macOS/Nix/CI), and aws-lc-sys keeps its vendored build.
+          dontCargoUseSystemLibs = true;
+
           # Launcher entry + icon. Named after the app's Wayland app_id
           # (APP_ID, crates/app/src/main.rs) so compositors and docks match
           # the running window to this entry; the icon reuses the brand
