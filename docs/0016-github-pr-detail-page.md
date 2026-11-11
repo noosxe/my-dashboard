@@ -161,6 +161,12 @@ Out (non-goals):
 > `tab/`, `sidebar/`, `list/` and `input/state.rs` are byte-identical to
 > v0.8.1 (`git diff 99576db 7591a35`); the `size_full` trap and the
 > tab/timeline split behavior stand.
+>
+> **Re-verified at the v0.9.1 pin `39ab849` (2026-11-11):** `select.rs`
+> and `sidebar/` are byte-identical to v0.9.0. `tab/tab.rs` changed only
+> to give icon-only tabs a minimum width, and `list/list_item.rs` only
+> in the selected row's text colour; `input/state.rs` gained fold and IME
+> additions. The `size_full` trap and the tab/timeline split stand.
 
 - `ui::tab::{Tab, TabBar}` with `.underline()` variant — the GitHub-style tab
   chrome; `selected_index` + `on_click` drive an enum in our state.

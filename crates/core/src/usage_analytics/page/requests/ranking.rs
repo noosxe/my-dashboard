@@ -4,7 +4,7 @@
 //! Ranked by the measure (the procedure's order) and re-sortable by
 //! pointer through upstream `perform_sort`; nested `Then by` rows label
 //! their dimension ("trigger: poll"); every cell exposes its text. The
-//! table is not a Tab stop until #711 is fixed (D19).
+//! table is a Tab stop and Tab leaves it (D19).
 
 use std::cmp::Ordering;
 use std::sync::Arc;
