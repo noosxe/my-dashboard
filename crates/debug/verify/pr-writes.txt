@@ -73,14 +73,12 @@ assert-write PrClose input.pullRequestId=PR_107
 wait-label "Close pull request"
 assert-no-label "Close without merging"
 snapshot close-sent
-click 14739289555652244253 --wait-frame
+click 12782369444481205663 --wait-frame
 wait-label "PR #109: CI: a fork PR whose only runs wait for approval"
 
-# The Close above leaves #107 off the Open lane, so #109's row is the
-# one under #108 (y 602 at 1280x800).
 # 109: the only CI is gated. Approve the fork-gated run fork-ci (run 7003).
-mouse down 900 602
-mouse up 900 602
+mouse down 900 638
+mouse up 900 638
 wait-label "Checks (2)"
 mouse down 535 155
 mouse up 535 155 --wait-frame
