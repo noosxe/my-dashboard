@@ -64,7 +64,7 @@ wait-label "Diff for crates/manifest/src/parser.rs"
 assert-label "Review thread — reviewer-b · line 11"
 assert-label "Review thread — reviewer-b · lines 11–12"
 assert-label "Outdated conversations (1)"
-click 14739289555652244253 --wait-frame
+click 12782369444481205663 --wait-frame
 wait-label "PR #108: Loader: a PR that fails its detail read"
 
 # 102: overflow stress. The checks tab counts the 137 total.
@@ -83,7 +83,7 @@ assert-label "View all 137 checks on GitHub"
 mouse down 690 254
 mouse up 690 254 --wait-frame
 wait-label "Diff for crates/manifest/src/parser.rs"
-click 14739289555652244253 --wait-frame
+click 12782369444481205663 --wait-frame
 wait-label "PR #108: Loader: a PR that fails its detail read"
 
 # 103: draft with nothing filled in.
@@ -103,7 +103,7 @@ assert-no-label "View log"
 mouse down 639 155
 mouse up 639 155 --wait-frame
 wait-label "Diff for crates/manifest/src/parser.rs"
-click 14739289555652244253 --wait-frame
+click 12782369444481205663 --wait-frame
 wait-label "PR #108: Loader: a PR that fails its detail read"
 
 # 104: merged, squash only.
@@ -122,7 +122,7 @@ wait-label "View log"
 mouse down 639 155
 mouse up 639 155 --wait-frame
 wait-label "Diff for crates/manifest/src/parser.rs"
-click 14739289555652244253 --wait-frame
+click 12782369444481205663 --wait-frame
 wait-label "PR #108: Loader: a PR that fails its detail read"
 
 # 105: closed with conflicts, read-only viewer.
@@ -142,7 +142,7 @@ assert-no-label "View log"
 mouse down 639 155
 mouse up 639 155 --wait-frame
 wait-label "Diff for crates/manifest/src/parser.rs"
-click 14739289555652244253 --wait-frame
+click 12782369444481205663 --wait-frame
 wait-label "PR #108: Loader: a PR that fails its detail read"
 
 # 106: open and clean, read-only viewer.
@@ -165,7 +165,7 @@ wait-label "View log"
 mouse down 639 155
 mouse up 639 155 --wait-frame
 wait-label "Diff for crates/manifest/src/parser.rs"
-click 14739289555652244253 --wait-frame
+click 12782369444481205663 --wait-frame
 wait-label "PR #108: Loader: a PR that fails its detail read"
 
 # 107: pending review, ghost author, duplicate check names.
@@ -222,7 +222,7 @@ wait-label "View log"
 mouse down 639 155
 mouse up 639 155 --wait-frame
 wait-label "Diff for crates/manifest/src/parser.rs"
-click 14739289555652244253 --wait-frame
+click 12782369444481205663 --wait-frame
 wait-label "PR #108: Loader: a PR that fails its detail read"
 
 # 108: the detail read fails; the header stays from the row, every tab
@@ -241,7 +241,7 @@ assert-no-label "View log"
 mouse down 565 155
 mouse up 565 155 --wait-frame
 wait-label "Retry loading changed files"
-click 14739289555652244253 --wait-frame
+click 12782369444481205663 --wait-frame
 wait-label "PR #109: CI: a fork PR whose only runs wait for approval"
 
 # 109: the only CI is gated (#783). The counter reads the waiting runs.
