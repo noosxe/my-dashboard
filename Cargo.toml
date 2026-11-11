@@ -103,7 +103,7 @@ resvg = "0.49"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 # Native folder/file picker (docs/0064 D7). default-features off drops
 # the gtk3 tree; xdg-portal only wires on Linux (macOS stays cocoa).
-rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
+rfd = { version = "0.18", default-features = false, features = ["xdg-portal"] }
 # Data-URI embeds for the emitted favicon.svg (docs/0064 D4) — lockfile
 # copy via gpui, no new compile.
 base64 = "0.23"
