@@ -23,12 +23,12 @@
 
 # Home → usage analytics via the sidebar `Usage` item. The page opens
 # on the Budget view at 24h and reads off the UI thread (D11).
-click 14831572709305685087 --wait-frame
+click 4602998836821200419 --wait-frame
 wait-label "1,071 requests · as of"
 snapshot opened
 
 # Flip the range 24h → 7d: the right-aligned presets (Q13).
-click 4480912406697884557 --wait-frame
+click 17841395906676576634 --wait-frame
 wait-label "Range: 7d"
 snapshot after-range
 diff opened after-range
@@ -41,7 +41,7 @@ assert-no-label "Reading history"
 assert-no-label "1,071 requests · as of"
 
 # Back to 24h: the same frozen read, the same count.
-click 10769755361148233121 --wait-frame
+click 5683494787417373583 --wait-frame
 wait-label "Range: 24h"
 assert-label "1,071 requests · as of MMM D, HH:MM · history from MMM D, HH:MM"
 

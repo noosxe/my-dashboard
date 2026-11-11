@@ -7,8 +7,8 @@
 //! rows costs nothing per frame beyond the visible ones. Sorting is the
 //! calculator's (`request_log`, ties newest first): a header click hands
 //! the new [`LogSort`] to the page, which re-derives the log off the UI
-//! thread (D11) and points this table at the result. The table is not a
-//! Tab stop until #711 is fixed (D19); every cell exposes its text.
+//! thread (D11) and points this table at the result. The table is a
+//! Tab stop and Tab leaves it (D19); every cell exposes its text.
 
 use std::sync::Arc;
 

@@ -79,6 +79,9 @@ version pressure).
 > **Re-verified at gpui-pre `=0.3.11` (gpui-kit v0.9.0, 2026-11-06):** the
 > bridge compiles unchanged against 0.3.11; the `parse_with_os` and
 > `ScrollEvent` surfaces above are untouched.
+>
+> **Re-verified at gpui-pre `=0.3.12` (gpui-kit v0.9.1, 2026-11-11):** the
+> bridge compiles unchanged and the debug tests pass.
 
 **Component tree dump — public, ungated, but incomplete:**
 

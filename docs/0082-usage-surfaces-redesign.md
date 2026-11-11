@@ -965,13 +965,14 @@ Every band has the three states (0065 rubric #18, [DG]):
     is one Tab stop with the framework focus ring. Left/Up and
     Right/Down move the selection, Home and End jump to the ends, and
     its accessible name carries the selection ("Range: 24h").
-  - Upstream's `DataTable` binds Tab and Shift-Tab to "next/previous
-    column" and never lets focus leave, so a table that is a Tab stop
-    traps the walk (#711). The views' tables (#697, #698) must keep the
-    cycle closing. Until #711 is fixed upstream, the D7 table, the
-    D10 ranking and the request log are not Tab stops: they are
-    sortable by pointer, and their cells are still read through
-    `cell_label`.
+  - The views' tables (#697, #698) must keep the cycle closing. Up to
+    gpui-kit v0.9.0 the `DataTable` bound Tab and Shift-Tab to
+    "next/previous column" and never let focus leave, so the D7
+    table, the D10 ranking and the request log were kept out of the
+    Tab order (#711). From v0.9.1 (gpui-kit#3800) Tab and Shift-Tab
+    leave a focused table, so the three are ordinary Tab stops again.
+    They are also sortable by pointer, and their cells are read
+    through `cell_label`.
   - **Focus survives a view switch** (#700). A switch unmounts the
     outgoing view's controls, and a focus handle left on one of them
     belongs to no rendered element: key dispatch falls back to the

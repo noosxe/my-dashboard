@@ -26,7 +26,7 @@
 # Home → usage analytics via the sidebar TreeItem. The page opens on
 # the Budget view (D1) at 24h and reads off the UI thread (D11): settle
 # on the seeded count, never the "Reading history" line.
-click 14831572709305685087 --wait-frame
+click 4602998836821200419 --wait-frame
 wait-label "1,071 requests · as of"
 assert-label "Usage view: Budget"
 assert-label "GraphQL points. 4,885 left of 5,000"
@@ -36,7 +36,7 @@ assert-baseline usage-budget-seeded
 
 # The Requests view: settle on the trend chart's summary, which lands with
 # the view's derivation (D11), then the same three receipts.
-click 5642526951600527859 --wait-frame
+click 16292803015172019451 --wait-frame
 wait-label "Step chart of p90 duration per hourly bucket, 24 buckets"
 assert-label "Usage view: Requests"
 audit
@@ -46,15 +46,15 @@ assert-baseline usage-requests-seeded
 # D19: a view switch made while a view control holds focus hands focus
 # to the view switch, so Tab keeps moving (#700). Focus the Requests
 # view's `Group by` as a pointer pick leaves it, then switch by pointer.
-focus 3905572511914019534
-click 11931369906050876423 --wait-frame
+focus 18074687497992549444
+click 4134901895912816400 --wait-frame
 wait-label "1,071 requests · as of"
-assert-focus 10085018269510683778
+assert-focus 16698708412780674693
 tab-stops
 
 # Back to Requests by keyboard: the view switch takes the arrow keys
 # (D19). The walk ended on its first stop, so focus the switch again.
-focus 10085018269510683778
+focus 16698708412780674693
 key right
 wait-label "Usage view: Requests"
 wait-label "Step chart of p90 duration per hourly bucket, 24 buckets"
@@ -72,7 +72,7 @@ assert-baseline usage-requests-log
 # Diagnostics opens by keyboard (Enter on the disclosure): each chart
 # keeps one a11y summary (D19), and the cycle still closes. No frame
 # wait after `focus`: the walk above may have left focus there already.
-focus 12249287888388558240
+focus 9985846274011392240
 key enter
 wait-label "Bar chart of requests by duration band"
 audit

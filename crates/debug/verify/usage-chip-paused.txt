@@ -31,7 +31,7 @@ tab-stops
 
 # The chip opens the Budget view (D13). Arriving this way re-keys the
 # page's ids (audit.txt's walk-order note), so only labels follow.
-click 364720877318993958 --wait-frame
+click 15380129928879656113 --wait-frame
 wait-label "requests · as of"
 assert-label "Usage view: Budget"
 assert-label "GraphQL points. Exhausted."

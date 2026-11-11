@@ -65,7 +65,10 @@ assert-baseline home
 # before the shell's Root, so the favicon model's widget-entity count
 # shifts every later element-path id. Structure is unchanged on every
 # surface but favicon (id-agnostic compare in that PR).
-click 14831572709305685087 --wait-frame
+# Re-keyed once more at the gpui-pre 0.3.12 bump (gpui-kit v0.9.1): the
+# framework changed how it hashes an element's id path, so every node id
+# in every receipt script moved. Structure and labels did not.
+click 4602998836821200419 --wait-frame
 # The page reads its history off the UI thread (docs/0082 D11): settle
 # on the loaded honesty line, never the "Reading history" one.
 wait-label "requests · as of"
@@ -82,7 +85,7 @@ assert-baseline usage-budget
 # quota tab it replaced retired with #696). The view-switch segment's
 # id derives like the sidebar's: stable on this fresh-boot route. Over
 # the empty ledger both views show the page-level Empty (0082 D18).
-click 914798575727734911 --wait-frame
+click 2420045157631446468 --wait-frame
 assert-label "No requests recorded yet"
 audit
 tab-stops
@@ -93,13 +96,13 @@ assert-baseline usage-requests
 # bounds-center fallback.
 # The hub golden pins the page beneath the popover too: it re-captured
 # with the Requests view underneath (#696).
-click 15320400995491321174 --wait-frame
+click 3846017331057466934 --wait-frame
 assert-label "Clear all"
 audit
 assert-baseline hub
 
 # Back home — the review's home state, re-visited after navigation.
-click 5242195142294137531 --wait-frame
+click 13460365343519204478 --wait-frame
 assert-label "Open GitHub module"
 audit
 assert-baseline home-return
@@ -109,7 +112,7 @@ assert-baseline home-return
 # only while signed in (docs/0082 D13), and signed out the page carries
 # no label of its own. So the hop asserts Home is gone and the golden
 # pins the rest (the `GitHub` breadcrumb).
-click 10180477284460313495 --wait-frame
+click 15776801031240449995 --wait-frame
 assert-no-label "Open GitHub module"
 audit
 assert-baseline github

@@ -38,7 +38,7 @@
 # audit.txt's stable-id route — the home card's click doesn't
 # navigate reliably from a fresh boot).
 assert-label "Open GitHub module"
-click 3229520539080433524 --wait-frame
+click 11447690740305500471 --wait-frame
 assert-label "Filter repositories"
 
 # Pick fixture-user/atlas: filter, ↓, Enter. Repo open fires the Open
@@ -46,7 +46,7 @@ assert-label "Filter repositories"
 # Both TextInput ids here re-keyed at the gpui-kit v0.8.1 bump: the
 # text node moved from the input's frame to its inner editor
 # (longbridge/gpui-kit#3585), same label and role.
-click 13046189450844208135
+click 349678605523893363
 type atlas
 key down
 key enter
@@ -54,7 +54,7 @@ assert-label "Open repository fixture-user/atlas on GitHub"
 assert-no-label "Commits on main"
 
 # Enter the Commits tab (the strip's fourth, index-derived id).
-click 12482848471666265815 --wait-frame
+click 5756661827210976504 --wait-frame
 assert-label "Commits on main"
 assert-label "Commits on Oct 23, 2026"
 assert-label "fixture-user, committed 1h, CI: passing"
@@ -68,7 +68,7 @@ assert-baseline github-commits
 # Enter opens it (the `commits: opened 9e3779b` log line). The list's
 # id re-keyed with #699 (the usage chip renders on Home, so more
 # entities exist before the list is built).
-focus 6147226658770961618
+focus 4592992238242078822
 key down
 key down
 key enter
@@ -90,7 +90,7 @@ wait-frame
 assert-label "Beginning of history · 120 commits"
 
 # The quick filter covers loaded commits only and stops paging.
-click 2291830802833848640
+click 10639940704989920401
 type parser
 assert-label "No loaded commits match"
 assert-label "Filtering 120 loaded commits; clear to load more"
@@ -108,7 +108,7 @@ assert-label "Beginning of history · 120 commits"
 # §14 author = mine: the toggle swaps in its own server-filtered book
 # (`history(author: { id })`, served from RepoCommits.author.json) —
 # the viewer's 40 commits; octocat's and the unlinked author's go.
-click 10789357359616730678 --wait-frame
+click 8587605573583132504 --wait-frame
 wait-frame
 assert-label "Your commits on main"
 assert-no-label "Commits on main"
@@ -118,7 +118,7 @@ assert-no-label "Dev Box"
 assert-label "Beginning of history · 40 commits"
 audit
 # Off again: main's held, complete book paints with no flight.
-click 10789357359616730678 --wait-frame
+click 8587605573583132504 --wait-frame
 assert-label "Commits on main"
 assert-label "Copy SHA 9e3779b"
 assert-label "Beginning of history · 120 commits"
@@ -126,7 +126,7 @@ assert-label "Beginning of history · 120 commits"
 # The first open fetches the branch list (one `fetch repo-branches`);
 # the menu's search box takes focus. Its rows carry no accessible name
 # upstream (the List gap, #661) — the pick goes through the search.
-click 343177776538413344 --wait-frame
+click 13408790930652573483 --wait-frame
 assert-label "Find a branch…"
 type ref
 key enter

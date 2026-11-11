@@ -169,16 +169,6 @@ impl Controls {
         let ranking = cx.new(|cx| TableState::new(RankingTable::empty(), window, cx));
         let page = cx.entity().downgrade();
         let log = cx.new(|cx| TableState::new(LogTable::new(page), window, cx));
-        // Upstream's `DataTable` binds Tab to "next column" and never
-        // lets focus leave (#711): as a Tab stop it would trap the walk
-        // (D19). Both tables stay sortable by pointer, and every cell
-        // exposes its text to assistive technology.
-        for focus in [
-            ranking.read(cx).focus_handle(cx),
-            log.read(cx).focus_handle(cx),
-        ] {
-            let _ = focus.tab_stop(false);
-        }
 
         cx.subscribe_in(&module, window, |this, _, ev, _, cx| {
             let SelectEvent::Confirm(Some(m)) = ev else {

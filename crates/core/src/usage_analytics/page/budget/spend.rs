@@ -84,11 +84,6 @@ impl Controls {
             s
         });
         let table = cx.new(|cx| TableState::new(SpendTable::empty(), window, cx));
-        // Upstream's `DataTable` binds Tab to "next column" and never
-        // lets focus leave (#711): as a Tab stop it would trap the walk
-        // (D19). It stays sortable by pointer, and every cell exposes
-        // its text to assistive technology.
-        let _ = table.read(cx).focus_handle(cx).tab_stop(false);
 
         cx.subscribe_in(
             &group_by,
