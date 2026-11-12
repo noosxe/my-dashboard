@@ -40,9 +40,17 @@ pub enum StepOp {
     /// `assert-label <substr>` — some node label contains the substring.
     AssertLabel(String),
     /// `wait-label <substr>` — poll until some node label contains the
-    /// substring (bounded): settles on a page whose content lands after
-    /// a background read (docs/0082 D11), where a frame wait can race.
-    WaitLabel(String),
+    /// substring (bounded, 5 s unless `--timeout <secs>` widens it):
+    /// settles on a page whose content lands after a background read
+    /// (docs/0082 D11), where a frame wait can race.
+    WaitLabel {
+        substr: String,
+        timeout_secs: Option<u64>,
+        /// `--poke <accesskit_id>`: click this node each poll round the
+        /// label is still missing, for a page that reads its store once
+        /// per open and never re-reads when the data lands late.
+        poke: Option<String>,
+    },
     /// `assert-no-label <substr>` — no node label contains it.
     AssertNoLabel(String),
     /// `assert-write <op> [key=value…]` — a fixture write was recorded
@@ -106,6 +114,8 @@ pub struct Script {
     pub session: Option<String>,
     pub steps: Vec<Step>,
 }
+
+const WAIT_LABEL_USAGE: &str = "wait-label needs <substr> (quote spaces), optionally --timeout <secs> and --poke <accesskit_id>";
 
 /// Parse a whole script file. Comments (`#`) and blank lines are
 /// allowed anywhere; `--session` must be the first directive.
@@ -220,7 +230,39 @@ fn parse_line(text: &str, line_no: usize) -> Result<StepOp, String> {
             };
             Ok(StepOp::Diff(a.clone(), b.clone()))
         }
-        "assert-label" | "assert-no-label" | "wait-label" => {
+        "wait-label" => {
+            let Some((substr, mut flags)) = rest.split_first() else {
+                return Err(err(WAIT_LABEL_USAGE));
+            };
+            let (mut timeout_secs, mut poke) = (None, None);
+            while let Some((flag, tail)) = flags.split_first() {
+                let [value, tail @ ..] = tail else {
+                    return Err(err(WAIT_LABEL_USAGE));
+                };
+                match flag.as_str() {
+                    "--timeout" if timeout_secs.is_none() => {
+                        timeout_secs = Some(
+                            value
+                                .parse::<u64>()
+                                .ok()
+                                .filter(|s| (1..=300).contains(s))
+                                .ok_or_else(|| {
+                                    err("wait-label --timeout needs whole seconds, 1-300")
+                                })?,
+                        );
+                    }
+                    "--poke" if poke.is_none() => poke = Some(value.clone()),
+                    _ => return Err(err(WAIT_LABEL_USAGE)),
+                }
+                flags = tail;
+            }
+            Ok(StepOp::WaitLabel {
+                substr: substr.clone(),
+                timeout_secs,
+                poke,
+            })
+        }
+        "assert-label" | "assert-no-label" => {
             let [substr] = rest else {
                 return Err(err(&format!(
                     "{verb} needs exactly one <substr> (quote spaces)"
@@ -228,7 +270,6 @@ fn parse_line(text: &str, line_no: usize) -> Result<StepOp, String> {
             };
             Ok(match verb.as_str() {
                 "assert-label" => StepOp::AssertLabel(substr.clone()),
-                "wait-label" => StepOp::WaitLabel(substr.clone()),
                 _ => StepOp::AssertNoLabel(substr.clone()),
             })
         }
@@ -537,8 +578,38 @@ mod tests {
                 .unwrap()
                 .steps[0]
                 .op,
-            StepOp::WaitLabel("0 requests".into())
+            StepOp::WaitLabel {
+                substr: "0 requests".into(),
+                timeout_secs: None,
+                poke: None
+            }
         );
+        assert_eq!(
+            parse_script("--session qa\nwait-label \"0 requests\" --timeout 90")
+                .unwrap()
+                .steps[0]
+                .op,
+            StepOp::WaitLabel {
+                substr: "0 requests".into(),
+                timeout_secs: Some(90),
+                poke: None
+            }
+        );
+        assert_eq!(
+            parse_script("--session qa\nwait-label x --poke 42 --timeout 9")
+                .unwrap()
+                .steps[0]
+                .op,
+            StepOp::WaitLabel {
+                substr: "x".into(),
+                timeout_secs: Some(9),
+                poke: Some("42".into())
+            }
+        );
+        assert!(parse_script("--session qa\nwait-label x --poke").is_err());
+        assert!(parse_script("--session qa\nwait-label x --bogus 1").is_err());
+        assert!(parse_script("--session qa\nwait-label x --timeout 0").is_err());
+        assert!(parse_script("--session qa\nwait-label x --timeout").is_err());
         assert!(parse_script("--session qa\nwait-label").is_err());
         assert_eq!(script.steps[7].op, StepOp::Screenshot("opened".into()));
     }

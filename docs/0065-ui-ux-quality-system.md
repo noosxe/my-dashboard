@@ -171,7 +171,8 @@ applies to structure too — goldens are captured and asserted in the
 docs/0071 container at 1280×800, not across platforms; (2)
 capture-local values never reach the file — frame number and timestamp
 are zeroed on write, and wall-clock times in labels ("as of 23:15", the
-usage status line) are normalized to fixed tokens; (3) the write path
+usage status line) are normalized to fixed tokens (the label verbs still
+match the raw text as well, docs/0010); (3) the write path
 is `baseline <surface> --update` only, and the one-shot capture walks
 the exact step order of the receipt that asserts it (focus moves
 matter). The seeded-ledger capture that #536 tracked is the fixture

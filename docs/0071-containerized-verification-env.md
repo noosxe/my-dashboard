@@ -244,7 +244,13 @@ opens the usage page on its Budget view, as of the pinned 12:00.
 The usage page's committed receipts (docs/0082 §10) run over a 90-day
 seed, one fresh session per script, because each walks the fresh-boot
 ids; each session is named after its script (`seeded`, `freeze`,
-`paused`). `usage-seeded.txt` audits both views, walks their Tab cycles and
+`paused`). The 90-day seed (about 96k flights) is written by the store's
+writer thread after `session start`, and the usage page reads the ledger
+once when it opens, so a read that lands first stays at `0 requests · no
+history yet`. Each script's first data label is therefore `wait-label
+"1,071 requests · as of" --timeout 120 --poke <Refresh id>`: it clicks the
+page's Refresh button each second until the count shows, so the recipe
+needs no sleep and starts whenever the session does. `usage-seeded.txt` audits both views, walks their Tab cycles and
 asserts the populated goldens. `usage-freeze.txt` is the range-flip
 freeze receipt. `usage-chip-paused.txt` adds the `graphql-exhausted`
 variant for the per-budget pause (Q10):

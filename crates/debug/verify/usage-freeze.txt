@@ -23,8 +23,11 @@
 
 # Home → usage analytics via the sidebar `Usage` item. The page opens
 # on the Budget view at 24h and reads off the UI thread (D11).
+# The seed ingests on the store's writer thread and the page reads once on
+# open, so the first read can land on an empty ledger and stay there: the
+# wait pokes the page's Refresh button until the seeded count shows.
 click 4602998836821200419 --wait-frame
-wait-label "1,071 requests · as of"
+wait-label "1,071 requests · as of" --timeout 120 --poke 16375317871256541723
 snapshot opened
 
 # Flip the range 24h → 7d: the right-aligned presets (Q13).

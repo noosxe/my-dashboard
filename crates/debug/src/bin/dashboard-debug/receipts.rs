@@ -26,6 +26,10 @@ use crate::{
 /// hop fails the receipt promptly.
 const WAIT_LABEL_TIMEOUT_MS: u64 = 5_000;
 const WAIT_LABEL_POLL_MS: u64 = 100;
+/// `--poke` rounds: the frame budget for each click, and the gap that
+/// lets the read it triggered land before the next look.
+const WAIT_LABEL_POKE_FRAME_MS: u64 = 1_000;
+const WAIT_LABEL_POKE_GAP_MS: u64 = 1_000;
 
 /// `screenshot [--name stem]` (D10): grim against the session's
 /// compositor, into `screenshots/<stem>-<n>.png`.
@@ -715,13 +719,10 @@ fn run_step(conn: &mut Conn, session: Option<&str>, op: &StepOp) -> StepOutcome 
                 Ok(nodes) => nodes,
                 Err(code) => return StepOutcome::Failed(format!("dump failed (exit {code})")),
             };
-            match nodes
-                .iter()
-                .find(|n| n.label.as_deref().is_some_and(|l| l.contains(substr)))
-            {
+            match nodes.iter().find(|n| n.label_contains(substr)) {
                 Some(node) => StepOutcome::Ok(format!(
                     " label {:?} on #{}",
-                    node.label.as_deref().unwrap_or_default(),
+                    node.matching_label(substr).unwrap_or_default(),
                     node.accesskit_id
                 )),
                 None => StepOutcome::Failed(format!(
@@ -730,31 +731,46 @@ fn run_step(conn: &mut Conn, session: Option<&str>, op: &StepOp) -> StepOutcome 
                 )),
             }
         }
-        StepOp::WaitLabel(substr) => {
-            let deadline =
-                std::time::Instant::now() + std::time::Duration::from_millis(WAIT_LABEL_TIMEOUT_MS);
+        StepOp::WaitLabel {
+            substr,
+            timeout_secs,
+            poke,
+        } => {
+            let timeout_ms = timeout_secs.map_or(WAIT_LABEL_TIMEOUT_MS, |s| s * 1_000);
+            let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
             loop {
                 let nodes = match snapshot_nodes(conn) {
                     Ok(nodes) => nodes,
                     Err(code) => return StepOutcome::Failed(format!("dump failed (exit {code})")),
                 };
-                if let Some(node) = nodes
-                    .iter()
-                    .find(|n| n.label.as_deref().is_some_and(|l| l.contains(substr)))
-                {
+                if let Some(node) = nodes.iter().find(|n| n.label_contains(substr)) {
                     return StepOutcome::Ok(format!(
                         " label {:?} on #{}",
-                        node.label.as_deref().unwrap_or_default(),
+                        node.matching_label(substr).unwrap_or_default(),
                         node.accesskit_id
                     ));
                 }
                 if std::time::Instant::now() >= deadline {
                     return StepOutcome::Failed(format!(
-                        "no label contained {substr:?} within {WAIT_LABEL_TIMEOUT_MS} ms ({} nodes scanned)",
+                        "no label contained {substr:?} within {timeout_ms} ms ({} nodes scanned)",
                         nodes.len()
                     ));
                 }
-                std::thread::sleep(std::time::Duration::from_millis(WAIT_LABEL_POLL_MS));
+                if let Some(node) = poke {
+                    // Best-effort: a missing node just means the page is
+                    // not up yet; the deadline still bounds the wait.
+                    let _ = verb(
+                        conn,
+                        &Command::Click {
+                            node: node.clone(),
+                            window: None,
+                            wait_frame: Some(WAIT_LABEL_POKE_FRAME_MS),
+                        },
+                    );
+                    std::thread::sleep(std::time::Duration::from_millis(WAIT_LABEL_POKE_GAP_MS));
+                } else {
+                    std::thread::sleep(std::time::Duration::from_millis(WAIT_LABEL_POLL_MS));
+                }
             }
         }
         StepOp::AssertNoLabel(substr) => {
@@ -762,13 +778,10 @@ fn run_step(conn: &mut Conn, session: Option<&str>, op: &StepOp) -> StepOutcome 
                 Ok(nodes) => nodes,
                 Err(code) => return StepOutcome::Failed(format!("dump failed (exit {code})")),
             };
-            match nodes
-                .iter()
-                .find(|n| n.label.as_deref().is_some_and(|l| l.contains(substr)))
-            {
+            match nodes.iter().find(|n| n.label_contains(substr)) {
                 Some(node) => StepOutcome::Failed(format!(
                     "label {:?} on #{} contains {substr:?}",
-                    node.label.as_deref().unwrap_or_default(),
+                    node.matching_label(substr).unwrap_or_default(),
                     node.accesskit_id
                 )),
                 None => StepOutcome::Ok(format!(" no label contains {substr:?}")),

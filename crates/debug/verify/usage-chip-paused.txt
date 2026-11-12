@@ -29,10 +29,11 @@ assert-no-label "REST: paused"
 audit
 tab-stops
 
-# The chip opens the Budget view (D13). Arriving this way re-keys the
-# page's ids (audit.txt's walk-order note), so only labels follow.
+# The chip opens the Budget view (D13). The page reads the ledger once on
+# open and the seed may still be ingesting, so the wait pokes the page's
+# Refresh button until the seeded count lands.
 click 15380129928879656113 --wait-frame
-wait-label "requests · as of"
+wait-label "1,071 requests · as of" --timeout 120 --poke 16375317871256541723
 assert-label "Usage view: Budget"
 assert-label "GraphQL points. Exhausted."
 assert-label "GitHub paused GraphQL requests; they resume at the reset"

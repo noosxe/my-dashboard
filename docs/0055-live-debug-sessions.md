@@ -417,9 +417,11 @@ screenshot opened
 ```
 
 Lines: the D6/D7 verbs plus `assert-label <substr>`,
-`assert-no-label <substr>`, `wait-label <substr>` (polls up to 5 s for
-the label; for content that lands after a background read, such as the
-usage page since docs/0082 D11), `assert-focus <accesskit_id>`, `diff <a>
+`assert-no-label <substr>`, `wait-label <substr> [--timeout <secs>] [--poke <accesskit_id>]` (polls up to 5 s, or the given
+1–300 s, for the label, clicking `--poke`'s node each round while it is missing, for a page that reads once on open; for content that lands after a background read,
+such as the usage page since docs/0082 D11, or a popover or list that
+renders a frame after the click — `assert-label` right after an async
+click races it, and `--wait-frame` only proves a frame, not the content), `assert-focus <accesskit_id>`, `diff <a>
 <b>` (prints; `assert-diff-label <a> <b> <substr>` when a receipt
 needs "this label *changed* between snapshots"). `click` and `mouse`
 take the CLI's atomic `--wait-frame[=ms]` (#530): the counter is sampled before
