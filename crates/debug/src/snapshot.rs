@@ -27,9 +27,31 @@ pub struct SnapshotNode {
     pub accesskit_id: String,
     pub role: String,
     pub label: Option<String>,
+    /// The label as the app wrote it, kept only when normalization changed
+    /// it (`Oct 23, 2026` → `MMM D, 2026`). In-memory only: snapshot files,
+    /// goldens and diffs compare the normalized `label`; only the label
+    /// verbs also read this, through [`SnapshotNode::label_contains`].
+    #[serde(skip)]
+    pub raw_label: Option<String>,
     pub bounds: Option<Bounds>,
     pub focusable: bool,
     pub focused: bool,
+}
+
+impl SnapshotNode {
+    /// The label that contains `substr`, raw form first: a receipt may
+    /// assert either the app's own text (`Commits on Oct 23, 2026`) or the
+    /// normalized token form (`as of MMM D, HH:MM`).
+    pub fn matching_label(&self, substr: &str) -> Option<&str> {
+        [self.raw_label.as_deref(), self.label.as_deref()]
+            .into_iter()
+            .flatten()
+            .find(|l| l.contains(substr))
+    }
+
+    pub fn label_contains(&self, substr: &str) -> bool {
+        self.matching_label(substr).is_some()
+    }
 }
 
 /// `snapshots/<name>.json` — written by the CLI, read back by `--diff`.
@@ -63,6 +85,10 @@ impl Snapshot {
                         .unwrap_or("(no role)")
                         .to_string(),
                     label: node["aria"]["label"].as_str().map(normalize_wall_clock),
+                    raw_label: node["aria"]["label"]
+                        .as_str()
+                        .filter(|raw| normalize_wall_clock(raw) != *raw)
+                        .map(str::to_string),
                     bounds: parse_bounds(node.get("bounds")),
                     focusable: node["focusable"].as_bool().unwrap_or(false),
                     focused: node["focused"].as_bool().unwrap_or(false),
@@ -626,6 +652,7 @@ mod tests {
             accesskit_id: id.to_string(),
             role: role.to_string(),
             label: label.map(str::to_string),
+            raw_label: None,
             bounds,
             focusable: true,
             focused: false,
@@ -741,11 +768,45 @@ mod tests {
     }
 
     #[test]
+    fn label_verbs_match_the_raw_or_the_normalized_form() {
+        let dump = serde_json::json!({
+            "frame": {"frame_number": 1},
+            "nodes": {"a": {
+                "accesskit_id": "7",
+                "aria": {"role": "Heading", "label": "Commits on Oct 23, 2026"},
+            }},
+        });
+        let snapshot = Snapshot::from_dump("t", &dump).unwrap();
+        let node = &snapshot.nodes[0];
+        // Goldens and diffs see only the normalized label.
+        assert_eq!(node.label.as_deref(), Some("Commits on MMM D, 2026"));
+        // Raw form matches.
+        assert_eq!(
+            node.matching_label("Commits on Oct 23, 2026"),
+            Some("Commits on Oct 23, 2026")
+        );
+        // Normalized form matches.
+        assert!(node.label_contains("Commits on MMM D, 2026"));
+        // Neither matches.
+        assert!(!node.label_contains("Commits on Oct 22, 2026"));
+        // A label normalization leaves alone keeps no raw twin.
+        let plain = Snapshot::from_dump(
+            "t",
+            &serde_json::json!({"frame": {"frame_number": 1}, "nodes": {"a": {
+                "accesskit_id": "8", "aria": {"role": "Button", "label": "Save"}}}}),
+        )
+        .unwrap();
+        assert_eq!(plain.nodes[0].raw_label, None);
+        assert!(plain.nodes[0].label_contains("Sav"));
+    }
+
+    #[test]
     fn structural_diff_forgives_a_rekey_and_keeps_real_drift() {
         let at = |id: &str, label: &str, y: f32| SnapshotNode {
             accesskit_id: id.to_string(),
             role: "Button".to_string(),
             label: Some(label.to_string()),
+            raw_label: None,
             bounds: Some(Bounds {
                 x: 0.0,
                 y,

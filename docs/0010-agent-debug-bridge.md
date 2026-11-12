@@ -446,6 +446,16 @@ CLI verbs (also receipt-script steps):
   JSON rendering. The newest match wins; the failure names what *was*
   recorded.
 
+Label verbs (`assert-label`, `wait-label`, `assert-no-label`; syntax in
+docs/0055) match a substring against each node's label in **either form**:
+the app's own text (`Commits on Oct 23, 2026`) or the normalized form the
+snapshots and goldens store, where wall-clock times and month-days become
+`HH:MM` / `MMM D,` tokens (docs/0065 D5). A receipt may assert whichever it
+means; a date under the pinned clock is worth asserting as written.
+`assert-no-label` is red if *either* form contains the substring, the
+strict reading of "absent". `assert-diff-label` compares saved snapshots,
+which keep only the normalized label, so it takes the token form.
+
 Nothing records outside fixture mode: only the fixture transport calls
 `write_log::record`, and it is built only in debug builds with
 `DASHBOARD_GITHUB_FIXTURE` set.

@@ -97,7 +97,7 @@ assert-baseline usage-requests
 # The hub golden pins the page beneath the popover too: it re-captured
 # with the Requests view underneath (#696).
 click 3846017331057466934 --wait-frame
-assert-label "Clear all"
+wait-label "Clear all"
 audit
 assert-baseline hub
 
