@@ -213,7 +213,8 @@ field, drafts can't carry replies anyway, and one batch request beats N
 round-trips. Cost: the draft list is session-only page state (0016 D2) —
 closing the page discards it, after a confirm when anything unsent would
 go (0043 D7, #744). A confirmed batch clears only the drafts it carried:
-one queued while the batch was in flight stays for the next (#759). That matches the composer-draft behavior
+one queued while the batch was in flight stays for the next (#759). That
+matches the composer-draft behavior
 everywhere else in the app today (0029 files issue-template/draft
 persistence as gaps, not this doc).
 

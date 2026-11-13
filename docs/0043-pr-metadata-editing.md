@@ -232,7 +232,7 @@ with **Discard** and **Keep editing**; Esc on the confirm is Keep
 editing. The same confirm guards the repo crumb and the module crumb.
 Navigation the shell commits before the module hears of it (a sidebar
 jump to another module, history Back/Forward) and sign-out cannot ask
-first and drop the drafts. The drafts stay session-only; persisting them
+first and drop the drafts (tracked in #841). The drafts stay session-only; persisting them
 is #281's scope.
 
 ### D8 — ids, roles, probe keys (0010 D10)
