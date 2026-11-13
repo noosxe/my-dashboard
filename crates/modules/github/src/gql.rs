@@ -698,6 +698,7 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
       headRefOid
       url
       createdAt
+      updatedAt
       author { login avatarUrl }
       viewerCanUpdate
       # docs/0067 D2 — the update-branch gate: false when the head ref
@@ -875,6 +876,10 @@ pub struct PrDetail {
     pub head_oid: Option<String>,
     pub url: String,
     pub created_at: Option<String>,
+    /// `updatedAt` — the header's "updated" age (#764). Absent in
+    /// payloads persisted before the field existed.
+    #[serde(default)]
+    pub updated_at: Option<String>,
     pub author: Option<Author>,
     pub commits: PrCommits,
     pub checks: PrChecks,
@@ -2201,6 +2206,7 @@ pub fn pr_detail_from_value(value: &serde_json::Value) -> Option<PrDetail> {
         head_oid: str_field("headRefOid"),
         url: str_field("url").unwrap_or_default(),
         created_at: str_field("createdAt"),
+        updated_at: str_field("updatedAt"),
         author: author_from_value(pr.get("author")),
         commits: PrCommits {
             total_count: commits_total,
