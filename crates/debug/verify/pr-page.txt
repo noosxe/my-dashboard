@@ -171,11 +171,11 @@ wait-label "PR #108: Loader: a PR that fails its detail read"
 # 107: pending review, ghost author, duplicate check names.
 mouse down 900 564
 mouse up 900 564
-wait-label "Conversation (4)"
+wait-label "Conversation (3)"
 assert-label "#107"
 assert-label "Merge pull request"
 assert-label "Close pull request"
-assert-label "Delete"
+assert-no-label "Delete"
 # Merge and Close confirm before they send (#738): each opens an inline
 # confirm that names what it will do, Esc and Cancel back out, and the
 # buttons come back. Only backing out is walked here; the confirming

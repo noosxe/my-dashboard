@@ -762,13 +762,15 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
           }
         }
       }
-      reviews(first: 100) {
+      # #742: `last` — the newest 100 (still ascending), so a long PR cuts
+      # its oldest items and the cap row reads as "older".
+      reviews(last: 100) {
         totalCount
         # 0019 D2: node id + viewer gates + updatedAt per node — the
         # edit/delete affordances and the (edited) marker live off these.
         nodes { id viewerCanUpdate viewerCanDelete updatedAt author { login avatarUrl } state body submittedAt viewerCanReact reactionGroups { content viewerHasReacted reactors { totalCount } } }
       }
-      comments(first: 100) {
+      comments(last: 100) {
         totalCount
         # docs/0026 D9: databaseId rides too — the REST id the notification
         # hand-off anchors its jump on (same field the issue query selects).
@@ -3356,6 +3358,9 @@ pub struct PrThread {
     pub viewer_can_unresolve: bool,
     /// Authored order preserved.
     pub comments: Vec<PrThreadComment>,
+    /// The server's comment count; above `comments.len()` the query's
+    /// `first: 100` cut some (#745).
+    pub comments_total: i64,
 }
 
 /// One comment inside a thread (docs/0030 D3). The `url` permalink backs
@@ -3416,6 +3421,10 @@ fn thread_from_node(n: &serde_json::Value) -> Option<PrThread> {
         .and_then(|c| c.as_array())
         .map(|nodes| nodes.iter().filter_map(thread_comment_from_node).collect())
         .unwrap_or_default();
+    let comments_total = n
+        .pointer("/comments/totalCount")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
     Some(PrThread {
         id,
         path,
@@ -3451,6 +3460,7 @@ fn thread_from_node(n: &serde_json::Value) -> Option<PrThread> {
             .and_then(|v| v.as_bool())
             .unwrap_or(false),
         comments,
+        comments_total,
     })
 }
 

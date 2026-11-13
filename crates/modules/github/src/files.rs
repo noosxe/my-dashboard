@@ -36,6 +36,7 @@ use gpui_component::{
 use crate::api::PrFile;
 use crate::gql::{DiffSide, PrThread, ThreadSubject};
 use crate::markdown;
+use crate::pr_page::threads_cap;
 use crate::pr_page::{
     ErrorScope, FinishEvent, PrDetailPage, ResolutionReason, delete_confirm_card, inline_edit_card,
     review_batch_allowed, row_is_edited,
@@ -509,6 +510,7 @@ fn diff_pane(
         // growing inline annotation has no re-measure trigger.
         .children(line_composer_card(page_h, page, cx))
         .children(threads_fetch_row(page, cx))
+        .children(crate::pr_page::threads_cap::pane_cap_row(page, cx))
         // 0030 D4: the Finish-review bar — sticky under the diff while
         // drafts exist (outside the scroll).
         .children(finish_review_bar(page, cx))
@@ -1333,6 +1335,19 @@ fn thread_card(
                 .enumerate()
                 .map(|(m, c)| thread_comment(page, page_h, window, ix, m, c, cx)),
         )
+        .when_some(
+            permalink
+                .clone()
+                .filter(|_| threads_cap::hidden_thread_comments(t) > 0),
+            |card, url| {
+                card.child(threads_cap::threads_cap_row(
+                    format!("pr-thread-{ix}-more"),
+                    threads_cap::comments_row_label(threads_cap::hidden_thread_comments(t)),
+                    &url,
+                    cx,
+                ))
+            },
+        )
         .when_some(permalink, |row, url| {
             row.child(
                 Button::new(SharedString::from(format!("pr-thread-{ix}-open")))
@@ -1995,6 +2010,7 @@ mod tests {
                 viewer_can_delete: false,
                 viewer_did_author: false,
             }],
+            comments_total: 1,
         }
     }
 

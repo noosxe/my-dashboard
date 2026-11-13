@@ -38,6 +38,9 @@ GATED_FORK_RUN = 7001
 GATED_ENV_RUN = 7002
 GATED_ONLY_PR = 109
 GATED_ONLY_RUNS = (7003, 7004)
+# The threads read is capped (130 threads, one with 130 comments) / fails.
+THREADS_CAPPED_PR = 110
+THREADS_ERROR_PR = 111
 
 BODY = """## Summary
 
@@ -362,7 +365,9 @@ class Timeline:
                 ]
             ),
             comments=conn(
-                [self.comment(i + 1, "octo-dev", f"Comment {i}", 80 - i * 0.5) for i in range(100)],
+                # The newest 100 of 240 (`last: 100`, ascending): the 140
+                # older ones are the cap row's count.
+                [self.comment(i + 1, "octo-dev", f"Comment {140 + i}", 80 - i * 0.5) for i in range(100)],
                 240,
             ),
         )
@@ -460,6 +465,18 @@ class Timeline:
                 "pr": self.pull_request(
                     GATED_ONLY_PR,
                     "CI: a fork PR whose only runs wait for approval",
+                ),
+            },
+            THREADS_CAPPED_PR: {
+                "pr": self.pull_request(
+                    THREADS_CAPPED_PR,
+                    "Review: more threads than one read carries",
+                ),
+            },
+            THREADS_ERROR_PR: {
+                "pr": self.pull_request(
+                    THREADS_ERROR_PR,
+                    "Review: the threads read answers with an error",
                 ),
             },
         }
@@ -680,7 +697,7 @@ def write_pr_scenarios(write, now, iso):
     rows = [
         lane_row(scenario["pr"], line.ago(1 + i))
         for i, scenario in enumerate(scenarios.values())
-        if scenario["pr"]["number"] != GATED_ONLY_PR
+        if scenario["pr"]["number"] not in (GATED_ONLY_PR, THREADS_CAPPED_PR, THREADS_ERROR_PR)
     ]
     error_row = lane_row(
         line.pull_request(missing, "Loader: a PR that fails its detail read"), line.ago(9)
@@ -688,6 +705,8 @@ def write_pr_scenarios(write, now, iso):
     rows.append(error_row)
     # Last, so the rows above keep the positions the receipts click.
     rows.append(lane_row(scenarios[GATED_ONLY_PR]["pr"], line.ago(10)))
+    rows.append(lane_row(scenarios[THREADS_CAPPED_PR]["pr"], line.ago(11)))
+    rows.append(lane_row(scenarios[THREADS_ERROR_PR]["pr"], line.ago(12)))
     write(
         f"graphql/RepoPulls.{REPO}.json",
         {
@@ -712,6 +731,19 @@ def write_pr_scenarios(write, now, iso):
 
     write("graphql/PrThreads.json", threads(0, []))
     write("graphql/PrThreads.101.json", threads(101, line.populated_threads()))
+
+    # #745: 130 threads upstream, the read carries the first 100 (two
+    # here); the first thread has 130 comments, one carried.
+    capped = line.populated_threads()[:2]
+    capped[0]["comments"]["totalCount"] = 130
+    capped_body = threads(THREADS_CAPPED_PR, capped)
+    capped_body["data"]["repository"]["pullRequest"]["reviewThreads"]["totalCount"] = 130
+    write(f"graphql/PrThreads.{THREADS_CAPPED_PR}.json", capped_body)
+    # A 200 with `data: null` and errors, like a rate limit or SAML wall.
+    write(
+        f"graphql/PrThreads.{THREADS_ERROR_PR}.json",
+        {"data": None, "errors": [{"message": "API rate limit exceeded for user"}]},
+    )
 
     # The sweep's rows are filtered by head SHA client-side, so one file
     # serves every PR and only the populated one shows them. The gate

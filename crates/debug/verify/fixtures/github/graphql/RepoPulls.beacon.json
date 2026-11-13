@@ -364,9 +364,53 @@
       "title": "CI: a fork PR whose only runs wait for approval",
       "updatedAt": "2026-10-23T02:00:00Z",
       "url": "https://github.com/fixture-user/beacon/pull/109"
+     },
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/octo-dev",
+       "login": "octo-dev"
+      },
+      "databaseId": 50110,
+      "isDraft": false,
+      "labels": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "number": 110,
+      "reviewRequests": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "state": "OPEN",
+      "statusCheckRollup": null,
+      "title": "Review: more threads than one read carries",
+      "updatedAt": "2026-10-23T01:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/pull/110"
+     },
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/octo-dev",
+       "login": "octo-dev"
+      },
+      "databaseId": 50111,
+      "isDraft": false,
+      "labels": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "number": 111,
+      "reviewRequests": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "state": "OPEN",
+      "statusCheckRollup": null,
+      "title": "Review: the threads read answers with an error",
+      "updatedAt": "2026-10-23T00:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/pull/111"
      }
     ],
-    "totalCount": 9
+    "totalCount": 11
    },
    "pushedAt": "2026-10-23T12:00:00Z"
   }

@@ -443,3 +443,24 @@ design text:
 - **Tests**: `normalize_range`/`start_fields` tables, range round-trips
   (single + batch), placement table (inside / partial / inverted /
   missing spans), and a probe (extend → draft lands on the end row).
+
+### Follow-up — failed reads and caps (#745)
+
+- **An errors-only 200 fails the read.** A 200 whose `data` is null (or
+  whose `pullRequest` is null) with a non-empty `errors` list — rate
+  limit, SAML wall, a transient fault — calls `threads.fail(...)`
+  ("GitHub error: <first message>"). The last good threads stay on the
+  diff and the retry row shows the error, like the page's other reads.
+  Only a null node *without* errors still degrades to an empty set (D1).
+  An empty or malformed body fails the same way
+  (`pr_page/threads_read.rs`).
+- **Cap rows.** The 100/100 caps are no longer silent: when
+  `reviewThreads.totalCount` exceeds the threads carried, a muted
+  "+N more review threads on github.com" row (id `pr-threads-more`)
+  follows the diff; when a thread's `comments.totalCount` exceeds its
+  comments, "+N more comments on github.com" closes that card (id
+  `pr-thread-{i}-more`). Both open the thread/PR upstream
+  (`pr_page/threads_cap.rs`).
+- **Server-PENDING reviews on the conversation** are D4's counterpart:
+  one started on github.com is shown as a notice, not a timeline row
+  (docs/0016 §14).

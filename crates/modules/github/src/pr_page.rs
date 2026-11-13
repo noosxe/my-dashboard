@@ -58,6 +58,7 @@ pub(crate) const ANCHOR_FADE: Duration = Duration::from_secs(3);
 
 mod catch_up;
 pub(crate) mod checks;
+mod conversation_window;
 mod detail_read;
 mod files_etag;
 mod gate_decision;
@@ -65,6 +66,8 @@ pub(crate) mod leave_guard;
 mod merge_confirm;
 mod merge_gate;
 mod review_drafts;
+pub(crate) mod threads_cap;
+pub(crate) mod threads_read;
 mod write_refetch;
 
 use checks::identity::{CheckKey, CheckTarget};
@@ -2226,21 +2229,10 @@ impl PrDetailPage {
             });
             self.threads.fail(format!("GitHub answered HTTP {status}"));
         } else if !self.discard_outdated_threads() {
-            let parsed = result.body.as_deref().and_then(|body| {
-                serde_json::from_str::<gql::Envelope<gql::PrThreadsData>>(body)
-                    .ok()
-                    .and_then(|env| {
-                        for e in &env.errors {
-                            log::warn!("pr-threads: {}", e.message);
-                        }
-                        env.data
-                            .and_then(|d| d.repository)
-                            .as_ref()
-                            .and_then(gql::pr_threads_from_value)
-                    })
-            });
-            match parsed {
-                Some(t) => {
+            // #745: an errors-only 200 fails the read and keeps the last
+            // good threads (`Fetch::fail` holds landed data).
+            match threads_read::threads_outcome(result.body.as_deref()) {
+                Ok(t) => {
                     log::info!(
                         "pr-threads applied: {}#{} — {} threads",
                         self.repo,
@@ -2250,13 +2242,7 @@ impl PrDetailPage {
                     self.threads.land(t);
                     self.extend_threads_md();
                 }
-                None => {
-                    // A null repository/pullRequest node on an open PR is
-                    // bizarre — degrade to an empty set so the diff pane
-                    // keeps working (docs/0030 D1).
-                    log::warn!("pr-threads: repository/pullRequest null — empty set");
-                    self.threads.land(gql::PrThreads::default());
-                }
+                Err(message) => self.threads.fail(message),
             }
         }
         self.rerun_outdated_reads(cx);
@@ -4384,7 +4370,7 @@ impl PrDetailPage {
             Some(d) => vec![
                 tab_label(
                     "Conversation",
-                    Some(d.comments.total_count + d.reviews.total_count),
+                    Some(conversation_window::conversation_count(d)),
                 ),
                 tab_label("Commits", Some(d.commits.total_count)),
                 // The contexts connection's server-side count (D7) plus
@@ -4835,7 +4821,15 @@ impl PrDetailPage {
             }
         };
         let mut children = vec![description];
-        for (kind, ix) in timeline_order(&d.comments.nodes, &d.reviews.nodes) {
+        // #742: the query holds the newest 100 of each, so what it cut is
+        // older — the cap row leads the timeline.
+        let hidden = conversation_window::hidden_older(d);
+        if hidden > 0 {
+            children.push(conversation_window::older_cap_row(hidden, &d.url, cx));
+        }
+        let entries = conversation_window::visible_timeline(&d.comments.nodes, &d.reviews.nodes);
+        let none_shown = entries.is_empty();
+        for (kind, ix) in entries {
             match kind {
                 TimelineKind::Comment => {
                     let c = &d.comments.nodes[ix];
@@ -4987,17 +4981,11 @@ impl PrDetailPage {
                 }
             }
         }
-        // #123: both connections cap at first: 100 — hidden rows surface
-        // as the shared cap row (disjoint sets, so the sum is the honest
-        // hidden count; 0021 D3).
-        let missing = (d.comments.total_count - d.comments.nodes.len() as i64).max(0)
-            + (d.reviews.total_count - d.reviews.nodes.len() as i64).max(0);
-        if missing > 0 {
-            children.push(cap_row("pr-comments-more", missing, &d.url, cx));
-        }
-        if d.comments.nodes.is_empty() && d.reviews.nodes.is_empty() {
+        if none_shown {
             children.push(empty_state("No conversation yet", cx).into_any_element());
         }
+        // #746: the viewer's pending review reads as a notice, not a row.
+        children.extend(self.render_pending_review_notice(d, cx));
         children.push(self.render_comment_box(cx));
         // D4/D5: the timeline scrolls; the rail (merge/close panel + checks
         // mini-summary) stands beside it.
@@ -7983,6 +7971,7 @@ mod tests {
                 viewer_can_delete: false,
                 viewer_did_author: false,
             }],
+            comments_total: 1,
         }
     }
 
