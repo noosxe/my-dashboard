@@ -41,6 +41,7 @@ GATED_ONLY_RUNS = (7003, 7004)
 # The threads read is capped (130 threads, one with 130 comments) / fails.
 THREADS_CAPPED_PR = 110
 THREADS_ERROR_PR = 111
+FILES_NOTICES_PR = 112
 
 BODY = """## Summary
 
@@ -75,6 +76,12 @@ TEST_PATCH = """@@ -0,0 +1,4 @@
 DOCS_PATCH = """@@ -1,2 +1 @@
 -Lists reject a trailing comma.
  Comments start with a hash."""
+
+
+# A hunk header that does not parse (#753).
+MALFORMED_PATCH = """@@ -x,y +z @@
++let broken = true;
+"""
 
 
 def oid(number):
@@ -479,6 +486,16 @@ class Timeline:
                     "Review: the threads read answers with an error",
                 ),
             },
+            # #753/#760: the Files tab's undrawable diffs and a thread
+            # on a path no longer in the list.
+            FILES_NOTICES_PR: {
+                "pr": self.pull_request(
+                    FILES_NOTICES_PR,
+                    "Files: diffs that can't be drawn",
+                    changedFiles=4,
+                    files={"totalCount": 4},
+                ),
+            },
         }
 
     def thread(self, i, path, line, hours, body, **over):
@@ -598,6 +615,16 @@ def changed_files(count):
     return files[:count]
 
 
+def notice_files():
+    """#753: one file per notice, and one that draws."""
+    return [
+        file_entry("crates/manifest/src/lexer.rs", "modified", 1, 0, MALFORMED_PATCH),
+        file_entry("crates/manifest/src/generated.rs", "modified", 5000, 4000),
+        file_entry("assets/manifest-diagram.png", "added", 0, 0),
+        file_entry("crates/manifest/tests/trailing.rs", "added", 4, 0, TEST_PATCH),
+    ]
+
+
 def repo_node(iso, now):
     return {
         "databaseId": 2001,
@@ -670,7 +697,7 @@ def write_pr_scenarios(write, now, iso):
         # files nests: the first request (and every later one) gets it.
         write(
             f"rest/repos_{OWNER}_{REPO}_pulls_{number}_files.json",
-            [changed_files(pr["changedFiles"])],
+            [notice_files() if number == FILES_NOTICES_PR else changed_files(pr["changedFiles"])],
         )
         write(
             f"rest/repos_{OWNER}_{REPO}_commits_{pr['headRefOid']}_check-suites.json",
@@ -697,7 +724,7 @@ def write_pr_scenarios(write, now, iso):
     rows = [
         lane_row(scenario["pr"], line.ago(1 + i))
         for i, scenario in enumerate(scenarios.values())
-        if scenario["pr"]["number"] not in (GATED_ONLY_PR, THREADS_CAPPED_PR, THREADS_ERROR_PR)
+        if scenario["pr"]["number"] not in (GATED_ONLY_PR, THREADS_CAPPED_PR, THREADS_ERROR_PR, FILES_NOTICES_PR)
     ]
     error_row = lane_row(
         line.pull_request(missing, "Loader: a PR that fails its detail read"), line.ago(9)
@@ -707,6 +734,7 @@ def write_pr_scenarios(write, now, iso):
     rows.append(lane_row(scenarios[GATED_ONLY_PR]["pr"], line.ago(10)))
     rows.append(lane_row(scenarios[THREADS_CAPPED_PR]["pr"], line.ago(11)))
     rows.append(lane_row(scenarios[THREADS_ERROR_PR]["pr"], line.ago(12)))
+    rows.append(lane_row(scenarios[FILES_NOTICES_PR]["pr"], line.ago(13)))
     write(
         f"graphql/RepoPulls.{REPO}.json",
         {
@@ -739,6 +767,30 @@ def write_pr_scenarios(write, now, iso):
     capped_body = threads(THREADS_CAPPED_PR, capped)
     capped_body["data"]["repository"]["pullRequest"]["reviewThreads"]["totalCount"] = 130
     write(f"graphql/PrThreads.{THREADS_CAPPED_PR}.json", capped_body)
+    # #760: one thread on a path the list no longer has, one on the
+    # binary file (a notice, no diff), one resolved on the file that
+    # draws — two unresolved.
+    write(
+        f"graphql/PrThreads.{FILES_NOTICES_PR}.json",
+        threads(
+            FILES_NOTICES_PR,
+            [
+                line.thread(1, "crates/manifest/src/old_name.rs", 7, 40, "Moved in the force-push."),
+                line.thread(2, "assets/manifest-diagram.png", None, 39, "Is this the final diagram?", subjectType="FILE"),
+                line.thread(
+                    3,
+                    "crates/manifest/tests/trailing.rs",
+                    2,
+                    38,
+                    "Looks right.",
+                    isResolved=True,
+                    resolvedBy={"login": OWNER},
+                    viewerCanResolve=False,
+                    viewerCanUnresolve=True,
+                ),
+            ],
+        ),
+    )
     # A 200 with `data: null` and errors, like a rate limit or SAML wall.
     write(
         f"graphql/PrThreads.{THREADS_ERROR_PR}.json",

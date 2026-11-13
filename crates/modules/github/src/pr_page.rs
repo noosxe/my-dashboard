@@ -60,6 +60,8 @@ mod catch_up;
 pub(crate) mod checks;
 mod conversation_window;
 mod detail_read;
+mod diff_anchor;
+pub(crate) mod diff_notice;
 mod files_etag;
 mod gate_decision;
 mod head_change;
@@ -73,6 +75,8 @@ mod review_drafts;
 mod test_rig;
 pub(crate) mod threads_cap;
 pub(crate) mod threads_read;
+pub(crate) mod unplaced_threads;
+pub(crate) mod unresolved_count;
 mod write_refetch;
 
 use checks::identity::{CheckKey, CheckTarget};
@@ -661,6 +665,11 @@ pub(crate) struct PrDetailPage {
     /// built from — an unchanged refresh is a no-op (docs/0052, 0041 §7).
     pub(crate) diff: Entity<DiffState>,
     diff_key: Option<(SharedString, u64)>,
+    /// Why the selected file's diff isn't drawn, if it isn't (#753).
+    pub(crate) diff_notice: Option<diff_notice::DiffNotice>,
+    /// The last line the pointer was over — restores scroll after a
+    /// changed patch swaps in (#762).
+    pub(crate) diff_anchor: diff_anchor::DiffAnchor,
     /// Bumped on reply-box changes: thread annotations carry `-r{rev}` ids
     /// so the annotation *set* differs and upstream re-measures the grown
     /// row (docs/0070 D5 — upstream has no public re-measure API).
@@ -885,6 +894,8 @@ impl PrDetailPage {
             check_watch_gen: 0,
             diff: cx.new(|cx| DiffState::new(Vec::new(), cx).with_inline_unit(None)),
             diff_key: None,
+            diff_notice: None,
+            diff_anchor: diff_anchor::DiffAnchor::default(),
             reply_rev: 0,
             gated: Fetch::new(),
             gate_decisions: Default::default(),
@@ -2116,6 +2127,8 @@ impl PrDetailPage {
                 .iter()
                 .find(|f| Some(f.filename.as_ref()) == selected.as_deref())
         }) else {
+            self.diff_notice = None;
+            self.diff_anchor.clear();
             if self.diff_key.take().is_some() {
                 self.diff
                     .update(cx, |state, cx| state.set_files(Vec::new(), cx));
@@ -2129,14 +2142,22 @@ impl PrDetailPage {
         if self.diff_key.as_ref() == Some(&key) {
             return;
         }
+        let same_file = self.diff_key.as_ref().is_some_and(|(p, _)| *p == key.0);
         // One file at a time (0018's single-file pane): the sidebar picks,
-        // the state holds exactly that file's parse.
-        let docs = crate::files::parse_pr_file(file);
+        // the state holds exactly that file's parse. A file whose diff
+        // can't be drawn holds nothing; the pane shows its notice (#753).
+        let parsed = crate::files::parse_pr_file(file);
+        self.diff_notice = diff_notice::classify(file, &parsed);
+        let docs = match self.diff_notice {
+            None => parsed.unwrap_or_default(),
+            Some(_) => Vec::new(),
+        };
         #[cfg(test)]
         crate::files::SYNC_DIFF_SWAPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let anchor = self.diff_anchor.clone();
         self.diff.update(cx, |state, cx| {
             state.set_files(docs, cx);
-            state.scroll_to_file(&key.0, cx);
+            anchor.restore(state, &key.0, same_file, cx);
         });
         self.diff_key = Some(key);
     }
@@ -4472,12 +4493,17 @@ impl PrDetailPage {
             .into_any_element()
     }
 
-    fn render_tab_content(&self, detail: Option<&gql::PrDetail>, cx: &Context<Self>) -> AnyElement {
+    fn render_tab_content(
+        &self,
+        detail: Option<&gql::PrDetail>,
+        window: &mut Window,
+        cx: &Context<Self>,
+    ) -> AnyElement {
         match self.tab {
             PrTab::Conversation => self.render_conversation(detail, cx),
             PrTab::Commits => self.render_commits(detail, cx),
             PrTab::Checks => self.render_checks(detail, cx),
-            PrTab::Files => render_files(&cx.entity(), self, cx),
+            PrTab::Files => render_files(&cx.entity(), self, window, cx),
         }
     }
 
@@ -6110,7 +6136,7 @@ impl Render for PrDetailPage {
             .child(self.render_header(detail, cx))
             .child(self.render_tabs(detail, cx))
             .children(self.render_leave_confirm(cx))
-            .child(self.render_tab_content(detail, cx))
+            .child(self.render_tab_content(detail, window, cx))
     }
 }
 
@@ -7217,6 +7243,7 @@ pub(crate) fn cap_row(id: &'static str, missing: i64, url: &str, cx: &App) -> An
 fn render_files(
     page_h: &Entity<PrDetailPage>,
     page: &PrDetailPage,
+    window: &mut Window,
     cx: &Context<PrDetailPage>,
 ) -> AnyElement {
     // Zero UX drift from the pre-0031 shape: an error row (with retry)
@@ -7251,7 +7278,7 @@ fn render_files(
     }
     match page.files.data() {
         Some(files) if files.is_empty() => empty_cell("No file changes", cx),
-        Some(files) => files::render_split(page_h, page, files, cx),
+        Some(files) => files::render_split(page_h, page, files, window, cx),
         None => skeleton_list(),
     }
 }
@@ -8055,7 +8082,7 @@ mod tests {
             changes: 2,
             patch: Some("@@ -1,1 +1,1 @@\n-old\n+new".into()),
         };
-        let files = parse_pr_file(&modified);
+        let files = parse_pr_file(&modified).unwrap();
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].path().as_ref(), "src/main.rs");
         assert_eq!(files[0].additions(), 1);
@@ -8068,7 +8095,7 @@ mod tests {
             changes: 1,
             patch: Some("@@ -0,0 +1,1 @@\n+hi".into()),
         };
-        let files = parse_pr_file(&added);
+        let files = parse_pr_file(&added).unwrap();
         assert_eq!(files[0].path().as_ref(), "new.txt");
         assert_eq!(files[0].additions(), 1);
         // Binary / mode-only files arrive without a patch: header-only
@@ -8081,7 +8108,7 @@ mod tests {
             changes: 0,
             patch: None,
         };
-        let files = parse_pr_file(&bare);
+        let files = parse_pr_file(&bare).unwrap();
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].additions(), 0);
     }

@@ -1,0 +1,119 @@
+{
+ "data": {
+  "rateLimit": null,
+  "repository": {
+   "pullRequest": {
+    "id": "PR_112",
+    "reviewThreads": {
+     "nodes": [
+      {
+       "comments": {
+        "nodes": [
+         {
+          "author": {
+           "avatarUrl": "https://avatars.invalid/reviewer-b",
+           "login": "reviewer-b"
+          },
+          "body": "Moved in the force-push.",
+          "createdAt": "2026-10-21T20:00:00Z",
+          "id": "PRRC_1",
+          "lastEditedAt": null,
+          "updatedAt": "2026-10-21T20:00:00Z",
+          "url": "https://github.com/fixture-user/beacon/pull/101#discussion_r1",
+          "viewerCanDelete": false,
+          "viewerCanUpdate": false,
+          "viewerDidAuthor": false
+         }
+        ],
+        "totalCount": 1
+       },
+       "diffSide": "RIGHT",
+       "id": "PRRT_1",
+       "isOutdated": false,
+       "isResolved": false,
+       "line": 7,
+       "path": "crates/manifest/src/old_name.rs",
+       "resolvedBy": null,
+       "startLine": null,
+       "subjectType": "LINE",
+       "viewerCanReply": true,
+       "viewerCanResolve": true,
+       "viewerCanUnresolve": false
+      },
+      {
+       "comments": {
+        "nodes": [
+         {
+          "author": {
+           "avatarUrl": "https://avatars.invalid/reviewer-b",
+           "login": "reviewer-b"
+          },
+          "body": "Is this the final diagram?",
+          "createdAt": "2026-10-21T21:00:00Z",
+          "id": "PRRC_2",
+          "lastEditedAt": null,
+          "updatedAt": "2026-10-21T21:00:00Z",
+          "url": "https://github.com/fixture-user/beacon/pull/101#discussion_r2",
+          "viewerCanDelete": false,
+          "viewerCanUpdate": false,
+          "viewerDidAuthor": false
+         }
+        ],
+        "totalCount": 1
+       },
+       "diffSide": "RIGHT",
+       "id": "PRRT_2",
+       "isOutdated": false,
+       "isResolved": false,
+       "line": null,
+       "path": "assets/manifest-diagram.png",
+       "resolvedBy": null,
+       "startLine": null,
+       "subjectType": "FILE",
+       "viewerCanReply": true,
+       "viewerCanResolve": true,
+       "viewerCanUnresolve": false
+      },
+      {
+       "comments": {
+        "nodes": [
+         {
+          "author": {
+           "avatarUrl": "https://avatars.invalid/reviewer-b",
+           "login": "reviewer-b"
+          },
+          "body": "Looks right.",
+          "createdAt": "2026-10-21T22:00:00Z",
+          "id": "PRRC_3",
+          "lastEditedAt": null,
+          "updatedAt": "2026-10-21T22:00:00Z",
+          "url": "https://github.com/fixture-user/beacon/pull/101#discussion_r3",
+          "viewerCanDelete": false,
+          "viewerCanUpdate": false,
+          "viewerDidAuthor": false
+         }
+        ],
+        "totalCount": 1
+       },
+       "diffSide": "RIGHT",
+       "id": "PRRT_3",
+       "isOutdated": false,
+       "isResolved": true,
+       "line": 2,
+       "path": "crates/manifest/tests/trailing.rs",
+       "resolvedBy": {
+        "login": "fixture-user"
+       },
+       "startLine": null,
+       "subjectType": "LINE",
+       "viewerCanReply": true,
+       "viewerCanResolve": false,
+       "viewerCanUnresolve": true
+      }
+     ],
+     "totalCount": 3
+    }
+   }
+  }
+ }
+}

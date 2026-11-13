@@ -841,6 +841,7 @@ adds a debug-build-only fixture mode:
   | 109 | Open with no rollup and two fork-gated runs: the only CI is waiting for approval (#783) |
   | 110 | Capped threads: 130 threads upstream with two carried, the first with 130 comments and one carried (#745) |
   | 111 | The threads read answers 200 with `data: null` and an error (#745) |
+| 112 | Files-tab notices: a malformed patch, an oversized file (no patch, 9,000 changed lines), a binary file and one that draws; threads on a path outside the list and on the binary file, two unresolved (#753, #760). Its lane row is last, below the fold at 800 high — `pr-files-notices.txt` runs at 1280x900 |
 
   **The selector is the request itself.** A GraphQL request with a
   `$number` variable first looks for `graphql/<Operation>.<number>.json`,

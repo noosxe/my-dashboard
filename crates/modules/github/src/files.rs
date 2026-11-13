@@ -261,8 +261,11 @@ pub(crate) fn render_split(
     page_h: &Entity<PrDetailPage>,
     page: &PrDetailPage,
     files: &[PrFile],
+    window: &mut Window,
     cx: &Context<PrDetailPage>,
 ) -> AnyElement {
+    // Built before the layout chain so the pane can borrow `window`.
+    let pane = diff_pane(page_h, page, files, window, cx);
     h_flex()
         .id("pr-files-split")
         // Test-only layout anchor (noop outside `cargo test`): the
@@ -285,7 +288,7 @@ pub(crate) fn render_split(
                         .size_range(px(FILES_SIDEBAR_MIN)..px(FILES_SIDEBAR_MAX))
                         .child(sidebar(page, files, cx)),
                 )
-                .child(resizable_panel().child(diff_pane(page_h, page, files, cx)))
+                .child(resizable_panel().child(pane))
                 .on_resize(|state, _, cx| {
                     let Some(width) = state.read(cx).sizes().first().copied() else {
                         return;
@@ -304,6 +307,7 @@ fn sidebar(page: &PrDetailPage, files: &[PrFile], cx: &Context<PrDetailPage>) ->
         .map(|f| (f.additions, f.deletions))
         .fold((0, 0), |(a, d), (fa, fd)| (a + fa, d + fd));
     let summary = files_summary(files.len(), adds, dels);
+    let unresolved = crate::pr_page::unresolved_count::label(page.threads.data());
     v_flex()
         .id("pr-files-sidebar")
         .debug_selector(|| "files-sidebar".into())
@@ -316,14 +320,28 @@ fn sidebar(page: &PrDetailPage, files: &[PrFile], cx: &Context<PrDetailPage>) ->
         .gap_2()
         .child(
             div().debug_selector(|| "files-summary-wrap".into()).child(
-                h_flex().px_1().gap_2().text_sm().child(
-                    h_flex()
-                        .gap_1()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(format!("{} files changed", summary.files))
-                        .child(format!("· +{}", summary.adds))
-                        .child(format!("−{}", summary.dels)),
-                ),
+                v_flex()
+                    .px_1()
+                    .text_sm()
+                    .child(
+                        h_flex()
+                            .gap_1()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(format!("{} files changed", summary.files))
+                            .child(format!("· +{}", summary.adds))
+                            .child(format!("−{}", summary.dels)),
+                    )
+                    // #760: the open-review count, hidden at zero.
+                    .children(unresolved.map(|text| {
+                        div()
+                            .id("pr-files-unresolved")
+                            .debug_selector(|| "files-unresolved".into())
+                            .role(accesskit::Role::Label)
+                            .aria_label(text.clone())
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(text)
+                    })),
             ),
         )
         .child(
@@ -485,6 +503,7 @@ fn diff_pane(
     page_h: &Entity<PrDetailPage>,
     page: &PrDetailPage,
     files: &[PrFile],
+    window: &mut Window,
     cx: &Context<PrDetailPage>,
 ) -> AnyElement {
     let selected = selected_file_path(page, cx);
@@ -492,9 +511,28 @@ fn diff_pane(
         .as_ref()
         .and_then(|path| files.iter().find(|f| f.filename.as_str() == path.as_ref()));
     let Some(file) = file else {
-        return empty_pane(cx);
+        return v_flex()
+            .flex_1()
+            .min_w_0()
+            .min_h_0()
+            .self_stretch()
+            .child(empty_pane(cx))
+            .children(crate::pr_page::unplaced_threads::render(
+                page, page_h, window, files, None, cx,
+            ))
+            .into_any_element();
     };
     let rows = anchor_patch(file.patch.as_deref().unwrap_or_default());
+    let body = match page.diff_notice {
+        Some(notice) => crate::pr_page::diff_notice::render(
+            page,
+            file,
+            notice,
+            file_status_badge(&file.status, cx),
+            cx,
+        ),
+        None => diff_element(page_h, page, file, &rows),
+    };
     v_flex()
         .id("pr-file-diff")
         .debug_selector(|| "pr-diff-pane-key".into())
@@ -504,10 +542,18 @@ fn diff_pane(
         .self_stretch()
         .min_h_0()
         .children(files_error_row(page, cx))
-        .child(diff_element(page_h, page, file, &rows))
+        .child(body)
         // Pane-level review chrome (docs/0070 D5): the composer lives
         // outside the Diff's list — its textarea grows while typing, and a
         // growing inline annotation has no re-measure trigger.
+        .children(crate::pr_page::unplaced_threads::render(
+            page,
+            page_h,
+            window,
+            files,
+            page.diff_notice.map(|_| file.filename.as_str()),
+            cx,
+        ))
         .children(line_composer_card(page_h, page, cx))
         .children(threads_fetch_row(page, cx))
         .children(crate::pr_page::threads_cap::pane_cap_row(page, cx))
@@ -534,7 +580,11 @@ fn diff_element(
     let page_h = page_h.clone();
     let page_h_add = page_h.clone();
     let rows: std::sync::Arc<[AnchoredLine]> = rows.iter().cloned().collect();
+    let anchor_hover = page.diff_anchor.clone();
+    let anchor_click = page.diff_anchor.clone();
     Diff::new(&page.diff)
+        .on_line_hover(move |position, _, _| anchor_hover.note(position))
+        .on_line_click(move |position, _, _, _| anchor_click.note(Some(position)))
         .annotations(thread_annotations(page, &path, &rows))
         .render_header_title_suffix(move |_, _, cx| file_status_badge(&status, cx))
         .render_annotation(move |annotation, window, cx| {
@@ -811,7 +861,9 @@ pub(crate) fn place_threads<'a>(
 /// parse is the only public construction. `/dev/null` sides mark
 /// added/removed (a removed file keeps its path on the old side);
 /// `patch: None` (binary, mode-only) parses as a header with an empty body.
-pub(crate) fn parse_pr_file(file: &PrFile) -> Vec<DiffFile> {
+///
+/// A parse failure is returned, not swallowed: the pane names it (#753).
+pub(crate) fn parse_pr_file(file: &PrFile) -> Result<Vec<DiffFile>, String> {
     let old = match file.status.as_str() {
         "added" => "/dev/null".to_string(),
         // Renames arrive without `previous_filename` (api.rs): both sides
@@ -830,9 +882,9 @@ pub(crate) fn parse_pr_file(file: &PrFile) -> Vec<DiffFile> {
             text.push('\n');
         }
     }
-    DiffFile::parse(&text).unwrap_or_else(|e| {
+    DiffFile::parse(&text).map_err(|e| {
         log::warn!("pr diff parse failed for {}: {e}", file.filename);
-        Vec::new()
+        e.to_string()
     })
 }
 
@@ -1201,7 +1253,7 @@ fn stray_bucket(
 /// resolved/outdated chips, Open on GitHub) over the comment bodies —
 /// markdown with suggestion blocks rendered as cards (D6). Read-only in
 /// stage 1: reply/resolve affordances land with stage 2 (#208).
-fn thread_card(
+pub(crate) fn thread_card(
     page: &PrDetailPage,
     page_h: &Entity<PrDetailPage>,
     window: &mut Window,
