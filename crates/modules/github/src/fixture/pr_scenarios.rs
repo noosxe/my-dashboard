@@ -268,7 +268,7 @@ fn the_lane_lists_the_scenarios_on_beacon_only() {
     assert_eq!(repo["nameWithOwner"], "fixture-user/beacon");
     let rows = gql::repo_from_value(repo).unwrap().prs.nodes;
     let numbers: Vec<i64> = rows.iter().map(|r| r.number).collect();
-    assert_eq!(numbers, (101..=111).collect::<Vec<_>>());
+    assert_eq!(numbers, (101..=112).collect::<Vec<_>>());
     let atlas = lane("atlas");
     assert_eq!(atlas["data"]["repository"]["pullRequests"]["totalCount"], 0);
 }
@@ -293,5 +293,40 @@ fn the_picker_pages_parse() {
     assert_eq!(
         gql::repo_milestones_from_value(&page(gql::REPO_MILESTONES_QUERY)).len(),
         2
+    );
+}
+
+/// #753/#760: the Files-notice scenario carries a malformed patch, an
+/// oversized file, a binary file and one that draws, plus threads on a
+/// path outside the list.
+#[test]
+fn the_files_notice_scenario_carries_each_notice_and_a_stray_thread() {
+    use crate::pr_page::diff_notice::{DiffNotice, classify};
+    let files: Vec<PrFile> =
+        serde_json::from_str(&rest("pulls/112/files?per_page=100&page=1")).unwrap();
+    assert_eq!(Some(files.len() as i64), detail(112).changed_files);
+    let notices: Vec<_> = files
+        .iter()
+        .map(|f| classify(f, &crate::files::parse_pr_file(f)))
+        .collect();
+    assert_eq!(
+        notices,
+        vec![
+            Some(DiffNotice::Malformed),
+            Some(DiffNotice::TooLarge),
+            Some(DiffNotice::NoTextDiff),
+            None
+        ]
+    );
+    let t = threads(112);
+    assert_eq!(t.nodes.len(), 3);
+    assert!(
+        crate::pr_page::unplaced_threads::unplaced(&t.nodes, &files, None)
+            .iter()
+            .any(|(_, t)| t.path.ends_with("old_name.rs"))
+    );
+    assert_eq!(
+        crate::pr_page::unresolved_count::label(Some(&t)).as_deref(),
+        Some("2 unresolved")
     );
 }

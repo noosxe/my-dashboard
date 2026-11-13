@@ -1,0 +1,71 @@
+# pr-files-notices.txt — the Files tab's undrawable diffs, the bucket for
+# threads that have no diff row, and the unresolved count, over the
+# committed fixtures (docs/0081 §12.1; #753, #760):
+#   112  four files — a malformed patch, an oversized one (no patch, 9000
+#        changed lines), a binary one, and one that draws. The sidebar
+#        reads "2 unresolved". Each undrawable file says why, with an
+#        Open on GitHub link; threads on a path no longer in the list, and
+#        on the noticed binary file, wait in one collapsed bucket.
+#
+# Prerequisites: the containerized env (docs/0071) with the GitHub
+# fixtures and the pinned clock, and a session named `prnotices` at
+# 1280x900 (the lane's twelfth row is below the fold at 800 high):
+#   export DASHBOARD_GITHUB_FIXTURE=/work/crates/debug/verify/fixtures/github
+#   export DASHBOARD_FIXED_NOW=2026-10-23T12:00:00Z
+#   dashboard-debug session start --name prnotices --size 1280x900 \
+#     --binary /tmp/target/debug/my-dashboard
+# Run (in-container): dashboard-debug run crates/debug/verify/pr-files-notices.txt
+#
+# A structural golden (0065 D5) pins the first notice's stop.
+#
+# Rows and tabs take bridge mouse clicks at their centres, frozen for this
+# fixture set and size (see pr-page.txt for why). File rows are ListItems
+# with no label, so they are clicked by position too.
+
+--session prnotices
+
+assert-label "Open GitHub module"
+click 11447690740305500471 --wait-frame
+wait-label "Filter repositories"
+click 349678605523893363
+type beacon
+key down
+key enter
+wait-label "PR #108: Loader: a PR that fails its detail read"
+
+mouse down 900 752
+mouse up 900 752
+wait-label "Files changed (4)"
+mouse down 639 155
+mouse up 639 155 --wait-frame
+
+# The count: two unresolved threads (a third is resolved).
+wait-label "2 unresolved"
+
+# The first file opens: its patch does not parse, so the pane says so.
+wait-label "Couldn't render this diff — crates/manifest/src/lexer.rs"
+assert-label "Open this file's diff on GitHub"
+assert-no-label "Diff for 0 files"
+
+# A thread on a path that left the list waits in the bucket.
+assert-label "Conversations not shown in the diff (1)"
+assert-baseline github-files-notices
+
+# The oversized file.
+mouse down 400 347
+mouse up 400 347 --wait-frame
+wait-label "This diff is too large to show here — crates/manifest/src/generated.rs"
+assert-label "Open this file's diff on GitHub"
+
+# The binary file: no text diff, and its thread joins the bucket.
+mouse down 400 374
+mouse up 400 374 --wait-frame
+wait-label "No text changes to show — assets/manifest-diagram.png"
+assert-label "Conversations not shown in the diff (2)"
+
+# The file that draws has a diff, no notice.
+mouse down 400 401
+mouse up 400 401 --wait-frame
+wait-label "Diff for crates/manifest/tests/trailing.rs"
+assert-no-label "Couldn't render this diff"
+assert-no-label "No text changes to show"

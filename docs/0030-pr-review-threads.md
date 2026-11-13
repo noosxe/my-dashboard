@@ -464,3 +464,26 @@ design text:
 - **Server-PENDING reviews on the conversation** are D4's counterpart:
   one started on github.com is shown as a notice, not a timeline row
   (docs/0016 §14).
+
+### Follow-up — threads off the list, and the unresolved count (#760)
+
+- **Unplaced threads are kept.** A thread whose path is not in the
+  Files list (a force-push or rename moved it) used to render nowhere.
+  Threads on such paths, and threads on the selected file when that file
+  shows a notice instead of a diff (docs/0070 §11), collect in one
+  collapsed pane-level bucket under the diff: "Conversations not shown
+  in the diff (N)" (id `pr-unplaced-bucket`, toggle
+  `pr-unplaced-toggle`), reusing the D3 thread card. It is the file-list
+  sibling of the per-file outdated bucket; its open state rides
+  `outdated_open` under a key no path can equal. With no file selected
+  it sits under the empty-pane hint. Pure core: `unplaced` in
+  `pr_page/unplaced_threads.rs`.
+- **Unresolved count.** The Files sidebar's summary row carries a second,
+  muted line, "N unresolved" (id `pr-files-unresolved`; the a11y label is
+  the same text). It counts every unresolved thread, outdated ones
+  included, and is hidden at zero and until a read has landed. It reflects the
+  last threads that loaded: a failed refresh keeps the previous data, so
+  the count stays while the retry row reports the failure. When the first-100 cap (#745) cut threads off, the count is a
+  floor and reads "N+ unresolved". There is no tab-label count: the tab
+  already carries the file count. Pure core: `label` in
+  `pr_page/unresolved_count.rs`.

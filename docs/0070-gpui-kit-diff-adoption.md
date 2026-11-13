@@ -162,6 +162,8 @@ acceptance item, not a new mapping table to maintain.
 
 ### D4 — Refresh contract: gate, then restore (never naive `set_files`)
 
+*Amended: the restore is approximate — see §11.*
+
 Fact 7 means the refresh path is: (a) skip `set_files` entirely when
 the fetched patch set is unchanged (compare the patch-text hash the
 page already holds — most refreshes are no-ops, consistent with
@@ -311,3 +313,49 @@ renderer. Deviations from this doc, recorded at implementation:
   its own, so D4's restore is the scroll-back only.
 
 Probe results and receipts: see the part-2 PR description.
+
+## 11. Amendments after #753 / #762
+
+### Diffs that can't be drawn (#753)
+
+The pane is never blank. `try_parse_pr_file` keeps the parse failure,
+and `pr_page/diff_notice.rs` classifies the selected file; a file with a
+notice holds an empty `DiffState` and the pane shows a row instead of
+the `Diff` (id `pr-diff-notice`, labelled "<headline> — <path>") with an
+Open on GitHub link to the PR's Files page:
+
+| Case | Condition | Headline |
+|---|---|---|
+| Malformed | a patch is present but fails to parse, parses to more or fewer than one file, or does not open with a hunk | Couldn't render this diff |
+| Too large | no patch, but `changes > 0` (GitHub omits oversized patches) | This diff is too large to show here |
+| No text diff | no patch and `changes == 0` | No text changes to show |
+
+The REST file object cannot tell a binary file from an empty file or a
+pure rename or mode change, so the third row names all of them instead
+of claiming one. Review threads on a noticed file go to the unplaced
+bucket (docs/0030, #760).
+
+### Scroll across a changed patch (#762) — approximate
+
+D4's "restore the offset" cannot be done exactly: `DiffState` exposes
+no read of the viewport's top row (`list` and `logical_scroll_top` are
+crate-private) and `set_files` resets the list to the top. The page
+instead remembers the last source line the pointer was over (hover or
+click, `pr_page/diff_anchor.rs`; leaving a line keeps the last one).
+When a changed patch for the **same file** swaps in, that line is
+scrolled back to with `scroll_to_line`. The restore falls back to the
+file header (the old unconditional behaviour) when
+
+- the file is different from the previous one,
+- no line was ever hovered or clicked (for example only keyboard
+  scrolling with the pointer outside the diff),
+- the remembered line no longer exists in the new patch (upstream's
+  `scroll_to_line` ignores a missing line; nothing scrolls to another
+  file).
+
+The restore puts the line at the top of the viewport, so the pane can
+shift by up to a viewport against the pre-refresh position — inside the
+docs/0041 §10 bar. An unchanged patch is still a full no-op (the hash
+gate). The head-change refetch (docs/0072 D3) lands through the same
+`sync_diff`, so it keeps the position by the same path. The exact
+restore is tracked in #845.

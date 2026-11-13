@@ -408,9 +408,31 @@
       "title": "Review: the threads read answers with an error",
       "updatedAt": "2026-10-23T00:00:00Z",
       "url": "https://github.com/fixture-user/beacon/pull/111"
+     },
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/octo-dev",
+       "login": "octo-dev"
+      },
+      "databaseId": 50112,
+      "isDraft": false,
+      "labels": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "number": 112,
+      "reviewRequests": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "state": "OPEN",
+      "statusCheckRollup": null,
+      "title": "Files: diffs that can't be drawn",
+      "updatedAt": "2026-10-22T23:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/pull/112"
      }
     ],
-    "totalCount": 11
+    "totalCount": 12
    },
    "pushedAt": "2026-10-23T12:00:00Z"
   }

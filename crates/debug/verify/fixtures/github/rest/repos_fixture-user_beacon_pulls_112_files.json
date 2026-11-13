@@ -1,0 +1,34 @@
+[
+ [
+  {
+   "additions": 1,
+   "changes": 1,
+   "deletions": 0,
+   "filename": "crates/manifest/src/lexer.rs",
+   "patch": "@@ -x,y +z @@\n+let broken = true;\n",
+   "status": "modified"
+  },
+  {
+   "additions": 5000,
+   "changes": 9000,
+   "deletions": 4000,
+   "filename": "crates/manifest/src/generated.rs",
+   "status": "modified"
+  },
+  {
+   "additions": 0,
+   "changes": 0,
+   "deletions": 0,
+   "filename": "assets/manifest-diagram.png",
+   "status": "added"
+  },
+  {
+   "additions": 4,
+   "changes": 4,
+   "deletions": 0,
+   "filename": "crates/manifest/tests/trailing.rs",
+   "patch": "@@ -0,0 +1,4 @@\n+#[test]\n+fn trailing_comma_is_accepted() {\n+    assert!(parse_manifest(\"[a, b,]\").is_ok());\n+}",
+   "status": "added"
+  }
+ ]
+]
