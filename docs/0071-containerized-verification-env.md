@@ -206,6 +206,11 @@ scripts/verify.sh sh -c '
 '
 ```
 
+`pr-esc-order.txt` (session `escorder`, same fixtures and clock) walks
+the PR page's Esc ordering and the discard confirm (docs/0043 D7, #744):
+Esc closes the rebase confirm before the page, and Esc over a queued
+review draft asks "Discard 1 review draft?" first.
+
 The usage surfaces (docs/0081 §12.1) run over the same fixtures, with
 two opt-in extras. `DASHBOARD_GITHUB_USAGE_SEED=<days>` seeds a
 deterministic ledger, so the usage page opens populated.

@@ -61,13 +61,16 @@ pub(crate) mod checks;
 mod detail_read;
 mod files_etag;
 mod gate_decision;
+pub(crate) mod leave_guard;
 mod merge_confirm;
 mod merge_gate;
+mod review_drafts;
 mod write_refetch;
 
 use checks::identity::{CheckKey, CheckTarget};
 use checks::log_cache::{JobLogCache, LandedLog};
 use checks::log_error;
+use leave_guard::LeaveIntent;
 use merge_confirm::{ConfirmKind, MergeConfirm};
 use merge_gate::{close_enabled, close_visible, merge_enabled, merge_visible};
 
@@ -109,9 +112,11 @@ actions!(
     ]
 );
 
-/// Ask the hosting `GithubPage` to close the PR sub-page (docs/0016 D1).
+/// Ask the hosting `GithubPage` to drop the PR sub-page (docs/0016 D1);
+/// the intent says where to. Unsent review drafts were already
+/// confirmed away by then (`leave_guard.rs`).
 pub(crate) enum PrPageEvent {
-    CloseRequested,
+    Leave(LeaveIntent),
 }
 
 /// One check row's log-pane lifecycle (docs/0039 D4/D5). Content is the
@@ -598,8 +603,8 @@ pub(crate) struct PrDetailPage {
     /// (0019 D4 inline two-step).
     pub(crate) thread_delete_confirm: Option<String>,
     /// 0030 D4: queued draft comments — page-local, submitted as ONE
-    /// batch by the Finish-review bar. Session-only (closing the page
-    /// discards), like every other draft surface here.
+    /// batch by the Finish-review bar. Session-only: leaving the page
+    /// discards them, after a confirm (#744, `leave_guard.rs`).
     pub(crate) drafts: Vec<LineDraft>,
     /// The Finish bar's summary editor — built with the first draft.
     pub(crate) finish_summary: Option<Entity<TextareaState>>,
@@ -615,6 +620,9 @@ pub(crate) struct PrDetailPage {
     /// two-step delete-confirm pattern; the panel renders it in place
     /// of the split button while up).
     update_rebase_confirm: bool,
+    /// #744: the discard confirm, up while the page is asked to go with
+    /// unsent review drafts (`leave_guard.rs`).
+    leave_confirm: Option<LeaveIntent>,
     /// Merge/Close confirm (#738); exclusive with the rebase confirm.
     merge_confirm: MergeConfirm,
     /// Changed-files fetch lifecycle (D8): lazy — `Idle` until the
@@ -850,6 +858,7 @@ impl PrDetailPage {
             timeline_edit: None,
             delete_confirm: None,
             update_rebase_confirm: false,
+            leave_confirm: None,
             merge_confirm: MergeConfirm::default(),
             methods: Vec::new(),
             method_select: None,
@@ -3237,12 +3246,15 @@ impl PrDetailPage {
 
     /// Arm the rebase confirm (D4): merge-commit updates are one-click;
     /// rebase rewrites the branch and force-pushes — it confirms first.
-    fn arm_update_rebase(&mut self, cx: &mut Context<Self>) {
+    fn arm_update_rebase(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.busy.is_some() || self.store_pending(cx).is_some() {
             return;
         }
         self.update_rebase_confirm = true;
         self.merge_confirm.cancel();
+        // The menu item that armed it leaves the tree; keep Esc working
+        // (#744).
+        self.refocus_page(window, cx);
         cx.notify();
     }
 
@@ -3730,6 +3742,10 @@ impl PrDetailPage {
             }
         }
         let variables = json!({ "input": input });
+        // #759: only what this batch carries is cleared on confirm — a
+        // draft queued while it flies is the next batch's.
+        let submitted = self.drafts.clone();
+        let submitted_summary = input["body"].as_str().unwrap_or_default().to_string();
         self.mutation_error = None;
         cx.notify();
         self.begin_store_mutation(
@@ -3737,10 +3753,18 @@ impl PrDetailPage {
             PendingKind::ReviewBatch,
             Mutation::ReviewBatch,
             variables,
-            |page, _window, cx| {
-                page.drafts.clear();
-                page.finish_summary = None;
-                page.finish_event = FinishEvent::default();
+            move |page, window, cx| {
+                review_drafts::remove_submitted(&mut page.drafts, &submitted);
+                if page.drafts.is_empty() {
+                    page.finish_summary = None;
+                    page.finish_event = FinishEvent::default();
+                } else if let Some(summary) = page.finish_summary.clone()
+                    && summary.read(cx).value().trim() == submitted_summary
+                {
+                    // The summary went with the batch; the next one
+                    // starts clean.
+                    summary.update(cx, |s, cx| s.set_value("", window, cx));
+                }
                 page.fetch_threads(Origin::new(Surface::PrPage, Trigger::MutationRefetch), cx);
             },
             cx,
@@ -3769,7 +3793,17 @@ impl PrDetailPage {
     /// description editor, the rail pickers — and only closes the page
     /// when nothing is open.
     fn cancel_top_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        if self.cancel_merge_confirm(window, cx) {
+        if self.cancel_leave_confirm(window, cx) || self.cancel_merge_confirm(window, cx) {
+            return true;
+        }
+        if self.update_rebase_confirm {
+            self.cancel_update_rebase(cx);
+            self.refocus_page(window, cx);
+            return true;
+        }
+        if self.gate_review.is_some() {
+            self.dismiss_gate_review(cx);
+            self.refocus_page(window, cx);
             return true;
         }
         if self.delete_confirm.take().is_some() || self.thread_delete_confirm.take().is_some() {
@@ -3784,6 +3818,10 @@ impl PrDetailPage {
         if self.line_composer.take().is_some() || self.reply_composer.take().is_some() {
             self.refocus_page(window, cx);
             cx.notify();
+            return true;
+        }
+        if self.resolve_picker.is_some() {
+            self.cancel_resolve_picker(cx);
             return true;
         }
         if self.description_edit.take().is_some() {
@@ -4193,10 +4231,6 @@ impl PrDetailPage {
             row.debug_selector(move || format!("{prefix}-row"))
                 .into_any_element(),
         )
-    }
-
-    fn request_close(&mut self, cx: &mut Context<Self>) {
-        cx.emit(PrPageEvent::CloseRequested);
     }
 
     // --- regions -----------------------------------------------------------
@@ -5785,7 +5819,7 @@ impl PrDetailPage {
                                                 page.update_branch_pr(method, window, cx)
                                             }
                                             UpdateBranchMethod::Rebase => {
-                                                page.arm_update_rebase(cx)
+                                                page.arm_update_rebase(window, cx)
                                             }
                                         });
                                     });
@@ -5984,6 +6018,7 @@ impl Render for PrDetailPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_diff(cx);
         self.sync_merge_confirm(cx);
+        self.sync_leave_confirm(cx);
         // docs/0026 D9: fire the armed jump the frame the target card
         // mounts — the anchor records its origin on paint, the offset lands
         // next frame. A card swapped for an editor/confirm (or a
@@ -6032,12 +6067,13 @@ impl Render for PrDetailPage {
                 // docs/0043 D7 (0022 §11): Esc cancels the topmost
                 // surface and only closes the page when nothing is open.
                 if !this.cancel_top_editor(window, cx) {
-                    this.request_close(cx);
+                    this.esc_leave(window, cx);
                 }
             }))
             .size_full()
             .child(self.render_header(detail, cx))
             .child(self.render_tabs(detail, cx))
+            .children(self.render_leave_confirm(cx))
             .child(self.render_tab_content(detail, cx))
     }
 }
@@ -10613,7 +10649,7 @@ mod tests {
             vcx.debug_bounds("pr-update-branch").is_some(),
             "gated-in update button missing"
         );
-        vcx.update(|_, cx| page.update(cx, |p, cx| p.arm_update_rebase(cx)));
+        vcx.update(|window, cx| page.update(cx, |p, cx| p.arm_update_rebase(window, cx)));
         let _ = vcx.debug_bounds("pr-update-branch"); // flush frames
         assert!(
             vcx.debug_bounds("pr-update-branch").is_none(),
@@ -10653,7 +10689,7 @@ mod tests {
             });
         });
         let _ = vcx.debug_bounds("pr-merge");
-        vcx.update(|_, cx| page.update(cx, |p, cx| p.arm_update_rebase(cx)));
+        vcx.update(|window, cx| page.update(cx, |p, cx| p.arm_update_rebase(window, cx)));
         vcx.update(|window, cx| {
             page.update(cx, |p, cx| {
                 p.open_merge_confirm(super::ConfirmKind::Merge, window, cx)
@@ -10674,7 +10710,7 @@ mod tests {
         });
         let _ = vcx.debug_bounds("pr-merge");
         assert!(vcx.debug_bounds("pr-close-confirm-go").is_some());
-        vcx.update(|_, cx| page.update(cx, |p, cx| p.arm_update_rebase(cx)));
+        vcx.update(|window, cx| page.update(cx, |p, cx| p.arm_update_rebase(window, cx)));
         let _ = vcx.debug_bounds("pr-merge");
         assert!(vcx.debug_bounds("pr-close-confirm-go").is_none());
         // Gate loss: the PR closes under an open confirm.

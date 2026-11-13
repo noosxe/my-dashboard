@@ -112,6 +112,7 @@ use crate::new_issue_page::{NewIssuePage, NewIssuePageEvent};
 use crate::new_pr_page::{NewPrPage, NewPrPageEvent};
 use crate::notification_page::{self, NotificationPageEvent};
 use crate::pr_page;
+use crate::pr_page::leave_guard::LeaveIntent;
 use crate::service::{
     AuthStatus, CommitFilter, CommitsKey, ConnectPhase, FetchSpec, GithubState, HomeScope, Kind,
     LandedClock, LaneView, RefKey, RepoLane, ThreadOp, run_read_deduped, run_spec_tracked,
@@ -419,21 +420,10 @@ impl GithubPage {
         // the module answers by returning to its root — repo list, no
         // selection, no open PR page.
         cx.subscribe_in(&nav, window, |this, _, _: &NavEvent, window, cx| {
-            this.return_to_root(window, cx);
-            // docs/0051 D4: re-entry re-shows the module's home
-            // surface — its lane refreshes (docs/0031 dedup absorbs
-            // a collision with the edge fetch).
-            this.fetch_home_prs(
-                Origin::new(Surface::ModuleHome, Trigger::ViewShown),
-                window,
-                cx,
-            );
-            // docs/0052 D5: crumb re-entry is a view-shown edge too.
-            this.fetch_notifications_if_stale(
-                Origin::new(Surface::ModuleHome, Trigger::ViewShown),
-                window,
-                cx,
-            );
+            // #744: unsent review drafts on an open PR page ask first.
+            if this.pr_may_leave(LeaveIntent::ModuleRoot, window, cx) {
+                this.reenter_root(window, cx);
+            }
         })
         .detach();
 
@@ -1065,29 +1055,11 @@ impl GithubPage {
                         let page = page.clone();
                         Crumb::action(
                             label,
-                            Arc::new(move |_window, cx| {
-                                // Whichever sub-page is open yields to the
-                                // repo view (close_pr/close_issue no-op when
-                                // absent).
+                            Arc::new(move |window, cx| {
                                 page.update(cx, |this, cx| {
-                                    this.close_pr(cx);
-                                    this.close_issue(cx);
-                                    this.close_notification(cx);
-                                    this.close_creator(cx);
-                                    this.close_creator_pr(cx);
-                                    // A user place-change (docs/0048 D4):
-                                    // the crumb click is "show the repo
-                                    // view", so the trail records it.
-                                    if let Some(name) = this.state.read(cx).selected.clone() {
-                                        // The repo view re-enters at the
-                                        // active tab (docs/0077 D1 amended):
-                                        // it survives the detail round trip,
-                                        // and the crumb click is a visit to
-                                        // exactly that place.
-                                        this.record_place(
-                                            GithubPlace::Repo(name.to_string(), this.tab),
-                                            cx,
-                                        );
+                                    // #744: unsent review drafts ask first.
+                                    if this.pr_may_leave(LeaveIntent::RepoCrumb, window, cx) {
+                                        this.show_repo_view(cx);
                                     }
                                 });
                             }),
@@ -1420,9 +1392,18 @@ impl GithubPage {
             )
         });
         // Esc on the PR page asks its host to close it (docs/0016 D1).
-        cx.subscribe_in(&page, window, |this, _, _: &pr_page::PrPageEvent, _, cx| {
-            this.close_pr(cx);
-        })
+        cx.subscribe_in(
+            &page,
+            window,
+            |this, _, event: &pr_page::PrPageEvent, window, cx| {
+                let pr_page::PrPageEvent::Leave(intent) = event;
+                match intent {
+                    LeaveIntent::Close => this.close_pr(cx),
+                    LeaveIntent::RepoCrumb => this.show_repo_view(cx),
+                    LeaveIntent::ModuleRoot => this.reenter_root(window, cx),
+                }
+            },
+        )
         .detach();
         // Mutual exclusion (docs/0020 D1): only one sub-page owns the
         // module content — opening a PR closes any open issue page (and
@@ -1515,6 +1496,55 @@ impl GithubPage {
         self.creator_pr = None;
         self.creator_pr_open = false;
         cx.notify();
+    }
+
+    /// Whether the open PR page may go now; with unsent review drafts it
+    /// opens its discard confirm instead and answers later through
+    /// `PrPageEvent::Leave` (#744).
+    fn pr_may_leave(
+        &self,
+        intent: LeaveIntent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        match self.pr.clone() {
+            Some(page) => page.update(cx, |p, cx| p.guard_leave(intent, window, cx)),
+            None => true,
+        }
+    }
+
+    /// The repo crumb's body: whichever sub-page is open yields to the
+    /// repo view (close_* no-op when absent).
+    fn show_repo_view(&mut self, cx: &mut Context<Self>) {
+        self.close_pr(cx);
+        self.close_issue(cx);
+        self.close_notification(cx);
+        self.close_creator(cx);
+        self.close_creator_pr(cx);
+        // A user place-change (docs/0048 D4): the crumb click is "show
+        // the repo view", so the trail records it — at the active tab
+        // (docs/0077 D1 amended).
+        if let Some(name) = self.state.read(cx).selected.clone() {
+            self.record_place(GithubPlace::Repo(name.to_string(), self.tab), cx);
+        }
+    }
+
+    /// Module-crumb re-entry body (docs/0014 §5 D7): root, then the
+    /// home lane refresh (docs/0051 D4 — docs/0031 dedup absorbs a
+    /// collision with the edge fetch).
+    fn reenter_root(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.return_to_root(window, cx);
+        self.fetch_home_prs(
+            Origin::new(Surface::ModuleHome, Trigger::ViewShown),
+            window,
+            cx,
+        );
+        // docs/0052 D5: crumb re-entry is a view-shown edge too.
+        self.fetch_notifications_if_stale(
+            Origin::new(Surface::ModuleHome, Trigger::ViewShown),
+            window,
+            cx,
+        );
     }
 
     /// Close the PR sub-page: back to the repo view (selection survives —
