@@ -78,8 +78,12 @@ impl PrDetailPage {
         let threads_due = self.threads_outdated
             && !state.in_flight.contains(&threads_key)
             && !state.gated_for(Kind::PrThreads.lane());
+        let files_due = self.files_rerun_due(cx);
         if detail_due {
             self.fetch_detail(origin, cx);
+        }
+        if files_due {
+            self.fetch_files(origin, cx);
         }
         if threads_due {
             self.fetch_threads(origin, cx);

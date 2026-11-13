@@ -3728,7 +3728,7 @@ impl GithubState {
     /// once, here. An existing document keeps its detail, books and
     /// pending state — a summary refresh never resets them.
     /// Serialize one PR document's current layers into a row upsert.
-    fn persist_pull(&self, repo: &str, number: i64) {
+    pub(crate) fn persist_pull(&self, repo: &str, number: i64) {
         let Some(db) = &self.db else { return };
         let Some(entry) = self.pulls.get(&PrKey::new(repo, number)) else {
             return;

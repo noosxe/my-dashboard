@@ -62,10 +62,15 @@ mod conversation_window;
 mod detail_read;
 mod files_etag;
 mod gate_decision;
+mod head_change;
 pub(crate) mod leave_guard;
 mod merge_confirm;
 mod merge_gate;
+mod mergeable_poll;
+mod page_write_confirm;
 mod review_drafts;
+#[cfg(test)]
+mod test_rig;
 pub(crate) mod threads_cap;
 pub(crate) mod threads_read;
 mod write_refetch;
@@ -698,6 +703,12 @@ pub(crate) struct PrDetailPage {
     /// docs/0072 D4 (#739): a write confirmed while a threads read flew
     /// (`write_refetch.rs`).
     threads_outdated: bool,
+    /// #752: the head the page last saw, and what rides it
+    /// (`head_change.rs`).
+    head_watch: head_change::HeadWatch,
+    /// #752: the bounded re-poll of an UNKNOWN mergeable state
+    /// (`mergeable_poll.rs`).
+    mergeable_poll: mergeable_poll::Poll,
     /// Per-file expand state for the outdated/stray thread bucket
     /// (docs/0030 D3), keyed by path so a refetch never collapses it
     /// behind the user's back.
@@ -885,6 +896,8 @@ impl PrDetailPage {
             reply_sub: None,
             threads: Fetch::new(),
             threads_outdated: false,
+            head_watch: Default::default(),
+            mergeable_poll: Default::default(),
             line_composer: None,
             reply_composer: None,
             drafts: Vec::new(),
@@ -990,6 +1003,7 @@ impl PrDetailPage {
             cx.notify();
         })
         .detach();
+        page.seed_head_watch(cx);
         // docs/0072 D3: stale-while-revalidate — a document inside the
         // TTL window paints from the store and skips the dispatch.
         let fresh = page
@@ -1067,7 +1081,10 @@ impl PrDetailPage {
         // when the document's detail is inside the TTL window and its
         // read lane is healthy; manual refreshes and mutation refetches
         // always run.
-        let forced = matches!(origin.trigger, Trigger::Manual | Trigger::MutationRefetch);
+        let forced = matches!(
+            origin.trigger,
+            Trigger::Manual | Trigger::MutationRefetch | Trigger::Recheck
+        );
         if !forced {
             let fresh = self
                 .state
@@ -1141,6 +1158,10 @@ impl PrDetailPage {
             self.md = build_md_cache(&self.repo, &detail);
             // #747: a new head or a replaced check run outdates its logs.
             self.reconcile_check_logs(&detail, cx);
+            // #752: a new head outdates files and threads; UNKNOWN
+            // mergeable re-polls a few times.
+            let head_changed = self.note_landed_head(&detail, cx);
+            self.poll_unknown_mergeable(&detail, head_changed, cx);
             // Thread keys live in the same cache — a detail
             // refetch wipes it, so re-fold them (0030 D1).
             self.extend_threads_md();
@@ -1968,9 +1989,11 @@ impl PrDetailPage {
         let key = (spec.kind, spec.ident.clone());
         let armed = self.state.update(cx, |s, _| s.in_flight_arm(key.clone()));
         if !armed {
+            self.note_outdated_files(origin);
             log::debug!("pr-files: skipped — an identical read is in flight");
             return;
         }
+        self.clear_outdated_files();
         self.files.begin();
         cx.notify();
         cx.spawn(async move |this, cx| {
@@ -1982,6 +2005,13 @@ impl PrDetailPage {
     }
 
     fn apply_files_result(&mut self, result: crate::service::SpecResult, cx: &mut Context<Self>) {
+        // #752: a read that predates a head change never lands; one
+        // replacement goes out (`head_change.rs`).
+        if result.network.is_none() && result.status == 200 && self.discard_outdated_files() {
+            self.rerun_outdated_reads(cx);
+            cx.notify();
+            return;
+        }
         if let Some(m) = &result.network {
             self.files.fail(format!("Network error: {m}"));
         } else if result.status == 304 {
@@ -3307,6 +3337,7 @@ impl PrDetailPage {
                     _ => {}
                 }),
             );
+        self.note_compose_start(cx);
         self.line_composer = Some(LineComposer {
             path,
             side,
@@ -3346,6 +3377,9 @@ impl PrDetailPage {
         }
         let (path, side, line) = (composer.path.clone(), composer.side, composer.line);
         let start = composer.start;
+        if self.refuse_stale_compose(cx) {
+            return;
+        }
         let mut input = json!({
             "pullRequestId": d.id,
             "path": path,
@@ -3395,6 +3429,9 @@ impl PrDetailPage {
             start: composer.start,
             body,
         };
+        if self.refuse_stale_compose(cx) {
+            return;
+        }
         if self.finish_summary.is_none() {
             self.finish_summary = Some(cx.new(|cx| {
                 TextareaState::new(window, cx)
@@ -3700,6 +3737,9 @@ impl PrDetailPage {
         if !review_batch_allowed(self.drafts.len(), self.writes_busy(cx)) || d.id.is_empty() {
             return;
         }
+        if self.refuse_stale_compose(cx) {
+            return;
+        }
         let threads: Vec<serde_json::Value> = self
             .drafts
             .iter()
@@ -3847,12 +3887,15 @@ impl PrDetailPage {
         cx: &mut Context<Self>,
     ) {
         let state = self.state.clone();
+        let (repo, number) = (self.repo.clone(), self.number);
         let ident = format!("{}#{} {:?}", self.repo, self.number, op);
-        // `spawn_in` keeps the window reachable across the await so the
-        // result handler can clear the draft (set_value needs a Window).
-        cx.spawn_in(window, async move |this, cx| {
+        let window = window.window_handle();
+        // The result reaches the store before the page, so a page dropped
+        // mid-write cannot take the confirmation with it (#807,
+        // `page_write_confirm.rs`); the page half needs its window.
+        cx.spawn(async move |this, cx| {
             let result = run_mutation(
-                state,
+                state.clone(),
                 mutation,
                 variables,
                 ident,
@@ -3860,7 +3903,12 @@ impl PrDetailPage {
                 cx,
             )
             .await;
-            let _ = cx.update(|window, app| {
+            if op.changes_detail() {
+                cx.update(|app| {
+                    state.update(app, |s, _| s.confirm_page_write(&repo, number, &result))
+                });
+            }
+            let _ = cx.update_window(window, |_, window, app| {
                 this.update(app, |page, cx| {
                     page.apply_mutation_result(op, result, window, cx)
                 })
@@ -6345,6 +6393,23 @@ pub(crate) enum BusyOp {
 }
 
 impl BusyOp {
+    /// The write changes what the cached detail shows, so its
+    /// confirmation voids the detail's freshness (#807). Thread writes
+    /// change the page-owned threads record only.
+    fn changes_detail(self) -> bool {
+        match self {
+            BusyOp::Reaction
+            | BusyOp::PrSetLabels
+            | BusyOp::PrSetAssignees
+            | BusyOp::PrSetMilestone
+            | BusyOp::PrSetReviewers => true,
+            BusyOp::ThreadResolve
+            | BusyOp::ThreadUnresolve
+            | BusyOp::ReviewCommentEdit
+            | BusyOp::ReviewCommentDelete => false,
+        }
+    }
+
     /// Where a failure of this op renders inline (D4/D5).
     fn error_scope(self) -> ErrorScope {
         match self {

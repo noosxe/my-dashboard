@@ -113,7 +113,9 @@ taxonomy comes from the goal questions:
   — "which page eats the quota".
 - `trigger`: `Bootstrap | ViewShown | Refocus | Manual | Expand |
   MutationRefetch | Probe | Auth` — the docs/0052 trigger set, so
-  records explain *why*, not just *where*.
+  records explain *why*, not just *where*. `Recheck` joined it with
+  #752: the PR page's bounded re-poll of an UNKNOWN mergeable state
+  (docs/0072 D3), page-initiated and at most 3 per landing.
 
 Origins are stamped where the dispatch is made (page/card fires,
 composer sends, the tick's probe arm, connect steps) — the same places
