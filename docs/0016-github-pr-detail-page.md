@@ -221,6 +221,8 @@ pub struct GithubPage {
 - Close paths: `Esc` (key binding on the PR page), the repo crumb `on_click`
   (0014 deferred this to the sub-pages doc — now wired to `self.pr = None`),
   and auto-close on sign-out (the connect panel owns the module again).
+  Esc and the crumbs ask first when unsent review drafts would be lost
+  (0043 D7, #744).
 - Crumbs: entering appends the `#<number>` suffix via the existing
   `sync_repo_crumb` path — `Home > GitHub > <repo> > #482`. The repo crumb
   gets `on_click` = back-to-repo-root; the `#n` crumb is current-location

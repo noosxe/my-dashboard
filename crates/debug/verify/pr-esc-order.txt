@@ -1,0 +1,87 @@
+# pr-esc-order.txt — Esc closes the topmost surface before the PR page
+# (docs/0043 D7, #744), and a page holding unsent review drafts asks
+# before it goes (the discard confirm).
+#
+# Prerequisites: the containerized env (docs/0071) with the GitHub
+# fixtures and the pinned clock, and a session named `escorder` at 1280x800:
+#   export DASHBOARD_GITHUB_FIXTURE=/work/crates/debug/verify/fixtures/github
+#   export DASHBOARD_FIXED_NOW=2026-10-23T12:00:00Z
+#   dashboard-debug session start --name escorder --size 1280x800 \
+#     --binary /tmp/target/debug/my-dashboard
+# Run (in-container): dashboard-debug run crates/debug/verify/pr-esc-order.txt
+#
+# Clicks are bridge mouse clicks at the controls' centres, frozen for this
+# fixture set at 1280x800 (see pr-writes.txt). #102 is BEHIND its base and
+# the viewer may update it, so the rail offers Update branch → rebase.
+
+--session escorder
+
+assert-label "Open GitHub module"
+click 11447690740305500471 --wait-frame
+assert-label "Filter repositories"
+click 349678605523893363
+type beacon
+key down
+key enter
+wait-label "PR #108: Loader: a PR that fails its detail read"
+mouse down 900 376
+mouse up 900 376 --wait-frame
+wait-label "Conversation (252)"
+
+# Update branch → rebase arms the force-push confirm.
+mouse down 1010 390
+mouse up 1010 390 --wait-frame
+mouse down 1030 452
+mouse up 1030 452 --wait-frame
+wait-label "Rebase branch"
+snapshot rebase-confirm
+
+# Esc closes the confirm, not the page.
+key esc
+assert-no-label "Rebase branch"
+assert-label "Conversation (252)"
+snapshot rebase-closed
+
+# Nothing open: Esc closes the page.
+key esc
+wait-label "PR #108: Loader: a PR that fails its detail read"
+assert-no-label "Conversation (252)"
+
+# 107, Files tab: queue one review draft, then Esc asks before it drops
+# the page. Keep editing leaves page and draft alone; Discard goes.
+mouse down 900 564
+mouse up 900 564 --wait-frame
+wait-label "Conversation (4)"
+mouse down 639 155
+mouse up 639 155 --wait-frame
+wait-label "Add annotation to line 11"
+mouse down 595 294
+mouse up 595 294 --wait-frame
+wait-label "Leave a review comment"
+mouse down 875 645
+mouse up 875 645 --wait-frame
+type "Please handle the empty list"
+mouse down 685 688
+mouse up 685 688 --wait-frame
+wait-label "Submit review"
+
+key esc
+wait-label "Discard 1 review draft?"
+assert-label "Keep editing"
+assert-label "Submit review"
+snapshot discard-confirm
+snapshot discard-confirm-tree
+
+# Esc on the confirm is Keep editing: the draft and the page stay.
+key esc
+assert-no-label "Discard 1 review draft?"
+assert-label "Submit review"
+assert-label "Files changed (3)"
+
+# Esc again, then Discard: the page closes.
+key esc
+wait-label "Discard 1 review draft?"
+mouse down 336 236
+mouse up 336 236 --wait-frame
+wait-label "PR #108: Loader: a PR that fails its detail read"
+assert-no-label "Submit review"

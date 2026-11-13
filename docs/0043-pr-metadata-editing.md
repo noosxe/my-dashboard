@@ -218,6 +218,23 @@ one closes the others, `busy` blocks arming. Esc cancels the topmost
 surface and only closes the page when nothing is open (0022 §11 Esc
 note). `BusyOp::*` failures render in the rail error slot (D2).
 
+The surfaces Esc cancels, topmost first (#744): the discard confirm
+(below), the Merge/Close confirm, the Update-branch rebase confirm, the
+gated-runs review panel, the delete confirms, the row and thread-comment
+editors, the line and reply composers, the resolve-reason picker, the
+description editor, the rail pickers. A surface added to the page joins
+this list in `cancel_top_editor`.
+
+When nothing is open, Esc closes the page — unless it holds unsent review
+drafts (queued review comments, the finish-review summary, or text in the
+line composer). Then an inline confirm asks "Discard N review drafts?"
+with **Discard** and **Keep editing**; Esc on the confirm is Keep
+editing. The same confirm guards the repo crumb and the module crumb.
+Navigation the shell commits before the module hears of it (a sidebar
+jump to another module, history Back/Forward) and sign-out cannot ask
+first and drop the drafts. The drafts stay session-only; persisting them
+is #281's scope.
+
 ### D8 — ids, roles, probe keys (0010 D10)
 
 Every new interactive element gets an id + role; probe selector keys ship
