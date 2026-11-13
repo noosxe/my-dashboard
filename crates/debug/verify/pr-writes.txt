@@ -35,7 +35,7 @@ wait-label "PR #108: Loader: a PR that fails its detail read"
 # 107: open, UNSTABLE, admin viewer: Merge and Close both offered.
 mouse down 900 564
 mouse up 900 564
-wait-label "Conversation (4)"
+wait-label "Conversation (3)"
 assert-label "Merge pull request"
 assert-label "Close pull request"
 

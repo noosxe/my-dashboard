@@ -686,7 +686,8 @@ With the app running, a repo selected, an open PR present:
 
 The PR conversation surfaces its connection caps: when `comments` or
 `reviews` truncate at `first: 100`, a muted "+N more on github.com" row
-closes the timeline. Notes beyond §11's follow-up line:
+closes the timeline (since #742 the query reads the newest 100 and the
+row opens the timeline as "N older on github.com", §14). Notes beyond §11's follow-up line:
 
 - **Shared component** (`pr_page::cap_row`): one builder for every
   capped connection — the issue page's events row (docs/0021 D3) now
@@ -700,8 +701,9 @@ closes the timeline. Notes beyond §11's follow-up line:
   `open_url` to the PR upstream. In-app pagination (Load-more) stays a
   possible later upgrade; the hint row is the #87-cheap pattern the
   issue blessed at pick-up.
-- **No query change**: `totalCount` was already fetched for both
-  connections (0016 D1); this PR is render-side only.
+- **No query change** (as first shipped): `totalCount` was already
+  fetched for both connections (0016 D1); #742 later changed the window,
+  §14.
 - **Testing**: probe test — absent when every node is on the page,
   present after a refetch that truncates both connections; the issue
   page gains a comments-only-truncation arm on its existing cap test.
@@ -717,3 +719,28 @@ semantics, upstream handles reduced-motion (static, zero frame
 requests), and the animation stays scoped to the glyph's box so rows
 repaint only their icon area. The repo-view PR rows spin through the
 same seam (0007 §10).
+
+## 14. Shipped (#742, #746 — newest-100 window, pending review)
+
+- **The window is the newest 100.** `comments` and `reviews` read
+  `last: 100` (still ascending, so the timeline stays chronological).
+  A long PR now cuts its *oldest* items: the user's own new comment
+  always shows, and a notification jump to a recent comment finds its
+  `databaseId` in range (the anchor still gives up quietly for older
+  ones, docs/0026 D9).
+- **The cap row leads the timeline**, right under the description, and
+  reads "N older on github.com" (id `pr-comments-more`, opens the PR
+  upstream). N is still the sum of both shortfalls
+  (`totalCount − nodes`), disjoint sets. The shared `cap_row` keeps its
+  "+N more" wording for the capped lists that end a pane.
+- **The viewer's PENDING review is not a timeline entry.** A review
+  started on github.com has no `submittedAt`, no age, and Edit/Delete
+  would act on a draft this page does not own (its own review flow
+  submits in one batch, docs/0030 D4, so a server-PENDING review never
+  comes from here). It is dropped from the timeline and the
+  Conversation count, and a quiet line above the composer says "You have
+  a pending review on GitHub" with an Open on GitHub button (ids
+  `pr-pending-review`, `pr-pending-review-open`). Edit and Delete are
+  never offered on it.
+- **Code**: `pr_page/conversation_window.rs` (pure window/pending
+  helpers, the cap row, the notice).

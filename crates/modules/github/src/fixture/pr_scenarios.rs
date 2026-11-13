@@ -72,7 +72,7 @@ fn sha(detail: &PrDetail) -> &str {
 /// check-suites answers the page's other tabs ask for.
 #[test]
 fn every_scenario_parses_with_the_page_parsers() {
-    for number in 101..=107 {
+    for number in (101..=107).chain([110]) {
         let d = detail(number);
         assert_eq!(d.number, number);
         assert_eq!(d.url.rsplit('/').next(), Some(number.to_string().as_str()));
@@ -176,6 +176,26 @@ fn the_overflow_scenario_ships_true_totals_over_capped_nodes() {
     assert_eq!((d.checks.total_count, d.checks.nodes.len()), (137, 100));
     assert_eq!((d.commits.total_count, d.commits.nodes.len()), (137, 100));
     assert_eq!((d.comments.total_count, d.comments.nodes.len()), (240, 100));
+    // `last: 100`: the nodes are the newest hundred, ascending (#742).
+    assert_eq!(d.comments.nodes[0].body, "Comment 140");
+    assert_eq!(d.comments.nodes[99].body, "Comment 239");
+}
+
+#[test]
+fn the_threads_scenarios_cap_and_fail() {
+    let capped = threads(110);
+    assert_eq!((capped.total_count, capped.nodes.len()), (130, 2));
+    assert_eq!(capped.nodes[0].comments_total, 130);
+    assert_eq!(capped.nodes[0].comments.len(), 1);
+    // An errors-only 200 is a failed read, not an empty PR (#745).
+    let res = http()
+        .post_graphql(gql::PR_THREADS_QUERY, &variables(111))
+        .unwrap();
+    assert_eq!(res.status, 200);
+    assert!(
+        crate::pr_page::threads_read::threads_outcome(res.body.as_deref()).is_err(),
+        "111 must fail the threads read"
+    );
 }
 
 #[test]
@@ -248,7 +268,7 @@ fn the_lane_lists_the_scenarios_on_beacon_only() {
     assert_eq!(repo["nameWithOwner"], "fixture-user/beacon");
     let rows = gql::repo_from_value(repo).unwrap().prs.nodes;
     let numbers: Vec<i64> = rows.iter().map(|r| r.number).collect();
-    assert_eq!(numbers, (101..=109).collect::<Vec<_>>());
+    assert_eq!(numbers, (101..=111).collect::<Vec<_>>());
     let atlas = lane("atlas");
     assert_eq!(atlas["data"]["repository"]["pullRequests"]["totalCount"], 0);
 }

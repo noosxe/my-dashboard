@@ -831,7 +831,7 @@ adds a debug-build-only fixture mode:
   | # | State |
   |---|---|
   | 101 | Open and blocked, everything populated: mixed reviews, labels, assignees, reviewers with a team, milestone, mixed checks, review threads, files with patches, a fork-gated and an environment-gated run |
-  | 102 | Overflow: 200-char title, 34 labels, 12 assignees, 13 reviewers, 137 checks and commits (the query caps nodes at 20 or 100; totals stay true) |
+  | 102 | Overflow: 200-char title, 34 labels, 12 assignees, 13 reviewers, 137 checks and commits, 240 comments of which the newest 100 are carried (the query caps nodes at 20 or 100; totals stay true) |
   | 103 | Draft with nothing filled in |
   | 104 | Merged, squash only |
   | 105 | Closed with conflicts, read-only viewer |
@@ -839,6 +839,8 @@ adds a debug-build-only fixture mode:
   | 107 | Edge cases: viewer's pending review, ghost author, duplicate check names |
   | 108 | Detail load error (200 with `errors` and a null PR) |
   | 109 | Open with no rollup and two fork-gated runs: the only CI is waiting for approval (#783) |
+  | 110 | Capped threads: 130 threads upstream with two carried, the first with 130 comments and one carried (#745) |
+  | 111 | The threads read answers 200 with `data: null` and an error (#745) |
 
   **The selector is the request itself.** A GraphQL request with a
   `$number` variable first looks for `graphql/<Operation>.<number>.json`,

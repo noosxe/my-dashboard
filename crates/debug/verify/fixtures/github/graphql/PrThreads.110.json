@@ -1,0 +1,83 @@
+{
+ "data": {
+  "rateLimit": null,
+  "repository": {
+   "pullRequest": {
+    "id": "PR_110",
+    "reviewThreads": {
+     "nodes": [
+      {
+       "comments": {
+        "nodes": [
+         {
+          "author": {
+           "avatarUrl": "https://avatars.invalid/reviewer-b",
+           "login": "reviewer-b"
+          },
+          "body": "Should this keep the original span?",
+          "createdAt": "2026-10-21T14:00:00Z",
+          "id": "PRRC_1",
+          "lastEditedAt": null,
+          "updatedAt": "2026-10-21T14:00:00Z",
+          "url": "https://github.com/fixture-user/beacon/pull/101#discussion_r1",
+          "viewerCanDelete": false,
+          "viewerCanUpdate": false,
+          "viewerDidAuthor": false
+         }
+        ],
+        "totalCount": 130
+       },
+       "diffSide": "RIGHT",
+       "id": "PRRT_1",
+       "isOutdated": false,
+       "isResolved": false,
+       "line": 11,
+       "path": "crates/manifest/src/parser.rs",
+       "resolvedBy": null,
+       "startLine": null,
+       "subjectType": "LINE",
+       "viewerCanReply": true,
+       "viewerCanResolve": true,
+       "viewerCanUnresolve": false
+      },
+      {
+       "comments": {
+        "nodes": [
+         {
+          "author": {
+           "avatarUrl": "https://avatars.invalid/reviewer-b",
+           "login": "reviewer-b"
+          },
+          "body": "Multi-line: the map_err could move up.",
+          "createdAt": "2026-10-21T15:00:00Z",
+          "id": "PRRC_2",
+          "lastEditedAt": null,
+          "updatedAt": "2026-10-21T15:00:00Z",
+          "url": "https://github.com/fixture-user/beacon/pull/101#discussion_r2",
+          "viewerCanDelete": false,
+          "viewerCanUpdate": false,
+          "viewerDidAuthor": false
+         }
+        ],
+        "totalCount": 1
+       },
+       "diffSide": "RIGHT",
+       "id": "PRRT_2",
+       "isOutdated": false,
+       "isResolved": false,
+       "line": 12,
+       "path": "crates/manifest/src/parser.rs",
+       "resolvedBy": null,
+       "startLine": 11,
+       "subjectType": "LINE",
+       "viewerCanReply": true,
+       "viewerCanResolve": true,
+       "viewerCanUnresolve": false
+      }
+     ],
+     "totalCount": 130
+    }
+   }
+  }
+ }
+}

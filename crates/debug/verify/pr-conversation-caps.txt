@@ -1,0 +1,78 @@
+# pr-conversation-caps.txt — the PR page's caps and the pending-review
+# notice over the committed fixtures (docs/0081 §12.1; #742, #745, #746):
+#   102  240 comments, the newest 100 carried: the cap row leads the
+#        timeline and reads "older"; the newest comment shows.
+#   107  the viewer's PENDING review is not a timeline row: no Edit or
+#        Delete, a notice at the composer instead.
+#   110  130 threads upstream (two carried), one with 130 comments: both
+#        cap rows show on the Files tab.
+#   111  the threads read answers 200 with `data: null` and an error: the
+#        Files tab says so instead of showing "no threads".
+#
+# Prerequisites: the containerized env (docs/0071) with the GitHub
+# fixtures and the pinned clock, and a session named `prcaps` at 1280x800:
+#   export DASHBOARD_GITHUB_FIXTURE=/work/crates/debug/verify/fixtures/github
+#   export DASHBOARD_FIXED_NOW=2026-10-23T12:00:00Z
+#   dashboard-debug session start --name prcaps --size 1280x800 \
+#     --binary /tmp/target/debug/my-dashboard
+# Run (in-container): dashboard-debug run crates/debug/verify/pr-conversation-caps.txt
+#
+# Rows and tabs take bridge mouse clicks at their centres, frozen for this
+# fixture set at 1280x800 (see pr-page.txt for why).
+
+--session prcaps
+
+assert-label "Open GitHub module"
+click 11447690740305500471 --wait-frame
+wait-label "Filter repositories"
+click 349678605523893363
+type beacon
+key down
+key enter
+wait-label "PR #108: Loader: a PR that fails its detail read"
+
+# 102: the cap row leads the timeline and counts the 140 older items.
+# (Card bodies are not tree nodes, so the order is judged in the frame.)
+mouse down 900 376
+mouse up 900 376
+wait-label "Conversation (252)"
+assert-label "140 older on github.com"
+click 12782369444481205663 --wait-frame
+wait-label "PR #108: Loader: a PR that fails its detail read"
+
+# 107: pending review as a notice, never a row.
+mouse down 900 564
+mouse up 900 564
+wait-label "Conversation (3)"
+assert-label "You have a pending review on GitHub"
+assert-label "Open on GitHub"
+assert-no-label "PENDING"
+assert-no-label "Delete"
+click 12782369444481205663 --wait-frame
+wait-label "PR #108: Loader: a PR that fails its detail read"
+
+# 110: capped threads. The Files tab shows both cap rows.
+mouse down 900 676
+mouse up 900 676
+wait-label "Conversation (0)"
+assert-label "#110"
+mouse down 639 155
+mouse up 639 155 --wait-frame
+wait-label "Diff for crates/manifest/src/parser.rs"
+wait-label "+128 more review threads on github.com"
+assert-label "+129 more comments on github.com"
+click 12782369444481205663 --wait-frame
+wait-label "PR #108: Loader: a PR that fails its detail read"
+
+# 111: the failed threads read shows its retry row (the error text is a
+# plain text child, judged in the frame).
+mouse down 900 714
+mouse up 900 714
+wait-label "Conversation (0)"
+assert-label "#111"
+mouse down 639 155
+mouse up 639 155 --wait-frame
+wait-label "Diff for crates/manifest/src/parser.rs"
+wait-label "Retry loading review threads"
+click 12782369444481205663 --wait-frame
+wait-label "PR #108: Loader: a PR that fails its detail read"

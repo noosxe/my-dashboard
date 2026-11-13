@@ -51,7 +51,7 @@ assert-no-label "Conversation (252)"
 # the page. Keep editing leaves page and draft alone; Discard goes.
 mouse down 900 564
 mouse up 900 564 --wait-frame
-wait-label "Conversation (4)"
+wait-label "Conversation (3)"
 mouse down 639 155
 mouse up 639 155 --wait-frame
 wait-label "Add annotation to line 11"
