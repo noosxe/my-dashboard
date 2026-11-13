@@ -613,6 +613,7 @@ mod tests {
             head_oid: None,
             url: String::new(),
             created_at: None,
+            updated_at: None,
             author: author("prauthor"),
             commits: Default::default(),
             checks: Default::default(),

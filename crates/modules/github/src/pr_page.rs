@@ -65,6 +65,7 @@ pub(crate) mod diff_notice;
 mod files_etag;
 mod gate_decision;
 mod head_change;
+mod header_meta;
 pub(crate) mod leave_guard;
 mod merge_confirm;
 mod merge_gate;
@@ -4291,49 +4292,24 @@ impl PrDetailPage {
     // --- regions -----------------------------------------------------------
 
     fn render_header(&self, detail: Option<&gql::PrDetail>, cx: &Context<Self>) -> AnyElement {
-        let (title, number, tone, author, base, head, age, url) = match detail {
+        let meta = header_meta::header_meta(detail, self.summary(cx), &self.repo, self.number);
+        let (title, number, author, base, head) = match detail {
             Some(d) => (
                 d.title.clone(),
                 d.number,
-                pr_state_tone(d.state.as_deref(), d.draft),
                 d.author.clone(),
                 d.base_ref.clone(),
                 d.head_ref.clone(),
-                d.created_at.clone(),
-                d.url.clone(),
             ),
+            // docs/0073 D4 — no page-local snapshot: the header paints
+            // from the store's entry (the lane landed it before the page
+            // existed).
             None => match self.summary(cx) {
-                // docs/0073 D4 — no page-local snapshot: the header
-                // paints from the store's entry (the lane landed it
-                // before the page existed). The snapshot only lists
-                // OPEN PRs; a draft stays a draft until the detail
-                // payload says otherwise.
-                Some(s) => (
-                    s.title.clone(),
-                    s.number,
-                    if s.draft {
-                        PrStateTone::Draft
-                    } else {
-                        PrStateTone::Open
-                    },
-                    s.author.clone(),
-                    None,
-                    None,
-                    s.updated_at.clone(),
-                    s.url.clone(),
-                ),
-                None => (
-                    format!("#{}", self.number),
-                    self.number,
-                    PrStateTone::Open,
-                    None,
-                    None,
-                    None,
-                    None,
-                    String::new(),
-                ),
+                Some(s) => (s.title.clone(), s.number, s.author.clone(), None, None),
+                None => (format!("#{}", self.number), self.number, None, None, None),
             },
         };
+        let url = meta.url;
         let commits = detail.as_ref().map(|d| d.commits.total_count);
         let branch_meta = match (&base, &head) {
             (Some(base), Some(head)) => Some(format!("{base} ← {head}")),
@@ -4354,12 +4330,14 @@ impl PrDetailPage {
                             .gap_2()
                             .items_center()
                             .flex_wrap()
-                            .child(
-                                Badge::new()
-                                    .xsmall()
-                                    .color(state_color(tone, cx))
-                                    .child(state_label(tone)),
-                            )
+                            .when_some(meta.tone, |row, tone| {
+                                row.child(
+                                    Badge::new()
+                                        .xsmall()
+                                        .color(state_color(tone, cx))
+                                        .child(state_label(tone)),
+                                )
+                            })
                             .child(page_title(title))
                             .child(
                                 div()
@@ -4399,7 +4377,7 @@ impl PrDetailPage {
                                         .child(meta),
                                 )
                             })
-                            .child(relative_age(age.as_deref())),
+                            .when_some(meta.updated, |row, text| row.child(text)),
                     ),
             )
             .child(freshness_row(
