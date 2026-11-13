@@ -744,3 +744,17 @@ same seam (0007 §10).
   never offered on it.
 - **Code**: `pr_page/conversation_window.rs` (pure window/pending
   helpers, the cap row, the notice).
+
+## 15. Shipped (#752, #807 — head change, UNKNOWN re-poll, page-modal writes)
+
+- **Head change fans out.** A detail landing with a new `headRefOid`
+  refetches the open Files and threads lanes once; the diff and the
+  check logs follow. A line comment or draft started on the old head is
+  refused with an inline Files error until it is redone on the new diff.
+- **UNKNOWN re-polls.** The merge rail's "GitHub is still calculating
+  merge status" (D5) re-polls the detail up to 3 times, 4 s apart, and
+  stops as soon as it resolves or the page closes.
+- **Rail metadata and reactions** confirm on the store, so a write
+  finishing after the page closed still voids the cached detail.
+- Rules and reasons: docs/0072 D3/D4. **Code**: `pr_page/head_change.rs`,
+  `pr_page/mergeable_poll.rs`, `pr_page/page_write_confirm.rs`.

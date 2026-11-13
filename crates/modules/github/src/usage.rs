@@ -476,6 +476,10 @@ pub(crate) enum Trigger {
     Manual,
     Expand,
     MutationRefetch,
+    /// #752: the bounded re-poll of a PR whose mergeable state came back
+    /// UNKNOWN (`pr_page/mergeable_poll.rs`) — page-initiated, not a
+    /// write's refetch and not a deliberate refresh.
+    Recheck,
     /// docs/0072 D3: document drift — a summary-layer landing moved the
     /// checks rollup under a cached detail; the page revalidates so both
     /// surfaces report the same status.
@@ -502,6 +506,7 @@ impl Trigger {
             Trigger::Manual => "manual",
             Trigger::Expand => "expand",
             Trigger::MutationRefetch => "mutation-refetch",
+            Trigger::Recheck => "recheck",
             Trigger::Drift => "drift",
             Trigger::Poll => "poll",
             Trigger::Paginate => "paginate",

@@ -5,6 +5,12 @@
 > while the window is **inactive** (60 s floor, `Trigger::Poll`),
 > and landings announce new threads as toasts (banners while
 > unfocused). See docs/0080.
+>
+> **Amended by #752** (UNKNOWN mergeable re-poll): a second, narrower
+> exception — a PR page whose detail landed with `mergeable: UNKNOWN`
+> re-polls that detail up to 3 times, 4 s apart (`Trigger::Recheck`),
+> and stops at the first resolved answer or when the page closes. It is
+> bounded per non-poll landing, never recurring. See docs/0072 D3.
 
 - **Date:** 2026-09-21
 - **Depends on:** 0031 (fetch record/dedup), 0032 (detail auto-refresh —

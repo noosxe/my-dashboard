@@ -256,8 +256,9 @@ entry has any op in flight (D5), the submitting surface shows its own
 spinner, and confirmation runs the surface-closing the page-modal path
 did (draft cleared, composer closed — a failure keeps the draft). The
 page-modal ops outside this stage (#212 thread-comment edit/delete,
-resolve toggles, rail metadata) keep their old path and old guards;
-migrating them later is mechanical. The issue page's stage-4 pass
+resolve toggles, rail metadata) keep their old path and old guards,
+except that the ones that change the detail now confirm on the store
+(#807, below). The issue page's stage-4 pass
 (#555) moved ITS whole set — including the reaction/lock toggles — onto
 the same machinery.
 
@@ -299,7 +300,53 @@ A failed store write marks nothing.
 - **Manual refresh is unchanged.** It still rides out a flying read
   (docs/0031 D1/D2): no write made that read outdated. The Files lane has
   no write refetch (only merge/close change patches, and those end the
-  page's useful life), so the rule does not reach it.
+  page's useful life), so a write never marks it. A head change does
+  (#752, below).
+
+**Page-modal detail writes confirm on the store (#807).** Labels,
+assignees, reviewers, milestone and reactions arm `busy` on the page,
+not `begin_pending`, and used to resolve only through the page. A page
+dropped mid-write took the confirmation with it: nothing voided
+`detail_at`, and a reopen inside the TTL served the pre-write document
+as fresh. The spawn (`pr_page/page_write_confirm.rs`) now hands the
+result to the state entity first. A clean 200 voids `detail_at` and
+marks a read in flight as outdated, exactly as `resolve_pending` does
+for the store ops; a failure changes nothing. The page still owns the
+inline error, the 401/403 forwarding and its own refetch. These ops were
+not migrated to `begin_pending`: that would add a pending pill, a
+success toast per click (a reaction toast is noise) and the D5 write
+lock for what are quick edits, all visible product changes, while the
+bug is only about where the confirmation lands. Thread writes (resolve,
+comment edit/delete) change the page-owned threads record only and stay
+as they were.
+
+**A new head outdates the lanes that ride the old one (#752).** The page
+keeps the head its last landing carried. A landing with a different
+`headRefOid` (Update branch, or any refresh that sees a push) refetches
+the Files list and the threads when those lanes are open, once per
+change (`pr_page/head_change.rs`); Idle lanes load on first open. The
+diff follows the Files list on its next paint, and check logs reset on
+the new head (#747). The refetches ride the shared guard as
+`Trigger::MutationRefetch`: one flying already predates the push, so
+it is marked outdated, never lands, and one replacement goes out (the
+#739 rule, now on the page's Files and threads records). A line comment
+composed on the old patch cannot land silently on the wrong line: the
+thread mutation takes no commit id, so the page records the head a
+composer or the first queued draft was started on, and refuses to add or
+submit while that is not the current head, with an inline Files error
+and the text kept. Discarding, or arming a fresh composer with nothing
+queued, clears it.
+
+**UNKNOWN mergeable re-polls, bounded (#752).** GitHub computes
+mergeability lazily, so the read after a push usually says `UNKNOWN`. A
+landing of an OPEN PR with that state schedules a detail re-poll
+(`Trigger::Recheck`) after 4 s, up to 3 in a row (`pr_page/mergeable_poll.rs`).
+It stops at the first resolved answer. Only a landing that did not come
+from a poll (open, refresh, refocus, write refetch, a new head) refills
+the budget. The timer is a task the page owns, so a dropped page cancels
+it. A failed poll has no landing and schedules nothing; a paused GraphQL
+lane skips its poll. After the budget the merge rail keeps saying "GitHub
+is still calculating merge status" until the next refresh or refocus.
 
 **Stage 4 (#555) — issue documents join the store.** Issues live in
 their own `(repo, number)` map (`IssueEntry`: the snapshot's open-issue
