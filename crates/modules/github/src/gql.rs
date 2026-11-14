@@ -810,7 +810,9 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
           }
         }
       }
-      commits(first: 100) {
+      # #876: `last` — the newest 100 (still ascending), so a long PR cuts
+      # its oldest commits and a new push always shows.
+      commits(last: 100) {
         totalCount
         nodes {
           commit {
