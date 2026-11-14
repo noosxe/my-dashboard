@@ -27,6 +27,6 @@
  "number": 101,
  "review_comments": 3,
  "state": "open",
- "title": "Parser: accept trailing commas in manifest lists",
+ "title": "Parser: accept trailing commas in manifest lists (v2)",
  "updated_at": "2026-10-23T11:59:00Z"
 }

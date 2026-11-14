@@ -874,7 +874,7 @@
     "timelineItems": {
      "nodes": []
     },
-    "title": "Parser: accept trailing commas in manifest lists",
+    "title": "Parser: accept trailing commas in manifest lists (v2)",
     "url": "https://github.com/fixture-user/beacon/pull/101",
     "viewerCanAssign": true,
     "viewerCanClose": true,

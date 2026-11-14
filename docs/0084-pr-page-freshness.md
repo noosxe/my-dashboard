@@ -540,6 +540,22 @@ docs/0071 container.
 | 4 | D5 Settled and Unattended tiers, D6 queue and review fallback, D7 guard, removal of `mergeable_poll.rs` | Unit tests over the cadence function (a table test, like 0038's); receipt with `fixture budget` at Low and Critical shows the stretched and stopped probe |
 | 5 | D8 "checked N s ago" label and paused reason; anchored updates | 0065 audit and critique on the PR header, before and after; `assert-baseline` for `github-pr-*` goldens; tab stops unchanged |
 
+**Stage 2 as shipped.**
+
+- Code: `pr_page/freshness/{events,write_lanes,notices}.rs`.
+- Usage rows: tab entries book `tab-entry`, the notification refetch books
+  `notification-landing`, and a list refresh on return books `view-shown`.
+  Both new triggers bypass the reopen TTL.
+- The write map treats a review reply and an edit or delete of a review
+  comment like a line comment (threads and detail).
+- A landing "names" a PR when an unread pull-request thread's `updated_at`
+  differs from the one last seen. The first landing after launch seeds
+  silently, as the announce diff does.
+- Receipt `pr-freshness-events.txt` waits out the floors with a new
+  `sleep` script step (docs/0010 D12), because the app measures them on its
+  own clock. The receipt needs generation 1 of the beacon PR list
+  (`RepoPulls.beacon.g1.json`), which retitles #101.
+
 Stages 3 and 4 can ship as a stack. Stage 2 can land before or after
 stage 1, but its receipt needs stage 1.
 

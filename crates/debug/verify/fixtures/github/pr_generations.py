@@ -4,8 +4,10 @@ Called from generate.py after pr_scenarios.py. Files named
 `<name>.g1.json` answer once `dashboard-debug fixture bump` moved the
 fixture generation to 1; before that, and for every file without a
 generation sibling, the plain names answer. Generation 1 is "a minute
-later on GitHub's side", with four changes to #101:
+later on GitHub's side", with five changes to #101:
 
+- a new title, which the Open PRs list row, the REST body and the
+  detail all carry (`RepoPulls.beacon.g1.json` is the list's answer);
 - a new comment (#3);
 - the `test (workspace)` check run goes from in progress to success;
 - the `needs-review` label is replaced by `approved`;
@@ -45,6 +47,9 @@ NEW_FILE = file_entry(
     2,
     "@@ -3,4 +3,8 @@ pub enum ManifestError {\n     Lex(String),\n+    Column(usize),\n }\n ",
 )
+
+
+NEW_TITLE = "Parser: accept trailing commas in manifest lists (v2)"
 
 
 def new_oid():
@@ -115,6 +120,7 @@ def write_generation_one(write, now, iso):
 
     after = copy.deepcopy(before)
     after["headRefOid"] = sha
+    after["title"] = NEW_TITLE
     after["changedFiles"] = 6
     after["files"] = {"totalCount": 6}
     after["labels"] = conn(
@@ -140,6 +146,14 @@ def write_generation_one(write, now, iso):
         detail = json.load(f)
     detail["data"]["repository"]["pullRequest"] = after
     write(f"graphql/PrDetail.{PR}.g1.json", detail)
+
+    # The Open PRs list: the same page, with #101's row retitled.
+    with open(os.path.join(HERE, f"graphql/RepoPulls.{REPO}.json")) as f:
+        pulls = json.load(f)
+    row = next(r for r in pulls["data"]["repository"]["pullRequests"]["nodes"] if r["number"] == PR)
+    row["title"] = NEW_TITLE
+    row["updatedAt"] = iso(now - timedelta(minutes=1))
+    write(f"graphql/RepoPulls.{REPO}.g1.json", pulls)
 
     # REST: what the probe reads.
     prefix = f"rest/repos_{OWNER}_{REPO}"

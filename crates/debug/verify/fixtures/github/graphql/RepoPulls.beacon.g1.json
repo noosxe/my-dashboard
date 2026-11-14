@@ -1,0 +1,690 @@
+{
+ "data": {
+  "rateLimit": null,
+  "repository": {
+   "databaseId": 2001,
+   "description": "A second fixture repository",
+   "hasIssuesEnabled": true,
+   "id": "R_beacon",
+   "isArchived": false,
+   "isPrivate": false,
+   "name": "beacon",
+   "nameWithOwner": "fixture-user/beacon",
+   "owner": {
+    "login": "fixture-user"
+   },
+   "pullRequests": {
+    "nodes": [
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/octo-dev",
+       "login": "octo-dev"
+      },
+      "databaseId": 50101,
+      "isDraft": false,
+      "labels": {
+       "nodes": [
+        {
+         "color": "d73a4a",
+         "name": "bug"
+        },
+        {
+         "color": "1d76db",
+         "name": "area:parser"
+        },
+        {
+         "color": "fbca04",
+         "name": "needs-review"
+        }
+       ],
+       "totalCount": 3
+      },
+      "number": 101,
+      "reviewRequests": {
+       "nodes": [
+        {
+         "requestedReviewer": {
+          "__typename": "User",
+          "login": "reviewer-d"
+         }
+        },
+        {
+         "requestedReviewer": {
+          "__typename": "User",
+          "login": "reviewer-e"
+         }
+        },
+        {
+         "requestedReviewer": {
+          "__typename": "Team"
+         }
+        },
+        {
+         "requestedReviewer": {
+          "__typename": "Bot"
+         }
+        }
+       ],
+       "totalCount": 4
+      },
+      "state": "OPEN",
+      "statusCheckRollup": {
+       "state": "FAILURE"
+      },
+      "title": "Parser: accept trailing commas in manifest lists (v2)",
+      "updatedAt": "2026-10-23T11:59:00Z",
+      "url": "https://github.com/fixture-user/beacon/pull/101"
+     },
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/octo-dev",
+       "login": "octo-dev"
+      },
+      "databaseId": 50102,
+      "isDraft": false,
+      "labels": {
+       "nodes": [
+        {
+         "color": "d73a4a",
+         "name": "area:subsystem-00"
+        },
+        {
+         "color": "1d76db",
+         "name": "area:subsystem-01"
+        },
+        {
+         "color": "fbca04",
+         "name": "area:subsystem-02"
+        },
+        {
+         "color": "0e8a16",
+         "name": "area:subsystem-03"
+        },
+        {
+         "color": "5319e7",
+         "name": "area:subsystem-04"
+        },
+        {
+         "color": "d73a4a",
+         "name": "area:subsystem-05"
+        },
+        {
+         "color": "1d76db",
+         "name": "area:subsystem-06"
+        },
+        {
+         "color": "fbca04",
+         "name": "area:subsystem-07"
+        }
+       ],
+       "totalCount": 34
+      },
+      "number": 102,
+      "reviewRequests": {
+       "nodes": [
+        {
+         "requestedReviewer": {
+          "__typename": "User",
+          "login": "reviewer-00"
+         }
+        },
+        {
+         "requestedReviewer": {
+          "__typename": "User",
+          "login": "reviewer-01"
+         }
+        },
+        {
+         "requestedReviewer": {
+          "__typename": "User",
+          "login": "reviewer-02"
+         }
+        },
+        {
+         "requestedReviewer": {
+          "__typename": "User",
+          "login": "reviewer-03"
+         }
+        },
+        {
+         "requestedReviewer": {
+          "__typename": "User",
+          "login": "reviewer-04"
+         }
+        },
+        {
+         "requestedReviewer": {
+          "__typename": "User",
+          "login": "reviewer-05"
+         }
+        },
+        {
+         "requestedReviewer": {
+          "__typename": "User",
+          "login": "reviewer-06"
+         }
+        },
+        {
+         "requestedReviewer": {
+          "__typename": "User",
+          "login": "reviewer-07"
+         }
+        },
+        {
+         "requestedReviewer": {
+          "__typename": "User",
+          "login": "reviewer-08"
+         }
+        },
+        {
+         "requestedReviewer": {
+          "__typename": "User",
+          "login": "reviewer-09"
+         }
+        },
+        {
+         "requestedReviewer": {
+          "__typename": "Team"
+         }
+        },
+        {
+         "requestedReviewer": {
+          "__typename": "Team"
+         }
+        },
+        {
+         "requestedReviewer": {
+          "__typename": "EnterpriseTeam"
+         }
+        }
+       ],
+       "totalCount": 13
+      },
+      "state": "OPEN",
+      "statusCheckRollup": {
+       "state": "PENDING"
+      },
+      "title": "Parser and loader overhaul: accept trailing commas, keep the strict-mode error, split the manifest grammar into its own module and migrate every call site in the workspace to the new entry points, now",
+      "updatedAt": "2026-10-23T10:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/pull/102"
+     },
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/octo-dev",
+       "login": "octo-dev"
+      },
+      "databaseId": 50103,
+      "isDraft": true,
+      "labels": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "number": 103,
+      "reviewRequests": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "state": "OPEN",
+      "statusCheckRollup": null,
+      "title": "WIP: loader cleanup",
+      "updatedAt": "2026-10-23T09:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/pull/103"
+     },
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/octo-dev",
+       "login": "octo-dev"
+      },
+      "databaseId": 50104,
+      "isDraft": false,
+      "labels": {
+       "nodes": [
+        {
+         "color": "0e8a16",
+         "name": "docs"
+        }
+       ],
+       "totalCount": 1
+      },
+      "number": 104,
+      "reviewRequests": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "state": "OPEN",
+      "statusCheckRollup": {
+       "state": "SUCCESS"
+      },
+      "title": "Docs: fix the manifest grammar example",
+      "updatedAt": "2026-10-23T08:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/pull/104"
+     },
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/octo-dev",
+       "login": "octo-dev"
+      },
+      "databaseId": 50105,
+      "isDraft": false,
+      "labels": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "number": 105,
+      "reviewRequests": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "state": "OPEN",
+      "statusCheckRollup": null,
+      "title": "Loader: drop the legacy manifest format",
+      "updatedAt": "2026-10-23T07:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/pull/105"
+     },
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/octo-dev",
+       "login": "octo-dev"
+      },
+      "databaseId": 50106,
+      "isDraft": false,
+      "labels": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "number": 106,
+      "reviewRequests": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "state": "OPEN",
+      "statusCheckRollup": {
+       "state": "SUCCESS"
+      },
+      "title": "Tests: widen the manifest round-trip corpus",
+      "updatedAt": "2026-10-23T06:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/pull/106"
+     },
+     {
+      "author": null,
+      "databaseId": 50107,
+      "isDraft": false,
+      "labels": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "number": 107,
+      "reviewRequests": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "state": "OPEN",
+      "statusCheckRollup": {
+       "state": "FAILURE"
+      },
+      "title": "Parser: report the column in manifest errors",
+      "updatedAt": "2026-10-23T05:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/pull/107"
+     },
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/octo-dev",
+       "login": "octo-dev"
+      },
+      "databaseId": 50108,
+      "isDraft": false,
+      "labels": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "number": 108,
+      "reviewRequests": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "state": "OPEN",
+      "statusCheckRollup": null,
+      "title": "Loader: a PR that fails its detail read",
+      "updatedAt": "2026-10-23T03:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/pull/108"
+     },
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/octo-dev",
+       "login": "octo-dev"
+      },
+      "databaseId": 50109,
+      "isDraft": false,
+      "labels": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "number": 109,
+      "reviewRequests": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "state": "OPEN",
+      "statusCheckRollup": null,
+      "title": "CI: a fork PR whose only runs wait for approval",
+      "updatedAt": "2026-10-23T02:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/pull/109"
+     },
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/octo-dev",
+       "login": "octo-dev"
+      },
+      "databaseId": 50110,
+      "isDraft": false,
+      "labels": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "number": 110,
+      "reviewRequests": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "state": "OPEN",
+      "statusCheckRollup": null,
+      "title": "Review: more threads than one read carries",
+      "updatedAt": "2026-10-23T01:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/pull/110"
+     },
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/octo-dev",
+       "login": "octo-dev"
+      },
+      "databaseId": 50111,
+      "isDraft": false,
+      "labels": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "number": 111,
+      "reviewRequests": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "state": "OPEN",
+      "statusCheckRollup": null,
+      "title": "Review: the threads read answers with an error",
+      "updatedAt": "2026-10-23T00:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/pull/111"
+     },
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/octo-dev",
+       "login": "octo-dev"
+      },
+      "databaseId": 50112,
+      "isDraft": false,
+      "labels": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "number": 112,
+      "reviewRequests": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "state": "OPEN",
+      "statusCheckRollup": null,
+      "title": "Files: diffs that can't be drawn",
+      "updatedAt": "2026-10-22T23:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/pull/112"
+     },
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/octo-dev",
+       "login": "octo-dev"
+      },
+      "databaseId": 50113,
+      "isDraft": false,
+      "labels": {
+       "nodes": [
+        {
+         "color": "0e8a16",
+         "name": "docs"
+        }
+       ],
+       "totalCount": 1
+      },
+      "number": 113,
+      "reviewRequests": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "state": "OPEN",
+      "statusCheckRollup": {
+       "state": "SUCCESS"
+      },
+      "title": "Docs: explain the manifest grammar",
+      "updatedAt": "2026-10-22T22:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/pull/113"
+     },
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/octo-dev",
+       "login": "octo-dev"
+      },
+      "databaseId": 50114,
+      "isDraft": false,
+      "labels": {
+       "nodes": [
+        {
+         "color": "fbca04",
+         "name": "wontfix"
+        }
+       ],
+       "totalCount": 1
+      },
+      "number": 114,
+      "reviewRequests": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "state": "OPEN",
+      "statusCheckRollup": null,
+      "title": "Loader: try the lazy manifest reader",
+      "updatedAt": "2026-10-22T21:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/pull/114"
+     },
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/octo-dev",
+       "login": "octo-dev"
+      },
+      "databaseId": 50115,
+      "isDraft": false,
+      "labels": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "number": 115,
+      "reviewRequests": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "state": "OPEN",
+      "statusCheckRollup": {
+       "state": "SUCCESS"
+      },
+      "title": "Docs: fix the lockfile example",
+      "updatedAt": "2026-10-22T20:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/pull/115"
+     },
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/octo-dev",
+       "login": "octo-dev"
+      },
+      "databaseId": 50116,
+      "isDraft": false,
+      "labels": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "number": 116,
+      "reviewRequests": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "state": "OPEN",
+      "statusCheckRollup": {
+       "state": "SUCCESS"
+      },
+      "title": "Docs: reword the changelog",
+      "updatedAt": "2026-10-22T19:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/pull/116"
+     },
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/octo-dev",
+       "login": "octo-dev"
+      },
+      "databaseId": 50117,
+      "isDraft": false,
+      "labels": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "number": 117,
+      "reviewRequests": {
+       "nodes": [
+        {
+         "requestedReviewer": {
+          "__typename": "User",
+          "login": "reviewer-a"
+         }
+        }
+       ],
+       "totalCount": 1
+      },
+      "state": "OPEN",
+      "statusCheckRollup": {
+       "state": "SUCCESS"
+      },
+      "title": "Docs: add the auto-merge walkthrough",
+      "updatedAt": "2026-10-22T18:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/pull/117"
+     },
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/octo-dev",
+       "login": "octo-dev"
+      },
+      "databaseId": 50118,
+      "isDraft": false,
+      "labels": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "number": 118,
+      "reviewRequests": {
+       "nodes": [
+        {
+         "requestedReviewer": {
+          "__typename": "User",
+          "login": "reviewer-a"
+         }
+        }
+       ],
+       "totalCount": 1
+      },
+      "state": "OPEN",
+      "statusCheckRollup": {
+       "state": "SUCCESS"
+      },
+      "title": "Docs: reorder the install steps",
+      "updatedAt": "2026-10-22T17:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/pull/118"
+     },
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/octo-dev",
+       "login": "octo-dev"
+      },
+      "databaseId": 50119,
+      "isDraft": false,
+      "labels": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "number": 119,
+      "reviewRequests": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "state": "OPEN",
+      "statusCheckRollup": {
+       "state": "SUCCESS"
+      },
+      "title": "Docs: document the queue settings",
+      "updatedAt": "2026-10-22T16:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/pull/119"
+     },
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/octo-dev",
+       "login": "octo-dev"
+      },
+      "databaseId": 50120,
+      "isDraft": false,
+      "labels": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "number": 120,
+      "reviewRequests": {
+       "nodes": [
+        {
+         "requestedReviewer": {
+          "__typename": "User",
+          "login": "reviewer-a"
+         }
+        }
+       ],
+       "totalCount": 1
+      },
+      "state": "OPEN",
+      "statusCheckRollup": {
+       "state": "SUCCESS"
+      },
+      "title": "Docs: queue the release notes",
+      "updatedAt": "2026-10-22T15:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/pull/120"
+     },
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/octo-dev",
+       "login": "octo-dev"
+      },
+      "databaseId": 50121,
+      "isDraft": false,
+      "labels": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "number": 121,
+      "reviewRequests": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "state": "OPEN",
+      "statusCheckRollup": {
+       "state": "SUCCESS"
+      },
+      "title": "Docs: tidy the queue page",
+      "updatedAt": "2026-10-22T14:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/pull/121"
+     }
+    ],
+    "totalCount": 21
+   },
+   "pushedAt": "2026-10-23T12:00:00Z"
+  }
+ }
+}

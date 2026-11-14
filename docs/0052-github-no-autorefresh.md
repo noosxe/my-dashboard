@@ -98,6 +98,20 @@ TTL (docs/0072 D9) never skips it, and a landed document whose freshness
 stamp was voided (an outdated read, an unpatchable confirmation) counts as
 stale at any floor (#871; docs/0084 D1).
 
+**Amended by docs/0084 D2** (stage 2): the same gates also guard four
+more event triggers, none a timer.
+
+| Event | What refetches | Floor | Usage trigger |
+|---|---|---|---|
+| Entering a PR page tab | a *loaded* lane: Files and threads, or the detail for Conversation, Commits and Checks | 30 s | `tab-entry` |
+| The module shown again with a PR page open | the refocus lanes | 15 s | `refocus` |
+| Closing the PR page | the list it returns to (repo rows, or home) | 60 s | `view-shown` |
+| A notifications landing that names the open PR | the detail, once per landing (stage 3 turns it into a probe) | none | `notification-landing` |
+
+A re-selected tab is not an entry. The write-to-lane map (a confirmed
+write refetches the detail, and the threads for review writes) replaces
+the per-write choices.
+
 The 15 s `FOCUS_MIN_AGE` floor is kept from docs/0032 D1 (unchanged):
 rapid alt-tabbing must not become a cadence. The page's observer
 already implements the module half — the card's observer stops being

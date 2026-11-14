@@ -480,6 +480,10 @@ CLI verbs (also receipt-script steps):
 - `requests` — print every recorded read, one JSON line each.
 - `assert-request <op> [key=value…]` — like `assert-write`, over the
   read record: `assert-request "GET /repos/o/r/pulls/101" status=304`.
+- `sleep <secs>` (receipt scripts only; 1–120) — real time passes. The
+  age floors (docs/0084 D2) are measured on the app's own clock, which no
+  verb moves, so a receipt about a floor waits it out; keep it as short
+  as the floor allows.
 
 Label verbs (`assert-label`, `wait-label`, `assert-no-label`; syntax in
 docs/0055) match a substring against each node's label in **either form**:

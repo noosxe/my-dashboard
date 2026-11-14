@@ -1,0 +1,66 @@
+# pr-freshness-events.txt — the PR page's event-driven refreshes (docs/0084
+# D2): entering a tab past its 30 s floor refetches the detail, and returning
+# to the repo's PR list past its 60 s floor refreshes the list, with no
+# Refresh click. A change happens "on GitHub's side" with `fixture bump`
+# (generation 1 of PR 101: a new comment, a new title, a new head) while the
+# page is open.
+#
+# The floors are measured on the app's own clock, which no bridge verb moves,
+# so two `sleep` steps wait them out: about 70 s in all.
+#
+# Prerequisites: the containerized env (docs/0071), the committed fixtures,
+# the pinned clock, and a session named `prfresh` at 1280x800:
+#   export DASHBOARD_GITHUB_FIXTURE=/work/crates/debug/verify/fixtures/github
+#   export DASHBOARD_FIXED_NOW=2026-10-23T12:00:00Z
+#   dashboard-debug session start --name prfresh --size 1280x800 \
+#     --binary /tmp/target/debug/my-dashboard
+# Run (in-container): dashboard-debug run crates/debug/verify/pr-freshness-events.txt
+#
+# Row and tab clicks are bridge mouse clicks at their centres at 1280x800
+# (see pr-page.txt): the Conversation and Commits tabs are at x=340 and
+# x=447, y=155.
+
+--session prfresh
+
+# Home → GitHub → beacon; the Open PRs lane lists PR 101 under its old title.
+assert-label "Open GitHub module"
+click 11447690740305500471 --wait-frame
+wait-label "Filter repositories"
+click 349678605523893363
+type beacon
+key down
+key enter
+wait-label "PR #101: Parser: accept trailing commas in manifest lists —"
+assert-no-label "(v2)"
+
+# Open PR 101 (the detail reads generation 0) and change GitHub's side.
+mouse down 900 337
+mouse up 900 337
+wait-label "Conversation (5)"
+assert-no-label "Conversation (6)"
+fixture bump
+assert-request "PrDetail" generation=0 status=200
+
+# Inside the 30 s floor, a tab switch is quiet: the new comment is not counted.
+mouse down 447 155
+mouse up 447 155 --wait-frame
+mouse down 340 155
+mouse up 340 155 --wait-frame
+assert-no-label "Conversation (6)"
+
+# Past the floor, entering a tab refetches the detail. Commits first, then
+# back to Conversation, where the new comment (the tab count) shows without a Refresh.
+sleep 33
+mouse down 447 155
+mouse up 447 155 --wait-frame
+mouse down 340 155
+mouse up 340 155 --wait-frame
+wait-label "Conversation (6)"
+assert-request "PrDetail" generation=1 status=200
+
+# Past the list's 60 s floor, closing the page refreshes the Open PRs lane:
+# the list answers generation 1 and the row carries the new title.
+sleep 33
+key esc
+wait-label "PR #101: Parser: accept trailing commas in manifest lists (v2)"
+assert-request "RepoPulls" generation=1 status=200

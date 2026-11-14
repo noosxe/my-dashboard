@@ -10983,10 +10983,12 @@ mod tests {
         cx.update(gpui_component::init);
         cx.update(|cx| cx.background_executor().allow_parking());
         // 1: eager construction fetch; 2: the line-comment mutation
-        // (200); 3: the threads refetch (fails — proves it flew).
+        // (200); 3+4: the threads and detail refetches (fail — prove they
+        // flew, docs/0084 D2).
         let mock = Arc::new(MockHttp::new(vec![
             Err(crate::http::HttpError("probe".into())),
             mutation_ok_200(),
+            Err(crate::http::HttpError("probe".into())),
             Err(crate::http::HttpError("probe".into())),
         ]));
         let state: gpui::Entity<GithubState> = cx.update(|cx| {
@@ -11055,7 +11057,11 @@ mod tests {
         assert!(!composer_open, "confirmation closed the composer");
         assert!(!pending);
         assert!(detail_voided, "the cached detail voided for the refetch");
-        assert_eq!(mock.recorded().len(), 3, "line comment + threads refetch");
+        assert_eq!(
+            mock.recorded().len(),
+            4,
+            "line comment + threads and detail refetches"
+        );
         vcx.update(|_, cx| {
             state.update(cx, |s, _| {
                 let alerts = s.take_pending_alerts();

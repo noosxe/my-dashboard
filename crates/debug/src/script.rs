@@ -33,6 +33,10 @@ pub enum StepOp {
     },
     /// `wait-frame` — bare, the runner's default budget.
     WaitFrame,
+    /// `sleep <secs>` — real time passes (1-120 s). For receipts about age
+    /// floors, which the app measures on its own clock and no bridge verb
+    /// moves (docs/0084 D2); keep it as short as the floor allows.
+    Sleep(u64),
     /// `snapshot <name>`
     Snapshot(String),
     /// `diff <a> <b>` — prints, never asserts.
@@ -226,6 +230,13 @@ fn parse_line(text: &str, line_no: usize) -> Result<StepOp, String> {
             }
             Ok(StepOp::WaitFrame)
         }
+        "sleep" => match rest {
+            [secs] => match secs.parse::<u64>() {
+                Ok(n) if (1..=120).contains(&n) => Ok(StepOp::Sleep(n)),
+                _ => Err(err("sleep needs whole seconds, 1-120")),
+            },
+            _ => Err(err("sleep needs exactly one <secs>")),
+        },
         "snapshot" => {
             let [name] = rest else {
                 return Err(err("snapshot needs exactly one <name>"));
@@ -508,6 +519,17 @@ mod tests {
     /// breaks a shipped script is a regression, not a surprise for the
     /// Linux box (found the hard way: favicon.txt shipped a `tree
     /// --json` step that was never a verb).
+    #[test]
+    fn sleep_takes_whole_seconds_up_to_two_minutes() {
+        assert_eq!(
+            parse_script("sleep 31").unwrap().steps[0].op,
+            StepOp::Sleep(31)
+        );
+        for bad in ["sleep", "sleep 0", "sleep 121", "sleep 1.5", "sleep 1 2"] {
+            assert!(parse_script(bad).is_err(), "{bad}");
+        }
+    }
+
     #[test]
     fn parses_visual_golden_steps() {
         let script =

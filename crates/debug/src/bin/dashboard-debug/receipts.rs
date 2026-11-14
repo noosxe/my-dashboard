@@ -706,6 +706,10 @@ fn run_step(conn: &mut Conn, session: Option<&str>, op: &StepOp) -> StepOutcome 
                 timeout_ms: DEFAULT_WAIT_FRAME_TIMEOUT_MS,
             },
         ),
+        StepOp::Sleep(secs) => {
+            std::thread::sleep(std::time::Duration::from_secs(*secs));
+            StepOutcome::Ok(format!(" slept {secs} s"))
+        }
         StepOp::Snapshot(name) => {
             let code = tree_snapshot(conn, &None, name);
             outcome(code, &format!(" snapshot {name} written"))
