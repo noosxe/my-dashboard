@@ -14,7 +14,9 @@
 use serde::{Deserialize, Serialize};
 
 mod reviewers;
+mod status;
 pub use reviewers::{LatestReview, PrReviewRequest, ReviewerKind};
+pub use status::{AutoMerge, CheckCounts, Ending, Queueing};
 
 pub const GRAPHQL_ENDPOINT: &str = "https://api.github.com/graphql";
 
@@ -695,6 +697,20 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
       body
       state
       isDraft
+      # docs/0083 D6, D17: how a terminal PR ended. GitHub exposes no
+      # `closedBy`; the closer is the newest ClosedEvent's actor, and no
+      # field names the merge method of a merged PR.
+      merged
+      mergedAt
+      mergedBy { login }
+      closedAt
+      timelineItems(last: 1, itemTypes: [CLOSED_EVENT]) {
+        nodes { ... on ClosedEvent { actor { login } createdAt } }
+      }
+      # docs/0083 D2 rows 4-5: the verdict and its sub-line.
+      isInMergeQueue
+      mergeQueueEntry { position state }
+      autoMergeRequest { enabledBy { login } mergeMethod }
       changedFiles
       baseRefName
       headRefName
@@ -759,6 +775,10 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
         state
         contexts(first: 100) {
           totalCount
+          # docs/0083 D3: exact counts behind the gate row, even when the
+          # 100-node page below is capped.
+          checkRunCountsByState { state count }
+          statusContextCountsByState { state count }
           nodes {
             __typename
             ... on CheckRun {
@@ -856,6 +876,12 @@ pub struct PrDetail {
     pub milestone: Option<IssueMilestone>,
     pub review_requests: Vec<PrReviewRequest>,
     pub review_requests_total: i64,
+    /// How the PR ended (docs/0083 D6).
+    #[serde(default)]
+    pub ending: Ending,
+    /// Merge queue and auto-merge (docs/0083 D2 rows 4-5).
+    #[serde(default)]
+    pub queueing: Queueing,
     /// `reviewDecision` (docs/0083 D17): null when no review rule applies.
     /// Parsed for the status block; the reviewer rows don't read it.
     #[serde(default)]
@@ -929,6 +955,10 @@ pub struct PrCommit {
 pub struct PrChecks {
     pub total_count: i64,
     pub nodes: Vec<PrCheck>,
+    /// Exact per-bucket counts (docs/0083 D3); zero until a payload with
+    /// the counts lands.
+    #[serde(default)]
+    pub counts: CheckCounts,
 }
 
 /// One check row, normalized across the union members
@@ -2164,6 +2194,8 @@ pub fn pr_detail_from_value(value: &serde_json::Value) -> Option<PrDetail> {
         milestone,
         review_requests,
         review_requests_total,
+        ending: status::parse_ending(pr),
+        queueing: status::parse_queueing(pr),
         review_decision: str_field("reviewDecision"),
         latest_opinionated_reviews: reviewers::parse_latest_reviews(pr, "latestOpinionatedReviews"),
         latest_reviews: reviewers::parse_latest_reviews(pr, "latestReviews"),
@@ -2286,7 +2318,11 @@ fn gql_pr_checks(pr: &serde_json::Value) -> PrChecks {
                 .collect()
         })
         .unwrap_or_default();
-    PrChecks { total_count, nodes }
+    PrChecks {
+        total_count,
+        nodes,
+        counts: status::parse_check_counts(pr),
+    }
 }
 /// The three `repository` merge-method booleans — absent fields count
 /// as disabled (repos really do turn methods off; `false` is a value the
@@ -4598,6 +4634,18 @@ mod tests {
             "latestReviews(first: 20)",
         ] {
             assert!(PR_DETAIL_QUERY.contains(field), "review outcome: {field}");
+        }
+        for field in [
+            "checkRunCountsByState { state count }",
+            "statusContextCountsByState { state count }",
+            "merged\n",
+            "mergedBy { login }",
+            "closedAt",
+            "timelineItems(last: 1, itemTypes: [CLOSED_EVENT])",
+            "isInMergeQueue",
+            "autoMergeRequest { enabledBy { login } mergeMethod }",
+        ] {
+            assert!(PR_DETAIL_QUERY.contains(field), "status block: {field}");
         }
         assert!(
             PR_DETAIL_QUERY.contains("viewerPermission"),
