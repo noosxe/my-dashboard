@@ -109,6 +109,74 @@ pub(crate) fn merge_enabled(
         && !no_methods
 }
 
+/// Enable auto-merge's visibility (#774): the repository allows it, the
+/// server says the viewer may enable it, and it is neither on nor queued.
+pub(crate) fn enable_auto_visible(d: &crate::gql::PrDetail) -> bool {
+    let q = &d.queueing;
+    q.auto_merge_allowed && q.viewer_can_enable && q.auto_merge.is_none() && !q.in_merge_queue
+}
+
+/// Enable auto-merge (#774): an open, non-draft PR the viewer may enable it
+/// on, idle and addressable, that can't merge right now (a mergeable PR
+/// merges instead). On a base with a merge queue the queue sets the method,
+/// so a missing method doesn't count.
+pub(crate) fn enable_auto_enabled(d: &crate::gql::PrDetail, no_methods: bool, busy: bool) -> bool {
+    let would_merge = merge_enabled(
+        d.state.as_deref(),
+        d.draft,
+        d.mergeable.as_deref(),
+        d.merge_state_status.as_deref(),
+        false,
+        no_methods && !d.queueing.queue_enabled,
+    );
+    d.state.as_deref() == Some("OPEN")
+        && !d.draft
+        && enable_auto_visible(d)
+        && !would_merge
+        && !d.id.is_empty()
+        && !busy
+}
+
+/// Disable auto-merge (#774): auto-merge is on and the server says the
+/// viewer may turn it off.
+pub(crate) fn disable_auto_enabled(d: &crate::gql::PrDetail, busy: bool) -> bool {
+    d.state.as_deref() == Some("OPEN")
+        && d.queueing.auto_merge.is_some()
+        && d.queueing.viewer_can_disable
+        && !d.id.is_empty()
+        && !busy
+}
+
+/// Merge when ready (#775): the base has a merge queue, the PR isn't in it
+/// and the Merge gate passes (settled 2026-11-14: the same `mergeable` and
+/// `mergeStateStatus` allowlist; the queue sets the method, so a missing
+/// method doesn't count). `enqueuePullRequest` adds a PR only when it can
+/// join right now.
+pub(crate) fn queue_enabled(d: &crate::gql::PrDetail, busy: bool) -> bool {
+    d.queueing.queue_enabled
+        && !d.queueing.in_merge_queue
+        && merge_visible(d.viewer_permission.as_deref())
+        && merge_enabled(
+            d.state.as_deref(),
+            d.draft,
+            d.mergeable.as_deref(),
+            d.merge_state_status.as_deref(),
+            busy,
+            false,
+        )
+        && !d.id.is_empty()
+}
+
+/// Remove from queue (#775): the PR is queued and the viewer can write.
+/// GitHub has no dequeue flag.
+pub(crate) fn dequeue_enabled(d: &crate::gql::PrDetail, busy: bool) -> bool {
+    d.state.as_deref() == Some("OPEN")
+        && d.queueing.in_merge_queue
+        && merge_visible(d.viewer_permission.as_deref())
+        && !d.id.is_empty()
+        && !busy
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -319,5 +387,122 @@ mod tests {
             false,
             false
         ));
+    }
+
+    fn pr(patch: serde_json::Value) -> crate::gql::PrDetail {
+        crate::pr_page::rail::test_support::detail(patch)
+    }
+
+    #[test]
+    fn enable_auto_merge_gate() {
+        use serde_json::json;
+        let blocked = json!({
+            "mergeable": "MERGEABLE", "mergeStateStatus": "BLOCKED",
+            "viewerCanEnableAutoMerge": true, "autoMergeAllowed": true,
+        });
+        assert!(enable_auto_enabled(&pr(blocked.clone()), false, false));
+        for (key, value) in [
+            ("autoMergeAllowed", json!(false)),
+            ("viewerCanEnableAutoMerge", json!(false)),
+            ("mergeStateStatus", json!("CLEAN")),
+            ("state", json!("CLOSED")),
+            ("isDraft", json!(true)),
+            ("isInMergeQueue", json!(true)),
+            ("id", json!("")),
+            (
+                "autoMergeRequest",
+                json!({"enabledBy": null, "mergeMethod": "MERGE"}),
+            ),
+        ] {
+            let mut p = blocked.clone();
+            p[key] = value;
+            assert!(!enable_auto_enabled(&pr(p), false, false), "{key}");
+        }
+        assert!(!enable_auto_enabled(&pr(blocked.clone()), false, true));
+        for status in ["BEHIND", "DIRTY", "UNKNOWN"] {
+            let mut p = blocked.clone();
+            p["mergeStateStatus"] = json!(status);
+            assert!(enable_auto_enabled(&pr(p), false, false), "{status}");
+        }
+        // No allowed method: a clean PR can't merge, so auto-merge is
+        // offered, unless a queue picks the method itself.
+        let mut clean = blocked.clone();
+        clean["mergeStateStatus"] = json!("CLEAN");
+        assert!(enable_auto_enabled(&pr(clean.clone()), true, false));
+        clean["isMergeQueueEnabled"] = json!(true);
+        assert!(!enable_auto_enabled(&pr(clean), true, false));
+    }
+
+    #[test]
+    fn disable_auto_merge_gate() {
+        use serde_json::json;
+        let on = json!({
+            "autoMergeRequest": {"enabledBy": {"login": "dev"}, "mergeMethod": "SQUASH"},
+            "viewerCanDisableAutoMerge": true,
+        });
+        assert!(disable_auto_enabled(&pr(on.clone()), false));
+        assert!(!disable_auto_enabled(&pr(on.clone()), true));
+        let mut p = on.clone();
+        p["viewerCanDisableAutoMerge"] = json!(false);
+        assert!(!disable_auto_enabled(&pr(p), false));
+        let mut p = on.clone();
+        p["autoMergeRequest"] = json!(null);
+        assert!(!disable_auto_enabled(&pr(p), false));
+        let mut p = on;
+        p["state"] = json!("MERGED");
+        assert!(!disable_auto_enabled(&pr(p), false));
+    }
+
+    #[test]
+    fn merge_when_ready_gate_is_the_merge_gate_on_a_queued_base() {
+        use serde_json::json;
+        let base = |status: &str| {
+            json!({
+                "mergeable": "MERGEABLE", "mergeStateStatus": status,
+                "isMergeQueueEnabled": true,
+            })
+        };
+        for (status, want) in [
+            ("CLEAN", true),
+            ("HAS_HOOKS", true),
+            ("UNSTABLE", true),
+            ("BLOCKED", false),
+            ("BEHIND", false),
+            ("DIRTY", false),
+            ("UNKNOWN", false),
+        ] {
+            assert_eq!(queue_enabled(&pr(base(status)), false), want, "{status}");
+        }
+        let clean = base("CLEAN");
+        assert!(!queue_enabled(&pr(clean.clone()), true));
+        for (key, value) in [
+            ("isMergeQueueEnabled", json!(false)),
+            ("isInMergeQueue", json!(true)),
+            ("isDraft", json!(true)),
+            ("state", json!("CLOSED")),
+            ("mergeable", json!("CONFLICTING")),
+            ("viewerPermission", json!("READ")),
+        ] {
+            let mut p = clean.clone();
+            p[key] = value;
+            assert!(!queue_enabled(&pr(p), false), "{key}");
+        }
+    }
+
+    #[test]
+    fn remove_from_queue_gate() {
+        use serde_json::json;
+        let queued = json!({"isMergeQueueEnabled": true, "isInMergeQueue": true});
+        assert!(dequeue_enabled(&pr(queued.clone()), false));
+        assert!(!dequeue_enabled(&pr(queued.clone()), true));
+        let mut p = queued.clone();
+        p["isInMergeQueue"] = json!(false);
+        assert!(!dequeue_enabled(&pr(p), false));
+        let mut p = queued.clone();
+        p["viewerPermission"] = json!("TRIAGE");
+        assert!(!dequeue_enabled(&pr(p), false));
+        let mut p = queued;
+        p["state"] = json!("MERGED");
+        assert!(!dequeue_enabled(&pr(p), false));
     }
 }

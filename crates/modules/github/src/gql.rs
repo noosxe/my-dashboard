@@ -689,6 +689,8 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
     mergeCommitAllowed
     squashMergeAllowed
     rebaseMergeAllowed
+    # docs/0083 D4 (#774): auto-merge is switched on for the repository.
+    autoMergeAllowed
     # docs/0016 D5 (#776): the viewer's last-used merge method, else the
     # repository's default; the split button's caret preselects it.
     viewerDefaultMergeMethod
@@ -716,6 +718,12 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
       isInMergeQueue
       mergeQueueEntry { position state }
       autoMergeRequest { enabledBy { login } mergeMethod }
+      # docs/0083 D4 (#774, #775): the gates of Enable and Disable
+      # auto-merge, and whether the base branch has a merge queue (the
+      # pull-request field, so there is no `Repository.mergeQueue` lookup).
+      isMergeQueueEnabled
+      viewerCanEnableAutoMerge
+      viewerCanDisableAutoMerge
       changedFiles
       baseRefName
       headRefName
@@ -2229,7 +2237,7 @@ pub fn pr_detail_from_value(value: &serde_json::Value) -> Option<PrDetail> {
         review_requests,
         review_requests_total,
         ending: status::parse_ending(pr),
-        queueing: status::parse_queueing(pr),
+        queueing: status::parse_queueing(pr, value),
         head_branch: head_branch::parse_head_branch(pr),
         review_decision: str_field("reviewDecision"),
         latest_opinionated_reviews: reviewers::parse_latest_reviews(pr, "latestOpinionatedReviews"),
@@ -2509,6 +2517,39 @@ mutation PrReopen($input: ReopenPullRequestInput!) {
 pub const PR_DELETE_BRANCH_MUTATION: &str = r#"
 mutation PrDeleteBranch($input: DeleteRefInput!) {
   deleteRef(input: $input) { clientMutationId }
+}
+"#;
+
+/// Enable auto-merge (`EnablePullRequestAutoMergeInput { pullRequestId
+/// mergeMethod }`, docs/0083 D4, #774). On a branch with a merge queue the
+/// server ignores the method, so the input leaves it out there.
+pub const PR_ENABLE_AUTO_MERGE_MUTATION: &str = r#"
+mutation PrEnableAutoMerge($input: EnablePullRequestAutoMergeInput!) {
+  enablePullRequestAutoMerge(input: $input) { pullRequest { id } }
+}
+"#;
+
+/// Disable auto-merge (`DisablePullRequestAutoMergeInput { pullRequestId }`).
+pub const PR_DISABLE_AUTO_MERGE_MUTATION: &str = r#"
+mutation PrDisableAutoMerge($input: DisablePullRequestAutoMergeInput!) {
+  disablePullRequestAutoMerge(input: $input) { pullRequest { id } }
+}
+"#;
+
+/// Add to the merge queue (`EnqueuePullRequestInput { pullRequestId }`,
+/// docs/0083 D4, #775). The server adds the PR only when it can join the
+/// queue right now, and answers an error otherwise.
+pub const PR_ENQUEUE_MUTATION: &str = r#"
+mutation PrEnqueue($input: EnqueuePullRequestInput!) {
+  enqueuePullRequest(input: $input) { mergeQueueEntry { id } }
+}
+"#;
+
+/// Remove from the merge queue (`DequeuePullRequestInput { id }`: the pull
+/// request's node id, not the entry's).
+pub const PR_DEQUEUE_MUTATION: &str = r#"
+mutation PrDequeue($input: DequeuePullRequestInput!) {
+  dequeuePullRequest(input: $input) { mergeQueueEntry { id } }
 }
 "#;
 
@@ -3625,6 +3666,16 @@ mod tests {
             ("PR_CONVERT_TO_DRAFT_MUTATION", PR_CONVERT_TO_DRAFT_MUTATION),
             ("PR_REOPEN_MUTATION", PR_REOPEN_MUTATION),
             ("PR_DELETE_BRANCH_MUTATION", PR_DELETE_BRANCH_MUTATION),
+            (
+                "PR_ENABLE_AUTO_MERGE_MUTATION",
+                PR_ENABLE_AUTO_MERGE_MUTATION,
+            ),
+            (
+                "PR_DISABLE_AUTO_MERGE_MUTATION",
+                PR_DISABLE_AUTO_MERGE_MUTATION,
+            ),
+            ("PR_ENQUEUE_MUTATION", PR_ENQUEUE_MUTATION),
+            ("PR_DEQUEUE_MUTATION", PR_DEQUEUE_MUTATION),
             ("PR_UPDATE_COMMENT_MUTATION", PR_UPDATE_COMMENT_MUTATION),
             ("PR_DELETE_COMMENT_MUTATION", PR_DELETE_COMMENT_MUTATION),
             ("PR_UPDATE_REVIEW_MUTATION", PR_UPDATE_REVIEW_MUTATION),
@@ -4713,6 +4764,10 @@ mod tests {
             "timelineItems(last: 1, itemTypes: [CLOSED_EVENT])",
             "isInMergeQueue",
             "autoMergeRequest { enabledBy { login } mergeMethod }",
+            "isMergeQueueEnabled",
+            "viewerCanEnableAutoMerge",
+            "viewerCanDisableAutoMerge",
+            "autoMergeAllowed",
         ] {
             assert!(PR_DETAIL_QUERY.contains(field), "status block: {field}");
         }

@@ -660,6 +660,11 @@ pub enum Mutation {
     Reopen,
     // docs/0083 D4 (#773): `deleteRef` on the head branch.
     DeleteBranch,
+    // docs/0083 D4 (#774, #775): auto-merge and the merge queue.
+    EnableAutoMerge,
+    DisableAutoMerge,
+    Enqueue,
+    Dequeue,
     // 0019 D5: timeline-row writes — one variant per document.
     UpdateComment,
     DeleteComment,
@@ -1797,6 +1802,10 @@ fn run_pr_mutation(http: &dyn Http, spec: &FetchSpec, mutation: Mutation) -> Spe
         Mutation::ConvertToDraft => gql::PR_CONVERT_TO_DRAFT_MUTATION,
         Mutation::Reopen => gql::PR_REOPEN_MUTATION,
         Mutation::DeleteBranch => gql::PR_DELETE_BRANCH_MUTATION,
+        Mutation::EnableAutoMerge => gql::PR_ENABLE_AUTO_MERGE_MUTATION,
+        Mutation::DisableAutoMerge => gql::PR_DISABLE_AUTO_MERGE_MUTATION,
+        Mutation::Enqueue => gql::PR_ENQUEUE_MUTATION,
+        Mutation::Dequeue => gql::PR_DEQUEUE_MUTATION,
         Mutation::UpdateComment => gql::PR_UPDATE_COMMENT_MUTATION,
         Mutation::DeleteComment => gql::PR_DELETE_COMMENT_MUTATION,
         Mutation::UpdateReview => gql::PR_UPDATE_REVIEW_MUTATION,
@@ -2187,6 +2196,10 @@ pub(crate) enum PendingKind {
     ConvertToDraft,
     Reopen,
     DeleteBranch,
+    EnableAutoMerge,
+    DisableAutoMerge,
+    Enqueue,
+    Dequeue,
     UpdateBranch,
     Comment,
     Review,
@@ -2212,6 +2225,10 @@ impl PendingKind {
             PendingKind::ConvertToDraft => "converting to draft…",
             PendingKind::Reopen => "reopening…",
             PendingKind::DeleteBranch => "deleting branch…",
+            PendingKind::EnableAutoMerge => "enabling auto-merge…",
+            PendingKind::DisableAutoMerge => "disabling auto-merge…",
+            PendingKind::Enqueue => "adding to queue…",
+            PendingKind::Dequeue => "removing from queue…",
             PendingKind::UpdateBranch => "updating branch…",
             PendingKind::Comment => "commenting…",
             PendingKind::Review => "submitting review…",
@@ -2235,6 +2252,10 @@ impl PendingKind {
             PendingKind::ConvertToDraft => "Converted to draft",
             PendingKind::Reopen => "Reopened",
             PendingKind::DeleteBranch => "Branch deleted",
+            PendingKind::EnableAutoMerge => "Auto-merge enabled",
+            PendingKind::DisableAutoMerge => "Auto-merge disabled",
+            PendingKind::Enqueue => "Added to merge queue",
+            PendingKind::Dequeue => "Removed from merge queue",
             PendingKind::UpdateBranch => "Updated branch for",
             PendingKind::Comment => "Comment added",
             PendingKind::Review => "Review submitted",
@@ -2258,6 +2279,10 @@ impl PendingKind {
             PendingKind::ConvertToDraft => "Convert to draft",
             PendingKind::Reopen => "Reopen",
             PendingKind::DeleteBranch => "Delete branch",
+            PendingKind::EnableAutoMerge => "Enable auto-merge",
+            PendingKind::DisableAutoMerge => "Disable auto-merge",
+            PendingKind::Enqueue => "Merge when ready",
+            PendingKind::Dequeue => "Remove from queue",
             PendingKind::UpdateBranch => "Branch update",
             PendingKind::Comment => "Comment",
             PendingKind::Review => "Review",
@@ -2281,6 +2306,10 @@ impl PendingKind {
             PendingKind::ConvertToDraft => "converted-to-draft",
             PendingKind::Reopen => "reopened",
             PendingKind::DeleteBranch => "branch-deleted",
+            PendingKind::EnableAutoMerge => "auto-merge-enabled",
+            PendingKind::DisableAutoMerge => "auto-merge-disabled",
+            PendingKind::Enqueue => "enqueued",
+            PendingKind::Dequeue => "dequeued",
             PendingKind::UpdateBranch => "branch-updated",
             PendingKind::Comment => "commented",
             PendingKind::Review => "review-submitted",
@@ -2306,6 +2335,10 @@ impl PendingKind {
             | PendingKind::ConvertToDraft
             | PendingKind::Reopen
             | PendingKind::DeleteBranch
+            | PendingKind::EnableAutoMerge
+            | PendingKind::DisableAutoMerge
+            | PendingKind::Enqueue
+            | PendingKind::Dequeue
             | PendingKind::UpdateBranch => ErrorScope::Panel,
             PendingKind::Comment
             | PendingKind::Review
@@ -4102,6 +4135,11 @@ impl GithubState {
             PendingKind::ReadyForReview | PendingKind::ConvertToDraft => None,
             // Patched below: the head branch is gone.
             PendingKind::DeleteBranch => None,
+            // Patched below: the queue and auto-merge facts.
+            PendingKind::EnableAutoMerge
+            | PendingKind::DisableAutoMerge
+            | PendingKind::Enqueue
+            | PendingKind::Dequeue => None,
             // Everything else: nothing honest to patch — the post-state
             // (a new comment row, an edited body, the new head OID) is
             // only learnable by refetch (docs/0072 D4).
@@ -4134,6 +4172,18 @@ impl GithubState {
             // docs/0083 D4 (#773): the button goes away at once; the
             // refetch brings the rest.
             detail.head_branch = None;
+        }
+        if let Some(detail) = &mut entry.detail {
+            // docs/0083 D4 (#774, #775): the control that was just used
+            // goes away at once. The new position, state and author are
+            // learnable only by the refetch.
+            match kind {
+                PendingKind::EnableAutoMerge => detail.queueing.after_enable(),
+                PendingKind::DisableAutoMerge => detail.queueing.after_disable(),
+                PendingKind::Enqueue => detail.queueing.after_enqueue(),
+                PendingKind::Dequeue => detail.queueing.after_dequeue(),
+                _ => {}
+            }
         }
         if let Some(state) = confirmed {
             entry.summary.state = Some(state.to_string());

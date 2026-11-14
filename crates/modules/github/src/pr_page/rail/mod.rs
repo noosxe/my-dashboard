@@ -200,7 +200,7 @@ pub(super) mod test_support {
     /// A PR detail built through the real parser: an open PR, an admin
     /// viewer, one label, one assignee, one user review request and a
     /// milestone. `patch` overrides pull-request fields; `viewerPermission`
-    /// rides on the repository wrapper node.
+    /// and `autoMergeAllowed` ride on the repository wrapper node.
     pub(in crate::pr_page) fn detail(patch: Value) -> PrDetail {
         let mut pr = json!({
             "id": "PR_1", "number": 7, "title": "t", "url": "https://x/pull/7",
@@ -216,16 +216,23 @@ pub(super) mod test_support {
             ]},
         });
         let mut permission = json!("ADMIN");
+        let mut auto_merge_allowed = json!(false);
         if let Value::Object(patch) = patch {
             for (k, v) in patch {
                 if k == "viewerPermission" {
                     permission = v;
+                } else if k == "autoMergeAllowed" {
+                    auto_merge_allowed = v;
                 } else {
                     pr[&k] = v;
                 }
             }
         }
-        gql::pr_detail_from_value(&json!({"viewerPermission": permission, "pullRequest": pr}))
-            .expect("rail test detail parses")
+        gql::pr_detail_from_value(&json!({
+            "viewerPermission": permission,
+            "autoMergeAllowed": auto_merge_allowed,
+            "pullRequest": pr,
+        }))
+        .expect("rail test detail parses")
     }
 }

@@ -2,13 +2,18 @@
 //! state shows, in which precedence, and what the `⋯` menu holds. Pure;
 //! `action_row.rs` draws the result.
 //!
-//! Merge, Close, Ready for review, Convert to draft, Reopen and Delete
-//! branch ship so far. The other controls (#774, #775) are laid out here by the same rules, so
-//! each of those issues turns one flag on and adds its handler:
-//! [`Primary::wired`] and [`MenuItem::wired`] keep an unbuilt control off
-//! the screen until then.
+//! Every control of docs/0083 D4 and D5 ships: Merge, Close, Ready for
+//! review, Convert to draft, Reopen, Delete branch, Enable and Disable
+//! auto-merge, Merge when ready and Remove from queue. [`Primary::wired`]
+//! and [`MenuItem::wired`] stay as the switch for a control a later
+//! change lays out before it has a handler.
+//!
+//! On a base branch with a merge queue the plain Merge is never offered
+//! (settled 2026-11-14): "Merge when ready" enqueues exactly when the Merge
+//! gate passes, Enable auto-merge takes over when it doesn't, and a
+//! disabled "Merge when ready" shows when the viewer can do neither.
 
-use super::super::merge_gate::{close_visible, merge_enabled, merge_visible};
+use super::super::merge_gate::{close_visible, enable_auto_visible, merge_enabled, merge_visible};
 use super::super::{PrStateTone, pr_state_tone};
 use crate::gql::PrDetail;
 
@@ -20,7 +25,10 @@ pub(crate) enum Primary {
     /// stays usable); the tooltip is the verdict and the failing gates.
     MergeBlocked,
     EnableAutoMerge,
+    /// "Merge when ready", clickable: enqueues after its confirm.
     MergeWhenReady,
+    /// The same button, action half disabled (tooltip: the verdict).
+    MergeWhenReadyBlocked,
     RemoveFromQueue,
     DisableAutoMerge,
     ReadyForReview,
@@ -29,16 +37,9 @@ pub(crate) enum Primary {
 }
 
 impl Primary {
-    /// Whether the control has a handler yet (#770–#776 add the rest).
+    /// Whether the control has a handler yet.
     pub(crate) fn wired(self) -> bool {
-        matches!(
-            self,
-            Primary::Merge
-                | Primary::MergeBlocked
-                | Primary::ReadyForReview
-                | Primary::Reopen
-                | Primary::DeleteBranch
-        )
+        true
     }
 }
 
@@ -69,6 +70,9 @@ pub(crate) struct Facts {
     pub queue_present: bool,
     /// D2 rows 10–11 plus an allowed method: a normal merge would go.
     pub mergeable: bool,
+    /// D2 rows 10–11 alone. The queue picks its own method, so a repository
+    /// with no method of its own still enqueues.
+    pub queue_ready: bool,
     pub can_merge: bool,
     pub can_enable_auto: bool,
     pub can_disable_auto: bool,
@@ -89,6 +93,7 @@ impl Facts {
             draft: tone == PrStateTone::Draft,
             queued: d.queueing.in_merge_queue,
             auto_merge_on: d.queueing.auto_merge.is_some(),
+            queue_present: d.queueing.queue_enabled,
             mergeable: merge_enabled(
                 d.state.as_deref(),
                 d.draft,
@@ -97,7 +102,22 @@ impl Facts {
                 false,
                 no_methods,
             ),
+            queue_ready: merge_enabled(
+                d.state.as_deref(),
+                d.draft,
+                d.mergeable.as_deref(),
+                d.merge_state_status.as_deref(),
+                false,
+                false,
+            ),
             can_merge: merge_visible(d.viewer_permission.as_deref()),
+            // #774: the repository allows auto-merge and the server says
+            // the viewer may enable it; never while it is on or queued.
+            can_enable_auto: enable_auto_visible(d),
+            can_disable_auto: d.queueing.viewer_can_disable,
+            // #775: GitHub has no dequeue flag; removing needs the same
+            // write access as merging.
+            can_dequeue: merge_visible(d.viewer_permission.as_deref()),
             // #771, #772: `viewerCanUpdate` is the gate, there is no flag of
             // its own.
             can_ready: d.viewer_can_update,
@@ -108,8 +128,6 @@ impl Facts {
             // #773: write access on the head repository, not its default
             // branch (docs/0083 §3.1).
             can_delete_branch: d.head_branch.as_ref().is_some_and(|h| h.deletable()),
-            // Wired by #774, #775: their gates aren't queried yet.
-            ..Facts::default()
         }
     }
 }
@@ -146,8 +164,8 @@ pub(crate) fn primaries(f: &Facts) -> Vec<Primary> {
         Some(Primary::RemoveFromQueue)
     } else if f.auto_merge_on && f.can_disable_auto {
         Some(Primary::DisableAutoMerge)
-    } else if f.queue_present && !f.queued && f.can_merge {
-        Some(Primary::MergeWhenReady)
+    } else if f.queue_present {
+        queue_primary(f)
     } else if f.mergeable && f.can_merge {
         Some(Primary::Merge)
     } else if !f.mergeable && f.can_enable_auto {
@@ -158,6 +176,23 @@ pub(crate) fn primaries(f: &Facts) -> Vec<Primary> {
         None
     };
     one.into_iter().collect()
+}
+
+/// The primary on a base branch with a merge queue: never the plain Merge.
+/// A PR already queued has nothing but Remove from queue (handled by the
+/// caller), so a viewer who can't remove it sees no primary.
+fn queue_primary(f: &Facts) -> Option<Primary> {
+    if f.queued {
+        None
+    } else if f.queue_ready && f.can_merge {
+        Some(Primary::MergeWhenReady)
+    } else if f.can_enable_auto {
+        Some(Primary::EnableAutoMerge)
+    } else if f.can_merge {
+        Some(Primary::MergeWhenReadyBlocked)
+    } else {
+        None
+    }
 }
 
 /// The `⋯` menu's items, top to bottom (D5): items the viewer can't use
