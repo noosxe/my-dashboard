@@ -39,6 +39,11 @@ impl gpui::AssetSource for AppAssets {
                 include_bytes!("../assets/icons/pencil.svg",) as &[u8],
             )));
         }
+        if path == "icons/comment.svg" {
+            return Ok(Some(std::borrow::Cow::Borrowed(
+                include_bytes!("../assets/icons/comment.svg",) as &[u8],
+            )));
+        }
         gpui_kit_assets::Assets.load(path)
     }
 

@@ -8,6 +8,8 @@ mod metrics;
 mod milestone;
 mod people;
 mod picker_card;
+mod reviewer_row;
+mod reviewers;
 mod section;
 #[cfg(test)]
 mod tests;
