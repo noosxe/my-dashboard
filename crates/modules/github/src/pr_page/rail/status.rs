@@ -70,6 +70,7 @@ pub(super) fn status_block(
             col.child(
                 h_flex()
                     .id("pr-rail-verdict-sub")
+                    .debug_selector(|| "pr-rail-verdict-sub".to_string())
                     .pl_6()
                     .flex_wrap()
                     .text_xs()
