@@ -241,6 +241,16 @@ runs `fixture bump`, switches tabs inside and then past the 30 s floor
 the 60 s list floor (the row carries generation 1's title), reading
 the refetches back through `assert-request` (docs/0084 D2).
 
+`pr-freshness-probe.txt` (session `prprobe`, 1280x800, the committed
+fixtures and **no** `DASHBOARD_FIXED_NOW`: the Usage page's ledger view
+leaves out flights stamped after a pinned clock, and this receipt reads its
+live rows; about 100 s) opens PR 101 and sits idle for a minute: one 200 per
+probed URL, the seed, and 304s after it (`assert-request … count=1`, docs/0010
+D12), with the detail read once. After `fixture bump` the new comment, the
+check state and the label swap appear with no click, and the Usage page
+lists the probes as `watch` rows and the refetch they caused as a `changed`
+row (docs/0084 D3/D4).
+
 `pr-files-notices.txt` (session `prnotices`, same fixtures and clock, at
 **1280x900** — the lane's twelfth row is below the fold at 800 high)
 walks the Files tab of fixture PR #112 (#753, #760): a malformed, an

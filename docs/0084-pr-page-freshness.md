@@ -139,9 +139,8 @@ Gotchas, all measured:
   send the same headers every time.
 - A 304 echoes the ETag without the `W/` prefix, and the stripped form
   still matches.
-- Responses carry `Cache-Control: private, max-age=60`. Whether a
-  change can hide behind a 304 for up to 60 s was **not verified**, and
-  stage 3 measures it (§9).
+- Responses carry `Cache-Control: private, max-age=60`. A change does not
+  hide behind a 304 for that long: measured in stage 3 (F10).
 
 **F2 — GraphQL has no conditional requests, and one point is the
 floor.** A GraphQL response has no ETag or `Last-Modified`. It is a POST,
@@ -164,12 +163,9 @@ PRs, as list rows would be (§12).
 **F3 — `updatedAt` doesn't move on CI.** On the live PR, the newest
 check run completed after the PR's `updated_at`. The PR resource (and
 its ETag) therefore can't detect CI progress, and the head commit's
-check runs and statuses need their own probe. Whether a push, a label
-change or a submitted review moves `updated_at` was **not observed
-live**. Community knowledge says they do. Stage 3's receipts confirm it
-against the fixture-emulated contract and one live check, and the lane
-map (D4) is written so a missed bump only delays the update by one
-check-runs change or a refocus.
+check runs and statuses need their own probe. A push, a label change, a
+comment and a submitted review do move `updated_at` and the ETag:
+measured in stage 3 (F10).
 
 **F4 — the events API is too slow.** The repo, network and org event
 endpoints document a latency of "30s to 6h". They are polling-friendly
@@ -222,6 +218,47 @@ budgets (docs/0050, 0082 Q10).
 - The window-active flag (`GithubState.window_active`, docs/0080 D2).
 - The head-change fan-out (`pr_page/head_change.rs`).
 - The outdated-read rerun (#739).
+
+**F10 — stage 3's live measurement (2026-11-14, read-only).** Everything
+here was read with GET requests against open and recently closed PRs of
+busy public repositories, and compared with their timeline event
+timestamps. Nothing was written to any repository, and no repository is
+named in this doc.
+
+- *Does `max-age=60` delay a change behind 304s? No.* Ten PRs from two busy
+  repositories were polled with conditional GETs (the PR and its timeline)
+  every 20 s for 20 minutes: 610 polls, 415 of them 304. The 14 changes seen
+  (labels, review requests, a comment, a submitted review, merges and
+  closes) all showed up at the first poll after the event, at most 19 s
+  later, so none waited out the 60 s. An earlier pass over 12 PRs at a 34 s
+  period agreed (8 changes, the longest 35 s). The earlier pass also took an
+  unconditional GET right after each conditional one: no 304 was followed by
+  a different field, only once by a different ETag (the repository counters,
+  below). The
+  conditional request is evaluated by the server, and `max-age` only
+  governs HTTP caches, which the app has none of.
+- *Does a push, a label or a submitted review move `updated_at` and the
+  ETag? Yes, all of them.* Of the timeline events of
+  the recent PRs of three busy repositories (up to 70 each), none of the 1,253 `labeled`, 1,065
+  `commented`, 604 `committed`, 378 `reviewed`, 343 `review_requested`, 231
+  `head_ref_force_pushed`, 173 `unlabeled`, 53 `merged` or 79 `closed`
+  events was newer than its PR's `updated_at`. Live, a push (a new head and
+  commit count), a line comment (the review-comment count), a label, a
+  comment and a review each came back as a 200 with a new `updated_at`. So
+  D6's `pulls/{n}/reviews` fallback is **not needed** and doesn't ship. A
+  few event kinds never move it (a subscription, a mention, a
+  cross-reference, a merge queue entry), and none of them is shown on the
+  page.
+- *Does the ETag follow a mergeable recompute? Yes, and more than that.*
+  `mergeable` and `mergeable_state` flipped 49 and 52 times in the second
+  pass, almost always with `updated_at` unchanged, and each flip was a 200 for
+  a conditional request. The ETag also follows the repository's own
+  counters, which the PR body embeds (`open_issues_count`, `pushed_at`):
+  on a very busy repository 25 to 40% of the 20 s polls of a quiet PR were a 200
+  with no field the page shows different, and 10 to 13% on a less busy one.
+  Those 200s cost a counted request each (F1) but cause no refetch, because
+  the probe compares the fields it reads (`probe_diff.rs`) and not the ETag.
+  A mergeability flip does refetch the detail (D4, "anything else").
 
 ## 4. Defects found (filed and fixed as stage 0)
 
@@ -408,13 +445,10 @@ PR's state and how recently something changed:
   came back 304 is followed by one detail refetch, at most every 30 s.
   That is 1 GraphQL point, the same price as any GraphQL probe (F2).
   This amends docs/0083's "no queue polling".
-- **The review decision and new reviews** are expected to move
-  `updated_at` and the PR ETag (F3, verified in stage 3). If stage 3
-  shows they don't, the fallback is to add
-  `GET …/pulls/{n}/reviews?per_page=1` to the probe. That is a third
-  conditional request and still free when unchanged, though a
-  one-per-page ETag only notices new reviews if GitHub's ordering puts
-  them on page 1. Stage 3 checks that too.
+- **The review decision and new reviews** move `updated_at` and the PR ETag
+  (F10, measured in stage 3), so the probe needs no reviews request. The
+  fallback considered here, `GET …/pulls/{n}/reviews?per_page=1` as a third
+  conditional request, is not built.
 
 ### D7 — Budget guard
 
@@ -483,6 +517,15 @@ For one watched PR page, per hour:
 | In a merge queue for 30 min | ~5 | ~180 | ≤ 60 |
 | Guard ceiling (D7) | 600 | unbounded but free | 300 |
 
+- Stage 3 adds two costs the table doesn't show. Every open pays 3 counted
+  REST requests for the seed (the PR, the head's check runs and its status),
+  and on a very busy repository the PR resource's ETag moves with the
+  repository's own counters (F10), so about a third of the PR probes come back
+  200 with nothing to show: roughly 40 counted requests an hour in the Active
+  tier, 130 in Hot. Both are far under the guard's ceiling (D7). The
+  receipt's measured case (a head change with a CI result and a label swap)
+  costs 3 counted probe requests, 1 detail read (1 GraphQL point) and the
+  gated-runs sweep (1 REST).
 - Idle app, or no PR page open: **zero** PR traffic. Unchanged from
   docs/0080: only the unfocused notifications poll, at most 60 an hour.
 - The busy case is about 1% of each hourly budget. Ten PR pages opened
@@ -555,6 +598,51 @@ docs/0071 container.
   `sleep` script step (docs/0010 D12), because the app measures them on its
   own clock. The receipt needs generation 1 of the beacon PR list
   (`RepoPulls.beacon.g1.json`), which retitles #101.
+
+**Stage 3 as shipped.**
+
+- Code: `pr_page/freshness/{probe,probe_diff,lane_map,timer}.rs`. The probe is
+  `Kind::PrProbe`, one conditional GET per request, and it is silent: it
+  doesn't pulse the status bar.
+- Usage rows: probes book `watch` (the 304s show as "free (304)"), and the
+  refetches a probe caused book `changed`: the detail, the threads when a
+  review-comment count moved, and the gated-runs sweep after a head change.
+- The first probe goes out 2 s after the page opens and only seeds the
+  comparison. That costs 3 counted REST requests per open (the PR, the
+  head's check runs and its status; the status request is skipped when the
+  detail showed no legacy contexts). The seed retries after 2 s while the
+  open's own read is still flying.
+- Intervals are fixed: Hot 10 s, Active 30 s, Shown 60 s (30 s while a Hot
+  condition other than focus holds). Hot is a running or queued check, an
+  UNKNOWN mergeable state, or a change in the last 2 minutes. The Settled
+  and Unattended tiers, the queue and review fallbacks of D6, the budget guard
+  and `X-Poll-Interval` are stage 4 (`pulls/{n}` sends no `X-Poll-Interval`,
+  so there is nothing to honour yet).
+- The lane map is `lane_map::plan`. A head change refetches the detail only;
+  its landing runs the existing fan-out for Files and threads, and the probe
+  follows any landed head with its check-runs URL. Checks-only changes refetch at most every
+  20 s; one that comes too soon is scheduled and not dropped.
+- The probe stops its tick at the first failure and backs off by doubling the
+  interval up to 5 minutes. A 401, 403, 404 or 429 goes through the shared
+  handling, which arms the REST pause that un-watches the page (#751).
+- "A newly waiting run" (D4's sweep rule) is a rise in the detail's failed
+  check count, because a run held for approval reports `action_required`,
+  which the rollup counts as failed. The sweep also still runs after a gate
+  action.
+- A notification landing that names the open PR sends one immediate probe.
+  When the page can't probe yet (not watched, or the first 200 hasn't
+  landed) it refetches the detail as before, under `notification-landing`.
+- After the user's own write the PR's `updated_at` moves, so the next probe
+  is a 200 with a diff and one extra detail read follows (a head moved by
+  Update branch is read the same way). That keeps the rule simple: a probe
+  never guesses whether the page caused the change.
+- Goldens now store the status chip's session request counts as `N`
+  (`crates/debug`, same class as wall-clock times): a watched page sends
+  probes on a timer, so the totals depend on how long the page was open.
+- Receipt `pr-freshness-probe.txt` runs without a pinned clock, because the
+  Usage page's ledger view leaves out flights stamped after a pinned
+  `DASHBOARD_FIXED_NOW`. `assert-request` gained `count=N` (docs/0010 D12) to
+  say "one 200 and nothing else".
 
 Stages 3 and 4 can ship as a stack. Stage 2 can land before or after
 stage 1, but its receipt needs stage 1.

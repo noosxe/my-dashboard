@@ -113,8 +113,11 @@ Rules:
 - **Every request counts the moment it starts** (in-flight bookkeeping,
   retained for the deferred usage-analytics task), and every response
   immediately replaces the snapshot with fact — the display shows that
-  snapshot verbatim. A 304 counts (it consumes budget upstream); the
-  response's headers still reconcile it.
+  snapshot verbatim. A 304 counts as a request in the session totals;
+  the response's headers still reconcile it. *(Corrected by docs/0084 F1:
+  a correctly authorized 304 does not consume primary budget, so the
+  headers show the same remaining count after it. The book counts it as a
+  request and the Usage page labels it "free (304)".)*
 
 ## D2 — The counting seam: one decorator, zero call-site changes
 

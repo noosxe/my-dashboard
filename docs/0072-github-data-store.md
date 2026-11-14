@@ -128,6 +128,10 @@ predates a confirmed write is refused (D4, #739).
 
 ### D3 — Reads are stale-while-revalidate
 
+*Amended by docs/0084 D3: the catch-up (`Trigger::Drift`) stays, but a
+watched page usually beats it: its probe refetches the detail on the same
+change, as `Trigger::Changed`, and every landing re-reads the document.*
+
 `open_pr` paints whatever the entry has — summary always (home landed it),
 detail when cached — and kicks the detail spec in the background only when
 the document is cold or stale (D9). `run_read_deduped` already collapses a

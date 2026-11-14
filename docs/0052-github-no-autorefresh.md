@@ -11,6 +11,15 @@
 > re-polls that detail up to 3 times, 4 s apart (`Trigger::Recheck`),
 > and stops at the first resolved answer or when the page closes. It is
 > bounded per non-poll landing, never recurring. See docs/0072 D3.
+>
+> **Amended by docs/0084 D0** (targeted automatic refresh): D1's rule no
+> longer holds for the PR page. A *watched* PR page may fetch on a timer
+> when the fetch is targeted: a conditional REST probe detects a change,
+> only the lanes that changed are refetched, the cadence scales with focus
+> and activity, and an explicit budget bounds it. D2's cadence tables stay
+> deleted: the watch tiers are one function on one page, not a per-lane
+> cadence system. §6's acceptance becomes "zero counted requests while
+> nothing changes".
 
 - **Date:** 2026-09-21
 - **Depends on:** 0031 (fetch record/dedup), 0032 (detail auto-refresh —
@@ -54,7 +63,10 @@ pane (fetches on expand, docs/0039 D4).
 
 ### D1 — The rule: no timer-driven content fetches
 
-No lane may produce a network request because a timer elapsed. The
+No lane may produce a network request because a timer elapsed. *(Amended
+by docs/0084 D0: the exception is the PR page's watch loop (D3–D7 there),
+which is the first user of "automatic refresh when it is targeted". Other
+surfaces need their own design under the same rule.)* The
 service tick survives only for **non-content duties**: clearing an
 expired rate-limit pause, proactive token-refresh arming (docs/0028
 §3.4 — session mechanics, no content), the usage probe, and the
@@ -70,7 +82,10 @@ Docs/0038's cadence machinery goes with the heartbeat:
 flag (its last reader is the deleted cadence arm), and the
 `detail_open` helper. Engagement as a *concept* ends: a surface
 refreshes because it was shown, refocused, or the user asked —
-never because it stayed open.
+never because it stayed open. *(docs/0084 amends this for the PR page:
+a watched page is probed on a timer, but the probe is one function of focus
+and recent change on one page, `pr_page/freshness/timer.rs`; no `LaneClass`,
+no per-lane cadence table, no engagement flag came back.)*
 
 ### D3 — Sub-pages keep one refresh entry point
 
@@ -106,7 +121,14 @@ more event triggers, none a timer.
 | Entering a PR page tab | a *loaded* lane: Files and threads, or the detail for Conversation, Commits and Checks | 30 s | `tab-entry` |
 | The module shown again with a PR page open | the refocus lanes | 15 s | `refocus` |
 | Closing the PR page | the list it returns to (repo rows, or home) | 60 s | `view-shown` |
-| A notifications landing that names the open PR | the detail, once per landing (stage 3 turns it into a probe) | none | `notification-landing` |
+| A notifications landing that names the open PR | one immediate probe (docs/0084 D3); the detail, once, when the page can't probe yet | none | `watch`, or `notification-landing` for the fallback |
+
+**Amended by docs/0084 D3/D4** (stage 3): the watch loop's two triggers.
+
+| Event | What it sends | Usage trigger |
+|---|---|---|
+| A probe tick on a watched PR page (every 10 s Hot, 30 s Active, 60 s Shown) | conditional REST requests: the PR, the head's check runs, the head's status when the detail showed legacy contexts | `watch` |
+| A probe that came back changed | the lanes the lane map names, at most one detail read per tick | `changed` |
 
 A re-selected tab is not an entry. The write-to-lane map (a confirmed
 write refetches the detail, and the threads for review writes) replaces
@@ -172,7 +194,9 @@ it is a one-arm deletion later).
 
 - Bridge, idle app on the home page 10 min: **zero** content
   fetches (GraphQL lanes silent; REST notifications silent; the free
-  probe may fire).
+  probe may fire). *(docs/0084 D0: "zero counted requests while nothing
+  changes". A watched PR page sends conditional requests, which answer
+  304 and cost no quota; an unwatched or unattended app sends nothing.)*
 - Idle app with the module open: same silence (the post-#325
   heartbeat refetches are gone).
 - Alt-tab away and back: exactly the visible surfaces' lanes fire

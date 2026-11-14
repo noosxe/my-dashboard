@@ -7,6 +7,11 @@
 > manual request; "realtime" is no longer a goal. What survives from
 > this doc unchanged: the REST/GQL price observations (§2) and the
 > `wants_refresh`+backoff composition the surviving triggers still use.
+>
+> **Its conditional-polling idea returns, scoped, in docs/0084**: a
+> watched PR page probes with free conditional REST requests (D3) and
+> refetches only the lanes that changed (D4). The engaged tier, the
+> per-lane cadences and the engagement flag stay deleted.
 
 | | |
 |---|---|
