@@ -486,8 +486,10 @@ A `GroupBox` at the rail top:
 
 Scrollable rows: author avatar/name (fall back to `author.name` when no user
 login), `messageHeadline` (`text_sm`), short SHA (7-char, mono token, muted),
-relative age. A muted caption when `commits.totalCount > nodes.len()`:
-"Showing first 100 of N commits".
+relative age. The query reads the newest 100 (`commits(last: 100)`, still
+ascending; verified live 2026-11-14: `first` is the oldest page), so a new
+push on a long PR always shows (#876). A muted caption leads the list when
+`commits.totalCount > nodes.len()`: "Showing the newest 100 of N commits".
 
 ### D7 — Checks tab
 

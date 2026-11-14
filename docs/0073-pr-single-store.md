@@ -97,6 +97,16 @@ page is opened from a row (the lane landed it). The snapshot's only job
 ("instant paint while the detail query flies") is subsumed: the summary is
 already in the store before the page can exist.
 
+*Summary-layer rules (#873, #874; `pr_summary.rs`):* the detail landing
+refreshes every summary field the detail also carries (state, title,
+draft, labels, review requests, `updatedAt`), so a merge or label edit seen
+on the page reaches the list rows. A list landing no newer than the held
+summary by `updatedAt` keeps the held descriptive fields and takes only the
+rollup and URL (a state change always moves `updatedAt`, so an equal stamp
+with another state is the older read; CI moves without touching it). A
+synthesized row (the notification-subject open) seeds only the fields the
+held summary lacks and never overwrites a landed one.
+
 ### D5 — Subscription is entity-observe + selectors
 
 Views keep observing the store entity (`cx.observe`, the docs/0072

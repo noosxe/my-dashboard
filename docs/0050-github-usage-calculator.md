@@ -243,9 +243,24 @@ rules apply per bucket. Shipped with #699 (0082 §11 item 5):
   free probe is REST and waits for the REST pause only.
 - The agent `app_status` op reports `rate_limited_until` as
   `{"rest": <epoch|null>, "graphql": <epoch|null>}` (docs/0068).
-- Unchanged: the gate covers the same sites as before. Fetches that
-  never checked the global gate (detail-page opens, mutations) still
-  don't.
+- ~~Unchanged: detail opens and mutations don't check the gate.~~
+  *Amended by #721 and #751 (docs/0084 D1).* The PR page's reads and
+  writes obey their budget's pause: the detail and threads reads and every
+  PR write are GraphQL; the files read, the gated-runs sweep (#875) and the
+  check-log chains are REST. A held read dispatches nothing and a paused
+  write answers 429 locally without a request; the page shows the chip's
+  words (`GraphQL paused · resumes 15:41`) beside the refresh control, and
+  a lane with nothing to show carries them as its error. The check-log
+  watch stays armed and skips its ticks while REST is paused. Issue and
+  thread detail opens are not covered yet.
+- *Signals that arm the pause (#751, `rate_pause/classify.rs`; GitHub's
+  rate-limit docs read 2026-11-14):* `x-ratelimit-remaining: 0` on any
+  status, including a 200 on a page-owned run (read once in
+  `run_spec_tracked`); `Retry-After` on a 403, 429 or GraphQL limit error;
+  a secondary-limit message without `Retry-After` (a minute); a GraphQL
+  200 whose `errors[].type` is `RATE_LIMITED`. A null `repository` is
+  classified by `errors[].type` (rate-limited, refused, not found) instead
+  of always reading "removed".
 
 *Capture clock (amendment, docs/0081 §12.1):* every comparison against
 a server reset — the book's display, the chip's countdown and tooltip,
