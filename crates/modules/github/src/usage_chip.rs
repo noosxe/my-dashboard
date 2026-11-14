@@ -119,6 +119,26 @@ fn current(
     )
 }
 
+/// The worse of the two budgets on the docs/0082 D5 ladder, as the chip
+/// shows it: a paused budget reads Exhausted. The PR page's watch loop
+/// scales itself by it (docs/0084 D7).
+pub(crate) fn worst_state(
+    state: &GithubState,
+) -> dashboard_core::usage_analytics::surfaces::ThresholdState {
+    use dashboard_core::usage_analytics::surfaces::ThresholdState;
+    let now = budget_now();
+    let model = {
+        let book = state.usage.lock().unwrap();
+        ChipModel::of(&book.display(now), &state.rate_limited_until, now)
+    };
+    model
+        .budgets()
+        .into_iter()
+        .filter_map(|(_, chip)| chip.state())
+        .max()
+        .unwrap_or(ThresholdState::Normal)
+}
+
 impl Render for UsageChip {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let (model, session) = current(&self.state, &self.usage, cx);

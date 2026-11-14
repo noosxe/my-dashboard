@@ -7273,6 +7273,7 @@ mod tests {
                 remaining: 4900,
                 reset_epoch: 9_999_999,
                 retry_after: None,
+                poll_interval: None,
             }),
             body: Some(body.into()),
         })
@@ -8866,6 +8867,7 @@ mod tests {
                 remaining: 0,
                 reset_epoch: 9_999_999_999,
                 retry_after: None,
+                poll_interval: None,
             }),
             body: Some(r#"{"message":"rate limit"}"#.into()),
         })]));
@@ -11116,6 +11118,7 @@ mod tests {
                 remaining: 4900,
                 reset_epoch: 42,
                 retry_after: None,
+                poll_interval: None,
             }),
             body: None,
         })]));

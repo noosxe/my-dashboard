@@ -4,15 +4,19 @@
 //! on screen, connected, REST not paused, the PR open) and skips while
 //! any of the page's lanes is in flight.
 //!
-//! The intervals are fixed in this stage: Hot 10 s, Active 30 s, Shown
-//! 60 s. The Settled and Unattended tiers and the budget guard are stage 4.
+//! The interval is `cadence::Cadence::next` (D5); the budget guard
+//! (`budget`) and the queue rule (`queue`, D6) feed it. This file keeps
+//! the loop: gather the inputs, ask, arm the one timer, act on findings.
 
 use std::time::{Duration, Instant};
 
 use gpui::{Context, Task};
 
+use super::budget::Guard;
+use super::cadence::{Cadence, Next, SHOWN, Stop};
 use super::lane_map::{self, LanePlan};
 use super::probe::{Findings, ProbeBook, Reply, Step};
+use super::queue::{QueueRefetch, Why};
 use crate::api;
 use crate::gql;
 use crate::pr_page::{PrDetailPage, split_repo};
@@ -20,50 +24,11 @@ use crate::rate_pause::Lane;
 use crate::service::{FetchSpec, Kind, SpecResult, run_spec_tracked};
 use crate::usage::{Origin, Surface, Trigger};
 
-/// Window active, and something is moving (docs/0084 D5, Hot).
-pub(crate) const HOT: Duration = Duration::from_secs(10);
-/// Window active, otherwise.
-pub(crate) const ACTIVE: Duration = Duration::from_secs(30);
-/// Window inactive: the second-screen case (docs/0036 D1).
-pub(crate) const SHOWN: Duration = Duration::from_secs(60);
 /// The first probe after the page opens only seeds the comparison, so it
 /// goes out soon.
 pub(crate) const FIRST_PROBE: Duration = Duration::from_secs(2);
-/// A change landed this recently keeps the page Hot.
-pub(crate) const RECENT_CHANGE: Duration = Duration::from_secs(120);
 /// Checks-only changes refetch the detail at most this often (Q4).
 pub(crate) const CHECKS_GAP: Duration = Duration::from_secs(20);
-/// A failing probe backs off by doubling, up to this.
-const FAIL_CAP: Duration = Duration::from_secs(300);
-
-/// What the interval is a function of (docs/0084 D5).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct Cadence {
-    pub(crate) window_active: bool,
-    /// A check is running or queued.
-    pub(crate) checks_running: bool,
-    /// `mergeable` is UNKNOWN: GitHub is still computing it.
-    pub(crate) mergeable_unknown: bool,
-    /// A change landed in the last [`RECENT_CHANGE`].
-    pub(crate) recent_change: bool,
-}
-
-/// The probe interval. Shown stays at 30 s while a Hot condition other
-/// than focus holds.
-pub(crate) fn interval(c: Cadence) -> Duration {
-    let busy = c.checks_running || c.mergeable_unknown || c.recent_change;
-    match (c.window_active, busy) {
-        (true, true) => HOT,
-        (true, false) => ACTIVE,
-        (false, true) => ACTIVE,
-        (false, false) => SHOWN,
-    }
-}
-
-/// The delay before the next probe after `streak` failures in a row.
-pub(crate) fn backoff(base: Duration, streak: u32) -> Duration {
-    (base * 2u32.pow(streak.min(4))).min(FAIL_CAP.max(base))
-}
 
 /// What a checks-only change does (Q4).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -115,10 +80,43 @@ pub(crate) struct Watch {
     pub(crate) coalesce: Coalesce,
     /// A change landed at this instant (the Hot tier's memory).
     changed_at: Option<Instant>,
+    /// The last change, refocus, Refresh or the open: what Settled counts
+    /// quiet time from.
+    quiet_since: Instant,
+    /// The window went inactive at this instant (lazily noticed).
+    unfocused_since: Option<Instant>,
+    /// D7: the rolling-hour counters and the breach state.
+    pub(crate) guard: Guard,
+    /// D6: the spacing of refetches no change asked for.
+    queue: QueueRefetch,
+    /// `X-Poll-Interval`, the last one GitHub sent.
+    poll_floor: Option<Duration>,
+    /// The last failure was a rate limit.
+    limited: bool,
     fail_streak: u32,
+    /// The loop has been started.
+    running: bool,
+    /// The delay the timer was last armed with.
+    armed_for: Duration,
+    /// Why the page isn't probing right now, for stage 5's label.
+    stop: Option<Stop>,
     /// Failed checks in the last landed detail: a rise means a run
     /// stopped to wait for approval (docs/0066).
     pub(crate) last_failed: Option<u32>,
+    /// Tests move the loop's clock forward by this much: the fake
+    /// executor clock doesn't move `Instant`.
+    #[cfg(test)]
+    pub(crate) skew: Duration,
+}
+
+impl Watch {
+    /// The loop's clock.
+    pub(crate) fn now(&self) -> Instant {
+        #[cfg(test)]
+        return Instant::now() + self.skew;
+        #[cfg(not(test))]
+        Instant::now()
+    }
 }
 
 impl Default for Watch {
@@ -131,8 +129,19 @@ impl Default for Watch {
             flush_timer: None,
             coalesce: Coalesce::default(),
             changed_at: None,
+            quiet_since: Instant::now(),
+            unfocused_since: None,
+            guard: Guard::default(),
+            queue: QueueRefetch::default(),
+            poll_floor: None,
+            limited: false,
             fail_streak: 0,
+            running: false,
+            armed_for: Duration::ZERO,
+            stop: None,
             last_failed: None,
+            #[cfg(test)]
+            skew: Duration::ZERO,
         }
     }
 }
@@ -151,7 +160,11 @@ impl PrDetailPage {
         // The existing page tests advance the fake clock over mocks that
         // script exact request sequences; only the probe's own tests
         // start the loop (`start_probing`).
+        // The page just read the detail: the queue rule's 30 s spacing
+        // starts now, so the seed tick doesn't read it again.
+        self.watch.queue.dispatched(self.watch.now());
         if !cfg!(test) {
+            self.watch.running = true;
             self.arm_probe(FIRST_PROBE, cx);
         }
     }
@@ -159,6 +172,7 @@ impl PrDetailPage {
     /// Start the loop in a test.
     #[cfg(test)]
     pub(crate) fn start_probing(&mut self, cx: &mut Context<Self>) {
+        self.watch.running = true;
         self.arm_probe(FIRST_PROBE, cx);
     }
 
@@ -200,19 +214,74 @@ impl PrDetailPage {
             || self.watch.in_tick
     }
 
-    fn cadence(&self, cx: &gpui::App) -> Cadence {
+    /// The probe's inputs as they stand. It also notes when the window
+    /// went inactive, since nothing else tells the page.
+    fn cadence(&mut self, cx: &gpui::App) -> Cadence {
+        let now = self.watch.now();
+        let window_active = self.state.read(cx).window_active;
+        if window_active {
+            self.watch.unfocused_since = None;
+        } else {
+            self.watch.unfocused_since.get_or_insert(now);
+        }
+        let guard = self.watch.guard.state(now);
         let d = self.detail(cx);
         Cadence {
-            window_active: self.state.read(cx).window_active,
+            window_active,
+            unfocused_for: self
+                .watch
+                .unfocused_since
+                .map_or(Duration::ZERO, |t| now.saturating_duration_since(t)),
+            open: d.is_some_and(|d| d.state.as_deref() == Some("OPEN")),
             checks_running: self.watch.book.checks_running()
                 || d.is_some_and(|d| d.checks.counts.running > 0),
-            mergeable_unknown: d.is_some_and(|d| {
-                d.mergeable.as_deref() == Some("UNKNOWN") && d.state.as_deref() == Some("OPEN")
-            }),
-            recent_change: self
+            mergeable_unknown: d.is_some_and(|d| d.mergeable.as_deref() == Some("UNKNOWN")),
+            queued: d.is_some_and(|d| d.queueing.in_merge_queue),
+            since_change: self
                 .watch
                 .changed_at
-                .is_some_and(|t| t.elapsed() < RECENT_CHANGE),
+                .map(|t| now.saturating_duration_since(t)),
+            quiet_for: now.saturating_duration_since(self.watch.quiet_since),
+            guard,
+            usage: crate::usage_chip::worst_state(self.state.read(cx)),
+            poll_floor: self.watch.poll_floor,
+            fail_streak: self.watch.fail_streak,
+            limited: self.watch.limited,
+        }
+    }
+
+    /// The next delay, or `SHOWN` as the local re-check while the page
+    /// sends nothing: whatever lifted the stop resumes it on that beat.
+    fn next_delay(&mut self, cx: &gpui::App) -> (Duration, Option<Stop>) {
+        match self.cadence(cx).next() {
+            Next::After(d) => (d, None),
+            Next::Idle(why) => (SHOWN, Some(why)),
+        }
+    }
+
+    /// Why the page isn't probing, when it isn't (docs/0084 D8, stage 5
+    /// reads it for the label).
+    #[allow(dead_code)]
+    pub(crate) fn probe_stop(&self) -> Option<Stop> {
+        self.watch.stop
+    }
+
+    /// A refocus or Refresh: whoever is looking gets a fresh start. The
+    /// guard's stop, the unattended cut-off and Settled all lift, and a
+    /// timer armed for a long wait comes forward to the tier's interval.
+    pub(in crate::pr_page) fn watch_resume(&mut self, cx: &mut Context<Self>) {
+        self.watch.guard.clear();
+        self.watch.quiet_since = self.watch.now();
+        self.watch.unfocused_since = None;
+        self.watch.fail_streak = 0;
+        self.watch.limited = false;
+        if !self.watch.running {
+            return;
+        }
+        let (want, stop) = self.next_delay(cx);
+        self.watch.stop = stop;
+        if self.watch.probe_timer.is_some() && self.watch.armed_for > want {
+            self.arm_probe(want, cx);
         }
     }
 
@@ -226,6 +295,7 @@ impl PrDetailPage {
     }
 
     fn arm_probe(&mut self, delay: Duration, cx: &mut Context<Self>) {
+        self.watch.armed_for = delay;
         self.watch.probe_timer = Some(cx.spawn(async move |this, cx| {
             cx.background_executor().timer(delay).await;
             let _ = this.update(cx, |page, cx| page.watch_wake(cx));
@@ -237,14 +307,15 @@ impl PrDetailPage {
     fn watch_wake(&mut self, cx: &mut Context<Self>) {
         self.watch.probe_timer = None;
         let watched = self.watched(cx);
-        if watched && !self.lanes_busy(cx) {
+        let (next, stop) = self.next_delay(cx);
+        self.watch.stop = stop;
+        if watched && stop.is_none() && !self.lanes_busy(cx) {
             self.run_probe(cx);
-        } else if watched && !self.watch.book.seeded() {
+        } else if watched && stop.is_none() && !self.watch.book.seeded() {
             // The open's own read is still flying: the seed isn't worth a
             // whole interval's wait.
             self.arm_probe(FIRST_PROBE, cx);
         } else {
-            let next = interval(self.cadence(cx));
             self.arm_probe(next, cx);
         }
     }
@@ -255,6 +326,10 @@ impl PrDetailPage {
     /// refetch otherwise.
     pub(in crate::pr_page) fn probe_now(&mut self, cx: &mut Context<Self>) -> bool {
         if !self.watch.book.seeded() || !self.watched(cx) || self.watch.in_tick {
+            return false;
+        }
+        // A stopped page leaves the notification to the refetch.
+        if self.next_delay(cx).1.is_some() {
             return false;
         }
         self.watch.probe_timer = None;
@@ -298,18 +373,25 @@ impl PrDetailPage {
     }
 
     fn probe_landed(&mut self, step: Step, url: &str, result: SpecResult, cx: &mut Context<Self>) {
+        if let Some(rate) = &result.rate {
+            self.watch.poll_floor = rate.poll_interval.map(Duration::from_secs);
+        }
         let reply = if result.network.is_some() {
             Reply::Failed
         } else if result.status == 304 {
             Reply::NotModified
         } else if result.status == 200 {
+            // A 304 is free; a 200 counts against the page's ceiling.
+            self.watch.guard.spend_rest(self.watch.now(), 1);
             Reply::Changed {
                 etag: result.etag.clone(),
                 body: result.body.clone().unwrap_or_default(),
             }
         } else {
             // 401/403/404/429…: the shared handling arms the pause or the
-            // auth gate; the probe just stops this tick.
+            // auth gate; the probe just stops this tick. A limit also
+            // makes the next wait at least a minute (D5).
+            self.watch.limited = matches!(result.status, 403 | 429);
             self.state.update(cx, |s, cx| {
                 s.apply(result);
                 cx.notify();
@@ -325,33 +407,52 @@ impl PrDetailPage {
     fn finish_probe(&mut self, cx: &mut Context<Self>) {
         self.watch.in_tick = false;
         let findings = self.watch.book.finish_tick();
-        self.act_on(findings, cx);
-        let base = interval(self.cadence(cx));
-        let next = if findings.failed {
+        if findings.failed {
             self.watch.fail_streak += 1;
-            backoff(base, self.watch.fail_streak)
         } else {
             self.watch.fail_streak = 0;
-            base
-        };
+            self.watch.limited = false;
+        }
+        self.act_on(findings, cx);
+        let (next, stop) = self.next_delay(cx);
+        self.watch.stop = stop;
         self.arm_probe(next, cx);
         cx.notify();
     }
 
     fn act_on(&mut self, findings: Findings, cx: &mut Context<Self>) {
-        if !findings.changed() {
-            return;
+        if findings.changed() {
+            let now = self.watch.now();
+            self.watch.changed_at = Some(now);
+            self.watch.quiet_since = now;
+            let plan = lane_map::plan(&findings, self.threads.data().is_some());
+            self.apply_plan(plan, cx);
+        } else if self
+            .watch
+            .queue
+            .due(self.watch.now(), self.queue_why(cx), !findings.failed)
+        {
+            self.dispatch_changed_detail(cx);
         }
-        self.watch.changed_at = Some(Instant::now());
-        let plan = lane_map::plan(&findings, self.threads.data().is_some());
-        self.apply_plan(plan, cx);
+    }
+
+    /// D6: the facts a quiet tick still has to read the detail for.
+    fn queue_why(&self, cx: &gpui::App) -> Option<Why> {
+        let d = self.detail(cx)?;
+        if d.queueing.in_merge_queue {
+            Some(Why::Queued)
+        } else if d.mergeable.as_deref() == Some("UNKNOWN") && self.watch.book.mergeable_known() {
+            Some(Why::StaleUnknown)
+        } else {
+            None
+        }
     }
 
     fn apply_plan(&mut self, plan: LanePlan, cx: &mut Context<Self>) {
         let origin = Origin::new(Surface::PrPage, Trigger::Changed);
         if plan.detail {
             if plan.checks_only {
-                match self.watch.coalesce.checks_change(Instant::now()) {
+                match self.watch.coalesce.checks_change(self.watch.now()) {
                     Refetch::Now => self.dispatch_changed_detail(cx),
                     Refetch::After(wait) => self.arm_flush(wait, cx),
                 }
@@ -360,12 +461,16 @@ impl PrDetailPage {
             }
         }
         if plan.threads && !self.state.read(cx).gated_for(Kind::PrThreads.lane()) {
+            self.watch.guard.spend_points(self.watch.now(), 1);
             self.fetch_threads(origin, cx);
         }
     }
 
     fn dispatch_changed_detail(&mut self, cx: &mut Context<Self>) {
-        self.watch.coalesce.dispatched(Instant::now());
+        let now = self.watch.now();
+        self.watch.coalesce.dispatched(now);
+        self.watch.queue.dispatched(now);
+        self.watch.guard.spend_points(now, 1);
         self.watch.flush_timer = None;
         self.fetch_detail(Origin::new(Surface::PrPage, Trigger::Changed), cx);
     }
@@ -394,3 +499,5 @@ impl PrDetailPage {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tiers;

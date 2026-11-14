@@ -8,14 +8,20 @@
 //! - D3/D4, the change probe (`probe`, `probe_diff`, `lane_map`, `timer`):
 //!   while the page is watched, a timer sends conditional REST requests
 //!   and refetches only the lanes whose probe changed.
+//! - D5-D7, how often and how much (`cadence`, `budget`, `queue`): the
+//!   interval as one pure function, the page's rolling-hour ceiling, and
+//!   the merge queue's detail refetch.
 
 use std::time::Duration;
 
+pub(crate) mod budget;
+pub(crate) mod cadence;
 pub(super) mod events;
 pub(crate) mod lane_map;
 pub(crate) mod notices;
 pub(crate) mod probe;
 pub(crate) mod probe_diff;
+pub(crate) mod queue;
 pub(crate) mod timer;
 pub(super) mod write_lanes;
 

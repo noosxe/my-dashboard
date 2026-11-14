@@ -72,7 +72,6 @@ mod header_meta;
 pub(crate) mod leave_guard;
 mod merge_confirm;
 mod merge_gate;
-mod mergeable_poll;
 mod page_write_confirm;
 mod pause_gate;
 mod queue_writes;
@@ -746,9 +745,6 @@ pub(crate) struct PrDetailPage {
     /// #752: the head the page last saw, and what rides it
     /// (`head_change.rs`).
     head_watch: head_change::HeadWatch,
-    /// #752: the bounded re-poll of an UNKNOWN mergeable state
-    /// (`mergeable_poll.rs`).
-    mergeable_poll: mergeable_poll::Poll,
     /// docs/0084 D3: the change probe's book, timer and spacing.
     watch: freshness::timer::Watch,
     /// Per-file expand state for the outdated/stray thread bucket
@@ -954,7 +950,6 @@ impl PrDetailPage {
             threads_outdated: false,
             notice_seen: 0,
             head_watch: Default::default(),
-            mergeable_poll: Default::default(),
             watch: Default::default(),
             line_composer: None,
             reply_composer: None,
@@ -1139,6 +1134,10 @@ impl PrDetailPage {
     }
 
     fn fetch_detail(&mut self, origin: Origin, cx: &mut Context<Self>) {
+        if origin.trigger == Trigger::Manual {
+            // Refresh wakes a settled, unattended or stopped page (D5/D7).
+            self.watch_resume(cx);
+        }
         if !self.state.read(cx).auth.connected() {
             return; // the page is about to be torn down by the auth gate
         }
@@ -1233,11 +1232,11 @@ impl PrDetailPage {
             self.md = build_md_cache(&self.repo, &detail);
             // #747: a new head or a replaced check run outdates its logs.
             self.reconcile_check_logs(&detail, cx);
-            // #752: a new head outdates files and threads; UNKNOWN
-            // mergeable re-polls a few times.
+            // #752: a new head outdates files and threads. An UNKNOWN
+            // mergeable state keeps the watch loop Hot until it resolves
+            // (docs/0084 D5).
             let head_changed = self.note_landed_head(&detail, cx);
             let failed_before = self.watch_note_landed(&detail);
-            self.poll_unknown_mergeable(&detail, head_changed, cx);
             // Thread keys live in the same cache — a detail
             // refetch wipes it, so re-fold them (0030 D1).
             self.extend_threads_md();
@@ -2342,6 +2341,9 @@ impl PrDetailPage {
         // (docs/0052 D3 — the transport classes only priced the deleted
         // cadences).
         let origin = Origin::new(Surface::PrPage, Trigger::Refocus);
+        // A refocus wakes a settled, unattended or stopped page, whether
+        // or not any lane is stale enough to refetch (docs/0084 D5/D7).
+        self.watch_resume(cx);
         // Each lane obeys its own budget's pause (docs/0082 Q10).
         let open = {
             let state = self.state.clone();

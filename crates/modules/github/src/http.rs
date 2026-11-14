@@ -24,6 +24,9 @@ pub struct RateLimit {
     /// secondary-limit signal (#751), which says how long to wait
     /// whatever the primary budget still holds.
     pub retry_after: Option<u64>,
+    /// `X-Poll-Interval` in seconds, when sent: GitHub's own floor for
+    /// how often a client may poll the resource (docs/0084 D5).
+    pub poll_interval: Option<u64>,
 }
 
 /// One HTTP exchange. `body` is `None` exactly when `status == 304`
@@ -185,7 +188,8 @@ fn finish(response: ureq::Response) -> Result<HttpResult, HttpError> {
         response.header("x-ratelimit-remaining"),
         response.header("x-ratelimit-reset"),
         response.header("retry-after"),
-    );
+    )
+    .map(|r| r.with_poll_interval(response.header("x-poll-interval")));
     let body = if status == 304 {
         None
     } else {
@@ -215,7 +219,15 @@ impl RateLimit {
             remaining: remaining?.parse().ok()?,
             reset_epoch: reset?.parse().ok()?,
             retry_after: retry_after.and_then(|v| v.trim().parse().ok()),
+            poll_interval: None,
         })
+    }
+
+    fn with_poll_interval(self, header: Option<&str>) -> Self {
+        Self {
+            poll_interval: header.and_then(|v| v.trim().parse().ok()),
+            ..self
+        }
     }
 }
 
@@ -327,6 +339,7 @@ mod tests {
                 remaining: 4999,
                 reset_epoch: 1799999999,
                 retry_after: None,
+                poll_interval: None,
             })
         );
     }
@@ -344,6 +357,18 @@ mod tests {
             Some("Wed, 21 Oct 2026 07:28:00 GMT"),
         );
         assert_eq!(rate.and_then(|r| r.retry_after), None);
+    }
+
+    #[test]
+    fn x_poll_interval_rides_the_rate_snapshot() {
+        let base =
+            RateLimit::from_headers(Some("5000"), Some("4999"), Some("1799999999"), None).unwrap();
+        assert_eq!(
+            base.with_poll_interval(Some(" 60 ")).poll_interval,
+            Some(60)
+        );
+        assert_eq!(base.with_poll_interval(Some("soon")).poll_interval, None);
+        assert_eq!(base.with_poll_interval(None).poll_interval, None);
     }
 
     #[test]

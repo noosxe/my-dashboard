@@ -109,6 +109,11 @@ impl PrSnapshot {
     }
 
     /// The head commit, the key of the check-runs and status probes.
+    /// REST has computed `mergeable` (GitHub answers null while it works).
+    pub(crate) fn mergeable_known(&self) -> bool {
+        self.mergeable.is_some()
+    }
+
     pub(crate) fn head_sha(&self) -> Option<&str> {
         self.head.sha.as_deref()
     }

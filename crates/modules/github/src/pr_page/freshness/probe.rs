@@ -91,6 +91,11 @@ impl ProbeBook {
         self.checks_running
     }
 
+    /// The last `pulls/{n}` answer had `mergeable` computed.
+    pub(crate) fn mergeable_known(&self) -> bool {
+        self.pr.as_ref().is_some_and(PrSnapshot::mergeable_known)
+    }
+
     /// A landed detail carries a head: follow it. The comparison base
     /// stays, so a push the probe hasn't seen yet still reads as one.
     pub(crate) fn follow_head(&mut self, head: Option<&str>) {

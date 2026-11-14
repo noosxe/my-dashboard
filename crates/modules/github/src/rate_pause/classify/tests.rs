@@ -13,6 +13,7 @@ fn rate(remaining: u32, retry_after: Option<u64>) -> RateLimit {
         remaining,
         reset_epoch: 2_000,
         retry_after,
+        poll_interval: None,
     }
 }
 

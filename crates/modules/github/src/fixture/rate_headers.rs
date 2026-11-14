@@ -42,6 +42,7 @@ impl RateBucket {
             remaining: self.remaining,
             reset_epoch: now + self.reset_in_secs,
             retry_after: None,
+            poll_interval: None,
         }
     }
 
