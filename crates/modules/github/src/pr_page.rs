@@ -64,6 +64,7 @@ mod detail_read;
 mod diff_anchor;
 pub(crate) mod diff_notice;
 mod files_etag;
+pub(crate) mod freshness;
 mod gate_decision;
 mod gated_sweep;
 mod head_change;
@@ -739,6 +740,9 @@ pub(crate) struct PrDetailPage {
     /// docs/0072 D4 (#739): a write confirmed while a threads read flew
     /// (`write_refetch.rs`).
     threads_outdated: bool,
+    /// docs/0084 D2: the last notifications landing this page looked at
+    /// (`freshness/events.rs`).
+    notice_seen: u64,
     /// #752: the head the page last saw, and what rides it
     /// (`head_change.rs`).
     head_watch: head_change::HeadWatch,
@@ -946,6 +950,7 @@ impl PrDetailPage {
             reply_sub: None,
             threads: Fetch::new(),
             threads_outdated: false,
+            notice_seen: 0,
             head_watch: Default::default(),
             mergeable_poll: Default::default(),
             line_composer: None,
@@ -1054,10 +1059,12 @@ impl PrDetailPage {
             // the same status. A rerun a confirmed write queued goes
             // first: it is the read the catch-up would have asked for.
             page.rerun_outdated_reads(cx);
+            page.check_notification_landing(cx);
             page.catch_up(cx);
             cx.notify();
         })
         .detach();
+        page.notice_seen = page.state.read(cx).pr_notices.seq;
         page.seed_head_watch(cx);
         // docs/0072 D3: stale-while-revalidate — a document inside the
         // TTL window paints from the store and skips the dispatch.
@@ -3511,7 +3518,7 @@ impl PrDetailPage {
             |page, window, cx| {
                 page.line_composer = None;
                 page.refocus_page(window, cx);
-                page.fetch_threads(Origin::new(Surface::PrPage, Trigger::MutationRefetch), cx);
+                page.refetch_for_write(PendingKind::LineComment, cx);
             },
             cx,
         );
@@ -3651,7 +3658,7 @@ impl PrDetailPage {
             |page, window, cx| {
                 page.reply_composer = None;
                 page.refocus_page(window, cx);
-                page.fetch_threads(Origin::new(Surface::PrPage, Trigger::MutationRefetch), cx);
+                page.refetch_for_write(PendingKind::ReviewReply, cx);
             },
             cx,
         );
@@ -3899,9 +3906,7 @@ impl PrDetailPage {
                 }
                 // #872: the review also changes the detail's reviews,
                 // decision and count, which Conversation and the rail read.
-                let refetch = Origin::new(Surface::PrPage, Trigger::MutationRefetch);
-                page.fetch_threads(refetch, cx);
-                page.fetch_detail(refetch, cx);
+                page.refetch_for_write(PendingKind::ReviewBatch, cx);
             },
             cx,
         );
@@ -4097,14 +4102,10 @@ impl PrDetailPage {
                 }
             }
         }
-        if op.error_scope() == ErrorScope::Files {
-            // 0030 D7: the threads refetch re-renders the diff pane;
-            // patches are not refetched — only merge/close change them,
-            // and those end the page's useful life anyway.
-            self.fetch_threads(Origin::new(Surface::PrPage, Trigger::MutationRefetch), cx);
-        } else {
-            self.fetch_detail(Origin::new(Surface::PrPage, Trigger::MutationRefetch), cx);
-        }
+        // docs/0084 D2: the write-to-lane map picks the lanes. Patches are
+        // not refetched — only merge/close change them, and those end the
+        // page's useful life anyway.
+        self.refetch_for_write(op, cx);
         cx.notify();
     }
 
@@ -4208,7 +4209,7 @@ impl PrDetailPage {
     /// docs/0072 D4 — the merge/close/update-branch confirmation body:
     /// the revalidate that was the whole story before stage 3.
     fn revalidate_after_store_mutation(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        self.fetch_detail(Origin::new(Surface::PrPage, Trigger::MutationRefetch), cx);
+        self.refetch_for_write(freshness::write_lanes::WriteKind::State, cx);
     }
 
     /// The Panel-scope inline error (docs/0016 D5 placement): store ops
@@ -4564,19 +4565,11 @@ impl PrDetailPage {
             self.tab.index(),
             |this: &mut Self, ix, _window, cx| {
                 if let Some(tab) = PrTab::from_index(ix) {
+                    let changed = this.tab != tab;
                     this.tab = tab;
-                    // Lazy fetches (0016 D8 / 0030 D1): the files REST walk and
-                    // the threads one-shot both start the first time the Files
-                    // tab opens, not on page open.
-                    if tab == PrTab::Files {
-                        let origin = Origin::new(Surface::PrPage, Trigger::Expand);
-                        if this.files.is_idle() {
-                            this.fetch_files(origin, cx);
-                        }
-                        if this.threads.is_idle() {
-                            this.fetch_threads(origin, cx);
-                        }
-                    }
+                    // Lazy first fetches (0016 D8 / 0030 D1) and the
+                    // tab-entry floor (0084 D2) live in `freshness`.
+                    this.enter_tab(tab, changed, cx);
                     cx.notify();
                 }
             },

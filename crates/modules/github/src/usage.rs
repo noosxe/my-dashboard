@@ -495,6 +495,12 @@ pub(crate) enum Trigger {
     Paginate,
     Probe,
     Auth,
+    /// docs/0084 D2: entering a PR page tab whose lane is loaded and
+    /// older than the 30 s tab-entry floor.
+    TabEntry,
+    /// docs/0084 D2: a notifications landing named the open PR — one
+    /// immediate detail refetch (stage 3 turns it into a probe).
+    NotificationLanding,
 }
 
 impl Trigger {
@@ -512,6 +518,8 @@ impl Trigger {
             Trigger::Paginate => "paginate",
             Trigger::Probe => "probe",
             Trigger::Auth => "auth",
+            Trigger::TabEntry => "tab-entry",
+            Trigger::NotificationLanding => "notification-landing",
         }
     }
 }
