@@ -25,7 +25,7 @@ as shipped.
 
 ## GitHub Octicons: MIT
 
-- `crates/app/assets/icons/github.svg`, `lock.svg`, `git-branch.svg`.
+- `crates/app/assets/icons/github.svg`, `lock.svg`, `git-branch.svg`, `pencil.svg`.
 
 Source: <https://github.com/primer/octicons>.
 
