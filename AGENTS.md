@@ -5,6 +5,7 @@ Working rules for AI agents in this repository. Follow precisely.
 ## Ground rules
 
 - **`main` is protected.** All changes go through PRs; the product owner reviews, human-tests, and merges. Never push to `main`, never commit directly to it.
+- **Scratch files go in `.scratch/`, never `/tmp`.** `/tmp` may be a RAM-backed mount that is wiped on every restart, and the machine can lose power without warning. Working files that must survive a restart but don't belong in a commit (issue and PR body drafts, mockups in progress, review notes, receipt output being triaged) go in `.scratch/` at the repo root, which is gitignored. Use a subdirectory per task. Anything worth keeping long-term moves out of `.scratch/` when the task ends: into the repo if it belongs there (docs, goldens), otherwise to the project's private notes.
 - **Stay focused.** Keep work scoped to the current task. If something unrelated needs fixing or you see an improvement opportunity, file a GitHub issue — do not fold it into the current PR.
 - **Focused modules, not huge files.** New code goes into a module tree where each file has one clear concern (a few hundred lines is the target), with tests next to the code they cover. Don't keep growing the existing multi-thousand-line files (for example `pr_page.rs`, `service.rs`, `page.rs`). When a feature touches one of them, put the new code in a new submodule. Splitting an existing large file is its own focused PR, filed as an issue, never folded into a feature PR.
 - **Ask for help freely.** Do not guess where a decision is the product owner's to make. Blocking questions are cheap; wrong assumptions are not.
@@ -135,4 +136,4 @@ docs/0010 §3.
 1. Hard-reset local `main` to `origin/main` (`git fetch && git reset --hard origin/main`) — rebased merges make `git pull` report divergent branches.
 2. Delete merged branches: remote branches are usually auto-deleted; local branches need manual `-d` (use `-D` after a rebase-merge, the squashed commit SHA will not match).
 3. Verify clean gates on `main`.
-4. Remove any scratch files (e.g. under `/tmp`) used for issue bodies or smoke runs.
+4. Remove the task's `.scratch/` subdirectory once nothing in it is still needed (issue bodies, smoke runs).
