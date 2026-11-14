@@ -77,12 +77,25 @@
       "focused": false
     },
     {
+      "accesskit_id": "2840474967672999150",
+      "role": "Button",
+      "label": "Delete branch",
+      "bounds": {
+        "x": 967.0,
+        "y": 319.0,
+        "w": 86.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
       "accesskit_id": "3839432696412369377",
       "role": "Label",
       "label": "octo-dev",
       "bounds": {
         "x": 955.0,
-        "y": 421.0,
+        "y": 449.0,
         "w": 276.0,
         "h": 26.0
       },
@@ -110,7 +123,7 @@
         "x": 955.0,
         "y": 185.0,
         "w": 288.0,
-        "h": 138.0
+        "h": 166.0
       },
       "focusable": false,
       "focused": false
@@ -186,7 +199,7 @@
       "label": "docs",
       "bounds": {
         "x": 955.0,
-        "y": 485.0,
+        "y": 513.0,
         "w": 276.0,
         "h": 25.0
       },
@@ -251,7 +264,7 @@
       "label": "reviewer-a, approved",
       "bounds": {
         "x": 955.0,
-        "y": 357.0,
+        "y": 385.0,
         "w": 276.0,
         "h": 26.0
       },
@@ -433,9 +446,9 @@
       "label": "Pull request details",
       "bounds": {
         "x": 955.0,
-        "y": 335.0,
+        "y": 363.0,
         "w": 288.0,
-        "h": 372.0
+        "h": 344.0
       },
       "focusable": false,
       "focused": false

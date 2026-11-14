@@ -73,10 +73,17 @@
      "totalCount": 4
     },
     "headRef": {
-     "id": "REF_112"
+     "id": "REF_112",
+     "name": "feature/trailing-commas"
     },
     "headRefName": "feature/trailing-commas",
     "headRefOid": "0000070bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "headRepository": {
+     "defaultBranchRef": {
+      "name": "main"
+     },
+     "viewerPermission": "ADMIN"
+    },
     "id": "PR_112",
     "isDraft": false,
     "isInMergeQueue": false,

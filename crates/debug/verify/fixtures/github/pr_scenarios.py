@@ -46,6 +46,10 @@ FILES_NOTICES_PR = 112
 # docs/0083: the ready-to-merge and the reopenable closed scenarios.
 READY_PR = 113
 CLOSED_PR = 114
+# docs/0083 D4 (#773): merged with the head branch already deleted, and
+# merged from a fork the viewer can't write.
+MERGED_GONE_PR = 115
+MERGED_FORK_PR = 116
 
 BODY = """## Summary
 
@@ -340,7 +344,11 @@ class Timeline:
             closedAt=None,
             # `timelineItems(last: 1, itemTypes: [CLOSED_EVENT])`.
             timelineItems={"nodes": []},
-            headRef={"id": f"REF_{number}"},
+            # Delete branch (#773): `headRef` is null once the branch is
+            # gone; the gate is the viewer's permission on the head
+            # repository and its default branch.
+            headRef={"id": f"REF_{number}", "name": BRANCH},
+            headRepository={"viewerPermission": "ADMIN", "defaultBranchRef": {"name": "main"}},
             isInMergeQueue=False,
             mergeQueueEntry=None,
             autoMergeRequest=None,
@@ -639,16 +647,61 @@ class Timeline:
                     closedAt=self.ago(48),
                     timelineItems=self.closed_by("octo-dev", 48),
                     # Reopen reads `viewerCanReopen` (#770); Delete branch
-                    # reads `viewerCanDeleteHeadRef`, not selected by the
-                    # detail query yet (#773).
+                    # reads the head repository's permission (#773). The
+                    # schema's `viewerCanDeleteHeadRef` is a restore flag,
+                    # always false in the cases checked, and no gate.
                     viewerCanReopen=True,
-                    viewerCanDeleteHeadRef=True,
+                    viewerCanDeleteHeadRef=False,
                     changedFiles=1,
                     files={"totalCount": 1},
                     commits=self.commits(1),
                     assignees=conn([user("octo-dev", True)]),
                     labels=conn([label("wontfix", "fbca04")]),
                     reviews=conn([self.review(1, "reviewer-b", "CHANGES_REQUESTED", "Not now.", 50)]),
+                ),
+            },
+            # docs/0083 D4 (#773): merged, the head branch already deleted
+            # (the repository deletes on merge): no Delete branch.
+            MERGED_GONE_PR: {
+                "methods": (False, True, False),
+                "pr": self.pull_request(
+                    MERGED_GONE_PR,
+                    "Docs: fix the lockfile example",
+                    state="MERGED",
+                    merged=True,
+                    mergedAt=self.ago(30),
+                    mergedBy=user("octo-dev"),
+                    closedAt=self.ago(30),
+                    mergeable="UNKNOWN",
+                    mergeStateStatus="UNKNOWN",
+                    headRef=None,
+                    changedFiles=1,
+                    files={"totalCount": 1},
+                    commits=self.commits(1),
+                    statusCheckRollup=rollup("SUCCESS", merged_checks),
+                ),
+            },
+            # docs/0083 D4 (#773): merged from a fork. The viewer writes the
+            # base repository (ADMIN) but only reads the fork, so the branch
+            # is not theirs to delete.
+            MERGED_FORK_PR: {
+                "methods": (False, True, False),
+                "pr": self.pull_request(
+                    MERGED_FORK_PR,
+                    "Docs: reword the changelog",
+                    state="MERGED",
+                    merged=True,
+                    mergedAt=self.ago(20),
+                    mergedBy=user("octo-dev"),
+                    closedAt=self.ago(20),
+                    mergeable="UNKNOWN",
+                    mergeStateStatus="UNKNOWN",
+                    isCrossRepository=True,
+                    headRepository={"viewerPermission": "READ", "defaultBranchRef": {"name": "main"}},
+                    changedFiles=1,
+                    files={"totalCount": 1},
+                    commits=self.commits(1),
+                    statusCheckRollup=rollup("SUCCESS", merged_checks),
                 ),
             },
         }
@@ -836,6 +889,11 @@ def write_pr_scenarios(write, now, iso):
     for number, scenario in scenarios.items():
         merge, squash, rebase = scenario.get("methods", (True, True, True))
         pr = scenario["pr"]
+        # A same-repository head is the base repository: the viewer's
+        # permission there is the scenario's (a fork overrides it).
+        head_repo = pr.get("headRepository")
+        if head_repo and head_repo["viewerPermission"] == "ADMIN":
+            head_repo["viewerPermission"] = scenario.get("permission", "ADMIN")
         write(
             f"graphql/PrDetail.{number}.json",
             {
@@ -883,7 +941,7 @@ def write_pr_scenarios(write, now, iso):
     rows = [
         lane_row(scenario["pr"], line.ago(1 + i))
         for i, scenario in enumerate(scenarios.values())
-        if scenario["pr"]["number"] not in (GATED_ONLY_PR, THREADS_CAPPED_PR, THREADS_ERROR_PR, FILES_NOTICES_PR, READY_PR, CLOSED_PR)
+        if scenario["pr"]["number"] not in (GATED_ONLY_PR, THREADS_CAPPED_PR, THREADS_ERROR_PR, FILES_NOTICES_PR, READY_PR, CLOSED_PR, MERGED_GONE_PR, MERGED_FORK_PR)
     ]
     error_row = lane_row(
         line.pull_request(missing, "Loader: a PR that fails its detail read"), line.ago(9)
@@ -896,6 +954,8 @@ def write_pr_scenarios(write, now, iso):
     rows.append(lane_row(scenarios[FILES_NOTICES_PR]["pr"], line.ago(13)))
     rows.append(lane_row(scenarios[READY_PR]["pr"], line.ago(14)))
     rows.append(lane_row(scenarios[CLOSED_PR]["pr"], line.ago(15)))
+    rows.append(lane_row(scenarios[MERGED_GONE_PR]["pr"], line.ago(16)))
+    rows.append(lane_row(scenarios[MERGED_FORK_PR]["pr"], line.ago(17)))
     write(
         f"graphql/RepoPulls.{REPO}.json",
         {

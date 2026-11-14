@@ -491,9 +491,57 @@
       "title": "Loader: try the lazy manifest reader",
       "updatedAt": "2026-10-22T21:00:00Z",
       "url": "https://github.com/fixture-user/beacon/pull/114"
+     },
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/octo-dev",
+       "login": "octo-dev"
+      },
+      "databaseId": 50115,
+      "isDraft": false,
+      "labels": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "number": 115,
+      "reviewRequests": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "state": "OPEN",
+      "statusCheckRollup": {
+       "state": "SUCCESS"
+      },
+      "title": "Docs: fix the lockfile example",
+      "updatedAt": "2026-10-22T20:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/pull/115"
+     },
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/octo-dev",
+       "login": "octo-dev"
+      },
+      "databaseId": 50116,
+      "isDraft": false,
+      "labels": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "number": 116,
+      "reviewRequests": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "state": "OPEN",
+      "statusCheckRollup": {
+       "state": "SUCCESS"
+      },
+      "title": "Docs: reword the changelog",
+      "updatedAt": "2026-10-22T19:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/pull/116"
      }
     ],
-    "totalCount": 14
+    "totalCount": 16
    },
    "pushedAt": "2026-10-23T12:00:00Z"
   }

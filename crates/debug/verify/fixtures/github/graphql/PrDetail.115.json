@@ -1,0 +1,224 @@
+{
+ "data": {
+  "rateLimit": null,
+  "repository": {
+   "mergeCommitAllowed": false,
+   "pullRequest": {
+    "assignees": {
+     "nodes": [],
+     "totalCount": 0
+    },
+    "author": {
+     "avatarUrl": "https://avatars.invalid/octo-dev",
+     "login": "octo-dev"
+    },
+    "autoMergeRequest": null,
+    "baseRefName": "main",
+    "body": "## Summary\n\nAccept trailing commas in the manifest parser, so hand-edited files stop\nfailing the load with an opaque error.\n\n- `parse_manifest` tolerates one trailing comma per list\n- the error now names the offending line\n\n```rust\nlet manifest = parse_manifest(input)?;\n```\n\nSee the [grammar notes](https://example.com/grammar) for the full list.\n",
+    "changedFiles": 1,
+    "closedAt": "2026-10-22T06:00:00Z",
+    "comments": {
+     "nodes": [],
+     "totalCount": 0
+    },
+    "commits": {
+     "nodes": [
+      {
+       "commit": {
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-20T12:00:00Z",
+        "messageHeadline": "parser: accept trailing commas in manifest lists",
+        "oid": "0000001aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+       }
+      }
+     ],
+     "totalCount": 1
+    },
+    "createdAt": "2026-10-19T12:00:00Z",
+    "files": {
+     "totalCount": 1
+    },
+    "headRef": null,
+    "headRefName": "feature/trailing-commas",
+    "headRefOid": "0000073bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "headRepository": {
+     "defaultBranchRef": {
+      "name": "main"
+     },
+     "viewerPermission": "ADMIN"
+    },
+    "id": "PR_115",
+    "isDraft": false,
+    "isInMergeQueue": false,
+    "labels": {
+     "nodes": [],
+     "totalCount": 0
+    },
+    "latestOpinionatedReviews": {
+     "nodes": []
+    },
+    "latestReviews": {
+     "nodes": []
+    },
+    "mergeQueueEntry": null,
+    "mergeStateStatus": "UNKNOWN",
+    "mergeable": "UNKNOWN",
+    "merged": true,
+    "mergedAt": "2026-10-22T06:00:00Z",
+    "mergedBy": {
+     "avatarUrl": "https://avatars.invalid/octo-dev",
+     "login": "octo-dev"
+    },
+    "milestone": null,
+    "number": 115,
+    "reactionGroups": [
+     {
+      "content": "THUMBS_UP",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "THUMBS_DOWN",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "LAUGH",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "HOORAY",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "CONFUSED",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "HEART",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "ROCKET",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "EYES",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     }
+    ],
+    "reviewDecision": null,
+    "reviewRequests": {
+     "nodes": [],
+     "totalCount": 0
+    },
+    "reviews": {
+     "nodes": [],
+     "totalCount": 0
+    },
+    "state": "MERGED",
+    "statusCheckRollup": {
+     "contexts": {
+      "checkRunCountsByState": [
+       {
+        "count": 2,
+        "state": "SUCCESS"
+       }
+      ],
+      "nodes": [
+       {
+        "__typename": "CheckRun",
+        "checkSuite": {
+         "app": {
+          "slug": "github-actions"
+         },
+         "databaseId": 10,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
+        },
+        "completedAt": "2026-10-23T11:00:00Z",
+        "conclusion": "SUCCESS",
+        "databaseId": 1,
+        "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/1",
+        "name": "build",
+        "startedAt": "2026-10-23T10:58:45Z",
+        "status": "COMPLETED"
+       },
+       {
+        "__typename": "CheckRun",
+        "checkSuite": {
+         "app": {
+          "slug": "github-actions"
+         },
+         "databaseId": 20,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
+        },
+        "completedAt": "2026-10-23T11:00:00Z",
+        "conclusion": "SUCCESS",
+        "databaseId": 2,
+        "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/2",
+        "name": "clippy",
+        "startedAt": "2026-10-23T10:58:08Z",
+        "status": "COMPLETED"
+       }
+      ],
+      "statusContextCountsByState": [],
+      "totalCount": 2
+     },
+     "state": "SUCCESS"
+    },
+    "timelineItems": {
+     "nodes": []
+    },
+    "title": "Docs: fix the lockfile example",
+    "url": "https://github.com/fixture-user/beacon/pull/115",
+    "viewerCanAssign": true,
+    "viewerCanClose": true,
+    "viewerCanLabel": true,
+    "viewerCanReact": true,
+    "viewerCanReopen": false,
+    "viewerCanUpdate": true,
+    "viewerCanUpdateBranch": false
+   },
+   "rebaseMergeAllowed": false,
+   "squashMergeAllowed": true,
+   "viewerDefaultMergeMethod": "MERGE",
+   "viewerPermission": "ADMIN"
+  }
+ }
+}
