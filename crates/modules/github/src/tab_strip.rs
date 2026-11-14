@@ -58,11 +58,18 @@ where
     let count = labels.len();
     let current = labels.get(selected).cloned().unwrap_or_default();
     let pick = on_select.clone();
+    let click_focus = focus.clone();
     let bar = TabBar::new(SharedString::from(format!("{id}-bar")))
         .underline()
         .w_full()
         .selected_index(selected)
-        .on_click(cx.listener(move |this, ix: &usize, window, cx| pick(this, *ix, window, cx)))
+        .on_click(cx.listener(move |this, ix: &usize, window, cx| {
+            // A click takes focus onto the strip, as in a browser: the
+            // content it replaces may hold the focus, and a focus left on
+            // an unmounted element makes Tab do nothing.
+            window.focus(&click_focus, cx);
+            pick(this, *ix, window, cx)
+        }))
         .children(labels.into_iter().map(|l| Tab::new().label(l)));
     let focused = focus.is_focused(window);
     div()
