@@ -71,6 +71,7 @@ mod merge_confirm;
 mod merge_gate;
 mod mergeable_poll;
 mod page_write_confirm;
+mod queue_writes;
 mod rail;
 mod review_drafts;
 mod state_writes;

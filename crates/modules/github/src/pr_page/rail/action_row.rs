@@ -40,6 +40,12 @@ pub(super) fn action_row(
     let pending = page.store_pending(cx);
     let busy = page.writes_busy(cx);
     let no_primary = primaries.is_empty();
+    // A quiet secondary (Disable auto-merge, Remove from queue) is sized to
+    // its label, so `⋯` needs a spacer to keep the row's trailing edge.
+    let quiet_only = !no_primary
+        && primaries
+            .iter()
+            .all(|p| matches!(p, Primary::DisableAutoMerge | Primary::RemoveFromQueue));
     Some(
         h_flex()
             .id("pr-rail-actions")
@@ -57,6 +63,32 @@ pub(super) fn action_row(
                     pending,
                     blocked_tooltip.clone(),
                     cx,
+                ),
+                Primary::EnableAutoMerge => auto_merge_button(page, busy, pending, cx),
+                Primary::MergeWhenReady | Primary::MergeWhenReadyBlocked => queue_button(
+                    p == Primary::MergeWhenReady,
+                    busy,
+                    pending,
+                    blocked_tooltip.clone(),
+                    cx,
+                ),
+                Primary::DisableAutoMerge => state_button(
+                    "pr-automerge-disable",
+                    "Disable auto-merge",
+                    "Turn auto-merge off for this pull request",
+                    pending == Some(PendingKind::DisableAutoMerge),
+                    false,
+                    busy,
+                    cx.listener(|this, _, window, cx| this.disable_auto_merge_pr(window, cx)),
+                ),
+                Primary::RemoveFromQueue => state_button(
+                    "pr-dequeue",
+                    "Remove from queue",
+                    "Remove this pull request from the merge queue",
+                    pending == Some(PendingKind::Dequeue),
+                    false,
+                    busy,
+                    cx.listener(|this, _, window, cx| this.dequeue_pr(window, cx)),
                 ),
                 Primary::ReadyForReview => state_button(
                     "pr-ready",
@@ -87,9 +119,10 @@ pub(super) fn action_row(
                         this.open_merge_confirm(ConfirmKind::DeleteBranch, window, cx)
                     }),
                 ),
-                // Not wired yet (#774, #775): `shown_primaries` drops them.
-                _ => div().into_any_element(),
             }))
+            .when(quiet_only && !menu.is_empty(), |row| {
+                row.child(div().flex_1().min_w_0())
+            })
             .when(!menu.is_empty(), |row| row.child(more_menu(menu, busy, cx)))
             // A row with no primary (a viewer who can't mark a draft ready)
             // keeps `⋯` at the trailing edge.
@@ -108,6 +141,10 @@ fn shows_row_spinner(kind: PendingKind) -> bool {
             | PendingKind::ConvertToDraft
             | PendingKind::Reopen
             | PendingKind::DeleteBranch
+            | PendingKind::EnableAutoMerge
+            | PendingKind::DisableAutoMerge
+            | PendingKind::Enqueue
+            | PendingKind::Dequeue
     )
 }
 
@@ -155,11 +192,10 @@ fn merge_button(
     blocked_tooltip: SharedString,
     cx: &Context<PrDetailPage>,
 ) -> AnyElement {
-    let method = page.selected_method();
     let label: SharedString = if pending == Some(PendingKind::Merge) {
         "Working…".into()
     } else {
-        method
+        page.selected_method()
             .map_or("Merge pull request", MergeMethod::verb)
             .into()
     };
@@ -170,17 +206,137 @@ fn merge_button(
     } else {
         blocked_tooltip
     };
-    let action = Button::new("pr-merge")
-        .debug_selector(|| "pr-merge".to_string())
+    split_button(
+        page,
+        Split {
+            id: "pr-merge",
+            split_id: "pr-merge-split",
+            label,
+            tooltip,
+            enabled: enabled && !busy,
+            kind: ConfirmKind::Merge,
+            caret: true,
+        },
+        busy,
+        cx,
+    )
+}
+
+/// "Enable auto-merge ▾" (#774): the caret picks the method, except on a
+/// base with a merge queue, where the queue sets it.
+fn auto_merge_button(
+    page: &PrDetailPage,
+    busy: bool,
+    pending: Option<PendingKind>,
+    cx: &Context<PrDetailPage>,
+) -> AnyElement {
+    let working = pending == Some(PendingKind::EnableAutoMerge);
+    let queued_base = page.detail(cx).is_some_and(|d| d.queueing.queue_enabled);
+    split_button(
+        page,
+        Split {
+            id: "pr-automerge",
+            split_id: "pr-automerge-split",
+            label: if working {
+                "Working…"
+            } else {
+                "Enable auto-merge"
+            }
+            .into(),
+            tooltip: if busy {
+                "Working"
+            } else {
+                "Merge this pull request once the requirements pass"
+            }
+            .into(),
+            enabled: !busy,
+            kind: ConfirmKind::EnableAutoMerge,
+            caret: !queued_base,
+        },
+        busy,
+        cx,
+    )
+}
+
+/// "Merge when ready" (#775): the base branch has a merge queue, which sets
+/// the method, so there is no caret. Disabled (tooltip: the verdict) when
+/// the Merge gate doesn't pass and the viewer can't enable auto-merge.
+fn queue_button(
+    enabled: bool,
+    busy: bool,
+    pending: Option<PendingKind>,
+    blocked_tooltip: SharedString,
+    cx: &Context<PrDetailPage>,
+) -> AnyElement {
+    let label = if pending == Some(PendingKind::Enqueue) {
+        "Working…"
+    } else {
+        "Merge when ready"
+    };
+    let tooltip: SharedString = if busy {
+        "Working".into()
+    } else if enabled {
+        "Add this pull request to the merge queue".into()
+    } else {
+        blocked_tooltip
+    };
+    div()
+        .flex_1()
+        .min_w_0()
+        .child(
+            Button::new("pr-queue")
+                .debug_selector(|| "pr-queue".to_string())
+                .label(label)
+                .primary()
+                .small()
+                .w_full()
+                .disabled(!enabled || busy)
+                .tooltip(tooltip)
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.open_merge_confirm(ConfirmKind::MergeWhenReady, window, cx)
+                })),
+        )
+        .into_any_element()
+}
+
+/// One split button: an action that opens its confirm, plus (with two or
+/// more allowed methods and `caret`) the method menu.
+struct Split {
+    id: &'static str,
+    split_id: &'static str,
+    label: SharedString,
+    tooltip: SharedString,
+    enabled: bool,
+    kind: ConfirmKind,
+    caret: bool,
+}
+
+fn split_button(
+    page: &PrDetailPage,
+    split: Split,
+    busy: bool,
+    cx: &Context<PrDetailPage>,
+) -> AnyElement {
+    let Split {
+        id,
+        split_id,
+        label,
+        tooltip,
+        enabled,
+        kind,
+        caret,
+    } = split;
+    let action = Button::new(id)
+        .debug_selector(move || id.to_string())
         .label(label)
         .primary()
         .small()
-        .disabled(!enabled || busy)
+        .disabled(!enabled)
         .tooltip(tooltip)
-        .on_click(cx.listener(|this, _, window, cx| {
-            this.open_merge_confirm(ConfirmKind::Merge, window, cx)
-        }));
-    if page.methods.len() < 2 {
+        .on_click(
+            cx.listener(move |this, _, window, cx| this.open_merge_confirm(kind, window, cx)),
+        );
+    if page.methods.len() < 2 || !caret {
         return div()
             .flex_1()
             .min_w_0()
@@ -189,13 +345,13 @@ fn merge_button(
     }
     let weak = cx.entity().downgrade();
     let methods = page.methods.clone();
-    let current = method;
+    let current = page.selected_method();
     div()
         .flex_1()
         .min_w_0()
         .debug_selector(|| "pr-merge-method".to_string())
         .child(
-            DropdownButton::new("pr-merge-split")
+            DropdownButton::new(split_id)
                 .w_full()
                 .button(action.flex_1().min_w_0())
                 .small()

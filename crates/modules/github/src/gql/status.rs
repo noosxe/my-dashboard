@@ -85,16 +85,59 @@ pub(crate) fn parse_ending(pr: &Value) -> Ending {
     }
 }
 
-/// Auto-merge and the merge queue (docs/0083 D2 rows 4 and 5, D4). Only
-/// the verdict and its sub-line read these; the actions on them ship in
-/// their own issues (#774, #775).
+/// Auto-merge and the merge queue (docs/0083 D2 rows 4 and 5, D4): what
+/// the verdict and its sub-line read, and the gates of Enable auto-merge,
+/// Disable auto-merge, Merge when ready and Remove from queue (#774,
+/// #775). Every gate degrades to `false`, which hides its control.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Queueing {
     pub in_merge_queue: bool,
+    /// `PullRequest.isMergeQueueEnabled`: the base branch has a merge
+    /// queue. Read from the pull request, so it answers for this PR's own
+    /// base without a second `Repository.mergeQueue(branch:)` lookup.
+    #[serde(default)]
+    pub queue_enabled: bool,
+    /// `Repository.autoMergeAllowed`.
+    #[serde(default)]
+    pub auto_merge_allowed: bool,
+    /// `viewerCanEnableAutoMerge`.
+    #[serde(default)]
+    pub viewer_can_enable: bool,
+    /// `viewerCanDisableAutoMerge`.
+    #[serde(default)]
+    pub viewer_can_disable: bool,
     /// `MergeQueueEntryState` name, e.g. `AWAITING_CHECKS`.
     pub queue_state: Option<String>,
     pub queue_position: Option<i64>,
     pub auto_merge: Option<AutoMerge>,
+}
+
+impl Queueing {
+    /// The facts a confirmed write is sure of, patched in until the
+    /// refetch brings the rest (the author, method, position and entry
+    /// state are learnable only from the server).
+    pub fn after_enable(&mut self) {
+        self.auto_merge = Some(AutoMerge {
+            enabled_by: None,
+            merge_method: None,
+        });
+    }
+
+    pub fn after_disable(&mut self) {
+        self.auto_merge = None;
+    }
+
+    pub fn after_enqueue(&mut self) {
+        self.in_merge_queue = true;
+        self.queue_state = None;
+        self.queue_position = None;
+    }
+
+    pub fn after_dequeue(&mut self) {
+        self.in_merge_queue = false;
+        self.queue_state = None;
+        self.queue_position = None;
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -104,13 +147,17 @@ pub struct AutoMerge {
     pub merge_method: Option<String>,
 }
 
-pub(crate) fn parse_queueing(pr: &Value) -> Queueing {
+/// `pr` is the pull-request node, `repo` the repository node that holds it
+/// (`autoMergeAllowed` lives there).
+pub(crate) fn parse_queueing(pr: &Value, repo: &Value) -> Queueing {
     let text = |p: &str| pr.pointer(p).and_then(Value::as_str).map(str::to_string);
+    let flag = |node: &Value, name: &str| node.get(name).and_then(Value::as_bool).unwrap_or(false);
     Queueing {
-        in_merge_queue: pr
-            .get("isInMergeQueue")
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
+        in_merge_queue: flag(pr, "isInMergeQueue"),
+        queue_enabled: flag(pr, "isMergeQueueEnabled"),
+        auto_merge_allowed: flag(repo, "autoMergeAllowed"),
+        viewer_can_enable: flag(pr, "viewerCanEnableAutoMerge"),
+        viewer_can_disable: flag(pr, "viewerCanDisableAutoMerge"),
         queue_state: text("/mergeQueueEntry/state"),
         queue_position: pr
             .pointer("/mergeQueueEntry/position")
@@ -209,11 +256,14 @@ mod tests {
 
     #[test]
     fn queueing_reads_the_queue_entry_and_auto_merge() {
-        let q = parse_queueing(&json!({
-            "isInMergeQueue": true,
-            "mergeQueueEntry": {"position": 2, "state": "AWAITING_CHECKS"},
-            "autoMergeRequest": {"enabledBy": {"login": "dev"}, "mergeMethod": "SQUASH"}
-        }));
+        let q = parse_queueing(
+            &json!({
+                "isInMergeQueue": true,
+                "mergeQueueEntry": {"position": 2, "state": "AWAITING_CHECKS"},
+                "autoMergeRequest": {"enabledBy": {"login": "dev"}, "mergeMethod": "SQUASH"}
+            }),
+            &json!({}),
+        );
         assert!(q.in_merge_queue);
         assert_eq!(q.queue_position, Some(2));
         assert_eq!(q.queue_state.as_deref(), Some("AWAITING_CHECKS"));
@@ -221,8 +271,44 @@ mod tests {
         assert_eq!(a.enabled_by.as_deref(), Some("dev"));
         assert_eq!(a.merge_method.as_deref(), Some("SQUASH"));
         assert_eq!(
-            parse_queueing(&json!({"autoMergeRequest": null})),
+            parse_queueing(&json!({"autoMergeRequest": null}), &json!({})),
             Queueing::default()
         );
+    }
+
+    #[test]
+    fn confirmed_writes_patch_what_they_are_sure_of() {
+        let mut q = Queueing::default();
+        q.after_enable();
+        assert!(q.auto_merge.is_some());
+        q.after_disable();
+        assert_eq!(q.auto_merge, None);
+        q.after_enqueue();
+        assert!(q.in_merge_queue);
+        q.queue_position = Some(3);
+        q.queue_state = Some("QUEUED".into());
+        q.after_dequeue();
+        assert_eq!(q.queue_position, None);
+        assert_eq!(q, Queueing::default());
+    }
+
+    #[test]
+    fn queueing_reads_the_gates_and_degrades_to_hidden() {
+        let q = parse_queueing(
+            &json!({
+                "isMergeQueueEnabled": true,
+                "viewerCanEnableAutoMerge": true,
+                "viewerCanDisableAutoMerge": true,
+            }),
+            &json!({"autoMergeAllowed": true}),
+        );
+        assert!(q.queue_enabled && q.auto_merge_allowed);
+        assert!(q.viewer_can_enable && q.viewer_can_disable);
+        // Absent or malformed flags are `false`: the controls stay hidden.
+        let q = parse_queueing(
+            &json!({"isMergeQueueEnabled": "yes", "viewerCanEnableAutoMerge": null}),
+            &json!({"autoMergeAllowed": 1}),
+        );
+        assert_eq!(q, Queueing::default());
     }
 }

@@ -20,8 +20,8 @@ use gpui_component::{
 };
 
 use super::merge_gate::{
-    close_enabled, close_visible, convert_enabled, delete_branch_enabled, merge_enabled,
-    merge_visible,
+    close_enabled, close_visible, convert_enabled, delete_branch_enabled, enable_auto_enabled,
+    merge_enabled, merge_visible, queue_enabled,
 };
 use super::{MergeMethod, PrDetailPage};
 use crate::gql;
@@ -37,6 +37,11 @@ pub(crate) enum ConfirmKind {
     /// docs/0083 D5 (#773): a deleted branch can't be restored from here
     /// (#851), so it asks first.
     DeleteBranch,
+    /// docs/0083 D4 (#774): names the method it will merge with, and the
+    /// queue it will join on a queued base.
+    EnableAutoMerge,
+    /// docs/0083 D4 (#775): adds the PR to the base branch's merge queue.
+    MergeWhenReady,
 }
 
 /// Whether each action's gate is open right now.
@@ -46,6 +51,8 @@ pub(crate) struct Gates {
     pub close: bool,
     pub convert: bool,
     pub delete_branch: bool,
+    pub enable_auto: bool,
+    pub merge_when_ready: bool,
 }
 
 impl Gates {
@@ -55,6 +62,8 @@ impl Gates {
             ConfirmKind::Close => self.close,
             ConfirmKind::ConvertToDraft => self.convert,
             ConfirmKind::DeleteBranch => self.delete_branch,
+            ConfirmKind::EnableAutoMerge => self.enable_auto,
+            ConfirmKind::MergeWhenReady => self.merge_when_ready,
         }
     }
 }
@@ -114,6 +123,27 @@ pub(crate) fn merge_prompt(method: MergeMethod, head: &str, base: &str) -> Strin
     format!("{verb} {head} into {base}?")
 }
 
+/// "Enable auto-merge with squash? It merges once the requirements pass."
+/// On a base with a merge queue the queue sets the method, so the prompt
+/// names the queue instead (settled 2026-11-14).
+pub(crate) fn auto_merge_prompt(method: Option<MergeMethod>, queued_base: bool) -> String {
+    if queued_base {
+        return "Enable auto-merge? It joins the merge queue once the requirements pass."
+            .to_string();
+    }
+    let how = match method {
+        Some(MergeMethod::Squash) => "squash",
+        Some(MergeMethod::Rebase) => "rebase",
+        Some(MergeMethod::Merge) | None => "a merge commit",
+    };
+    format!("Enable auto-merge with {how}? It merges once the requirements pass.")
+}
+
+/// "Add feature/x to the merge queue for main? ..." (#775).
+pub(crate) fn queue_prompt(head: &str, base: &str) -> String {
+    format!("Add {head} to the merge queue for {base}? It merges once the queue's checks pass.")
+}
+
 pub(crate) const CONVERT_PROMPT: &str =
     "Convert to draft? Reviewers won't be notified of new pushes until it is ready again.";
 
@@ -152,6 +182,8 @@ impl PrDetailPage {
                 busy,
             ),
             delete_branch: delete_branch_enabled(d.state.as_deref(), d.head_branch.as_ref(), busy),
+            enable_auto: enable_auto_enabled(d, self.methods.is_empty(), busy),
+            merge_when_ready: queue_enabled(d, busy),
         }
     }
 
@@ -196,6 +228,8 @@ impl PrDetailPage {
             Some(ConfirmKind::Close) => self.close_pr(window, cx),
             Some(ConfirmKind::ConvertToDraft) => self.convert_to_draft_pr(window, cx),
             Some(ConfirmKind::DeleteBranch) => self.delete_branch_pr(window, cx),
+            Some(ConfirmKind::EnableAutoMerge) => self.enable_auto_merge_pr(window, cx),
+            Some(ConfirmKind::MergeWhenReady) => self.enqueue_pr(window, cx),
             None => {}
         }
     }
@@ -228,6 +262,17 @@ impl PrDetailPage {
                 delete_branch_prompt(d.head_branch.as_ref().map_or("", |h| h.name.as_str())),
                 "Delete branch",
             ),
+            ConfirmKind::EnableAutoMerge => (
+                auto_merge_prompt(self.selected_method(), d.queueing.queue_enabled),
+                "Confirm auto-merge",
+            ),
+            ConfirmKind::MergeWhenReady => (
+                queue_prompt(
+                    d.head_ref.as_deref().unwrap_or_default(),
+                    d.base_ref.as_deref().unwrap_or_default(),
+                ),
+                "Add to merge queue",
+            ),
         };
         let (id, go_id, cancel_id) = match kind {
             ConfirmKind::Merge => (
@@ -250,6 +295,16 @@ impl PrDetailPage {
                 "pr-delete-branch-confirm-go",
                 "pr-delete-branch-confirm-cancel",
             ),
+            ConfirmKind::EnableAutoMerge => (
+                "pr-automerge-confirm",
+                "pr-automerge-confirm-go",
+                "pr-automerge-confirm-cancel",
+            ),
+            ConfirmKind::MergeWhenReady => (
+                "pr-queue-confirm",
+                "pr-queue-confirm-go",
+                "pr-queue-confirm-cancel",
+            ),
         };
         let go = Button::new(go_id)
             .debug_selector(move || go_id.to_string())
@@ -257,7 +312,9 @@ impl PrDetailPage {
             .small()
             .on_click(cx.listener(|this, _, window, cx| this.confirm_merge_confirm(window, cx)));
         let go = match kind {
-            ConfirmKind::Merge => go.primary(),
+            ConfirmKind::Merge | ConfirmKind::EnableAutoMerge | ConfirmKind::MergeWhenReady => {
+                go.primary()
+            }
             ConfirmKind::Close | ConfirmKind::DeleteBranch => go.danger(),
             ConfirmKind::ConvertToDraft => go,
         };
@@ -293,12 +350,16 @@ mod tests {
         close: true,
         convert: true,
         delete_branch: true,
+        enable_auto: true,
+        merge_when_ready: true,
     };
     const SHUT: Gates = Gates {
         merge: false,
         close: false,
         convert: false,
         delete_branch: false,
+        enable_auto: false,
+        merge_when_ready: false,
     };
 
     #[test]
@@ -314,6 +375,8 @@ mod tests {
             close: false,
             convert: true,
             delete_branch: true,
+            enable_auto: true,
+            merge_when_ready: true,
         };
         assert!(!c.open(ConfirmKind::Close, only_merge));
     }
@@ -354,14 +417,18 @@ mod tests {
             merge: true,
             close: false,
             convert: true,
-            delete_branch: true
+            delete_branch: true,
+            enable_auto: true,
+            merge_when_ready: true
         }));
         assert_eq!(c.current(), Some(ConfirmKind::Merge));
         assert!(c.sync(Gates {
             merge: false,
             close: true,
             convert: true,
-            delete_branch: true
+            delete_branch: true,
+            enable_auto: true,
+            merge_when_ready: true
         }));
         assert_eq!(c.current(), None);
         assert!(!c.sync(SHUT));
@@ -418,6 +485,68 @@ mod tests {
         assert_eq!(c.confirm(OPEN), Some(ConfirmKind::DeleteBranch));
         assert_eq!(c.confirm(OPEN), None);
         assert_eq!(delete_branch_prompt("feat/x"), "Delete branch `feat/x`?");
+    }
+
+    #[test]
+    fn auto_merge_and_queue_confirm_through_their_own_gates() {
+        let mut c = MergeConfirm::default();
+        for (kind, shut) in [
+            (
+                ConfirmKind::EnableAutoMerge,
+                Gates {
+                    enable_auto: false,
+                    ..OPEN
+                },
+            ),
+            (
+                ConfirmKind::MergeWhenReady,
+                Gates {
+                    merge_when_ready: false,
+                    ..OPEN
+                },
+            ),
+        ] {
+            assert!(!c.open(kind, shut), "{kind:?}");
+            assert!(c.open(kind, OPEN));
+            // Esc backs out without a send.
+            assert!(c.cancel());
+            assert_eq!(c.confirm(OPEN), None);
+            // The gate shutting (a refetch) closes it by itself.
+            c.open(kind, OPEN);
+            assert!(c.sync(shut));
+            assert_eq!(c.current(), None);
+            // Confirming re-checks, then yields the kind once.
+            c.open(kind, OPEN);
+            assert_eq!(c.confirm(shut), None);
+            c.open(kind, OPEN);
+            assert_eq!(c.confirm(OPEN), Some(kind));
+            assert_eq!(c.confirm(OPEN), None);
+        }
+    }
+
+    #[test]
+    fn auto_merge_and_queue_prompts_name_what_will_happen() {
+        assert_eq!(
+            auto_merge_prompt(Some(MergeMethod::Squash), false),
+            "Enable auto-merge with squash? It merges once the requirements pass."
+        );
+        assert_eq!(
+            auto_merge_prompt(Some(MergeMethod::Rebase), false),
+            "Enable auto-merge with rebase? It merges once the requirements pass."
+        );
+        assert_eq!(
+            auto_merge_prompt(Some(MergeMethod::Merge), false),
+            "Enable auto-merge with a merge commit? It merges once the requirements pass."
+        );
+        // The queue sets the method, so the prompt names the queue instead.
+        assert_eq!(
+            auto_merge_prompt(Some(MergeMethod::Squash), true),
+            "Enable auto-merge? It joins the merge queue once the requirements pass."
+        );
+        assert_eq!(
+            queue_prompt("feature/x", "main"),
+            "Add feature/x to the merge queue for main? It merges once the queue's checks pass."
+        );
     }
 
     #[test]
