@@ -131,6 +131,11 @@ Gated rows render as their own section above the queued/running check rows:
   "Checks status unknown" would be a lie — and its button reads "Review
   approval", jumping to the checks tab where the actions live. Zero
   waiting delegates to the rollup line untouched.
+  *(Amended by docs/0083 D3: the rail's checks summary becomes the
+  status block's Checks gate row. Waiting runs are one of its counts
+  ("1 failed · 2 waiting"), so a PR whose only CI is gated still never
+  reads "unknown" or "no checks", and the row opens the Checks tab
+  where the approval actions live.)*
 - Approved-by-someone-else mid-session: next refresh's sweep no longer returns
   the run; the row disappears and normal CheckRun rows take over once jobs
   start. No zombie rows.
