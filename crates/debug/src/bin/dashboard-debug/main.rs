@@ -478,6 +478,35 @@ pub(crate) fn run_command(conn: &mut Conn, command: &Command) -> i32 {
             }
             Err(code) => code,
         },
+        Command::Fixture { args } => match fixture(conn, args) {
+            Ok(line) => {
+                println!("{line}");
+                0
+            }
+            Err(msg) => {
+                eprintln!("{msg}");
+                1
+            }
+        },
+        Command::Requests => match fetch_requests(conn) {
+            Ok(requests) => {
+                for r in &requests {
+                    println!("{}", compact(r));
+                }
+                0
+            }
+            Err(code) => code,
+        },
+        Command::AssertRequest { op, pairs } => match assert_request(conn, op, pairs) {
+            Ok(line) => {
+                println!("{line}");
+                0
+            }
+            Err(msg) => {
+                eprintln!("{msg}");
+                1
+            }
+        },
         Command::AssertWrite { op, pairs } => match assert_write(conn, op, pairs) {
             Ok(line) => {
                 println!("{line}");
@@ -1003,6 +1032,58 @@ pub(crate) fn assert_write(
                 .collect::<Vec<_>>()
                 .join(", ")
         )),
+    }
+}
+
+/// `app.requests` from cursor 0: every recorded fixture read.
+pub(crate) fn fetch_requests(conn: &mut Conn) -> Result<Vec<Value>, i32> {
+    let response = conn.call("app.requests", json!({"since": 0}))?;
+    match response.get("result") {
+        Some(result) => Ok(result["requests"].as_array().cloned().unwrap_or_default()),
+        None => Err(report(&response)),
+    }
+}
+
+/// `assert-request`: the matching read's line, or what was recorded
+/// (the last few, newest last).
+pub(crate) fn assert_request(
+    conn: &mut Conn,
+    op: &str,
+    pairs: &[(String, String)],
+) -> Result<String, String> {
+    let requests =
+        fetch_requests(conn).map_err(|code| format!("app.requests failed (exit {code})"))?;
+    match dashboard_debug::writes::find(&requests, op, pairs) {
+        Some(r) => Ok(format!(" request {}", compact(r))),
+        None => Err(format!(
+            "no recorded request {op:?} matching {pairs:?}; last recorded: [{}]",
+            requests
+                .iter()
+                .rev()
+                .take(8)
+                .rev()
+                .map(|r| format!(
+                    "{} {}",
+                    r["op"].as_str().unwrap_or("?"),
+                    r["vars"]["status"]
+                ))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+    }
+}
+
+/// `fixture …`: the transport's JSON answer, or its refusal.
+pub(crate) fn fixture(conn: &mut Conn, args: &[String]) -> Result<String, String> {
+    let response = conn
+        .call("app.fixture", json!({ "args": args }))
+        .map_err(|code| format!("app.fixture failed (exit {code})"))?;
+    match response.get("result") {
+        Some(result) => Ok(compact(result)),
+        None => Err(response["error"]["message"]
+            .as_str()
+            .unwrap_or("app.fixture refused")
+            .to_string()),
     }
 }
 

@@ -59,6 +59,14 @@ pub enum StepOp {
         op: String,
         pairs: Vec<(String, String)>,
     },
+    /// `fixture …` — drive the offline transport (docs/0084 §8).
+    Fixture(Vec<String>),
+    /// `assert-request <op> [key=value…]` — a fixture read was recorded
+    /// (docs/0084 §8).
+    AssertRequest {
+        op: String,
+        pairs: Vec<(String, String)>,
+    },
     /// `assert-focus <accesskit_id>` — the focused node is this one.
     AssertFocus(String),
     /// `assert-diff-label <a> <b> <substr>` — a *changed* line of the
@@ -276,6 +284,12 @@ fn parse_line(text: &str, line_no: usize) -> Result<StepOp, String> {
         "assert-write" => {
             let (op, pairs) = crate::cli::parse_assert_write(rest).map_err(|m| err(&m))?;
             Ok(StepOp::AssertWrite { op, pairs })
+        }
+        "fixture" if !rest.is_empty() => Ok(StepOp::Fixture(rest.to_vec())),
+        "assert-request" => {
+            let (op, pairs) = crate::cli::parse_assert_write(rest)
+                .map_err(|m| err(&m.replace("assert-write", "assert-request")))?;
+            Ok(StepOp::AssertRequest { op, pairs })
         }
         "assert-focus" => {
             let [node] = rest else {
