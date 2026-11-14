@@ -75,6 +75,7 @@ mod queue_writes;
 mod rail;
 mod refocus;
 mod review_drafts;
+mod review_refetch;
 mod state_writes;
 #[cfg(test)]
 mod test_rig;
@@ -3835,7 +3836,11 @@ impl PrDetailPage {
                     // starts clean.
                     summary.update(cx, |s, cx| s.set_value("", window, cx));
                 }
-                page.fetch_threads(Origin::new(Surface::PrPage, Trigger::MutationRefetch), cx);
+                // #872: the review also changes the detail's reviews,
+                // decision and count, which Conversation and the rail read.
+                let refetch = Origin::new(Surface::PrPage, Trigger::MutationRefetch);
+                page.fetch_threads(refetch, cx);
+                page.fetch_detail(refetch, cx);
             },
             cx,
         );
