@@ -43,6 +43,9 @@ GATED_ONLY_RUNS = (7003, 7004)
 THREADS_CAPPED_PR = 110
 THREADS_ERROR_PR = 111
 FILES_NOTICES_PR = 112
+# docs/0083: the ready-to-merge and the reopenable closed scenarios.
+READY_PR = 113
+CLOSED_PR = 114
 
 BODY = """## Summary
 
@@ -183,8 +186,34 @@ def status_context(context, state):
     }
 
 
-def rollup(state, contexts, total=None):
-    return {"state": state, "contexts": conn(contexts, total)}
+def counts_by_state(contexts, extra=()):
+    """The two `...CountsByState` lists of `contexts`, derived from its nodes.
+
+    A check run counts under its conclusion once it completed, else under
+    its status; a commit status under its state. `extra` is `(state,
+    count)` pairs for what a capped page doesn't list, so the counts stay
+    exact where the nodes are not.
+    """
+    runs, statuses = {}, {}
+    for node in contexts:
+        if node["__typename"] == "CheckRun":
+            done = node["status"] == "COMPLETED"
+            state = node["conclusion"] if done else node["status"]
+            runs[state] = runs.get(state, 0) + 1
+        else:
+            statuses[node["state"]] = statuses.get(node["state"], 0) + 1
+    for state, count in extra:
+        runs[state] = runs.get(state, 0) + count
+    as_list = lambda d: [{"state": k, "count": v} for k, v in d.items()]
+    return as_list(runs), as_list(statuses)
+
+
+def rollup(state, contexts, total=None, extra=()):
+    runs, statuses = counts_by_state(contexts, extra)
+    connection = conn(contexts, total)
+    connection["checkRunCountsByState"] = runs
+    connection["statusContextCountsByState"] = statuses
+    return {"state": state, "contexts": connection}
 
 
 class Timeline:
@@ -304,6 +333,16 @@ class Timeline:
             mergeable="MERGEABLE",
             mergeStateStatus="CLEAN",
             statusCheckRollup=None,
+            merged=False,
+            mergedAt=None,
+            mergedBy=None,
+            closedAt=None,
+            # `timelineItems(last: 1, itemTypes: [CLOSED_EVENT])`.
+            timelineItems={"nodes": []},
+            headRef={"id": f"REF_{number}"},
+            isInMergeQueue=False,
+            mergeQueueEntry=None,
+            autoMergeRequest=None,
             commits=self.commits(3),
             reviews=conn([]),
             comments=conn([]),
@@ -415,6 +454,8 @@ class Timeline:
                     for i in range(100)
                 ],
                 137,
+                # The 37 the 100-node page doesn't list all passed.
+                extra=[("SUCCESS", 37)],
             ),
             reviews=conn(
                 [
@@ -429,6 +470,10 @@ class Timeline:
                 240,
             ),
         )
+
+    def closed_by(self, login, hours):
+        """`timelineItems(last: 1, itemTypes: [CLOSED_EVENT])` for the closer."""
+        return {"nodes": [{"actor": user(login), "createdAt": self.ago(hours)}]}
 
     def scenarios(self):
         """Number → the PullRequest node and its repository envelope."""
@@ -459,6 +504,10 @@ class Timeline:
                     104,
                     "Docs: fix the manifest grammar example",
                     state="MERGED",
+                    merged=True,
+                    mergedAt=self.ago(72),
+                    mergedBy=user("octo-dev"),
+                    closedAt=self.ago(72),
                     mergeable="UNKNOWN",
                     mergeStateStatus="UNKNOWN",
                     changedFiles=1,
@@ -476,6 +525,8 @@ class Timeline:
                     105,
                     "Loader: drop the legacy manifest format",
                     state="CLOSED",
+                    closedAt=self.ago(48),
+                    timelineItems=self.closed_by(OWNER, 48),
                     mergeable="CONFLICTING",
                     mergeStateStatus="DIRTY",
                     **read_only,
@@ -545,6 +596,50 @@ class Timeline:
                     "Files: diffs that can't be drawn",
                     changedFiles=4,
                     files={"totalCount": 4},
+                ),
+            },
+            # docs/0083 D4: a writer's open PR that can merge: clean,
+            # approved, passing, behind its base, squash and merge allowed.
+            READY_PR: {
+                "methods": (False, True, True),
+                "permission": "WRITE",
+                "pr": self.pull_request(
+                    READY_PR,
+                    "Docs: explain the manifest grammar",
+                    viewerCanUpdateBranch=True,
+                    changedFiles=2,
+                    files={"totalCount": 2},
+                    commits=self.commits(2),
+                    labels=conn([label("docs", "0e8a16")]),
+                    assignees=conn([user("octo-dev", True)]),
+                    statusCheckRollup=rollup("SUCCESS", merged_checks),
+                    reviews=conn(
+                        [
+                            self.review(1, "reviewer-a", "APPROVED", "", 50),
+                            self.review(2, "reviewer-c", "APPROVED", "", 30),
+                        ]
+                    ),
+                ),
+            },
+            # docs/0083 D6: closed, not merged, the head branch still
+            # there; the viewer may reopen it.
+            CLOSED_PR: {
+                "pr": self.pull_request(
+                    CLOSED_PR,
+                    "Loader: try the lazy manifest reader",
+                    state="CLOSED",
+                    closedAt=self.ago(48),
+                    timelineItems=self.closed_by("octo-dev", 48),
+                    # Not selected by the detail query yet: Reopen and
+                    # Delete branch (#770, #773) read these.
+                    viewerCanReopen=True,
+                    viewerCanDeleteHeadRef=True,
+                    changedFiles=1,
+                    files={"totalCount": 1},
+                    commits=self.commits(1),
+                    assignees=conn([user("octo-dev", True)]),
+                    labels=conn([label("wontfix", "fbca04")]),
+                    reviews=conn([self.review(1, "reviewer-b", "CHANGES_REQUESTED", "Not now.", 50)]),
                 ),
             },
         }
@@ -778,7 +873,7 @@ def write_pr_scenarios(write, now, iso):
     rows = [
         lane_row(scenario["pr"], line.ago(1 + i))
         for i, scenario in enumerate(scenarios.values())
-        if scenario["pr"]["number"] not in (GATED_ONLY_PR, THREADS_CAPPED_PR, THREADS_ERROR_PR, FILES_NOTICES_PR)
+        if scenario["pr"]["number"] not in (GATED_ONLY_PR, THREADS_CAPPED_PR, THREADS_ERROR_PR, FILES_NOTICES_PR, READY_PR, CLOSED_PR)
     ]
     error_row = lane_row(
         line.pull_request(missing, "Loader: a PR that fails its detail read"), line.ago(9)
@@ -789,6 +884,8 @@ def write_pr_scenarios(write, now, iso):
     rows.append(lane_row(scenarios[THREADS_CAPPED_PR]["pr"], line.ago(11)))
     rows.append(lane_row(scenarios[THREADS_ERROR_PR]["pr"], line.ago(12)))
     rows.append(lane_row(scenarios[FILES_NOTICES_PR]["pr"], line.ago(13)))
+    rows.append(lane_row(scenarios[READY_PR]["pr"], line.ago(14)))
+    rows.append(lane_row(scenarios[CLOSED_PR]["pr"], line.ago(15)))
     write(
         f"graphql/RepoPulls.{REPO}.json",
         {

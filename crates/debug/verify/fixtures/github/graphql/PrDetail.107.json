@@ -9,9 +9,11 @@
      "totalCount": 0
     },
     "author": null,
+    "autoMergeRequest": null,
     "baseRefName": "main",
     "body": "## Summary\n\nAccept trailing commas in the manifest parser, so hand-edited files stop\nfailing the load with an opaque error.\n\n- `parse_manifest` tolerates one trailing comma per list\n- the error now names the offending line\n\n```rust\nlet manifest = parse_manifest(input)?;\n```\n\nSee the [grammar notes](https://example.com/grammar) for the full list.\n",
     "changedFiles": 3,
+    "closedAt": null,
     "comments": {
      "nodes": [
       {
@@ -119,10 +121,14 @@
     "files": {
      "totalCount": 3
     },
+    "headRef": {
+     "id": "REF_107"
+    },
     "headRefName": "feature/trailing-commas",
     "headRefOid": "000006bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "id": "PR_107",
     "isDraft": false,
+    "isInMergeQueue": false,
     "labels": {
      "nodes": [],
      "totalCount": 0
@@ -142,8 +148,12 @@
       }
      ]
     },
+    "mergeQueueEntry": null,
     "mergeStateStatus": "UNSTABLE",
     "mergeable": "MERGEABLE",
+    "merged": false,
+    "mergedAt": null,
+    "mergedBy": null,
     "milestone": null,
     "number": 107,
     "reactionGroups": [
@@ -430,6 +440,20 @@
     "state": "OPEN",
     "statusCheckRollup": {
      "contexts": {
+      "checkRunCountsByState": [
+       {
+        "count": 1,
+        "state": "SUCCESS"
+       },
+       {
+        "count": 1,
+        "state": "FAILURE"
+       },
+       {
+        "count": 1,
+        "state": "CANCELLED"
+       }
+      ],
       "nodes": [
        {
         "__typename": "CheckRun",
@@ -495,9 +519,13 @@
         "status": "COMPLETED"
        }
       ],
+      "statusContextCountsByState": [],
       "totalCount": 3
      },
      "state": "FAILURE"
+    },
+    "timelineItems": {
+     "nodes": []
     },
     "title": "Parser: report the column in manifest errors",
     "url": "https://github.com/fixture-user/beacon/pull/107",

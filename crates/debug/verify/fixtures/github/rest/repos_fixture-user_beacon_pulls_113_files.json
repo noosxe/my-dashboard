@@ -1,0 +1,20 @@
+[
+ [
+  {
+   "additions": 2,
+   "changes": 3,
+   "deletions": 1,
+   "filename": "crates/manifest/src/parser.rs",
+   "patch": "@@ -10,5 +10,6 @@ pub fn parse_manifest(input: &str) -> Result<Manifest> {\n     let tokens = lex(input)?;\n-    let entries = strict(tokens)?;\n+    let entries = tolerant(tokens)\n+        .map_err(|e| e.at_line(input))?;\n     Ok(Manifest { entries })\n }\n ",
+   "status": "modified"
+  },
+  {
+   "additions": 4,
+   "changes": 4,
+   "deletions": 0,
+   "filename": "crates/manifest/tests/trailing.rs",
+   "patch": "@@ -0,0 +1,4 @@\n+#[test]\n+fn trailing_comma_is_accepted() {\n+    assert!(parse_manifest(\"[a, b,]\").is_ok());\n+}",
+   "status": "added"
+  }
+ ]
+]

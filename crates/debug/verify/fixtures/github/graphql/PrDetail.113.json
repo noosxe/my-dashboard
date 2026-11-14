@@ -1,0 +1,420 @@
+{
+ "data": {
+  "rateLimit": null,
+  "repository": {
+   "mergeCommitAllowed": false,
+   "pullRequest": {
+    "assignees": {
+     "nodes": [
+      {
+       "avatarUrl": "https://avatars.invalid/octo-dev",
+       "id": "U_octo-dev",
+       "login": "octo-dev"
+      }
+     ],
+     "totalCount": 1
+    },
+    "author": {
+     "avatarUrl": "https://avatars.invalid/octo-dev",
+     "login": "octo-dev"
+    },
+    "autoMergeRequest": null,
+    "baseRefName": "main",
+    "body": "## Summary\n\nAccept trailing commas in the manifest parser, so hand-edited files stop\nfailing the load with an opaque error.\n\n- `parse_manifest` tolerates one trailing comma per list\n- the error now names the offending line\n\n```rust\nlet manifest = parse_manifest(input)?;\n```\n\nSee the [grammar notes](https://example.com/grammar) for the full list.\n",
+    "changedFiles": 2,
+    "closedAt": null,
+    "comments": {
+     "nodes": [],
+     "totalCount": 0
+    },
+    "commits": {
+     "nodes": [
+      {
+       "commit": {
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-20T12:00:00Z",
+        "messageHeadline": "parser: accept trailing commas in manifest lists",
+        "oid": "0000001aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+       }
+      },
+      {
+       "commit": {
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-20T13:00:00Z",
+        "messageHeadline": "tests: cover the trailing-comma cases",
+        "oid": "0000002aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+       }
+      }
+     ],
+     "totalCount": 2
+    },
+    "createdAt": "2026-10-19T12:00:00Z",
+    "files": {
+     "totalCount": 2
+    },
+    "headRef": {
+     "id": "REF_113"
+    },
+    "headRefName": "feature/trailing-commas",
+    "headRefOid": "0000071bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "id": "PR_113",
+    "isDraft": false,
+    "isInMergeQueue": false,
+    "labels": {
+     "nodes": [
+      {
+       "color": "0e8a16",
+       "id": "L_docs",
+       "name": "docs"
+      }
+     ],
+     "totalCount": 1
+    },
+    "latestOpinionatedReviews": {
+     "nodes": [
+      {
+       "author": {
+        "avatarUrl": "https://avatars.invalid/reviewer-a",
+        "login": "reviewer-a"
+       },
+       "id": "PRR_1",
+       "state": "APPROVED"
+      },
+      {
+       "author": {
+        "avatarUrl": "https://avatars.invalid/reviewer-c",
+        "login": "reviewer-c"
+       },
+       "id": "PRR_2",
+       "state": "APPROVED"
+      }
+     ]
+    },
+    "latestReviews": {
+     "nodes": [
+      {
+       "author": {
+        "avatarUrl": "https://avatars.invalid/reviewer-a",
+        "login": "reviewer-a"
+       },
+       "id": "PRR_1",
+       "state": "APPROVED"
+      },
+      {
+       "author": {
+        "avatarUrl": "https://avatars.invalid/reviewer-c",
+        "login": "reviewer-c"
+       },
+       "id": "PRR_2",
+       "state": "APPROVED"
+      }
+     ]
+    },
+    "mergeQueueEntry": null,
+    "mergeStateStatus": "CLEAN",
+    "mergeable": "MERGEABLE",
+    "merged": false,
+    "mergedAt": null,
+    "mergedBy": null,
+    "milestone": null,
+    "number": 113,
+    "reactionGroups": [
+     {
+      "content": "THUMBS_UP",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "THUMBS_DOWN",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "LAUGH",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "HOORAY",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "CONFUSED",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "HEART",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "ROCKET",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "EYES",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     }
+    ],
+    "reviewDecision": "APPROVED",
+    "reviewRequests": {
+     "nodes": [],
+     "totalCount": 0
+    },
+    "reviews": {
+     "nodes": [
+      {
+       "author": {
+        "avatarUrl": "https://avatars.invalid/reviewer-a",
+        "login": "reviewer-a"
+       },
+       "body": "",
+       "id": "PRR_1",
+       "reactionGroups": [
+        {
+         "content": "THUMBS_UP",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "THUMBS_DOWN",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "LAUGH",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "HOORAY",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "CONFUSED",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "HEART",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "ROCKET",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "EYES",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        }
+       ],
+       "state": "APPROVED",
+       "submittedAt": "2026-10-21T10:00:00Z",
+       "updatedAt": "2026-10-21T10:00:00Z",
+       "viewerCanDelete": false,
+       "viewerCanReact": true,
+       "viewerCanUpdate": false
+      },
+      {
+       "author": {
+        "avatarUrl": "https://avatars.invalid/reviewer-c",
+        "login": "reviewer-c"
+       },
+       "body": "",
+       "id": "PRR_2",
+       "reactionGroups": [
+        {
+         "content": "THUMBS_UP",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "THUMBS_DOWN",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "LAUGH",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "HOORAY",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "CONFUSED",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "HEART",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "ROCKET",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "EYES",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        }
+       ],
+       "state": "APPROVED",
+       "submittedAt": "2026-10-22T06:00:00Z",
+       "updatedAt": "2026-10-22T06:00:00Z",
+       "viewerCanDelete": false,
+       "viewerCanReact": true,
+       "viewerCanUpdate": false
+      }
+     ],
+     "totalCount": 2
+    },
+    "state": "OPEN",
+    "statusCheckRollup": {
+     "contexts": {
+      "checkRunCountsByState": [
+       {
+        "count": 2,
+        "state": "SUCCESS"
+       }
+      ],
+      "nodes": [
+       {
+        "__typename": "CheckRun",
+        "checkSuite": {
+         "app": {
+          "slug": "github-actions"
+         },
+         "databaseId": 10,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
+        },
+        "completedAt": "2026-10-23T11:00:00Z",
+        "conclusion": "SUCCESS",
+        "databaseId": 1,
+        "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/1",
+        "name": "build",
+        "startedAt": "2026-10-23T10:58:45Z",
+        "status": "COMPLETED"
+       },
+       {
+        "__typename": "CheckRun",
+        "checkSuite": {
+         "app": {
+          "slug": "github-actions"
+         },
+         "databaseId": 20,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
+        },
+        "completedAt": "2026-10-23T11:00:00Z",
+        "conclusion": "SUCCESS",
+        "databaseId": 2,
+        "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/2",
+        "name": "clippy",
+        "startedAt": "2026-10-23T10:58:08Z",
+        "status": "COMPLETED"
+       }
+      ],
+      "statusContextCountsByState": [],
+      "totalCount": 2
+     },
+     "state": "SUCCESS"
+    },
+    "timelineItems": {
+     "nodes": []
+    },
+    "title": "Docs: explain the manifest grammar",
+    "url": "https://github.com/fixture-user/beacon/pull/113",
+    "viewerCanAssign": true,
+    "viewerCanClose": true,
+    "viewerCanLabel": true,
+    "viewerCanReact": true,
+    "viewerCanUpdate": true,
+    "viewerCanUpdateBranch": true
+   },
+   "rebaseMergeAllowed": true,
+   "squashMergeAllowed": true,
+   "viewerPermission": "WRITE"
+  }
+ }
+}
