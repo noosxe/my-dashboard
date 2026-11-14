@@ -30,6 +30,7 @@ mod critical;
 mod model;
 
 use critical::CriticalWatch;
+pub(crate) use model::local_hhmm;
 use model::{ChipModel, Segment};
 
 /// Whether the chip shows at all (docs/0082 D13, owner decision on

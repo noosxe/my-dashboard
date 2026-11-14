@@ -73,6 +73,7 @@ mod merge_confirm;
 mod merge_gate;
 mod mergeable_poll;
 mod page_write_confirm;
+mod pause_gate;
 mod queue_writes;
 mod rail;
 mod refocus;
@@ -387,6 +388,10 @@ async fn run_check_log_watch(
     cx: &mut AsyncApp,
 ) -> CheckWatchOutcome {
     let ident = target.ident(&repo, number);
+    // #721: the resolve and log reads are REST; a paused budget says so.
+    if let Some(note) = cx.update(|cx| state.read(cx).paused_note(crate::rate_pause::Lane::Rest)) {
+        return CheckWatchOutcome::Landed(Err(note));
+    }
     let resolved =
         match resolve_check_job(state.clone(), &repo, number, &head_oid, &target, cx).await {
             Ok(resolved) => resolved,
@@ -422,6 +427,15 @@ async fn run_check_log_watch(
         });
         if !alive.unwrap_or(false) {
             return CheckWatchOutcome::Disarmed;
+        }
+        // #721: the poll waits out a REST pause (the watch stays armed).
+        if cx.update(|cx| {
+            state
+                .read(cx)
+                .pause_in_force(crate::rate_pause::Lane::Rest)
+                .is_some()
+        }) {
+            continue;
         }
         ticks += 1;
         if ticks > CHECK_WATCH_MAX_TICKS {
@@ -1116,6 +1130,9 @@ impl PrDetailPage {
     fn fetch_detail(&mut self, origin: Origin, cx: &mut Context<Self>) {
         if !self.state.read(cx).auth.connected() {
             return; // the page is about to be torn down by the auth gate
+        }
+        if self.hold_detail_for_pause(cx) {
+            return;
         }
         let state = self.state.clone();
         // docs/0072 D3: stale-while-revalidate — background opens skip
@@ -2037,6 +2054,9 @@ impl PrDetailPage {
         if !self.state.read(cx).auth.connected() {
             return; // the page is about to be torn down by the auth gate
         }
+        if self.hold_files_for_pause(cx) {
+            return;
+        }
         let state = self.state.clone();
         // docs/0038 D4: conditional revalidation when the lane holds
         // data — a cold session with a disk etag must full-fetch (a 304
@@ -2087,12 +2107,13 @@ impl PrDetailPage {
             self.files.land_unchanged();
         } else if result.status != 200 {
             // Shared 401/403 handling, same as the detail fetch (D2).
-            let status = result.status;
-            self.state.update(cx, |s, cx| {
+            let (status, kind) = (result.status, result.kind);
+            let copy = self.state.update(cx, |s, cx| {
                 s.apply(result);
                 cx.notify();
+                s.http_failure_copy(kind, status)
             });
-            self.files.fail(format!("GitHub answered HTTP {status}"));
+            self.files.fail(copy);
         } else {
             match serde_json::from_str::<Vec<PrFile>>(result.body.as_deref().unwrap_or("[]")) {
                 Ok(files) => {
@@ -2259,6 +2280,9 @@ impl PrDetailPage {
         if !self.state.read(cx).auth.connected() {
             return; // the page is about to be torn down by the auth gate
         }
+        if self.hold_threads_for_pause(cx) {
+            return;
+        }
         let state = self.state.clone();
         let spec = Self::threads_spec(&self.repo, self.number, origin);
         log::debug!(
@@ -2329,11 +2353,13 @@ impl PrDetailPage {
         } else if result.status != 200 {
             // Shared 401/403 handling, same as the detail fetch (0030 D1).
             let status = result.status;
-            self.state.update(cx, |s, cx| {
+            let kind = result.kind;
+            let copy = self.state.update(cx, |s, cx| {
                 s.apply(result);
                 cx.notify();
+                s.http_failure_copy(kind, status)
             });
-            self.threads.fail(format!("GitHub answered HTTP {status}"));
+            self.threads.fail(copy);
         } else if !self.discard_outdated_threads() {
             // #745: an errors-only 200 fails the read and keeps the last
             // good threads (`Fetch::fail` holds landed data).
@@ -4019,12 +4045,12 @@ impl PrDetailPage {
         if let Some(m) = &result.network {
             failed = Some(format!("Network error: {m}"));
         } else if result.status != 200 {
-            let status = result.status;
-            self.state.update(cx, |s, cx| {
+            let (status, kind) = (result.status, result.kind);
+            failed = Some(self.state.update(cx, |s, cx| {
                 s.apply(result);
                 cx.notify();
-            });
-            failed = Some(format!("GitHub answered HTTP {status}"));
+                s.http_failure_copy(kind, status)
+            }));
         } else {
             let gql_error = result.body.as_deref().and_then(|body| {
                 serde_json::from_str::<gql::Envelope<serde_json::Value>>(body)
@@ -4444,24 +4470,45 @@ impl PrDetailPage {
                             .when_some(meta.updated, |row, text| row.child(text)),
                     ),
             )
-            .child(freshness_row(
-                "pr",
-                &crate::service::DetailClock(self.state.read(cx).pr_entry(&self.repo, self.number)),
-                cx,
-                |this, _, cx| {
-                    let origin = Origin::new(Surface::PrPage, Trigger::Manual);
-                    this.fetch_detail(origin, cx);
-                    // A refresh with files/threads already loaded refetches
-                    // those lists too (0030 D8) — collapse states reset with
-                    // the new payload.
-                    if this.files.is_ready() {
-                        this.fetch_files(origin, cx);
-                    }
-                    if this.threads.is_ready() {
-                        this.fetch_threads(origin, cx);
-                    }
-                },
-            ))
+            .child(
+                v_flex()
+                    .items_end()
+                    .gap_1()
+                    .flex_none()
+                    .child(freshness_row(
+                        "pr",
+                        &crate::service::DetailClock(
+                            self.state.read(cx).pr_entry(&self.repo, self.number),
+                        ),
+                        cx,
+                        |this, _, cx| {
+                            let origin = Origin::new(Surface::PrPage, Trigger::Manual);
+                            this.fetch_detail(origin, cx);
+                            // A refresh with files/threads already loaded refetches
+                            // those lists too (0030 D8) — collapse states reset with
+                            // the new payload.
+                            if this.files.is_ready() {
+                                this.fetch_files(origin, cx);
+                            }
+                            if this.threads.is_ready() {
+                                this.fetch_threads(origin, cx);
+                            }
+                        },
+                    ))
+                    // #751: a paused budget holds refreshes and writes;
+                    // say so beside the refresh control.
+                    .when_some(self.pause_note(cx), |col, note| {
+                        col.child(
+                            div()
+                                .id("pr-paused-note")
+                                .role(accesskit::Role::Status)
+                                .aria_label(note.clone())
+                                .text_xs()
+                                .text_color(cx.theme().warning)
+                                .child(note),
+                        )
+                    }),
+            )
             .child(
                 Button::new("pr-open-external")
                     .ghost()

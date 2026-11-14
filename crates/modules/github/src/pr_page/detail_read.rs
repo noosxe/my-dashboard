@@ -28,10 +28,11 @@ pub(super) fn land_detail_result(
         // Forward failures through `apply` so the shared 401 (reactive
         // refresh / TokenRejected) and 403 (rate-limit pause) handling
         // runs exactly as for every other fetch (docs/0016 D2).
-        let status = result.status;
+        let (status, kind) = (result.status, result.kind);
         s.apply(result);
         cx.notify();
-        s.fail_detail_read(repo, number, format!("GitHub answered HTTP {status}"));
+        let copy = s.http_failure_copy(kind, status);
+        s.fail_detail_read(repo, number, copy);
         return None;
     }
     let Some(body) = result.body else {
@@ -43,6 +44,7 @@ pub(super) fn land_detail_result(
             for e in &env.errors {
                 log::warn!("pr-detail: {}", e.message);
             }
+            let errors = env.errors;
             match env
                 .data
                 .and_then(|d| d.repository)
@@ -54,11 +56,14 @@ pub(super) fn land_detail_result(
                     .then_some(detail),
                 None => {
                     log::warn!("pr-detail: repository/pullRequest null — keeping header");
-                    s.fail_detail_read(
-                        repo,
-                        number,
-                        "PR not found (removed, or access lost)".into(),
+                    // #751: say why — a rate limit or a refusal is not
+                    // "removed".
+                    let copy = crate::rate_pause::null_read_copy(
+                        &errors,
+                        s,
+                        crate::rate_pause::Lane::Graphql,
                     );
+                    s.fail_detail_read(repo, number, copy);
                     None
                 }
             }
