@@ -1472,6 +1472,7 @@ dependencies = [
  "dashboard-agent",
  "dashboard-core",
  "futures",
+ "gpui-base",
  "gpui-component",
  "gpui-pre",
  "keyring",

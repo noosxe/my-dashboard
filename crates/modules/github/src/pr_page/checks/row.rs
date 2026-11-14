@@ -4,8 +4,8 @@
 //! reach it like any other control.
 
 use gpui::{
-    AnyElement, App, Context, InteractiveElement, IntoElement, ParentElement, SharedString, Styled,
-    div,
+    AnyElement, App, Context, InteractiveElement, IntoElement, ParentElement, Role, SharedString,
+    StatefulInteractiveElement as _, Styled, div,
 };
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::spinner::Spinner;
@@ -37,16 +37,20 @@ fn spoken_name(check: &gql::PrCheck) -> String {
     }
 }
 
-/// The toggle's accessible name. It stands in for the row's whole content,
-/// and it tells same-named rows apart.
-pub(crate) fn toggle_label(check: &gql::PrCheck, expanded: bool) -> String {
-    let verb = if expanded { "Hide" } else { "View" };
-    let mut label = format!("{verb} log for {}", spoken_name(check));
-    label.push_str(&format!(", {}", state_word(check.state)));
+/// What a row reads as, toggle or not: `"build in Release, failed, 1m 42s"`.
+pub(crate) fn row_label(check: &gql::PrCheck) -> String {
+    let mut label = format!("{}, {}", spoken_name(check), state_word(check.state));
     if let Some(timing) = check_timing(check) {
         label.push_str(&format!(", {timing}"));
     }
     label
+}
+
+/// The toggle's accessible name. It stands in for the row's whole content,
+/// and it tells same-named rows apart.
+pub(crate) fn toggle_label(check: &gql::PrCheck, expanded: bool) -> String {
+    let verb = if expanded { "Hide" } else { "View" };
+    format!("{verb} log for {}", row_label(check))
 }
 
 /// What the row shows, toggle or not: the chevron column stays reserved so
@@ -152,7 +156,12 @@ impl PrDetailPage {
                 )
                 .into_any_element()
         } else {
+            // docs/0049 D1: the name, workflow and state of a row with no
+            // toggle read as one node (#768).
             div()
+                .id(SharedString::from(format!("pr-check-name-{i}")))
+                .role(Role::Group)
+                .aria_label(row_label(check))
                 .flex_1()
                 .min_w_0()
                 .px_3()
@@ -241,6 +250,14 @@ mod tests {
         assert_ne!(
             toggle_label(&check(Some("CI")), false),
             toggle_label(&check(Some("Release")), false)
+        );
+    }
+
+    #[test]
+    fn a_row_without_a_toggle_reads_name_workflow_and_state() {
+        assert_eq!(
+            row_label(&check(Some("Release"))),
+            "build in Release, failed, 1m 42s"
         );
     }
 }
