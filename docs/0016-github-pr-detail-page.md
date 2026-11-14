@@ -361,7 +361,10 @@ A `GroupBox` at the rail top:
   hides (no choice to make), the button label carries the verb.
   *(Amended by docs/0083 D4: the method moves into the Merge split
   button's caret, and the default becomes `Repository.viewerDefaultMergeMethod`
-  when allowed, else the first allowed (#776).)*
+  when allowed, else the first allowed (#776). Shipped: the detail query
+  selects the field, the page picks the method once per open page, and a
+  missing, unknown or no-longer-allowed value falls back to the rule above,
+  merge commit preferred.)*
 - **Actions:** primary `Merge` button → `mergePullRequest { pullRequestId,
   mergeMethod }`; secondary `Close` (`Button::danger`) → `closePullRequest`.
   While in flight both disable + spinner; on success the refetch repaints the
@@ -384,7 +387,12 @@ A `GroupBox` at the rail top:
   through an open gate, re-checks it when confirmed, and closes by itself
   when the gate shuts (refetch, state change, busy op). The state machine
   is independent of where the buttons sit, so Close keeps the confirm when
-  it moves into a `⋯` menu (#798). No commit-message editing or prefill
+  it moves into a `⋯` menu (#798). *Convert to draft* (#772) is the third
+  confirm kind: "Convert to draft? Reviewers won't be notified of new
+  pushes until it is ready again." with a *Convert to draft* button, gated
+  by `viewerCanUpdate` on an open, non-draft PR. Ready for review (#771)
+  and Reopen (#770) don't confirm, since each is undone in one click.
+  No commit-message editing or prefill
   (`viewerMergeHeadlineText`/`viewerMergeBodyText`): deferred.
 
   **Gating (amended 2026-11-06, #708 + #737; `pr_page/merge_gate.rs`).**

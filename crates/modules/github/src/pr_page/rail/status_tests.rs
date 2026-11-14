@@ -165,3 +165,86 @@ fn the_reviews_row_arms_the_timeline_jump(cx: &mut TestAppContext) {
         )
     });
 }
+
+#[gpui::test]
+fn a_draft_leads_with_ready_for_review_and_keeps_the_menu(cx: &mut TestAppContext) {
+    let (_rig, _page, vcx) = open(
+        cx,
+        json!({"isDraft": true, "viewerCanUpdate": true, "viewerCanClose": true}),
+    );
+    assert!(shown(vcx, "pr-ready"));
+    assert!(shown(vcx, "pr-more"), "Close stays in the menu");
+    assert!(!shown(vcx, "pr-merge"));
+    let ready = vcx.debug_bounds("pr-ready").expect("ready");
+    let more = vcx.debug_bounds("pr-more").expect("more");
+    assert!(ready.origin.x < more.origin.x, "the primary leads the row");
+}
+
+#[gpui::test]
+fn ready_for_review_is_hidden_when_the_viewer_cannot_update(cx: &mut TestAppContext) {
+    let (_rig, _page, vcx) = open(
+        cx,
+        json!({"isDraft": true, "viewerCanUpdate": false, "viewerCanClose": false}),
+    );
+    assert!(!shown(vcx, "pr-ready"));
+    assert!(!shown(vcx, "pr-more"));
+}
+
+#[gpui::test]
+fn a_closed_pr_shows_reopen_alone_when_the_viewer_may(cx: &mut TestAppContext) {
+    let (_rig, _page, vcx) = open(cx, json!({"state": "CLOSED", "viewerCanReopen": true}));
+    assert!(shown(vcx, "pr-reopen"));
+    assert!(!shown(vcx, "pr-more"), "no menu on a closed PR");
+    assert!(!shown(vcx, "pr-delete-branch"), "Delete branch is #773");
+    let (_rig, _page, vcx) = open(cx, json!({"state": "CLOSED", "viewerCanReopen": false}));
+    assert!(!shown(vcx, "pr-reopen"));
+}
+
+#[gpui::test]
+fn convert_to_draft_confirms_before_it_sends(cx: &mut TestAppContext) {
+    use crate::pr_page::merge_confirm::ConfirmKind;
+    let (rig, page, vcx) = open(
+        cx,
+        json!({"mergeable": "MERGEABLE", "mergeStateStatus": "CLEAN", "viewerCanUpdate": true}),
+    );
+    vcx.update(|window, cx| {
+        page.update(cx, |p, cx| {
+            p.open_merge_confirm(ConfirmKind::ConvertToDraft, window, cx)
+        })
+    });
+    let _ = vcx.debug_bounds("pr-merge");
+    assert!(shown(vcx, "pr-convert-confirm-go"));
+    assert!(!shown(vcx, "pr-merge"), "the confirm replaces the row");
+    // Esc backs out without a write.
+    vcx.update(|window, cx| page.update(cx, |p, cx| assert!(p.cancel_top_editor(window, cx))));
+    let _ = vcx.debug_bounds("pr-merge");
+    assert!(!shown(vcx, "pr-convert-confirm-go"));
+    vcx.run_until_parked();
+    assert_eq!(rig.mutations(), 0);
+    // Confirming sends once.
+    vcx.update(|window, cx| {
+        page.update(cx, |p, cx| {
+            p.open_merge_confirm(ConfirmKind::ConvertToDraft, window, cx);
+            p.confirm_merge_confirm(window, cx);
+        })
+    });
+    vcx.run_until_parked();
+    assert_eq!(rig.mutations(), 1);
+}
+
+#[gpui::test]
+fn the_convert_confirm_does_not_open_on_a_draft_or_for_a_reader(cx: &mut TestAppContext) {
+    use crate::pr_page::merge_confirm::ConfirmKind;
+    for patch in [
+        json!({"isDraft": true, "viewerCanUpdate": true}),
+        json!({"viewerCanUpdate": false}),
+    ] {
+        let (_rig, page, vcx) = open(cx, patch);
+        vcx.update(|window, cx| {
+            page.update(cx, |p, cx| {
+                p.open_merge_confirm(ConfirmKind::ConvertToDraft, window, cx)
+            })
+        });
+        page.read_with(vcx, |p, _| assert_eq!(p.merge_confirm.current(), None));
+    }
+}

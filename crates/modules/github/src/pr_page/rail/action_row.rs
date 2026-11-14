@@ -4,7 +4,7 @@
 
 use gpui::{
     AnyElement, Context, InteractiveElement as _, IntoElement as _, ParentElement as _,
-    SharedString, Styled as _, div, prelude::FluentBuilder as _,
+    SharedString, Styled as _, Window, div, prelude::FluentBuilder as _,
 };
 use gpui_component::{
     ActiveTheme, Disableable as _, Icon, IconName, Sizable as _,
@@ -46,10 +46,9 @@ pub(super) fn action_row(
             .w_full()
             .gap_2()
             .items_center()
-            .when(
-                matches!(pending, Some(PendingKind::Merge | PendingKind::Close)),
-                |row| row.child(Spinner::new().small()),
-            )
+            .when(pending.is_some_and(shows_row_spinner), |row| {
+                row.child(Spinner::new().small())
+            })
             .children(primaries.into_iter().map(|p| match p {
                 Primary::Merge | Primary::MergeBlocked => merge_button(
                     page,
@@ -59,15 +58,77 @@ pub(super) fn action_row(
                     blocked_tooltip.clone(),
                     cx,
                 ),
-                // Not wired yet (#770–#776): `shown_primaries` drops them.
+                Primary::ReadyForReview => state_button(
+                    "pr-ready",
+                    "Ready for review",
+                    "Mark this pull request ready for review",
+                    pending == Some(PendingKind::ReadyForReview),
+                    true,
+                    busy,
+                    cx.listener(|this, _, window, cx| this.ready_for_review_pr(window, cx)),
+                ),
+                Primary::Reopen => state_button(
+                    "pr-reopen",
+                    "Reopen pull request",
+                    "Reopen this pull request",
+                    pending == Some(PendingKind::Reopen),
+                    false,
+                    busy,
+                    cx.listener(|this, _, window, cx| this.reopen_pr(window, cx)),
+                ),
+                // Not wired yet (#773–#775): `shown_primaries` drops them.
                 _ => div().into_any_element(),
             }))
             .when(!menu.is_empty(), |row| row.child(more_menu(menu, busy, cx)))
-            // A row with no primary (draft, until #771) keeps `⋯` at the
-            // trailing edge.
+            // A row with no primary (a viewer who can't mark a draft ready)
+            // keeps `⋯` at the trailing edge.
             .when(no_primary, |row| row.justify_end())
             .into_any_element(),
     )
+}
+
+/// Whether a pending write puts the spinner at the row's start.
+fn shows_row_spinner(kind: PendingKind) -> bool {
+    matches!(
+        kind,
+        PendingKind::Merge
+            | PendingKind::Close
+            | PendingKind::ReadyForReview
+            | PendingKind::ConvertToDraft
+            | PendingKind::Reopen
+    )
+}
+
+/// A one-click state flip (Ready for review, Reopen): fills the row's
+/// free width, so a second control (Delete branch, #773) can sit beside
+/// it. `primary` picks the accent style; a closed PR's Reopen is quiet.
+#[allow(clippy::too_many_arguments)]
+fn state_button(
+    id: &'static str,
+    label: &'static str,
+    tooltip: &'static str,
+    working: bool,
+    primary: bool,
+    busy: bool,
+    on_click: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
+) -> AnyElement {
+    let button = Button::new(id)
+        .debug_selector(move || id.to_string())
+        .label(if working { "Working…" } else { label })
+        .small()
+        .disabled(busy)
+        .tooltip(if busy { "Working" } else { tooltip })
+        .on_click(on_click);
+    let button = if primary {
+        button.primary()
+    } else {
+        button.outline()
+    };
+    div()
+        .flex_1()
+        .min_w_0()
+        .child(button.w_full())
+        .into_any_element()
 }
 
 /// "Squash and merge ▾": the method lives in the caret (D4), which stays
@@ -204,8 +265,30 @@ fn more_menu(items: Vec<MenuItem>, busy: bool, cx: &Context<PrDetailPage>) -> An
                                     ),
                                 );
                             }
-                            // Convert to draft has a slot but no handler (#772).
-                            MenuItem::ConvertToDraft => {}
+                            MenuItem::ConvertToDraft => {
+                                let item_weak = weak.clone();
+                                next = next.item(
+                                    PopupMenuItem::element(|_, _| {
+                                        h_flex()
+                                            .debug_selector(|| "pr-more-draft".to_string())
+                                            .child("Convert to draft")
+                                    })
+                                    .on_click(
+                                        move |_, window, cx| {
+                                            let item_weak = item_weak.clone();
+                                            window.defer(cx, move |window, cx| {
+                                                let _ = item_weak.update(cx, |page, cx| {
+                                                    page.open_merge_confirm(
+                                                        ConfirmKind::ConvertToDraft,
+                                                        window,
+                                                        cx,
+                                                    )
+                                                });
+                                            });
+                                        },
+                                    ),
+                                );
+                            }
                         }
                     }
                     next

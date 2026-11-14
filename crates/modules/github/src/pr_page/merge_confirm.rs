@@ -19,7 +19,9 @@ use gpui_component::{
     h_flex, v_flex,
 };
 
-use super::merge_gate::{close_enabled, close_visible, merge_enabled, merge_visible};
+use super::merge_gate::{
+    close_enabled, close_visible, convert_enabled, merge_enabled, merge_visible,
+};
 use super::{MergeMethod, PrDetailPage};
 use crate::gql;
 
@@ -28,6 +30,9 @@ use crate::gql;
 pub(crate) enum ConfirmKind {
     Merge,
     Close,
+    /// docs/0083 D5 (#772): reverses one click away, but it quiets
+    /// reviewers, so it asks first.
+    ConvertToDraft,
 }
 
 /// Whether each action's gate is open right now.
@@ -35,6 +40,7 @@ pub(crate) enum ConfirmKind {
 pub(crate) struct Gates {
     pub merge: bool,
     pub close: bool,
+    pub convert: bool,
 }
 
 impl Gates {
@@ -42,6 +48,7 @@ impl Gates {
         match kind {
             ConfirmKind::Merge => self.merge,
             ConfirmKind::Close => self.close,
+            ConfirmKind::ConvertToDraft => self.convert,
         }
     }
 }
@@ -101,6 +108,9 @@ pub(crate) fn merge_prompt(method: MergeMethod, head: &str, base: &str) -> Strin
     format!("{verb} {head} into {base}?")
 }
 
+pub(crate) const CONVERT_PROMPT: &str =
+    "Convert to draft? Reviewers won't be notified of new pushes until it is ready again.";
+
 pub(crate) const CLOSE_PROMPT: &str =
     "Close this pull request without merging? It can be reopened later.";
 
@@ -123,6 +133,13 @@ impl PrDetailPage {
                 ),
             close: close_visible(d.viewer_can_close)
                 && close_enabled(d.state.as_deref(), d.id.is_empty(), busy),
+            convert: convert_enabled(
+                d.state.as_deref(),
+                d.draft,
+                d.viewer_can_update,
+                d.id.is_empty(),
+                busy,
+            ),
         }
     }
 
@@ -165,6 +182,7 @@ impl PrDetailPage {
         match kind {
             Some(ConfirmKind::Merge) => self.merge_pr(window, cx),
             Some(ConfirmKind::Close) => self.close_pr(window, cx),
+            Some(ConfirmKind::ConvertToDraft) => self.convert_to_draft_pr(window, cx),
             None => {}
         }
     }
@@ -192,6 +210,7 @@ impl PrDetailPage {
                 "Confirm merge",
             ),
             ConfirmKind::Close => (CLOSE_PROMPT.to_string(), "Close without merging"),
+            ConfirmKind::ConvertToDraft => (CONVERT_PROMPT.to_string(), "Convert to draft"),
         };
         let (id, go_id, cancel_id) = match kind {
             ConfirmKind::Merge => (
@@ -204,6 +223,11 @@ impl PrDetailPage {
                 "pr-close-confirm-go",
                 "pr-close-confirm-cancel",
             ),
+            ConfirmKind::ConvertToDraft => (
+                "pr-convert-confirm",
+                "pr-convert-confirm-go",
+                "pr-convert-confirm-cancel",
+            ),
         };
         let go = Button::new(go_id)
             .debug_selector(move || go_id.to_string())
@@ -213,6 +237,7 @@ impl PrDetailPage {
         let go = match kind {
             ConfirmKind::Merge => go.primary(),
             ConfirmKind::Close => go.danger(),
+            ConfirmKind::ConvertToDraft => go,
         };
         v_flex()
             .id(id)
@@ -244,10 +269,12 @@ mod tests {
     const OPEN: Gates = Gates {
         merge: true,
         close: true,
+        convert: true,
     };
     const SHUT: Gates = Gates {
         merge: false,
         close: false,
+        convert: false,
     };
 
     #[test]
@@ -261,6 +288,7 @@ mod tests {
         let only_merge = Gates {
             merge: true,
             close: false,
+            convert: true,
         };
         assert!(!c.open(ConfirmKind::Close, only_merge));
     }
@@ -299,12 +327,14 @@ mod tests {
         assert!(!c.sync(OPEN));
         assert!(!c.sync(Gates {
             merge: true,
-            close: false
+            close: false,
+            convert: true
         }));
         assert_eq!(c.current(), Some(ConfirmKind::Merge));
         assert!(c.sync(Gates {
             merge: false,
-            close: true
+            close: true,
+            convert: true
         }));
         assert_eq!(c.current(), None);
         assert!(!c.sync(SHUT));
@@ -316,6 +346,29 @@ mod tests {
         c.open(ConfirmKind::Merge, OPEN);
         c.open(ConfirmKind::Close, OPEN);
         assert_eq!(c.current(), Some(ConfirmKind::Close));
+    }
+
+    #[test]
+    fn convert_to_draft_confirms_through_its_own_gate() {
+        let mut c = MergeConfirm::default();
+        let no_convert = Gates {
+            convert: false,
+            ..OPEN
+        };
+        assert!(!c.open(ConfirmKind::ConvertToDraft, no_convert));
+        assert!(c.open(ConfirmKind::ConvertToDraft, OPEN));
+        // Esc backs out without a send.
+        assert!(c.cancel());
+        assert_eq!(c.confirm(OPEN), None);
+        // The gate shutting (a refetch made it a draft) closes it.
+        c.open(ConfirmKind::ConvertToDraft, OPEN);
+        assert!(c.sync(no_convert));
+        assert_eq!(c.current(), None);
+        // Confirming re-checks, then yields the kind once.
+        c.open(ConfirmKind::ConvertToDraft, OPEN);
+        assert_eq!(c.confirm(OPEN), Some(ConfirmKind::ConvertToDraft));
+        assert_eq!(c.confirm(OPEN), None);
+        assert!(CONVERT_PROMPT.starts_with("Convert to draft?"));
     }
 
     #[test]

@@ -34,6 +34,41 @@ pub(crate) fn close_enabled(state: Option<&str>, id_empty: bool, busy: bool) -> 
     state == Some("OPEN") && !id_empty && !busy
 }
 
+/// Ready for review (#771): a draft the viewer may update, idle and
+/// addressable. `viewerCanUpdate` is the gate; there is no flag of its own.
+pub(crate) fn ready_enabled(
+    state: Option<&str>,
+    draft: bool,
+    can_update: bool,
+    id_empty: bool,
+    busy: bool,
+) -> bool {
+    state == Some("OPEN") && draft && can_update && !id_empty && !busy
+}
+
+/// Convert to draft (#772): the mirror of [`ready_enabled`] on an open
+/// PR that isn't a draft yet. Shared by the menu item and its confirm.
+pub(crate) fn convert_enabled(
+    state: Option<&str>,
+    draft: bool,
+    can_update: bool,
+    id_empty: bool,
+    busy: bool,
+) -> bool {
+    state == Some("OPEN") && !draft && can_update && !id_empty && !busy
+}
+
+/// Reopen (#770): a closed, unmerged PR (`MERGED` is its own state) the
+/// server says the viewer can reopen, idle and addressable.
+pub(crate) fn reopen_enabled(
+    state: Option<&str>,
+    can_reopen: bool,
+    id_empty: bool,
+    busy: bool,
+) -> bool {
+    state == Some("CLOSED") && can_reopen && !id_empty && !busy
+}
+
 /// Whether `mergeStateStatus` lets a normal merge through. Allowlist:
 /// `CLEAN`, `HAS_HOOKS` and `UNSTABLE` are documented as mergeable;
 /// `BLOCKED` (required reviews or checks), `BEHIND` (strict up-to-date
@@ -97,6 +132,40 @@ mod tests {
         assert!(!close_enabled(None, false, false));
         assert!(!close_enabled(Some("OPEN"), true, false));
         assert!(!close_enabled(Some("OPEN"), false, true));
+    }
+
+    #[test]
+    fn ready_and_convert_are_mirrors_on_an_open_pr() {
+        // (state, draft, can_update, id_empty, busy) -> (ready, convert)
+        for (args, ready, convert) in [
+            ((Some("OPEN"), true, true, false, false), true, false),
+            ((Some("OPEN"), false, true, false, false), false, true),
+            ((Some("OPEN"), true, false, false, false), false, false),
+            ((Some("OPEN"), false, false, false, false), false, false),
+            ((Some("OPEN"), true, true, true, false), false, false),
+            ((Some("OPEN"), false, true, true, false), false, false),
+            ((Some("OPEN"), true, true, false, true), false, false),
+            ((Some("OPEN"), false, true, false, true), false, false),
+            ((Some("CLOSED"), true, true, false, false), false, false),
+            ((Some("CLOSED"), false, true, false, false), false, false),
+            ((Some("MERGED"), false, true, false, false), false, false),
+            ((None, true, true, false, false), false, false),
+        ] {
+            let (s, d, u, e, b) = args;
+            assert_eq!(ready_enabled(s, d, u, e, b), ready, "{args:?}");
+            assert_eq!(convert_enabled(s, d, u, e, b), convert, "{args:?}");
+        }
+    }
+
+    #[test]
+    fn reopen_enabled_table() {
+        assert!(reopen_enabled(Some("CLOSED"), true, false, false));
+        assert!(!reopen_enabled(Some("CLOSED"), false, false, false));
+        assert!(!reopen_enabled(Some("OPEN"), true, false, false));
+        assert!(!reopen_enabled(Some("MERGED"), true, false, false));
+        assert!(!reopen_enabled(None, true, false, false));
+        assert!(!reopen_enabled(Some("CLOSED"), true, true, false));
+        assert!(!reopen_enabled(Some("CLOSED"), true, false, true));
     }
 
     #[test]

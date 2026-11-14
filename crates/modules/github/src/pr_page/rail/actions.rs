@@ -2,10 +2,11 @@
 //! state shows, in which precedence, and what the `⋯` menu holds. Pure;
 //! `action_row.rs` draws the result.
 //!
-//! Only Merge and Close ship with the status block. The other controls
-//! (#770–#776) are laid out here by the same rules, so each of those
-//! issues turns one flag on and adds its handler: [`Primary::wired`] and
-//! [`MenuItem::wired`] keep an unbuilt control off the screen until then.
+//! Merge, Close, Ready for review, Convert to draft and Reopen ship so far.
+//! The other controls (#773–#775) are laid out here by the same rules, so
+//! each of those issues turns one flag on and adds its handler:
+//! [`Primary::wired`] and [`MenuItem::wired`] keep an unbuilt control off
+//! the screen until then.
 
 use super::super::merge_gate::{close_visible, merge_enabled, merge_visible};
 use super::super::{PrStateTone, pr_state_tone};
@@ -30,7 +31,10 @@ pub(crate) enum Primary {
 impl Primary {
     /// Whether the control has a handler yet (#770–#776 add the rest).
     pub(crate) fn wired(self) -> bool {
-        matches!(self, Primary::Merge | Primary::MergeBlocked)
+        matches!(
+            self,
+            Primary::Merge | Primary::MergeBlocked | Primary::ReadyForReview | Primary::Reopen
+        )
     }
 }
 
@@ -43,7 +47,7 @@ pub(crate) enum MenuItem {
 
 impl MenuItem {
     pub(crate) fn wired(self) -> bool {
-        !matches!(self, MenuItem::ConvertToDraft)
+        true
     }
 }
 
@@ -90,11 +94,14 @@ impl Facts {
                 no_methods,
             ),
             can_merge: merge_visible(d.viewer_permission.as_deref()),
-            // #771: `viewerCanUpdate` is the gate, there is no flag of its own.
+            // #771, #772: `viewerCanUpdate` is the gate, there is no flag of
+            // its own.
             can_ready: d.viewer_can_update,
             can_update: d.viewer_can_update,
             can_close: close_visible(d.viewer_can_close),
-            // Wired by #770, #773, #774, #775: their gates aren't queried yet.
+            // #770: the server's own per-viewer answer.
+            can_reopen: d.viewer_can_reopen,
+            // Wired by #773, #774, #775: their gates aren't queried yet.
             ..Facts::default()
         }
     }

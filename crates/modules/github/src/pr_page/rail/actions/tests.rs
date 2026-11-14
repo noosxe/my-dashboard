@@ -133,15 +133,52 @@ fn the_menu_holds_what_is_not_the_primary() {
 }
 
 #[test]
-fn unbuilt_controls_stay_off_the_screen() {
-    // Convert to draft has its slot but no handler yet (#772).
-    assert_eq!(shown_menu(&open()), [MenuItem::Close]);
-    assert!(shown_menu(&with(open(), |f| f.can_close = false)).is_empty());
-    assert_eq!(shown_primaries(&with(open(), |f| f.draft = true)), []);
+fn wired_controls_show_and_unbuilt_ones_stay_off_the_screen() {
+    // Convert to draft (#772) joins Close in the menu.
+    assert_eq!(
+        shown_menu(&open()),
+        [
+            MenuItem::ConvertToDraft,
+            MenuItem::Separator,
+            MenuItem::Close
+        ]
+    );
+    assert_eq!(
+        shown_menu(&with(open(), |f| f.can_close = false)),
+        [MenuItem::ConvertToDraft]
+    );
+    assert_eq!(
+        shown_menu(&with(open(), |f| f.can_update = false)),
+        [MenuItem::Close]
+    );
+    // A draft's primary is Ready for review (#771), with Close in the menu.
+    assert_eq!(
+        shown_primaries(&with(open(), |f| f.draft = true)),
+        [ReadyForReview]
+    );
+    assert_eq!(
+        shown_menu(&with(open(), |f| f.draft = true)),
+        [MenuItem::Close]
+    );
+    // A closed PR shows Reopen alone (#770); Delete branch (#773) is the
+    // next to join it, side by side, and still stays dark.
+    assert_eq!(
+        shown_primaries(&with(open(), |f| f.closed = true)),
+        [Reopen]
+    );
+    assert_eq!(
+        shown_primaries(&with(open(), |f| {
+            f.closed = true;
+            f.can_reopen = false
+        })),
+        []
+    );
+    assert!(shown_primaries(&with(open(), |f| f.merged = true)).is_empty());
     assert_eq!(
         shown_primaries(&with(open(), |f| f.mergeable = true)),
         [Merge]
     );
+    // Auto-merge (#774) and the queue (#775) are not wired yet.
     assert_eq!(
         shown_primaries(&open()),
         [EnableAutoMerge]
@@ -176,4 +213,16 @@ fn facts_come_from_the_detail() {
     assert!(shown_primaries(&f).is_empty() && shown_menu(&f).is_empty());
     let d = detail(json!({"state": "MERGED", "merged": true}));
     assert!(Facts::of(&d, false).merged);
+    // Reopen follows `viewerCanReopen`; Ready for review follows
+    // `viewerCanUpdate` on a draft.
+    let d = detail(json!({"state": "CLOSED", "viewerCanReopen": true}));
+    let f = Facts::of(&d, false);
+    assert!(f.closed && f.can_reopen);
+    assert_eq!(shown_primaries(&f), [Reopen]);
+    let d = detail(json!({"state": "CLOSED", "viewerCanReopen": false}));
+    assert!(shown_primaries(&Facts::of(&d, false)).is_empty());
+    let d = detail(json!({"isDraft": true, "viewerCanUpdate": true}));
+    assert_eq!(shown_primaries(&Facts::of(&d, false)), [ReadyForReview]);
+    let d = detail(json!({"isDraft": true, "viewerCanUpdate": false}));
+    assert!(shown_primaries(&Facts::of(&d, false)).is_empty());
 }
