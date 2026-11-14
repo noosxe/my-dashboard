@@ -403,7 +403,10 @@ Implementation notes beyond the design text:
   `IssueAssignee`, `IssueMilestone`) — the row builders take one type
   per surface and the pages can't drift.
 - **D3, reviewer clause mechanics**: a team/bot/mannequin request parses
-  to `id: None, login: ""` ("team or bot" display row); a *null*
+  to `id: None` with its `kind` (`Team`, `EnterpriseTeam`, `Bot`,
+  `Mannequin`), name or login and avatar, and shows as a display row
+  *(amended by docs/0083 D8, #741: it used to be a "team or bot" row)*;
+  the clause tests `kind`, not an empty login. A *null*
   `requestedReviewer` ref skips entirely — the node count then sits
   below `totalCount`, which disarms the picker the same way. Both
   shapes are live fixtures.

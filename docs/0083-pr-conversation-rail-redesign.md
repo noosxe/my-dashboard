@@ -407,6 +407,12 @@ Each section is `rail_section(title, edit, body)`:
   expanded list ends with the shared `cap_row` "+N more on GitHub" (docs/0016
   §12), which opens the PR upstream. The expansion is page state and resets
   when another PR opens.
+- **Loaded pages:** each of the three sources loads 20 nodes. The two
+  review lists hold the latest review per reviewer, so 20 covers a normal
+  PR; beyond that the rows show what the requests add. The "+N more on
+  GitHub" count comes from the requests connection only.
+- **Glyph:** the "Commented" icon is the vendored octicon `comment-16`
+  (`icons/comment.svg`), since the bundled set has no comment icon.
 - **Empty:** Reviewers "None requested", Assignees "None" (D11).
 
 ### D9 — Labels
@@ -588,8 +594,11 @@ belongs to the gated-runs panel (docs/0066), so the gate rows use
   - `headRef { id }` and the action fields of #770–#776, each with its own
     issue.
 - **Query cost:** the additions are small connections (20 nodes) and
-  scalars. The implementation PR measures the detail query's GraphQL cost
-  before and after on the fixtures and records it, as #742 did.
+  scalars. Measured on 2026-11-14 with `rateLimit(dryRun: true)` against
+  GitHub's live API, on two public PRs (one from a large repository): the
+  detail query costs **1 point before and 1 after** the reviewer additions
+  (#741). The same dry runs confirm that every field and union arm in this
+  list exists on the live schema.
 - **Edits:** they still refetch (docs/0043 D2), and pending writes are
   store-scoped (docs/0072 D4).
 
@@ -630,7 +639,9 @@ pr_page/rail/
   actions.rs      action row, primary rules (D4), ⋯ menu (D5)
   terminal.rs     merged/closed sub-lines (D6)
   section.rs      rail_section helper, reason lines, "+N more"
-  people.rs       reviewer merge (pure, table tests) + person rows
+  people.rs       Reviewers and Assignees sections, Edit rules
+  reviewers.rs    reviewer merge (pure, table tests)
+  reviewer_row.rs reviewer row: avatar, name, state icon + word
   labels.rs       label wrap + caps
   milestone.rs    milestone row
   picker_card.rs  in-place card: bounded rows, pinned Save/Cancel, focus
