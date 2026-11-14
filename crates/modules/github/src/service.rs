@@ -654,6 +654,10 @@ pub enum Mutation {
     // variant is the op identity (busy mark, log line) as usual.
     UpdateBranch,
     Close,
+    // docs/0083 D4/D5 (#771, #772, #770): the status block's state flips.
+    ReadyForReview,
+    ConvertToDraft,
+    Reopen,
     // 0019 D5: timeline-row writes — one variant per document.
     UpdateComment,
     DeleteComment,
@@ -1786,6 +1790,10 @@ fn run_pr_mutation(http: &dyn Http, spec: &FetchSpec, mutation: Mutation) -> Spe
         Mutation::Merge => gql::PR_MERGE_MUTATION,
         Mutation::UpdateBranch => gql::PR_UPDATE_BRANCH_MUTATION,
         Mutation::Close => gql::PR_CLOSE_MUTATION,
+        // docs/0083 D4/D5: one document each.
+        Mutation::ReadyForReview => gql::PR_READY_MUTATION,
+        Mutation::ConvertToDraft => gql::PR_CONVERT_TO_DRAFT_MUTATION,
+        Mutation::Reopen => gql::PR_REOPEN_MUTATION,
         Mutation::UpdateComment => gql::PR_UPDATE_COMMENT_MUTATION,
         Mutation::DeleteComment => gql::PR_DELETE_COMMENT_MUTATION,
         Mutation::UpdateReview => gql::PR_UPDATE_REVIEW_MUTATION,
@@ -2171,6 +2179,10 @@ impl PrKey {
 pub(crate) enum PendingKind {
     Merge,
     Close,
+    // docs/0083 D4/D5: the status block's state flips.
+    ReadyForReview,
+    ConvertToDraft,
+    Reopen,
     UpdateBranch,
     Comment,
     Review,
@@ -2192,6 +2204,9 @@ impl PendingKind {
         match self {
             PendingKind::Merge => "merging…",
             PendingKind::Close => "closing…",
+            PendingKind::ReadyForReview => "marking ready…",
+            PendingKind::ConvertToDraft => "converting to draft…",
+            PendingKind::Reopen => "reopening…",
             PendingKind::UpdateBranch => "updating branch…",
             PendingKind::Comment => "commenting…",
             PendingKind::Review => "submitting review…",
@@ -2211,6 +2226,9 @@ impl PendingKind {
         match self {
             PendingKind::Merge => "Merged",
             PendingKind::Close => "Closed",
+            PendingKind::ReadyForReview => "Marked ready",
+            PendingKind::ConvertToDraft => "Converted to draft",
+            PendingKind::Reopen => "Reopened",
             PendingKind::UpdateBranch => "Updated branch for",
             PendingKind::Comment => "Comment added",
             PendingKind::Review => "Review submitted",
@@ -2230,6 +2248,9 @@ impl PendingKind {
         match self {
             PendingKind::Merge => "Merge",
             PendingKind::Close => "Close",
+            PendingKind::ReadyForReview => "Ready for review",
+            PendingKind::ConvertToDraft => "Convert to draft",
+            PendingKind::Reopen => "Reopen",
             PendingKind::UpdateBranch => "Branch update",
             PendingKind::Comment => "Comment",
             PendingKind::Review => "Review",
@@ -2249,6 +2270,9 @@ impl PendingKind {
         match self {
             PendingKind::Merge => "merged",
             PendingKind::Close => "closed",
+            PendingKind::ReadyForReview => "marked-ready",
+            PendingKind::ConvertToDraft => "converted-to-draft",
+            PendingKind::Reopen => "reopened",
             PendingKind::UpdateBranch => "branch-updated",
             PendingKind::Comment => "commented",
             PendingKind::Review => "review-submitted",
@@ -2268,9 +2292,12 @@ impl PendingKind {
     /// D7), kept through the migration.
     pub(crate) fn error_scope(self) -> ErrorScope {
         match self {
-            PendingKind::Merge | PendingKind::Close | PendingKind::UpdateBranch => {
-                ErrorScope::Panel
-            }
+            PendingKind::Merge
+            | PendingKind::Close
+            | PendingKind::ReadyForReview
+            | PendingKind::ConvertToDraft
+            | PendingKind::Reopen
+            | PendingKind::UpdateBranch => ErrorScope::Panel,
             PendingKind::Comment
             | PendingKind::Review
             | PendingKind::Description
@@ -4061,6 +4088,9 @@ impl GithubState {
         let confirmed = match kind {
             PendingKind::Merge => Some("MERGED"),
             PendingKind::Close => Some("CLOSED"),
+            PendingKind::Reopen => Some("OPEN"),
+            // The draft flips patch `isDraft` below, the same way.
+            PendingKind::ReadyForReview | PendingKind::ConvertToDraft => None,
             // Everything else: nothing honest to patch — the post-state
             // (a new comment row, an edited body, the new head OID) is
             // only learnable by refetch (docs/0072 D4).
@@ -4076,6 +4106,17 @@ impl GithubState {
             | PendingKind::ReviewReply
             | PendingKind::ReviewBatch => None,
         };
+        let draft = match kind {
+            PendingKind::ReadyForReview => Some(false),
+            PendingKind::ConvertToDraft => Some(true),
+            _ => None,
+        };
+        if let Some(draft) = draft {
+            entry.summary.draft = draft;
+            if let Some(detail) = &mut entry.detail {
+                detail.draft = draft;
+            }
+        }
         if let Some(state) = confirmed {
             entry.summary.state = Some(state.to_string());
             if let Some(detail) = &mut entry.detail {

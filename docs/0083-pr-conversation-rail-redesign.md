@@ -772,6 +772,47 @@ What the status-block PR settled where this doc left room, or changed:
   The closed one carries `viewerCanReopen` and a head ref the query doesn't
   select yet; #770 and #773 will.
 
+## 8b. Implementation notes (first actions, step 4)
+
+What the PR that wired Ready for review (#771), Convert to draft (#772),
+Reopen (#770) and the default merge method (#776) settled:
+
+- **Wired controls.** `Primary::wired` now covers Merge, Ready for review
+  and Reopen, and `MenuItem::wired` covers every menu item. Delete branch,
+  Enable auto-merge, Merge when ready, Remove from queue and Disable
+  auto-merge keep their slots in `rail/actions.rs` and stay off the screen
+  until #773–#775.
+- **Gates.** Each control is hidden when the viewer can't use it.
+  Ready for review and Convert to draft follow `viewerCanUpdate` (there is
+  no flag of their own); Reopen follows `viewerCanReopen`, which the detail
+  query selects now. `merge_gate.rs` holds one pure gate per action
+  (`ready_enabled`, `convert_enabled`, `reopen_enabled`) for both the click
+  and, for Convert, the confirm.
+- **Writes.** All three send `{ input: { pullRequestId } }` through the
+  store's pending write, so every surface shows the pending state and the
+  row disables. The confirmation patches the cached document (`isDraft`, or
+  `state` back to `OPEN`) and refetches, like Merge and Close. A failure
+  shows in the status block under the action row (the same scope as Merge
+  and Close errors, D4), not in the metadata error slot.
+- **Layout.** The primaries sit in one row, each taking an equal share of
+  the free width, so Delete branch (#773) joins Reopen side by side. Reopen
+  is an outline button, Ready for review is the accent one. A draft's row
+  is Ready for review plus `⋯`; a closed PR's is Reopen alone for now.
+- **Convert to draft** is the first item in the `⋯` menu (`pr-more-draft`)
+  and opens the third confirm kind (`pr-convert-confirm*`), with the same
+  rules as Merge and Close: one at a time, re-checked on confirm, closed by
+  itself when the gate shuts, Esc backs out without a write.
+- **Default merge method.** `Repository.viewerDefaultMergeMethod` rides the
+  detail query. The page preselects it once per open page when the
+  repository allows it, and otherwise falls back to the first allowed
+  method, merge commit preferred (`pr_page/default_method.rs`).
+- **Query cost.** Measured 2026-11-14 with `rateLimit(dryRun: true)` on two
+  public pull requests: 1 point before and 1 after the two added fields.
+- **Fixtures.** #113 now allows all three methods with a squash default,
+  #107 carries a default its repository no longer allows, and every row
+  has an explicit `viewerCanReopen`. `pr_writes.py` answers the four
+  metadata writes and the three state flips (#857).
+
 ## 9. Non-goals
 
 Each one has a `deferred` issue under #730:
