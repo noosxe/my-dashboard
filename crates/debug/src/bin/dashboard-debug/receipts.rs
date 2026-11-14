@@ -777,6 +777,58 @@ fn run_step(conn: &mut Conn, session: Option<&str>, op: &StepOp) -> StepOutcome 
                 }
             }
         }
+        StepOp::ClickLabel {
+            substr,
+            role,
+            exact,
+        } => {
+            // A node can be in the dump a moment before the a11y bus knows
+            // it (a page that just mounted): retry the whole resolve-and-click
+            // until it lands, bounded like `wait-label`.
+            let deadline =
+                std::time::Instant::now() + std::time::Duration::from_millis(WAIT_LABEL_TIMEOUT_MS);
+            loop {
+                let nodes = match snapshot_nodes(conn) {
+                    Ok(nodes) => nodes,
+                    Err(code) => return StepOutcome::Failed(format!("dump failed (exit {code})")),
+                };
+                let hit = nodes.iter().find(|n| {
+                    role.as_deref().is_none_or(|r| n.role == r)
+                        && if *exact {
+                            [n.label.as_deref(), n.raw_label.as_deref()]
+                                .into_iter()
+                                .flatten()
+                                .any(|l| l == substr)
+                        } else {
+                            n.label_contains(substr)
+                        }
+                });
+                let outcome = match hit {
+                    Some(node) => verb(
+                        conn,
+                        &Command::Click {
+                            node: node.accesskit_id.clone(),
+                            window: None,
+                            wait_frame: Some(WAIT_LABEL_POKE_FRAME_MS),
+                        },
+                    ),
+                    None => StepOutcome::Failed(format!(
+                        "no node{} has a label {}{substr:?} ({} nodes scanned)",
+                        role.as_deref()
+                            .map(|r| format!(" with role {r}"))
+                            .unwrap_or_default(),
+                        if *exact { "equal to " } else { "containing " },
+                        nodes.len()
+                    )),
+                };
+                if !matches!(outcome, StepOutcome::Failed(_))
+                    || std::time::Instant::now() >= deadline
+                {
+                    return outcome;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(WAIT_LABEL_POLL_MS));
+            }
+        }
         StepOp::AssertNoLabel(substr) => {
             let nodes = match snapshot_nodes(conn) {
                 Ok(nodes) => nodes,

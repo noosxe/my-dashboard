@@ -85,8 +85,7 @@ assert-request "PrDetail" count=2
 # `changed` row. (The Requests view reads the ledger on open; Refresh
 # until it has the latest flights.)
 click 15380129928879656113 --wait-frame
-wait-label "Usage view"
-click 1150217602083837859 --wait-frame
+click-label Requests --role Tab --exact
 wait-label "pr-detail, fixture-user/beacon#101, pr-page, changed, 200 OK" --timeout 30 --poke 17243532754655376339
 assert-label "pr-probe, fixture-user/beacon#101:pulls, pr-page, watch, 200 OK"
 assert-label "pr-probe, fixture-user/beacon#101:pulls, pr-page, watch, 304 Not modified"

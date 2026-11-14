@@ -55,6 +55,16 @@ pub enum StepOp {
         /// per open and never re-reads when the data lands late.
         poke: Option<String>,
     },
+    /// `click-label <substr> [--role <Role>] [--exact]` — resolve the node
+    /// from a fresh dump at the moment of the click and click it. Receipts
+    /// use it where a node's position isn't stable across runs (a picker
+    /// that scrolls itself into view a frame after it opens, docs/0010
+    /// D10): a coordinate click lands on whatever row sits there then.
+    ClickLabel {
+        substr: String,
+        role: Option<String>,
+        exact: bool,
+    },
     /// `assert-no-label <substr>` — no node label contains it.
     AssertNoLabel(String),
     /// `assert-write <op> [key=value…]` — a fixture write was recorded
@@ -127,6 +137,8 @@ pub struct Script {
     pub steps: Vec<Step>,
 }
 
+const CLICK_LABEL_USAGE: &str =
+    "click-label needs <substr> (quote spaces), optionally --role <Role> and --exact";
 const WAIT_LABEL_USAGE: &str = "wait-label needs <substr> (quote spaces), optionally --timeout <secs> and --poke <accesskit_id>";
 
 /// Parse a whole script file. Comments (`#`) and blank lines are
@@ -279,6 +291,33 @@ fn parse_line(text: &str, line_no: usize) -> Result<StepOp, String> {
                 substr: substr.clone(),
                 timeout_secs,
                 poke,
+            })
+        }
+        "click-label" => {
+            let Some((substr, mut flags)) = rest.split_first() else {
+                return Err(err(CLICK_LABEL_USAGE));
+            };
+            let (mut role, mut exact) = (None, false);
+            while let Some((flag, tail)) = flags.split_first() {
+                match flag.as_str() {
+                    "--exact" if !exact => {
+                        exact = true;
+                        flags = tail;
+                    }
+                    "--role" if role.is_none() => {
+                        let [value, tail @ ..] = tail else {
+                            return Err(err(CLICK_LABEL_USAGE));
+                        };
+                        role = Some(value.clone());
+                        flags = tail;
+                    }
+                    _ => return Err(err(CLICK_LABEL_USAGE)),
+                }
+            }
+            Ok(StepOp::ClickLabel {
+                substr: substr.clone(),
+                role,
+                exact,
             })
         }
         "assert-label" | "assert-no-label" => {
@@ -647,6 +686,31 @@ mod tests {
         assert!(parse_script("--session qa\nwait-label x --timeout 0").is_err());
         assert!(parse_script("--session qa\nwait-label x --timeout").is_err());
         assert!(parse_script("--session qa\nwait-label").is_err());
+        assert_eq!(
+            parse_script("--session qa\nclick-label label-00 --role ListItem --exact")
+                .unwrap()
+                .steps[0]
+                .op,
+            StepOp::ClickLabel {
+                substr: "label-00".into(),
+                role: Some("ListItem".into()),
+                exact: true
+            }
+        );
+        assert_eq!(
+            parse_script("--session qa\nclick-label Save")
+                .unwrap()
+                .steps[0]
+                .op,
+            StepOp::ClickLabel {
+                substr: "Save".into(),
+                role: None,
+                exact: false
+            }
+        );
+        assert!(parse_script("--session qa\nclick-label").is_err());
+        assert!(parse_script("--session qa\nclick-label x --role").is_err());
+        assert!(parse_script("--session qa\nclick-label x --bogus").is_err());
         assert_eq!(script.steps[7].op, StepOp::Screenshot("opened".into()));
     }
 
