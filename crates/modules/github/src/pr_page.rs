@@ -749,6 +749,8 @@ pub(crate) struct PrDetailPage {
     /// #752: the bounded re-poll of an UNKNOWN mergeable state
     /// (`mergeable_poll.rs`).
     mergeable_poll: mergeable_poll::Poll,
+    /// docs/0084 D3: the change probe's book, timer and spacing.
+    watch: freshness::timer::Watch,
     /// Per-file expand state for the outdated/stray thread bucket
     /// (docs/0030 D3), keyed by path so a refetch never collapses it
     /// behind the user's back.
@@ -953,6 +955,7 @@ impl PrDetailPage {
             notice_seen: 0,
             head_watch: Default::default(),
             mergeable_poll: Default::default(),
+            watch: Default::default(),
             line_composer: None,
             reply_composer: None,
             drafts: Vec::new(),
@@ -1066,6 +1069,7 @@ impl PrDetailPage {
         .detach();
         page.notice_seen = page.state.read(cx).pr_notices.seq;
         page.seed_head_watch(cx);
+        page.start_watch(cx);
         // docs/0072 D3: stale-while-revalidate — a document inside the
         // TTL window paints from the store and skips the dispatch.
         let fresh = page
@@ -1232,6 +1236,7 @@ impl PrDetailPage {
             // #752: a new head outdates files and threads; UNKNOWN
             // mergeable re-polls a few times.
             let head_changed = self.note_landed_head(&detail, cx);
+            let failed_before = self.watch_note_landed(&detail);
             self.poll_unknown_mergeable(&detail, head_changed, cx);
             // Thread keys live in the same cache — a detail
             // refetch wipes it, so re-fold them (0030 D1).
@@ -1266,9 +1271,17 @@ impl PrDetailPage {
             // docs/0026 D9: the payload is in — try to arm
             // the notification jump against it.
             self.resolve_comment_anchor(cx);
-            // docs/0066 D2: the detail landed — arm the
-            // gated-runs sweep for the (possibly new) head.
-            self.fetch_gated(trigger, cx);
+            // docs/0066 D2, docs/0084 D4: the sweep runs on open,
+            // Refresh, a head change and a newly waiting run — not on
+            // every landing.
+            if gated_sweep::runs_after_landing(
+                trigger,
+                head_changed,
+                failed_before,
+                detail.checks.counts.failed,
+            ) {
+                self.fetch_gated(trigger, cx);
+            }
         }
         self.rerun_outdated_reads(cx);
         cx.notify();

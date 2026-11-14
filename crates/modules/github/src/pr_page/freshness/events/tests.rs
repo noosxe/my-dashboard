@@ -9,7 +9,7 @@ use gpui::TestAppContext;
 use super::{TabLanes, tab_lanes};
 use crate::pr_page::PrTab;
 use crate::pr_page::test_rig::{NUMBER, REPO, Rig, server};
-use crate::service::{GithubState, Kind, PrKey, SpecResult};
+use crate::service::PrKey;
 
 fn age_detail(rig: &Rig, cx: &mut TestAppContext, age: Duration) {
     cx.update(|cx| {
@@ -133,47 +133,22 @@ fn module_reshown_follows_the_15_s_floor(cx: &mut TestAppContext) {
     assert_eq!(rig.detail_reads(), 1, "16 s");
 }
 
-fn land_notification(rig: &Rig, cx: &mut TestAppContext, number: i64, updated: &str) {
-    let body = serde_json::json!([{
-        "id": "1", "unread": true, "updated_at": updated,
-        "subject": { "title": "t", "type": "PullRequest",
-            "url": format!("https://api.github.com/repos/{REPO}/pulls/{number}") },
-        "repository": { "full_name": REPO },
-    }])
-    .to_string();
-    cx.update(|cx| {
-        rig.state.update(cx, |s: &mut GithubState, cx| {
-            s.apply(SpecResult {
-                kind: Kind::Notifications,
-                ident: None,
-                status: 200,
-                etag: None,
-                rate: None,
-                body: Some(body),
-                network: None,
-                cursor: None,
-            });
-            cx.notify();
-        })
-    });
-}
-
 #[gpui::test]
 fn a_notification_naming_the_open_pr_refetches_once_per_landing(cx: &mut TestAppContext) {
     let rig = rig(cx);
     let (_page, vcx) = rig.open(cx);
     // The seeding landing is silent.
-    land_notification(&rig, vcx, NUMBER, "t1");
+    rig.land_notification(vcx, NUMBER, "t1");
     vcx.run_until_parked();
     assert_eq!(rig.detail_reads(), 0, "seed");
 
-    land_notification(&rig, vcx, NUMBER, "t2");
+    rig.land_notification(vcx, NUMBER, "t2");
     vcx.run_until_parked();
     assert_eq!(rig.detail_reads(), 1, "the landing refetches");
 
     // The same thread replayed, and an unrelated store notification,
     // refetch nothing more.
-    land_notification(&rig, vcx, NUMBER, "t2");
+    rig.land_notification(vcx, NUMBER, "t2");
     vcx.update(|_, cx| rig.state.update(cx, |_, cx| cx.notify()));
     vcx.run_until_parked();
     assert_eq!(rig.detail_reads(), 1, "once per landing");
@@ -183,8 +158,8 @@ fn a_notification_naming_the_open_pr_refetches_once_per_landing(cx: &mut TestApp
 fn a_notification_naming_another_pr_refetches_nothing(cx: &mut TestAppContext) {
     let rig = rig(cx);
     let (_page, vcx) = rig.open(cx);
-    land_notification(&rig, vcx, NUMBER + 1, "t1");
-    land_notification(&rig, vcx, NUMBER + 1, "t2");
+    rig.land_notification(vcx, NUMBER + 1, "t1");
+    rig.land_notification(vcx, NUMBER + 1, "t2");
     vcx.run_until_parked();
     assert_eq!(rig.detail_reads(), 0);
 }

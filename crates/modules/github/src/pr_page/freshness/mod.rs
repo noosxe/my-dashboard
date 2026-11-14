@@ -1,13 +1,22 @@
-//! docs/0084 D2: the event-driven refreshes of the PR page. Each fires
-//! on something the user or GitHub did (a tab opened, the module shown
-//! again, a write confirmed, a list returned to, a notification that
-//! names this PR), never on a timer, and each goes through the gates the
-//! other reads obey: age floor, backoff, per-budget pause and dedup.
+//! docs/0084: how the PR page stays accurate without Refresh.
+//!
+//! - D2, event-driven refreshes (`events`, `write_lanes`, `notices`): each
+//!   fires on something the user or GitHub did (a tab opened, the module
+//!   shown again, a write confirmed, a list returned to, a notification
+//!   that names this PR), and goes through the gates the other reads
+//!   obey: age floor, backoff, per-budget pause and dedup.
+//! - D3/D4, the change probe (`probe`, `probe_diff`, `lane_map`, `timer`):
+//!   while the page is watched, a timer sends conditional REST requests
+//!   and refetches only the lanes whose probe changed.
 
 use std::time::Duration;
 
 pub(super) mod events;
+pub(crate) mod lane_map;
 pub(crate) mod notices;
+pub(crate) mod probe;
+pub(crate) mod probe_diff;
+pub(crate) mod timer;
 pub(super) mod write_lanes;
 
 /// Entering a tab refetches its lane when the lane is older than this.

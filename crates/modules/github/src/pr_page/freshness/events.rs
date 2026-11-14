@@ -88,8 +88,9 @@ impl PrDetailPage {
     }
 
     /// The store notified: when a notifications landing named this PR
-    /// since the last look, refetch the detail once. Stage 3 turns this
-    /// into a probe.
+    /// since the last look, send one immediate probe (docs/0084 D2). A page
+    /// that can't probe yet, because it isn't watched or the comparison
+    /// isn't seeded, refetches the detail instead.
     pub(in crate::pr_page) fn check_notification_landing(&mut self, cx: &mut Context<Self>) {
         let key = PrKey::new(self.repo.clone(), self.number);
         let (seq, named) = {
@@ -100,6 +101,9 @@ impl PrDetailPage {
             return;
         }
         self.notice_seen = seq;
+        if named && self.probe_now(cx) {
+            return;
+        }
         if named && !self.state.read(cx).gated_for(Kind::PrDetail.lane()) {
             self.fetch_detail(
                 Origin::new(Surface::PrPage, Trigger::NotificationLanding),

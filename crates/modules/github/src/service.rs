@@ -569,6 +569,11 @@ pub enum Kind {
     /// (required reviewers); empty ⇒ fork/external-contributor gate.
     /// Same page-owned convention.
     GateProbe,
+    /// docs/0084 D3 — one request of the PR page's change probe: a
+    /// conditional REST GET (`pulls/{n}`, the head's check runs or its
+    /// combined status). The page holds the ETags and parses the 200
+    /// bodies; only non-200/304 results forward to [`GithubState::apply`].
+    PrProbe,
     /// docs/0066 D4 — a gated-run write (the REST mutation lane, per
     /// [`Kind::ThreadMutation`]): `POST …/runs/{id}/approve` (fork gate —
     /// no body, expect 201) or `POST …/runs/{id}/pending_deployments`
@@ -1320,6 +1325,7 @@ pub fn run_spec(
         Kind::JobLog | Kind::GatedRuns | Kind::GateProbe | Kind::RateLimit => {
             run_plain_get(&rec, spec)
         }
+        Kind::PrProbe => run_conditional_get(&rec, spec),
         Kind::AccountPullRequests => run_home_prs(&rec, spec),
     }
 }
@@ -1355,6 +1361,40 @@ fn run_plain_get(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
         ident: spec.ident.clone(),
         status,
         etag: None,
+        rate,
+        body: if network.is_none() && status == 200 {
+            body
+        } else {
+            None
+        },
+        network,
+        cursor: None,
+    }
+}
+
+/// One conditional GET (docs/0084 D3): `spec.etag` rides as
+/// `If-None-Match`; a 304 comes back empty with its status, a 200 with
+/// the body and the fresh ETag. The probe holds the ETags itself.
+fn run_conditional_get(http: &dyn Http, spec: &FetchSpec) -> SpecResult {
+    let mut status = 0u16;
+    let mut etag = None;
+    let mut rate = None;
+    let mut network = None;
+    let mut body = None;
+    match http.request(Verb::Get, &spec.url, None, spec.etag.as_deref()) {
+        Err(HttpError(m)) => network = Some(m),
+        Ok(result) => {
+            status = result.status;
+            etag = result.etag;
+            rate = result.rate;
+            body = result.body;
+        }
+    }
+    SpecResult {
+        kind: spec.kind,
+        ident: spec.ident.clone(),
+        status,
+        etag,
         rate,
         body: if network.is_none() && status == 200 {
             body
@@ -2056,6 +2096,7 @@ impl Kind {
             Kind::ThreadMutation(_) => "thread-mutation",
             Kind::GatedRuns => "gated-runs",
             Kind::GateProbe => "gate-probe",
+            Kind::PrProbe => "pr-probe",
             Kind::RunGateReview => "gate-review",
             Kind::RateLimit => "rate-limit",
         }
@@ -5177,6 +5218,7 @@ impl GithubState {
             // reach here, handled in the status arms above.
             | Kind::GatedRuns
             | Kind::GateProbe
+            | Kind::PrProbe
             | Kind::RunGateReview => {}
         }
 
@@ -5619,7 +5661,10 @@ pub(crate) async fn run_spec_tracked(
     spec: FetchSpec,
     cx: &mut AsyncApp,
 ) -> SpecResult {
-    let id = cx.update(|cx| status::begin(cx, MODULE_ID.into()));
+    // docs/0084 D3: the change probe is silent. A status-bar pulse every
+    // few seconds would tell the user about a request they never made.
+    let id =
+        (spec.kind != Kind::PrProbe).then(|| cx.update(|cx| status::begin(cx, MODULE_ID.into())));
     let (client, gate, recorder) = cx.update(|cx| {
         state.update(cx, |s, _| {
             (s.client.clone(), s.gate.clone(), s.recorder.clone())
@@ -5673,7 +5718,9 @@ pub(crate) async fn run_spec_tracked(
             }
         }
     };
-    cx.update(|cx| status::end(cx, id));
+    if let Some(id) = id {
+        cx.update(|cx| status::end(cx, id));
+    }
     // #751: page-owned reads and writes land their 200s without `apply`,
     // so the limits a response reports are read here, once, for every run.
     cx.update(|cx| state.update(cx, |s, _| s.note_limits(&result)));

@@ -479,7 +479,11 @@ CLI verbs (also receipt-script steps):
   a 200 body contains the text. Answers `{status, etag, body_len, rate}`.
 - `requests` — print every recorded read, one JSON line each.
 - `assert-request <op> [key=value…]` — like `assert-write`, over the
-  read record: `assert-request "GET /repos/o/r/pulls/101" status=304`.
+  read record: `assert-request "GET /repos/o/r/pulls/101" status=304`. The
+  extra pair `count=N` asks for exactly N matching records instead of at
+  least one: `assert-request "GET /repos/o/r/pulls/101" status=200 count=1`
+  says the only 200 was the first read (the freshness probe's seed), so
+  everything after it came back 304.
 - `sleep <secs>` (receipt scripts only; 1–120) — real time passes. The
   age floors (docs/0084 D2) are measured on the app's own clock, which no
   verb moves, so a receipt about a floor waits it out; keep it as short

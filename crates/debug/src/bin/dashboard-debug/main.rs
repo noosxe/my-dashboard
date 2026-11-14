@@ -1053,6 +1053,26 @@ pub(crate) fn assert_request(
 ) -> Result<String, String> {
     let requests =
         fetch_requests(conn).map_err(|code| format!("app.requests failed (exit {code})"))?;
+    // `count=N` is not a field to match: it asks for exactly N matches of
+    // the rest, so a receipt can say "one 200 and nothing else".
+    if let Some((_, want)) = pairs.iter().find(|(k, _)| k == "count") {
+        let want: usize = want
+            .parse()
+            .map_err(|_| format!("count={want} is not a number"))?;
+        let rest: Vec<(String, String)> = pairs
+            .iter()
+            .filter(|(k, _)| k != "count")
+            .cloned()
+            .collect();
+        let got = dashboard_debug::writes::count(&requests, op, &rest);
+        return if got == want {
+            Ok(format!(" {got} request(s) {op:?} matching {rest:?}"))
+        } else {
+            Err(format!(
+                "{got} recorded request(s) {op:?} matching {rest:?}, wanted {want}"
+            ))
+        };
+    }
     match dashboard_debug::writes::find(&requests, op, pairs) {
         Some(r) => Ok(format!(" request {}", compact(r))),
         None => Err(format!(
