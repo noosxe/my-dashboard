@@ -656,7 +656,7 @@ docs/0071 container.
   a stop reason (`Stop`: Closed, Unattended, Guard, Usage). While stopped the
   loop keeps a local 60 s beat that sends nothing, so whatever lifted the
   stop (focus, a recovered budget) resumes it. `PrDetailPage::probe_stop`
-  is the read-only accessor stage 5's label uses.
+  is the read-only accessor the header label uses (stage 5).
 - **Settled** counts quiet time from the last change, refocus, Refresh or
   the open; **Hot** from a change only (so a page that just opened is Active,
   as in stage 3). Refocus (`refresh_if_stale`) and Refresh (a Manual detail
@@ -696,7 +696,50 @@ docs/0071 container.
   no probe after the next one). The guard's ceilings are not reachable in a
   receipt; unit tests cover them.
 
-Stages 3 and 4 can ship as a stack. Stage 2 can land before or after
+**Stage 5 as shipped.**
+
+- Code: `pr_page/freshness/{age_label,anchor,vanished}.rs`. The label is a pure
+  function (`age_label::age_label`) over four inputs: watched, the probe's stop
+  reason, the age of the last probe that confirmed the data, and the age of
+  the last landing.
+- **The label** replaces "synced N ago" in the header's freshness row; Refresh
+  stays beside it, and the row's label is now a named node (`pr-synced`, role
+  Label, accessible name = the text).
+  - Watched with a probe on record: "checked just now" (under 5 s), "checked
+    35s ago" (steps of 5 s), then "checked 2m ago", "checked 3h ago". The age
+    is the newer of the last probe that confirmed the data and the last
+    landing, because a landing confirms it too. A 304 tick, a probe that found
+    nothing and a probe whose change then landed all move it.
+  - Not watched (closed, unattended, offline, module hidden, REST paused) and
+    usage-stopped: today's landed age, "synced 3m ago", with no reason.
+  - Guard-stopped: "synced 3m ago · auto-refresh paused (budget)".
+  - The label repaints every 5 s while the page is watched (a render-only
+    tick, like docs/0052 D6; no request).
+  - Lanes the probe can't see keep the landed age they have today. The meta
+    line's "updated 1d ago" is the PR's own `updatedAt` and is unchanged.
+- **Anchored landings.** Before a landing is applied the page remembers the
+  Conversation's first visible card (by comment or review id) and where its
+  top sat in the viewport. The frame after the landing paints, the next frame
+  moves the offset so that card is back where it was. A landing that only
+  appends leaves the offset alone, and a timeline at the top stays at the top.
+  The landing frame itself still paints with the old pixel offset, so a
+  change above the reader shows for one frame before the correction.
+  - Text fields, composers and confirm dialogs are not touched by a landing
+    (the composer is the same entity with the same text); an open picker still
+    realigns its choices by id (docs/0043 D5). A delete confirm whose node
+    vanished is dropped, because there is nothing left to confirm.
+  - The Files tab's scroll restore (#846) is unchanged.
+- **Vanished node.** `apply_detail_result` no longer drops an editor whose
+  node left the payload. The editor stays open in its own card after the
+  timeline, under the notice "Deleted on GitHub. Your text stays here until
+  you close the editor.", with Save off and Cancel as the way out.
+- Receipt `pr-freshness-anchor.txt`: scroll mid-timeline, `fixture bump`, the
+  new comment lands, the cards in view keep their bounds. Structural goldens
+  normalise the label to `<age label>` (the word is "checked" or "synced"
+  depending on how long a capture waited), so `github-pr-*` gained one node
+  each and no timing flake.
+
+Stages 3 to 5 can ship as a stack. Stage 2 can land before or after
 stage 1, but its receipt needs stage 1.
 
 ## 10. Verification and acceptance
@@ -724,6 +767,8 @@ stage 1, but its receipt needs stage 1.
 | 0072 | D9 "SWR staleness for a detail: 5 minutes" | The TTL decides reopen revalidation only; triggers with their own floor bypass it | 0 |
 | 0072 | D3 | The catch-up (`Trigger::Drift`) stays; a watched page usually beats it | 3 |
 | 0050 | D1 "A 304 counts (it consumes budget upstream)" | Corrected: a correctly authorized 304 doesn't consume primary budget (F1, measured). The book still counts it as a request in session totals | 3 |
+| 0016 | Header | The freshness row reads "checked N s ago" while the page is watched and the landed age otherwise, plus the guard's reason (D8) | 5 |
+| 0052 | D6 age-label clock | The render-only wake runs every 5 s on a watched PR page, for the seconds in "checked N s ago" | 5 |
 | 0016 | Detail-query clause "fetched once on open, on header refresh, and after every mutation"; §15 | Adds probe-driven refetches (D3/D4) and event triggers (D2); §15's UNKNOWN re-poll is absorbed by the Hot tier | 2–4 |
 | 0083 | Queue: "no queue polling" | Queued PRs refetch the detail at most every 30 s while Hot (D6) | 4 |
 | 0066 | Gated-runs sweep on every detail landing | Only on open, Refresh, head change and newly waiting runs (D4) | 3 |

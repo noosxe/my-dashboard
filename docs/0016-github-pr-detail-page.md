@@ -299,6 +299,16 @@ pub struct GithubPage {
   them provides a state, and the open-on-GitHub button uses the known URL or,
   failing that, `https://github.com/<repo>/pull/<n>`, so it never opens an
   empty URL. Logic lives in `pr_page/header_meta.rs`.
+  The right-hand cluster is the freshness row (docs/0084 D8, stage 5): a muted
+  `text_xs` label, the Refresh icon, and below them the pause note when a
+  budget is paused (#751). While the page is watched the label reads
+  "checked 15s ago" (the last probe that confirmed the data; "checked 2m ago"
+  past a minute); otherwise it is the landed age, "synced 3m ago", and when the
+  budget guard stopped the probe it adds "· auto-refresh paused (budget)". The
+  text is `pr_page/freshness/age_label.rs`. A landing never moves the reader:
+  the Conversation keeps its first visible card in place
+  (`freshness/anchor.rs`), and an editor whose comment was deleted on GitHub
+  stays open under a "Deleted on GitHub" notice (`freshness/vanished.rs`).
 - **Tabs:** `TabBar::new("pr-tabs").underline()`; labels carry counts
   (`Conversation (12)` … counts from `PrDetail` connections; hidden while
   loading). Tab state is `enum PrTab { Conversation, Commits, Checks, Files }`
