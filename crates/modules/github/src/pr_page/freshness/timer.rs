@@ -270,7 +270,7 @@ impl PrDetailPage {
     /// guard's stop, the unattended cut-off and Settled all lift, and a
     /// timer armed for a long wait comes forward to the tier's interval.
     pub(in crate::pr_page) fn watch_resume(&mut self, cx: &mut Context<Self>) {
-        self.watch.guard.clear();
+        self.watch.guard.resume();
         self.watch.quiet_since = self.watch.now();
         self.watch.unfocused_since = None;
         self.watch.fail_streak = 0;

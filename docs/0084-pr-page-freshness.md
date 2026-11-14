@@ -458,7 +458,7 @@ per open page, on top of the existing pause:
 - **Ceiling per rolling hour:** 600 counted REST requests (200s, not
   304s) and 300 GraphQL points (Q1). Reaching it drops the page to the
   Shown interval (60 s). Reaching it twice in an hour stops the probe
-  until refocus or Refresh.
+  until refocus or Refresh (which lift only the stop; the rolling spend stays).
 - **Usage calculator thresholds** (docs/0082): at **Low** (≤ 25% left)
   of either budget every interval is multiplied by 4. At **Critical**
   (≤ 10%) the probe stops and only events and Refresh refetch. At
@@ -660,7 +660,7 @@ docs/0071 container.
 - **Settled** counts quiet time from the last change, refocus, Refresh or
   the open; **Hot** from a change only (so a page that just opened is Active,
   as in stage 3). Refocus (`refresh_if_stale`) and Refresh (a Manual detail
-  read) call `watch_resume`: the guard clears, quiet time and the unfocused
+  read) call `watch_resume`: the guard's stop lifts, quiet time and the unfocused
   clock reset, and a timer armed for a long wait comes forward.
 - **Unfocused time** is noticed on the loop's own beat, so it can be one
   interval late.
@@ -677,8 +677,10 @@ docs/0071 container.
   a head change starts (Files pages, the gated-runs sweep) are bounded by
   head changes and are not counted. A breach is the crossing of a ceiling;
   the first drops the page to the Shown interval for an hour, a second inside
-  that hour stops the probe until refocus or Refresh, which also zero the
-  counters.
+  that hour stops the probe until refocus or Refresh. Those lift only the
+  stop: the rolling spend and the breach history stay, so a user who switches
+  windows can't reset the hour. A resumed page runs at Shown while a breach
+  is inside the hour, and the next crossing stops it again.
 - **Queue rule** (`queue.rs`): a tick that found no change and had no failure
   reads the detail when the PR is queued, at most every 30 s since any
   probe-caused detail read. The open starts the clock, so the seed tick
