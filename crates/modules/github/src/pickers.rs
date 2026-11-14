@@ -324,11 +324,12 @@ mod tests {
             gql::PrReviewRequest {
                 id: Some("U3".into()),
                 login: "dave".into(),
+                ..Default::default()
             },
             // degraded / non-user rows never become candidate rows
             gql::PrReviewRequest {
-                id: None,
-                login: String::new(),
+                kind: gql::ReviewerKind::Team,
+                ..Default::default()
             },
         ];
         let rows = reviewer_rows(&applied, &source, Some("bob"));

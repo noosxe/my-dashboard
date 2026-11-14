@@ -219,3 +219,74 @@ fn save_with_a_change_posts_one_write(cx: &mut TestAppContext) {
     vcx.run_until_parked();
     assert_eq!(posts(&rig), before + 1);
 }
+
+fn review_patch() -> Value {
+    let node = |id: &str, state: &str, login: &str| json!({"id": id, "state": state, "author": {"login": login, "avatarUrl": "https://x/a"}});
+    json!({
+        "latestOpinionatedReviews": {"nodes": [
+            node("R1", "CHANGES_REQUESTED", "reviewer-b"),
+            node("R2", "APPROVED", "reviewer-a"),
+        ]},
+        "latestReviews": {"nodes": [node("R3", "COMMENTED", "reviewer-c")]},
+    })
+}
+
+#[gpui::test]
+fn reviewer_rows_show_review_outcomes_and_requests_in_order(cx: &mut TestAppContext) {
+    let (_rig, _page, vcx) = open(cx, review_patch());
+    // changes, approved, commented, then the pending request (carol).
+    let mut ys = Vec::new();
+    for key in [
+        "pr-reviewer-0",
+        "pr-reviewer-1",
+        "pr-reviewer-2",
+        "pr-reviewer-3",
+    ] {
+        ys.push(vcx.debug_bounds(key).expect(key).origin.y);
+    }
+    assert!(ys.windows(2).all(|w| w[0] < w[1]), "{ys:?}");
+    assert!(!shown(vcx, "pr-reviewer-4"));
+    assert!(!shown(vcx, "pr-reviewers-empty"));
+}
+
+#[gpui::test]
+fn an_approval_alone_no_longer_reads_as_none_requested(cx: &mut TestAppContext) {
+    let mut patch = review_patch();
+    patch["reviewRequests"] = json!({"totalCount": 0, "nodes": []});
+    let (_rig, _page, vcx) = open(cx, patch);
+    assert!(shown(vcx, "pr-reviewer-0"));
+    assert!(!shown(vcx, "pr-reviewers-empty"));
+}
+
+#[gpui::test]
+fn bot_and_enterprise_team_requests_keep_reviewers_display_only(cx: &mut TestAppContext) {
+    for arm in [
+        json!({"__typename": "Bot", "id": "B1", "login": "robot", "avatarUrl": "https://x/b"}),
+        json!({"__typename": "EnterpriseTeam", "id": "E1", "name": "platform"}),
+    ] {
+        let (_rig, _page, vcx) = open(
+            cx,
+            json!({"reviewRequests": {"totalCount": 1, "nodes": [{"requestedReviewer": arm}]}}),
+        );
+        assert!(shown(vcx, "pr-reviewer-0"), "{arm}");
+        assert!(!shown(vcx, "pr-reviewers-edit"), "{arm}");
+        assert!(shown(vcx, "pr-reviewers-why"), "{arm}");
+    }
+}
+
+#[gpui::test]
+fn review_outcomes_do_not_disturb_the_reviewers_edit(cx: &mut TestAppContext) {
+    let (_rig, _page, vcx) = open(cx, review_patch());
+    assert!(shown(vcx, "pr-reviewers-edit"));
+    assert!(!shown(vcx, "pr-reviewers-why"));
+}
+
+#[gpui::test]
+fn merged_prs_with_only_review_outcomes_still_list_the_reviewers(cx: &mut TestAppContext) {
+    let mut patch = review_patch();
+    patch["state"] = json!("MERGED");
+    patch["reviewRequests"] = json!({"totalCount": 0, "nodes": []});
+    let (_rig, _page, vcx) = open(cx, patch);
+    assert!(shown(vcx, "pr-reviewers-panel"));
+    assert!(shown(vcx, "pr-reviewer-2"));
+}

@@ -1,20 +1,20 @@
 //! Reviewers and Assignees (docs/0083 D8): 26 px person rows, the
 //! 8-row cap with "+N more", and the Edit rules of docs/0043 D3/D4. The
-//! reviewer merge with review outcomes lands with #741; today's data is
-//! the review requests.
+//! reviewer rows come from the merge in `reviewers.rs`.
 
 use gpui::{
     AnyElement, Context, InteractiveElement as _, IntoElement as _, ParentElement as _,
     StatefulInteractiveElement as _, Styled as _, div, px,
 };
-use gpui_component::{ActiveTheme, Sizable as _, avatar::Avatar, h_flex, tooltip::Tooltip, v_flex};
+use gpui_component::{Sizable as _, avatar::Avatar, h_flex, tooltip::Tooltip, v_flex};
 
 use super::metrics::ROW_H;
+use super::reviewer_row::reviewer_row;
 use super::section::{
     EditState, Reason, Section, Spec, capped, edit_state, empty_line, finish, more_button,
     open_picker, truncated,
 };
-use super::{Ctx, picker_card};
+use super::{Ctx, picker_card, reviewers};
 use crate::gql::PrDetail;
 use crate::pickers::PickerSource;
 use crate::pickers::triage_gate;
@@ -49,9 +49,10 @@ fn reviewers_gate(d: &PrDetail, viewer: Option<&str>) -> bool {
 }
 
 /// docs/0043 D3's reviewer clause as a reason: every request must be a
-/// user with an id, and the connection must be complete.
+/// user with an id, and the connection must be complete. Review outcomes
+/// don't enter: the replace write sends requests only.
 pub(super) fn reviewers_guard(d: &PrDetail) -> Option<Reason> {
-    if d.review_requests.iter().any(|r| r.login.is_empty()) {
+    if d.review_requests.iter().any(|r| !r.is_user()) {
         return Some(Reason::TeamRequested);
     }
     if d.review_requests.iter().any(|r| r.id.is_none()) {
@@ -120,22 +121,6 @@ fn person_row(key: String, name: String, avatar: Option<String>) -> AnyElement {
         .into_any_element()
 }
 
-/// A review request that is not a user (team, bot, mannequin): the
-/// panel stays display-only for it (docs/0043 D3).
-fn other_row(key: String, cx: &Context<PrDetailPage>) -> AnyElement {
-    h_flex()
-        .id(gpui::SharedString::from(key.clone()))
-        .debug_selector(move || key.clone())
-        .role(gpui::accesskit::Role::Label)
-        .aria_label("team or bot")
-        .h(px(ROW_H))
-        .items_center()
-        .text_sm()
-        .text_color(cx.theme().muted_foreground)
-        .child("team or bot")
-        .into_any_element()
-}
-
 pub(super) fn reviewers(
     page: &PrDetailPage,
     d: &PrDetail,
@@ -154,28 +139,25 @@ pub(super) fn reviewers(
         );
         return Some(open_picker(&REVIEWERS, card, cx));
     }
-    if ctx.terminal && d.review_requests.is_empty() {
+    let rows = reviewers::merge(d);
+    if ctx.terminal && rows.is_empty() {
         return None;
     }
     let viewer = page.viewer_login(cx);
     let state = reviewers_edit(d, viewer.as_deref(), ctx);
-    let loaded = d.review_requests.len();
+    // Requests beyond the loaded page are known only by count.
+    let unloaded = (d.review_requests_total - d.review_requests.len() as i64).max(0);
     let cap = capped(
-        loaded,
-        d.review_requests_total,
+        rows.len(),
+        rows.len() as i64 + unloaded,
         page.rail_expanded.reviewers,
     );
     let mut body = v_flex().gap_1();
-    if loaded == 0 {
+    if rows.is_empty() {
         body = body.child(empty_line("pr-reviewers-empty", "None requested", cx));
     }
-    for (ix, r) in d.review_requests.iter().take(cap.shown).enumerate() {
-        let key = format!("pr-reviewer-{ix}");
-        body = body.child(if r.login.is_empty() {
-            other_row(key, cx)
-        } else {
-            person_row(key, r.login.clone(), None)
-        });
+    for (ix, row) in rows.iter().take(cap.shown).enumerate() {
+        body = body.child(reviewer_row(format!("pr-reviewer-{ix}"), row, cx));
     }
     if cap.more > 0 {
         body = body.child(more_button(

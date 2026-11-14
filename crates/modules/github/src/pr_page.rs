@@ -7966,8 +7966,8 @@ mod tests {
             page.update(cx, |p, cx| {
                 let mut d = p.detail(cx).unwrap().clone();
                 d.review_requests.push(gql::PrReviewRequest {
-                    id: None,
-                    login: String::new(),
+                    kind: gql::ReviewerKind::Team,
+                    ..Default::default()
                 });
                 p.state
                     .update(cx, |s, _| s.land_detail(&p.repo, p.number, d));
@@ -8271,8 +8271,8 @@ mod tests {
         assert!(!pr_reviewers_arming(&d, Some("carol")));
         let mut d = gate_detail();
         d.review_requests.push(gql::PrReviewRequest {
-            id: None,
-            login: String::new(),
+            kind: gql::ReviewerKind::Team,
+            ..Default::default()
         });
         assert!(
             !pr_reviewers_arming(&d, None),

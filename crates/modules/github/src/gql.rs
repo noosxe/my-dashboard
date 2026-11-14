@@ -13,6 +13,9 @@
 
 use serde::{Deserialize, Serialize};
 
+mod reviewers;
+pub use reviewers::{LatestReview, PrReviewRequest, ReviewerKind};
+
 pub const GRAPHQL_ENDPOINT: &str = "https://api.github.com/graphql";
 
 /// Repos pages fetched per snapshot run (doc §5): 3 × 100 = 300 repos;
@@ -731,9 +734,23 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
         nodes {
           requestedReviewer {
             __typename
-            ... on User { id login }
+            ... on User { id login avatarUrl }
+            ... on Team { id name avatarUrl }
+            ... on Bot { id login avatarUrl }
+            ... on Mannequin { id login avatarUrl }
+            ... on EnterpriseTeam { id name }
           }
         }
+      }
+      # docs/0083 D17: the reviewer rows' outcomes and the status block's
+      # review decision. The latest review per reviewer, so 20 covers a
+      # normal PR; a longer list shows only what the requests add.
+      reviewDecision
+      latestOpinionatedReviews(first: 20) {
+        nodes { id state author { login avatarUrl } }
+      }
+      latestReviews(first: 20) {
+        nodes { id state author { login avatarUrl } }
       }
       reactionGroups { content viewerHasReacted reactors { totalCount } }
       mergeable
@@ -802,17 +819,6 @@ pub struct PrDetailData {
     pub repository: Option<serde_json::Value>,
 }
 
-/// One requested reviewer on the detail page (docs/0043 D3) — the
-/// `RequestedReviewer` union narrowed to what a user-id replace write
-/// can reproduce. `id: None` covers degraded users and the team/bot/
-/// mannequin members (`login` empty): display-only rows whose presence
-/// forces the reviewer picker's Edit hidden — D3's reviewer clause.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct PrReviewRequest {
-    pub id: Option<String>,
-    pub login: String,
-}
-
 /// Everything the PR page renders (docs/0016 D2). Landed into the
 /// store's detail layer; persisted to `app_db` and restored through
 /// this derive (docs/0072 D8, #556).
@@ -850,6 +856,17 @@ pub struct PrDetail {
     pub milestone: Option<IssueMilestone>,
     pub review_requests: Vec<PrReviewRequest>,
     pub review_requests_total: i64,
+    /// `reviewDecision` (docs/0083 D17): null when no review rule applies.
+    /// Parsed for the status block; the reviewer rows don't read it.
+    #[serde(default)]
+    pub review_decision: Option<String>,
+    /// `latestOpinionatedReviews`: approvals and change requests.
+    #[serde(default)]
+    pub latest_opinionated_reviews: Vec<LatestReview>,
+    /// `latestReviews`: the latest non-pending review per reviewer,
+    /// commenters included.
+    #[serde(default)]
+    pub latest_reviews: Vec<LatestReview>,
     pub viewer_can_label: bool,
     pub viewer_can_assign: bool,
     /// `Repository.viewerPermission` off the raw envelope node (docs/0043
@@ -2102,41 +2119,7 @@ pub fn pr_detail_from_value(value: &serde_json::Value) -> Option<PrDetail> {
             state: m.get("state").and_then(|v| v.as_str()).map(str::to_string),
         })
     });
-    let review_requests = pr
-        .pointer("/reviewRequests/nodes")
-        .and_then(|nodes| nodes.as_array())
-        .map(|nodes| {
-            nodes
-                .iter()
-                .filter_map(|n| {
-                    let rr = n.get("requestedReviewer")?;
-                    if !rr.is_object() {
-                        return None; // null ref — skips below `totalCount`, arming hides Edit
-                    }
-                    if rr.get("__typename").and_then(|v| v.as_str()) == Some("User") {
-                        Some(PrReviewRequest {
-                            id: rr.get("id").and_then(|v| v.as_str()).map(str::to_string),
-                            login: rr
-                                .get("login")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or_default()
-                                .to_string(),
-                        })
-                    } else {
-                        // team / bot / mannequin — display-only (D3)
-                        Some(PrReviewRequest {
-                            id: None,
-                            login: String::new(),
-                        })
-                    }
-                })
-                .collect::<Vec<PrReviewRequest>>()
-        })
-        .unwrap_or_default();
-    let review_requests_total = pr
-        .pointer("/reviewRequests/totalCount")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(review_requests.len() as i64);
+    let (review_requests, review_requests_total) = reviewers::parse_review_requests(pr);
     // Repository-level (docs/0043 D4) — read off the raw repository
     // node (`value`), same path as the merge methods.
     let viewer_permission = value
@@ -2181,6 +2164,9 @@ pub fn pr_detail_from_value(value: &serde_json::Value) -> Option<PrDetail> {
         milestone,
         review_requests,
         review_requests_total,
+        review_decision: str_field("reviewDecision"),
+        latest_opinionated_reviews: reviewers::parse_latest_reviews(pr, "latestOpinionatedReviews"),
+        latest_reviews: reviewers::parse_latest_reviews(pr, "latestReviews"),
         viewer_can_label: pr
             .get("viewerCanLabel")
             .and_then(|v| v.as_bool())
@@ -4597,10 +4583,22 @@ mod tests {
             "detail assignees carry ids"
         );
         assert!(PR_DETAIL_QUERY.contains("milestone { id title state }"));
-        assert!(
-            PR_DETAIL_QUERY.contains("... on User { id login }"),
-            "detail review requests carry user ids"
-        );
+        for arm in [
+            "... on User { id login avatarUrl }",
+            "... on Team { id name avatarUrl }",
+            "... on Bot { id login avatarUrl }",
+            "... on Mannequin { id login avatarUrl }",
+            "... on EnterpriseTeam { id name }",
+        ] {
+            assert!(PR_DETAIL_QUERY.contains(arm), "review request arm: {arm}");
+        }
+        for field in [
+            "reviewDecision",
+            "latestOpinionatedReviews(first: 20)",
+            "latestReviews(first: 20)",
+        ] {
+            assert!(PR_DETAIL_QUERY.contains(field), "review outcome: {field}");
+        }
         assert!(
             PR_DETAIL_QUERY.contains("viewerPermission"),
             "envelope gate"

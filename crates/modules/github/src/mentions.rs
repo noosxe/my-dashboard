@@ -126,7 +126,7 @@ pub(crate) fn ranked_candidates(d: &PrDetail) -> Vec<MentionCandidate> {
             avatar_url: avatar.to_string(),
         });
     };
-    for r in &d.review_requests {
+    for r in d.review_requests.iter().filter(|r| r.is_user()) {
         push(&mut out, &r.login, "");
     }
     for a in &d.assignees {
@@ -598,8 +598,12 @@ mod tests {
             review_requests: vec![PrReviewRequest {
                 id: None,
                 login: "reviewer".into(),
+                ..Default::default()
             }],
             review_requests_total: 1,
+            review_decision: None,
+            latest_opinionated_reviews: Vec::new(),
+            latest_reviews: Vec::new(),
             viewer_can_label: false,
             viewer_can_assign: false,
             viewer_permission: None,
