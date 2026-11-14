@@ -331,6 +331,16 @@ Two columns: main timeline (`flex_1`) + fixed ~300px right rail (D5).
 
 ### D5 — Merge/close panel (conversation right rail)
 
+> **Redesigned (docs/0083, #798).** The panel becomes the rail's pinned
+> **status block**: a verdict (docs/0083 D2) replaces the state line below,
+> gate rows for reviews, checks and mergeability (D3) replace the checks
+> mini-summary, and one action row (D4) carries a split Merge button whose
+> caret replaces the method `Select`. Close moves into a `⋯` menu (D5).
+> Merged and closed PRs show who and when instead of a terminal note (D6).
+> The **gating** and **confirm** rules below stay in force unchanged. The
+> state-line sentences remain the verdict's tooltip and a11y description.
+> Where this section and docs/0083 disagree on layout, docs/0083 wins.
+
 A `GroupBox` at the rail top:
 
 - **State line** from `mergeStateStatus` (pure mapping fn, table-tested).
@@ -349,6 +359,9 @@ A `GroupBox` at the rail top:
   booleans ride along on the detail query via the `repository` wrapper).
   Default: MERGE when allowed, else the first allowed. One method = the Select
   hides (no choice to make), the button label carries the verb.
+  *(Amended by docs/0083 D4: the method moves into the Merge split
+  button's caret, and the default becomes `Repository.viewerDefaultMergeMethod`
+  when allowed, else the first allowed (#776).)*
 - **Actions:** primary `Merge` button → `mergePullRequest { pullRequestId,
   mergeMethod }`; secondary `Close` (`Button::danger`) → `closePullRequest`.
   While in flight both disable + spinner; on success the refetch repaints the
@@ -410,6 +423,14 @@ A `GroupBox` at the rail top:
   - Close is also enabled only while `state == OPEN` and idle.
 - **Checks mini-summary** below the panel: rollup state + "View checks" link
   that switches to the Checks tab (no browser round-trip).
+  *(Superseded by docs/0083 D3: the Checks gate row in the status block
+  carries the rollup, exact counts and the waiting runs, and opens the
+  Checks tab.)*
+
+  *(The layout note below is superseded by docs/0083 D1: the rail is
+  `h_full` with a pinned status block and its own scrolling metadata
+  region, so it no longer hugs its content; the split keeps
+  `items_start`.)*
 
   **Shipped (2026-09-04, layout fix):** the conversation split is
   `items_start` + the timeline carries an explicit `h_full()` — the

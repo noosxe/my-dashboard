@@ -155,6 +155,12 @@ hidden (display-only panel) instead of offering a save that would drop
 them. Same degradation interaction as truncated label pages — real
 fixtures hit it (any repo with a CODEOWNERS team request).
 
+*(Amended by docs/0083 D7, #754: the Edit stays hidden, but when a
+data guard above hides it (truncated connection, an entry without an
+id, a non-user review request), the section ends with a muted reason
+line such as "Edit on GitHub: this page loads 20 of 34 labels". A
+viewer-gate, terminal-state or busy hide stays silent.)*
+
 The merge-beyond-the-guard behavior ships too (0022 §11): applied
 entries the source page missed are appended to the checklist as checked
 rows — dropping them would be exactly the silent-loss bug D3 exists to
@@ -174,6 +180,25 @@ prevent.
 which hides the sidebar Edit affordances from non-collaborators.
 
 ### D5 — rail: metadata panels join Merge and Checks
+
+> **Amended by docs/0083 (#798).** The rail is now a pinned status block
+> (merge state, checks and actions) above a scrolling metadata region.
+> The sections run **Reviewers → Assignees → Labels → Milestone**, as flat
+> sections from one `rail_section` helper instead of `GroupBox` panels
+> (docs/0083 D7). Each one's Edit is an icon button named for its target
+> ("Edit labels"), and Edit is hidden on merged and closed PRs and while
+> any write is busy. Specifics that change below:
+> - Reviewers merge outcomes and requests into one list with a state per
+>   person. Teams show their name with a square avatar (docs/0083 D8, #741).
+> - Labels wrap and cap at 8 with "+N more" (D9, #799).
+> - Empty sections are one muted line (D11, #800).
+> - The milestone section always renders on open PRs, "None" included,
+>   replacing the hide-when-empty-and-disarmed rule (D10).
+> - Pickers open in place with a focused filter, bounded rows and pinned
+>   Save/Cancel. Save is disabled while nothing changed (D12, #732, #756).
+>
+> The picker machinery, gates, writes and the one-editor rule below are
+> unchanged.
 
 Rail order: **Merge → Reviewers → Labels → Assignees → Milestone →
 Checks**. Each panel is the 0022 shape — display state with a trailing
@@ -247,6 +272,9 @@ from day one, mirroring the issue page's:
 `pr-milestone` (display cell). Save/Cancel ride the shared
 `inline_edit_card` ids. The label display keeps the row-level
 `pr-labels-{key}` container probe untouched (docs/0042 probe contract).
+*(docs/0083 D14 keeps every key above and adds `pr-{section}-more` and
+`pr-{section}-why` for the "+N more" control and the reason line. The
+panel ids `pr-*-panel` become section ids of the same names.)*
 
 ## 5. Query and payload shapes
 
@@ -292,6 +320,9 @@ review-request type is distinct from the list query's login-only
 The rail widens by up to four panels between Merge and Checks (§4 D5);
 the conversation column is untouched. Editors swap in place in the rail
 — no dialogs, consistent with 0019/0022. The header gains nothing.
+*(Amended by docs/0083 D1: the four sections live in the rail's
+scrolling metadata region under the pinned status block. Editors still
+swap in place, and the region scrolls the open one into view.)*
 
 ## 7. Testing
 

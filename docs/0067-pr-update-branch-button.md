@@ -109,6 +109,13 @@ When gated in (D2), the rail gains a split button under the state line:
   against github.com's current copy and flags any drift in the PR body.
 - The rail's other elements (state line, merge/close buttons) are untouched.
 
+*(Amended by docs/0083 D3: the split button moves out of its own row
+into the status block's Mergeability gate row ("Out of date with
+`main`" or "No conflicts, behind `main`", trailing **Update ▾**), built
+on the upstream `DropdownButton` so the main click updates with a
+merge commit. The rebase confirm opens directly under that row. The
+D2 gate is unchanged.)*
+
 ### D2 — Gating: server truth only
 
 `viewer_can_update_branch: bool` on the PR envelope (degraded default
@@ -161,6 +168,9 @@ targeted envelope refetch; the state line flips from the `BEHIND` warning to
 whatever the fresh data says (typically the no-conflicts line). Failure →
 busy state reverts + scoped error toast (D6). No timers, no polling
 (docs/0052).
+*(Amended by docs/0083 D4: any pending write, the update included,
+disables the status block's action row; "the state line" is now the
+verdict and gate rows.)*
 
 ### D6 — Errors are actionable, never raw
 
