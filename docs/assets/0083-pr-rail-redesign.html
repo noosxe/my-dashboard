@@ -1,0 +1,220 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>PR Conversation rail redesign mockup (synthetic fixture data)</title>
+<!-- Design mockup for docs/0083. Synthetic fixture names only (docs/0081 §12.1).
+     Render: chromium --headless --screenshot=0083-pr-rail-redesign.png --window-size=1000,1560 0083-pr-rail-redesign.html -->
+<style>
+:root{--bg:#fff;--fg:#17171a;--muted:#6f6f76;--border:#e6e6e8;--subtle:#f6f6f7;--ok:#16a34a;--bad:#dc2626;--warn:#b7791f;--accent:#17171a;--merged:#6d28d9;--mono:"IBM Plex Mono",ui-monospace,monospace}
+*{box-sizing:border-box}
+body{margin:0;padding:24px;background:#ececee;font:13px/1.4 "IBM Plex Sans",system-ui,sans-serif;color:var(--fg);width:1000px}
+h1{font-size:15px;margin:0 0 4px}
+.note{color:var(--muted);margin:0 0 16px}
+.row{display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap;row-gap:24px}
+.col{width:288px}
+.cap{font-weight:600;margin:0 0 8px;font-size:12px;color:#44444a;height:16px}
+.rail{position:relative;width:288px;background:var(--bg);border:1px solid var(--border);border-radius:8px;height:600px;overflow:hidden;display:flex;flex-direction:column}
+.status{padding:12px;background:var(--subtle);flex:none}
+.verdict{display:flex;gap:8px;align-items:center;font-weight:600}
+.dot{width:16px;height:16px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:700;flex:none}
+.dot.ok{background:var(--ok)}.dot.bad{background:var(--bad)}.dot.warn{background:var(--warn)}.dot.mute{background:#a1a1aa}.dot.merged{background:var(--merged)}
+.sub{font-size:12px;color:var(--muted);padding:4px 0 0 24px}
+.gates{margin:8px 0 0;padding:0;list-style:none}
+.gates li{display:flex;gap:8px;align-items:center;height:24px}
+.gates .val{margin-left:auto;color:var(--muted);font-size:12px}
+.gates .link{margin-left:auto;font-size:12px;color:var(--fg);border:1px solid var(--border);border-radius:5px;padding:0 6px;background:#fff}
+.mini{width:12px;text-align:center;font-weight:700;flex:none}
+.mini.ok{color:var(--ok)}.mini.bad{color:var(--bad)}.mini.warn{color:var(--warn)}.mini.mute{color:var(--muted)}
+.actions{display:flex;gap:6px;margin-top:10px}
+.btn{height:26px;padding:0 10px;border-radius:6px;border:1px solid var(--border);background:#fff;font:inherit;font-size:12px;white-space:nowrap}
+.split{flex:1;display:flex}
+.split .main{flex:1;border-radius:6px 0 0 6px;text-align:left}
+.split .caret{border-radius:0 6px 6px 0;border-left:1px solid rgba(255,255,255,.25);width:26px;padding:0}
+.btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+.btn.primary.dis{background:#e4e4e7;color:#8b8b92;border-color:#e4e4e7}
+.caret.on{background:#fff;color:var(--fg);border:1px solid var(--border)}
+.btn.wide{flex:1;text-align:left}
+.btn.more{width:26px;padding:0}
+.btn.danger{color:var(--bad)}
+.err{flex:none;padding:6px 12px;font-size:12px;color:var(--bad);border-top:1px solid var(--border)}
+.scroll{flex:1;overflow:hidden;padding:12px 12px 4px}
+.sec{padding:0 0 16px}
+.sechead{display:flex;align-items:center;justify-content:space-between;height:20px;margin-bottom:2px}
+.sectitle{font-size:11px;color:var(--muted);font-weight:600;letter-spacing:.02em}
+.edit{color:var(--muted);font-size:13px;line-height:1;width:20px;height:20px;display:flex;align-items:center;justify-content:center;border-radius:4px}
+.person{display:flex;align-items:center;gap:8px;height:26px}
+.av{width:18px;height:18px;border-radius:50%;background:#dfdfe3;flex:none}
+.av.team{border-radius:4px}
+.person .st{margin-left:auto;font-size:11.5px;display:flex;gap:4px;align-items:center;color:var(--muted)}
+.st.ok{color:var(--ok)}.st.bad{color:var(--bad)}
+.none{color:var(--muted);height:24px;display:flex;align-items:center}
+.why{color:var(--muted);font-size:11.5px;padding-top:2px}
+.pills{display:flex;flex-wrap:wrap;gap:4px;margin-top:2px;align-items:center}
+.pill{padding:1px 8px;border-radius:999px;font-size:11.5px;border:1px solid}
+.moreln{color:var(--muted);font-size:12px;text-decoration:underline}
+.menu{position:absolute;right:12px;top:150px;width:200px;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.12);padding:4px;z-index:2}
+.menu div{padding:5px 8px;border-radius:5px;font-size:12.5px}
+.menu .sep{height:1px;background:var(--border);padding:0;margin:4px 2px}
+.menu .hl{background:var(--subtle)}
+.card{border:1px solid var(--border);border-radius:8px;padding:8px;margin-top:4px}
+.filter{height:26px;border:1px solid #9a9aa2;border-radius:6px;padding:0 8px;display:flex;align-items:center;color:var(--muted);font-size:12px;box-shadow:0 0 0 2px #dbe5f7}
+.prow{display:flex;gap:8px;align-items:center;height:26px;padding:0 4px;font-size:12.5px}
+.box{width:13px;height:13px;border:1px solid #9a9aa2;border-radius:3px;flex:none;display:flex;align-items:center;justify-content:center;font-size:9px}
+.box.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.rows{height:150px;overflow:hidden;margin-top:6px;position:relative}
+.rows:after{content:"";position:absolute;right:0;top:4px;width:3px;height:60px;border-radius:2px;background:#c8c8cd}
+.pin{display:flex;gap:6px;justify-content:flex-end;border-top:1px solid var(--border);padding-top:8px;margin-top:4px}
+.legend{margin-top:18px;color:#44444a}
+.legend li{margin:2px 0}
+</style>
+<h1>PR Conversation rail: redesign mockup</h1>
+<p class="note">Synthetic fixture data, 288&nbsp;px wide like today's rail, 600&nbsp;px tall. The status block is pinned; the metadata below it scrolls. Sections are separated by space, not lines.</p>
+<div class="row">
+
+<div class="col"><p class="cap">A. Open, blocked; auto-merge not allowed</p>
+<div class="rail">
+  <div class="status">
+    <div class="verdict"><span class="dot bad">✕</span>Merging is blocked</div>
+    <ul class="gates">
+      <li><span class="mini bad">✕</span>Changes requested<span class="val">reviewer-b</span></li>
+      <li><span class="mini bad">✕</span>Checks<span class="val">1 failed · 1 running · 2 waiting</span></li>
+      <li><span class="mini ok">✓</span>No conflicts</li>
+    </ul>
+    <div class="actions"><div class="split"><button class="btn primary dis main">Merge pull request</button><button class="btn caret on">▾</button></div><button class="btn more">⋯</button></div>
+  </div>
+  <div class="scroll">
+    <div class="sec"><div class="sechead"><span class="sectitle">Reviewers</span></div>
+      <div class="person"><span class="av"></span>reviewer-a<span class="st ok">✓ Approved</span></div>
+      <div class="person"><span class="av"></span>reviewer-b<span class="st bad">± Changes</span></div>
+      <div class="person"><span class="av"></span>reviewer-c<span class="st">💬 Commented</span></div>
+      <div class="person"><span class="av"></span>reviewer-d<span class="st">○ Pending</span></div>
+      <div class="person"><span class="av team"></span>platform-team<span class="st">○ Pending</span></div>
+      <div class="why">Edit on GitHub: a team review is requested</div>
+    </div>
+    <div class="sec"><div class="sechead"><span class="sectitle">Assignees</span><span class="edit">✎</span></div>
+      <div class="person"><span class="av"></span>octo-dev</div>
+      <div class="person"><span class="av"></span>fixture-user</div>
+    </div>
+    <div class="sec"><div class="sechead"><span class="sectitle">Labels</span><span class="edit">✎</span></div>
+      <div class="pills"><span class="pill" style="background:#fbe9e9;color:#b42318;border-color:#efb7b7">bug</span><span class="pill" style="background:#e4eefb;color:#1a5fb4;border-color:#a9c9f0">area:parser</span><span class="pill" style="background:#fdf3d7;color:#8a5a00;border-color:#efd58f">needs-review</span></div>
+    </div>
+    <div class="sec"><div class="sechead"><span class="sectitle">Milestone</span><span class="edit">✎</span></div><div class="person">v1.4 parser cleanup</div></div>
+  </div>
+</div></div>
+
+<div class="col"><p class="cap">B. Ready to merge, ⋯ menu open</p>
+<div class="rail">
+  <div class="status">
+    <div class="verdict"><span class="dot ok">✓</span>Ready to merge</div>
+    <ul class="gates">
+      <li><span class="mini ok">✓</span>Approved<span class="val">2 approvals</span></li>
+      <li><span class="mini ok">✓</span>Checks passed<span class="val">7 of 7</span></li>
+      <li><span class="mini ok">✓</span>No conflicts, behind main<span class="link">Update ▾</span></li>
+    </ul>
+    <div class="actions"><div class="split"><button class="btn primary main">Squash and merge</button><button class="btn primary caret">▾</button></div><button class="btn more" style="background:var(--subtle)">⋯</button></div>
+  </div>
+  <div class="menu"><div class="hl">Convert to draft</div><div class="sep"></div><div class="danger" style="color:var(--bad)">Close pull request</div></div>
+  <div class="scroll">
+    <div class="sec"><div class="sechead"><span class="sectitle">Reviewers</span><span class="edit">✎</span></div>
+      <div class="person"><span class="av"></span>reviewer-a<span class="st ok">✓ Approved</span></div>
+      <div class="person"><span class="av"></span>reviewer-c<span class="st ok">✓ Approved</span></div>
+    </div>
+    <div class="sec"><div class="sechead"><span class="sectitle">Assignees</span><span class="edit">✎</span></div><div class="none">None</div></div>
+    <div class="sec"><div class="sechead"><span class="sectitle">Labels</span></div>
+      <div class="pills"><span class="pill" style="background:#e4eefb;color:#1a5fb4;border-color:#a9c9f0">area:subsystem-00</span><span class="pill" style="background:#fbe9e9;color:#b42318;border-color:#efb7b7">area:subsystem-01</span><span class="pill" style="background:#fdf3d7;color:#8a5a00;border-color:#efd58f">area:subsystem-02</span><span class="pill" style="background:#e3f5e8;color:#1e6b3a;border-color:#a8dbb7">area:subsystem-03</span><span class="pill" style="background:#efe7fb;color:#5b2a9e;border-color:#cdb6ef">area:subsystem-04</span><span class="pill" style="background:#e4eefb;color:#1a5fb4;border-color:#a9c9f0">area:subsystem-05</span><span class="pill" style="background:#fbe9e9;color:#b42318;border-color:#efb7b7">area:subsystem-06</span><span class="pill" style="background:#fdf3d7;color:#8a5a00;border-color:#efd58f">area:subsystem-07</span><span class="moreln">+26 more</span></div>
+      <div class="why">Edit on GitHub: more labels than this page loads</div>
+    </div>
+    <div class="sec"><div class="sechead"><span class="sectitle">Milestone</span><span class="edit">✎</span></div><div class="none">None</div></div>
+  </div>
+</div></div>
+
+<div class="col"><p class="cap">C. Draft, empty metadata</p>
+<div class="rail">
+  <div class="status">
+    <div class="verdict"><span class="dot mute">◌</span>Draft</div>
+    <ul class="gates">
+      <li><span class="mini mute">–</span>No reviews yet</li>
+      <li><span class="mini mute">–</span>No checks on this branch</li>
+      <li><span class="mini ok">✓</span>No conflicts</li>
+    </ul>
+    <div class="actions"><button class="btn primary wide">Ready for review</button><button class="btn more">⋯</button></div>
+  </div>
+  <div class="scroll">
+    <div class="sec"><div class="sechead"><span class="sectitle">Reviewers</span><span class="edit">✎</span></div><div class="none">None requested</div></div>
+    <div class="sec"><div class="sechead"><span class="sectitle">Assignees</span><span class="edit">✎</span></div><div class="none">None</div></div>
+    <div class="sec"><div class="sechead"><span class="sectitle">Labels</span><span class="edit">✎</span></div><div class="none">None</div></div>
+    <div class="sec"><div class="sechead"><span class="sectitle">Milestone</span><span class="edit">✎</span></div><div class="none">None</div></div>
+  </div>
+</div></div>
+
+<div class="col"><p class="cap">D. Merged: history, not controls</p>
+<div class="rail">
+  <div class="status">
+    <div class="verdict"><span class="dot merged">✓</span>Merged</div>
+    <div class="sub">by octo-dev · 3d ago into <span style="font-family:var(--mono)">main</span></div>
+    <ul class="gates">
+      <li><span class="mini ok">✓</span>Approved<span class="val">1 approval</span></li>
+      <li><span class="mini ok">✓</span>Checks passed<span class="val">2 of 2</span></li>
+    </ul>
+    <div class="actions"><button class="btn">Delete branch</button></div>
+  </div>
+  <div class="scroll">
+    <div class="sec"><div class="sechead"><span class="sectitle">Reviewers</span></div>
+      <div class="person"><span class="av"></span>reviewer-a<span class="st ok">✓ Approved</span></div></div>
+    <div class="sec"><div class="sechead"><span class="sectitle">Assignees</span></div><div class="person"><span class="av"></span>octo-dev</div></div>
+    <div class="sec"><div class="sechead"><span class="sectitle">Labels</span></div><div class="pills"><span class="pill" style="background:#fbe9e9;color:#b42318;border-color:#efb7b7">bug</span></div></div>
+  </div>
+</div></div>
+
+<div class="col"><p class="cap">E. Closed, head branch still there</p>
+<div class="rail">
+  <div class="status">
+    <div class="verdict"><span class="dot bad">✕</span>Closed</div>
+    <div class="sub">by fixture-user · 2d ago · not merged</div>
+    <ul class="gates">
+      <li><span class="mini bad">✕</span>Conflicts with main</li>
+      <li><span class="mini mute">–</span>No reviews yet</li>
+    </ul>
+    <div class="actions"><button class="btn">Reopen pull request</button><button class="btn">Delete branch</button></div>
+  </div>
+  <div class="scroll">
+    <div class="sec"><div class="sechead"><span class="sectitle">Assignees</span></div><div class="person"><span class="av"></span>fixture-user</div></div>
+    <div class="sec"><div class="sechead"><span class="sectitle">Labels</span></div><div class="pills"><span class="pill" style="background:#fdf3d7;color:#8a5a00;border-color:#efd58f">wontfix</span></div></div>
+  </div>
+</div></div>
+
+<div class="col"><p class="cap">F. A's labels picker open in place</p>
+<div class="rail">
+  <div class="status">
+    <div class="verdict"><span class="dot bad">✕</span>Merging is blocked</div>
+    <ul class="gates">
+      <li><span class="mini bad">✕</span>Changes requested<span class="val">reviewer-b</span></li>
+      <li><span class="mini bad">✕</span>Checks<span class="val">1 failed · 1 running · 2 waiting</span></li>
+      <li><span class="mini ok">✓</span>No conflicts</li>
+    </ul>
+    <div class="actions"><div class="split"><button class="btn primary dis main">Merge pull request</button><button class="btn caret on">▾</button></div><button class="btn more">⋯</button></div>
+  </div>
+  <div class="scroll">
+    <div class="sec"><div class="sechead"><span class="sectitle">Labels</span></div>
+      <div class="card">
+        <div class="filter">Filter labels</div>
+        <div class="rows">
+          <div class="prow"><span class="box on">✓</span><span class="pill" style="background:#fbe9e9;color:#b42318;border-color:#efb7b7">bug</span></div>
+          <div class="prow"><span class="box on">✓</span><span class="pill" style="background:#e4eefb;color:#1a5fb4;border-color:#a9c9f0">area:parser</span></div>
+          <div class="prow"><span class="box on">✓</span><span class="pill" style="background:#fdf3d7;color:#8a5a00;border-color:#efd58f">needs-review</span></div>
+          <div class="prow"><span class="box"></span><span class="pill" style="background:#e3f5e8;color:#1e6b3a;border-color:#a8dbb7">docs</span></div>
+          <div class="prow"><span class="box"></span><span class="pill" style="background:#efe7fb;color:#5b2a9e;border-color:#cdb6ef">enhancement</span></div>
+          <div class="prow"><span class="box"></span><span class="pill" style="background:#e4eefb;color:#1a5fb4;border-color:#a9c9f0">good first issue</span></div>
+        </div>
+        <div class="pin"><button class="btn">Cancel</button><button class="btn primary dis" title="No changes">Save</button></div>
+      </div>
+    </div>
+    <div class="sec"><div class="sechead"><span class="sectitle">Milestone</span></div><div class="person">v1.4 parser cleanup</div></div>
+  </div>
+</div></div>
+
+</div>
+<ul class="legend">
+<li><b>Glyphs are placeholders.</b> In the app they are theme icons (<code>CircleCheck</code>, <code>CircleX</code>, <code>Dash</code>, <code>TriangleAlert</code>, a vendored pencil). Every state pairs an icon with a word; color is never the only signal.</li>
+<li><b>F</b> scrolls the rail so the open picker sits at the top of the metadata region; its rows scroll inside the card, Save and Cancel stay pinned under them, and Save is disabled until the selection changes. The other sections' edit buttons hide while a picker is open.</li>
+<li><b>A</b> keeps Reviewers display-only because a team review is requested; the reason line says so. <b>B</b>'s labels are capped at 8 with "+26 more"; Edit is unavailable because the page loads 20 of 34.</li>
+</ul>
