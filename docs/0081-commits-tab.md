@@ -792,6 +792,31 @@ adds a debug-build-only fixture mode:
   the committed answers, shaped from the live GraphQL schema and the
   REST reference. A write never leaves the process: the transport exists
   only in debug builds with the variable set.
+- **Generations, ETags and a runtime budget (docs/0084 §8).** A fixture
+  `<name>.json` may have siblings `<name>.g<N>.json` (any selector:
+  `PrDetail.101.g1.json`, `rest/repos_o_r_pulls_101.g1.json`). The
+  transport holds one generation counter, 0 at boot, and serves the
+  sibling with the highest N at or below it, else the plain name, so a
+  set with no `.g<N>` files behaves exactly as before and JSON-array
+  sequences are untouched. `dashboard-debug fixture bump [N]` advances
+  it (docs/0010 D12). Every REST read answers with an ETag, a hash of the
+  served body's bytes (`W/"<16 hex>"`, stable across runs), and a request
+  whose `If-None-Match` matches (weak comparison, `*` and lists
+  accepted) answers 304 with an empty body, advancing no sequence and
+  with the rate data unchanged. GraphQL never answers 304 and carries no
+  ETag (docs/0084 F2). `fixture budget <remaining> [--budget
+  rest|graphql]` pins one lane's remaining budget at runtime, over a
+  `DASHBOARD_GITHUB_FIXTURE_RATE` variant's limit and reset or, with no
+  variant, over a full 5000 window that resets in an hour; until the
+  verb is used (and with no variant) no response carries rate data, as
+  before. Every read is recorded for `requests` / `assert-request`.
+  Generation 1 covers PR #101 (`pr_generations.py`): a third comment,
+  the `test (workspace)` check run in progress → success, `needs-review`
+  replaced by `approved`, and a new head commit with a sixth changed
+  file, in `PrDetail.101.g1.json` and in the REST files the PR-page
+  probe reads: `pulls/101`, `commits/{sha}/check-runs`,
+  `commits/{sha}/status` and `pulls/101/files`. The receipt
+  `fixture-generations.txt` walks 200 → 304 → bump → 200.
 - **`DASHBOARD_FIXED_NOW=<rfc3339>`** pins the clock behind
   `relative_age` (debug builds only), so row ages — and therefore the
   structural goldens — don't drift with the calendar.

@@ -2,6 +2,7 @@
 
 pub mod app_db;
 pub mod data_color;
+pub mod fixture_control;
 pub mod freshness;
 pub mod home;
 pub mod logging;

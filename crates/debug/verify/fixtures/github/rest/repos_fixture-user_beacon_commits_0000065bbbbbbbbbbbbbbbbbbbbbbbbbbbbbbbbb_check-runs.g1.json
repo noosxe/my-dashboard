@@ -1,0 +1,77 @@
+{
+ "check_runs": [
+  {
+   "app": {
+    "slug": "github-actions"
+   },
+   "completed_at": "2026-10-23T11:00:00Z",
+   "conclusion": "success",
+   "head_sha": "0000065bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "id": 1,
+   "name": "build (ubuntu-latest)",
+   "started_at": "2026-10-23T10:58:45Z",
+   "status": "completed"
+  },
+  {
+   "app": {
+    "slug": "github-actions"
+   },
+   "completed_at": "2026-10-23T11:00:00Z",
+   "conclusion": "failure",
+   "head_sha": "0000065bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "id": 2,
+   "name": "build (macos-latest)",
+   "started_at": "2026-10-23T10:58:08Z",
+   "status": "completed"
+  },
+  {
+   "app": {
+    "slug": "github-actions"
+   },
+   "completed_at": "2026-10-23T11:00:00Z",
+   "conclusion": "success",
+   "head_sha": "0000065bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "id": 3,
+   "name": "clippy",
+   "started_at": "2026-10-23T10:57:31Z",
+   "status": "completed"
+  },
+  {
+   "app": {
+    "slug": "github-actions"
+   },
+   "completed_at": "2026-10-23T11:00:00Z",
+   "conclusion": "success",
+   "head_sha": "0000065bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "id": 4,
+   "name": "test (workspace)",
+   "started_at": "2026-10-23T10:56:54Z",
+   "status": "completed"
+  },
+  {
+   "app": {
+    "slug": "github-actions"
+   },
+   "completed_at": "2026-10-23T11:00:00Z",
+   "conclusion": "skipped",
+   "head_sha": "0000065bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "id": 5,
+   "name": "deploy-preview",
+   "started_at": "2026-10-23T11:00:00Z",
+   "status": "completed"
+  },
+  {
+   "app": {
+    "slug": "scanner-app"
+   },
+   "completed_at": "2026-10-23T11:00:00Z",
+   "conclusion": "success",
+   "head_sha": "0000065bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "id": 6,
+   "name": "external-scanner",
+   "started_at": "2026-10-23T10:55:40Z",
+   "status": "completed"
+  }
+ ],
+ "total_count": 6
+}

@@ -791,6 +791,14 @@ fn run_step(conn: &mut Conn, session: Option<&str>, op: &StepOp) -> StepOutcome 
             Ok(line) => StepOutcome::Ok(line),
             Err(msg) => StepOutcome::Failed(msg),
         },
+        StepOp::Fixture(args) => match crate::fixture(conn, args) {
+            Ok(line) => StepOutcome::Ok(format!(" fixture {line}")),
+            Err(msg) => StepOutcome::Failed(msg),
+        },
+        StepOp::AssertRequest { op, pairs } => match crate::assert_request(conn, op, pairs) {
+            Ok(line) => StepOutcome::Ok(line),
+            Err(msg) => StepOutcome::Failed(msg),
+        },
         StepOp::AssertFocus(node) => {
             let dump = match tree_dump(conn, &None) {
                 Ok(dump) => dump,

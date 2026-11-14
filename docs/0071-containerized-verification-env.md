@@ -228,6 +228,12 @@ copy. `pr-paused-note.txt` (session `prpaused`, the committed fixtures with
 GraphQL pause: the detail read is held and the page names the pause beside
 Refresh (#721, #751), with `audit` and `tab-stops`.
 
+`fixture-generations.txt` (session `fixgen`, 1280x800, same fixtures and
+clock; no UI is driven) walks the fixture transport's change simulation
+(docs/0084 §8, docs/0081 §12.1): a REST read of PR 101 answers 200, then
+304 to its own ETag with the pinned 400 remaining unchanged, then 200
+with the new head after `fixture bump`, read back through `assert-request`.
+
 `pr-files-notices.txt` (session `prnotices`, same fixtures and clock, at
 **1280x900** — the lane's twelfth row is below the fold at 800 high)
 walks the Files tab of fixture PR #112 (#753, #760): a malformed, an

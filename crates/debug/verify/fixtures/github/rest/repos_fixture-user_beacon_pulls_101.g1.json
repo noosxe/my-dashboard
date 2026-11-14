@@ -1,0 +1,32 @@
+{
+ "base": {
+  "ref": "main"
+ },
+ "changed_files": 6,
+ "comments": 3,
+ "commits": 4,
+ "draft": false,
+ "head": {
+  "ref": "feature/trailing-commas",
+  "sha": "0000065ccccccccccccccccccccccccccccccccc"
+ },
+ "labels": [
+  {
+   "color": "d73a4a",
+   "name": "bug"
+  },
+  {
+   "color": "1d76db",
+   "name": "area:parser"
+  },
+  {
+   "color": "0e8a16",
+   "name": "approved"
+  }
+ ],
+ "number": 101,
+ "review_comments": 3,
+ "state": "open",
+ "title": "Parser: accept trailing commas in manifest lists",
+ "updated_at": "2026-10-23T11:59:00Z"
+}

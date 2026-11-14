@@ -1,0 +1,11 @@
+{
+ "sha": "0000065bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+ "state": "success",
+ "statuses": [
+  {
+   "context": "ci/legacy-status",
+   "state": "success"
+  }
+ ],
+ "total_count": 1
+}

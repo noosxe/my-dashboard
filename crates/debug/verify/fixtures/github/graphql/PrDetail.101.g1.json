@@ -1,0 +1,895 @@
+{
+ "data": {
+  "rateLimit": null,
+  "repository": {
+   "autoMergeAllowed": false,
+   "mergeCommitAllowed": true,
+   "pullRequest": {
+    "assignees": {
+     "nodes": [
+      {
+       "avatarUrl": "https://avatars.invalid/octo-dev",
+       "id": "U_octo-dev",
+       "login": "octo-dev"
+      },
+      {
+       "avatarUrl": "https://avatars.invalid/fixture-user",
+       "id": "U_fixture-user",
+       "login": "fixture-user"
+      }
+     ],
+     "totalCount": 2
+    },
+    "author": {
+     "avatarUrl": "https://avatars.invalid/octo-dev",
+     "login": "octo-dev"
+    },
+    "autoMergeRequest": null,
+    "baseRefName": "main",
+    "body": "## Summary\n\nAccept trailing commas in the manifest parser, so hand-edited files stop\nfailing the load with an opaque error.\n\n- `parse_manifest` tolerates one trailing comma per list\n- the error now names the offending line\n\n```rust\nlet manifest = parse_manifest(input)?;\n```\n\nSee the [grammar notes](https://example.com/grammar) for the full list.\n",
+    "changedFiles": 6,
+    "closedAt": null,
+    "comments": {
+     "nodes": [
+      {
+       "author": {
+        "avatarUrl": "https://avatars.invalid/fixture-user",
+        "login": "fixture-user"
+       },
+       "body": "Looks close. Can we keep the old error for *strict* mode?",
+       "createdAt": "2026-10-21T11:00:00Z",
+       "databaseId": 9001,
+       "id": "IC_1",
+       "reactionGroups": [
+        {
+         "content": "THUMBS_UP",
+         "reactors": {
+          "totalCount": 1
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "THUMBS_DOWN",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "LAUGH",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "HOORAY",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "CONFUSED",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "HEART",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "ROCKET",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "EYES",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        }
+       ],
+       "updatedAt": "2026-10-21T11:00:00Z",
+       "viewerCanDelete": true,
+       "viewerCanReact": true,
+       "viewerCanUpdate": true
+      },
+      {
+       "author": {
+        "avatarUrl": "https://avatars.invalid/octo-dev",
+        "login": "octo-dev"
+       },
+       "body": "Good point, a `strict` flag landed in the follow-up commit.",
+       "createdAt": "2026-10-22T09:00:00Z",
+       "databaseId": 9002,
+       "id": "IC_2",
+       "reactionGroups": [
+        {
+         "content": "THUMBS_UP",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "THUMBS_DOWN",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "LAUGH",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "HOORAY",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "CONFUSED",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "HEART",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "ROCKET",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "EYES",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        }
+       ],
+       "updatedAt": "2026-10-22T09:00:00Z",
+       "viewerCanDelete": false,
+       "viewerCanReact": true,
+       "viewerCanUpdate": false
+      },
+      {
+       "author": {
+        "avatarUrl": "https://avatars.invalid/octo-dev",
+        "login": "octo-dev"
+       },
+       "body": "Pushed the column into the error; checks are green again.",
+       "createdAt": "2026-10-23T11:59:00Z",
+       "databaseId": 9003,
+       "id": "IC_3",
+       "reactionGroups": [
+        {
+         "content": "THUMBS_UP",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "THUMBS_DOWN",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "LAUGH",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "HOORAY",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "CONFUSED",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "HEART",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "ROCKET",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "EYES",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        }
+       ],
+       "updatedAt": "2026-10-23T11:59:00Z",
+       "viewerCanDelete": false,
+       "viewerCanReact": true,
+       "viewerCanUpdate": false
+      }
+     ],
+     "totalCount": 3
+    },
+    "commits": {
+     "nodes": [
+      {
+       "commit": {
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-20T12:00:00Z",
+        "messageHeadline": "parser: accept trailing commas in manifest lists",
+        "oid": "0000001aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+       }
+      },
+      {
+       "commit": {
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-20T13:00:00Z",
+        "messageHeadline": "tests: cover the trailing-comma cases",
+        "oid": "0000002aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+       }
+      },
+      {
+       "commit": {
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-20T14:00:00Z",
+        "messageHeadline": "docs: note the manifest grammar change",
+        "oid": "0000003aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+       }
+      }
+     ],
+     "totalCount": 3
+    },
+    "createdAt": "2026-10-19T12:00:00Z",
+    "files": {
+     "totalCount": 6
+    },
+    "headRef": {
+     "id": "REF_101",
+     "name": "feature/trailing-commas"
+    },
+    "headRefName": "feature/trailing-commas",
+    "headRefOid": "0000065ccccccccccccccccccccccccccccccccc",
+    "headRepository": {
+     "defaultBranchRef": {
+      "name": "main"
+     },
+     "viewerPermission": "ADMIN"
+    },
+    "id": "PR_101",
+    "isDraft": false,
+    "isInMergeQueue": false,
+    "isMergeQueueEnabled": false,
+    "labels": {
+     "nodes": [
+      {
+       "color": "d73a4a",
+       "id": "L_bug",
+       "name": "bug"
+      },
+      {
+       "color": "1d76db",
+       "id": "L_area:parser",
+       "name": "area:parser"
+      },
+      {
+       "color": "0e8a16",
+       "id": "L_approved",
+       "name": "approved"
+      }
+     ],
+     "totalCount": 3
+    },
+    "latestOpinionatedReviews": {
+     "nodes": [
+      {
+       "author": {
+        "avatarUrl": "https://avatars.invalid/reviewer-a",
+        "login": "reviewer-a"
+       },
+       "id": "PRR_1",
+       "state": "APPROVED"
+      },
+      {
+       "author": {
+        "avatarUrl": "https://avatars.invalid/reviewer-b",
+        "login": "reviewer-b"
+       },
+       "id": "PRR_2",
+       "state": "CHANGES_REQUESTED"
+      }
+     ]
+    },
+    "latestReviews": {
+     "nodes": [
+      {
+       "author": {
+        "avatarUrl": "https://avatars.invalid/reviewer-a",
+        "login": "reviewer-a"
+       },
+       "id": "PRR_1",
+       "state": "APPROVED"
+      },
+      {
+       "author": {
+        "avatarUrl": "https://avatars.invalid/reviewer-b",
+        "login": "reviewer-b"
+       },
+       "id": "PRR_2",
+       "state": "CHANGES_REQUESTED"
+      },
+      {
+       "author": {
+        "avatarUrl": "https://avatars.invalid/reviewer-c",
+        "login": "reviewer-c"
+       },
+       "id": "PRR_3",
+       "state": "COMMENTED"
+      }
+     ]
+    },
+    "mergeQueueEntry": null,
+    "mergeStateStatus": "BLOCKED",
+    "mergeable": "MERGEABLE",
+    "merged": false,
+    "mergedAt": null,
+    "mergedBy": null,
+    "milestone": {
+     "id": "M_1",
+     "state": "OPEN",
+     "title": "v1.4 parser cleanup"
+    },
+    "number": 101,
+    "reactionGroups": [
+     {
+      "content": "THUMBS_UP",
+      "reactors": {
+       "totalCount": 2
+      },
+      "viewerHasReacted": true
+     },
+     {
+      "content": "THUMBS_DOWN",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "LAUGH",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "HOORAY",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "CONFUSED",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "HEART",
+      "reactors": {
+       "totalCount": 1
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "ROCKET",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "EYES",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     }
+    ],
+    "reviewDecision": "CHANGES_REQUESTED",
+    "reviewRequests": {
+     "nodes": [
+      {
+       "requestedReviewer": {
+        "__typename": "User",
+        "avatarUrl": "https://avatars.invalid/reviewer-d",
+        "id": "U_reviewer-d",
+        "login": "reviewer-d"
+       }
+      },
+      {
+       "requestedReviewer": {
+        "__typename": "User",
+        "avatarUrl": "https://avatars.invalid/reviewer-e",
+        "id": "U_reviewer-e",
+        "login": "reviewer-e"
+       }
+      },
+      {
+       "requestedReviewer": {
+        "__typename": "Team",
+        "avatarUrl": "https://avatars.invalid/team-01",
+        "id": "T_team-01",
+        "name": "team-01"
+       }
+      },
+      {
+       "requestedReviewer": {
+        "__typename": "Bot",
+        "avatarUrl": "https://avatars.invalid/review-bot",
+        "id": "U_review-bot",
+        "login": "review-bot"
+       }
+      }
+     ],
+     "totalCount": 4
+    },
+    "reviews": {
+     "nodes": [
+      {
+       "author": {
+        "avatarUrl": "https://avatars.invalid/reviewer-a",
+        "login": "reviewer-a"
+       },
+       "body": "",
+       "id": "PRR_1",
+       "reactionGroups": [
+        {
+         "content": "THUMBS_UP",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "THUMBS_DOWN",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "LAUGH",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "HOORAY",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "CONFUSED",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "HEART",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "ROCKET",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "EYES",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        }
+       ],
+       "state": "APPROVED",
+       "submittedAt": "2026-10-21T10:00:00Z",
+       "updatedAt": "2026-10-21T10:00:00Z",
+       "viewerCanDelete": false,
+       "viewerCanReact": true,
+       "viewerCanUpdate": false
+      },
+      {
+       "author": {
+        "avatarUrl": "https://avatars.invalid/reviewer-b",
+        "login": "reviewer-b"
+       },
+       "body": "The error should carry the column as well.",
+       "id": "PRR_2",
+       "reactionGroups": [
+        {
+         "content": "THUMBS_UP",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "THUMBS_DOWN",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "LAUGH",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "HOORAY",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "CONFUSED",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "HEART",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "ROCKET",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "EYES",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        }
+       ],
+       "state": "CHANGES_REQUESTED",
+       "submittedAt": "2026-10-21T14:00:00Z",
+       "updatedAt": "2026-10-21T14:00:00Z",
+       "viewerCanDelete": false,
+       "viewerCanReact": true,
+       "viewerCanUpdate": false
+      },
+      {
+       "author": {
+        "avatarUrl": "https://avatars.invalid/reviewer-c",
+        "login": "reviewer-c"
+       },
+       "body": "",
+       "id": "PRR_3",
+       "reactionGroups": [
+        {
+         "content": "THUMBS_UP",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "THUMBS_DOWN",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "LAUGH",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "HOORAY",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "CONFUSED",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "HEART",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "ROCKET",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        },
+        {
+         "content": "EYES",
+         "reactors": {
+          "totalCount": 0
+         },
+         "viewerHasReacted": false
+        }
+       ],
+       "state": "COMMENTED",
+       "submittedAt": "2026-10-22T08:00:00Z",
+       "updatedAt": "2026-10-22T08:00:00Z",
+       "viewerCanDelete": false,
+       "viewerCanReact": true,
+       "viewerCanUpdate": false
+      }
+     ],
+     "totalCount": 3
+    },
+    "state": "OPEN",
+    "statusCheckRollup": {
+     "contexts": {
+      "checkRunCountsByState": [
+       {
+        "count": 4,
+        "state": "SUCCESS"
+       },
+       {
+        "count": 1,
+        "state": "FAILURE"
+       },
+       {
+        "count": 1,
+        "state": "SKIPPED"
+       }
+      ],
+      "nodes": [
+       {
+        "__typename": "CheckRun",
+        "checkSuite": {
+         "app": {
+          "slug": "github-actions"
+         },
+         "databaseId": 10,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
+        },
+        "completedAt": "2026-10-23T11:00:00Z",
+        "conclusion": "SUCCESS",
+        "databaseId": 1,
+        "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/1",
+        "name": "build (ubuntu-latest)",
+        "startedAt": "2026-10-23T10:58:45Z",
+        "status": "COMPLETED"
+       },
+       {
+        "__typename": "CheckRun",
+        "checkSuite": {
+         "app": {
+          "slug": "github-actions"
+         },
+         "databaseId": 20,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
+        },
+        "completedAt": "2026-10-23T11:00:00Z",
+        "conclusion": "FAILURE",
+        "databaseId": 2,
+        "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/2",
+        "name": "build (macos-latest)",
+        "startedAt": "2026-10-23T10:58:08Z",
+        "status": "COMPLETED"
+       },
+       {
+        "__typename": "CheckRun",
+        "checkSuite": {
+         "app": {
+          "slug": "github-actions"
+         },
+         "databaseId": 30,
+         "workflowRun": {
+          "workflow": {
+           "name": "Lint"
+          }
+         }
+        },
+        "completedAt": "2026-10-23T11:00:00Z",
+        "conclusion": "SUCCESS",
+        "databaseId": 3,
+        "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/3",
+        "name": "clippy",
+        "startedAt": "2026-10-23T10:57:31Z",
+        "status": "COMPLETED"
+       },
+       {
+        "__typename": "CheckRun",
+        "checkSuite": {
+         "app": {
+          "slug": "github-actions"
+         },
+         "databaseId": 40,
+         "workflowRun": {
+          "workflow": {
+           "name": "CI"
+          }
+         }
+        },
+        "completedAt": "2026-10-23T11:00:00Z",
+        "conclusion": "SUCCESS",
+        "databaseId": 4,
+        "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/4",
+        "name": "test (workspace)",
+        "startedAt": "2026-10-23T10:56:54Z",
+        "status": "COMPLETED"
+       },
+       {
+        "__typename": "CheckRun",
+        "checkSuite": {
+         "app": {
+          "slug": "github-actions"
+         },
+         "databaseId": 50,
+         "workflowRun": {
+          "workflow": {
+           "name": "Preview"
+          }
+         }
+        },
+        "completedAt": "2026-10-23T11:00:00Z",
+        "conclusion": "SKIPPED",
+        "databaseId": 5,
+        "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/5",
+        "name": "deploy-preview",
+        "startedAt": "2026-10-23T11:00:00Z",
+        "status": "COMPLETED"
+       },
+       {
+        "__typename": "CheckRun",
+        "checkSuite": {
+         "app": {
+          "slug": "scanner-app"
+         },
+         "databaseId": 60,
+         "workflowRun": null
+        },
+        "completedAt": "2026-10-23T11:00:00Z",
+        "conclusion": "SUCCESS",
+        "databaseId": 6,
+        "detailsUrl": "https://github.com/fixture-user/beacon/actions/runs/1/job/6",
+        "name": "external-scanner",
+        "startedAt": "2026-10-23T10:55:40Z",
+        "status": "COMPLETED"
+       },
+       {
+        "__typename": "StatusContext",
+        "context": "ci/legacy-status",
+        "state": "SUCCESS",
+        "targetUrl": "https://ci.invalid/status"
+       }
+      ],
+      "statusContextCountsByState": [
+       {
+        "count": 1,
+        "state": "SUCCESS"
+       }
+      ],
+      "totalCount": 7
+     },
+     "state": "FAILURE"
+    },
+    "timelineItems": {
+     "nodes": []
+    },
+    "title": "Parser: accept trailing commas in manifest lists",
+    "url": "https://github.com/fixture-user/beacon/pull/101",
+    "viewerCanAssign": true,
+    "viewerCanClose": true,
+    "viewerCanDisableAutoMerge": false,
+    "viewerCanEnableAutoMerge": false,
+    "viewerCanLabel": true,
+    "viewerCanReact": true,
+    "viewerCanReopen": false,
+    "viewerCanUpdate": true,
+    "viewerCanUpdateBranch": false
+   },
+   "rebaseMergeAllowed": true,
+   "squashMergeAllowed": true,
+   "viewerDefaultMergeMethod": "MERGE",
+   "viewerPermission": "ADMIN"
+  }
+ }
+}

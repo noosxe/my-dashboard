@@ -125,6 +125,21 @@ pub enum Command {
         op: String,
         pairs: Vec<(String, String)>,
     },
+    /// `fixture bump [N] | budget <remaining> [--budget rest|graphql] |
+    /// get <path> [--revalidate | --if-none-match <tag>] [--expect <text>]`
+    /// — drive the offline GitHub transport (docs/0084 §8). The words
+    /// are the transport's to parse; it prints one JSON object.
+    Fixture { args: Vec<String> },
+    /// `requests` — the fixture read record, one JSON line per read
+    /// (docs/0084 §8).
+    Requests,
+    /// `assert-request <op> [key=value…]` — some recorded read has this
+    /// op (`GET /<path>`, or a GraphQL operation name) and these `vars`
+    /// (`status=304`, `generation=1`); exit 1 when none does.
+    AssertRequest {
+        op: String,
+        pairs: Vec<(String, String)>,
+    },
     /// `shell`
     Shell,
     /// `session start|status|stop|env` — the lifecycle verbs (docs/0055
@@ -205,6 +220,12 @@ pub const USAGE: &str = "usage: dashboard-debug [--session <name>] <verb> [args]
   logs [-f]                        ring log tail (follow with -f)
   writes                           fixture writes answered so far, one JSON line each (0010 D11)
   assert-write <op> [key=value…]   a recorded write matches op + dotted variable paths (0010 D11)
+  fixture bump [N]                 advance the fixture generation (0084 §8)
+  fixture budget <n> [--budget rest|graphql]  pin a lane's remaining rate budget
+  fixture get <path> [--revalidate|--if-none-match <tag>] [--expect <text>]
+                                   one REST GET through the fixture transport
+  requests                         fixture reads answered so far, one JSON line each
+  assert-request <op> [key=value…] a recorded read matches op + vars, e.g. status=304
   shell                            REPL over these verbs
 
   session start [--name n] [--binary path] [--size WxH] [--timeout s]
@@ -431,6 +452,15 @@ pub fn parse_args(args: &[String]) -> Result<Command, String> {
         "assert-write" => {
             let (op, pairs) = parse_assert_write(rest)?;
             Ok(Command::AssertWrite { op, pairs })
+        }
+        "fixture" if !rest.is_empty() => Ok(Command::Fixture {
+            args: rest.to_vec(),
+        }),
+        "requests" if rest.is_empty() => Ok(Command::Requests),
+        "assert-request" => {
+            let (op, pairs) = parse_assert_write(rest)
+                .map_err(|m| m.replace("assert-write", "assert-request"))?;
+            Ok(Command::AssertRequest { op, pairs })
         }
         "session" => parse_session(rest),
         "shell" if rest.is_empty() => Ok(Command::Shell),
@@ -870,6 +900,27 @@ mod tests {
 
     fn args(list: &[&str]) -> Vec<String> {
         list.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn fixture_and_request_verbs_parse() {
+        assert_eq!(
+            parse_args(&args(&["fixture", "bump", "2"])).unwrap(),
+            Command::Fixture {
+                args: args(&["bump", "2"])
+            }
+        );
+        assert!(parse_args(&args(&["fixture"])).is_err());
+        assert_eq!(parse_args(&args(&["requests"])).unwrap(), Command::Requests);
+        assert_eq!(
+            parse_args(&args(&["assert-request", "GET /a/b", "status=304"])).unwrap(),
+            Command::AssertRequest {
+                op: "GET /a/b".into(),
+                pairs: vec![("status".into(), "304".into())],
+            }
+        );
+        let err = parse_args(&args(&["assert-request"])).unwrap_err();
+        assert!(err.contains("assert-request"), "{err}");
     }
 
     #[test]
