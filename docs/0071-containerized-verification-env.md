@@ -234,6 +234,13 @@ clock; no UI is driven) walks the fixture transport's change simulation
 304 to its own ETag with the pinned 400 remaining unchanged, then 200
 with the new head after `fixture bump`, read back through `assert-request`.
 
+`pr-freshness-events.txt` (session `prfresh`, 1280x800, same fixtures and
+clock; about 70 s, two `sleep` steps wait out the floors) opens PR 101,
+runs `fixture bump`, switches tabs inside and then past the 30 s floor
+(the new comment counts only after the second), and closes the page past
+the 60 s list floor (the row carries generation 1's title), reading
+the refetches back through `assert-request` (docs/0084 D2).
+
 `pr-files-notices.txt` (session `prnotices`, same fixtures and clock, at
 **1280x900** — the lane's twelfth row is below the fold at 800 high)
 walks the Files tab of fixture PR #112 (#753, #760): a malformed, an

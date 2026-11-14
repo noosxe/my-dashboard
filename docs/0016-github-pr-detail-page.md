@@ -66,7 +66,9 @@ In:
 - **Files changed tab:** summary line + per-file collapsible cards with a
   unified diff rendered from the REST patch.
 - **Data:** one GraphQL detail query on open + refetch after each mutation and
-  on manual refresh; one lazy REST fetch for file patches. Mutations:
+  on manual refresh (docs/0084 D2 adds event-driven refetches: entering a
+  tab past 30 s, refocus and module re-show past 15 s, and a notification
+  that names the PR; the write-to-lane map is `pr_page/freshness/write_lanes.rs`); one lazy REST fetch for file patches. Mutations:
   `addComment`, `addPullRequestReview`, `updateIssue` (body), `mergePullRequest`,
   `closePullRequest`.
 - Crumbs `Home > GitHub > <repo> > #<number>`; repo crumb becomes clickable
@@ -89,7 +91,8 @@ Out (non-goals):
 - No persistence: PR page state is session-only (nothing enters `shell.json`,
   the snapshot cache, or any new cache).
 - No cadence change: the detail query runs on open/refresh/mutation only —
-  background ticks do not touch the open page.
+  background ticks do not touch the open page. (Amended by docs/0084 D2:
+  user and GitHub events also refetch it, still never a timer.)
 
 ## 3. Verified facts
 
