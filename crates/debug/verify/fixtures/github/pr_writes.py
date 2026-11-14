@@ -12,6 +12,8 @@ against the live GraphQL schema (MergePullRequestPayload.pullRequest,
 ClosePullRequestPayload.pullRequest, UpdatePullRequestPayload.pullRequest,
 RequestReviewsPayload.pullRequest, MarkPullRequestReadyForReviewPayload,
 ConvertPullRequestToDraftPayload and ReopenPullRequestPayload .pullRequest, DeleteRefPayload.clientMutationId,
+EnablePullRequestAutoMergePayload and DisablePullRequestAutoMergePayload .pullRequest,
+EnqueuePullRequestPayload and DequeuePullRequestPayload .mergeQueueEntry,
 AddCommentPayload.clientMutationId,
 AddPullRequestReviewPayload.pullRequestReview; PullRequestState and
 PullRequestReviewState values) and the REST reference (approve a fork
@@ -45,6 +47,13 @@ def write_pr_writes(write):
     mutation("PrReopen", "reopenPullRequest", {"pullRequest": {"id": "PR_114", "state": "OPEN"}})
     # `DeleteRefPayload` carries only `clientMutationId` (#773).
     mutation("PrDeleteBranch", "deleteRef", {"clientMutationId": None})
+    # Auto-merge and the merge queue (#774, #775): `EnablePullRequestAutoMerge`
+    # and `DisablePullRequestAutoMerge` answer `pullRequest`; the two queue
+    # mutations answer `mergeQueueEntry` (null once dequeued).
+    mutation("PrEnableAutoMerge", "enablePullRequestAutoMerge", {"pullRequest": {"id": "PR_117"}})
+    mutation("PrDisableAutoMerge", "disablePullRequestAutoMerge", {"pullRequest": {"id": "PR_118"}})
+    mutation("PrEnqueue", "enqueuePullRequest", {"mergeQueueEntry": {"id": "MQE_119"}})
+    mutation("PrDequeue", "dequeuePullRequest", {"mergeQueueEntry": None})
     mutation("PrAddComment", "addComment", {"clientMutationId": None})
     mutation(
         "PrUpdateBranch",
