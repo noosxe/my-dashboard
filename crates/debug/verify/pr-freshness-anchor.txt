@@ -39,10 +39,12 @@ wait-label "Conversation (5)"
 wait-label "checked" --timeout 15
 assert-no-label "synced"
 
-# Scroll into the timeline and start a comment.
-mouse scroll 640 500 -150 --wait-frame
-click-label "Write a comment"
+# Start a comment (the box is below the fold, so scroll to it first), then
+# scroll back up to the middle of the timeline: that is where the reader is.
+mouse scroll 640 500 -600 --wait-frame
+click-label "Leave a comment"
 type "half a thought"
+mouse scroll 640 400 250 --wait-frame
 snapshot before-bump
 
 # GitHub's side changes: a new comment (Conversation 6), a new head, a
@@ -52,9 +54,13 @@ wait-label "Conversation (6)" --timeout 15
 wait-label "bug, area:parser, approved" --timeout 5
 snapshot after-bump
 
-# The composer was not rebuilt (its text is intact and it is still there),
-# and nothing under the reader moved: the diff lists what changed, and
-# the cards the reader was looking at are not among the changed lines.
-assert-label "Write a comment"
-assert-label "half a thought"
+# The landing is in: the Conversation tab counts six. The diff lists what
+# changed. The cards the reader was looking at keep their bounds (they are
+# not in it); what moved is what sits below the new comment, the composer
+# and its Comment button, which slid down by the new card's height. The
+# composer is the same node and still holds the text (the screenshot shows
+# it; the tree has no value field, and the unit test
+# `a_landing_keeps_the_composer_and_its_text` asserts it on the entity).
+assert-label "Leave a comment"
+screenshot anchor-after-bump
 diff before-bump after-bump
