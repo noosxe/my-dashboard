@@ -57,6 +57,7 @@ pub(crate) const ANCHOR_FADE: Duration = Duration::from_secs(3);
 mod catch_up;
 pub(crate) mod checks;
 mod commit_label;
+mod commits_window;
 mod conversation_window;
 mod default_method;
 mod detail_read;
@@ -4624,18 +4625,20 @@ impl PrDetailPage {
                     .into_any_element()
             })
             .collect();
-        if d.commits.total_count > d.commits.nodes.len() as i64 {
-            rows.push(
+        // #876: the query reads the newest 100, so what it cut is older
+        // than every row — the cap row leads the list.
+        if commits_window::hidden_older(d) > 0 {
+            rows.insert(
+                0,
                 div()
                     .id("pr-commits-truncated")
                     .px_3()
                     .py_2()
                     .text_xs()
                     .text_color(cx.theme().muted_foreground)
-                    .child(format!(
-                        "Showing first {} of {} commits",
+                    .child(commits_window::cap_caption(
                         d.commits.nodes.len(),
-                        d.commits.total_count
+                        d.commits.total_count,
                     ))
                     .into_any_element(),
             );
