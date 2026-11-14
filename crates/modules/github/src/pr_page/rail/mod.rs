@@ -174,7 +174,9 @@ fn metadata(page: &PrDetailPage, d: &PrDetail, cx: &Context<PrDetailPage>) -> An
                 .role(gpui::accesskit::Role::Group)
                 .aria_label("Pull request details")
                 .size_full()
-                .px_3()
+                // Flush with the status column's left edge; the right
+                // inset keeps the Edit buttons clear of the scrollbar.
+                .pr_3()
                 .gap_4()
                 .overflow_y_scroll()
                 .track_scroll(&page.rail_scroll)
