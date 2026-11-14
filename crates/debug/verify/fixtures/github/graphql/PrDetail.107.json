@@ -533,11 +533,13 @@
     "viewerCanClose": true,
     "viewerCanLabel": true,
     "viewerCanReact": true,
+    "viewerCanReopen": false,
     "viewerCanUpdate": true,
     "viewerCanUpdateBranch": false
    },
    "rebaseMergeAllowed": false,
    "squashMergeAllowed": false,
+   "viewerDefaultMergeMethod": "SQUASH",
    "viewerPermission": "ADMIN"
   }
  }

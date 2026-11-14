@@ -235,13 +235,25 @@ fn the_status_scenarios_carry_how_they_ended_and_what_may_merge() {
     assert!(ready.viewer_can_update_branch);
     assert_eq!(ready.review_decision.as_deref(), Some("APPROVED"));
     assert_eq!(ready.checks.counts.passed, 2);
-    assert!(ready.merge_methods.squash && ready.merge_methods.rebase && !ready.merge_methods.merge);
+    // Every method is allowed; the viewer's last-used one is squash (#776).
+    assert!(ready.merge_methods.merge && ready.merge_methods.squash && ready.merge_methods.rebase);
+    assert_eq!(ready.viewer_default_merge_method.as_deref(), Some("SQUASH"));
     assert_eq!(ready.viewer_permission.as_deref(), Some("WRITE"));
 
     let reopenable = detail(114);
     assert_eq!(reopenable.state.as_deref(), Some("CLOSED"));
     assert_eq!(reopenable.ending.closed_by.as_deref(), Some("octo-dev"));
     assert!(!reopenable.ending.merged);
+    assert!(reopenable.viewer_can_reopen);
+    // Only the reopenable one offers Reopen; the draft and open ones
+    // can update, the read-only one can do neither.
+    assert!(!detail(105).viewer_can_reopen && !detail(101).viewer_can_reopen);
+    assert!(detail(103).draft && detail(103).viewer_can_update);
+
+    // 107's last-used method is not allowed there: the page falls back.
+    let edge = detail(107);
+    assert_eq!(edge.viewer_default_merge_method.as_deref(), Some("SQUASH"));
+    assert!(edge.merge_methods.merge && !edge.merge_methods.squash);
 }
 
 #[test]

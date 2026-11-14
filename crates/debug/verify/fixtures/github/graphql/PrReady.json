@@ -1,0 +1,10 @@
+{
+ "data": {
+  "markPullRequestReadyForReview": {
+   "pullRequest": {
+    "id": "PR_103",
+    "isDraft": false
+   }
+  }
+ }
+}

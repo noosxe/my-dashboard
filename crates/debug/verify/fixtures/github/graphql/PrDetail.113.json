@@ -2,7 +2,7 @@
  "data": {
   "rateLimit": null,
   "repository": {
-   "mergeCommitAllowed": false,
+   "mergeCommitAllowed": true,
    "pullRequest": {
     "assignees": {
      "nodes": [
@@ -409,11 +409,13 @@
     "viewerCanClose": true,
     "viewerCanLabel": true,
     "viewerCanReact": true,
+    "viewerCanReopen": false,
     "viewerCanUpdate": true,
     "viewerCanUpdateBranch": true
    },
    "rebaseMergeAllowed": true,
    "squashMergeAllowed": true,
+   "viewerDefaultMergeMethod": "SQUASH",
    "viewerPermission": "WRITE"
   }
  }

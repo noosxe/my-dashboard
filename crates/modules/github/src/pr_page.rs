@@ -58,6 +58,7 @@ pub(crate) const ANCHOR_FADE: Duration = Duration::from_secs(3);
 mod catch_up;
 pub(crate) mod checks;
 mod conversation_window;
+mod default_method;
 mod detail_read;
 mod diff_anchor;
 pub(crate) mod diff_notice;
@@ -72,6 +73,7 @@ mod mergeable_poll;
 mod page_write_confirm;
 mod rail;
 mod review_drafts;
+mod state_writes;
 #[cfg(test)]
 mod test_rig;
 pub(crate) mod threads_cap;
@@ -83,6 +85,7 @@ mod write_refetch;
 use checks::identity::{CheckKey, CheckTarget};
 use checks::log_cache::{JobLogCache, LandedLog};
 use checks::log_error;
+pub(crate) use default_method::default_method;
 use leave_guard::LeaveIntent;
 use merge_confirm::MergeConfirm;
 use merge_gate::{close_enabled, close_visible, merge_enabled, merge_visible};
@@ -5270,14 +5273,14 @@ impl Render for PrDetailPage {
             self.start_anchor_fade(cx);
         }
         // Allowed merge methods (D5), once per page: a repo's settings
-        // can't change while it is open. The default is the first the
-        // repo allows, merge commit preferred (#776 moves it to the
-        // viewer's last-used method).
+        // can't change while it is open. The default is the viewer's
+        // (`viewerDefaultMergeMethod`, #776) when allowed, else the first
+        // the repo allows, merge commit preferred.
         if self.methods.is_empty()
             && let Some(d) = self.detail(cx)
         {
             let methods = allowed_methods(&d.merge_methods);
-            self.merge_method = default_method(&methods);
+            self.merge_method = default_method(&methods, d.viewer_default_merge_method.as_deref());
             self.methods = methods;
         }
         let detail = self.detail(cx);
@@ -5861,15 +5864,6 @@ pub(crate) fn allowed_methods(m: &gql::MergeMethods) -> Vec<MergeMethod> {
     out
 }
 
-/// MERGE when allowed, else the first allowed (D5).
-pub(crate) fn default_method(methods: &[MergeMethod]) -> Option<MergeMethod> {
-    methods
-        .iter()
-        .copied()
-        .find(|m| *m == MergeMethod::Merge)
-        .or_else(|| methods.first().copied())
-}
-
 /// Update-branch gating (docs/0067 D2): open, server gate open, idle.
 /// The schema defines `viewerCanUpdateBranch` false when the head ref
 /// is up to date or the viewer can't update it — the complete gate; we
@@ -6372,10 +6366,10 @@ mod tests {
     use crate::pr_page::{
         BusyOp, ChecksCounts, ErrorScope, FinishEvent, LineComposer, MergeMethod, PrDetailPage,
         PrMetaEditor, PrStateTone, PrTab, ReviewTone, TimelineKind, allowed_methods, checks_counts,
-        comment_action_allowed, composer_body_allowed, default_method, gate_error_copy,
-        pr_assignees_arming, pr_labels_arming, pr_milestone_arming, pr_reviewers_arming,
-        pr_state_tone, review_batch_allowed, review_event, review_state_label, short_sha,
-        split_repo, timeline_order, update_branch_enabled,
+        comment_action_allowed, composer_body_allowed, gate_error_copy, pr_assignees_arming,
+        pr_labels_arming, pr_milestone_arming, pr_reviewers_arming, pr_state_tone,
+        review_batch_allowed, review_event, review_state_label, short_sha, split_repo,
+        timeline_order, update_branch_enabled,
     };
     use crate::service::{GithubCache, GithubState, PendingKind, update_branch_error_copy};
     use crate::usage::Origin;
@@ -9623,19 +9617,6 @@ mod tests {
             })
             .is_empty()
         );
-    }
-
-    #[test]
-    fn default_method_prefers_merge_else_first_allowed() {
-        assert_eq!(
-            default_method(&[MergeMethod::Squash, MergeMethod::Merge]),
-            Some(MergeMethod::Merge)
-        );
-        assert_eq!(
-            default_method(&[MergeMethod::Rebase, MergeMethod::Squash]),
-            Some(MergeMethod::Rebase)
-        );
-        assert_eq!(default_method(&[]), None);
     }
 
     #[test]
