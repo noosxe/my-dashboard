@@ -113,7 +113,7 @@ pub(super) fn gate_row(
         Button::new("pr-rail-resolve")
             .debug_selector(|| "pr-rail-resolve".to_string())
             .link()
-            .small()
+            .xsmall()
             .label("Resolve on GitHub")
             .tooltip("Resolve the conflicts on github.com")
             .on_click(move |_, _, cx| cx.open_url(&url))

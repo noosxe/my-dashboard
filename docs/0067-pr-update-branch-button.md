@@ -113,8 +113,9 @@ When gated in (D2), the rail gains a split button under the state line:
 into the status block's Mergeability gate row ("Out of date with
 `main`" or "No conflicts, behind `main`", trailing **Update ▾**), built
 on the upstream `DropdownButton` so the main click updates with a
-merge commit. The rebase confirm opens directly under that row. The
-D2 gate is unchanged.)*
+merge commit. The rebase confirm opens directly under that row and the
+button gives way to it until Cancel. The D2 gate is unchanged, and
+`pr-update-branch.txt` now runs over the committed fixtures.)*
 
 ### D2 — Gating: server truth only
 
