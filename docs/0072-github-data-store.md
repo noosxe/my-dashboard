@@ -341,10 +341,14 @@ submit while that is not the current head, with an inline Files error
 and the text kept. Discarding, or arming a fresh composer with nothing
 queued, clears it.
 
-**UNKNOWN mergeable re-polls, bounded (#752).** GitHub computes
-mergeability lazily, so the read after a push usually says `UNKNOWN`. A
-landing of an OPEN PR with that state schedules a detail re-poll
-(`Trigger::Recheck`) after 4 s, up to 3 in a row (`pr_page/mergeable_poll.rs`).
+**UNKNOWN mergeable (#752; the re-poll was replaced by docs/0084 stage
+4).** GitHub computes mergeability lazily, so the read after a push usually
+says `UNKNOWN`. The page used to schedule a detail re-poll (`Trigger::Recheck`) after 4 s, up to 3 in
+a row (`pr_page/mergeable_poll.rs`, removed). Now the watch loop's Hot tier
+probes every 10 s and refetches when the PR's ETag moves, and reads the
+detail itself when REST already knows the answer
+(`pr_page/freshness/queue.rs`). The paragraph below describes the removed
+behaviour and is kept for the history.
 It stops at the first resolved answer. Only a landing that did not come
 from a poll (open, refresh, refocus, write refetch, a new head) refills
 the budget. The timer is a task the page owns, so a dropped page cancels
@@ -458,7 +462,7 @@ session-scoped, exactly pre-#556), and the hourly prune.
   tick loop (docs/0013: 60 s ticks) keeps *lists* fresh; this TTL only
   decides when a *reopen* revalidates in the background. It never skips a
   trigger that already passed its own age floor or asks on purpose
-  (refocus, manual, mutation refetch, re-poll); `pr_page/refocus.rs` holds
+  (refocus, manual, mutation refetch, a probe's `Changed` read); `pr_page/refocus.rs` holds
   the list (#871). A voided stamp on a landed document is stale to
   `DetailClock::wants_refresh` at any floor.
 - `sign_out` clears the map (it already clears session state).

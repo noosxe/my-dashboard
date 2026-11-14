@@ -10,6 +10,11 @@
 > the buckets and probe (D2–D3) are unchanged. All of this shipped with
 > #699.
 
+> **Read by docs/0084 stage 4:** a watched PR page's probe reads the ledger's
+> ladder state: Low multiplies its interval by 4, Critical or Exhausted
+> stops it (D7). The ledger itself is unchanged; the page's own rolling-hour
+> ceiling is a separate counter on the page.
+
 > **Extended by docs/0053** (usage records): the ledger keeps the live
 > budget and the chip; a per-flight records pipeline now runs beside it
 > — same booking rules (D1), one audit-trail row per HTTP flight with

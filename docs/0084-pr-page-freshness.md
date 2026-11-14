@@ -498,8 +498,8 @@ per open page, on top of the existing pause:
 The following keep their behaviour:
 
 - the notifications unfocused poll (docs/0080);
-- the UNKNOWN mergeable re-poll, which the Hot tier absorbs once it
-  ships (stage 4 deletes `mergeable_poll.rs`);
+- (the UNKNOWN mergeable re-poll is gone: stage 4 deleted
+  `mergeable_poll.rs` and the Hot tier absorbs it;)
 - the check-log live watch (docs/0076);
 - dedup and the outdated-read rerun;
 - skeleton-first loading and the store's stale-while-revalidate reopen.
@@ -643,6 +643,56 @@ docs/0071 container.
   Usage page's ledger view leaves out flights stamped after a pinned
   `DASHBOARD_FIXED_NOW`. `assert-request` gained `count=N` (docs/0010 D12) to
   say "one 200 and nothing else".
+
+**Stage 4 as shipped.**
+
+- Code: `pr_page/freshness/{cadence,budget,queue}.rs`; `timer.rs` keeps the
+  loop and has no interval logic of its own. `mergeable_poll.rs` and
+  `Trigger::Recheck` are deleted.
+- **Cadence** is `Cadence::next`, one pure function, table-tested. Inputs:
+  focus, how long unfocused, PR open, check/mergeable/queue state, time
+  since the last change, quiet time, the guard, the usage ladder, the
+  `X-Poll-Interval` floor, and the failure streak. Its answer is a wait or
+  a stop reason (`Stop`: Closed, Unattended, Guard, Usage). While stopped the
+  loop keeps a local 60 s beat that sends nothing, so whatever lifted the
+  stop (focus, a recovered budget) resumes it. `PrDetailPage::probe_stop`
+  is the read-only accessor stage 5's label uses.
+- **Settled** counts quiet time from the last change, refocus, Refresh or
+  the open; **Hot** from a change only (so a page that just opened is Active,
+  as in stage 3). Refocus (`refresh_if_stale`) and Refresh (a Manual detail
+  read) call `watch_resume`: the guard clears, quiet time and the unfocused
+  clock reset, and a timer armed for a long wait comes forward.
+- **Unfocused time** is noticed on the loop's own beat, so it can be one
+  interval late.
+- **`X-Poll-Interval`** is parsed with the rate-limit headers
+  (`RateLimit::poll_interval`) and is a floor on the next wait. A 403 or 429
+  on a probe makes the next wait at least 60 s and backs off from there;
+  the shared handling still arms the pause.
+- **Usage**: the worse of the two budgets on the chip's ladder
+  (`usage_chip::worst_state`). Low is ×4. Critical and Exhausted stop the
+  probe, **on either budget**: a GraphQL pause alone also stops it, because
+  a change the probe found couldn't be read and would be lost.
+- **Guard counters** are the page's own: probe 200s (counted REST) and one
+  point per probe-caused detail, threads or queue read. The fan-out reads
+  a head change starts (Files pages, the gated-runs sweep) are bounded by
+  head changes and are not counted. A breach is the crossing of a ceiling;
+  the first drops the page to the Shown interval for an hour, a second inside
+  that hour stops the probe until refocus or Refresh, which also zero the
+  counters.
+- **Queue rule** (`queue.rs`): a tick that found no change and had no failure
+  reads the detail when the PR is queued, at most every 30 s since any
+  probe-caused detail read. The open starts the clock, so the seed tick
+  doesn't read. The rule applies to "no change reported", which includes a 200
+  with no visible diff (F10), not only all-304 ticks.
+- **UNKNOWN without the re-poll**: the PR's ETag follows a mergeable
+  recompute, so the Hot tier's probe sees it and refetches (a test
+  proves it). The same rule reads the detail when REST already knows
+  `mergeable` and the detail still says UNKNOWN (the first 200 only seeds
+  the comparison, so no probe would ever report that change).
+- Receipt `pr-freshness-budget.txt` runs PR 101 at 1250 remaining (Low:
+  the first stretched probe comes at 40 s, not 10 s), then 500 (Critical:
+  no probe after the next one). The guard's ceilings are not reachable in a
+  receipt; unit tests cover them.
 
 Stages 3 and 4 can ship as a stack. Stage 2 can land before or after
 stage 1, but its receipt needs stage 1.
