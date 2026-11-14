@@ -3997,7 +3997,10 @@ impl GithubState {
                 entry.rollup_dirty = true;
                 entry.rollup_catch_up_spent = false;
             }
-            entry.summary = row.clone();
+            // #873: a row no newer than the held summary (a list read
+            // dispatched before a confirmed write or a newer detail)
+            // keeps the held state, title and labels.
+            entry.summary = crate::pr_summary::merge_landing(&entry.summary, row);
             entry.summary_at = Instant::now();
             self.persist_pull(repo, row.number);
             return;
@@ -4017,6 +4020,19 @@ impl GithubState {
             },
         );
         self.persist_pull(repo, row.number);
+    }
+
+    /// #874: land a synthesized row (a notification subject) without
+    /// disturbing a document that already landed: an existing entry only
+    /// gains the fields it was missing, a new one is inserted as usual.
+    pub(crate) fn seed_summary(&mut self, repo: &str, row: &gql::PullRequest) {
+        let key = PrKey::new(repo, row.number);
+        if let Some(entry) = self.pulls.get_mut(&key) {
+            crate::pr_summary::seed_missing(&mut entry.summary, row);
+            self.persist_pull(repo, row.number);
+        } else {
+            self.land_summary(repo, row);
+        }
     }
 
     /// Land a parsed detail into its document (docs/0072 D2/D3): the
@@ -4053,6 +4069,9 @@ impl GithubState {
         if let Some(rollup) = &detail.rollup_state {
             entry.summary.status = Some(rollup.clone());
         }
+        // #873: every other field the detail carries too, so a merge or
+        // label edit seen on the page reaches the list rows.
+        crate::pr_summary::refresh_from_detail(&mut entry.summary, &detail);
         entry.rollup_dirty = false;
         entry.rollup_catch_up_spent = false;
         entry.detail = Some(detail);
