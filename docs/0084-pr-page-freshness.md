@@ -534,7 +534,7 @@ docs/0071 container.
 | 0 | The defects #871–#876, one PR each, any order. #721 and #751 (pause on Manual, write and detail paths) land before stage 4 | Unit tests per issue; #871 adds "refocus at 20 s refetches" and "a voided stamp refetches"; a fixture receipt for #874 (notification open keeps the list row) |
 | 1 | Fixture generations, REST ETag/304 emulation, synthetic rate-limit headers, `fixture bump` and `fixture budget` verbs (§8). Tooling only | Unit tests in `fixture.rs`; a receipt that bumps a generation and sees a 200 after 304s |
 | 2 | D2 event triggers: the tab-entry floor, the write-to-lane map, list refresh on return, notification-names-open-PR (which arrives as a manual-equivalent refetch until stage 3 lands the probe) | Unit tests with the fake clock; receipt `pr-freshness-events.txt`: switch tabs past the floor and see one refetch, return to the list and see the row updated |
-| 3 | D3/D4 probe and lane map, with the hot, active and shown tiers at fixed intervals; the `Watch` and `Changed` triggers; one live measurement on public data of F1's open questions (the 60 s cache, whether a review, label or push moves `updated_at`, whether the PR ETag follows mergeable), recorded in this doc's §3 | Receipt `pr-freshness-probe.txt`: open #101, 60 s idle with only 304s, `fixture bump`, `wait-label` for the new comment, check and label within one interval; the Usage page lists the `watch` and `changed` rows |
+| 3 | D3/D4 probe and lane map, with the hot, active and shown tiers at fixed intervals; the `Watch` and `Changed` triggers; one live measurement on public data of the points §3 leaves unverified (the 60 s cache, whether a review, label or push moves `updated_at`, whether the PR ETag follows mergeable), recorded in this doc's §3 | Receipt `pr-freshness-probe.txt`: open #101, 60 s idle with only 304s, `fixture bump`, `wait-label` for the new comment, check and label within one interval; the Usage page lists the `watch` and `changed` rows |
 | 4 | D5 Settled and Unattended tiers, D6 queue and review fallback, D7 guard, removal of `mergeable_poll.rs` | Unit tests over the cadence function (a table test, like 0038's); receipt with `fixture budget` at Low and Critical shows the stretched and stopped probe |
 | 5 | D8 "checked N s ago" label and paused reason; anchored updates | 0065 audit and critique on the PR header, before and after; `assert-baseline` for `github-pr-*` goldens; tab stops unchanged |
 
@@ -583,15 +583,19 @@ stage 1, but its receipt needs stage 1.
 | Reconciling a remote edit of a comment you are editing locally | Rare; needs a conflict UX | #880 |
 | Persisting probe ETags across restarts | A reopen paying one 200 is cheap | none (no plan to do it) |
 
-## 13. Open questions (product decisions)
+## 13. Settled decisions (2026-11-14)
 
-| # | Question | Recommendation |
+These were proposed as open product questions and settled on
+2026-11-14 as recommended. The Q numbers stay, because the decisions
+above cite them.
+
+| # | Question | Decision |
 |---|---|---|
 | Q1 | The watch budget per rolling hour, per page | 600 counted REST requests and 300 GraphQL points (about 12% and 6% of the hourly budgets). The busy case uses about 50 of each, so the ceiling only catches runaway loops |
-| Q2 | Idle behaviour: what happens when nobody seems to be there | Keep probing while the window is inactive at 60 s (second-screen use, docs/0036 D1), slow down after 30 quiet minutes, stop after 60 minutes unfocused. No input-recency tracking |
-| Q3 | Does a visible age label stay? | Yes: "checked N s ago" while watched, with the paused reason when the guard stopped it. It's the one honest signal that the page is live |
-| Q4 | How aggressive CI-progress updates should be | Probe every 10 s while a check runs (free when unchanged); refetch the detail at most every 20 s for checks-only changes |
+| Q2 | Idle behaviour: what happens when nobody seems to be there | Probing continues while the window is inactive, at 60 s (second-screen use, docs/0036 D1). It slows down after 30 quiet minutes and stops after 60 minutes unfocused. No input-recency tracking |
+| Q3 | Does a visible age label stay? | Yes: "checked N s ago" while watched, with the paused reason when the guard stopped it |
+| Q4 | How aggressive CI-progress updates are | Probe every 10 s while a check runs (free when unchanged); refetch the detail at most every 20 s for checks-only changes |
 | Q5 | Do closed and merged PRs probe? | No. Refocus, notifications and Refresh cover their rare changes |
 | Q6 | Lists | Event refresh on return from a PR page now (D2); list polling deferred (#878) |
 | Q7 | Tab-entry floor | 30 s |
-| Q8 | Do changes that arrive by themselves get a visual cue (a "new comments" marker, a brief highlight)? | Not in this design; land silently with the scroll anchored (D8). Revisit after use |
+| Q8 | Do changes that arrive by themselves get a visual cue (a "new comments" marker, a brief highlight)? | No visual cue: they land silently with the scroll anchored (D8) |
