@@ -1,0 +1,65 @@
+# pr-freshness-budget.txt — the probe slows at Low usage and stops at
+# Critical (docs/0084 D5/D7, docs/0082 D5). The fixture transport pins the
+# REST budget (`fixture budget`, docs/0010 D12): 1250 of 5000 left is Low,
+# 500 is Critical. PR 101 has a check running, so on a healthy budget the
+# page is Hot and probes every 10 s; at Low every interval is multiplied
+# by 4 (40 s), at Critical the probe stops and nothing goes out.
+#
+# The receipt waits in real time (about 160 s): the timer runs on the
+# app's own clock, which no bridge verb moves. The guard's 600-request and
+# 300-point ceilings are not reachable in a receipt; the unit tests cover
+# its breaches, refocus and Refresh.
+#
+# Prerequisites: the containerized env (docs/0071), the committed fixtures,
+# and a session named `prbudget` at 1280x800, the clock NOT pinned (as in
+# pr-freshness-probe.txt, so the usage book's window is the live one):
+#   export DASHBOARD_GITHUB_FIXTURE=/work/crates/debug/verify/fixtures/github
+#   dashboard-debug session start --name prbudget --size 1280x800 \
+#     --binary /tmp/target/debug/my-dashboard
+# Run (in-container): dashboard-debug run crates/debug/verify/pr-freshness-budget.txt
+
+--session prbudget
+
+# Low from the first response on: the usage book reads it from the
+# headers of what the app fetches while navigating.
+fixture budget 1250
+
+assert-label "Open GitHub module"
+click 11447690740305500471 --wait-frame
+wait-label "Filter repositories"
+click 349678605523893363
+type beacon
+key down
+key enter
+wait-label "PR #101: Parser: accept trailing commas in manifest lists —"
+mouse down 900 337
+mouse up 900 337
+wait-label "Conversation (5)"
+assert-label "Checks: 1 failed, 1 running, 2 waiting. Open the Checks tab"
+
+# The seed goes out 2 s after the open, and the next probe is a Hot
+# interval times four away: no 304 yet, where a healthy page would have
+# sent a probe every 10 s.
+sleep 5
+assert-request "GET /repos/fixture-user/beacon/pulls/101" status=200 count=1
+sleep 25
+assert-request "GET /repos/fixture-user/beacon/pulls/101" status=304 count=0
+
+# At 40 s the stretched probe goes out: exactly one 304 by about 50 s.
+sleep 20
+assert-request "GET /repos/fixture-user/beacon/pulls/101" status=304 count=1
+assert-request "GET /repos/fixture-user/beacon/commits/0000065bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/check-runs" status=304 count=1
+
+# Critical. The next probe (due at about 80 s) is the last one: its
+# response carries the new remaining, the cadence function answers
+# "stopped", and the page only keeps looking locally.
+fixture budget 500
+sleep 40
+assert-request "GET /repos/fixture-user/beacon/pulls/101" status=304 count=2
+
+# A minute of Low would have sent another probe at about 120 s, a Hot one
+# several. Nothing goes out, and the detail was only ever read by the open.
+sleep 60
+assert-request "GET /repos/fixture-user/beacon/pulls/101" status=304 count=2
+assert-request "GET /repos/fixture-user/beacon/pulls/101" status=200 count=1
+assert-request "PrDetail" count=1

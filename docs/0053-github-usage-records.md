@@ -114,8 +114,9 @@ taxonomy comes from the goal questions:
 - `trigger`: `Bootstrap | ViewShown | Refocus | Manual | Expand |
   MutationRefetch | Probe | Auth` — the docs/0052 trigger set, so
   records explain *why*, not just *where*. `Recheck` joined it with
-  #752: the PR page's bounded re-poll of an UNKNOWN mergeable state
-  (docs/0072 D3), page-initiated and at most 3 per landing.
+  #752 for the PR page's bounded re-poll of an UNKNOWN mergeable state
+  (docs/0072 D3). docs/0084 stage 4 removed the re-poll and the variant;
+  old records of it age out with the ledger.
 
 Origins are stamped where the dispatch is made (page/card fires,
 composer sends, the tick's probe arm, connect steps) — the same places

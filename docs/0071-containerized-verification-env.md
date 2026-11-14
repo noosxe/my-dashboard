@@ -251,6 +251,12 @@ check state and the label swap appear with no click, and the Usage page
 lists the probes as `watch` rows and the refetch they caused as a `changed`
 row (docs/0084 D3/D4).
 
+`pr-freshness-budget.txt` (session `prbudget`, 1280x800, the committed
+fixtures, no pinned clock; about 160 s of `sleep`) pins the REST budget
+with `fixture budget`: at 1250 remaining (Low) PR 101's probe stretches
+from 10 s to 40 s, and at 500 (Critical) it stops, read back through
+`assert-request … count=N` (docs/0084 D5/D7).
+
 `pr-files-notices.txt` (session `prnotices`, same fixtures and clock, at
 **1280x900** — the lane's twelfth row is below the fold at 800 high)
 walks the Files tab of fixture PR #112 (#753, #760): a malformed, an

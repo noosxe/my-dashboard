@@ -13,8 +13,9 @@
 - **Keeps:** docs/0016 D5 gating (#708/#737) and the Merge/Close confirm
   (#738); docs/0043 D1, D2, D4, D6, D7 (writes, refetch, gates, shared
   picker machinery, one editor at a time, Esc order); docs/0072/0073 (one
-  store, store-scoped pending writes); docs/0052 (no timers; the UNKNOWN
-  re-poll of docs/0016 §15 stays the only exception).
+  store, store-scoped pending writes); docs/0052 (no timers, as
+  amended by docs/0084: a watched PR page's probe covers the UNKNOWN
+  merge status that docs/0016 §15 used to re-poll).
 - **Mockup:** [`assets/0083-pr-rail-redesign.png`](assets/0083-pr-rail-redesign.png),
   source [`assets/0083-pr-rail-redesign.html`](assets/0083-pr-rail-redesign.html).
 
@@ -94,10 +95,11 @@ Settled in review of this doc (2026-11-14):
   once the requirements pass." The plain Merge is never offered on a base
   with a merge queue. When the viewer can do neither, a disabled **Merge when
   ready** shows, with the verdict as its tooltip.
-- **Freshness of queue and auto-merge state** (settled 2026-11-14): no new
-  polling. A write refetches (docs/0043 D2); the position and entry state of
-  a queued pull request are as fresh as the page's normal refreshes
-  (docs/0052).
+- **Freshness of queue and auto-merge state** (settled 2026-11-14, amended
+  by docs/0084 D6). A write refetches (docs/0043 D2). The position and entry
+  state of a queued pull request have no REST field, so while the page is
+  watched and the PR is queued, a probe tick that found nothing to refetch
+  reads the detail, at most every 30 s (`freshness/queue.rs`).
 - **Team review requests** keep Reviewers display-only, with the reason
   line (D7, D8). Re-posting a team request through `requestReviews` could
   notify the team again.
@@ -217,7 +219,7 @@ Rules:
 - A **sub-line** (muted, `text_xs`) appears under the verdict only when it
   adds something: rows 1, 2, 4 and 5 (D6, D4). It never repeats the header.
 - The verdict is pure: `rail::verdict::verdict(&PrDetail) -> Verdict`,
-  table-tested, one arm per row. Row 7 keeps the docs/0016 §15 re-poll.
+  table-tested, one arm per row. Row 7's UNKNOWN resolves through the watch loop's Hot tier (docs/0084 D5).
 - The verdict replaces the docs/0016 D5 **state line**. Its full sentences
   move into the verdict's tooltip and the a11y description, so nothing is
   lost. The verdict is also the disabled Merge button's tooltip (#708),
@@ -695,7 +697,7 @@ What moves or goes:
 - `render_meta_picker_card`, `render_milestone_card` → `picker_card.rs`.
 - `empty_cell` stays for the timeline. The rail stops using it.
 - Pure helpers that already live in submodules stay where they are
-  (`merge_gate.rs`, `merge_confirm.rs`, `mergeable_poll.rs`). `rail/`
+  (`merge_gate.rs`, `merge_confirm.rs`). `rail/`
   imports them.
 
 ## 7. Verification
@@ -907,10 +909,12 @@ and Remove from queue (#775) settled:
   sixth `ConfirmKind`. Their buttons read "Confirm auto-merge" and "Add to
   merge queue". Both close by themselves when their gate shuts, and Esc
   backs out without a write.
-- **No polling.** A queued pull request's position and state change on
-  GitHub's side; the page shows them as of its last read and refreshes on
-  the normal triggers (docs/0052). The docs/0016 §15 re-poll stays the only
-  exception and still covers `UNKNOWN` merge status only.
+- **Queue polling** (amended by docs/0084 D6). A queued pull request's
+  position and state change on GitHub's side. While the page is watched,
+  the Hot tier reads the detail at most every 30 s when the probe has
+  nothing else to report; the page is otherwise as fresh as its last read.
+  The docs/0016 §15 re-poll is gone: the Hot tier probes an `UNKNOWN`
+  merge status every 10 s.
 - **The dequeue gate.** GitHub has no viewer flag for dequeuing, so Remove
   from queue follows write access (`merge_visible`), like Merge when ready.
   A viewer without the right sees the verdict and no button.

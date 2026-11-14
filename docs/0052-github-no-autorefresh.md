@@ -6,11 +6,11 @@
 > and landings announce new threads as toasts (banners while
 > unfocused). See docs/0080.
 >
-> **Amended by #752** (UNKNOWN mergeable re-poll): a second, narrower
-> exception — a PR page whose detail landed with `mergeable: UNKNOWN`
-> re-polls that detail up to 3 times, 4 s apart (`Trigger::Recheck`),
-> and stops at the first resolved answer or when the page closes. It is
-> bounded per non-poll landing, never recurring. See docs/0072 D3.
+> **Amended by #752, absorbed by docs/0084 stage 4** (UNKNOWN mergeable
+> re-poll): the bounded re-poll of a `mergeable: UNKNOWN` detail
+> (`Trigger::Recheck`) was a second, narrower exception. It is gone: a
+> watched page is Hot while `mergeable` is UNKNOWN, so its 10 s probe sees
+> GitHub's recompute and refetches (docs/0084 D5).
 >
 > **Amended by docs/0084 D0** (targeted automatic refresh): D1's rule no
 > longer holds for the PR page. A *watched* PR page may fetch on a timer
@@ -19,7 +19,9 @@
 > and activity, and an explicit budget bounds it. D2's cadence tables stay
 > deleted: the watch tiers are one function on one page, not a per-lane
 > cadence system. §6's acceptance becomes "zero counted requests while
-> nothing changes".
+> nothing changes". Stage 4 added the rest of the cadence: Settled (the
+> interval doubles every 30 quiet minutes up to 5 min), Unattended (no
+> probe after 60 minutes unfocused) and the page's budget guard.
 
 - **Date:** 2026-09-21
 - **Depends on:** 0031 (fetch record/dedup), 0032 (detail auto-refresh —

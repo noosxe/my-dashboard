@@ -817,10 +817,12 @@ same seam (0007 §10).
   refetches the open Files and threads lanes once; the diff and the
   check logs follow. A line comment or draft started on the old head is
   refused with an inline Files error until it is redone on the new diff.
-- **UNKNOWN re-polls.** The merge rail's "GitHub is still calculating
-  merge status" (D5) re-polls the detail up to 3 times, 4 s apart, and
-  stops as soon as it resolves or the page closes.
+- **UNKNOWN resolves by itself.** The merge rail's "GitHub is still
+  calculating merge status" (D5) was re-polled up to 3 times, 4 s apart.
+  docs/0084 stage 4 replaced that: a watched page is Hot while the
+  state is UNKNOWN, probes every 10 s, and refetches the detail when the
+  recompute lands.
 - **Rail metadata and reactions** confirm on the store, so a write
   finishing after the page closed still voids the cached detail.
 - Rules and reasons: docs/0072 D3/D4. **Code**: `pr_page/head_change.rs`,
-  `pr_page/mergeable_poll.rs`, `pr_page/page_write_confirm.rs`.
+  `pr_page/page_write_confirm.rs` (`mergeable_poll.rs` is removed).
