@@ -17,6 +17,8 @@ mod reviewer_row;
 mod reviewers;
 mod section;
 mod status;
+#[cfg(test)]
+mod status_tests;
 mod terminal;
 #[cfg(test)]
 mod tests;
