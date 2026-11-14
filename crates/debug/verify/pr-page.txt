@@ -1,7 +1,8 @@
 # pr-page.txt — the PR detail page over the committed scenarios (docs/0081
 # §12.1, #769): each state opens from fixture-user/beacon's Open PRs lane in
 # one session, and each tab shows its content. Structural goldens pin the
-# Conversation tab of the populated, draft and merged scenarios (0065 D5).
+# Conversation tab of the populated, draft, merged, ready, closed, auto-merge and
+# merge-queue scenarios (0065 D5).
 #
 # Prerequisites: the containerized env (docs/0071) with the GitHub
 # fixtures and the pinned clock, and a session named `prpage` at 1280x800:
@@ -331,3 +332,81 @@ assert-label "Delete branch"
 assert-no-label "More pull request actions"
 assert-no-label "Edit labels"
 assert-baseline github-pr-closed
+
+click 12782369444481205663 --wait-frame
+wait-label "PR #114: Loader: try the lazy manifest reader"
+
+# 117: blocked, the repository allows auto-merge (docs/0083 D4, #774): Enable
+# auto-merge with the method caret replaces the disabled Merge.
+mouse down 700 149
+mouse up 700 149
+key ctrl-a
+type #117
+wait-label "PR #117: Docs: add the auto-merge walkthrough"
+mouse down 900 337
+mouse up 900 337
+wait-label "Conversation (0)"
+assert-label "#117"
+assert-label "Merging is blocked"
+assert-label "Enable auto-merge"
+assert-label "Choose merge method"
+assert-no-label "Merge pull request"
+assert-baseline github-pr-automerge
+click 12782369444481205663 --wait-frame
+wait-label "PR #117: Docs: add the auto-merge walkthrough"
+
+# 118: auto-merge on (D2 row 5): the sub-line names who and how; Disable
+# auto-merge is the secondary.
+mouse down 700 149
+mouse up 700 149
+key ctrl-a
+type #118
+wait-label "PR #118: Docs: reorder the install steps"
+mouse down 900 337
+mouse up 900 337
+wait-label "Conversation (0)"
+assert-label "#118"
+assert-label "Auto-merge enabled"
+assert-label "Disable auto-merge"
+assert-no-label "Enable auto-merge"
+assert-baseline github-pr-automerge-on
+click 12782369444481205663 --wait-frame
+wait-label "PR #118: Docs: reorder the install steps"
+
+# 119: the base has a merge queue and the PR passes the Merge gate (#775):
+# Merge when ready, no method caret, never the plain Merge.
+mouse down 700 149
+mouse up 700 149
+key ctrl-a
+type #119
+wait-label "PR #119: Docs: document the queue settings"
+mouse down 900 337
+mouse up 900 337
+wait-label "Conversation (1)"
+assert-label "#119"
+assert-label "Ready to merge"
+assert-label "Merge when ready"
+assert-no-label "Choose merge method"
+assert-no-label "Merge pull request"
+assert-baseline github-pr-queue
+click 12782369444481205663 --wait-frame
+wait-label "PR #119: Docs: document the queue settings"
+
+# 121: queued (D2 row 4): the sub-line reads the position and entry state;
+# Remove from queue is the secondary.
+mouse down 700 149
+mouse up 700 149
+key ctrl-a
+type #121
+wait-label "PR #121: Docs: tidy the queue page"
+mouse down 900 337
+mouse up 900 337
+wait-label "Conversation (1)"
+assert-label "#121"
+assert-label "Queued to merge"
+assert-label "Remove from queue"
+assert-no-label "Merge when ready"
+assert-no-label "Merge pull request"
+assert-baseline github-pr-queued
+click 12782369444481205663 --wait-frame
+wait-label "PR #121: Docs: tidy the queue page"

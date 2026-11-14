@@ -2,6 +2,7 @@
  "data": {
   "rateLimit": null,
   "repository": {
+   "autoMergeAllowed": false,
    "mergeCommitAllowed": true,
    "pullRequest": {
     "assignees": {
@@ -65,6 +66,7 @@
     "id": "PR_114",
     "isDraft": false,
     "isInMergeQueue": false,
+    "isMergeQueueEnabled": false,
     "labels": {
      "nodes": [
       {
@@ -265,6 +267,8 @@
     "viewerCanAssign": true,
     "viewerCanClose": true,
     "viewerCanDeleteHeadRef": false,
+    "viewerCanDisableAutoMerge": false,
+    "viewerCanEnableAutoMerge": false,
     "viewerCanLabel": true,
     "viewerCanReact": true,
     "viewerCanReopen": true,

@@ -2,6 +2,7 @@
  "data": {
   "rateLimit": null,
   "repository": {
+   "autoMergeAllowed": false,
    "mergeCommitAllowed": true,
    "pullRequest": {
     "assignees": {
@@ -87,6 +88,7 @@
     "id": "PR_105",
     "isDraft": false,
     "isInMergeQueue": false,
+    "isMergeQueueEnabled": false,
     "labels": {
      "nodes": [],
      "totalCount": 0
@@ -189,6 +191,8 @@
     "url": "https://github.com/fixture-user/beacon/pull/105",
     "viewerCanAssign": false,
     "viewerCanClose": false,
+    "viewerCanDisableAutoMerge": false,
+    "viewerCanEnableAutoMerge": false,
     "viewerCanLabel": false,
     "viewerCanReact": true,
     "viewerCanReopen": false,

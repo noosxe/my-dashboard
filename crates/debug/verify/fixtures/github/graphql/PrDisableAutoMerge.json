@@ -1,0 +1,9 @@
+{
+ "data": {
+  "disablePullRequestAutoMerge": {
+   "pullRequest": {
+    "id": "PR_118"
+   }
+  }
+ }
+}

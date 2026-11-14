@@ -30,6 +30,12 @@
 # first), and Reopen on 114. 113's split button preselects squash, the
 # viewer's default (#776). The more menu's rows have no a11y name (#862), so
 # they are clicked by position.
+#
+# The last section walks auto-merge and the merge queue (#774, #775) on
+# 117-121: Enable auto-merge with the caret's method (rebase) after a confirm
+# Esc backs out of, Disable auto-merge, Merge when ready and Enable
+# auto-merge on a queued base (confirms, no method), and Remove from queue.
+# Clicks use the tree's window-relative bounds, which equal the mouse's.
 
 --session prwrites
 
@@ -301,3 +307,136 @@ mouse up 900 337
 wait-label "Conversation (0)"
 assert-label "Merged. This pull request was merged"
 assert-no-label "Delete branch"
+
+# Auto-merge and the merge queue (docs/0083 D4, #774, #775). 117: blocked,
+# the repository allows auto-merge, three methods with squash preselected.
+# Enable auto-merge asks first (Esc backs out without a write), then the
+# caret's method rides along: rebase.
+click 12782369444481205663 --wait-frame
+mouse down 700 149
+mouse up 700 149
+key ctrl-a
+type #117
+wait-label "PR #117: Docs: add the auto-merge walkthrough"
+mouse down 900 337
+mouse up 900 337
+wait-label "Merge status"
+assert-label "Enable auto-merge"
+assert-label "Choose merge method"
+assert-no-label "Merge pull request"
+mouse down 1071 334
+mouse up 1071 334 --wait-frame
+wait-label "Enable auto-merge with squash? It merges once the requirements pass."
+snapshot automerge-confirm
+key esc
+assert-no-label "Enable auto-merge with squash? It merges once the requirements pass."
+assert-label "Enable auto-merge"
+mouse down 1187 334
+mouse up 1187 334 --wait-frame
+mouse down 1105 423
+mouse up 1105 423 --wait-frame
+mouse down 1071 334
+mouse up 1071 334 --wait-frame
+wait-label "Enable auto-merge with rebase? It merges once the requirements pass."
+mouse down 1035 388
+mouse up 1035 388 --wait-frame
+assert-write PrEnableAutoMerge input.pullRequestId=PR_117 input.mergeMethod=REBASE
+assert-no-label "Enable auto-merge with rebase? It merges once the requirements pass."
+snapshot automerge-sent
+click 12782369444481205663 --wait-frame
+
+# 118: auto-merge on (the sub-line "by octo-dev · squash" is not in the a11y
+# tree, so the screenshot frames carry it). Disable auto-merge is one
+# click, no confirm.
+mouse down 700 149
+mouse up 700 149
+key ctrl-a
+type #118
+wait-label "PR #118: Docs: reorder the install steps"
+mouse down 900 337
+mouse up 900 337
+wait-label "Merge status"
+assert-label "Auto-merge enabled"
+assert-label "Disable auto-merge"
+assert-no-label "Enable auto-merge"
+mouse down 1026 361
+mouse up 1026 361 --wait-frame
+assert-write PrDisableAutoMerge input.pullRequestId=PR_118
+snapshot automerge-disabled
+click 12782369444481205663 --wait-frame
+
+# 119: the base has a merge queue and the PR passes the Merge gate: Merge
+# when ready, never the plain Merge, and no method caret (the queue sets
+# it). It asks first; Esc backs out.
+mouse down 700 149
+mouse up 700 149
+key ctrl-a
+type #119
+wait-label "PR #119: Docs: document the queue settings"
+mouse down 900 337
+mouse up 900 337
+wait-label "Merge status"
+assert-label "Merge when ready"
+assert-no-label "Merge pull request"
+assert-no-label "Choose merge method"
+mouse down 1083 334
+mouse up 1083 334 --wait-frame
+wait-label "Add feature/trailing-commas to the merge queue for main? It merges once the queue's checks pass."
+snapshot queue-confirm
+key esc
+assert-no-label "Add feature/trailing-commas to the merge queue for main? It merges once the queue's checks pass."
+assert-label "Merge when ready"
+mouse down 1083 334
+mouse up 1083 334 --wait-frame
+wait-label "Add feature/trailing-commas to the merge queue for main? It merges once the queue's checks pass."
+mouse down 1038 411
+mouse up 1038 411 --wait-frame
+assert-write PrEnqueue input.pullRequestId=PR_119
+assert-no-label "Add feature/trailing-commas to the merge queue for main? It merges once the queue's checks pass."
+snapshot queue-sent
+click 12782369444481205663 --wait-frame
+
+# 120: the same queue, blocked on a review: Enable auto-merge takes over,
+# without a caret, and its confirm says the PR joins the queue.
+mouse down 700 149
+mouse up 700 149
+key ctrl-a
+type #120
+wait-label "PR #120: Docs: queue the release notes"
+mouse down 900 337
+mouse up 900 337
+wait-label "Merge status"
+assert-label "Enable auto-merge"
+assert-no-label "Merge pull request"
+assert-no-label "Choose merge method"
+mouse down 1083 334
+mouse up 1083 334 --wait-frame
+wait-label "Enable auto-merge? It joins the merge queue once the requirements pass."
+snapshot queue-automerge-confirm
+key esc
+assert-no-label "Enable auto-merge? It joins the merge queue once the requirements pass."
+mouse down 1083 334
+mouse up 1083 334 --wait-frame
+wait-label "Enable auto-merge? It joins the merge queue once the requirements pass."
+mouse down 1038 388
+mouse up 1038 388 --wait-frame
+assert-write PrEnableAutoMerge input.pullRequestId=PR_120
+click 12782369444481205663 --wait-frame
+
+# 121: queued (sub-line "Position 2 · awaiting checks", see the frames). Remove from
+# queue is one click, no confirm, and the page offers no Merge.
+mouse down 700 149
+mouse up 700 149
+key ctrl-a
+type #121
+wait-label "PR #121: Docs: tidy the queue page"
+mouse down 900 337
+mouse up 900 337
+wait-label "Merge status"
+assert-label "Queued to merge"
+assert-no-label "Merge when ready"
+assert-no-label "Merge pull request"
+mouse down 1026 361
+mouse up 1026 361 --wait-frame
+assert-write PrDequeue input.id=PR_121
+snapshot queue-removed

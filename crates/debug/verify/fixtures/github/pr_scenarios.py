@@ -50,6 +50,15 @@ CLOSED_PR = 114
 # merged from a fork the viewer can't write.
 MERGED_GONE_PR = 115
 MERGED_FORK_PR = 116
+# docs/0083 D4 (#774, #775): auto-merge and the merge queue. A blocked PR
+# whose repository allows auto-merge, one with auto-merge on, a clean PR on
+# a base with a merge queue, a blocked one on such a base, and a queued one.
+AUTO_MERGE_PR = 117
+AUTO_ON_PR = 118
+QUEUE_READY_PR = 119
+QUEUE_BLOCKED_PR = 120
+QUEUED_PR = 121
+NEW_ACTION_PRS = (AUTO_MERGE_PR, AUTO_ON_PR, QUEUE_READY_PR, QUEUE_BLOCKED_PR, QUEUED_PR)
 
 BODY = """## Summary
 
@@ -352,6 +361,11 @@ class Timeline:
             isInMergeQueue=False,
             mergeQueueEntry=None,
             autoMergeRequest=None,
+            # #774, #775: the gates of Enable and Disable auto-merge, and
+            # whether the base branch has a merge queue.
+            isMergeQueueEnabled=False,
+            viewerCanEnableAutoMerge=False,
+            viewerCanDisableAutoMerge=False,
             commits=self.commits(3),
             reviews=conn([]),
             comments=conn([]),
@@ -704,6 +718,103 @@ class Timeline:
                     statusCheckRollup=rollup("SUCCESS", merged_checks),
                 ),
             },
+            # docs/0083 D4 (#774): blocked on a required review, the
+            # repository allows auto-merge and the viewer may enable it.
+            AUTO_MERGE_PR: {
+                "methods": (True, True, True),
+                "default_method": "SQUASH",
+                "permission": "WRITE",
+                "auto_merge_allowed": True,
+                "pr": self.pull_request(
+                    AUTO_MERGE_PR,
+                    "Docs: add the auto-merge walkthrough",
+                    mergeStateStatus="BLOCKED",
+                    viewerCanEnableAutoMerge=True,
+                    changedFiles=1,
+                    files={"totalCount": 1},
+                    commits=self.commits(1),
+                    statusCheckRollup=rollup("SUCCESS", merged_checks),
+                    reviewRequests=requests("reviewer-a"),
+                ),
+            },
+            # #774: auto-merge on; the viewer may turn it off.
+            AUTO_ON_PR: {
+                "methods": (True, True, True),
+                "default_method": "SQUASH",
+                "permission": "WRITE",
+                "auto_merge_allowed": True,
+                "pr": self.pull_request(
+                    AUTO_ON_PR,
+                    "Docs: reorder the install steps",
+                    mergeStateStatus="BLOCKED",
+                    viewerCanDisableAutoMerge=True,
+                    autoMergeRequest={
+                        "enabledAt": self.ago(2),
+                        "enabledBy": user("octo-dev"),
+                        "mergeMethod": "SQUASH",
+                    },
+                    changedFiles=1,
+                    files={"totalCount": 1},
+                    commits=self.commits(1),
+                    statusCheckRollup=rollup("SUCCESS", merged_checks),
+                    reviewRequests=requests("reviewer-a"),
+                ),
+            },
+            # #775: the base has a merge queue and the PR passes the Merge
+            # gate: "Merge when ready" (no method caret, the queue sets it).
+            QUEUE_READY_PR: {
+                "methods": (True, True, True),
+                "permission": "WRITE",
+                "auto_merge_allowed": True,
+                "pr": self.pull_request(
+                    QUEUE_READY_PR,
+                    "Docs: document the queue settings",
+                    isMergeQueueEnabled=True,
+                    viewerCanEnableAutoMerge=True,
+                    changedFiles=1,
+                    files={"totalCount": 1},
+                    commits=self.commits(1),
+                    statusCheckRollup=rollup("SUCCESS", merged_checks),
+                    reviews=conn([self.review(1, "reviewer-a", "APPROVED", "", 50)]),
+                ),
+            },
+            # #775: the same base, blocked: Enable auto-merge takes over, and
+            # its confirm says the PR joins the queue.
+            QUEUE_BLOCKED_PR: {
+                "methods": (True, True, True),
+                "permission": "WRITE",
+                "auto_merge_allowed": True,
+                "pr": self.pull_request(
+                    QUEUE_BLOCKED_PR,
+                    "Docs: queue the release notes",
+                    mergeStateStatus="BLOCKED",
+                    isMergeQueueEnabled=True,
+                    viewerCanEnableAutoMerge=True,
+                    changedFiles=1,
+                    files={"totalCount": 1},
+                    commits=self.commits(1),
+                    statusCheckRollup=rollup("SUCCESS", merged_checks),
+                    reviewRequests=requests("reviewer-a"),
+                ),
+            },
+            # #775: queued; Remove from queue, "Position N · state".
+            QUEUED_PR: {
+                "methods": (True, True, True),
+                "permission": "WRITE",
+                "auto_merge_allowed": True,
+                "pr": self.pull_request(
+                    QUEUED_PR,
+                    "Docs: tidy the queue page",
+                    isMergeQueueEnabled=True,
+                    isInMergeQueue=True,
+                    mergeQueueEntry={"position": 2, "state": "AWAITING_CHECKS"},
+                    changedFiles=1,
+                    files={"totalCount": 1},
+                    commits=self.commits(1),
+                    statusCheckRollup=rollup("SUCCESS", merged_checks),
+                    reviews=conn([self.review(1, "reviewer-a", "APPROVED", "", 50)]),
+                ),
+            },
         }
 
     def thread(self, i, path, line, hours, body, **over):
@@ -904,6 +1015,7 @@ def write_pr_scenarios(write, now, iso):
                         "squashMergeAllowed": squash,
                         "rebaseMergeAllowed": rebase,
                         "viewerDefaultMergeMethod": scenario.get("default_method", "MERGE"),
+                        "autoMergeAllowed": scenario.get("auto_merge_allowed", False),
                         "viewerPermission": scenario.get("permission", "ADMIN"),
                         "pullRequest": pr,
                     },
@@ -941,7 +1053,7 @@ def write_pr_scenarios(write, now, iso):
     rows = [
         lane_row(scenario["pr"], line.ago(1 + i))
         for i, scenario in enumerate(scenarios.values())
-        if scenario["pr"]["number"] not in (GATED_ONLY_PR, THREADS_CAPPED_PR, THREADS_ERROR_PR, FILES_NOTICES_PR, READY_PR, CLOSED_PR, MERGED_GONE_PR, MERGED_FORK_PR)
+        if scenario["pr"]["number"] not in (GATED_ONLY_PR, THREADS_CAPPED_PR, THREADS_ERROR_PR, FILES_NOTICES_PR, READY_PR, CLOSED_PR, MERGED_GONE_PR, MERGED_FORK_PR, *NEW_ACTION_PRS)
     ]
     error_row = lane_row(
         line.pull_request(missing, "Loader: a PR that fails its detail read"), line.ago(9)
@@ -956,6 +1068,8 @@ def write_pr_scenarios(write, now, iso):
     rows.append(lane_row(scenarios[CLOSED_PR]["pr"], line.ago(15)))
     rows.append(lane_row(scenarios[MERGED_GONE_PR]["pr"], line.ago(16)))
     rows.append(lane_row(scenarios[MERGED_FORK_PR]["pr"], line.ago(17)))
+    for i, number in enumerate(NEW_ACTION_PRS):
+        rows.append(lane_row(scenarios[number]["pr"], line.ago(18 + i)))
     write(
         f"graphql/RepoPulls.{REPO}.json",
         {

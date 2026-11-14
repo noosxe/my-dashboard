@@ -267,6 +267,35 @@ fn the_status_scenarios_carry_how_they_ended_and_what_may_merge() {
     assert!(!fork.deletable());
     assert_eq!(detail(115).state.as_deref(), Some("MERGED"));
 
+    // Auto-merge and the merge queue (#774, #775).
+    let auto = detail(117);
+    assert_eq!(auto.merge_state_status.as_deref(), Some("BLOCKED"));
+    assert!(auto.queueing.auto_merge_allowed && auto.queueing.viewer_can_enable);
+    assert!(auto.queueing.auto_merge.is_none() && !auto.queueing.queue_enabled);
+    let on = detail(118);
+    let request = on.queueing.auto_merge.as_ref().expect("auto-merge on");
+    assert_eq!(request.enabled_by.as_deref(), Some("octo-dev"));
+    assert_eq!(request.merge_method.as_deref(), Some("SQUASH"));
+    assert!(on.queueing.viewer_can_disable);
+    let ready_queue = detail(119);
+    assert!(ready_queue.queueing.queue_enabled && !ready_queue.queueing.in_merge_queue);
+    assert_eq!(ready_queue.merge_state_status.as_deref(), Some("CLEAN"));
+    let blocked_queue = detail(120);
+    assert!(blocked_queue.queueing.queue_enabled);
+    assert_eq!(blocked_queue.merge_state_status.as_deref(), Some("BLOCKED"));
+    let queued = detail(121);
+    assert!(queued.queueing.in_merge_queue);
+    assert_eq!(queued.queueing.queue_position, Some(2));
+    assert_eq!(
+        queued.queueing.queue_state.as_deref(),
+        Some("AWAITING_CHECKS")
+    );
+    // Everything older keeps its controls: no queue, no auto-merge.
+    for n in 101..=107 {
+        assert!(!detail(n).queueing.queue_enabled, "{n}");
+        assert!(!detail(n).queueing.viewer_can_enable, "{n}");
+    }
+
     // 107's last-used method is not allowed there: the page falls back.
     let edge = detail(107);
     assert_eq!(edge.viewer_default_merge_method.as_deref(), Some("SQUASH"));
@@ -360,7 +389,7 @@ fn the_lane_lists_the_scenarios_on_beacon_only() {
     assert_eq!(repo["nameWithOwner"], "fixture-user/beacon");
     let rows = gql::repo_from_value(repo).unwrap().prs.nodes;
     let numbers: Vec<i64> = rows.iter().map(|r| r.number).collect();
-    assert_eq!(numbers, (101..=116).collect::<Vec<_>>());
+    assert_eq!(numbers, (101..=121).collect::<Vec<_>>());
     let atlas = lane("atlas");
     assert_eq!(atlas["data"]["repository"]["pullRequests"]["totalCount"], 0);
 }
