@@ -2959,7 +2959,7 @@ impl GithubState {
     }
 
     /// Arm `lane`'s pause until its bucket resets (docs/0050 D4).
-    fn pause_lane(&mut self, lane: Lane, until: u64, why: std::fmt::Arguments<'_>) {
+    pub(crate) fn pause_lane(&mut self, lane: Lane, until: u64, why: std::fmt::Arguments<'_>) {
         self.rate_limited_until.arm(lane, until);
         log::warn!("{why} — {} paused until epoch {until}", lane.name());
     }
@@ -4319,9 +4319,9 @@ impl GithubState {
         if let Some(m) = &result.network {
             failed = Some(format!("Network error: {m}"));
         } else if result.status != 200 {
-            let status = result.status;
+            let (status, kind) = (result.status, result.kind);
             self.apply(result);
-            failed = Some(format!("GitHub answered HTTP {status}"));
+            failed = Some(self.http_failure_copy(kind, status));
         } else if let Some(message) = result.body.as_deref().and_then(|body| {
             serde_json::from_str::<gql::Envelope<serde_json::Value>>(body)
                 .ok()
@@ -4916,10 +4916,18 @@ impl GithubState {
                 return;
             }
             _ => {
-                if let Some(rate) = result.rate.filter(|r| r.remaining == 0) {
+                // #751: the primary header, `Retry-After` and a secondary
+                // limit's message all arm the pause (`rate_pause/classify`).
+                if let Some(until) = crate::rate_pause::pause_until(
+                    result.status,
+                    result.rate.as_ref(),
+                    result.body.as_deref(),
+                    &[],
+                    budget_now(),
+                ) {
                     self.pause_lane(
                         result.kind.lane(),
-                        rate.reset_epoch,
+                        until,
                         format_args!(
                             "{}: rate-limited (HTTP {})",
                             result.kind.kind_name(),
@@ -5662,6 +5670,9 @@ pub(crate) async fn run_spec_tracked(
         }
     };
     cx.update(|cx| status::end(cx, id));
+    // #751: page-owned reads and writes land their 200s without `apply`,
+    // so the limits a response reports are read here, once, for every run.
+    cx.update(|cx| state.update(cx, |s, _| s.note_limits(&result)));
     result
 }
 
@@ -6496,6 +6507,22 @@ pub(crate) async fn run_mutation(
         max_pages: 1,
         variables: Some(variables),
     };
+    // #721: a write is user-initiated, but a request the paused budget
+    // would refuse changes nothing: answer 429 without sending, and let
+    // the caller's failure copy say the budget is paused.
+    if cx.update(|cx| state.read(cx).pause_in_force(Lane::Graphql).is_some()) {
+        log::debug!("{}: held — GraphQL budget paused", spec.kind.kind_name());
+        return SpecResult {
+            kind: spec.kind,
+            ident: spec.ident,
+            status: 429,
+            etag: None,
+            rate: None,
+            body: None,
+            network: None,
+            cursor: None,
+        };
+    }
     run_spec_tracked(state, spec, cx).await
 }
 
@@ -7194,6 +7221,7 @@ mod tests {
                 limit: 5000,
                 remaining: 4900,
                 reset_epoch: 9_999_999,
+                retry_after: None,
             }),
             body: Some(body.into()),
         })
@@ -8786,6 +8814,7 @@ mod tests {
                 limit: 5000,
                 remaining: 0,
                 reset_epoch: 9_999_999_999,
+                retry_after: None,
             }),
             body: Some(r#"{"message":"rate limit"}"#.into()),
         })]));
@@ -11035,6 +11064,7 @@ mod tests {
                 limit: 5000,
                 remaining: 4900,
                 reset_epoch: 42,
+                retry_after: None,
             }),
             body: None,
         })]));

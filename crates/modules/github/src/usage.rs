@@ -1180,6 +1180,7 @@ mod tests {
             limit,
             remaining,
             reset_epoch,
+            retry_after: None,
         })
     }
 

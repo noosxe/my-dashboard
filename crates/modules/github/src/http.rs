@@ -20,6 +20,10 @@ pub struct RateLimit {
     pub remaining: u32,
     /// UTC epoch seconds when the window resets.
     pub reset_epoch: u64,
+    /// `Retry-After` in seconds, when the response carried one: GitHub's
+    /// secondary-limit signal (#751), which says how long to wait
+    /// whatever the primary budget still holds.
+    pub retry_after: Option<u64>,
 }
 
 /// One HTTP exchange. `body` is `None` exactly when `status == 304`
@@ -180,6 +184,7 @@ fn finish(response: ureq::Response) -> Result<HttpResult, HttpError> {
         response.header("x-ratelimit-limit"),
         response.header("x-ratelimit-remaining"),
         response.header("x-ratelimit-reset"),
+        response.header("retry-after"),
     );
     let body = if status == 304 {
         None
@@ -203,11 +208,13 @@ impl RateLimit {
         limit: Option<&str>,
         remaining: Option<&str>,
         reset: Option<&str>,
+        retry_after: Option<&str>,
     ) -> Option<Self> {
         Some(Self {
             limit: limit?.parse().ok()?,
             remaining: remaining?.parse().ok()?,
             reset_epoch: reset?.parse().ok()?,
+            retry_after: retry_after.and_then(|v| v.trim().parse().ok()),
         })
     }
 }
@@ -312,15 +319,31 @@ mod tests {
 
     #[test]
     fn ratelimit_needs_all_three_headers() {
-        assert!(RateLimit::from_headers(Some("5000"), None, None).is_none());
+        assert!(RateLimit::from_headers(Some("5000"), None, None, None).is_none());
         assert_eq!(
-            RateLimit::from_headers(Some("5000"), Some("4999"), Some("1799999999")),
+            RateLimit::from_headers(Some("5000"), Some("4999"), Some("1799999999"), None),
             Some(RateLimit {
                 limit: 5000,
                 remaining: 4999,
                 reset_epoch: 1799999999,
+                retry_after: None,
             })
         );
+    }
+
+    #[test]
+    fn retry_after_rides_the_rate_snapshot() {
+        let rate =
+            RateLimit::from_headers(Some("5000"), Some("4999"), Some("1799999999"), Some("60"));
+        assert_eq!(rate.and_then(|r| r.retry_after), Some(60));
+        // An HTTP-date or junk value is ignored rather than guessed at.
+        let rate = RateLimit::from_headers(
+            Some("5000"),
+            Some("4999"),
+            Some("1799999999"),
+            Some("Wed, 21 Oct 2026 07:28:00 GMT"),
+        );
+        assert_eq!(rate.and_then(|r| r.retry_after), None);
     }
 
     #[test]

@@ -55,6 +55,8 @@ pub(super) struct ScriptedHttp {
     pub(super) mutations: AtomicUsize,
     /// The status a mutation answers with.
     pub(super) mutation_status: AtomicUsize,
+    /// When set, every detail read answers this instead of the script.
+    pub(super) detail_override: Mutex<Option<HttpResult>>,
 }
 
 fn ok(body: String) -> Result<HttpResult, HttpError> {
@@ -94,6 +96,9 @@ impl Http for ScriptedHttp {
             Some("PrDetail") => {
                 let reads = self.detail_reads.fetch_add(1, Ordering::SeqCst) + 1;
                 assert!(reads <= HOT_LOOP_READS, "hot refetch loop: {reads} reads");
+                if let Some(answer) = self.detail_override.lock().unwrap().clone() {
+                    return Ok(answer);
+                }
                 let mut script = self.detail.lock().unwrap();
                 let s = if script.len() > 1 {
                     script.pop_front()
@@ -156,6 +161,7 @@ impl Rig {
             runs_reads: AtomicUsize::new(0),
             mutations: AtomicUsize::new(0),
             mutation_status: AtomicUsize::new(200),
+            detail_override: Mutex::new(None),
         });
         let client: Arc<dyn Http> = http.clone();
         let records = Arc::new(MemorySink::new(256));
@@ -278,6 +284,21 @@ impl Rig {
     pub(super) fn files_reads(&self) -> usize {
         self.http.files_reads.load(Ordering::SeqCst)
     }
+    /// Answer every following detail read with `status`, `rate` and `body`.
+    pub(super) fn answer_details_with(
+        &self,
+        status: u16,
+        rate: Option<crate::http::RateLimit>,
+        body: &str,
+    ) {
+        *self.http.detail_override.lock().unwrap() = Some(HttpResult {
+            status,
+            etag: None,
+            rate,
+            body: Some(body.to_string()),
+        });
+    }
+
     pub(super) fn runs_reads(&self) -> usize {
         self.http.runs_reads.load(Ordering::SeqCst)
     }
