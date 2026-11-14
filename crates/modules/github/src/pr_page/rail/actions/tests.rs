@@ -160,20 +160,37 @@ fn wired_controls_show_and_unbuilt_ones_stay_off_the_screen() {
         shown_menu(&with(open(), |f| f.draft = true)),
         [MenuItem::Close]
     );
-    // A closed PR shows Reopen alone (#770); Delete branch (#773) is the
-    // next to join it, side by side, and still stays dark.
+    // A closed PR shows Reopen and Delete branch side by side (#770,
+    // #773); a merged one Delete branch alone.
     assert_eq!(
         shown_primaries(&with(open(), |f| f.closed = true)),
-        [Reopen]
+        [Reopen, DeleteBranch]
     );
     assert_eq!(
         shown_primaries(&with(open(), |f| {
             f.closed = true;
             f.can_reopen = false
         })),
-        []
+        [DeleteBranch]
     );
-    assert!(shown_primaries(&with(open(), |f| f.merged = true)).is_empty());
+    assert_eq!(
+        shown_primaries(&with(open(), |f| {
+            f.closed = true;
+            f.can_delete_branch = false
+        })),
+        [Reopen]
+    );
+    assert_eq!(
+        shown_primaries(&with(open(), |f| f.merged = true)),
+        [DeleteBranch]
+    );
+    assert!(
+        shown_primaries(&with(open(), |f| {
+            f.merged = true;
+            f.can_delete_branch = false
+        }))
+        .is_empty()
+    );
     assert_eq!(
         shown_primaries(&with(open(), |f| f.mergeable = true)),
         [Merge]
@@ -225,4 +242,46 @@ fn facts_come_from_the_detail() {
     assert_eq!(shown_primaries(&Facts::of(&d, false)), [ReadyForReview]);
     let d = detail(json!({"isDraft": true, "viewerCanUpdate": false}));
     assert!(shown_primaries(&Facts::of(&d, false)).is_empty());
+}
+
+/// The head branch as the query returns it, for `Facts::of`.
+fn head(name: &str, perm: &str, default: &str) -> serde_json::Value {
+    serde_json::json!({
+        "headRef": {"id": "REF_1", "name": name},
+        "headRepository": {"viewerPermission": perm, "defaultBranchRef": {"name": default}},
+    })
+}
+
+#[test]
+fn delete_branch_follows_the_head_repository_and_its_default_branch() {
+    use crate::pr_page::rail::test_support::detail;
+    use serde_json::json;
+    let facts = |mut patch: serde_json::Value| {
+        patch["state"] = json!("MERGED");
+        Facts::of(&detail(patch), false)
+    };
+    // A writer on the head repository, a feature branch.
+    assert!(facts(head("feat", "WRITE", "main")).can_delete_branch);
+    // A fork: the base permission (ADMIN here) doesn't matter, the fork's
+    // does.
+    let mut fork = head("patch-1", "READ", "main");
+    fork["isCrossRepository"] = json!(true);
+    assert!(!facts(fork).can_delete_branch);
+    let mut fork = head("patch-1", "WRITE", "main");
+    fork["isCrossRepository"] = json!(true);
+    assert!(facts(fork).can_delete_branch);
+    // A deleted fork has no head repository.
+    let mut gone_fork = head("patch-1", "WRITE", "main");
+    gone_fork["headRepository"] = json!(null);
+    assert!(!facts(gone_fork).can_delete_branch);
+    // The default branch, and a head that is already gone.
+    assert!(!facts(head("main", "ADMIN", "main")).can_delete_branch);
+    assert!(!facts(json!({"headRef": null})).can_delete_branch);
+    // `viewerCanDeleteHeadRef` is not the gate (docs/0083 §3.1).
+    let mut flag_only = json!({"headRef": null});
+    flag_only["viewerCanDeleteHeadRef"] = json!(true);
+    assert!(!facts(flag_only).can_delete_branch);
+    let mut flag_false = head("feat", "WRITE", "main");
+    flag_false["viewerCanDeleteHeadRef"] = json!(false);
+    assert!(facts(flag_false).can_delete_branch);
 }

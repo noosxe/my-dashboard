@@ -658,6 +658,8 @@ pub enum Mutation {
     ReadyForReview,
     ConvertToDraft,
     Reopen,
+    // docs/0083 D4 (#773): `deleteRef` on the head branch.
+    DeleteBranch,
     // 0019 D5: timeline-row writes — one variant per document.
     UpdateComment,
     DeleteComment,
@@ -1794,6 +1796,7 @@ fn run_pr_mutation(http: &dyn Http, spec: &FetchSpec, mutation: Mutation) -> Spe
         Mutation::ReadyForReview => gql::PR_READY_MUTATION,
         Mutation::ConvertToDraft => gql::PR_CONVERT_TO_DRAFT_MUTATION,
         Mutation::Reopen => gql::PR_REOPEN_MUTATION,
+        Mutation::DeleteBranch => gql::PR_DELETE_BRANCH_MUTATION,
         Mutation::UpdateComment => gql::PR_UPDATE_COMMENT_MUTATION,
         Mutation::DeleteComment => gql::PR_DELETE_COMMENT_MUTATION,
         Mutation::UpdateReview => gql::PR_UPDATE_REVIEW_MUTATION,
@@ -2183,6 +2186,7 @@ pub(crate) enum PendingKind {
     ReadyForReview,
     ConvertToDraft,
     Reopen,
+    DeleteBranch,
     UpdateBranch,
     Comment,
     Review,
@@ -2207,6 +2211,7 @@ impl PendingKind {
             PendingKind::ReadyForReview => "marking ready…",
             PendingKind::ConvertToDraft => "converting to draft…",
             PendingKind::Reopen => "reopening…",
+            PendingKind::DeleteBranch => "deleting branch…",
             PendingKind::UpdateBranch => "updating branch…",
             PendingKind::Comment => "commenting…",
             PendingKind::Review => "submitting review…",
@@ -2229,6 +2234,7 @@ impl PendingKind {
             PendingKind::ReadyForReview => "Marked ready",
             PendingKind::ConvertToDraft => "Converted to draft",
             PendingKind::Reopen => "Reopened",
+            PendingKind::DeleteBranch => "Branch deleted",
             PendingKind::UpdateBranch => "Updated branch for",
             PendingKind::Comment => "Comment added",
             PendingKind::Review => "Review submitted",
@@ -2251,6 +2257,7 @@ impl PendingKind {
             PendingKind::ReadyForReview => "Ready for review",
             PendingKind::ConvertToDraft => "Convert to draft",
             PendingKind::Reopen => "Reopen",
+            PendingKind::DeleteBranch => "Delete branch",
             PendingKind::UpdateBranch => "Branch update",
             PendingKind::Comment => "Comment",
             PendingKind::Review => "Review",
@@ -2273,6 +2280,7 @@ impl PendingKind {
             PendingKind::ReadyForReview => "marked-ready",
             PendingKind::ConvertToDraft => "converted-to-draft",
             PendingKind::Reopen => "reopened",
+            PendingKind::DeleteBranch => "branch-deleted",
             PendingKind::UpdateBranch => "branch-updated",
             PendingKind::Comment => "commented",
             PendingKind::Review => "review-submitted",
@@ -2297,6 +2305,7 @@ impl PendingKind {
             | PendingKind::ReadyForReview
             | PendingKind::ConvertToDraft
             | PendingKind::Reopen
+            | PendingKind::DeleteBranch
             | PendingKind::UpdateBranch => ErrorScope::Panel,
             PendingKind::Comment
             | PendingKind::Review
@@ -4091,6 +4100,8 @@ impl GithubState {
             PendingKind::Reopen => Some("OPEN"),
             // The draft flips patch `isDraft` below, the same way.
             PendingKind::ReadyForReview | PendingKind::ConvertToDraft => None,
+            // Patched below: the head branch is gone.
+            PendingKind::DeleteBranch => None,
             // Everything else: nothing honest to patch — the post-state
             // (a new comment row, an edited body, the new head OID) is
             // only learnable by refetch (docs/0072 D4).
@@ -4116,6 +4127,13 @@ impl GithubState {
             if let Some(detail) = &mut entry.detail {
                 detail.draft = draft;
             }
+        }
+        if kind == PendingKind::DeleteBranch
+            && let Some(detail) = &mut entry.detail
+        {
+            // docs/0083 D4 (#773): the button goes away at once; the
+            // refetch brings the rest.
+            detail.head_branch = None;
         }
         if let Some(state) = confirmed {
             entry.summary.state = Some(state.to_string());

@@ -69,6 +69,17 @@ pub(crate) fn reopen_enabled(
     state == Some("CLOSED") && can_reopen && !id_empty && !busy
 }
 
+/// Delete branch (#773): a merged or closed PR whose head branch still
+/// exists and the viewer may delete (`HeadBranch::deletable`: write access
+/// on the head repository, not its default branch), idle.
+pub(crate) fn delete_branch_enabled(
+    state: Option<&str>,
+    head: Option<&crate::gql::HeadBranch>,
+    busy: bool,
+) -> bool {
+    matches!(state, Some("MERGED" | "CLOSED")) && head.is_some_and(|h| h.deletable()) && !busy
+}
+
 /// Whether `mergeStateStatus` lets a normal merge through. Allowlist:
 /// `CLEAN`, `HAS_HOOKS` and `UNSTABLE` are documented as mergeable;
 /// `BLOCKED` (required reviews or checks), `BEHIND` (strict up-to-date
@@ -166,6 +177,36 @@ mod tests {
         assert!(!reopen_enabled(None, true, false, false));
         assert!(!reopen_enabled(Some("CLOSED"), true, true, false));
         assert!(!reopen_enabled(Some("CLOSED"), true, false, true));
+    }
+
+    #[test]
+    fn delete_branch_enabled_table() {
+        use crate::gql::HeadBranch;
+        let head = |perm: &str, name: &str| HeadBranch {
+            id: "REF_1".into(),
+            name: name.into(),
+            repo_permission: Some(perm.into()),
+            default_branch: Some("main".into()),
+        };
+        let ok = head("WRITE", "feat");
+        assert!(delete_branch_enabled(Some("MERGED"), Some(&ok), false));
+        assert!(delete_branch_enabled(Some("CLOSED"), Some(&ok), false));
+        // Open PRs keep their branch; draft or not.
+        assert!(!delete_branch_enabled(Some("OPEN"), Some(&ok), false));
+        assert!(!delete_branch_enabled(None, Some(&ok), false));
+        // Gone, read-only, the default branch, busy.
+        assert!(!delete_branch_enabled(Some("MERGED"), None, false));
+        assert!(!delete_branch_enabled(
+            Some("MERGED"),
+            Some(&head("READ", "feat")),
+            false
+        ));
+        assert!(!delete_branch_enabled(
+            Some("MERGED"),
+            Some(&head("ADMIN", "main")),
+            false
+        ));
+        assert!(!delete_branch_enabled(Some("MERGED"), Some(&ok), true));
     }
 
     #[test]

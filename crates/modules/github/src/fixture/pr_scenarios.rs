@@ -250,6 +250,23 @@ fn the_status_scenarios_carry_how_they_ended_and_what_may_merge() {
     assert!(!detail(105).viewer_can_reopen && !detail(101).viewer_can_reopen);
     assert!(detail(103).draft && detail(103).viewer_can_update);
 
+    // Delete branch (#773): the viewer may delete 104's and 114's head
+    // branches, 115's is gone, and 116's lives in a fork they can't write.
+    for n in [104, 114] {
+        assert!(
+            detail(n)
+                .head_branch
+                .as_ref()
+                .is_some_and(|h| h.deletable()),
+            "{n}"
+        );
+    }
+    assert!(detail(115).head_branch.is_none());
+    let fork = detail(116).head_branch.expect("fork head");
+    assert_eq!(fork.repo_permission.as_deref(), Some("READ"));
+    assert!(!fork.deletable());
+    assert_eq!(detail(115).state.as_deref(), Some("MERGED"));
+
     // 107's last-used method is not allowed there: the page falls back.
     let edge = detail(107);
     assert_eq!(edge.viewer_default_merge_method.as_deref(), Some("SQUASH"));
@@ -343,7 +360,7 @@ fn the_lane_lists_the_scenarios_on_beacon_only() {
     assert_eq!(repo["nameWithOwner"], "fixture-user/beacon");
     let rows = gql::repo_from_value(repo).unwrap().prs.nodes;
     let numbers: Vec<i64> = rows.iter().map(|r| r.number).collect();
-    assert_eq!(numbers, (101..=114).collect::<Vec<_>>());
+    assert_eq!(numbers, (101..=116).collect::<Vec<_>>());
     let atlas = lane("atlas");
     assert_eq!(atlas["data"]["repository"]["pullRequests"]["totalCount"], 0);
 }
