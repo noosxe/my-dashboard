@@ -236,8 +236,13 @@ impl PrDetailPage {
     /// for the next interval.
     fn watch_wake(&mut self, cx: &mut Context<Self>) {
         self.watch.probe_timer = None;
-        if self.watched(cx) && !self.lanes_busy(cx) {
+        let watched = self.watched(cx);
+        if watched && !self.lanes_busy(cx) {
             self.run_probe(cx);
+        } else if watched && !self.watch.book.seeded() {
+            // The open's own read is still flying: the seed isn't worth a
+            // whole interval's wait.
+            self.arm_probe(FIRST_PROBE, cx);
         } else {
             let next = interval(self.cadence(cx));
             self.arm_probe(next, cx);
@@ -315,10 +320,12 @@ impl PrDetailPage {
         self.probe_step(Some(step), cx);
     }
 
-    /// The tick is over: act on the findings, then arm the next one.
+    /// The tick is over: act on the findings, then arm the next one. A
+    /// change just made the page Hot, so the interval is read after.
     fn finish_probe(&mut self, cx: &mut Context<Self>) {
         self.watch.in_tick = false;
         let findings = self.watch.book.finish_tick();
+        self.act_on(findings, cx);
         let base = interval(self.cadence(cx));
         let next = if findings.failed {
             self.watch.fail_streak += 1;
@@ -326,13 +333,6 @@ impl PrDetailPage {
         } else {
             self.watch.fail_streak = 0;
             base
-        };
-        self.act_on(findings, cx);
-        // Re-read: a change just made the page Hot.
-        let next = if findings.failed {
-            next
-        } else {
-            interval(self.cadence(cx))
         };
         self.arm_probe(next, cx);
         cx.notify();
