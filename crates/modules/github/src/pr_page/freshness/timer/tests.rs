@@ -276,11 +276,12 @@ fn a_tick_is_skipped_while_a_lane_is_in_flight(cx: &mut TestAppContext) {
     tick(vcx);
     assert!(rig.probe_statuses(None).is_empty(), "skipped");
     set(&rig, vcx, false);
-    tick(vcx);
+    // Not seeded yet, so the retry is quick instead of a whole interval.
+    seed(vcx);
     assert_eq!(
         rig.probe_statuses(None),
         [200, 200],
-        "back on the next tick"
+        "back on the next retry"
     );
 }
 
