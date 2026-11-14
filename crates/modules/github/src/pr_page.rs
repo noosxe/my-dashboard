@@ -1640,7 +1640,7 @@ impl PrDetailPage {
             .child(
                 Icon::new(IconName::Pause)
                     .size_4()
-                    .text_color(cx.theme().warning),
+                    .text_color(cx.theme().danger),
             )
             .child(div().text_sm().min_w_0().flex_1().truncate().child(label));
         let age = relative_age(gated.created_at.as_deref());
@@ -4504,7 +4504,7 @@ impl PrDetailPage {
                                 .role(accesskit::Role::Status)
                                 .aria_label(note.clone())
                                 .text_xs()
-                                .text_color(cx.theme().warning)
+                                .text_color(cx.theme().danger)
                                 .child(note),
                         )
                     }),

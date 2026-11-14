@@ -217,6 +217,17 @@ the PR page's Esc ordering and the discard confirm (docs/0043 D7, #744):
 Esc closes the rebase confirm before the page, and Esc over a queued
 review draft asks "Discard 1 review draft?" first.
 
+`pr-notification-open.txt` (session `prnotif`, 1280x800, same clock) opens
+beacon's PR 101 from a notification and goes back: the Open PRs lane must
+still list it with its state and CI glyph (#874). The committed fixtures
+carry no notifications (adding one would move every goldens' counts), so
+the receipt runs over an overlay: `pr-notification-open-fixtures.sh <dir>`
+copies the tree and adds one, and `DASHBOARD_GITHUB_FIXTURE` points at the
+copy. `pr-paused-note.txt` (session `prpaused`, the committed fixtures with
+`DASHBOARD_GITHUB_FIXTURE_RATE=graphql-exhausted`) opens PR 101 under the
+GraphQL pause: the detail read is held and the page names the pause beside
+Refresh (#721, #751), with `audit` and `tab-stops`.
+
 `pr-files-notices.txt` (session `prnotices`, same fixtures and clock, at
 **1280x900** — the lane's twelfth row is below the fold at 800 high)
 walks the Files tab of fixture PR #112 (#753, #760): a malformed, an
