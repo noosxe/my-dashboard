@@ -29,7 +29,6 @@ use gpui_component::{
     button::{Button, ButtonVariants},
     checkbox::Checkbox,
     diff::DiffState,
-    group_box::GroupBox,
     h_flex,
     input::{InputEvent, InputState, Textarea, TextareaState},
     list::{ListEvent, ListState},
@@ -85,7 +84,7 @@ use checks::identity::{CheckKey, CheckTarget};
 use checks::log_cache::{JobLogCache, LandedLog};
 use checks::log_error;
 use leave_guard::LeaveIntent;
-use merge_confirm::{ConfirmKind, MergeConfirm};
+use merge_confirm::MergeConfirm;
 use merge_gate::{close_enabled, close_visible, merge_enabled, merge_visible};
 
 use crate::api::{self, PrFile};
@@ -624,12 +623,12 @@ pub(crate) struct PrDetailPage {
     pub(crate) finish_summary: Option<Entity<TextareaState>>,
     /// The event the Finish bar will submit (docs/0030 D4; Comment default).
     pub(crate) finish_event: FinishEvent,
-    /// Methods the repo allows (D5), from the detail payload — drives the
-    /// method Select and the Merge button verb.
-    methods: Vec<MergeMethod>,
-    /// Method Select state — built once, on the first render that has a
-    /// detail payload (SelectState needs a window; render has one).
-    method_select: Option<Entity<SelectState<SearchableVec<SharedString>>>>,
+    /// Methods the repo allows (D5), from the detail payload — drive the
+    /// Merge button's caret and verb.
+    pub(super) methods: Vec<MergeMethod>,
+    /// The method the Merge button uses (docs/0083 D4): set from the
+    /// allowed methods on the first detail, changed from the caret.
+    pub(super) merge_method: Option<MergeMethod>,
     /// docs/0067 D4 — the rebase option's force-push confirm (the
     /// two-step delete-confirm pattern; the panel renders it in place
     /// of the split button while up).
@@ -897,7 +896,7 @@ impl PrDetailPage {
             leave_confirm: None,
             merge_confirm: MergeConfirm::default(),
             methods: Vec::new(),
-            method_select: None,
+            merge_method: None,
             files: Fetch::new(),
             check_logs: BTreeMap::new(),
             job_logs: JobLogCache::default(),
@@ -3223,7 +3222,7 @@ impl PrDetailPage {
         {
             return;
         }
-        let method = self.selected_method(cx).unwrap_or(MergeMethod::Merge);
+        let method = self.selected_method().unwrap_or(MergeMethod::Merge);
         let variables =
             json!({ "input": { "pullRequestId": d.id, "mergeMethod": method.as_str() } });
         self.begin_store_mutation(
@@ -3912,14 +3911,10 @@ impl PrDetailPage {
         self.focus_handle.focus(window, cx);
     }
 
-    /// The method the Select currently names — `None` when the Select has
-    /// nothing selected or names a label this build doesn't know.
-    fn selected_method(&self, cx: &Context<Self>) -> Option<MergeMethod> {
-        let selected = self.method_select.as_ref()?.read(cx).selected_value()?;
-        self.methods
-            .iter()
-            .copied()
-            .find(|m| m.label() == selected.as_ref())
+    /// The method the Merge button uses — `None` until the detail names
+    /// the repo's allowed methods.
+    pub(super) fn selected_method(&self) -> Option<MergeMethod> {
+        self.merge_method
     }
 
     fn spawn_mutation(
@@ -5013,6 +5008,17 @@ impl PrDetailPage {
                         age.push_str(" (edited)");
                     }
                     let badge = review_badge(r.state.as_deref(), cx);
+                    // docs/0083 D3: the Reviews gate row's jump rides the
+                    // same anchor as the notification hand-off.
+                    let anchored = matches!(
+                        &self.anchor,
+                        CommentAnchor::Highlighted(id) | CommentAnchor::Jumping(id) if *id == r.id
+                    );
+                    let mut jump_ix = None;
+                    if anchored && !self.jump_done.get() {
+                        self.jump_done.set(true);
+                        jump_ix = Some(children.len());
+                    }
                     let actions = self.row_actions(
                         &key,
                         r.id.as_str(),
@@ -5049,9 +5055,12 @@ impl PrDetailPage {
                             r.viewer_can_react,
                             cx,
                         ),
-                        false,
+                        anchored,
                         cx,
                     ));
+                    if let Some(ix) = jump_ix {
+                        self.timeline_scroll.scroll_to_top_of_item(ix);
+                    }
                 }
             }
         }
@@ -5154,325 +5163,6 @@ impl PrDetailPage {
         self.busy = Some(op);
         cx.notify();
         self.spawn_mutation(op, payload.0, payload.1, window, cx);
-    }
-
-    fn render_merge_panel(&self, d: &gql::PrDetail, cx: &Context<Self>) -> AnyElement {
-        let tone = pr_state_tone(d.state.as_deref(), d.draft);
-        let busy = self.busy.is_some();
-        // docs/0072 D4: the document's optimistic write, from the store.
-        let pending = self.store_pending(cx);
-        let any_busy = busy || pending.is_some();
-        // Terminal states (D5): the refetch after merge/close repaints the
-        // panel as a note — no actions on a PR that is already done.
-        if tone == PrStateTone::Merged || tone == PrStateTone::Closed {
-            let (label, color) = match tone {
-                PrStateTone::Merged => ("Merged", cx.theme().success),
-                _ => ("Closed", cx.theme().muted_foreground),
-            };
-            return GroupBox::new()
-                .id("pr-merge-panel")
-                .title("Merge")
-                .child(
-                    v_flex()
-                        .gap_1()
-                        .py_1()
-                        .child(Badge::new().color(color).child(label))
-                        .child(
-                            div()
-                                .text_sm()
-                                .text_color(cx.theme().muted_foreground)
-                                .child("This pull request is no longer open."),
-                        ),
-                )
-                .into_any_element();
-        }
-        // The state line (D5): mergeStateStatus wording; a draft overrides
-        // whatever GitHub still reports.
-        let (line, line_tone) = if d.draft {
-            (
-                "Draft pull requests can't be merged until marked ready",
-                MergeLineTone::Muted,
-            )
-        } else {
-            merge_state_line(d.merge_state_status.as_deref())
-        };
-        let line_color = match line_tone {
-            MergeLineTone::Success => cx.theme().success,
-            MergeLineTone::Warning => cx.theme().warning,
-            MergeLineTone::Danger => cx.theme().danger,
-            MergeLineTone::Muted => cx.theme().muted_foreground,
-        };
-        let show_merge = merge_visible(d.viewer_permission.as_deref());
-        let show_close = close_visible(d.viewer_can_close);
-        let can_merge = merge_enabled(
-            d.state.as_deref(),
-            d.draft,
-            d.mergeable.as_deref(),
-            d.merge_state_status.as_deref(),
-            any_busy,
-            self.methods.is_empty(),
-        );
-        // docs/0067 D1/D2: the update-branch split button — hidden
-        // unless the server gate is open, never disabled-guessed.
-        let can_update =
-            update_branch_enabled(d.state.as_deref(), d.viewer_can_update_branch, any_busy)
-                && !d.id.is_empty()
-                && d.head_oid.as_deref().is_some_and(|oid| !oid.is_empty());
-        // Method selector (D5): shown only when the repo allows a real
-        // choice; a single method makes the button carry the verb.
-        let method_row = match (&self.method_select, self.methods.len()) {
-            (Some(select), n) if n > 1 && show_merge => {
-                Select::new(select).small().w_full().into_any_element()
-            }
-            _ => div().into_any_element(),
-        };
-        let merge_label: SharedString = if pending == Some(PendingKind::Merge) {
-            "working…".into()
-        } else if self.methods.len() == 1 {
-            self.methods[0].verb().into()
-        } else {
-            "Merge pull request".into()
-        };
-        GroupBox::new()
-            .id("pr-merge-panel")
-            .title("Merge")
-            .child(
-                v_flex()
-                    .gap_2()
-                    .py_1()
-                    .child(div().text_sm().text_color(line_color).child(line))
-                    .when(can_update && !self.update_rebase_confirm, |col| {
-                        col.child(self.render_update_branch_row(any_busy, cx))
-                    })
-                    .when(self.update_rebase_confirm, |col| {
-                        col.child(self.render_update_rebase_confirm(d, cx))
-                    })
-                    .child(method_row)
-                    .when_some(self.panel_error(cx), |col, e| {
-                        col.child(
-                            div()
-                                .text_sm()
-                                .text_color(cx.theme().danger)
-                                .child(e.message.clone()),
-                        )
-                    })
-                    .when_some(self.merge_confirm.current(), |col, kind| {
-                        col.child(self.render_merge_confirm(kind, d, cx))
-                    })
-                    .when(self.merge_confirm.current().is_none(), |col| {
-                        col.child(
-                            h_flex()
-                                .gap_2()
-                                .items_center()
-                                .when(
-                                    matches!(
-                                        pending,
-                                        Some(PendingKind::Merge | PendingKind::Close)
-                                    ),
-                                    |row| row.child(Spinner::new().small()),
-                                )
-                                .when(show_merge, |row| {
-                                    row.child(
-                                        Button::new("pr-merge")
-                                            .debug_selector(|| "pr-merge".to_string())
-                                            .label(merge_label)
-                                            .primary()
-                                            .small()
-                                            .disabled(!can_merge)
-                                            .tooltip(if pending.is_some() {
-                                                SharedString::from("Working")
-                                            } else {
-                                                merge_disabled_reason(can_merge, line)
-                                            })
-                                            .on_click(cx.listener(|this, _, window, cx| {
-                                                this.open_merge_confirm(
-                                                    ConfirmKind::Merge,
-                                                    window,
-                                                    cx,
-                                                )
-                                            })),
-                                    )
-                                })
-                                .when(show_close, |row| {
-                                    row.child(
-                                        Button::new("pr-close")
-                                            .debug_selector(|| "pr-close".to_string())
-                                            .label("Close pull request")
-                                            .danger()
-                                            .ghost()
-                                            .small()
-                                            .disabled(
-                                                any_busy || d.state.as_deref() != Some("OPEN"),
-                                            )
-                                            .on_click(cx.listener(|this, _, window, cx| {
-                                                this.open_merge_confirm(
-                                                    ConfirmKind::Close,
-                                                    window,
-                                                    cx,
-                                                )
-                                            })),
-                                    )
-                                }),
-                        )
-                    }),
-            )
-            .into_any_element()
-    }
-
-    /// The update-branch split-button row (docs/0067 D1): the main click
-    /// is the merge-commit update; the dropdown offers both methods —
-    /// rebase arms the confirm instead of firing.
-    fn render_update_branch_row(&self, busy: bool, cx: &Context<Self>) -> AnyElement {
-        let weak = cx.entity().downgrade();
-        h_flex()
-            .id("pr-update-branch-row")
-            .debug_selector(|| "pr-update-branch-row".to_string())
-            .gap_2()
-            .items_center()
-            .when(
-                self.store_pending(cx) == Some(PendingKind::UpdateBranch),
-                |row| row.child(Spinner::new().small()),
-            )
-            .child(
-                Button::new("pr-update-branch")
-                    .debug_selector(|| "pr-update-branch".to_string())
-                    .label("Update branch")
-                    .small()
-                    .disabled(busy)
-                    .tooltip("Bring this branch up to date with the base branch")
-                    .dropdown_menu(move |menu, _, _| {
-                        let mut next = menu;
-                        for method in [UpdateBranchMethod::MergeCommit, UpdateBranchMethod::Rebase]
-                        {
-                            let item_weak = weak.clone();
-                            let probe = format!("pr-update-branch-{}", method.slug());
-                            next = next.item(
-                                PopupMenuItem::element(move |_, _| {
-                                    // Probe-visible row (0010 D10) — the
-                                    // plain Item variant is not.
-                                    let key = probe.clone();
-                                    h_flex()
-                                        .debug_selector(move || key.clone())
-                                        .child(method.menu_label())
-                                })
-                                .disabled(busy)
-                                .on_click(move |_, window, cx| {
-                                    // The click dispatches inside the window's
-                                    // update — defer to the end of the effect
-                                    // cycle, then post from the live context
-                                    // (the reaction picker's pattern).
-                                    let item_weak = item_weak.clone();
-                                    window.defer(cx, move |window, cx| {
-                                        let _ = item_weak.update(cx, |page, cx| match method {
-                                            UpdateBranchMethod::MergeCommit => {
-                                                page.update_branch_pr(method, window, cx)
-                                            }
-                                            UpdateBranchMethod::Rebase => {
-                                                page.arm_update_rebase(window, cx)
-                                            }
-                                        });
-                                    });
-                                }),
-                            );
-                        }
-                        next
-                    }),
-            )
-            .into_any_element()
-    }
-
-    /// The rebase confirm (docs/0067 D4) — the force-push warning with
-    /// Rebase branch / Cancel, riding the panel's inline surface.
-    fn render_update_rebase_confirm(&self, d: &gql::PrDetail, cx: &Context<Self>) -> AnyElement {
-        v_flex()
-            .id("pr-update-rebase-confirm")
-            .debug_selector(|| "pr-update-rebase-confirm".to_string())
-            .gap_2()
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(cx.theme().warning)
-                    .child(format!(
-                        "Rebase {} onto {} and force-push the branch? Anyone \
-                         working off it must re-pull.",
-                        d.head_ref.as_deref().unwrap_or_default(),
-                        d.base_ref.as_deref().unwrap_or_default()
-                    )),
-            )
-            .child(
-                h_flex()
-                    .gap_2()
-                    .child(
-                        Button::new("pr-update-rebase-go")
-                            .debug_selector(|| "pr-update-rebase-go".to_string())
-                            .label("Rebase branch")
-                            .danger()
-                            .small()
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.update_branch_pr(UpdateBranchMethod::Rebase, window, cx)
-                            })),
-                    )
-                    .child(
-                        Button::new("pr-update-rebase-cancel")
-                            .debug_selector(|| "pr-update-rebase-cancel".to_string())
-                            .label("Cancel")
-                            .ghost()
-                            .small()
-                            .on_click(cx.listener(|this, _, _, cx| this.cancel_update_rebase(cx))),
-                    ),
-            )
-            .into_any_element()
-    }
-
-    fn render_checks_summary(&self, d: &gql::PrDetail, cx: &Context<Self>) -> AnyElement {
-        // docs/0066 D3 (rail amendment): the sweep's waiting count
-        // overrides the rollup — "Checks status unknown" on a gated PR
-        // is a lie, the held runs are exactly why nothing reports.
-        let waiting = self.gated.data().map(|rows| rows.len()).unwrap_or(0);
-        let (label, tone) = checks_summary_line(d.rollup_state.as_deref(), waiting);
-        let color = match tone {
-            ChecksTone::Success => cx.theme().success,
-            ChecksTone::Danger => cx.theme().danger,
-            ChecksTone::Warning => cx.theme().warning,
-            ChecksTone::Muted => cx.theme().muted_foreground,
-        };
-        let (button_label, button_tooltip) = if waiting > 0 {
-            (
-                "Review approval",
-                "Approve or reject the held workflow runs",
-            )
-        } else {
-            ("View checks", "Open the checks tab")
-        };
-        v_flex()
-            .id("pr-checks-summary")
-            .gap_2()
-            .rounded_md()
-            .border_1()
-            .border_color(cx.theme().border)
-            .p_3()
-            .child(
-                section_header(label)
-                    .id("pr-checks-summary-label")
-                    .debug_selector(|| "pr-checks-summary-label".to_string())
-                    .text_color(color),
-            )
-            .child(
-                div()
-                    .debug_selector(|| "pr-view-checks-btn".to_string())
-                    .child(
-                        Button::new("pr-view-checks")
-                            .ghost()
-                            .small()
-                            .label(button_label)
-                            .tooltip(button_tooltip)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.tab = PrTab::Checks;
-                                cx.notify();
-                            })),
-                    ),
-            )
-            .into_any_element()
     }
 
     /// The comment box (D4): draft Textarea + action Select + submit.
@@ -5579,29 +5269,16 @@ impl Render for PrDetailPage {
             self.anchor = CommentAnchor::Highlighted(id);
             self.start_anchor_fade(cx);
         }
-        // Method Select (D5): `SelectState` needs a window, so it is built
-        // on the first render that has a detail payload — once per page
-        // (a repo's allowed methods can't change while the page is open).
-        if self.method_select.is_none()
+        // Allowed merge methods (D5), once per page: a repo's settings
+        // can't change while it is open. The default is the first the
+        // repo allows, merge commit preferred (#776 moves it to the
+        // viewer's last-used method).
+        if self.methods.is_empty()
             && let Some(d) = self.detail(cx)
         {
             let methods = allowed_methods(&d.merge_methods);
-            if !methods.is_empty() {
-                let labels: Vec<SharedString> = methods
-                    .iter()
-                    .map(|m| SharedString::from(m.label()))
-                    .collect();
-                let default = default_method(&methods).unwrap_or(methods[0]);
-                let default_label: SharedString = default.label().into();
-                let select = cx.new(|cx| {
-                    let mut select =
-                        SelectState::new(SearchableVec::from(labels), None, window, cx);
-                    select.set_selected_value(&default_label, window, cx);
-                    select
-                });
-                self.methods = methods;
-                self.method_select = Some(select);
-            }
+            self.merge_method = default_method(&methods);
+            self.methods = methods;
         }
         let detail = self.detail(cx);
         page_canvas()
@@ -6193,58 +5870,6 @@ pub(crate) fn default_method(methods: &[MergeMethod]) -> Option<MergeMethod> {
         .or_else(|| methods.first().copied())
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum MergeLineTone {
-    Success,
-    Warning,
-    Danger,
-    Muted,
-}
-
-/// Rail state-line wording from `MergeStateStatus` (D5; enum values
-/// verified against the GraphQL reference).
-pub(crate) fn merge_state_line(status: Option<&str>) -> (&'static str, MergeLineTone) {
-    match status {
-        Some("CLEAN") | Some("HAS_HOOKS") => (
-            "This branch has no conflicts with the base branch",
-            MergeLineTone::Success,
-        ),
-        Some("BEHIND") => (
-            "This branch is out-of-date with the base branch",
-            MergeLineTone::Warning,
-        ),
-        Some("BLOCKED") => (
-            "Merging is blocked by required reviews or status checks",
-            MergeLineTone::Warning,
-        ),
-        Some("DIRTY") => (
-            "This branch has conflicts that must be resolved",
-            MergeLineTone::Danger,
-        ),
-        Some("DRAFT") => (
-            "Draft pull requests can't be merged until marked ready",
-            MergeLineTone::Muted,
-        ),
-        Some("UNSTABLE") => (
-            "Mergeable, but some checks are not passing",
-            MergeLineTone::Muted,
-        ),
-        _ => (
-            "GitHub is still calculating merge status",
-            MergeLineTone::Muted,
-        ),
-    }
-}
-
-/// Tooltip for the Merge button — the state line doubles as the reason.
-fn merge_disabled_reason(can_merge: bool, line: &str) -> SharedString {
-    if can_merge {
-        "Merge this pull request".into()
-    } else {
-        line.into()
-    }
-}
-
 /// Update-branch gating (docs/0067 D2): open, server gate open, idle.
 /// The schema defines `viewerCanUpdateBranch` false when the head ref
 /// is up to date or the viewer can't update it — the complete gate; we
@@ -6274,44 +5899,6 @@ pub(crate) fn review_event(action: &str) -> Option<&'static str> {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ChecksTone {
-    Success,
-    Danger,
-    Warning,
-    Muted,
-}
-
-/// Checks mini-summary wording from `statusCheckRollup.state` (D5) —
-/// unknown/absent states degrade to a muted line, never an error.
-pub(crate) fn rollup_summary(state: Option<&str>) -> (&'static str, ChecksTone) {
-    match state {
-        Some("SUCCESS") => ("All checks passed", ChecksTone::Success),
-        Some("FAILURE") => ("Some checks failed", ChecksTone::Danger),
-        Some("ERROR") => ("Some checks errored", ChecksTone::Danger),
-        Some("PENDING") => ("Checks are running", ChecksTone::Warning),
-        Some("EXPECTED") => ("Checks are queued", ChecksTone::Muted),
-        _ => ("Checks status unknown", ChecksTone::Muted),
-    }
-}
-
-/// The rail summary line (docs/0066 D3, rail amendment): gated runs
-/// override the rollup — GitHub's rollup cannot see approval-held runs
-/// (they have no check runs yet), so the line must never read "unknown"
-/// while a run is waiting. `waiting` is the gated-run count from the
-/// sweep; zero delegates to [`rollup_summary`] untouched. When both a
-/// rollup state and waiting runs exist, waiting wins — the checks tab
-/// carries the full picture either way.
-pub(crate) fn checks_summary_line(rollup: Option<&str>, waiting: usize) -> (String, ChecksTone) {
-    if waiting > 0 {
-        return (
-            format!("{waiting} waiting for approval"),
-            ChecksTone::Warning,
-        );
-    }
-    let (label, tone) = rollup_summary(rollup);
-    (label.to_string(), tone)
-}
 fn tab_label(name: &str, count: Option<i64>) -> SharedString {
     match count {
         Some(c) => format!("{name} ({c})").into(),
@@ -6783,13 +6370,12 @@ mod tests {
     use crate::issue_page::reaction_direction;
     use crate::pickers::PickerFetch;
     use crate::pr_page::{
-        BusyOp, ChecksCounts, ChecksTone, ErrorScope, FinishEvent, LineComposer, MergeLineTone,
-        MergeMethod, PrDetailPage, PrMetaEditor, PrStateTone, PrTab, ReviewTone, TimelineKind,
-        allowed_methods, checks_counts, checks_summary_line, comment_action_allowed,
-        composer_body_allowed, default_method, gate_error_copy, merge_state_line,
+        BusyOp, ChecksCounts, ErrorScope, FinishEvent, LineComposer, MergeMethod, PrDetailPage,
+        PrMetaEditor, PrStateTone, PrTab, ReviewTone, TimelineKind, allowed_methods, checks_counts,
+        comment_action_allowed, composer_body_allowed, default_method, gate_error_copy,
         pr_assignees_arming, pr_labels_arming, pr_milestone_arming, pr_reviewers_arming,
-        pr_state_tone, review_batch_allowed, review_event, review_state_label, rollup_summary,
-        short_sha, split_repo, timeline_order, update_branch_enabled,
+        pr_state_tone, review_batch_allowed, review_event, review_state_label, short_sha,
+        split_repo, timeline_order, update_branch_enabled,
     };
     use crate::service::{GithubCache, GithubState, PendingKind, update_branch_error_copy};
     use crate::usage::Origin;
@@ -9696,30 +9282,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn checks_summary_line_lets_waiting_override_the_rollup() {
-        // docs/0066 D3 rail amendment: a gated PR's rail must not read
-        // "Checks status unknown" — the held runs are exactly why
-        // nothing reports. Waiting wins over any rollup state…
-        assert_eq!(
-            checks_summary_line(None, 2),
-            ("2 waiting for approval".to_string(), ChecksTone::Warning)
-        );
-        assert_eq!(
-            checks_summary_line(Some("SUCCESS"), 1),
-            ("1 waiting for approval".to_string(), ChecksTone::Warning)
-        );
-        // …and zero waiting delegates to the rollup line untouched.
-        assert_eq!(
-            checks_summary_line(Some("SUCCESS"), 0),
-            ("All checks passed".to_string(), ChecksTone::Success)
-        );
-        assert_eq!(
-            checks_summary_line(None, 0),
-            ("Checks status unknown".to_string(), ChecksTone::Muted)
-        );
-    }
-
     #[gpui::test]
     fn gated_runs_render_fork_gate_approve_only(cx: &mut gpui::TestAppContext) {
         // docs/0066 D3/D4: a fork-gated run renders its waiting section
@@ -9760,10 +9322,9 @@ mod tests {
             vcx.debug_bounds("pr-gate-review-37300500213").is_none(),
             "a fork-gated row renders no review panel"
         );
-        // The conversation rail says the same thing (docs/0066 D3 rail
-        // amendment): the summary label is the waiting line — never
-        // "Checks status unknown" while rows are held — and the jump
-        // button reads "Review approval".
+        // The conversation rail says the same thing (docs/0066 D3, docs/0083
+        // D3): the Checks gate row carries the waiting count — never "No
+        // checks" while rows are held — and opens the Checks tab.
         vcx.update(|_, cx| {
             page.update(cx, |p, cx| {
                 p.tab = PrTab::Conversation;
@@ -9774,12 +9335,8 @@ mod tests {
             window.draw(cx).clear(cx);
         });
         assert!(
-            vcx.debug_bounds("pr-checks-summary-label").is_some(),
-            "the rail summary renders on the conversation tab"
-        );
-        assert!(
-            vcx.debug_bounds("pr-view-checks-btn").is_some(),
-            "the rail's review-approval jump renders"
+            vcx.debug_bounds("pr-rail-gate-checks").is_some(),
+            "the Checks gate row renders on the conversation tab"
         );
     }
 
@@ -10033,56 +9590,6 @@ mod tests {
     }
 
     #[test]
-    fn merge_state_line_table() {
-        assert_eq!(
-            merge_state_line(Some("CLEAN")),
-            (
-                "This branch has no conflicts with the base branch",
-                MergeLineTone::Success,
-            )
-        );
-        assert_eq!(
-            merge_state_line(Some("HAS_HOOKS")),
-            (
-                "This branch has no conflicts with the base branch",
-                MergeLineTone::Success,
-            )
-        );
-        assert_eq!(
-            merge_state_line(Some("BEHIND")),
-            (
-                "This branch is out-of-date with the base branch",
-                MergeLineTone::Warning,
-            )
-        );
-        assert_eq!(
-            merge_state_line(Some("BLOCKED")),
-            (
-                "Merging is blocked by required reviews or status checks",
-                MergeLineTone::Warning,
-            )
-        );
-        assert_eq!(
-            merge_state_line(Some("DIRTY")),
-            (
-                "This branch has conflicts that must be resolved",
-                MergeLineTone::Danger,
-            )
-        );
-        for status in [
-            Some("DRAFT"),
-            Some("UNSTABLE"),
-            Some("UNKNOWN"),
-            Some("WEIRD"),
-            None,
-        ] {
-            let (line, tone) = merge_state_line(status);
-            assert_eq!(tone, MergeLineTone::Muted, "status {status:?}");
-            assert!(!line.is_empty());
-        }
-    }
-
-    #[test]
     fn allowed_methods_covers_zero_through_three() {
         assert_eq!(
             allowed_methods(&MergeMethods {
@@ -10205,7 +9712,10 @@ mod tests {
         vcx.update(|_, cx| {
             page.update(cx, |p, cx| {
                 let mut d = p.detail(cx).unwrap().clone();
+                d.id = "PR_1".into();
                 d.state = Some("OPEN".into());
+                d.mergeable = Some("MERGEABLE".into());
+                d.merge_state_status = Some("BEHIND".into());
                 d.head_oid = Some("abc123".into());
                 d.viewer_can_update_branch = true;
                 p.state
@@ -10261,7 +9771,11 @@ mod tests {
         vcx.update(|window, cx| page.update(cx, |p, cx| p.arm_update_rebase(window, cx)));
         vcx.update(|window, cx| {
             page.update(cx, |p, cx| {
-                p.open_merge_confirm(super::ConfirmKind::Merge, window, cx)
+                p.open_merge_confirm(
+                    crate::pr_page::merge_confirm::ConfirmKind::Merge,
+                    window,
+                    cx,
+                )
             })
         });
         let _ = vcx.debug_bounds("pr-merge");
@@ -10274,7 +9788,11 @@ mod tests {
         assert!(vcx.debug_bounds("pr-merge").is_some());
         vcx.update(|window, cx| {
             page.update(cx, |p, cx| {
-                p.open_merge_confirm(super::ConfirmKind::Close, window, cx)
+                p.open_merge_confirm(
+                    crate::pr_page::merge_confirm::ConfirmKind::Close,
+                    window,
+                    cx,
+                )
             })
         });
         let _ = vcx.debug_bounds("pr-merge");
@@ -10285,7 +9803,11 @@ mod tests {
         // Gate loss: the PR closes under an open confirm.
         vcx.update(|window, cx| {
             page.update(cx, |p, cx| {
-                p.open_merge_confirm(super::ConfirmKind::Close, window, cx)
+                p.open_merge_confirm(
+                    crate::pr_page::merge_confirm::ConfirmKind::Close,
+                    window,
+                    cx,
+                )
             })
         });
         vcx.update(|_, cx| {
@@ -10300,38 +9822,6 @@ mod tests {
         let _ = vcx.debug_bounds("pr-merge");
         assert!(vcx.debug_bounds("pr-close-confirm-go").is_none());
         vcx.update(|_, cx| page.update(cx, |p, _| assert_eq!(p.merge_confirm.current(), None)));
-    }
-
-    #[test]
-    fn rollup_summary_table() {
-        assert_eq!(
-            rollup_summary(Some("SUCCESS")),
-            ("All checks passed", ChecksTone::Success)
-        );
-        assert_eq!(
-            rollup_summary(Some("FAILURE")),
-            ("Some checks failed", ChecksTone::Danger)
-        );
-        assert_eq!(
-            rollup_summary(Some("ERROR")),
-            ("Some checks errored", ChecksTone::Danger)
-        );
-        assert_eq!(
-            rollup_summary(Some("PENDING")),
-            ("Checks are running", ChecksTone::Warning)
-        );
-        assert_eq!(
-            rollup_summary(Some("EXPECTED")),
-            ("Checks are queued", ChecksTone::Muted)
-        );
-        assert_eq!(
-            rollup_summary(None),
-            ("Checks status unknown", ChecksTone::Muted)
-        );
-        assert_eq!(
-            rollup_summary(Some("WEIRD")),
-            ("Checks status unknown", ChecksTone::Muted)
-        );
     }
 
     #[test]

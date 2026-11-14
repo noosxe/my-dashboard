@@ -1,18 +1,27 @@
 //! The Conversation tab's right rail (docs/0083 D1): a pinned status
-//! region and a scrolling metadata region in one 288 px column. For now
-//! the status region is the existing merge panel and checks card; the
-//! status block replaces them in the third rail PR.
+//! block (verdict, gate rows, action row) and a scrolling metadata region
+//! in one 288 px column.
 
+mod action_row;
+mod actions;
+mod gate_row;
+mod gates;
+mod glyph;
 mod labels;
 mod metrics;
 mod milestone;
 mod people;
 mod picker_card;
+mod review_jump;
 mod reviewer_row;
 mod reviewers;
 mod section;
+mod status;
+mod terminal;
 #[cfg(test)]
 mod tests;
+mod update_branch;
+mod verdict;
 
 pub(super) use picker_card::{after_open, current_ids, milestone_unchanged};
 pub(super) use section::Section;
@@ -119,14 +128,7 @@ pub(super) fn render_rail(
         .min_h_0()
         .justify_start()
         .gap_3()
-        .child(
-            v_flex()
-                .id("pr-rail-status")
-                .flex_none()
-                .gap_3()
-                .child(page.render_merge_panel(d, cx))
-                .child(page.render_checks_summary(d, cx)),
-        )
+        .child(status::status_block(page, d, cx))
         .children(rail_error(page, cx))
         .child(metadata(page, d, cx))
         .into_any_element()

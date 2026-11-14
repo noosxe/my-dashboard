@@ -185,7 +185,7 @@ impl PrDetailPage {
         let (prompt, go_label) = match kind {
             ConfirmKind::Merge => (
                 merge_prompt(
-                    self.selected_method(cx).unwrap_or(MergeMethod::Merge),
+                    self.selected_method().unwrap_or(MergeMethod::Merge),
                     d.head_ref.as_deref().unwrap_or_default(),
                     d.base_ref.as_deref().unwrap_or_default(),
                 ),

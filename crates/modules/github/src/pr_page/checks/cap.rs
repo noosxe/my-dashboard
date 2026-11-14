@@ -176,6 +176,7 @@ mod tests {
         PrChecks {
             total_count: total,
             nodes,
+            ..PrChecks::default()
         }
     }
 

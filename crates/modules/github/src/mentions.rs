@@ -601,6 +601,8 @@ mod tests {
                 ..Default::default()
             }],
             review_requests_total: 1,
+            ending: Default::default(),
+            queueing: Default::default(),
             review_decision: None,
             latest_opinionated_reviews: Vec::new(),
             latest_reviews: Vec::new(),
