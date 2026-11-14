@@ -80,6 +80,24 @@ Settled in review of this doc (2026-11-14):
   fork (`headRepository` null) hides the button. Protected branches aren't
   filtered up front: a refused delete shows its error under the action row.
   `viewerCanDeleteHeadRef` is not used (§3.1).
+- **The merge-queue gate** (settled 2026-11-14, #775): **Merge when ready**
+  enqueues exactly when the Merge gate passes (`mergeable == MERGEABLE`,
+  `mergeStateStatus` one of `CLEAN`, `HAS_HOOKS`, `UNSTABLE`, not a draft).
+  It always confirms. There is no method caret on a base with a merge queue,
+  because the queue sets the method. `enqueuePullRequest` adds a pull
+  request only when it can join the queue right now and answers an error
+  otherwise, so offering it in any other state would offer a write that
+  fails.
+- **Blocked, behind or unknown on a queued base** (settled 2026-11-14,
+  #774, #775): the primary is **Enable auto-merge**, again without a method
+  caret, and its confirm says "Enable auto-merge? It joins the merge queue
+  once the requirements pass." The plain Merge is never offered on a base
+  with a merge queue. When the viewer can do neither, a disabled **Merge when
+  ready** shows, with the verdict as its tooltip.
+- **Freshness of queue and auto-merge state** (settled 2026-11-14): no new
+  polling. A write refetches (docs/0043 D2); the position and entry state of
+  a queued pull request are as fresh as the page's normal refreshes
+  (docs/0052).
 - **Team review requests** keep Reviewers display-only, with the reason
   line (D7, D8). Re-posting a team request through `requestReviews` could
   notify the team again.
@@ -110,7 +128,7 @@ public data. gpui-component facts are from the rev pinned in `Cargo.lock`
 | `viewerCanReopen`, `reopenPullRequest` | `PullRequest`, `Mutation` | #770. |
 | `markPullRequestReadyForReview`, `convertPullRequestToDraft` | `Mutation` | Input is `pullRequestId` only. No dedicated viewer flag; `viewerCanUpdate` is the gate (#771, #772). |
 | `autoMergeRequest { enabledBy { login } enabledAt mergeMethod }`, `viewerCanEnableAutoMerge`, `viewerCanDisableAutoMerge`, `enablePullRequestAutoMerge`, `disablePullRequestAutoMerge` | `PullRequest`, `Mutation`; `Repository.autoMergeAllowed` | #774. |
-| `isInMergeQueue`, `mergeQueueEntry { position state }`, `Repository.mergeQueue(branch:)`, `enqueuePullRequest`, `dequeuePullRequest` | | `MergeQueueEntryState`: `QUEUED`, `AWAITING_CHECKS`, `MERGEABLE`, `UNMERGEABLE`, `LOCKED`. #775. |
+| `isInMergeQueue`, `mergeQueueEntry { position state }`, `isMergeQueueEnabled`, `enqueuePullRequest`, `dequeuePullRequest` | `PullRequest`, `Mutation` | `MergeQueueEntryState`: `QUEUED`, `AWAITING_CHECKS`, `MERGEABLE`, `UNMERGEABLE`, `LOCKED`. `PullRequest.isMergeQueueEnabled` is "whether the pull request's base ref has a merge queue enabled", so it answers for the PR's own base without a `Repository.mergeQueue(branch:)` lookup. `enqueuePullRequest { pullRequestId }` adds the PR only when it can join now (GitHub's docs: otherwise an error); `dequeuePullRequest { id }` takes the pull request's id. Neither has a viewer flag, so both follow write access. `enablePullRequestAutoMerge` ignores `mergeMethod` on a base with a queue. #775. |
 | `Repository.viewerDefaultMergeMethod` | `Repository` | "The last used merge method by the viewer or the default for the repository." #776. |
 | `viewerCanMergeAsAdmin` | `PullRequest` | Exists; admin bypass stays out (#821). |
 
@@ -281,19 +299,20 @@ control the PR state blocks is **disabled**, with the reason as its tooltip.
 | PR state | Primary | Notes |
 |---|---|---|
 | Open, mergeable (D2 rows 10–11) | **`<Method verb>`** split button, e.g. "Squash and merge ▾" | The caret lists the allowed methods with a check on the current one. The default is `viewerDefaultMergeMethod` when allowed, else the first allowed (#776). With one allowed method, it's a plain button and there's no caret. Click → the Merge confirm (#738). |
-| Open, blocked/behind/conflicts/unknown, viewer can enable auto-merge (`autoMergeAllowed` and `viewerCanEnableAutoMerge`) | **Enable auto-merge ▾** | Same caret. Click → a confirm: "Enable auto-merge with squash? It merges once the requirements pass." (#774) |
+| Open, blocked/behind/conflicts/unknown, viewer can enable auto-merge (`autoMergeAllowed` and `viewerCanEnableAutoMerge`) | **Enable auto-merge ▾** | Same caret. Click → a confirm: "Enable auto-merge with squash? It merges once the requirements pass." (#774). The input carries the chosen `mergeMethod`. |
 | Open, blocked/behind/conflicts/unknown, no auto-merge | **`<Method verb>` ▾**, action half **disabled** | Tooltip from D2. The caret stays usable (§3.2). |
-| Open, base branch has a merge queue (`Repository.mergeQueue(branch: base)` present), not queued | **Merge when ready ▾** | Confirm → `enqueuePullRequest` (#775). A queue runs the required checks itself, so #775 settles which `mergeStateStatus` values may enqueue; until then the Merge gate applies. |
-| Queued (`isInMergeQueue`) | **Remove from queue** (secondary) | Sub-line: "Position N · <entry state>". No confirm: re-queueing is one click away (#775). |
-| Auto-merge enabled | **Disable auto-merge** (secondary) | Sub-line: "by `<login>` · squash". Shown when `viewerCanDisableAutoMerge`. No confirm (#774). |
+| Open, base branch has a merge queue (`isMergeQueueEnabled`), not queued, the Merge gate passes | **Merge when ready** (no caret) | Confirm: "Add `<head>` to the merge queue for `<base>`? It merges once the queue's checks pass." → `enqueuePullRequest { pullRequestId }` (#775). The queue sets the method, so there is no caret. |
+| Open, base branch has a merge queue, not queued, the Merge gate fails | **Enable auto-merge** (no caret) when the viewer can enable it, else **Merge when ready** disabled | The confirm reads "Enable auto-merge? It joins the merge queue once the requirements pass." and the input carries no `mergeMethod`. The disabled button's tooltip is the verdict (D2). The plain Merge is never offered on a base with a queue (#775). |
+| Queued (`isInMergeQueue`) | **Remove from queue** (secondary) | Sub-line: "Position N · <entry state>". Shown to viewers with write access (no flag exists). No confirm: re-queueing is one click away (#775). `dequeuePullRequest { id }`. |
+| Auto-merge enabled | **Disable auto-merge** (secondary) | Sub-line: "by `<login>` · squash". Shown when `viewerCanDisableAutoMerge`. No confirm (#774). `disablePullRequestAutoMerge { pullRequestId }`. |
 | Draft | **Ready for review** (primary) | Gate `viewerCanUpdate`. No confirm: it is reversible from the `⋯` menu (#771). |
 | Merged | **Delete branch** (secondary) | When `headRef` is present, isn't the head repository's default branch and the viewer has write access to the head repository. Confirm (#773). |
 | Closed | **Reopen pull request** (secondary) and **Delete branch** (secondary) | Reopen when `viewerCanReopen` (#770), no confirm. Delete branch as for merged. |
 | Viewer can do none of these | no action row | The verdict and gates still show. |
 
 The first matching row applies, in this order: merged, closed, draft,
-queued, auto-merge enabled, merge queue present, mergeable, auto-merge
-possible, blocked. A row whose control the viewer can't use falls through
+queued, auto-merge enabled, merge queue present (its own three-way rule
+above), mergeable, auto-merge possible, blocked. A row whose control the viewer can't use falls through
 to the next one. If none is left, the action row is omitted.
 
 - While a write is pending (docs/0072 D4), the primary, the caret and `⋯`
@@ -537,7 +556,9 @@ ids, which now sit on the sections. Moved: `pr-close` becomes the `⋯` menu ite
 to the gate row. New: `pr-rail-status`, `pr-rail-verdict`,
 `pr-rail-gate-reviews`, `pr-rail-gate-checks`, `pr-rail-gate-merge`,
 `pr-merge-method`, `pr-more`, `pr-more-draft`, `pr-ready`, `pr-reopen`,
-`pr-delete-branch`, `pr-automerge`, `pr-queue`, `pr-rail-meta`,
+`pr-delete-branch`, `pr-automerge` (Enable auto-merge, with the
+`pr-automerge-confirm*` family), `pr-automerge-disable`, `pr-queue` (Merge
+when ready, with the `pr-queue-confirm*` family), `pr-dequeue`, `pr-rail-meta`,
 `pr-{section}-more`, `pr-{section}-why`. The `pr-gate-*` prefix already
 belongs to the gated-runs panel (docs/0066), so the gate rows use
 `pr-rail-gate-*`.
@@ -603,6 +624,11 @@ belongs to the gated-runs panel (docs/0066), so the gate rows use
   - `isInMergeQueue`, `mergeQueueEntry { position state }` and
     `autoMergeRequest { enabledBy { login } mergeMethod }`, which the verdict
     (D2 rows 4 and 5) and its sub-line read;
+  - `isMergeQueueEnabled`, `viewerCanEnableAutoMerge`,
+    `viewerCanDisableAutoMerge` and, on the repository, `autoMergeAllowed`
+    (#774, #775). The queue is detected from the pull request's own
+    `isMergeQueueEnabled`, not from a `Repository.mergeQueue(branch:)`
+    lookup (settled 2026-11-14);
   - `headRef { id }` and the action fields of #770–#776, each with its own
     issue.
 - **Query cost:** the additions are small connections (20 nodes) and
@@ -758,9 +784,8 @@ What the status-block PR settled where this doc left room, or changed:
   ship in #774 and #775: the verdict's rows 4 and 5 and their sub-lines need
   them. The action row's slots for them, for Ready for review, Reopen,
   Delete branch and Convert to draft are laid out by the precedence rules
-  (`rail/actions.rs`) and stay off the screen until their issue adds the
-  handler. So a draft's action row is the `⋯` button alone, and a closed PR
-  has none, until #771, #770 and #773 land.
+  (`rail/actions.rs`) and stayed off the screen until their issue added the
+  handler (all of them have, see §8b–§8d).
 - **Merged glyph tone.** The header badge's Merged tone is `accent`, a
   near-neutral in the default themes, so as a thin icon it vanishes. The
   merged glyph takes the `info` slot.
@@ -789,8 +814,8 @@ Reopen (#770) and the default merge method (#776) settled:
 - **Wired controls.** `Primary::wired` now covers Merge, Ready for review
   and Reopen, and `MenuItem::wired` covers every menu item. Delete branch,
   Enable auto-merge, Merge when ready, Remove from queue and Disable
-  auto-merge keep their slots in `rail/actions.rs` and stay off the screen
-  until #773–#775.
+  auto-merge kept their slots in `rail/actions.rs` until #773–#775
+  (§8c, §8d).
 - **Gates.** Each control is hidden when the viewer can't use it.
   Ready for review and Convert to draft follow `viewerCanUpdate` (there is
   no flag of their own); Reopen follows `viewerCanReopen`, which the detail
@@ -849,6 +874,53 @@ What the PR that wired Delete branch (#773) settled:
 - **Fixtures.** #104 and #114 carry a deletable head branch, #115 is merged
   with its head already gone and #116 is merged from a fork the viewer can
   only read, although they administer the base repository.
+
+## 8d. Implementation notes (auto-merge and the merge queue, step 6)
+
+What the PR that wired Enable and Disable auto-merge (#774), Merge when ready
+and Remove from queue (#775) settled:
+
+- **The queue gate and the blocked-on-a-queue rule** are the decisions in §2
+  (2026-11-14). `merge_gate.rs` holds one pure gate per action
+  (`enable_auto_enabled`, `disable_auto_enabled`, `queue_enabled`,
+  `dequeue_enabled`), each used by the click and, for the two that confirm,
+  by the confirm. `rail/actions.rs` has the precedence in `queue_primary`: on
+  a queued base it returns Merge when ready, Enable auto-merge or a disabled
+  Merge when ready, never the plain Merge.
+- **Query.** `isMergeQueueEnabled`, `viewerCanEnableAutoMerge` and
+  `viewerCanDisableAutoMerge` ride the pull request, `autoMergeAllowed` the
+  repository node; `gql/status.rs` parses them into `Queueing`, and any
+  missing flag is `false`, which hides its control. Cost, measured
+  2026-11-14 with `rateLimit(dryRun: true)`: see the PR body (1 point before
+  and after).
+- **Writes.** Each goes through the store's pending write and refetches on
+  confirmation, like the other state flips. Enable sends
+  `{ pullRequestId, mergeMethod }`, with the caret's method, and only
+  `{ pullRequestId }` on a queued base; Disable and Merge when ready send
+  `{ pullRequestId }`; Remove from queue sends `{ id }` (the pull request's
+  id). The confirmation patches what it is sure of (auto-merge on or off,
+  queued or not) so the control goes away at once; the author, method,
+  position and entry state wait for the refetch. A failure shows in the
+  status block under the action row. `pr_page/queue_writes.rs` holds the
+  handlers.
+- **Confirms.** Enable auto-merge and Merge when ready are the fifth and
+  sixth `ConfirmKind`. Their buttons read "Confirm auto-merge" and "Add to
+  merge queue". Both close by themselves when their gate shuts, and Esc
+  backs out without a write.
+- **No polling.** A queued pull request's position and state change on
+  GitHub's side; the page shows them as of its last read and refreshes on
+  the normal triggers (docs/0052). The docs/0016 §15 re-poll stays the only
+  exception and still covers `UNKNOWN` merge status only.
+- **The dequeue gate.** GitHub has no viewer flag for dequeuing, so Remove
+  from queue follows write access (`merge_visible`), like Merge when ready.
+  A viewer without the right sees the verdict and no button.
+- **Sub-lines** ("by `<login>` · squash", "Position N · <entry state>") were
+  already drawn by §8a. They have no node in the accessibility tree (a plain
+  text row, #866), so receipts check them in the captured frames.
+- **Fixtures.** #117 (blocked, auto-merge allowed), #118 (auto-merge on),
+  #119 (a queued base, clean), #120 (a queued base, blocked) and #121
+  (queued, position 2, awaiting checks). `pr_writes.py` answers the four
+  mutations.
 
 ## 9. Non-goals
 
