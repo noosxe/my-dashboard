@@ -125,6 +125,19 @@ Verified against the pinned stack (`gpui-pre =0.3.3`, `gpui-component` @
 | Home + module views | `page.rs`: `render_home_view`, `render_right_column`, filter toolbars (3), `connect_panel` | ListItem+labels on PR/issue/notification rows (rows partially done); labels on retry/more/filter buttons; Link roles on right-column links |
 | Repo view rows | `page.rs`: `render_pr_row_inner`, `render_issue_row`, `render_notification_row` | already ListItem+id — add `aria_label`, `aria_selected` |
 | PR detail | `pr_page.rs` (30): tabs, header, checks (+log pane), merge panel, meta pickers, milestone cards, reactions, comment box, inline edit, delete confirm, cap row, files toggle | Tab `aria_label`s; Button-widget labels everywhere; ListItem for row-like actors; `aria_description` on destructive confirms |
+
+*PR detail, as shipped (#733, #734, #768):* the tab strip is one `TabList` stop
+named "Pull request sections: <tab>" (`tab_strip.rs`); the comment box's action
+select is "Comment action" and the inline edit and reply fields take their
+card's title or "Reply to review thread" as `Textarea::aria_label` (fields with a
+placeholder are named by it); timeline buttons name their target ("Edit
+reviewer-a's comment", "Delete reviewer-a's comment", "Add reaction to the
+description", "Add reaction to reviewer-a's review", chips "+1 reaction on
+reviewer-a's comment: 2"); a Commits row is one `Group` ("<headline> — <author>,
+<sha7>, <age>") and a Checks row without a log toggle one `Group` ("<name> in
+<workflow>, <state>, <time>"). Check log toggles stay named "View/Hide log for
+<row>" with `toggled` for the state: the pinned `Button` has no
+`aria_expanded`, so the label carries "expanded".
 | Review threads / files | `files.rs` (22): thread cards, suggestion cards, reply boxes, finish-review bar, resolve picker rows, draft rows, stray bucket | ListItem on thread/suggestion cards with label `"thread @ {file}:{line} — {state}"`; Button labels on actions; `aria_expanded` on collapsed threads |
 | Issue detail | `issue_page.rs` (18): title area, sidebar cards, pickers, milestone, state panel, reactions, lock panel, comment box | same pattern as PR detail |
 | Creators | `new_issue_page.rs` (5), `new_pr_page.rs` (5) | labels on non-upstream controls; upstream inputs already covered |

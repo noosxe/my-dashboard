@@ -44,6 +44,17 @@ In:
 - **Four tabs** (gpui-component `TabBar`, `underline()` variant) with live
   counts: **Conversation** (default), **Commits**, **Checks**, **Files
   changed**. Only the active tab renders; each tab keeps its own scroll handle.
+  The strip is one keyboard stop (`tab_strip`, #734): Left/Right (and
+  Up/Down) select the neighbouring tab, Home/End the first and last, none
+  wraps, and Tab moves on. A click on a tab also focuses the strip, so focus
+  never stays on content the tab switch unmounts. The list's accessible name
+  is "Pull request sections: <selected tab>"; each tab keeps the upstream
+  `Tab` role with its selected state.
+- **Tab leaves text fields (#733):** Tab and Shift-Tab move focus out of every
+  multi-line field on the page (comment box, edit and reply composers, review
+  summary) instead of indenting; the pinned `Input` context binds them to
+  indent actions, which `tab_escape` unbinds inside `GithubPrPage`. Indent
+  stays on Ctrl-] / Ctrl-[ (Cmd on macOS).
 - **Conversation:** description card (body editable in place), timeline of
   comments + review events, and a comment box with a **full action selector**
   — Comment / Approve / Request changes.
