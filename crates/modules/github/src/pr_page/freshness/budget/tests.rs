@@ -88,15 +88,37 @@ fn the_window_rolls() {
 }
 
 #[test]
-fn refocus_or_refresh_lifts_the_stop_and_starts_over() {
+fn refocus_or_refresh_lifts_only_the_stop() {
     let mut g = Guard::default();
     let at = breached_twice(&mut g, t0());
     assert_eq!(g.state(at), GuardState::Stopped);
-    g.clear();
-    assert_eq!(g.state(at), GuardState::Open);
+    g.resume();
     assert!(!g.stopped());
-    assert_eq!(g.spent(at), (0, 0));
-    // The fresh start can breach again, as a first breach.
-    g.spend_rest(later(at, 1), REST_CEILING);
+    assert_eq!(g.state(at), GuardState::Shown, "resumes at Shown, not Open");
+    assert_eq!(g.spent(at).0, REST_CEILING, "the spend survives");
+}
+
+#[test]
+fn a_further_crossing_in_the_hour_stops_again() {
+    let mut g = Guard::default();
+    let at = breached_twice(&mut g, t0());
+    g.resume();
+    // Still over the line: more spending is not a new crossing.
+    g.spend_rest(later(at, 1), 5);
     assert_eq!(g.state(later(at, 1)), GuardState::Shown);
+    // Drop below (the 300 of half an hour ago leave), cross again.
+    let below = later(at, 1_800);
+    assert_eq!(g.spent(below).0, 300 + 5);
+    g.spend_rest(below, 300);
+    assert_eq!(g.state(below), GuardState::Stopped);
+}
+
+#[test]
+fn after_the_hour_the_guard_is_open() {
+    let mut g = Guard::default();
+    let at = breached_twice(&mut g, t0());
+    g.resume();
+    let gone = later(at, 3_600 + 1_800);
+    assert_eq!(g.state(gone), GuardState::Open);
+    assert_eq!(g.spent(gone), (0, 0));
 }

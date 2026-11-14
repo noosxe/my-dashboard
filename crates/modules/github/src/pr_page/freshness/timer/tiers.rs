@@ -295,9 +295,11 @@ fn guard_case(cx: &mut TestAppContext, wake: fn(&Page, &mut Vcx)) {
     assert_eq!(stop(&page, vcx), Some(Stop::Guard));
 
     wake(&page, vcx);
-    advance(vcx, 31);
+    advance(vcx, 61);
     assert!(probes(&rig) > sent, "resumed");
     assert_eq!(stop(&page, vcx), None);
+    // The breach is still inside the hour: it runs at Shown, not Open.
+    assert_eq!(armed(&page, vcx), SHOWN);
 }
 
 #[gpui::test]

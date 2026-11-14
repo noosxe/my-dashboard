@@ -84,14 +84,16 @@ impl Guard {
     /// Called after a spend: crossing the line from below is a breach.
     fn settle(&mut self, now: Instant) {
         let reached = self.reached(now);
+        self.expire(now);
         if reached && !self.over {
             self.breaches.push_back(now);
+            // Only a new crossing stops it: a resumed page with two
+            // breaches still in the hour runs at Shown until the next.
+            if self.breaches.len() >= 2 {
+                self.stopped = true;
+            }
         }
         self.over = reached;
-        self.expire(now);
-        if self.breaches.len() >= 2 {
-            self.stopped = true;
-        }
     }
 
     fn expire(&mut self, now: Instant) {
@@ -115,10 +117,12 @@ impl Guard {
         }
     }
 
-    /// A refocus or Refresh: whoever is looking gets a fresh start, so
-    /// the counts and breaches go too.
-    pub(crate) fn clear(&mut self) {
-        *self = Self::default();
+    /// A refocus or Refresh lifts the stop only. The spend and the
+    /// breaches stay: the hour is rolling, and a user who switches windows
+    /// now and then must not reset it. A resumed page runs at Shown while a
+    /// breach is inside the hour, and the next crossing stops it again.
+    pub(crate) fn resume(&mut self) {
+        self.stopped = false;
     }
 
     /// Spent in the last hour, for the page's tests and stage 5's label.
