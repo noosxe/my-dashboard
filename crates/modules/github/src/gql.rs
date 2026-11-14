@@ -13,8 +13,10 @@
 
 use serde::{Deserialize, Serialize};
 
+mod head_branch;
 mod reviewers;
 mod status;
+pub use head_branch::HeadBranch;
 pub use reviewers::{LatestReview, PrReviewRequest, ReviewerKind};
 pub use status::{AutoMerge, CheckCounts, Ending, Queueing};
 
@@ -718,6 +720,12 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
       baseRefName
       headRefName
       headRefOid
+      # docs/0083 D4 (#773): Delete branch. `headRef` is null once the
+      # branch is gone; the gate is the viewer's permission on the head
+      # repository (a fork for cross-repository PRs), not
+      # `viewerCanDeleteHeadRef`, which describes restoring (§3.1).
+      headRef { id name }
+      headRepository { viewerPermission defaultBranchRef { name } }
       url
       createdAt
       updatedAt
@@ -896,6 +904,10 @@ pub struct PrDetail {
     /// Merge queue and auto-merge (docs/0083 D2 rows 4-5).
     #[serde(default)]
     pub queueing: Queueing,
+    /// The head branch while it exists, with the facts the Delete branch
+    /// gate reads (docs/0083 D4, #773). `None` once it is deleted.
+    #[serde(default)]
+    pub head_branch: Option<HeadBranch>,
     /// `reviewDecision` (docs/0083 D17): null when no review rule applies.
     /// Parsed for the status block; the reviewer rows don't read it.
     #[serde(default)]
@@ -2218,6 +2230,7 @@ pub fn pr_detail_from_value(value: &serde_json::Value) -> Option<PrDetail> {
         review_requests_total,
         ending: status::parse_ending(pr),
         queueing: status::parse_queueing(pr),
+        head_branch: head_branch::parse_head_branch(pr),
         review_decision: str_field("reviewDecision"),
         latest_opinionated_reviews: reviewers::parse_latest_reviews(pr, "latestOpinionatedReviews"),
         latest_reviews: reviewers::parse_latest_reviews(pr, "latestReviews"),
@@ -2488,6 +2501,14 @@ mutation PrConvertToDraft($input: ConvertPullRequestToDraftInput!) {
 pub const PR_REOPEN_MUTATION: &str = r#"
 mutation PrReopen($input: ReopenPullRequestInput!) {
   reopenPullRequest(input: $input) { pullRequest { id state } }
+}
+"#;
+
+/// Delete the head branch (`DeleteRefInput { refId }`, docs/0083 D4,
+/// #773). Takes the `Ref` node id, not the PR's.
+pub const PR_DELETE_BRANCH_MUTATION: &str = r#"
+mutation PrDeleteBranch($input: DeleteRefInput!) {
+  deleteRef(input: $input) { clientMutationId }
 }
 "#;
 
@@ -3603,6 +3624,7 @@ mod tests {
             ("PR_READY_MUTATION", PR_READY_MUTATION),
             ("PR_CONVERT_TO_DRAFT_MUTATION", PR_CONVERT_TO_DRAFT_MUTATION),
             ("PR_REOPEN_MUTATION", PR_REOPEN_MUTATION),
+            ("PR_DELETE_BRANCH_MUTATION", PR_DELETE_BRANCH_MUTATION),
             ("PR_UPDATE_COMMENT_MUTATION", PR_UPDATE_COMMENT_MUTATION),
             ("PR_DELETE_COMMENT_MUTATION", PR_DELETE_COMMENT_MUTATION),
             ("PR_UPDATE_REVIEW_MUTATION", PR_UPDATE_REVIEW_MUTATION),

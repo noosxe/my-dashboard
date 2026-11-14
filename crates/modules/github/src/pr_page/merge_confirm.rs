@@ -20,7 +20,8 @@ use gpui_component::{
 };
 
 use super::merge_gate::{
-    close_enabled, close_visible, convert_enabled, merge_enabled, merge_visible,
+    close_enabled, close_visible, convert_enabled, delete_branch_enabled, merge_enabled,
+    merge_visible,
 };
 use super::{MergeMethod, PrDetailPage};
 use crate::gql;
@@ -33,6 +34,9 @@ pub(crate) enum ConfirmKind {
     /// docs/0083 D5 (#772): reverses one click away, but it quiets
     /// reviewers, so it asks first.
     ConvertToDraft,
+    /// docs/0083 D5 (#773): a deleted branch can't be restored from here
+    /// (#851), so it asks first.
+    DeleteBranch,
 }
 
 /// Whether each action's gate is open right now.
@@ -41,6 +45,7 @@ pub(crate) struct Gates {
     pub merge: bool,
     pub close: bool,
     pub convert: bool,
+    pub delete_branch: bool,
 }
 
 impl Gates {
@@ -49,6 +54,7 @@ impl Gates {
             ConfirmKind::Merge => self.merge,
             ConfirmKind::Close => self.close,
             ConfirmKind::ConvertToDraft => self.convert,
+            ConfirmKind::DeleteBranch => self.delete_branch,
         }
     }
 }
@@ -111,6 +117,11 @@ pub(crate) fn merge_prompt(method: MergeMethod, head: &str, base: &str) -> Strin
 pub(crate) const CONVERT_PROMPT: &str =
     "Convert to draft? Reviewers won't be notified of new pushes until it is ready again.";
 
+/// "Delete branch `feature/x`?" — names the target (docs/0083 D5).
+pub(crate) fn delete_branch_prompt(name: &str) -> String {
+    format!("Delete branch `{name}`?")
+}
+
 pub(crate) const CLOSE_PROMPT: &str =
     "Close this pull request without merging? It can be reopened later.";
 
@@ -140,6 +151,7 @@ impl PrDetailPage {
                 d.id.is_empty(),
                 busy,
             ),
+            delete_branch: delete_branch_enabled(d.state.as_deref(), d.head_branch.as_ref(), busy),
         }
     }
 
@@ -183,6 +195,7 @@ impl PrDetailPage {
             Some(ConfirmKind::Merge) => self.merge_pr(window, cx),
             Some(ConfirmKind::Close) => self.close_pr(window, cx),
             Some(ConfirmKind::ConvertToDraft) => self.convert_to_draft_pr(window, cx),
+            Some(ConfirmKind::DeleteBranch) => self.delete_branch_pr(window, cx),
             None => {}
         }
     }
@@ -211,6 +224,10 @@ impl PrDetailPage {
             ),
             ConfirmKind::Close => (CLOSE_PROMPT.to_string(), "Close without merging"),
             ConfirmKind::ConvertToDraft => (CONVERT_PROMPT.to_string(), "Convert to draft"),
+            ConfirmKind::DeleteBranch => (
+                delete_branch_prompt(d.head_branch.as_ref().map_or("", |h| h.name.as_str())),
+                "Delete branch",
+            ),
         };
         let (id, go_id, cancel_id) = match kind {
             ConfirmKind::Merge => (
@@ -228,6 +245,11 @@ impl PrDetailPage {
                 "pr-convert-confirm-go",
                 "pr-convert-confirm-cancel",
             ),
+            ConfirmKind::DeleteBranch => (
+                "pr-delete-branch-confirm",
+                "pr-delete-branch-confirm-go",
+                "pr-delete-branch-confirm-cancel",
+            ),
         };
         let go = Button::new(go_id)
             .debug_selector(move || go_id.to_string())
@@ -236,7 +258,7 @@ impl PrDetailPage {
             .on_click(cx.listener(|this, _, window, cx| this.confirm_merge_confirm(window, cx)));
         let go = match kind {
             ConfirmKind::Merge => go.primary(),
-            ConfirmKind::Close => go.danger(),
+            ConfirmKind::Close | ConfirmKind::DeleteBranch => go.danger(),
             ConfirmKind::ConvertToDraft => go,
         };
         v_flex()
@@ -270,11 +292,13 @@ mod tests {
         merge: true,
         close: true,
         convert: true,
+        delete_branch: true,
     };
     const SHUT: Gates = Gates {
         merge: false,
         close: false,
         convert: false,
+        delete_branch: false,
     };
 
     #[test]
@@ -289,6 +313,7 @@ mod tests {
             merge: true,
             close: false,
             convert: true,
+            delete_branch: true,
         };
         assert!(!c.open(ConfirmKind::Close, only_merge));
     }
@@ -328,13 +353,15 @@ mod tests {
         assert!(!c.sync(Gates {
             merge: true,
             close: false,
-            convert: true
+            convert: true,
+            delete_branch: true
         }));
         assert_eq!(c.current(), Some(ConfirmKind::Merge));
         assert!(c.sync(Gates {
             merge: false,
             close: true,
-            convert: true
+            convert: true,
+            delete_branch: true
         }));
         assert_eq!(c.current(), None);
         assert!(!c.sync(SHUT));
@@ -369,6 +396,28 @@ mod tests {
         assert_eq!(c.confirm(OPEN), Some(ConfirmKind::ConvertToDraft));
         assert_eq!(c.confirm(OPEN), None);
         assert!(CONVERT_PROMPT.starts_with("Convert to draft?"));
+    }
+
+    #[test]
+    fn delete_branch_confirms_through_its_own_gate() {
+        let mut c = MergeConfirm::default();
+        let shut = Gates {
+            delete_branch: false,
+            ..OPEN
+        };
+        assert!(!c.open(ConfirmKind::DeleteBranch, shut));
+        assert!(c.open(ConfirmKind::DeleteBranch, OPEN));
+        // Esc backs out without a send.
+        assert!(c.cancel());
+        assert_eq!(c.confirm(OPEN), None);
+        // The branch going away (a refetch) closes the confirm.
+        c.open(ConfirmKind::DeleteBranch, OPEN);
+        assert!(c.sync(shut));
+        assert_eq!(c.current(), None);
+        c.open(ConfirmKind::DeleteBranch, OPEN);
+        assert_eq!(c.confirm(OPEN), Some(ConfirmKind::DeleteBranch));
+        assert_eq!(c.confirm(OPEN), None);
+        assert_eq!(delete_branch_prompt("feat/x"), "Delete branch `feat/x`?");
     }
 
     #[test]

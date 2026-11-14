@@ -3,7 +3,7 @@
 use gpui::{Entity, TestAppContext, VisualTestContext};
 use serde_json::{Value, json};
 
-use super::state_input;
+use super::{delete_branch_input, state_input};
 use crate::pr_page::PrDetailPage;
 use crate::pr_page::rail::test_support::detail;
 use crate::pr_page::test_rig::{NUMBER, REPO, Rig, server};
@@ -149,4 +149,55 @@ fn a_pending_write_blocks_the_next_one(cx: &mut TestAppContext) {
     );
     vcx.run_until_parked();
     assert_eq!(rig.mutations(), 1);
+}
+
+#[test]
+fn the_delete_payload_is_the_ref_id_alone() {
+    assert_eq!(
+        delete_branch_input("REF_9"),
+        json!({"input": {"refId": "REF_9"}})
+    );
+}
+
+fn head(state: &str, perm: &str, name: &str) -> Value {
+    json!({
+        "state": state,
+        "headRef": {"id": "REF_1", "name": name},
+        "headRepository": {"viewerPermission": perm, "defaultBranchRef": {"name": "main"}},
+    })
+}
+
+#[gpui::test]
+fn delete_branch_posts_once_and_patches_the_head_away(cx: &mut TestAppContext) {
+    for state in ["MERGED", "CLOSED"] {
+        let (rig, page, vcx) = open(cx, head(state, "WRITE", "feat"));
+        assert_eq!(
+            fire(&page, vcx, PrDetailPage::delete_branch_pr),
+            Some(PendingKind::DeleteBranch)
+        );
+        vcx.run_until_parked();
+        assert_eq!(rig.mutations(), 1, "{state}");
+        let gone = page.read_with(vcx, |p, cx| p.detail(cx).map(|d| d.head_branch.is_none()));
+        assert_eq!(gone, Some(true), "{state}");
+        assert!(rig.detail_reads() >= 1, "{state}");
+    }
+}
+
+#[gpui::test]
+fn delete_branch_is_refused_off_its_gate(cx: &mut TestAppContext) {
+    for patch in [
+        head("OPEN", "WRITE", "feat"),
+        head("MERGED", "READ", "feat"),
+        head("MERGED", "ADMIN", "main"),
+        json!({"state": "MERGED", "headRef": null}),
+    ] {
+        let (rig, page, vcx) = open(cx, patch.clone());
+        assert_eq!(
+            fire(&page, vcx, PrDetailPage::delete_branch_pr),
+            None,
+            "{patch}"
+        );
+        vcx.run_until_parked();
+        assert_eq!(rig.mutations(), 0, "{patch}");
+    }
 }

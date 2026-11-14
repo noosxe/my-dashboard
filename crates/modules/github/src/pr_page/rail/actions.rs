@@ -2,8 +2,8 @@
 //! state shows, in which precedence, and what the `⋯` menu holds. Pure;
 //! `action_row.rs` draws the result.
 //!
-//! Merge, Close, Ready for review, Convert to draft and Reopen ship so far.
-//! The other controls (#773–#775) are laid out here by the same rules, so
+//! Merge, Close, Ready for review, Convert to draft, Reopen and Delete
+//! branch ship so far. The other controls (#774, #775) are laid out here by the same rules, so
 //! each of those issues turns one flag on and adds its handler:
 //! [`Primary::wired`] and [`MenuItem::wired`] keep an unbuilt control off
 //! the screen until then.
@@ -33,7 +33,11 @@ impl Primary {
     pub(crate) fn wired(self) -> bool {
         matches!(
             self,
-            Primary::Merge | Primary::MergeBlocked | Primary::ReadyForReview | Primary::Reopen
+            Primary::Merge
+                | Primary::MergeBlocked
+                | Primary::ReadyForReview
+                | Primary::Reopen
+                | Primary::DeleteBranch
         )
     }
 }
@@ -101,7 +105,10 @@ impl Facts {
             can_close: close_visible(d.viewer_can_close),
             // #770: the server's own per-viewer answer.
             can_reopen: d.viewer_can_reopen,
-            // Wired by #773, #774, #775: their gates aren't queried yet.
+            // #773: write access on the head repository, not its default
+            // branch (docs/0083 §3.1).
+            can_delete_branch: d.head_branch.as_ref().is_some_and(|h| h.deletable()),
+            // Wired by #774, #775: their gates aren't queried yet.
             ..Facts::default()
         }
     }

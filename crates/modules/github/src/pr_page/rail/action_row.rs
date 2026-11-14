@@ -76,7 +76,18 @@ pub(super) fn action_row(
                     busy,
                     cx.listener(|this, _, window, cx| this.reopen_pr(window, cx)),
                 ),
-                // Not wired yet (#773–#775): `shown_primaries` drops them.
+                Primary::DeleteBranch => state_button(
+                    "pr-delete-branch",
+                    "Delete branch",
+                    "Delete the head branch",
+                    pending == Some(PendingKind::DeleteBranch),
+                    false,
+                    busy,
+                    cx.listener(|this, _, window, cx| {
+                        this.open_merge_confirm(ConfirmKind::DeleteBranch, window, cx)
+                    }),
+                ),
+                // Not wired yet (#774, #775): `shown_primaries` drops them.
                 _ => div().into_any_element(),
             }))
             .when(!menu.is_empty(), |row| row.child(more_menu(menu, busy, cx)))
@@ -96,12 +107,14 @@ fn shows_row_spinner(kind: PendingKind) -> bool {
             | PendingKind::ReadyForReview
             | PendingKind::ConvertToDraft
             | PendingKind::Reopen
+            | PendingKind::DeleteBranch
     )
 }
 
-/// A one-click state flip (Ready for review, Reopen): fills the row's
-/// free width, so a second control (Delete branch, #773) can sit beside
-/// it. `primary` picks the accent style; a closed PR's Reopen is quiet.
+/// A one-click state flip. The accent one (Ready for review) fills the
+/// row's free width. The quiet ones of a terminal PR (Reopen, Delete
+/// branch) are small and sized to their label, side by side as in the
+/// docs/0083 mockup: at half width each "Reopen pull request" truncated.
 #[allow(clippy::too_many_arguments)]
 fn state_button(
     id: &'static str,
@@ -115,19 +128,19 @@ fn state_button(
     let button = Button::new(id)
         .debug_selector(move || id.to_string())
         .label(if working { "Working…" } else { label })
-        .small()
         .disabled(busy)
         .tooltip(if busy { "Working" } else { tooltip })
         .on_click(on_click);
-    let button = if primary {
-        button.primary()
-    } else {
-        button.outline()
-    };
+    if primary {
+        return div()
+            .flex_1()
+            .min_w_0()
+            .child(button.small().primary().w_full())
+            .into_any_element();
+    }
     div()
-        .flex_1()
-        .min_w_0()
-        .child(button.w_full())
+        .flex_none()
+        .child(button.xsmall().outline())
         .into_any_element()
 }
 

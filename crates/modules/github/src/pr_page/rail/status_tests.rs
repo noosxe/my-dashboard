@@ -195,9 +195,71 @@ fn a_closed_pr_shows_reopen_alone_when_the_viewer_may(cx: &mut TestAppContext) {
     let (_rig, _page, vcx) = open(cx, json!({"state": "CLOSED", "viewerCanReopen": true}));
     assert!(shown(vcx, "pr-reopen"));
     assert!(!shown(vcx, "pr-more"), "no menu on a closed PR");
-    assert!(!shown(vcx, "pr-delete-branch"), "Delete branch is #773");
+    assert!(!shown(vcx, "pr-delete-branch"), "no head branch, no button");
     let (_rig, _page, vcx) = open(cx, json!({"state": "CLOSED", "viewerCanReopen": false}));
     assert!(!shown(vcx, "pr-reopen"));
+}
+
+fn head_patch(state: &str, name: &str, perm: &str) -> Value {
+    json!({
+        "state": state, "viewerCanReopen": true,
+        "headRef": {"id": "REF_1", "name": name},
+        "headRepository": {"viewerPermission": perm, "defaultBranchRef": {"name": "main"}},
+    })
+}
+
+#[gpui::test]
+fn a_closed_pr_shows_reopen_and_delete_branch_side_by_side(cx: &mut TestAppContext) {
+    let (_rig, _page, vcx) = open(cx, head_patch("CLOSED", "feat", "WRITE"));
+    let reopen = vcx.debug_bounds("pr-reopen").expect("reopen");
+    let delete = vcx.debug_bounds("pr-delete-branch").expect("delete");
+    assert!(reopen.origin.x < delete.origin.x, "Reopen leads the row");
+    assert_eq!(reopen.origin.y, delete.origin.y, "one row");
+    assert!(!shown(vcx, "pr-more"), "no menu on a closed PR");
+}
+
+#[gpui::test]
+fn a_merged_pr_shows_delete_branch_only_while_the_branch_exists(cx: &mut TestAppContext) {
+    let (_rig, _page, vcx) = open(cx, head_patch("MERGED", "feat", "WRITE"));
+    assert!(shown(vcx, "pr-delete-branch"));
+    for patch in [
+        head_patch("MERGED", "feat", "READ"),
+        head_patch("MERGED", "main", "ADMIN"),
+        json!({"state": "MERGED", "headRef": null}),
+    ] {
+        let (_rig, _page, vcx) = open(cx, patch.clone());
+        assert!(!shown(vcx, "pr-delete-branch"), "{patch}");
+    }
+}
+
+#[gpui::test]
+fn delete_branch_confirms_by_name_esc_backs_out_and_confirm_sends(cx: &mut TestAppContext) {
+    use crate::pr_page::merge_confirm::ConfirmKind;
+    let (rig, page, vcx) = open(cx, head_patch("MERGED", "feat/x", "WRITE"));
+    vcx.update(|window, cx| {
+        page.update(cx, |p, cx| {
+            p.open_merge_confirm(ConfirmKind::DeleteBranch, window, cx)
+        })
+    });
+    assert!(shown(vcx, "pr-delete-branch-confirm"));
+    assert!(
+        !shown(vcx, "pr-delete-branch"),
+        "the confirm replaces the row"
+    );
+    vcx.update(|window, cx| page.update(cx, |p, cx| p.cancel_merge_confirm(window, cx)));
+    vcx.run_until_parked();
+    assert_eq!(rig.mutations(), 0, "Esc sends nothing");
+    assert!(shown(vcx, "pr-delete-branch"));
+    vcx.update(|window, cx| {
+        page.update(cx, |p, cx| {
+            p.open_merge_confirm(ConfirmKind::DeleteBranch, window, cx);
+            p.confirm_merge_confirm(window, cx);
+        })
+    });
+    vcx.run_until_parked();
+    assert_eq!(rig.mutations(), 1);
+    // The confirmation patched the cached document: the button is gone.
+    assert!(!shown(vcx, "pr-delete-branch"));
 }
 
 #[gpui::test]
