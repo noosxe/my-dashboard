@@ -105,6 +105,11 @@ wait-label "Conversation (0)"
 assert-label "#103"
 assert-label "Leave a comment"
 wait-label "Checks (0)"
+# A draft leads with Ready for review (docs/0083 D4, #771); the more menu
+# keeps Close, so there is no Merge.
+assert-label "Ready for review"
+assert-label "More pull request actions"
+assert-no-label "Merge pull request"
 assert-baseline github-pr-draft
 mouse down 447 155
 mouse up 447 155 --wait-frame
@@ -222,8 +227,8 @@ wait-label "Merge pull request"
 assert-no-label "Confirm merge"
 mouse down 1219 334
 mouse up 1219 334 --wait-frame
-mouse down 1199 367
-mouse up 1199 367 --wait-frame
+mouse down 1199 403
+mouse up 1199 403 --wait-frame
 assert-label "Close this pull request without merging? It can be reopened later."
 assert-label "Close without merging"
 assert-no-label "Merge pull request"
@@ -231,8 +236,8 @@ key esc
 wait-label "More pull request actions"
 mouse down 1219 334
 mouse up 1219 334 --wait-frame
-mouse down 1199 367
-mouse up 1199 367 --wait-frame
+mouse down 1199 403
+mouse up 1199 403 --wait-frame
 wait-label "Close without merging"
 mouse down 1161 388
 mouse up 1161 388 --wait-frame
@@ -305,7 +310,8 @@ click 12782369444481205663 --wait-frame
 wait-label "PR #113: Docs: explain the manifest grammar"
 
 # 114: closed, not merged, the head branch still there (docs/0083 D6): who
-# closed it and when, the review that stands; no actions yet (#770, #773).
+# closed it and when, the review that stands, and Reopen (#770) as the one
+# action; Delete branch (#773) will join it.
 mouse down 700 149
 mouse up 700 149
 key ctrl-a
@@ -319,6 +325,7 @@ assert-label "Closed"
 assert-label "Changes requested: reviewer-b"
 assert-no-label "Open the Checks tab"
 assert-no-label "Merge pull request"
+assert-label "Reopen pull request"
 assert-no-label "More pull request actions"
 assert-no-label "Edit labels"
 assert-baseline github-pr-closed

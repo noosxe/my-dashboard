@@ -191,7 +191,9 @@ scripts/verify.sh sh -c '
 Write flows run the same way: the fixture transport answers writes from
 response files and records them (docs/0081 §12.1), and a receipt asserts
 what a click sent with `assert-write` (docs/0010 D11). `pr-writes.txt`
-(session `prwrites`) walks comment, Merge, Close and a gated-run approve:
+(session `prwrites`) walks comment, Merge, Close, a gated-run approve, the four
+metadata pickers' Save (#857), Ready for review, Convert to draft (through the
+`⋯` menu and its confirm) and Reopen:
 
 ```sh
 scripts/verify.sh sh -c '
