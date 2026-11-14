@@ -2612,6 +2612,17 @@ impl Freshness for DetailClock<'_> {
         let Some(entry) = self.0 else {
             return true;
         };
+        // #871: a landed document whose stamp was voided has no age to
+        // compare, which `standard_needs_refresh` reads as "nothing to
+        // refresh". The voiding means "this read can't be trusted", so
+        // it is stale at any floor (still past backoff, never in flight).
+        if entry.detail.is_some() && entry.detail_at.is_none() {
+            return !entry.books.in_flight
+                && dashboard_core::freshness::standard_backoff_elapsed(
+                    entry.books.fail_streak,
+                    entry.books.attempted_at,
+                );
+        }
         dashboard_core::freshness::standard_needs_refresh(
             entry.detail_at.map(|at| at.elapsed()),
             entry.books.in_flight,
