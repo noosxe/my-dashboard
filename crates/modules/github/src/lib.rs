@@ -33,9 +33,10 @@ mod rate_pause;
 mod run_jobs;
 pub mod service;
 pub mod settings;
+#[cfg(debug_assertions)]
+mod tab_escape;
 pub mod usage;
 mod usage_chip;
-#[cfg(debug_assertions)]
 mod usage_seed;
 
 use std::rc::Rc;
@@ -78,6 +79,7 @@ impl Module for GithubModule {
         // scoped to each page's key context so it never fires elsewhere;
         // the page focus sits inside its context while it owns the
         // module content.
+        cx.bind_keys(tab_escape::bindings("GithubPrPage"));
         cx.bind_keys([
             KeyBinding::new("esc", pr_page::DismissPrPage, Some("GithubPrPage")),
             KeyBinding::new("esc", issue_page::DismissIssuePage, Some("GithubIssuePage")),
