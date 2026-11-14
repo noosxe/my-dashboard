@@ -713,6 +713,17 @@ docs/0071 container.
   - Not watched (closed, unattended, offline, module hidden, REST paused) and
     usage-stopped: today's landed age, "synced 3m ago", with no reason.
   - Guard-stopped: "synced 3m ago · auto-refresh paused (budget)".
+
+**Settled 2026-11-14 (stage 5 review).**
+
+- When the age label and the pause note ("GraphQL paused · resumes HH:MM")
+  both apply, they show on two lines: the label on the freshness row, the note
+  below it. They say different things (how old the data is, why requests are
+  held), and one line would crowd the right-hand column.
+- Only the guard-stopped state carries a reason. Closed, Unattended and Usage
+  show the landed age alone: a closed PR and an unattended app need no
+  explanation, and a usage stop is already explained by the chip and the pause
+  note.
   - The label repaints every 5 s while the page is watched (a render-only
     tick, like docs/0052 D6; no request).
   - Lanes the probe can't see keep the landed age they have today. The meta
