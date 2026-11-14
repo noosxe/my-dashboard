@@ -4797,8 +4797,7 @@ impl PrDetailPage {
         node_id: &str,
         subject: &str,
         body: &str,
-        can_update: bool,
-        can_delete: bool,
+        (can_update, can_delete): (bool, bool),
         cx: &Context<Self>,
     ) -> Option<AnyElement> {
         if !can_update && !can_delete {
@@ -4981,8 +4980,7 @@ impl PrDetailPage {
                             c.id.as_str(),
                             &format!("{}'s comment", author_name(c.author.as_ref())),
                             &c.body,
-                            c.viewer_can_update,
-                            c.viewer_can_delete,
+                            (c.viewer_can_update, c.viewer_can_delete),
                             cx,
                         ),
                         // docs/0023 D3 (#196): the comment's chips row.
@@ -5049,8 +5047,7 @@ impl PrDetailPage {
                         r.id.as_str(),
                         &format!("{}'s review", author_name(r.author.as_ref())),
                         r.body.as_deref().unwrap_or_default(),
-                        r.viewer_can_update,
-                        r.viewer_can_delete,
+                        (r.viewer_can_update, r.viewer_can_delete),
                         cx,
                     );
                     // 0019 D4: badge and actions share the header's
