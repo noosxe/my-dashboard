@@ -84,10 +84,10 @@ impl Snapshot {
                         .as_str()
                         .unwrap_or("(no role)")
                         .to_string(),
-                    label: node["aria"]["label"].as_str().map(normalize_wall_clock),
+                    label: node["aria"]["label"].as_str().map(normalize_label),
                     raw_label: node["aria"]["label"]
                         .as_str()
-                        .filter(|raw| normalize_wall_clock(raw) != *raw)
+                        .filter(|raw| normalize_label(raw) != *raw)
                         .map(str::to_string),
                     bounds: parse_bounds(node.get("bounds")),
                     focusable: node["focusable"].as_bool().unwrap_or(false),
@@ -123,6 +123,48 @@ fn parse_bounds(value: Option<&Value>) -> Option<Bounds> {
         h: value["h"].as_f64()? as f32,
     })
 }
+/// Everything in a label that churns between captures and is never
+/// structural: wall-clock times and the status chip's request counts.
+fn normalize_label(label: &str) -> String {
+    normalize_request_counts(&normalize_wall_clock(label))
+}
+
+/// The status chip's session totals ("session: 23 requests (12 GraphQL,
+/// 11 REST, 0 auth)") count every flight, and since docs/0084 a watched PR
+/// page sends probes on a timer, so the count depends on how long a page
+/// was open. The numbers become `N`; any other text, even one that merely
+/// starts like the chip, is left alone.
+fn normalize_request_counts(label: &str) -> String {
+    const HEAD: &str = "session: ";
+    const SHAPE: &str = "N requests (N GraphQL, N REST, N auth)";
+    let Some(at) = label.find(HEAD) else {
+        return label.to_string();
+    };
+    let from = at + HEAD.len();
+    let Some(close) = label[from..].find(')') else {
+        return label.to_string();
+    };
+    let to = from + close + 1;
+    let mut shape = String::new();
+    let mut in_digits = false;
+    for ch in label[from..to].chars() {
+        if ch.is_ascii_digit() {
+            if !in_digits {
+                shape.push('N');
+            }
+            in_digits = true;
+        } else {
+            in_digits = false;
+            shape.push(ch);
+        }
+    }
+    if shape == SHAPE {
+        format!("{}{SHAPE}{}", &label[..from], &label[to..])
+    } else {
+        label.to_string()
+    }
+}
+
 /// Wall-clock times in status labels churn every capture ("0 flights ·
 /// as of 23:15 · oldest retained —", the usage page's status line) and
 /// are never structural — normalize them to fixed tokens so goldens
@@ -591,6 +633,34 @@ mod tests {
     #[test]
     fn from_dump_requires_frame_number() {
         assert!(Snapshot::from_dump("a", &json!({"nodes": {}})).is_err());
+    }
+
+    #[test]
+    fn request_counts_in_the_chip_become_tokens() {
+        let chip = "GitHub API: REST: no response yet; GraphQL: no response yet; session: 23 requests (12 GraphQL, 11 REST, 0 auth)";
+        assert_eq!(
+            normalize_label(chip),
+            "GitHub API: REST: no response yet; GraphQL: no response yet; session: N requests (N GraphQL, N REST, N auth)"
+        );
+        // A different count normalizes to the same text.
+        assert_eq!(
+            normalize_label(&chip.replace("23 requests (12", "104 requests (60")),
+            normalize_label(chip)
+        );
+        // Not the chip's shape: untouched.
+        for other in [
+            "session: 23 requests",
+            "session: a requests (1 GraphQL, 2 REST, 3 auth)",
+            "session: 5 requests (1 GraphQL, 2 REST)",
+            "the session: 5 flights",
+        ] {
+            assert_eq!(normalize_label(other), other);
+        }
+        // Times still normalize in the same label.
+        assert_eq!(
+            normalize_label("as of 9:05, session: 1 requests (1 GraphQL, 0 REST, 0 auth)"),
+            "as of HH:MM, session: N requests (N GraphQL, N REST, N auth)"
+        );
     }
 
     #[test]
