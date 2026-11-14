@@ -285,6 +285,19 @@
       "focused": false
     },
     {
+      "accesskit_id": "10490106669295518236",
+      "role": "Button",
+      "label": "Ready for review",
+      "bounds": {
+        "x": 967.0,
+        "y": 322.0,
+        "w": 232.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
       "accesskit_id": "10504040589855407073",
       "role": "Group",
       "label": null,

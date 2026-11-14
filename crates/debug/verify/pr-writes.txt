@@ -19,7 +19,17 @@
 # scrolls by -600 first (it bottoms out at 387px).
 #
 # Merge on 107 offers one method, so the recorded method is the default
-# MERGE; the method caret appears only for PRs that allow several.
+# MERGE; the method caret appears only for PRs that allow several. 107's
+# viewer last used squash, which its repository no longer allows, so the
+# default falls back to MERGE (docs/0016 D5, #776).
+#
+# The last sections walk the metadata pickers on 103 (#857: open each, change
+# one row, Save, assert the op and the complete replacement id list, docs/0043
+# D1) and the state flips of docs/0083 D4 and D5: Ready for review on 103,
+# Convert to draft through the more menu and its confirm on 113 (Esc backs out
+# first), and Reopen on 114. 113's split button preselects squash, the
+# viewer's default (#776). The more menu's rows have no a11y name (#862), so
+# they are clicked by position.
 
 --session prwrites
 
@@ -33,7 +43,7 @@ key enter
 wait-label "PR #108: Loader: a PR that fails its detail read"
 
 # 107: open, UNSTABLE, admin viewer: Merge is offered, and the more menu
-# (docs/0083 D5) holds Close.
+# (docs/0083 D5) holds Convert to draft and Close.
 mouse down 900 564
 mouse up 900 564
 wait-label "Conversation (3)"
@@ -63,11 +73,12 @@ wait-label "Merge pull request"
 assert-no-label "Confirm merge"
 snapshot merge-sent
 
-# Close: the more menu, inline confirm, Confirm.
+# Close: the more menu (Convert to draft, a separator, then Close), inline
+# confirm, Confirm.
 mouse down 1219 334
 mouse up 1219 334 --wait-frame
-mouse down 1199 367
-mouse up 1199 367 --wait-frame
+mouse down 1199 403
+mouse up 1199 403 --wait-frame
 wait-label "Close without merging"
 snapshot close-confirm
 mouse down 1045 388
@@ -92,3 +103,131 @@ mouse up 1182 283 --wait-frame
 assert-write "POST /repos/fixture-user/beacon/actions/runs/7003/approve"
 wait-frame
 snapshot gated-after
+
+# 103: the metadata pickers (#857). A draft with nothing filled in: all four
+# Edit buttons. Every picker posts the complete replacement list, here the
+# one row chosen; the answer is static, so each section is back as it was.
+click 12782369444481205663 --wait-frame
+wait-label "PR #108: Loader: a PR that fails its detail read"
+mouse down 900 414
+mouse up 900 414
+wait-label "Conversation (0)"
+assert-label "Ready for review"
+
+# Reviewers: a replace-all `requestReviews` with `union: true`.
+mouse down 1221 380
+mouse up 1221 380 --wait-frame
+wait-label "Filter users"
+wait-label "user-00"
+mouse down 1093 435
+mouse up 1093 435 --wait-frame
+snapshot reviewers-picked
+mouse down 979 680
+mouse up 979 680 --wait-frame
+assert-write PrRequestReviews input.pullRequestId=PR_103 input.userIds.0=U_user-00 input.union=true
+wait-label "Edit assignees"
+
+# Assignees: `updatePullRequest` with `assigneeIds`.
+mouse down 1221 442
+mouse up 1221 442 --wait-frame
+wait-label "Filter users"
+wait-label "user-00"
+mouse down 1093 435
+mouse up 1093 435 --wait-frame
+mouse down 979 680
+mouse up 979 680 --wait-frame
+assert-write PrUpdateMetadata input.pullRequestId=PR_103 input.assigneeIds.0=U_user-00
+wait-label "Edit labels"
+
+# Labels: `updatePullRequest` with `labelIds`.
+mouse down 1221 504
+mouse up 1221 504 --wait-frame
+wait-label "Filter labels"
+wait-label "label-00"
+mouse down 1093 559
+mouse up 1093 559 --wait-frame
+# 62 candidates: the card is taller than the rail, so Save is under the fold.
+mouse scroll 1100 600 -300 --wait-frame
+mouse down 979 633
+mouse up 979 633 --wait-frame
+wait-frame
+assert-write PrUpdateMetadata input.pullRequestId=PR_103 input.labelIds.0=L_label-00
+wait-label "Edit milestone"
+mouse scroll 1100 500 600 --wait-frame
+
+# Milestone: `updatePullRequest` with `milestoneId`.
+mouse down 1221 566
+mouse up 1221 566 --wait-frame
+wait-label "v1.4 parser cleanup"
+mouse down 1093 625
+mouse up 1093 625 --wait-frame
+mouse down 979 691
+mouse up 979 691 --wait-frame
+assert-write PrUpdateMetadata input.pullRequestId=PR_103 input.milestoneId=M_1
+wait-label "Edit milestone"
+
+# Ready for review (#771): one click, no confirm.
+mouse down 1083 334
+mouse up 1083 334 --wait-frame
+assert-write PrReady input.pullRequestId=PR_103
+wait-label "Ready for review"
+snapshot ready-sent
+click 12782369444481205663 --wait-frame
+wait-label "PR #108: Loader: a PR that fails its detail read"
+
+# 113: all three methods allowed, the viewer's last-used one is squash, so
+# the split button reads "Squash and merge" where the merge-commit rule
+# would read "Merge pull request" (#776).
+mouse down 700 149
+mouse up 700 149
+type #113
+wait-label "PR #113: Docs: explain the manifest grammar"
+mouse down 900 337
+mouse up 900 337
+wait-label "Conversation (2)"
+assert-label "Squash and merge"
+assert-no-label "Merge pull request"
+
+# Convert to draft (#772): the more menu's first row opens the confirm; Esc
+# backs out (the page stays and the action row returns); the second time
+# Convert to draft sends.
+mouse down 1219 334
+mouse up 1219 334 --wait-frame
+mouse down 1199 367
+mouse up 1199 367 --wait-frame
+wait-label "Convert to draft? Reviewers"
+snapshot convert-confirm
+key esc
+assert-no-label "Convert to draft? Reviewers"
+assert-label "Conversation (2)"
+assert-label "Squash and merge"
+mouse down 1219 334
+mouse up 1219 334 --wait-frame
+mouse down 1199 367
+mouse up 1199 367 --wait-frame
+wait-label "Convert to draft? Reviewers"
+mouse down 1025 411
+mouse up 1025 411 --wait-frame
+assert-write PrConvertToDraft input.pullRequestId=PR_113
+assert-no-label "Convert to draft? Reviewers"
+wait-label "Squash and merge"
+snapshot convert-sent
+click 12782369444481205663 --wait-frame
+wait-label "PR #113: Docs: explain the manifest grammar"
+
+# 114: closed and reopenable. Reopen is the only control: one click, no
+# confirm (Delete branch, #773, joins it later).
+mouse down 700 149
+mouse up 700 149
+key ctrl-a
+type #114
+wait-label "PR #114: Loader: try the lazy manifest reader"
+mouse down 900 337
+mouse up 900 337
+wait-label "Conversation (1)"
+assert-label "Reopen pull request"
+mouse down 1099 301
+mouse up 1099 301 --wait-frame
+assert-write PrReopen input.pullRequestId=PR_114
+wait-label "Reopen pull request"
+snapshot reopen-sent
