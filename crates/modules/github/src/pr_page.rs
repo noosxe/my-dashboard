@@ -73,6 +73,7 @@ mod mergeable_poll;
 mod page_write_confirm;
 mod queue_writes;
 mod rail;
+mod refocus;
 mod review_drafts;
 mod state_writes;
 #[cfg(test)]
@@ -1114,11 +1115,7 @@ impl PrDetailPage {
         // when the document's detail is inside the TTL window and its
         // read lane is healthy; manual refreshes and mutation refetches
         // always run.
-        let forced = matches!(
-            origin.trigger,
-            Trigger::Manual | Trigger::MutationRefetch | Trigger::Recheck
-        );
-        if !forced {
+        if !refocus::bypasses_reopen_ttl(origin.trigger) {
             let fresh = self
                 .state
                 .read(cx)
