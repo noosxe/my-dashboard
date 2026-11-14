@@ -312,7 +312,7 @@ the Conversation rail's metadata sections (docs/0083 D7–D12): the rail
 scrolls on 102, the Labels picker of 101 opens in place with its filter
 focused and its Save and Cancel reachable, Save stays disabled while
 nothing changed, Esc closes the card first and returns focus to Edit,
-Edit is hidden on 104 and 105, and the reason lines show on 101 and 102.
+Edit is hidden on 104 and 105, the reason lines show on 101 and 102, and the reviewer rows carry their review state in their names (101, 102, 104).
 It pins the open picker as the `github-pr-picker` golden. No step writes,
 so `dashboard-debug writes` must print nothing afterwards:
 

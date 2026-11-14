@@ -830,8 +830,8 @@ adds a debug-build-only fixture mode:
 
   | # | State |
   |---|---|
-  | 101 | Open and blocked, everything populated: mixed reviews, labels, assignees, reviewers with a team, milestone, mixed checks, review threads, files with patches, a fork-gated and an environment-gated run |
-  | 102 | Overflow: 200-char title, 34 labels, 12 assignees, 13 reviewers, 137 checks and commits, 240 comments of which the newest 100 are carried (the query caps nodes at 20 or 100; totals stay true) |
+  | 101 | Open and blocked, everything populated: mixed reviews, labels, assignees, reviewers (users, a team, a bot; one commenter-only), milestone, mixed checks, review threads, files with patches, a fork-gated and an environment-gated run |
+  | 102 | Overflow: 200-char title, 34 labels, 12 assignees, 13 reviewer requests (a team and an enterprise team among them), 137 checks and commits, 240 comments of which the newest 100 are carried (the query caps nodes at 20 or 100; totals stay true) |
   | 103 | Draft with nothing filled in |
   | 104 | Merged, squash only |
   | 105 | Closed with conflicts, read-only viewer |
