@@ -1,70 +1,108 @@
-# pr-update-branch.txt — docs/0067's bridge receipt as a committed
-# script: the PR-page "Update branch" split button (merge-commit /
-# rebase) — gating (hidden unless viewerCanUpdateBranch), the dropdown
-# methods, the rebase force-push confirm, and the post-update state-
-# line transition — exercised against a live behind-base PR.
+# pr-update-branch.txt — docs/0067's receipt over the committed fixtures
+# (docs/0081 §12.1, docs/0083 D3): the Update split button in the PR
+# page's Mergeability gate row. Gating (hidden unless the server gate
+# `viewerCanUpdateBranch` is open), the caret's two methods, the rebase
+# force-push confirm under the row, and the recorded writes for each
+# method. The fixture transport answers writes from a response file and
+# records them (docs/0010 D11); answers are static, so what is asserted
+# is the request each click sent and that the page survives the answer.
 #
-# Prerequisites (the live fixture — a PR whose head is BEHIND its base):
-#   any PR you can push to that is genuinely behind; worker-mcp's
-#   flake-update PR is the recurring fixture. If nothing is behind,
-#   merge/rebase anything into the PR's base (or re-run the
-#   flake-update workflow) until GitHub reports BEHIND.
-#   DASHBOARD_STATE_DIR=<signed-in state dir> \
-#     dashboard-debug session start --name updbranch --size 1280x800
-# Then navigate to that PR's page (conversation tab — the merge rail).
+# Fixtures: #107 (no gate: the button is absent) and #113 (a writer's
+# clean PR, behind its base: the button sits in the row).
 #
-# Run: dashboard-debug run crates/debug/verify/pr-update-branch.txt
+# Prerequisites: the containerized env (docs/0071) with the GitHub
+# fixtures and the pinned clock, and a session named `updbranch` at
+# 1280x800:
+#   export DASHBOARD_GITHUB_FIXTURE=/work/crates/debug/verify/fixtures/github
+#   export DASHBOARD_FIXED_NOW=2026-10-23T12:00:00Z
+#   dashboard-debug session start --name updbranch --size 1280x800 \
+#     --binary /tmp/target/debug/my-dashboard
+# Run (in-container): dashboard-debug run crates/debug/verify/pr-update-branch.txt
 #
-# What each snapshot must show (docs/0067 D1/D2/D4/D5):
-#   gated      — the merge rail carries `pr-update-branch` (the split
-#                button) under the out-of-date state line; the negative
-#                case is checked first from an up-to-date PR (button
-#                hidden — the gate hides, never disables)
-#   menu       — after `click pr-update-branch`: the two probe-visible
-#                rows `pr-update-branch-merge` ("Update with a merge
-#                commit") and `pr-update-branch-rebase` ("Update with
-#                rebase")
-#   confirm    — after `click pr-update-branch-rebase`: the split
-#                button is replaced by `pr-update-rebase-confirm` with
-#                the force-push warning and `pr-update-rebase-go` /
-#                `pr-update-rebase-cancel`
-#   rebasing   — after `click pr-update-rebase-go`: the row's spinner,
-#                controls disabled (D5 in-flight)
-#   updated    — after the envelope refetch lands: the state line has
-#                left the BEHIND warning (typically the no-conflicts
-#                success line), the button is gone (the gate is false
-#                again — head up to date)
-# Records the ids/labels for the docs/0067 D7 receipts (audit +
-# tree --tab-stops run separately over this surface).
+# Clicks are bridge mouse clicks at the controls' centres, frozen for this
+# fixture set at 1280x800 (ids under the PR page differ between walks; see
+# pr-page.txt). The lane's last rows are below the fold, so #113 comes up
+# through the row filter.
+#
+# What each step must show (docs/0067 D1/D2/D4/D5):
+#   gated      — #107 has no `viewerCanUpdateBranch`: no Update button
+#                (the gate hides, never disables); #113 has it, in the
+#                Mergeability row next to "No conflicts, behind main"
+#   menu       — the caret's two items open under the row
+#   confirm    — rebase replaces the button with the force-push warning,
+#                "Rebase branch" and "Cancel"; Cancel brings the button back
+#   rebase     — "Rebase branch" sends PrUpdateBranch with REBASE
+#   merge      — the button's main click sends PrUpdateBranch with MERGE
 
 --session updbranch
 
-# 0. The rail on the conversation tab: the split button under the
-#    out-of-date line.
-wait-frame
-snapshot update-rail
-snapshot update-rail-tree
+assert-label "Open GitHub module"
+click 11447690740305500471 --wait-frame
+wait-label "Filter repositories"
+click 349678605523893363
+type beacon
+key down
+key enter
+wait-label "PR #108: Loader: a PR that fails its detail read"
 
-# 1. Open the dropdown: both methods, probe-visible.
-click pr-update-branch
-wait-frame
+# 107: the server gate is closed: no Update button.
+mouse down 900 564
+mouse up 900 564
+wait-label "Conversation (3)"
+assert-label "Mergeable, checks failing"
+assert-no-label "Choose how to update the branch"
+click 12782369444481205663 --wait-frame
+wait-label "PR #108: Loader: a PR that fails its detail read"
+
+# 113: behind its base and updatable.
+mouse down 700 149
+mouse up 700 149
+type #113
+wait-label "PR #113: Docs: explain the manifest grammar"
+mouse down 900 337
+mouse up 900 337
+wait-label "Conversation (2)"
+assert-label "No conflicts, behind main"
+assert-label "Choose how to update the branch"
+snapshot gated
+snapshot gated-tree
+
+# The caret offers both methods.
+mouse down 1221 301
+mouse up 1221 301 --wait-frame
 snapshot menu
 snapshot menu-tree
 
-# 2. Pick rebase: the confirm replaces the row.
-click pr-update-branch-rebase
-wait-frame
+# Rebase arms the confirm under the row; the button gives way to it.
+mouse down 1128 360
+mouse up 1128 360 --wait-frame
+wait-label "Rebase branch"
+assert-label "force-push the branch"
+assert-no-label "Choose how to update the branch"
 snapshot confirm
 snapshot confirm-tree
 
-# 3. Fire it: in-flight spinner, controls disabled.
-click pr-update-rebase-go
-wait-frame
-snapshot rebasing
-snapshot rebasing-tree
+# Cancel restores the button and sends nothing.
+mouse down 1114 411
+mouse up 1114 411 --wait-frame
+wait-label "Choose how to update the branch"
+assert-no-label "Rebase branch"
 
-# 4. The refetch confirms: state line left BEHIND, button gone.
-wait-frame
-wait-frame
-snapshot updated
-snapshot updated-tree
+# Rebase for real: confirm, send.
+mouse down 1221 301
+mouse up 1221 301 --wait-frame
+mouse down 1128 360
+mouse up 1128 360 --wait-frame
+wait-label "Rebase branch"
+mouse down 1022 411
+mouse up 1022 411 --wait-frame
+assert-write PrUpdateBranch input.pullRequestId=PR_113 input.updateMethod=REBASE input.expectedHeadOid=0000071bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+wait-label "Choose how to update the branch"
+snapshot rebased
+
+# The main click updates with a merge commit, no confirm.
+mouse down 1186 301
+mouse up 1186 301 --wait-frame
+assert-write PrUpdateBranch input.pullRequestId=PR_113 input.updateMethod=MERGE
+wait-label "Choose how to update the branch"
+snapshot merged-in

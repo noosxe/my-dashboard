@@ -1,0 +1,10 @@
+{
+ "data": {
+  "updatePullRequestBranch": {
+   "pullRequest": {
+    "id": "PR_113",
+    "mergeStateStatus": "CLEAN"
+   }
+  }
+ }
+}

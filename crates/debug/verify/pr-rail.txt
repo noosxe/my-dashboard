@@ -115,6 +115,10 @@ snapshot rail-top
 mouse scroll 1100 600 -300 --wait-frame
 snapshot rail-scrolled
 assert-diff-label rail-top rail-scrolled "Edit milestone"
+# The status block is pinned: it is still in view after the metadata scrolled
+# (docs/0083 D1), and its Update button with it.
+assert-label "Out of date with main"
+assert-label "Choose how to update the branch"
 click 12782369444481205663 --wait-frame
 wait-label "PR #108: Loader: a PR that fails its detail read"
 

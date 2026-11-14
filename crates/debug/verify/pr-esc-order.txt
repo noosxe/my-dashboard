@@ -12,7 +12,7 @@
 #
 # Clicks are bridge mouse clicks at the controls' centres, frozen for this
 # fixture set at 1280x800 (see pr-writes.txt). #102 is BEHIND its base and
-# the viewer may update it, so the rail offers Update branch → rebase.
+# the viewer may update it, so the Mergeability row offers Update → rebase.
 
 --session escorder
 
@@ -28,11 +28,12 @@ mouse down 900 376
 mouse up 900 376 --wait-frame
 wait-label "Conversation (252)"
 
-# Update branch → rebase arms the force-push confirm.
-mouse down 1010 390
-mouse up 1010 390 --wait-frame
-mouse down 1030 452
-mouse up 1030 452 --wait-frame
+# Update's caret → rebase arms the force-push confirm, under the
+# Mergeability row (docs/0083 D3).
+mouse down 1221 400
+mouse up 1221 400 --wait-frame
+mouse down 1128 459
+mouse up 1128 459 --wait-frame
 wait-label "Rebase branch"
 snapshot rebase-confirm
 

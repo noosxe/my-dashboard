@@ -10,6 +10,7 @@ use gpui_component::{
     ActiveTheme, Sizable as _,
     button::{Button, ButtonVariants},
     h_flex,
+    tooltip::Tooltip,
 };
 
 use super::gates::{Gate, Go, Trailing};
@@ -27,12 +28,19 @@ fn content(gate: &Gate, cx: &gpui::App) -> AnyElement {
         .child(glyph(gate.glyph, gate.tone, cx))
         .child(
             div()
+                .id(SharedString::from(format!("{}-label", gate.kind.id())))
                 .min_w_0()
                 .overflow_hidden()
                 .text_ellipsis()
                 .whitespace_nowrap()
                 .text_sm()
                 .text_color(cx.theme().foreground)
+                // A long base name truncates beside the Update button; the
+                // full text is one hover away.
+                .tooltip({
+                    let label = gate.label.clone();
+                    move |window, cx| Tooltip::new(label.clone()).build(window, cx)
+                })
                 .child(gate.label.clone()),
         )
         .children(gate.value.clone().map(|value| {
@@ -83,6 +91,7 @@ pub(super) fn gate_row(
                         .small()
                         .w_full()
                         .h(px(ROW_H))
+                        .px_0()
                         .role(accesskit::Role::Link)
                         .accessibility_label(spoken)
                         .tooltip(tooltip)

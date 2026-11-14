@@ -19,7 +19,7 @@
 # scrolls by -600 first (it bottoms out at 387px).
 #
 # Merge on 107 offers one method, so the recorded method is the default
-# MERGE; the Select appears only for PRs that allow several.
+# MERGE; the method caret appears only for PRs that allow several.
 
 --session prwrites
 
@@ -32,12 +32,13 @@ key down
 key enter
 wait-label "PR #108: Loader: a PR that fails its detail read"
 
-# 107: open, UNSTABLE, admin viewer: Merge and Close both offered.
+# 107: open, UNSTABLE, admin viewer: Merge is offered, and the more menu
+# (docs/0083 D5) holds Close.
 mouse down 900 564
 mouse up 900 564
 wait-label "Conversation (3)"
 assert-label "Merge pull request"
-assert-label "Close pull request"
+assert-label "More pull request actions"
 
 # Comment: type, send, recorded against the PR's node id.
 mouse scroll 640 500 -600 --wait-frame
@@ -51,26 +52,28 @@ assert-write PrAddComment input.subjectId=PR_107 "input.body=Looks good to me"
 wait-label "Merge pull request"
 
 # Merge: button, inline confirm, Confirm; recorded with the method.
-mouse down 1022 276
-mouse up 1022 276 --wait-frame
+mouse down 1083 334
+mouse up 1083 334 --wait-frame
 wait-label "Confirm merge"
 snapshot merge-confirm
-mouse down 1009 307
-mouse up 1009 307 --wait-frame
+mouse down 1021 388
+mouse up 1021 388 --wait-frame
 assert-write PrMerge input.pullRequestId=PR_107 input.mergeMethod=MERGE
 wait-label "Merge pull request"
 assert-no-label "Confirm merge"
 snapshot merge-sent
 
-# Close: button, inline confirm, Confirm.
-mouse down 1162 276
-mouse up 1162 276 --wait-frame
+# Close: the more menu, inline confirm, Confirm.
+mouse down 1219 334
+mouse up 1219 334 --wait-frame
+mouse down 1199 367
+mouse up 1199 367 --wait-frame
 wait-label "Close without merging"
 snapshot close-confirm
-mouse down 1033 330
-mouse up 1033 330 --wait-frame
+mouse down 1045 388
+mouse up 1045 388 --wait-frame
 assert-write PrClose input.pullRequestId=PR_107
-wait-label "Close pull request"
+wait-label "More pull request actions"
 assert-no-label "Close without merging"
 snapshot close-sent
 click 12782369444481205663 --wait-frame

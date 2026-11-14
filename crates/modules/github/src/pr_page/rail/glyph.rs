@@ -17,8 +17,10 @@ pub(super) fn tone_color(tone: Tone, cx: &App) -> Hsla {
         Tone::Danger => theme.danger,
         Tone::Warning => theme.warning,
         Tone::Muted => theme.muted_foreground,
-        // The header badge's Merged tone (`pr_state_tone` → accent).
-        Tone::Merged => theme.accent,
+        // The header badge's Merged tone is `accent`, a near-neutral in
+        // the default themes: as a thin icon it would vanish, so the
+        // merged glyph takes the `info` slot instead.
+        Tone::Merged => theme.info,
     }
 }
 

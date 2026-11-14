@@ -39,6 +39,7 @@ pub(super) fn action_row(
     }
     let pending = page.store_pending(cx);
     let busy = page.writes_busy(cx);
+    let no_primary = primaries.is_empty();
     Some(
         h_flex()
             .id("pr-rail-actions")
@@ -62,6 +63,9 @@ pub(super) fn action_row(
                 _ => div().into_any_element(),
             }))
             .when(!menu.is_empty(), |row| row.child(more_menu(menu, busy, cx)))
+            // A row with no primary (draft, until #771) keeps `⋯` at the
+            // trailing edge.
+            .when(no_primary, |row| row.justify_end())
             .into_any_element(),
     )
 }
@@ -97,14 +101,17 @@ fn merge_button(
         .label(label)
         .primary()
         .small()
-        .w_full()
         .disabled(!enabled || busy)
         .tooltip(tooltip)
         .on_click(cx.listener(|this, _, window, cx| {
             this.open_merge_confirm(ConfirmKind::Merge, window, cx)
         }));
     if page.methods.len() < 2 {
-        return div().flex_1().min_w_0().child(action).into_any_element();
+        return div()
+            .flex_1()
+            .min_w_0()
+            .child(action.w_full())
+            .into_any_element();
     }
     let weak = cx.entity().downgrade();
     let methods = page.methods.clone();
@@ -116,7 +123,7 @@ fn merge_button(
         .child(
             DropdownButton::new("pr-merge-split")
                 .w_full()
-                .button(action)
+                .button(action.flex_1().min_w_0())
                 .small()
                 .disabled(busy)
                 .menu_accessibility_label("Choose merge method")
@@ -173,6 +180,9 @@ fn more_menu(items: Vec<MenuItem>, busy: bool, cx: &Context<PrDetailPage>) -> An
                                 let item_weak = weak.clone();
                                 next = next.item(
                                     PopupMenuItem::element(|_, cx| {
+                                        // Probe-visible row (0010 D10). The upstream
+                                        // MenuItem of a custom element has no a11y
+                                        // name; the receipts click it by this key.
                                         h_flex()
                                             .debug_selector(|| "pr-close".to_string())
                                             .text_color(cx.theme().danger)

@@ -33,6 +33,11 @@ def write_pr_writes(write):
     mutation("PrClose", "closePullRequest", {"pullRequest": {"state": "CLOSED"}})
     mutation("PrAddComment", "addComment", {"clientMutationId": None})
     mutation(
+        "PrUpdateBranch",
+        "updatePullRequestBranch",
+        {"pullRequest": {"id": "PR_113", "mergeStateStatus": "CLEAN"}},
+    )
+    mutation(
         "PrAddReview",
         "addPullRequestReview",
         {"pullRequestReview": {"id": "PRR_fixture", "state": "APPROVED"}},

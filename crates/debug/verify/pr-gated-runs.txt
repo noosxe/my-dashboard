@@ -1,59 +1,67 @@
-# pr-gated-runs.txt — docs/0066's bridge receipt as a committed script:
-# the PR-page "Waiting for approval" section — discovery (REST sweep),
-# gate-probe actions (fork gate approve-only), and the post-approve
-# transition — exercised against a live gated run.
+# pr-gated-runs.txt — docs/0066's receipt over the committed fixtures
+# (docs/0081 §12.1, docs/0083 D3): runs held for approval. The PR page's
+# Checks gate row in the rail carries the waiting count, opens the Checks
+# tab, and the tab's "Waiting for approval" section lists each held run
+# with its approve action.
 #
-# Prerequisites (the live fixture — a run in `action_required`):
-#   worker-mcp's flake-update PR is the canonical fixture (docs/0066
-#   §1). If nothing is waiting, recreate: re-run/rebase the flake-update
-#   workflow so fresh runs enter `action_required`.
-#   DASHBOARD_STATE_DIR=<signed-in state dir> \
-#     dashboard-debug session start --name gated --size 1280x800
-# Then navigate to the gated PR's page (notifications list → the PR, or
-# the repo view), and switch to the Checks tab.
+# Fixture: #109, whose only CI is two runs waiting for approval on a fork
+# gate (approve-only, no reject).
 #
-# Run: dashboard-debug run crates/debug/verify/pr-gated-runs.txt
+# Prerequisites: the containerized env (docs/0071) with the GitHub
+# fixtures and the pinned clock, and a session named `gated` at 1280x800:
+#   export DASHBOARD_GITHUB_FIXTURE=/work/crates/debug/verify/fixtures/github
+#   export DASHBOARD_FIXED_NOW=2026-10-23T12:00:00Z
+#   dashboard-debug session start --name gated --size 1280x800 \
+#     --binary /tmp/target/debug/my-dashboard
+# Run (in-container): dashboard-debug run crates/debug/verify/pr-gated-runs.txt
 #
-# What each snapshot must show (docs/0066 D3/D4/D5):
-#   gated      — the `pr-gated-header` section ("Waiting for approval"),
-#                one `pr-gated-row-*` per held run with pause glyphs, the
-#                fork gate's approve-only button (`pr-gate-approve-*` —
-#                no reject: upstream has none for this gate), age + run
-#                number muted text; the checks header reads "… · N
-#                waiting" (or "N waiting for approval" when no checks)
-#   approving  — after `click pr-gate-approve-*`: the row reads
-#                "approved, starting…" with buttons gone (D5 in-flight)
-#   confirmed  — after the targeted sweep refetch lands: the row LEFT
-#                the section (run out of `action_required`; check rows
-#                appear as jobs start) — no zombie rows
-# The run ids in the click step change per fixture run: read the live
-# id off the `gated-tree` snapshot and substitute it below.
-# Also records the section's a11y roles/labels for the docs/0066 D7
-# receipts (audit + tree --tab-stops run separately over this surface).
+# Clicks are bridge mouse clicks at the controls' centres, frozen for this
+# fixture set at 1280x800 (ids under the PR page differ between walks; see
+# pr-page.txt).
+#
+# What each step must show (docs/0066 D3/D4/D5):
+#   gated-rail — the Checks gate row reads "Checks: 2 waiting" and is a link
+#                to the Checks tab: never "No checks on this branch" while
+#                runs are held
+#   gated      — after the row's click, the `pr-gated-header` section
+#                ("Waiting for approval"), one row per held run, each with
+#                an approve action and no reject
+#   approving  — after the approve click the write is recorded (fixture
+#                answers are static, so the row stays; the real sweep
+#                refetch that removes it is docs/0066 D5)
 
 --session gated
 
-# 0. The conversation rail (docs/0066 D3 rail amendment): the checks
-#    summary reads "N waiting for approval" — never "Checks status
-#    unknown" while runs are held — with the "Review approval" jump.
-wait-frame
+assert-label "Open GitHub module"
+click 11447690740305500471 --wait-frame
+wait-label "Filter repositories"
+click 349678605523893363
+type beacon
+key down
+key enter
+wait-label "PR #109: CI: a fork PR whose only runs wait for approval"
+
+# 109: the rail's Checks row counts the held runs.
+mouse down 900 638
+mouse up 900 638
+wait-label "Checks (2)"
+assert-label "Checks: 2 waiting. Open the Checks tab"
+assert-no-label "No checks on this branch"
 snapshot gated-rail
 snapshot gated-rail-tree
 
-# 1. The waiting section on the PR's checks tab.
-click pr-view-checks
-wait-frame
+# The row opens the Checks tab, where the held runs wait.
+mouse down 1099 271
+mouse up 1099 271 --wait-frame
+wait-label "Approve gated workflow run fork-ci"
+assert-label "Approve gated workflow run fork-lint"
+assert-no-label "Reject gated workflow run"
 snapshot gated
 snapshot gated-tree
 
-# 2. Approve the (substituted) run: optimistic in-flight state.
-click pr-gate-approve-RUN_ID
-wait-frame
+# Approve the fork-gated run: the write is recorded.
+mouse down 1182 283
+mouse up 1182 283 --wait-frame
+assert-write "POST /repos/fixture-user/beacon/actions/runs/7003/approve"
 snapshot approving
 snapshot approving-tree
-
-# 3. The sweep refetch confirms: row gone, checks take over.
-wait-frame
-wait-frame
-snapshot confirmed
-snapshot confirmed-tree
