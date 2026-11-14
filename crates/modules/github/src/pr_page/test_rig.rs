@@ -11,6 +11,8 @@ use std::sync::{Arc, Mutex};
 
 use gpui::{AppContext as _, Entity, TestAppContext, VisualTestContext, WindowHandle};
 
+use dashboard_core::usage_records::{MemorySink, Recorder, UsageSource as _};
+
 use crate::drafts::DraftStore;
 use crate::fixture::operation_name;
 use crate::gql;
@@ -38,7 +40,7 @@ fn detail_json(s: Server) -> String {
     serde_json::json!({ "data": { "repository": { "pullRequest": {
         "id": "PR_7", "number": NUMBER, "title": "probe", "url": "u",
         "state": "OPEN", "isDraft": false, "createdAt": "2026-09-01T00:00:00Z",
-        "headRefOid": s.head, "mergeable": s.mergeable,
+        "headRefName": "feature", "headRefOid": s.head, "mergeable": s.mergeable,
     } } } })
     .to_string()
 }
@@ -48,6 +50,8 @@ pub(super) struct ScriptedHttp {
     pub(super) detail_reads: AtomicUsize,
     pub(super) threads_reads: AtomicUsize,
     pub(super) files_reads: AtomicUsize,
+    /// REST requests to the gated-runs list.
+    pub(super) runs_reads: AtomicUsize,
     pub(super) mutations: AtomicUsize,
     /// The status a mutation answers with.
     pub(super) mutation_status: AtomicUsize,
@@ -74,6 +78,10 @@ impl Http for ScriptedHttp {
         _: Option<&str>,
         _: Option<&str>,
     ) -> Result<HttpResult, HttpError> {
+        if url.contains("/actions/runs") {
+            self.runs_reads.fetch_add(1, Ordering::SeqCst);
+            return ok(r#"{"workflow_runs":[]}"#.into());
+        }
         if url.contains("/files") {
             self.files_reads.fetch_add(1, Ordering::SeqCst);
             return ok("[]".into());
@@ -128,6 +136,8 @@ impl crate::auth::TokenStore for NoStore {
 pub(super) struct Rig {
     pub(super) http: Arc<ScriptedHttp>,
     pub(super) state: Entity<GithubState>,
+    /// Every request the store recorded, with its trigger.
+    pub(super) records: Arc<MemorySink>,
 }
 
 impl Rig {
@@ -143,19 +153,24 @@ impl Rig {
             detail_reads: AtomicUsize::new(0),
             threads_reads: AtomicUsize::new(0),
             files_reads: AtomicUsize::new(0),
+            runs_reads: AtomicUsize::new(0),
             mutations: AtomicUsize::new(0),
             mutation_status: AtomicUsize::new(200),
         });
         let client: Arc<dyn Http> = http.clone();
+        let records = Arc::new(MemorySink::new(256));
+        let sink = records.clone();
         let state = cx.update(|cx| {
             cx.new(|_| {
-                let mut s = GithubState::new(
+                let mut s = GithubState::with_recorder(
                     client,
                     Arc::new(NoStore),
                     Default::default(),
                     Default::default(),
                     GithubCache::new(dashboard_core::paths::AppPaths::init()),
                     DraftStore::at_tmp("pr-freshness"),
+                    Recorder::new("github", sink),
+                    None,
                 );
                 s.auth = AuthStatus::Connected;
                 s.land_summary(
@@ -184,7 +199,11 @@ impl Rig {
                 s
             })
         });
-        Self { http, state }
+        Self {
+            http,
+            state,
+            records,
+        }
     }
 
     /// Open a page over the young document: nothing dispatches.
@@ -258,6 +277,18 @@ impl Rig {
     }
     pub(super) fn files_reads(&self) -> usize {
         self.http.files_reads.load(Ordering::SeqCst)
+    }
+    pub(super) fn runs_reads(&self) -> usize {
+        self.http.runs_reads.load(Ordering::SeqCst)
+    }
+    /// The triggers of the recorded gated-runs requests.
+    pub(super) fn gated_triggers(&self) -> Vec<String> {
+        self.records
+            .snapshot()
+            .iter()
+            .filter(|r| r.op.as_ref() == "gated-runs")
+            .map(|r| r.trigger.to_string())
+            .collect()
     }
     pub(super) fn mutations(&self) -> usize {
         self.http.mutations.load(Ordering::SeqCst)
