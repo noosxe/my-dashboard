@@ -27,6 +27,21 @@ pub(crate) struct PickerDraft {
     pub checked: Vec<bool>,
 }
 
+impl PickerDraft {
+    /// docs/0083 D12 (#756): the draft equals what the PR has now, so a
+    /// save would post nothing new. Order never matters — the write is a
+    /// replace-by-set — and `current` holds the applied node ids.
+    pub(crate) fn is_unchanged(&self, current: &[String]) -> bool {
+        let mut checked = compute_replace_ids(&self.rows, &self.checked);
+        let mut current = current.to_vec();
+        checked.sort();
+        checked.dedup();
+        current.sort();
+        current.dedup();
+        checked == current
+    }
+}
+
 /// The picker source fetch lifecycle (0022 D5) — the page fetch-record
 /// pattern (docs/0031 `Fetch<T>`), generic over the parsed page.
 #[derive(Debug, Default)]
@@ -342,6 +357,35 @@ mod tests {
             rows[2].label, "done · closed",
             "applied closed milestone appended"
         );
+    }
+
+    fn row(id: &str) -> PickerRow {
+        PickerRow {
+            id: id.into(),
+            label: id.into(),
+            avatar_url: None,
+        }
+    }
+
+    #[test]
+    fn draft_is_unchanged_when_the_checked_set_equals_the_current_set() {
+        let draft = PickerDraft {
+            rows: vec![row("a"), row("b"), row("c")],
+            checked: vec![true, false, true],
+        };
+        assert!(draft.is_unchanged(&["c".into(), "a".into()]));
+        assert!(!draft.is_unchanged(&["a".into()]));
+        assert!(!draft.is_unchanged(&["a".into(), "b".into(), "c".into()]));
+    }
+
+    #[test]
+    fn an_empty_draft_over_an_empty_set_is_unchanged() {
+        let draft = PickerDraft {
+            rows: vec![row("a")],
+            checked: vec![false],
+        };
+        assert!(draft.is_unchanged(&[]));
+        assert!(!draft.is_unchanged(&["a".into()]));
     }
 
     #[test]

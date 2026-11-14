@@ -31,7 +31,7 @@ use gpui_component::{
     diff::DiffState,
     group_box::GroupBox,
     h_flex,
-    input::{Input, InputEvent, InputState, Textarea, TextareaState},
+    input::{InputEvent, InputState, Textarea, TextareaState},
     list::{ListEvent, ListState},
     menu::{DropdownMenu as _, PopupMenuItem},
     resizable::ResizableState,
@@ -71,6 +71,7 @@ mod merge_confirm;
 mod merge_gate;
 mod mergeable_poll;
 mod page_write_confirm;
+mod rail;
 mod review_drafts;
 #[cfg(test)]
 mod test_rig;
@@ -95,7 +96,7 @@ use crate::issue_page::{reaction_chips, reaction_direction};
 use crate::markdown;
 use crate::pickers::{
     PickerDraft, PickerFetch, PickerRow, PickerSource, assignee_rows, compute_replace_ids,
-    label_rows, milestone_rows, picker_row_matches, reviewer_rows,
+    label_rows, milestone_rows, reviewer_rows,
 };
 use crate::service::{
     Fetch, FetchSpec, GithubState, JobLogsError, JobsTickError, Kind, Mutation, PendingKind,
@@ -748,6 +749,17 @@ pub(crate) struct PrDetailPage {
     /// The conversation scroll — tracked so the jump can land the timeline
     /// on the anchored comment (docs/0026 D9).
     timeline_scroll: ScrollHandle,
+    /// docs/0083 D1: the rail's metadata region scrolls on its own; the
+    /// handle survives refetches and lives as long as the page.
+    rail_scroll: ScrollHandle,
+    /// docs/0083 D12: the open picker's checklist rows (max 240 px).
+    picker_scroll: ScrollHandle,
+    /// The milestone picker's first row, focused on open (D12).
+    picker_row_focus: FocusHandle,
+    /// "+N more" expansions (D8, D9).
+    rail_expanded: rail::Expanded,
+    /// Focus back on the Edit button when a picker closes (D12).
+    rail_focus: rail::EditFocus,
     /// One-shot guard for the jump (docs/0026 D9): the builder arms the
     /// scroll exactly once, the frame the jumped card first renders.
     jump_done: Cell<bool>,
@@ -934,6 +946,11 @@ impl PrDetailPage {
             md: BTreeMap::new(),
             anchor: anchor.map_or(CommentAnchor::Idle, CommentAnchor::Pending),
             timeline_scroll,
+            rail_scroll: ScrollHandle::new(),
+            picker_scroll: ScrollHandle::new(),
+            picker_row_focus: cx.focus_handle(),
+            rail_expanded: rail::Expanded::default(),
+            rail_focus: rail::EditFocus::new(cx),
             jump_done: Cell::new(false),
         };
         // Keystrokes in a picker filter re-render the card's rows; the
@@ -2838,6 +2855,7 @@ impl PrDetailPage {
             })
             .collect();
         self.meta_edit = Some(PrMetaEditor::Reviewers(PickerDraft { rows, checked }));
+        rail::after_open(self, rail::Section::Reviewers, window, cx);
         cx.notify();
     }
 
@@ -2874,6 +2892,7 @@ impl PrDetailPage {
             })
             .collect();
         self.meta_edit = Some(PrMetaEditor::Labels(PickerDraft { rows, checked }));
+        rail::after_open(self, rail::Section::Labels, window, cx);
         cx.notify();
     }
 
@@ -2910,12 +2929,13 @@ impl PrDetailPage {
             })
             .collect();
         self.meta_edit = Some(PrMetaEditor::Assignees(PickerDraft { rows, checked }));
+        rail::after_open(self, rail::Section::Assignees, window, cx);
         cx.notify();
     }
 
-    // No filter on the milestone picker (#197 scope): tiny lists, and
-    // the window param only exists for on_edit signature uniformity.
-    fn start_milestone_picker(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    // No filter on the milestone picker (#284): its first row takes the
+    // focus on open instead (docs/0083 D12).
+    fn start_milestone_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(d) = self.detail(cx).cloned() else {
             return;
         };
@@ -2941,6 +2961,7 @@ impl PrDetailPage {
             rows: milestone_rows(d.milestone.as_ref(), &source),
             chosen,
         });
+        rail::after_open(self, rail::Section::Milestone, window, cx);
         cx.notify();
     }
 
@@ -2980,7 +3001,7 @@ impl PrDetailPage {
     }
 
     fn cancel_meta_editor(&mut self, cx: &mut Context<Self>) {
-        self.meta_edit = None;
+        self.close_meta_editor();
         self.mutation_error = None;
         cx.notify();
     }
@@ -3878,7 +3899,8 @@ impl PrDetailPage {
             cx.notify();
             return true;
         }
-        if self.meta_edit.take().is_some() {
+        if self.meta_edit.is_some() {
+            self.close_meta_editor();
             self.mutation_error = None;
             cx.notify();
             return true;
@@ -4008,7 +4030,7 @@ impl PrDetailPage {
                 | BusyOp::PrSetAssignees
                 | BusyOp::PrSetMilestone
                 | BusyOp::PrSetReviewers => {
-                    self.meta_edit = None;
+                    self.close_meta_editor();
                 }
             }
         }
@@ -5069,520 +5091,7 @@ impl PrDetailPage {
             .items_start()
             .gap_3()
             .child(timeline)
-            .child(self.render_rail(d, cx))
-            .into_any_element()
-    }
-
-    /// The conversation right rail (D5): merge/close panel + checks
-    /// mini-summary. Fixed ~288px; terminal PR states collapse it to a
-    /// note.
-    fn render_rail(&self, d: &gql::PrDetail, cx: &Context<Self>) -> AnyElement {
-        v_flex()
-            .id("pr-rail")
-            .w_72()
-            .flex_none()
-            .gap_3()
-            .child(self.render_merge_panel(d, cx))
-            .children(self.render_rail_error(cx))
-            // docs/0043 D5 rail order; the milestone panel only exists
-            // when there is something to show or the picker can arm
-            // (0022 D8).
-            .child(self.render_reviewers_panel(d, cx))
-            .child(self.render_labels_panel(d, cx))
-            .child(self.render_assignees_panel(d, cx))
-            .children(self.render_milestone_panel(d, cx))
-            .child(self.render_checks_summary(d, cx))
-            .into_any_element()
-    }
-
-    /// A rail panel's title row with its trailing Edit affordance (0022
-    /// D5, docs/0043 D5). Hidden, not disabled, whenever anything
-    /// blocks it — gate, busy, or another editor being open (D7).
-    fn meta_panel_title(
-        &self,
-        label: &'static str,
-        edit_id: &'static str,
-        tooltip: &'static str,
-        show_edit: bool,
-        on_edit: fn(&mut Self, &mut Window, &mut Context<Self>),
-        cx: &Context<Self>,
-    ) -> impl IntoElement {
-        h_flex()
-            .w_full()
-            .justify_between()
-            .items_center()
-            .gap_1()
-            .child(label)
-            .when(show_edit, |row| {
-                row.child(
-                    Button::new(edit_id)
-                        // 0019 §8 lesson: probes see selector keys only.
-                        .debug_selector(move || edit_id.to_string())
-                        .ghost()
-                        .small()
-                        .label("Edit")
-                        .tooltip(tooltip)
-                        .on_click(
-                            cx.listener(move |this, _, window, cx| on_edit(this, window, cx)),
-                        ),
-                )
-            })
-    }
-
-    /// The one rail error slot (docs/0043 D2): any Rail-scoped
-    /// mutation failure reads here, above the metadata cluster.
-    fn render_rail_error(&self, cx: &Context<Self>) -> Option<AnyElement> {
-        self.mutation_error
-            .as_ref()
-            .filter(|e| e.scope == ErrorScope::Rail)
-            .map(|e| {
-                div()
-                    .id("pr-rail-error")
-                    .text_sm()
-                    .text_color(cx.theme().danger)
-                    .child(e.message.clone())
-                    .into_any_element()
-            })
-    }
-
-    /// Reviewers (docs/0043 D5): login rows while displaying, the
-    /// checklist picker while editing. A team/bot request (or any
-    /// degraded ref) keeps the panel display-only — D3's reviewer
-    /// clause hides the Edit affordance.
-    fn render_reviewers_panel(&self, d: &gql::PrDetail, cx: &Context<Self>) -> AnyElement {
-        if let Some(PrMetaEditor::Reviewers(draft)) = &self.meta_edit {
-            return GroupBox::new()
-                .id("pr-reviewers-panel")
-                .title("Reviewers")
-                .child(self.render_meta_picker_card(
-                    "pr-reviewers",
-                    draft,
-                    PickerSource::Reviewers,
-                    &self.users_search,
-                    cx,
-                ))
-                .into_any_element();
-        }
-        let viewer = self.viewer_login(cx);
-        let show_edit = pr_reviewers_arming(d, viewer.as_deref()) && !self.any_meta_editor_open();
-        GroupBox::new()
-            .id("pr-reviewers-panel")
-            .title(self.meta_panel_title(
-                "Reviewers",
-                "pr-reviewers-edit",
-                "Request reviews",
-                show_edit,
-                Self::start_reviewers_picker,
-                cx,
-            ))
-            .child(
-                v_flex()
-                    .gap_1()
-                    .py_1()
-                    .when(d.review_requests.is_empty(), |col| {
-                        col.child(empty_cell("No reviews requested", cx))
-                    }),
-            )
-            .children(d.review_requests.iter().map(|r| {
-                if r.login.is_empty() {
-                    // team / bot / mannequin member (D3): display-only
-                    return div()
-                        .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                        .child("team or bot")
-                        .into_any_element();
-                }
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .child(div().text_sm().child(r.login.clone()))
-                    .into_any_element()
-            }))
-            .into_any_element()
-    }
-
-    /// Labels (docs/0043 D5): the shared data-color pill builder
-    /// (docs/0002 D5 exception) — the reuse docs/0022 §12 D5
-    /// anticipated.
-    fn render_labels_panel(&self, d: &gql::PrDetail, cx: &Context<Self>) -> AnyElement {
-        if let Some(PrMetaEditor::Labels(draft)) = &self.meta_edit {
-            return GroupBox::new()
-                .id("pr-labels-panel")
-                .title("Labels")
-                .child(self.render_meta_picker_card(
-                    "pr-labels",
-                    draft,
-                    PickerSource::Labels,
-                    &self.labels_search,
-                    cx,
-                ))
-                .into_any_element();
-        }
-        let show_edit = pr_labels_arming(d) && !self.any_meta_editor_open();
-        let surface = cx.theme().tokens.group_box.into();
-        GroupBox::new()
-            .id("pr-labels-panel")
-            .title(self.meta_panel_title(
-                "Labels",
-                "pr-labels-edit",
-                "Edit labels",
-                show_edit,
-                Self::start_labels_picker,
-                cx,
-            ))
-            .child(
-                h_flex()
-                    .flex_wrap()
-                    .gap_1()
-                    .py_1()
-                    .when(d.labels.is_empty(), |row| {
-                        row.child(empty_cell(
-                            if d.labels_total > 0 {
-                                "…more"
-                            } else {
-                                "No labels"
-                            },
-                            cx,
-                        ))
-                    }),
-            )
-            .children(
-                d.labels
-                    .iter()
-                    .map(|l| crate::page::label_pill(&l.name, l.color.as_deref(), surface, cx)),
-            )
-            .into_any_element()
-    }
-
-    fn render_assignees_panel(&self, d: &gql::PrDetail, cx: &Context<Self>) -> AnyElement {
-        if let Some(PrMetaEditor::Assignees(draft)) = &self.meta_edit {
-            return GroupBox::new()
-                .id("pr-assignees-panel")
-                .title("Assignees")
-                .child(self.render_meta_picker_card(
-                    "pr-assignees",
-                    draft,
-                    PickerSource::Assignees,
-                    &self.users_search,
-                    cx,
-                ))
-                .into_any_element();
-        }
-        let show_edit = pr_assignees_arming(d) && !self.any_meta_editor_open();
-        GroupBox::new()
-            .id("pr-assignees-panel")
-            .title(self.meta_panel_title(
-                "Assignees",
-                "pr-assignees-edit",
-                "Edit assignees",
-                show_edit,
-                Self::start_assignees_picker,
-                cx,
-            ))
-            .child(v_flex().gap_1().py_1().when(d.assignees.is_empty(), |col| {
-                col.child(empty_cell("No one assigned", cx))
-            }))
-            .children(d.assignees.iter().map(|a| {
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .child(Avatar::new().src(a.avatar_url.clone()).xsmall())
-                    .child(div().text_sm().child(a.login.clone()))
-            }))
-            .into_any_element()
-    }
-
-    /// Milestone (docs/0043 D5, 0022 D8): title + state tag; `None`
-    /// when the PR has no milestone — unless the picker can arm (the
-    /// affordance needs a home; a triage-less viewer sees no empty
-    /// panel).
-    fn render_milestone_panel(&self, d: &gql::PrDetail, cx: &Context<Self>) -> Option<AnyElement> {
-        if let Some(PrMetaEditor::Milestone { rows, chosen }) = &self.meta_edit {
-            return Some(
-                GroupBox::new()
-                    .id("pr-milestone-panel")
-                    .title("Milestone")
-                    .child(self.render_milestone_card(rows, chosen, cx)),
-            )
-            .map(|g| g.into_any_element());
-        }
-        let show_edit = pr_milestone_arming(d) && !self.any_meta_editor_open();
-        if d.milestone.is_none() && !show_edit {
-            return None;
-        }
-        let cell = h_flex()
-            .id("pr-milestone")
-            .debug_selector(|| "pr-milestone".to_string())
-            .gap_2()
-            .items_center()
-            .py_1()
-            .when_some(d.milestone.as_ref(), |row, m| {
-                row.child(div().text_sm().child(m.title.clone())).child(
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(match m.state.as_deref() {
-                            Some("CLOSED") => "CLOSED",
-                            _ => "OPEN",
-                        }),
-                )
-            })
-            .when(d.milestone.is_none(), |row| {
-                row.child(empty_cell("None", cx))
-            });
-        Some(
-            GroupBox::new()
-                .id("pr-milestone-panel")
-                .title(self.meta_panel_title(
-                    "Milestone",
-                    "pr-milestones-edit",
-                    "Edit milestone",
-                    show_edit,
-                    Self::start_milestone_picker,
-                    cx,
-                ))
-                .child(cell),
-        )
-        .map(|g| g.into_any_element())
-    }
-
-    /// The shared checklist card (docs/0043 D5, 0022 D5 shape): one
-    /// clickable row per candidate — the row is the toggle target (its
-    /// accesskit id is the probe key), the checkbox is display-only —
-    /// plus Save/Cancel.
-    fn render_meta_picker_card(
-        &self,
-        id: &'static str,
-        draft: &PickerDraft,
-        source: PickerSource,
-        search: &Entity<InputState>,
-        cx: &Context<Self>,
-    ) -> AnyElement {
-        // #197: view-only type-ahead — the query is read live, rows are
-        // hidden, draft arrays (and their indices) stay full so the save
-        // still writes every checked row, filtered out or not.
-        let query = search.read(cx).value().trim().to_string();
-        let filtering = !query.is_empty();
-        let visible = draft
-            .rows
-            .iter()
-            .filter(|row| picker_row_matches(&query, &row.label))
-            .count();
-        let search_key = format!("{id}-search");
-        let busy = self.busy.is_some();
-        let loading = match source {
-            PickerSource::Labels => matches!(self.labels_source, PickerFetch::Loading),
-            PickerSource::Assignees | PickerSource::Reviewers => {
-                matches!(self.users_source, PickerFetch::Loading)
-            }
-            PickerSource::Milestones => false,
-        };
-        let failed = match source {
-            PickerSource::Labels => self.labels_source.failed_message(),
-            PickerSource::Assignees | PickerSource::Reviewers => self.users_source.failed_message(),
-            PickerSource::Milestones => None,
-        };
-        let (op, save_id) = match source {
-            PickerSource::Reviewers => (BusyOp::PrSetReviewers, "pr-reviewers-save"),
-            PickerSource::Labels => (BusyOp::PrSetLabels, "pr-labels-save"),
-            PickerSource::Assignees => (BusyOp::PrSetAssignees, "pr-assignees-save"),
-            PickerSource::Milestones => unreachable!("milestone uses render_milestone_card"),
-        };
-        let id_key = format!("{id}-card");
-        v_flex()
-            .id(SharedString::from(format!("{id}-card")))
-            .debug_selector(move || id_key.clone())
-            .gap_1()
-            .py_1()
-            .when(loading, |col| {
-                col.child(
-                    h_flex()
-                        .gap_2()
-                        .items_center()
-                        .child(Spinner::new().small())
-                        .child(empty_cell("Loading…", cx)),
-                )
-            })
-            .when_some(failed, |col, msg| {
-                col.child(
-                    div()
-                        .text_sm()
-                        .text_color(cx.theme().danger)
-                        .child(msg.to_string()),
-                )
-            })
-            .child(
-                h_flex()
-                    .id(SharedString::from(format!("{id}-search")))
-                    .debug_selector(move || search_key.clone())
-                    .gap_2()
-                    .items_center()
-                    .child(Input::new(search).small())
-                    .when(filtering, |row| {
-                        row.child(
-                            div()
-                                .text_sm()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(format!("{visible} of {}", draft.rows.len())),
-                        )
-                    }),
-            )
-            .children(
-                draft
-                    .rows
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, row)| picker_row_matches(&query, &row.label))
-                    .map(|(ix, row)| {
-                        let checked = draft.checked.get(ix).copied().unwrap_or(false);
-                        let key = format!("{id}-row-{ix}");
-                        let probe = key.clone();
-                        let check = format!("{key}-check");
-                        h_flex()
-                            .id(SharedString::from(key))
-                            .debug_selector(move || probe.clone())
-                            .gap_2()
-                            .items_center()
-                            .px_2()
-                            .py_1()
-                            .rounded_sm()
-                            .hover(|s| s.bg(cx.theme().secondary))
-                            // docs/0049 D1: picker rows are listbox
-                            // options — the checkbox mirrors the
-                            // selected state.
-                            .role(accesskit::Role::ListItem)
-                            .aria_label(row.label.clone())
-                            .aria_selected(checked)
-                            .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _, cx| {
-                                this.toggle_meta_row(ix, cx)
-                            }))
-                            .child(
-                                Checkbox::new(SharedString::from(check))
-                                    .checked(checked)
-                                    .small()
-                                    .tab_stop(false),
-                            )
-                            .when_some(row.avatar_url.clone(), |r, url| {
-                                r.child(Avatar::new().src(url).xsmall())
-                            })
-                            .child(div().text_sm().child(row.label.clone()))
-                    }),
-            )
-            .when(filtering && visible == 0, |col| {
-                col.child(empty_cell("No matches", cx))
-            })
-            .child(
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .pt_1()
-                    .child(
-                        Button::new(save_id)
-                            .debug_selector(move || save_id.to_string())
-                            .label("Save")
-                            .small()
-                            .disabled(busy)
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.save_meta(op, window, cx)
-                            })),
-                    )
-                    .child(
-                        Button::new(SharedString::from(format!("{id}-cancel")))
-                            .debug_selector(move || format!("{id}-cancel"))
-                            .label("Cancel")
-                            .small()
-                            .on_click(cx.listener(|this, _, _, cx| this.cancel_meta_editor(cx))),
-                    ),
-            )
-            .into_any_element()
-    }
-
-    /// The milestone picker (0022 D5 shape): single-select rows —
-    /// clicking a row chooses it, "No milestone" clears. Save posts
-    /// `milestoneId` (null clears); Cancel restores.
-    fn render_milestone_card(
-        &self,
-        rows: &[PickerRow],
-        chosen: &Option<String>,
-        cx: &Context<Self>,
-    ) -> AnyElement {
-        let busy = self.busy.is_some();
-        let loading = matches!(self.milestones_source, PickerFetch::Loading);
-        let id_key = "pr-milestones-card".to_string();
-        v_flex()
-            .id("pr-milestones-card")
-            .debug_selector(move || id_key.clone())
-            .gap_1()
-            .py_1()
-            .when(loading, |col| {
-                col.child(
-                    h_flex()
-                        .gap_2()
-                        .items_center()
-                        .child(Spinner::new().small())
-                        .child(empty_cell("Loading…", cx)),
-                )
-            })
-            .when_some(self.milestones_source.failed_message(), |col, msg| {
-                col.child(
-                    div()
-                        .text_sm()
-                        .text_color(cx.theme().danger)
-                        .child(msg.to_string()),
-                )
-            })
-            .children(rows.iter().enumerate().map(|(ix, row)| {
-                let selected = chosen.as_deref() == Some(row.id.as_str())
-                    || (chosen.is_none() && row.id.is_empty());
-                let key = format!("pr-milestones-row-{ix}");
-                let probe = key.clone();
-                let check = format!("{key}-check");
-                h_flex()
-                    .id(SharedString::from(key))
-                    .debug_selector(move || probe.clone())
-                    .gap_2()
-                    .items_center()
-                    .px_2()
-                    .py_1()
-                    .rounded_sm()
-                    .hover(|s| s.bg(cx.theme().secondary))
-                    .role(accesskit::Role::ListItem)
-                    .aria_label(row.label.clone())
-                    .aria_selected(selected)
-                    .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _, cx| {
-                        this.pick_milestone_ix(ix, cx)
-                    }))
-                    .child(
-                        Checkbox::new(SharedString::from(check))
-                            .checked(selected)
-                            .small()
-                            .tab_stop(false),
-                    )
-                    .child(div().text_sm().child(row.label.clone()))
-            }))
-            .child(
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .pt_1()
-                    .child(
-                        Button::new("pr-milestones-save")
-                            .debug_selector(|| "pr-milestones-save".to_string())
-                            .label("Save")
-                            .small()
-                            .disabled(busy)
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.save_meta(BusyOp::PrSetMilestone, window, cx)
-                            })),
-                    )
-                    .child(
-                        Button::new("pr-milestones-cancel")
-                            .debug_selector(|| "pr-milestones-cancel".to_string())
-                            .label("Cancel")
-                            .small()
-                            .on_click(cx.listener(|this, _, _, cx| this.cancel_meta_editor(cx))),
-                    ),
-            )
+            .child(rail::render_rail(self, d, cx))
             .into_any_element()
     }
 
@@ -5597,8 +5106,8 @@ impl PrDetailPage {
 
     /// Save the open picker's draft (docs/0043 D1/D3): the input
     /// carries the complete target id list — replace semantics
-    /// upstream. The milestone's unchanged choice closes without a
-    /// pointless write (0022 §11).
+    /// upstream. A draft equal to what the PR has closes the picker
+    /// without a write (docs/0083 D12, #756; 0022 §11).
     fn save_meta(&mut self, op: BusyOp, window: &mut Window, cx: &mut Context<Self>) {
         let Some(d) = self.detail(cx).cloned() else {
             return;
@@ -5611,31 +5120,31 @@ impl PrDetailPage {
                 let Some(PrMetaEditor::Milestone { chosen, .. }) = &self.meta_edit else {
                     return;
                 };
-                if chosen.as_deref() == d.milestone.as_ref().map(|m| m.id.as_str()) {
-                    self.meta_edit = None;
+                if rail::milestone_unchanged(chosen.as_deref(), &d) {
+                    self.close_meta_editor();
                     cx.notify();
                     return;
                 }
                 Self::pr_meta_mutation(op, &d.id, &[], chosen.as_deref())
             }
-            BusyOp::PrSetReviewers => {
-                let Some(PrMetaEditor::Reviewers(draft)) = &self.meta_edit else {
-                    return;
+            BusyOp::PrSetReviewers | BusyOp::PrSetLabels | BusyOp::PrSetAssignees => {
+                let (draft, source) = match (&self.meta_edit, op) {
+                    (Some(PrMetaEditor::Reviewers(draft)), BusyOp::PrSetReviewers) => {
+                        (draft, PickerSource::Reviewers)
+                    }
+                    (Some(PrMetaEditor::Labels(draft)), BusyOp::PrSetLabels) => {
+                        (draft, PickerSource::Labels)
+                    }
+                    (Some(PrMetaEditor::Assignees(draft)), BusyOp::PrSetAssignees) => {
+                        (draft, PickerSource::Assignees)
+                    }
+                    _ => return,
                 };
-                let ids = compute_replace_ids(&draft.rows, &draft.checked);
-                Self::pr_meta_mutation(op, &d.id, &ids, None)
-            }
-            BusyOp::PrSetLabels => {
-                let Some(PrMetaEditor::Labels(draft)) = &self.meta_edit else {
+                if draft.is_unchanged(&rail::current_ids(&d, source)) {
+                    self.close_meta_editor();
+                    cx.notify();
                     return;
-                };
-                let ids = compute_replace_ids(&draft.rows, &draft.checked);
-                Self::pr_meta_mutation(op, &d.id, &ids, None)
-            }
-            BusyOp::PrSetAssignees => {
-                let Some(PrMetaEditor::Assignees(draft)) = &self.meta_edit else {
-                    return;
-                };
+                }
                 let ids = compute_replace_ids(&draft.rows, &draft.checked);
                 Self::pr_meta_mutation(op, &d.id, &ids, None)
             }
@@ -6056,6 +5565,7 @@ impl Focusable for PrDetailPage {
 
 impl Render for PrDetailPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.apply_rail_focus(window, cx);
         self.sync_diff(cx);
         self.sync_merge_confirm(cx);
         self.sync_leave_confirm(cx);
