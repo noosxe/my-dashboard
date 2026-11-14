@@ -58,9 +58,14 @@
          "requestedReviewer": {
           "__typename": "Team"
          }
+        },
+        {
+         "requestedReviewer": {
+          "__typename": "Bot"
+         }
         }
        ],
-       "totalCount": 3
+       "totalCount": 4
       },
       "state": "OPEN",
       "statusCheckRollup": {
@@ -189,7 +194,7 @@
         },
         {
          "requestedReviewer": {
-          "__typename": "Team"
+          "__typename": "EnterpriseTeam"
          }
         }
        ],

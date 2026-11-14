@@ -93,8 +93,22 @@ fn the_populated_scenario_covers_every_section() {
     assert_eq!(d.merge_state_status.as_deref(), Some("BLOCKED"));
     assert_eq!((d.labels.len(), d.assignees.len()), (3, 2));
     assert!(d.milestone.is_some());
-    assert_eq!(d.review_requests.len(), 3);
-    assert!(d.review_requests.iter().any(|r| r.id.is_none()), "a team");
+    assert_eq!(d.review_requests.len(), 4);
+    assert!(d.review_requests.iter().any(|r| r.kind.is_team()), "a team");
+    assert!(
+        d.review_requests
+            .iter()
+            .any(|r| r.kind == crate::gql::ReviewerKind::Bot),
+        "a bot"
+    );
+    // A commenter-only reviewer: in the latest reviews, not the opinions.
+    assert!(d.latest_reviews.iter().any(|r| r.login == "reviewer-c"));
+    assert!(
+        !d.latest_opinionated_reviews
+            .iter()
+            .any(|r| r.login == "reviewer-c")
+    );
+    assert_eq!(d.review_decision.as_deref(), Some("CHANGES_REQUESTED"));
     let review_states: Vec<_> = d
         .reviews
         .nodes

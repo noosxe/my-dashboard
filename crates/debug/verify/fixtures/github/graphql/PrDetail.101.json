@@ -250,6 +250,54 @@
      ],
      "totalCount": 3
     },
+    "latestOpinionatedReviews": {
+     "nodes": [
+      {
+       "author": {
+        "avatarUrl": "https://avatars.invalid/reviewer-a",
+        "login": "reviewer-a"
+       },
+       "id": "PRR_1",
+       "state": "APPROVED"
+      },
+      {
+       "author": {
+        "avatarUrl": "https://avatars.invalid/reviewer-b",
+        "login": "reviewer-b"
+       },
+       "id": "PRR_2",
+       "state": "CHANGES_REQUESTED"
+      }
+     ]
+    },
+    "latestReviews": {
+     "nodes": [
+      {
+       "author": {
+        "avatarUrl": "https://avatars.invalid/reviewer-a",
+        "login": "reviewer-a"
+       },
+       "id": "PRR_1",
+       "state": "APPROVED"
+      },
+      {
+       "author": {
+        "avatarUrl": "https://avatars.invalid/reviewer-b",
+        "login": "reviewer-b"
+       },
+       "id": "PRR_2",
+       "state": "CHANGES_REQUESTED"
+      },
+      {
+       "author": {
+        "avatarUrl": "https://avatars.invalid/reviewer-c",
+        "login": "reviewer-c"
+       },
+       "id": "PRR_3",
+       "state": "COMMENTED"
+      }
+     ]
+    },
     "mergeStateStatus": "BLOCKED",
     "mergeable": "MERGEABLE",
     "milestone": {
@@ -316,11 +364,13 @@
       "viewerHasReacted": false
      }
     ],
+    "reviewDecision": "CHANGES_REQUESTED",
     "reviewRequests": {
      "nodes": [
       {
        "requestedReviewer": {
         "__typename": "User",
+        "avatarUrl": "https://avatars.invalid/reviewer-d",
         "id": "U_reviewer-d",
         "login": "reviewer-d"
        }
@@ -328,17 +378,29 @@
       {
        "requestedReviewer": {
         "__typename": "User",
+        "avatarUrl": "https://avatars.invalid/reviewer-e",
         "id": "U_reviewer-e",
         "login": "reviewer-e"
        }
       },
       {
        "requestedReviewer": {
-        "__typename": "Team"
+        "__typename": "Team",
+        "avatarUrl": "https://avatars.invalid/team-01",
+        "id": "T_team-01",
+        "name": "team-01"
+       }
+      },
+      {
+       "requestedReviewer": {
+        "__typename": "Bot",
+        "avatarUrl": "https://avatars.invalid/review-bot",
+        "id": "U_review-bot",
+        "login": "review-bot"
        }
       }
      ],
-     "totalCount": 3
+     "totalCount": 4
     },
     "reviews": {
      "nodes": [
