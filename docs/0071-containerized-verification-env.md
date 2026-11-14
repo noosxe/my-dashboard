@@ -307,6 +307,29 @@ scripts/verify.sh sh -c '
 '
 ```
 
+`pr-rail.txt` (session `prrail`, same fixtures and clock, 1280x800) walks
+the Conversation rail's metadata sections (docs/0083 D7–D12): the rail
+scrolls on 102, the Labels picker of 101 opens in place with its filter
+focused and its Save and Cancel reachable, Save stays disabled while
+nothing changed, Esc closes the card first and returns focus to Edit,
+Edit is hidden on 104 and 105, and the reason lines show on 101 and 102.
+It pins the open picker as the `github-pr-picker` golden. No step writes,
+so `dashboard-debug writes` must print nothing afterwards:
+
+```sh
+scripts/verify.sh sh -c '
+  set -e
+  cargo build -p dashboard-app
+  export DASHBOARD_GITHUB_FIXTURE=/work/crates/debug/verify/fixtures/github
+  export DASHBOARD_FIXED_NOW=2026-10-23T12:00:00Z
+  cargo run -p dashboard-debug -- session start --name prrail --size 1280x800 \
+    --binary /tmp/target/debug/my-dashboard
+  cargo run -p dashboard-debug -- run crates/debug/verify/pr-rail.txt
+  test -z "$(cargo run -p dashboard-debug -- --session prrail writes)"
+  cargo run -p dashboard-debug -- session stop prrail
+'
+```
+
 The script leaves out `audit` and `tab-stops` until #768 and #733 land,
 since both exit red at the first Conversation stop (its header says where
 they go). A PR-page PR runs them as one-off verbs at the stop it touches.

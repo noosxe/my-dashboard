@@ -31,7 +31,7 @@
 # Home → GitHub → beacon, through the list's own filter + keyboard.
 assert-label "Open GitHub module"
 click 11447690740305500471 --wait-frame
-assert-label "Filter repositories"
+wait-label "Filter repositories"
 click 349678605523893363
 type beacon
 key down
@@ -52,6 +52,7 @@ wait-label "Checks (9)"
 assert-baseline github-pr-populated
 mouse down 447 155
 mouse up 447 155 --wait-frame
+wait-frame
 assert-no-label "Leave a comment"
 mouse down 535 155
 mouse up 535 155 --wait-frame
@@ -96,6 +97,7 @@ wait-label "Checks (0)"
 assert-baseline github-pr-draft
 mouse down 447 155
 mouse up 447 155 --wait-frame
+wait-frame
 assert-no-label "Leave a comment"
 mouse down 535 155
 mouse up 535 155 --wait-frame
@@ -115,6 +117,7 @@ assert-no-label "Merge pull request"
 assert-baseline github-pr-merged
 mouse down 447 155
 mouse up 447 155 --wait-frame
+wait-frame
 assert-no-label "Leave a comment"
 mouse down 535 155
 mouse up 535 155 --wait-frame
@@ -135,6 +138,7 @@ assert-no-label "Close pull request"
 assert-no-label "Edit"
 mouse down 447 155
 mouse up 447 155 --wait-frame
+wait-frame
 assert-no-label "Leave a comment"
 mouse down 535 155
 mouse up 535 155 --wait-frame
@@ -158,6 +162,7 @@ assert-no-label "Close pull request"
 assert-no-label "Edit"
 mouse down 447 155
 mouse up 447 155 --wait-frame
+wait-frame
 assert-no-label "Leave a comment"
 mouse down 535 155
 mouse up 535 155 --wait-frame
@@ -173,6 +178,7 @@ mouse down 900 564
 mouse up 900 564
 wait-label "Conversation (3)"
 assert-label "#107"
+wait-label "Checks (3)"
 assert-label "Merge pull request"
 assert-label "Close pull request"
 assert-no-label "Delete"
@@ -215,6 +221,7 @@ wait-label "Close pull request"
 assert-no-label "Close without merging"
 mouse down 447 155
 mouse up 447 155 --wait-frame
+wait-frame
 assert-no-label "Leave a comment"
 mouse down 535 155
 mouse up 535 155 --wait-frame
