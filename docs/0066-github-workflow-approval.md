@@ -88,6 +88,13 @@ return `Waiting` — only the REST sweep mints it.
 
 ### D2 — Discovery: one sweep per CI-pane render
 
+*Amended by docs/0084 D4: the sweep no longer runs on every detail landing.
+It runs when the page opens, on Refresh, after a head change, when the
+failed-check count rose (a run stopping for approval reports
+`action_required`), and after a gate action (D5). A refetch a probe, a
+write, a tab entry or a refocus caused doesn't sweep, so a probe-driven
+detail read costs no REST run list.*
+
 `GET /repos/{o}/{r}/actions/runs?branch={head_branch}&event=pull_request&status=action_required&per_page=50`
 with `head_branch` percent-encoded as a query value (a branch like `fix/#12` must not truncate the query),
 filtered client-side by `head_sha == PR head_sha` (the branch name is not unique

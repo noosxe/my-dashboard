@@ -85,6 +85,10 @@ matters).
   the docs/0052 §6 acceptance ("idle app ⇒ zero content fetches") is
   amended to "zero while the window is active; the notifications lane
   polls only while inactive."
+  *Amended by docs/0084 D0:* this is no longer the only timer. It stays the
+  only lane polled while unfocused *outside* a watched PR page; a watched PR
+  page probes on its own timer (60 s while the window is inactive), and a
+  notification that names the open PR sends that page one immediate probe.
 - **D2 — the focus signal is one flag, not a cadence tier.**
   `GithubState.window_active: bool` (default `true`: a fresh session
   assumes the user is present until an observer says otherwise). The
