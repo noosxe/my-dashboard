@@ -177,7 +177,7 @@ where
     E: 'static,
     F: Freshness,
 {
-    freshness_row_labelled(id, synced_label(clock.age()), clock, cx, on_refresh)
+    freshness_row_with(id, synced_label(clock.age()), false, clock, cx, on_refresh)
 }
 
 /// [`freshness_row`] with the label's text chosen by the caller (the PR
@@ -194,17 +194,41 @@ where
     E: 'static,
     F: Freshness,
 {
+    freshness_row_with(id, label, true, clock, cx, on_refresh)
+}
+
+/// The row both entry points build. `named` gives the label its own a11y
+/// node (`{id}-synced`, a static-text role): the PR page's label is part
+/// of its contract, and the other pages' trees stay as they were.
+fn freshness_row_with<E, F>(
+    id: &'static str,
+    label: Option<SharedString>,
+    named: bool,
+    clock: &F,
+    cx: &Context<E>,
+    on_refresh: impl Fn(&mut E, &mut Window, &mut Context<E>) + 'static,
+) -> AnyElement
+where
+    E: 'static,
+    F: Freshness,
+{
     h_flex()
         .gap_2()
         .items_center()
         .when_some(label, |row, label| {
-            row.child(
-                div()
-                    .debug_selector(move || format!("{id}-synced"))
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(label),
-            )
+            let text = div()
+                .debug_selector(move || format!("{id}-synced"))
+                .text_xs()
+                .text_color(cx.theme().muted_foreground);
+            row.child(if named {
+                text.id(SharedString::from(format!("{id}-synced")))
+                    .role(accesskit::Role::Label)
+                    .aria_label(label.clone())
+                    .child(label)
+                    .into_any_element()
+            } else {
+                text.child(label).into_any_element()
+            })
         })
         .when(clock.is_loading(), |row| row.child(Spinner::new().small()))
         .child(

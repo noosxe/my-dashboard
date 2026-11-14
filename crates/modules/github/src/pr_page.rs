@@ -5349,7 +5349,11 @@ impl PrDetailPage {
                 &cx.entity(),
                 crate::mentions::MentionComposer::Comment,
                 &self.comment,
-                div().child(Textarea::new(&self.comment).w_full()),
+                div().child(
+                    Textarea::new(&self.comment)
+                        .w_full()
+                        .aria_label("Write a comment"),
+                ),
             ))
             .child(
                 h_flex()

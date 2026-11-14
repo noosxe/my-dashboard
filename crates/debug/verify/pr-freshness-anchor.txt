@@ -1,0 +1,60 @@
+# pr-freshness-anchor.txt — the PR page's age label and anchored landings
+# (docs/0084 D8, Q8): while PR 101 is open and watched the header reads
+# "checked N s ago" (the last probe that confirmed the data); a change
+# that lands by itself — `fixture bump` adds a comment — never moves the
+# reader or rebuilds the composer: the Conversation stays where it was
+# scrolled, and the text typed in the comment box survives the landing.
+#
+# Prerequisites: the containerized env (docs/0071), the committed fixtures,
+# and a session named `pranchor` at 1280x800. The clock is NOT pinned (the
+# probe runs on the app's own clock, as in pr-freshness-probe.txt).
+#   export DASHBOARD_GITHUB_FIXTURE=/work/crates/debug/verify/fixtures/github
+#   dashboard-debug session start --name pranchor --size 1280x800 \
+#     --binary /tmp/target/debug/my-dashboard
+# Run (in-container): dashboard-debug run crates/debug/verify/pr-freshness-anchor.txt
+#
+# No fixed sleeps: every wait is a `wait-label`, and controls are found by
+# label at the moment of the click (`click-label`). The row click and the
+# scroll position are the receipt's coordinates for this fixture at
+# 1280x800, as in pr-freshness-probe.txt.
+
+--session pranchor
+
+# Home → GitHub → beacon → PR 101.
+assert-label "Open GitHub module"
+click 11447690740305500471 --wait-frame
+wait-label "Filter repositories"
+click 349678605523893363
+type beacon
+key down
+key enter
+wait-label "PR #101: Parser: accept trailing commas in manifest lists —"
+mouse down 900 337
+mouse up 900 337
+wait-label "Conversation (5)"
+
+# The page is watched and the first probe has confirmed the data: the
+# header counts from the probe, not from the landing. (A just-landed page
+# can only say "checked just now" or "checked Ns ago".)
+wait-label "checked" --timeout 15
+assert-no-label "synced"
+
+# Scroll into the timeline and start a comment.
+mouse scroll 640 500 -150 --wait-frame
+click-label "Write a comment"
+type "half a thought"
+snapshot before-bump
+
+# GitHub's side changes: a new comment (Conversation 6), a new head, a
+# label swap. The page lands them with no click.
+fixture bump
+wait-label "Conversation (6)" --timeout 15
+wait-label "bug, area:parser, approved" --timeout 5
+snapshot after-bump
+
+# The composer was not rebuilt (its text is intact and it is still there),
+# and nothing under the reader moved: the diff lists what changed, and
+# the cards the reader was looking at are not among the changed lines.
+assert-label "Write a comment"
+assert-label "half a thought"
+diff before-bump after-bump
