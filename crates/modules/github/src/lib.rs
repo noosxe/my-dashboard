@@ -36,7 +36,6 @@ pub mod settings;
 #[cfg(debug_assertions)]
 mod tab_escape;
 mod tab_strip;
-mod textarea_name;
 pub mod usage;
 mod usage_chip;
 mod usage_seed;

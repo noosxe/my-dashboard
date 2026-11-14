@@ -107,7 +107,6 @@ use crate::service::{
     run_spec_tracked,
 };
 use crate::tab_strip;
-use crate::textarea_name::Named as _;
 use crate::usage::{Origin, Surface, Trigger};
 use dashboard_core::freshness::{Freshness, freshness_row, relative_age};
 
@@ -806,7 +805,6 @@ impl PrDetailPage {
             TextareaState::new(window, cx)
                 .rows(4)
                 .placeholder("Leave a comment")
-                .named("Comment")
         });
         let actions: Vec<SharedString> = ["Comment", "Approve", "Request changes"]
             .iter()
@@ -1378,7 +1376,6 @@ impl PrDetailPage {
             TextareaState::new(window, cx)
                 .rows(2)
                 .placeholder("Comment (optional — a default goes on the wire)")
-                .named("Deployment review comment")
         });
         self.gate_review = Some(GateReview {
             run_id,
@@ -2625,8 +2622,7 @@ impl PrDetailPage {
                 // grow with the body — 8 rows minimum, capped at 40 (the
                 // editor scrolls internally past that, like GitHub's).
                 .auto_grow(8, 40)
-                .placeholder("Describe this pull request")
-                .named("Pull request description");
+                .placeholder("Describe this pull request");
             state.set_value(body, window, cx);
             state
         });
@@ -3103,8 +3099,7 @@ impl PrDetailPage {
         let editor = cx.new(|cx| {
             let mut state = TextareaState::new(window, cx)
                 // Grows with the body; scrolls internally past 30 rows.
-                .auto_grow(4, 30)
-                .named("Edit comment");
+                .auto_grow(4, 30);
             state.set_value(body, window, cx);
             state
         });
@@ -3366,7 +3361,6 @@ impl PrDetailPage {
             TextareaState::new(window, cx)
                 .auto_grow(2, 10)
                 .placeholder("Leave a review comment")
-                .named("Review comment")
         });
         self.reply_composer = None;
         self.reply_sub = None;
@@ -3490,7 +3484,6 @@ impl PrDetailPage {
                 TextareaState::new(window, cx)
                     .rows(2)
                     .placeholder("Summarize your review (optional)")
-                    .named("Review summary")
             }));
         }
         self.line_composer = None;
@@ -3519,7 +3512,6 @@ impl PrDetailPage {
             TextareaState::new(window, cx)
                 .auto_grow(1, 8)
                 .placeholder("Reply…")
-                .named("Reply to review thread")
         });
         // Typing grows the box — keep the list heights honest (0041 D3).
         self.composer_sub = None;
@@ -3653,9 +3645,7 @@ impl PrDetailPage {
         self.thread_delete_confirm = None;
         self.resolve_picker = None;
         let editor = cx.new(|cx| {
-            let mut state = TextareaState::new(window, cx)
-                .auto_grow(4, 30)
-                .named("Edit review comment");
+            let mut state = TextareaState::new(window, cx).auto_grow(4, 30);
             state.set_value(body, window, cx);
             state
         });
@@ -6235,7 +6225,7 @@ pub(crate) fn inline_edit_card(
             v_flex()
                 .gap_2()
                 .p_3()
-                .child(Textarea::new(editor).w_full())
+                .child(Textarea::new(editor).w_full().aria_label(title.to_string()))
                 .child(
                     h_flex()
                         .gap_2()
