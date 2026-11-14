@@ -1,0 +1,138 @@
+# pr-rail.txt — the PR Conversation rail's metadata sections over the
+# committed fixtures (docs/0083 D1, D7–D12; #732, #754, #756, #799, #800):
+#   101  Edit on the sections the viewer can use; the team request hides
+#        Edit reviewers and says why; the Labels picker opens in place with
+#        its filter focused, the rail scrolls to Save and Cancel, and Save
+#        is disabled while nothing changed; Esc closes the card first. `github-pr-picker` pins the
+#        open card (structural golden, 0065 D5).
+#   102  the rail scrolls at 1280x800 (the 137-comment PR with 20 of 34
+#        labels, 13 reviewers, 12 assignees): Edit labels is missing and
+#        the reason line says why.
+#   103  a draft with nothing filled in: all four sections, one-line empty
+#        states, every Edit.
+#   104  merged and 105 closed: no Edit anywhere, empty sections left out.
+#
+# Prerequisites: the containerized env (docs/0071) with the GitHub
+# fixtures and the pinned clock, and a session named `prrail` at 1280x800:
+#   export DASHBOARD_GITHUB_FIXTURE=/work/crates/debug/verify/fixtures/github
+#   export DASHBOARD_FIXED_NOW=2026-10-23T12:00:00Z
+#   dashboard-debug session start --name prrail --size 1280x800 \
+#     --binary /tmp/target/debug/my-dashboard
+# Run (in-container): dashboard-debug run crates/debug/verify/pr-rail.txt
+# Then `dashboard-debug writes` must print nothing: no step here writes.
+#
+# Rows and the rail's controls take bridge mouse clicks at their centres,
+# frozen for this fixture set at 1280x800 (see pr-page.txt for why).
+#
+# Not here, covered by unit tests next to the code (pr_page/rail): Edit
+# hidden while a write is pending (a fixture write answers at once), the
+# 8-row cap and "+N more" expansion, and the changed-draft Save posting
+# exactly one write.
+
+--session prrail
+
+assert-label "Open GitHub module"
+click 11447690740305500471 --wait-frame
+wait-label "Filter repositories"
+click 349678605523893363
+type beacon
+key down
+key enter
+wait-label "PR #108: Loader: a PR that fails its detail read"
+
+# 101: open and blocked, everything populated.
+mouse down 900 337
+mouse up 900 337
+wait-label "Conversation (5)"
+wait-label "Checks (9)"
+assert-label "Pull request details"
+assert-label "Edit assignees"
+assert-label "Edit labels"
+assert-label "Edit milestone"
+# A team review is requested: Reviewers stays display-only and says why.
+assert-no-label "Edit reviewers"
+assert-label "Edit on GitHub: a team review is requested"
+
+# The Labels picker opens in place (62 candidates). Typing narrows the
+# list only if the filter has the focus.
+mouse down 1221 693
+mouse up 1221 693 --wait-frame
+wait-label "Filter labels"
+assert-baseline github-pr-picker
+# Esc closes the card first and leaves the page open (docs/0043 D7).
+key esc
+assert-no-label "Filter labels"
+assert-label "Conversation (5)"
+wait-label "Edit labels"
+# Focus went back to the section's Edit: Enter opens the card again.
+key enter
+wait-label "Filter labels"
+type label-5
+wait-label "label-50"
+assert-no-label "label-00"
+# The rail scrolls: Save and Cancel are under the 240 px rows, reachable.
+mouse scroll 1100 470 -200 --wait-frame
+assert-label "Save"
+assert-label "Cancel"
+# Nothing changed: Save is disabled, so the click leaves the card open.
+mouse down 991 631
+mouse up 991 631 --wait-frame
+assert-label "Filter labels"
+# Cancel closes the card and the section's Edit comes back.
+mouse down 1053 631
+mouse up 1053 631 --wait-frame
+assert-no-label "Filter labels"
+wait-label "Edit labels"
+click 12782369444481205663 --wait-frame
+wait-label "PR #108: Loader: a PR that fails its detail read"
+
+# 102: overflow stress. The rail scrolls: Edit milestone moves.
+mouse down 900 376
+mouse up 900 376
+wait-label "Conversation (252)"
+assert-label "Show 5 more reviewers"
+assert-label "Show 4 more assignees"
+assert-label "Show 12 more labels"
+assert-label "Edit on GitHub: this page loads 20 of 34 labels"
+assert-no-label "Edit labels"
+snapshot rail-top
+mouse scroll 1100 600 -300 --wait-frame
+snapshot rail-scrolled
+assert-diff-label rail-top rail-scrolled "Edit milestone"
+click 12782369444481205663 --wait-frame
+wait-label "PR #108: Loader: a PR that fails its detail read"
+
+# 103: draft with nothing filled in.
+mouse down 900 414
+mouse up 900 414
+wait-label "Conversation (0)"
+assert-label "None requested"
+assert-label "Edit reviewers"
+assert-label "Edit assignees"
+assert-label "Edit labels"
+assert-label "Edit milestone"
+click 12782369444481205663 --wait-frame
+wait-label "PR #108: Loader: a PR that fails its detail read"
+
+# 104: merged. No Edit; the empty sections are left out.
+mouse down 900 452
+mouse up 900 452
+wait-label "Conversation (1)"
+assert-no-label "Edit reviewers"
+assert-no-label "Edit assignees"
+assert-no-label "Edit labels"
+assert-no-label "Edit milestone"
+assert-no-label "None requested"
+click 12782369444481205663 --wait-frame
+wait-label "PR #108: Loader: a PR that fails its detail read"
+
+# 105: closed, read-only viewer.
+mouse down 900 490
+mouse up 900 490
+wait-label "Conversation (0)"
+assert-no-label "Edit reviewers"
+assert-no-label "Edit assignees"
+assert-no-label "Edit labels"
+assert-no-label "Edit milestone"
+click 12782369444481205663 --wait-frame
+wait-label "PR #108: Loader: a PR that fails its detail read"

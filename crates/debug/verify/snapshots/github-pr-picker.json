@@ -1,0 +1,2355 @@
+{
+  "name": "github-pr-picker",
+  "frame_number": 0,
+  "taken_at": 0,
+  "nodes": [
+    {
+      "accesskit_id": "0",
+      "role": "Window",
+      "label": "Dashboard",
+      "bounds": null,
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "285984305784222972",
+      "role": "Label",
+      "label": "reviewer-e",
+      "bounds": {
+        "x": 955.0,
+        "y": 257.0,
+        "w": 276.0,
+        "h": 26.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "353544898888865253",
+      "role": "ListItem",
+      "label": "label-19",
+      "bounds": {
+        "x": 955.0,
+        "y": 1083.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "465962709695853011",
+      "role": "ListItem",
+      "label": "label-09",
+      "bounds": {
+        "x": 955.0,
+        "y": 773.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "593234783599353739",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 1029.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "600532464688630867",
+      "role": "ListItem",
+      "label": "#101",
+      "bounds": {
+        "x": 582.0,
+        "y": 23.0,
+        "w": 36.0,
+        "h": 23.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "648136158045605404",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 2052.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "694475607297797892",
+      "role": "Label",
+      "label": "team or bot",
+      "bounds": {
+        "x": 955.0,
+        "y": 287.0,
+        "w": 276.0,
+        "h": 26.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1150173983341237792",
+      "role": "ListItem",
+      "label": "label-15",
+      "bounds": {
+        "x": 955.0,
+        "y": 959.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1409572704218910621",
+      "role": "ListItem",
+      "label": "label-53",
+      "bounds": {
+        "x": 955.0,
+        "y": 2137.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1413701605818704579",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 750.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1424001417865290764",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 1215.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1523525612462050474",
+      "role": "ListItem",
+      "label": "label-37",
+      "bounds": {
+        "x": 955.0,
+        "y": 1641.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1716560067434340302",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 2393.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1750753272323555988",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 1897.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1766503431937567251",
+      "role": "ListItem",
+      "label": "label-06",
+      "bounds": {
+        "x": 955.0,
+        "y": 680.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1855090978543620832",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 781.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1887212043497342010",
+      "role": "Button",
+      "label": "Add reaction",
+      "bounds": {
+        "x": 301.0,
+        "y": 1057.0,
+        "w": 25.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1971259976447032466",
+      "role": "TreeItem",
+      "label": "Favicon",
+      "bounds": {
+        "x": 29.0,
+        "y": 145.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2015258556357565804",
+      "role": "TabList",
+      "label": null,
+      "bounds": {
+        "x": 288.0,
+        "y": 137.0,
+        "w": 955.0,
+        "h": 36.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2038348424324097239",
+      "role": "ListItem",
+      "label": "label-38",
+      "bounds": {
+        "x": 955.0,
+        "y": 1672.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2080621106879305549",
+      "role": "ListItem",
+      "label": "label-55",
+      "bounds": {
+        "x": 955.0,
+        "y": 2199.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2359957538432445127",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 843.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2556054395297955185",
+      "role": "ListItem",
+      "label": "bug",
+      "bounds": {
+        "x": 955.0,
+        "y": 2354.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2600229603462626593",
+      "role": "ListItem",
+      "label": "label-34",
+      "bounds": {
+        "x": 955.0,
+        "y": 1548.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3008483638856412453",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 1866.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3345520613126628361",
+      "role": "ListItem",
+      "label": "label-26",
+      "bounds": {
+        "x": 955.0,
+        "y": 1300.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3626640411074162927",
+      "role": "ListItem",
+      "label": "label-28",
+      "bounds": {
+        "x": 955.0,
+        "y": 1362.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3753104927532195882",
+      "role": "Button",
+      "label": "Delete",
+      "bounds": {
+        "x": 465.0,
+        "y": 615.0,
+        "w": 58.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3846017331057466934",
+      "role": "Button",
+      "label": "Notifications, 0 unread",
+      "bounds": {
+        "x": 1227.0,
+        "y": 728.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3973418476171157472",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 2083.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3999481329570777761",
+      "role": "Tab",
+      "label": "Commits (3)",
+      "bounds": {
+        "x": 408.0,
+        "y": 137.0,
+        "w": 78.0,
+        "h": 36.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4001433009871002905",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 1959.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4243424531815142149",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 688.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4358497106595808592",
+      "role": "ListItem",
+      "label": "label-41",
+      "bounds": {
+        "x": 955.0,
+        "y": 1765.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4444173196045810732",
+      "role": "ListItem",
+      "label": "label-36",
+      "bounds": {
+        "x": 955.0,
+        "y": 1610.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4602998836821200419",
+      "role": "TreeItem",
+      "label": "Usage",
+      "bounds": {
+        "x": 29.0,
+        "y": 173.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4742693789526332128",
+      "role": "ListItem",
+      "label": "label-25",
+      "bounds": {
+        "x": 955.0,
+        "y": 1269.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4917323650080952149",
+      "role": "Label",
+      "label": "octo-dev",
+      "bounds": {
+        "x": 955.0,
+        "y": 372.0,
+        "w": 276.0,
+        "h": 26.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5260165974970735197",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 1587.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5285995249288150044",
+      "role": "ListItem",
+      "label": "label-44",
+      "bounds": {
+        "x": 955.0,
+        "y": 1858.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5312132213028521410",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 874.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5439608014616290325",
+      "role": "ListItem",
+      "label": "label-05",
+      "bounds": {
+        "x": 955.0,
+        "y": 649.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5446857392029550252",
+      "role": "ListItem",
+      "label": "label-39",
+      "bounds": {
+        "x": 955.0,
+        "y": 1703.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5589591474938949285",
+      "role": "ListItem",
+      "label": "label-02",
+      "bounds": {
+        "x": 955.0,
+        "y": 556.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5642737795222712726",
+      "role": "ListItem",
+      "label": "label-40",
+      "bounds": {
+        "x": 955.0,
+        "y": 1734.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5660150711805190778",
+      "role": "Button",
+      "label": "Close pull request",
+      "bounds": {
+        "x": 1097.0,
+        "y": 311.0,
+        "w": 130.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5695122892554337145",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 1246.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5818905234734987901",
+      "role": "Button",
+      "label": "Add reaction",
+      "bounds": {
+        "x": 301.0,
+        "y": 921.0,
+        "w": 25.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5860446028120041815",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 1742.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5977885930425856250",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 564.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6096711765588286445",
+      "role": "Label",
+      "label": null,
+      "bounds": {
+        "x": 301.0,
+        "y": 436.0,
+        "w": 629.0,
+        "h": 23.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6119955351583493838",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 502.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6209611090579573343",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 1432.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6290284435316881924",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 1618.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6294993875603508995",
+      "role": "ListItem",
+      "label": "label-56",
+      "bounds": {
+        "x": 955.0,
+        "y": 2230.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6309347421910977525",
+      "role": "ListItem",
+      "label": "label-30",
+      "bounds": {
+        "x": 955.0,
+        "y": 1424.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6364774589964011913",
+      "role": "Button",
+      "label": "+1 reaction: 1",
+      "bounds": {
+        "x": 301.0,
+        "y": 696.0,
+        "w": 35.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6492821400284635815",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 812.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6547598720514894221",
+      "role": "ListItem",
+      "label": "label-49",
+      "bounds": {
+        "x": 955.0,
+        "y": 2013.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6757204384909477333",
+      "role": "Button",
+      "label": "Cancel",
+      "bounds": {
+        "x": 1011.0,
+        "y": 742.0,
+        "w": 61.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6838733911713303884",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 1122.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6897567198846875897",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 595.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "7124659103195741453",
+      "role": "Button",
+      "label": "Toggle sidebar",
+      "bounds": {
+        "x": 280.0,
+        "y": 22.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "7163463647598893328",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 1277.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "7345966283121591055",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 1060.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "7359550203049100943",
+      "role": "ListItem",
+      "label": "label-03",
+      "bounds": {
+        "x": 955.0,
+        "y": 587.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "7571609415283310596",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 998.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "7580664024511191899",
+      "role": "ListItem",
+      "label": "label-59",
+      "bounds": {
+        "x": 955.0,
+        "y": 2323.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "7732966260336169404",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 1804.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8141356527013343276",
+      "role": "ListItem",
+      "label": "label-52",
+      "bounds": {
+        "x": 955.0,
+        "y": 2106.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8247006323330297192",
+      "role": "Button",
+      "label": "+1 reaction: 2",
+      "bounds": {
+        "x": 301.0,
+        "y": 471.0,
+        "w": 37.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8257023941728800951",
+      "role": "ListItem",
+      "label": "label-00",
+      "bounds": {
+        "x": 955.0,
+        "y": 494.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8262031512594317929",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 905.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8305591543588856365",
+      "role": "ListItem",
+      "label": "label-33",
+      "bounds": {
+        "x": 955.0,
+        "y": 1517.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8322842671219780528",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 2021.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8353073482888260688",
+      "role": "Button",
+      "label": "Add reaction",
+      "bounds": {
+        "x": 301.0,
+        "y": 560.0,
+        "w": 25.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8374052139283491854",
+      "role": "ListItem",
+      "label": "label-43",
+      "bounds": {
+        "x": 955.0,
+        "y": 1827.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8685125801130587225",
+      "role": "ListItem",
+      "label": "label-31",
+      "bounds": {
+        "x": 955.0,
+        "y": 1455.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9003135729747788943",
+      "role": "ListItem",
+      "label": "label-17",
+      "bounds": {
+        "x": 955.0,
+        "y": 1021.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9087251555400127630",
+      "role": "Button",
+      "label": "Edit",
+      "bounds": {
+        "x": 420.0,
+        "y": 615.0,
+        "w": 41.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9423621469358423207",
+      "role": "ListItem",
+      "label": "label-50",
+      "bounds": {
+        "x": 955.0,
+        "y": 2044.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9429680657768523014",
+      "role": "ListItem",
+      "label": "label-47",
+      "bounds": {
+        "x": 955.0,
+        "y": 1951.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9471136339764733611",
+      "role": "ListItem",
+      "label": "label-14",
+      "bounds": {
+        "x": 955.0,
+        "y": 928.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9475493298481926452",
+      "role": "ComboBox",
+      "label": null,
+      "bounds": {
+        "x": 301.0,
+        "y": 1221.0,
+        "w": 543.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9489791621653487398",
+      "role": "ListItem",
+      "label": "label-20",
+      "bounds": {
+        "x": 955.0,
+        "y": 1114.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9500227194902041160",
+      "role": "ListItem",
+      "label": "label-57",
+      "bounds": {
+        "x": 955.0,
+        "y": 2261.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9625220037313419745",
+      "role": "ListItem",
+      "label": "label-51",
+      "bounds": {
+        "x": 955.0,
+        "y": 2075.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9752035234922917769",
+      "role": "ListItem",
+      "label": "label-27",
+      "bounds": {
+        "x": 955.0,
+        "y": 1331.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9852474214131492590",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 936.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9868539494379632248",
+      "role": "Tab",
+      "label": "Files changed (5)",
+      "bounds": {
+        "x": 585.0,
+        "y": 137.0,
+        "w": 108.0,
+        "h": 36.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10082729070609109186",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 1463.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10116519548234721081",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 719.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10169277031435598500",
+      "role": "ListItem",
+      "label": "label-32",
+      "bounds": {
+        "x": 955.0,
+        "y": 1486.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10288324284021126325",
+      "role": "Tab",
+      "label": "Conversation (5)",
+      "bounds": {
+        "x": 288.0,
+        "y": 137.0,
+        "w": 104.0,
+        "h": 36.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10370129320961203353",
+      "role": "ListItem",
+      "label": "label-11",
+      "bounds": {
+        "x": 955.0,
+        "y": 835.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10486584627099282624",
+      "role": "ListItem",
+      "label": "needs-review",
+      "bounds": {
+        "x": 955.0,
+        "y": 2416.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10504040589855407073",
+      "role": "Group",
+      "label": null,
+      "bounds": {
+        "x": 0.0,
+        "y": 0.0,
+        "w": 1276.0,
+        "h": 773.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10518805242920606987",
+      "role": "Group",
+      "label": null,
+      "bounds": {
+        "x": 272.0,
+        "y": 53.0,
+        "w": 987.0,
+        "h": 670.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10527836286249322374",
+      "role": "Button",
+      "label": "Merge pull request",
+      "bounds": {
+        "x": 955.0,
+        "y": 311.0,
+        "w": 134.0,
+        "h": 24.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10549796524950927073",
+      "role": "ListItem",
+      "label": "label-24",
+      "bounds": {
+        "x": 955.0,
+        "y": 1238.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10596470300338272309",
+      "role": "Button",
+      "label": "Refresh",
+      "bounds": {
+        "x": 1183.0,
+        "y": 69.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10834513746264126060",
+      "role": "Link",
+      "label": "Home",
+      "bounds": {
+        "x": 374.0,
+        "y": 23.0,
+        "w": 38.0,
+        "h": 23.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11148300596924905179",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 1990.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11151152662603392683",
+      "role": "TextInput",
+      "label": "Filter labels…",
+      "bounds": {
+        "x": 964.0,
+        "y": 468.0,
+        "w": 258.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": true
+    },
+    {
+      "accesskit_id": "11310884219764093783",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 1339.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11324089371583484575",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 2269.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11382455104683695207",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 1649.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11386270348813716310",
+      "role": "MultilineTextInput",
+      "label": "Leave a comment",
+      "bounds": {
+        "x": 302.0,
+        "y": 1116.0,
+        "w": 627.0,
+        "h": 96.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11407725739570562403",
+      "role": "ListItem",
+      "label": "label-29",
+      "bounds": {
+        "x": 955.0,
+        "y": 1393.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11447690740305500471",
+      "role": "TreeItem",
+      "label": "GitHub",
+      "bounds": {
+        "x": 29.0,
+        "y": 117.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11558301937119167585",
+      "role": "ListItem",
+      "label": "label-08",
+      "bounds": {
+        "x": 955.0,
+        "y": 742.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11646065737741159346",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 1525.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11726897839884360879",
+      "role": "ListItem",
+      "label": "area:parser",
+      "bounds": {
+        "x": 955.0,
+        "y": 2385.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11730836757165828083",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 533.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12018732803459321076",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 2362.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12090671065845679632",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 1773.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12166183532948878475",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 626.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12455224652104213509",
+      "role": "Label",
+      "label": "fixture-user",
+      "bounds": {
+        "x": 955.0,
+        "y": 402.0,
+        "w": 276.0,
+        "h": 26.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12463190272304081500",
+      "role": "ListItem",
+      "label": "label-45",
+      "bounds": {
+        "x": 955.0,
+        "y": 1889.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12530737745838008314",
+      "role": "ListItem",
+      "label": "label-01",
+      "bounds": {
+        "x": 955.0,
+        "y": 525.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12547606447010685346",
+      "role": "ListItem",
+      "label": "label-04",
+      "bounds": {
+        "x": 955.0,
+        "y": 618.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12574335338468705001",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 1494.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12600294448382049571",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 1680.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12650200823853336147",
+      "role": "ListItem",
+      "label": "label-23",
+      "bounds": {
+        "x": 955.0,
+        "y": 1207.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12782369444481205663",
+      "role": "Button",
+      "label": "Back",
+      "bounds": {
+        "x": 312.0,
+        "y": 22.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13086881801070744994",
+      "role": "Button",
+      "label": "Add reaction",
+      "bounds": {
+        "x": 386.0,
+        "y": 471.0,
+        "w": 25.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13154355174621129068",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 2300.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13229720740181514570",
+      "role": "ListItem",
+      "label": "label-58",
+      "bounds": {
+        "x": 955.0,
+        "y": 2292.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13270558759612744715",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 967.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13323324733942476932",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 1370.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13455193125714328158",
+      "role": "Button",
+      "label": "Add reaction",
+      "bounds": {
+        "x": 340.0,
+        "y": 696.0,
+        "w": 25.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13460365343519204478",
+      "role": "TreeItem",
+      "label": "Home",
+      "bounds": {
+        "x": 29.0,
+        "y": 89.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13573312146739392893",
+      "role": "TreeItem",
+      "label": "Settings",
+      "bounds": {
+        "x": 29.0,
+        "y": 201.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13684380551473165396",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 2176.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13748568102036844308",
+      "role": "ListItem",
+      "label": "label-35",
+      "bounds": {
+        "x": 955.0,
+        "y": 1579.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13779998056829575274",
+      "role": "ListItem",
+      "label": "label-07",
+      "bounds": {
+        "x": 955.0,
+        "y": 711.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14294042578450844392",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 2331.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14659948137655356627",
+      "role": "Label",
+      "label": "reviewer-d",
+      "bounds": {
+        "x": 955.0,
+        "y": 227.0,
+        "w": 276.0,
+        "h": 26.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14739289555652244253",
+      "role": "Link",
+      "label": "beacon",
+      "bounds": {
+        "x": 509.0,
+        "y": 23.0,
+        "w": 47.0,
+        "h": 23.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14741903069396870366",
+      "role": "Button",
+      "label": "Comment",
+      "bounds": {
+        "x": 852.0,
+        "y": 1221.0,
+        "w": 78.0,
+        "h": 24.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14764454382984532898",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 1184.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14901488364115571958",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 1153.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15041794282496124894",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 2238.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15087626586889430714",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 2114.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15142220772644640130",
+      "role": "ComboBox",
+      "label": null,
+      "bounds": {
+        "x": 955.0,
+        "y": 279.0,
+        "w": 288.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15289327296047187371",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 1091.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15380129928879656113",
+      "role": "Button",
+      "label": "GitHub API: REST: no response yet; GraphQL: no response yet; session: 13 requests (7 GraphQL, 6 REST, 0 auth)",
+      "bounds": {
+        "x": 1090.0,
+        "y": 730.0,
+        "w": 129.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15483248394120485818",
+      "role": "ListItem",
+      "label": "label-21",
+      "bounds": {
+        "x": 955.0,
+        "y": 1145.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15886595837164326356",
+      "role": "Button",
+      "label": "Forward",
+      "bounds": {
+        "x": 338.0,
+        "y": 22.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15905573712105568048",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 1556.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15988692263761629601",
+      "role": "ListItem",
+      "label": "label-13",
+      "bounds": {
+        "x": 955.0,
+        "y": 897.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16007640667083389728",
+      "role": "ListItem",
+      "label": "label-54",
+      "bounds": {
+        "x": 955.0,
+        "y": 2168.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16157382448829980812",
+      "role": "Tab",
+      "label": "Checks (9)",
+      "bounds": {
+        "x": 502.0,
+        "y": 137.0,
+        "w": 67.0,
+        "h": 36.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16204576537036427163",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 657.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16251761926650061938",
+      "role": "Button",
+      "label": "Save",
+      "bounds": {
+        "x": 955.0,
+        "y": 742.0,
+        "w": 48.0,
+        "h": 24.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16398457374334170827",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 2424.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16548954014948770210",
+      "role": "Button",
+      "label": "heart reaction: 1",
+      "bounds": {
+        "x": 342.0,
+        "y": 471.0,
+        "w": 40.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16595064420263035456",
+      "role": "ListItem",
+      "label": "label-48",
+      "bounds": {
+        "x": 955.0,
+        "y": 1982.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16701671617569136420",
+      "role": "ListItem",
+      "label": "label-16",
+      "bounds": {
+        "x": 955.0,
+        "y": 990.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16771284812817465335",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 2207.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16822566772692746638",
+      "role": "ListItem",
+      "label": "label-10",
+      "bounds": {
+        "x": 955.0,
+        "y": 804.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16834563995578148124",
+      "role": "ListItem",
+      "label": "GitHub",
+      "bounds": {
+        "x": 438.0,
+        "y": 23.0,
+        "w": 45.0,
+        "h": 23.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16844582093862657134",
+      "role": "Group",
+      "label": "Pull request details",
+      "bounds": {
+        "x": 955.0,
+        "y": 444.0,
+        "w": 288.0,
+        "h": 263.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16854885743151566731",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 1711.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16982791415517477002",
+      "role": "ListItem",
+      "label": "label-18",
+      "bounds": {
+        "x": 955.0,
+        "y": 1052.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17007085268909296099",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 1308.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17133765044541594233",
+      "role": "ListItem",
+      "label": "label-42",
+      "bounds": {
+        "x": 955.0,
+        "y": 1796.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17254475664801987595",
+      "role": "ListItem",
+      "label": "label-46",
+      "bounds": {
+        "x": 955.0,
+        "y": 1920.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17308928718594096508",
+      "role": "Label",
+      "label": "v1.4 parser cleanup",
+      "bounds": {
+        "x": 955.0,
+        "y": 804.0,
+        "w": 276.0,
+        "h": 26.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17430112372396509044",
+      "role": "ListItem",
+      "label": "label-12",
+      "bounds": {
+        "x": 955.0,
+        "y": 866.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17477709536671450836",
+      "role": "Button",
+      "label": "Review approval",
+      "bounds": {
+        "x": 968.0,
+        "y": 395.0,
+        "w": 262.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17601697137109959204",
+      "role": "Button",
+      "label": "Add reaction",
+      "bounds": {
+        "x": 301.0,
+        "y": 832.0,
+        "w": 25.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17647076303485765916",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 2145.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17823305335101963820",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 1401.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17826597088626607025",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 1835.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17845146678500882234",
+      "role": "Button",
+      "label": "Edit",
+      "bounds": {
+        "x": 398.0,
+        "y": 199.0,
+        "w": 41.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "18054503116379047265",
+      "role": "ListItem",
+      "label": "label-22",
+      "bounds": {
+        "x": 955.0,
+        "y": 1176.0,
+        "w": 276.0,
+        "h": 31.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "18057598918885338287",
+      "role": "Label",
+      "label": "Edit on GitHub: a team review is requested",
+      "bounds": {
+        "x": 955.0,
+        "y": 315.0,
+        "w": 276.0,
+        "h": 19.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "18203002363561890860",
+      "role": "Button",
+      "label": "Open pull request on GitHub",
+      "bounds": {
+        "x": 1219.0,
+        "y": 69.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "18289701783654084275",
+      "role": "CheckBox",
+      "label": null,
+      "bounds": {
+        "x": 963.0,
+        "y": 1928.0,
+        "w": 14.0,
+        "h": 14.0
+      },
+      "focusable": true,
+      "focused": false
+    }
+  ]
+}
