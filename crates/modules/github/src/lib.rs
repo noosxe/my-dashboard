@@ -35,6 +35,7 @@ pub mod service;
 pub mod settings;
 #[cfg(debug_assertions)]
 mod tab_escape;
+mod tab_strip;
 pub mod usage;
 mod usage_chip;
 mod usage_seed;

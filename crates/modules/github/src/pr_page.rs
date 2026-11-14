@@ -39,7 +39,6 @@ use gpui_component::{
     select::{Select, SelectEvent, SelectState},
     skeleton::Skeleton,
     spinner::Spinner,
-    tab::{Tab, TabBar},
     tree::TreeState,
     v_flex,
 };
@@ -106,6 +105,7 @@ use crate::service::{
     fetch_job_logs, fetch_job_logs_typed, fetch_run_jobs, resolve_check_job, run_mutation,
     run_spec_tracked,
 };
+use crate::tab_strip;
 use crate::usage::{Origin, Surface, Trigger};
 use dashboard_core::freshness::{Freshness, freshness_row, relative_age};
 
@@ -4431,7 +4431,13 @@ impl PrDetailPage {
             .into_any_element()
     }
 
-    fn render_tabs(&self, detail: Option<&gql::PrDetail>, cx: &Context<Self>) -> AnyElement {
+    fn render_tabs(
+        &self,
+        detail: Option<&gql::PrDetail>,
+        tabs_focus: &FocusHandle,
+        window: &Window,
+        cx: &Context<Self>,
+    ) -> AnyElement {
         // Counts render only with a detail payload — while loading the tabs
         // stay bare so nothing flashes a wrong "0" (docs/0016 D3).
         let labels = match detail {
@@ -4460,20 +4466,19 @@ impl PrDetailPage {
                 "Files changed".into(),
             ],
         };
-        TabBar::new("pr-tabs")
-            .underline()
-            .w_full()
-            .selected_index(self.tab.index())
-            .on_click(cx.listener(|this, ix: &usize, _, cx| {
-                if let Some(tab) = PrTab::from_index(*ix) {
+        tab_strip::strip(
+            "pr-tabs",
+            "Pull request sections",
+            tabs_focus,
+            labels,
+            self.tab.index(),
+            |this: &mut Self, ix, _window, cx| {
+                if let Some(tab) = PrTab::from_index(ix) {
                     this.tab = tab;
                     // Lazy fetches (0016 D8 / 0030 D1): the files REST walk and
                     // the threads one-shot both start the first time the Files
                     // tab opens, not on page open.
                     if tab == PrTab::Files {
-                        // Lazy fetches (0016 D8 / 0030 D1): the files REST
-                        // walk and the threads one-shot both start the first
-                        // time the Files tab opens, not on page open.
                         let origin = Origin::new(Surface::PrPage, Trigger::Expand);
                         if this.files.is_idle() {
                             this.fetch_files(origin, cx);
@@ -4484,12 +4489,11 @@ impl PrDetailPage {
                     }
                     cx.notify();
                 }
-            }))
-            .child(Tab::new().label(labels[0].clone()))
-            .child(Tab::new().label(labels[1].clone()))
-            .child(Tab::new().label(labels[2].clone()))
-            .child(Tab::new().label(labels[3].clone()))
-            .into_any_element()
+            },
+            window,
+            cx,
+        )
+        .into_any_element()
     }
 
     fn render_tab_content(
@@ -5284,6 +5288,7 @@ impl Render for PrDetailPage {
             self.merge_method = default_method(&methods, d.viewer_default_merge_method.as_deref());
             self.methods = methods;
         }
+        let tabs_focus = tab_strip::focus_handle("pr-tabs", window, cx);
         let detail = self.detail(cx);
         page_canvas()
             .id("pr-detail")
@@ -5303,7 +5308,7 @@ impl Render for PrDetailPage {
             }))
             .size_full()
             .child(self.render_header(detail, cx))
-            .child(self.render_tabs(detail, cx))
+            .child(self.render_tabs(detail, &tabs_focus, window, cx))
             .children(self.render_leave_confirm(cx))
             .child(self.render_tab_content(detail, window, cx))
     }
