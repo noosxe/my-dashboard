@@ -53,7 +53,7 @@
     {
       "accesskit_id": "364720877318993958",
       "role": "Button",
-      "label": "GitHub API: REST: no response yet; GraphQL: no response yet; session: 8 requests (6 GraphQL, 2 REST, 0 auth)",
+      "label": "GitHub API: REST: no response yet; GraphQL: no response yet; session: N requests (N GraphQL, N REST, N auth)",
       "bounds": {
         "x": 1090.0,
         "y": 730.0,
