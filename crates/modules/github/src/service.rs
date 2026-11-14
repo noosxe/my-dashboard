@@ -2694,6 +2694,8 @@ pub struct GithubState {
     /// the 0036 pair backs off a failing lane. The lane has no `Fetch`
     /// record; its books live here beside the repo-rows pair's.
     pub(crate) notifications_landed: Option<Instant>,
+    /// docs/0084 D2: the PRs the notifications landings name.
+    pub(crate) pr_notices: crate::pr_page::freshness::notices::PrNotices,
     pub(crate) notifications_fail_streak: u32,
     pub(crate) notifications_attempted_at: Option<Instant>,
     /// docs/0047 D2 — the home lane's snapshots, keyed `(login, scope)`:
@@ -2891,6 +2893,7 @@ impl GithubState {
             rows_fail_streak: 0,
             rows_attempted_at: None,
             notifications_landed: None,
+            pr_notices: Default::default(),
             notifications_fail_streak: 0,
             notifications_attempted_at: None,
             home_lanes: BTreeMap::new(),
@@ -3623,6 +3626,7 @@ impl GithubState {
         // focused). The 304 restore replays the cached rows — ids
         // already in the seen-set — so a 304 never announces.
         self.announce_new_threads(&items);
+        self.pr_notices.land(&items);
         self.notifications = items;
         // A landed sync owns freshness now (docs/0034 D2) — the ETag-304
         // path counts: the server just confirmed the blob is current.

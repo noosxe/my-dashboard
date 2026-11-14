@@ -404,6 +404,13 @@ impl GithubPage {
             let edge = active && !this.last_module_active;
             this.last_module_active = active;
             if edge {
+                // docs/0084 D2: an open PR page behaves like a refocus
+                // (15 s floor, the same gates).
+                if let Some(page) = this.pr.clone()
+                    && !this.state.read(cx).fully_gated()
+                {
+                    page.update(cx, |p, cx| p.module_reshown(cx));
+                }
                 this.fetch_home_prs_shown(cx);
                 // docs/0052 D5: module view-shown fires the bell's
                 // lane too (age-gated — a fresh one skips).
@@ -553,7 +560,25 @@ impl GithubPage {
             page.update(cx, |p, cx| {
                 p.refresh_if_stale(crate::service::FOCUS_MIN_AGE, cx)
             });
-        } else if let Some(full) = self.state.read(cx).selected.clone() {
+        } else {
+            self.refresh_list_surface(crate::service::FOCUS_MIN_AGE, Trigger::Refocus, cx);
+        }
+    }
+
+    /// The list surface the module shows when no sub-page is open: the
+    /// selected repo's rows, or the home view. Refreshes it when older
+    /// than `min_age`, booked under `trigger`. Shared by the refocus
+    /// entry point and the return from a PR page (docs/0084 D2).
+    fn refresh_list_surface(
+        &mut self,
+        min_age: Duration,
+        trigger: Trigger,
+        cx: &mut Context<Self>,
+    ) {
+        if self.state.read(cx).fully_gated() {
+            return;
+        }
+        if let Some(full) = self.state.read(cx).selected.clone() {
             // No slot open, a repo selected: the module main page is
             // the list surface — refresh its rows when stale (docs/0035
             // D2, at the refocus floor). The observer runs windowless,
@@ -567,8 +592,8 @@ impl GithubPage {
                     &full,
                     lane,
                     &key,
-                    crate::service::FOCUS_MIN_AGE,
-                    Origin::new(Surface::RepoView, Trigger::Refocus),
+                    min_age,
+                    Origin::new(Surface::RepoView, trigger),
                 )
             }) && !self.state.read(cx).gated_for(spec.kind.lane())
             {
@@ -589,8 +614,8 @@ impl GithubPage {
                 s.home_refresh_specs(
                     &login,
                     scope,
-                    crate::service::FOCUS_MIN_AGE,
-                    Origin::new(Surface::ModuleHome, Trigger::Refocus),
+                    min_age,
+                    Origin::new(Surface::ModuleHome, trigger),
                 )
             }) && !self
                 .state
@@ -1556,6 +1581,14 @@ impl GithubPage {
         if self.pr.take().is_some() {
             log::debug!("pr page closed");
             self.sync_repo_crumb(cx);
+            // docs/0084 D2: the list the page returns to refreshes when
+            // it is older than the 60 s return floor (no PR page was
+            // keeping it fresh while it was open).
+            self.refresh_list_surface(
+                crate::pr_page::freshness::LIST_RETURN_FLOOR,
+                Trigger::ViewShown,
+                cx,
+            );
             cx.notify();
         }
     }
@@ -4697,6 +4730,9 @@ pub(crate) fn stale_chip_label(
     let label = synced_label(Some(age)).unwrap_or_default();
     (age >= STALE_AGE).then(|| format!("last {label} — reconnect to update").into())
 }
+
+#[cfg(test)]
+mod list_return_tests;
 
 #[cfg(test)]
 mod tests {

@@ -65,7 +65,14 @@ fn a_voided_stamp_refetches(cx: &mut TestAppContext) {
 #[test]
 fn only_floor_passing_and_deliberate_triggers_bypass_the_ttl() {
     use crate::usage::Trigger::*;
-    for t in [Refocus, Manual, MutationRefetch, Recheck] {
+    for t in [
+        Refocus,
+        Manual,
+        MutationRefetch,
+        Recheck,
+        TabEntry,
+        NotificationLanding,
+    ] {
         assert!(super::bypasses_reopen_ttl(t), "{t:?}");
     }
     for t in [ViewShown, Bootstrap, Expand] {
