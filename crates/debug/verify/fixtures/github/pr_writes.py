@@ -11,7 +11,7 @@ Payload shapes are the selections the app's documents ask for, checked
 against the live GraphQL schema (MergePullRequestPayload.pullRequest,
 ClosePullRequestPayload.pullRequest, UpdatePullRequestPayload.pullRequest,
 RequestReviewsPayload.pullRequest, MarkPullRequestReadyForReviewPayload,
-ConvertPullRequestToDraftPayload and ReopenPullRequestPayload .pullRequest,
+ConvertPullRequestToDraftPayload and ReopenPullRequestPayload .pullRequest, DeleteRefPayload.clientMutationId,
 AddCommentPayload.clientMutationId,
 AddPullRequestReviewPayload.pullRequestReview; PullRequestState and
 PullRequestReviewState values) and the REST reference (approve a fork
@@ -43,6 +43,8 @@ def write_pr_writes(write):
     mutation("PrReady", "markPullRequestReadyForReview", {"pullRequest": {"id": "PR_103", "isDraft": False}})
     mutation("PrConvertToDraft", "convertPullRequestToDraft", {"pullRequest": {"id": "PR_113", "isDraft": True}})
     mutation("PrReopen", "reopenPullRequest", {"pullRequest": {"id": "PR_114", "state": "OPEN"}})
+    # `DeleteRefPayload` carries only `clientMutationId` (#773).
+    mutation("PrDeleteBranch", "deleteRef", {"clientMutationId": None})
     mutation("PrAddComment", "addComment", {"clientMutationId": None})
     mutation(
         "PrUpdateBranch",

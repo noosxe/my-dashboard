@@ -51,10 +51,17 @@
      "totalCount": 1
     },
     "headRef": {
-     "id": "REF_114"
+     "id": "REF_114",
+     "name": "feature/trailing-commas"
     },
     "headRefName": "feature/trailing-commas",
     "headRefOid": "0000072bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "headRepository": {
+     "defaultBranchRef": {
+      "name": "main"
+     },
+     "viewerPermission": "ADMIN"
+    },
     "id": "PR_114",
     "isDraft": false,
     "isInMergeQueue": false,
@@ -257,7 +264,7 @@
     "url": "https://github.com/fixture-user/beacon/pull/114",
     "viewerCanAssign": true,
     "viewerCanClose": true,
-    "viewerCanDeleteHeadRef": true,
+    "viewerCanDeleteHeadRef": false,
     "viewerCanLabel": true,
     "viewerCanReact": true,
     "viewerCanReopen": true,

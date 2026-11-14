@@ -132,6 +132,7 @@ assert-label "#104"
 assert-label "Merged"
 assert-no-label "Merge pull request"
 assert-no-label "More pull request actions"
+assert-label "Delete branch"
 assert-baseline github-pr-merged
 mouse down 447 155
 mouse up 447 155 --wait-frame
@@ -326,6 +327,7 @@ assert-label "Changes requested: reviewer-b"
 assert-no-label "Open the Checks tab"
 assert-no-label "Merge pull request"
 assert-label "Reopen pull request"
+assert-label "Delete branch"
 assert-no-label "More pull request actions"
 assert-no-label "Edit labels"
 assert-baseline github-pr-closed

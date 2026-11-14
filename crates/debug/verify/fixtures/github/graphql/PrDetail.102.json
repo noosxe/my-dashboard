@@ -8693,10 +8693,17 @@
      "totalCount": 3
     },
     "headRef": {
-     "id": "REF_102"
+     "id": "REF_102",
+     "name": "feature/trailing-commas"
     },
     "headRefName": "feature/very-long-branch-name-for-the-manifest-parser-and-loader-overhaul",
     "headRefOid": "0000066bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "headRepository": {
+     "defaultBranchRef": {
+      "name": "main"
+     },
+     "viewerPermission": "ADMIN"
+    },
     "id": "PR_102",
     "isDraft": false,
     "isInMergeQueue": false,
