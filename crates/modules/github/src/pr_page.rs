@@ -113,7 +113,7 @@ use crate::service::{
 };
 use crate::tab_strip;
 use crate::usage::{Origin, Surface, Trigger};
-use dashboard_core::freshness::{Freshness, freshness_row, relative_age};
+use dashboard_core::freshness::{Freshness, freshness_row_labelled, relative_age};
 
 /// The check-run log pane's max height before it scrolls (0002 D10).
 const CHECK_LOG_MAX_H: f32 = 384.0;
@@ -776,6 +776,10 @@ pub(crate) struct PrDetailPage {
     /// The conversation scroll — tracked so the jump can land the timeline
     /// on the anchored comment (docs/0026 D9).
     timeline_scroll: ScrollHandle,
+    /// docs/0084 D8: the card the reader was on when a landing began, and
+    /// the keys of the cards the last frame painted.
+    timeline_anchor: Option<freshness::anchor::Pending>,
+    timeline_keys: freshness::anchor::Keys,
     /// docs/0083 D1: the rail's metadata region scrolls on its own; the
     /// handle survives refetches and lives as long as the page.
     rail_scroll: ScrollHandle,
@@ -975,6 +979,8 @@ impl PrDetailPage {
             md: BTreeMap::new(),
             anchor: anchor.map_or(CommentAnchor::Idle, CommentAnchor::Pending),
             timeline_scroll,
+            timeline_anchor: None,
+            timeline_keys: Default::default(),
             rail_scroll: ScrollHandle::new(),
             picker_scroll: ScrollHandle::new(),
             picker_row_focus: cx.focus_handle(),
@@ -1217,6 +1223,8 @@ impl PrDetailPage {
         cx: &mut Context<Self>,
     ) {
         let (repo, number) = (self.repo.clone(), self.number);
+        // docs/0084 D8: a landing never moves the reader.
+        self.capture_timeline_anchor();
         let landed = self.state.update(cx, |s, cx| {
             detail_read::land_detail_result(s, cx, &repo, number, result)
         });
@@ -1240,16 +1248,12 @@ impl PrDetailPage {
             // Thread keys live in the same cache — a detail
             // refetch wipes it, so re-fold them (0030 D1).
             self.extend_threads_md();
-            // 0019 D4: an editor/confirm whose node is gone
-            // with the new payload has nothing left to edit —
-            // drop it (deleted elsewhere, refetch race).
+            // 0019 D4: a delete confirm whose node is gone with the new
+            // payload has nothing left to confirm. An editor stays open
+            // under a "deleted on GitHub" notice instead: dropping it
+            // would discard typing without a click (docs/0084 D8).
             let still_there =
                 |id: &str| node_kind(&detail.comments.nodes, &detail.reviews.nodes, id).is_some();
-            if let Some((id, _)) = &self.timeline_edit
-                && !still_there(id)
-            {
-                self.timeline_edit = None;
-            }
             if let Some(id) = &self.delete_confirm
                 && !still_there(id)
             {
@@ -4491,8 +4495,11 @@ impl PrDetailPage {
                     .items_end()
                     .gap_1()
                     .flex_none()
-                    .child(freshness_row(
+                    // docs/0084 D8: "checked N s ago" while watched, the
+                    // landed age (plus the guard's reason) otherwise.
+                    .child(freshness_row_labelled(
                         "pr",
+                        self.age_label(cx),
                         &crate::service::DetailClock(
                             self.state.read(cx).pr_entry(&self.repo, self.number),
                         ),
@@ -5187,7 +5194,9 @@ impl PrDetailPage {
         }
         // #746: the viewer's pending review reads as a notice, not a row.
         children.extend(self.render_pending_review_notice(d, cx));
+        children.extend(self.render_vanished_editor(d, cx));
         children.push(self.render_comment_box(cx));
+        self.note_timeline_keys(d, children.len());
         // D4/D5: the timeline scrolls; the rail (merge/close panel + checks
         // mini-summary) stands beside it.
         let timeline = v_flex()
@@ -5379,6 +5388,7 @@ impl Focusable for PrDetailPage {
 impl Render for PrDetailPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.apply_rail_focus(window, cx);
+        self.restore_timeline_anchor(window);
         self.sync_diff(cx);
         self.sync_merge_confirm(cx);
         self.sync_leave_confirm(cx);
@@ -8439,11 +8449,142 @@ mod tests {
             page.update(cx, |page, cx| {
                 page.apply_detail_result(result_with, cx);
                 assert!(page.timeline_edit.is_some(), "node still present");
+                // docs/0084 D8: the editor of a node that vanished stays
+                // open, under a notice, until the user closes it.
                 page.apply_detail_result(result_gone, cx);
-                assert!(page.timeline_edit.is_none(), "node gone — editor dropped");
+                assert!(page.timeline_edit.is_some(), "node gone — editor kept");
+                let d = page.detail(cx).unwrap().clone();
+                assert!(crate::pr_page::freshness::vanished::is_vanished(&d, "IC_1"));
+                assert!(page.render_vanished_editor(&d, cx).is_some());
+                // The row's own editor is only drawn while the node is there.
+                let back = page.timeline_edit.as_ref().map(|e| e.0.clone());
+                assert_eq!(back.as_deref(), Some("IC_1"));
             });
         });
     }
+    #[gpui::test]
+    fn a_landing_keeps_the_composer_and_its_text(cx: &mut gpui::TestAppContext) {
+        // docs/0084 D8: a landing that arrives by itself never rebuilds a
+        // text field: same entity, same text, whatever the payload says.
+        let (page, vcx) = probe_pr_anchored(cx, None);
+        let before = vcx.update(|window, cx| {
+            page.update(cx, |p, cx| {
+                p.comment
+                    .update(cx, |c, cx| c.set_value("half a thought", window, cx));
+                p.comment.entity_id()
+            })
+        });
+        let body = r#"{"data":{"repository":{"pullRequest":{"id":"PR_2",
+            "number":7,"title":"t","url":"u",
+            "comments":{"totalCount":0,"nodes":[]}}}}}"#;
+        let result = SpecResult {
+            kind: Kind::PrDetail,
+            ident: Some("o/r".into()),
+            status: 200,
+            etag: None,
+            rate: None,
+            body: Some(body.to_string()),
+            network: None,
+            cursor: None,
+        };
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| {
+                p.apply_detail_result_for(crate::usage::Trigger::Changed, result, cx);
+                assert_eq!(p.comment.entity_id(), before, "not rebuilt");
+                assert_eq!(p.comment.read(cx).value().as_ref(), "half a thought");
+            });
+        });
+    }
+
+    fn landing(ids: &[&str], body_lines: usize) -> SpecResult {
+        // Comments oldest first, one minute apart, each `body_lines` tall.
+        let body = vec!["a line of text"; body_lines].join("\\n\\n");
+        let nodes: Vec<String> = ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| {
+                format!(
+                    r#"{{"id":"{id}","viewerCanUpdate":false,"viewerCanDelete":false,
+                    "author":{{"login":"dave"}},"body":"{body}",
+                    "createdAt":"2026-09-03T01:{i:02}:00Z"}}"#
+                )
+            })
+            .collect();
+        let json = format!(
+            r#"{{"data":{{"repository":{{"pullRequest":{{"id":"PR_2","number":7,
+            "title":"t","url":"u","state":"OPEN",
+            "comments":{{"totalCount":{n},"nodes":[{nodes}]}}}}}}}}}}"#,
+            n = ids.len(),
+            nodes = nodes.join(",")
+        );
+        SpecResult {
+            kind: Kind::PrDetail,
+            ident: Some("o/r".into()),
+            status: 200,
+            etag: None,
+            rate: None,
+            body: Some(json),
+            network: None,
+            cursor: None,
+        }
+    }
+
+    #[gpui::test]
+    fn a_landing_above_the_reader_keeps_the_card_in_place(cx: &mut gpui::TestAppContext) {
+        // docs/0084 D8, Q8: items that arrive above the reading position
+        // push nothing under the reader; items below leave the offset be.
+        let (page, vcx) = probe_pr_anchored(cx, None);
+        vcx.simulate_resize(Size {
+            width: px(1024.),
+            height: px(300.),
+        });
+        let draw = |vcx: &mut gpui::VisualTestContext| {
+            for _ in 0..3 {
+                vcx.update(|window, cx| {
+                    window.draw(cx).clear(cx);
+                });
+            }
+        };
+        let land = |vcx: &mut gpui::VisualTestContext, ids: &[&str]| {
+            vcx.update(|_, cx| {
+                page.update(cx, |p, cx| {
+                    p.apply_detail_result_for(crate::usage::Trigger::Changed, landing(ids, 3), cx)
+                })
+            });
+            draw(vcx);
+        };
+        // The first card on screen, and how far it sits from the top.
+        let reading = |vcx: &mut gpui::VisualTestContext| {
+            vcx.read(|cx| {
+                let p = page.read(cx);
+                let (ix, rel) = p.timeline_scroll.logical_scroll_top();
+                (p.timeline_keys.borrow()[ix].clone(), rel)
+            })
+        };
+        land(vcx, &["c1", "c2", "c3", "c4", "c5", "c6"]);
+        // Scroll to the middle of c3.
+        vcx.update(|_, cx| {
+            let h = page.read(cx).timeline_scroll.clone();
+            let top = h.bounds_for_item(3).unwrap().top() - h.bounds().top();
+            h.set_offset(gpui::point(px(0.), -(top + px(20.))));
+        });
+        draw(vcx);
+        let before = reading(vcx);
+        assert_eq!(before.0, "c3");
+        // Newer comments below: nothing moves.
+        land(vcx, &["c1", "c2", "c3", "c4", "c5", "c6", "c7"]);
+        assert_eq!(reading(vcx), before, "an append below holds the position");
+        // An older comment above: the reader still sees the same card at
+        // the same place.
+        land(vcx, &["c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7"]);
+        let after = reading(vcx);
+        assert_eq!(after.0, before.0);
+        assert!(
+            (f32::from(after.1) - f32::from(before.1)).abs() < 1.0,
+            "{after:?} vs {before:?}"
+        );
+    }
+
     fn check(name: &str, state: gql::CheckState) -> gql::PrCheck {
         gql::PrCheck {
             check_run_id: None,

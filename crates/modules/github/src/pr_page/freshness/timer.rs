@@ -98,8 +98,10 @@ pub(crate) struct Watch {
     running: bool,
     /// The delay the timer was last armed with.
     armed_for: Duration,
-    /// Why the page isn't probing right now, for stage 5's label.
+    /// Why the page isn't probing right now, for the header label.
     stop: Option<Stop>,
+    /// Repaints the header while its label counts seconds.
+    pub(super) label_tick: Option<Task<()>>,
     /// Failed checks in the last landed detail: a rise means a run
     /// stopped to wait for approval (docs/0066).
     pub(crate) last_failed: Option<u32>,
@@ -139,6 +141,7 @@ impl Default for Watch {
             running: false,
             armed_for: Duration::ZERO,
             stop: None,
+            label_tick: None,
             last_failed: None,
             #[cfg(test)]
             skew: Duration::ZERO,
@@ -166,6 +169,7 @@ impl PrDetailPage {
         if !cfg!(test) {
             self.watch.running = true;
             self.arm_probe(FIRST_PROBE, cx);
+            self.start_label_tick(cx);
         }
     }
 
@@ -259,9 +263,8 @@ impl PrDetailPage {
         }
     }
 
-    /// Why the page isn't probing, when it isn't (docs/0084 D8, stage 5
-    /// reads it for the label).
-    #[allow(dead_code)]
+    /// Why the page isn't probing, when it isn't (docs/0084 D8: the
+    /// header label reads it).
     pub(crate) fn probe_stop(&self) -> Option<Stop> {
         self.watch.stop
     }

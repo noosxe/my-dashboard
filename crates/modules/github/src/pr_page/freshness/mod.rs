@@ -11,9 +11,14 @@
 //! - D5-D7, how often and how much (`cadence`, `budget`, `queue`): the
 //!   interval as one pure function, the page's rolling-hour ceiling, and
 //!   the merge queue's detail refetch.
+//! - D8, what the header says and what stays put (`age_label`, `anchor`,
+//!   `vanished`): the "checked N s ago" label, the timeline's scroll
+//!   anchor across a landing, and the editor of a node GitHub deleted.
 
 use std::time::Duration;
 
+pub(crate) mod age_label;
+pub(crate) mod anchor;
 pub(crate) mod budget;
 pub(crate) mod cadence;
 pub(super) mod events;
@@ -23,6 +28,7 @@ pub(crate) mod probe;
 pub(crate) mod probe_diff;
 pub(crate) mod queue;
 pub(crate) mod timer;
+pub(crate) mod vanished;
 pub(super) mod write_lanes;
 
 /// Entering a tab refetches its lane when the lane is older than this.
