@@ -69,7 +69,6 @@ fn only_floor_passing_and_deliberate_triggers_bypass_the_ttl() {
         Refocus,
         Manual,
         MutationRefetch,
-        Recheck,
         TabEntry,
         NotificationLanding,
     ] {

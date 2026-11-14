@@ -45,6 +45,7 @@ fn empty(remaining: u32) -> Option<RateLimit> {
         remaining,
         reset_epoch: budget_now() + 3600,
         retry_after: None,
+        poll_interval: None,
     })
 }
 
@@ -201,6 +202,7 @@ fn a_secondary_limit_with_retry_after_arms_the_pause(cx: &mut TestAppContext) {
         remaining: 4000,
         reset_epoch: budget_now() + 3000,
         retry_after: Some(90),
+        poll_interval: None,
     });
     rig.answer_details_with(
         403,

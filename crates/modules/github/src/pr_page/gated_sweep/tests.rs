@@ -78,7 +78,6 @@ fn the_sweep_runs_on_open_refresh_head_change_and_a_newly_waiting_run() {
     for t in [
         Trigger::Refocus,
         Trigger::MutationRefetch,
-        Trigger::Recheck,
         Trigger::TabEntry,
         Trigger::NotificationLanding,
         Trigger::Changed,

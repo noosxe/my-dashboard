@@ -6,54 +6,10 @@ use std::time::{Duration, Instant};
 
 use gpui::TestAppContext;
 
+use super::super::cadence::ACTIVE;
 use super::*;
 use crate::pr_page::test_rig::{NUMBER, REPO, Rig, server};
 use crate::service::PrKey;
-
-// --- the pure parts ---------------------------------------------------
-
-#[test]
-fn the_interval_follows_focus_and_what_is_moving() {
-    let quiet = Cadence::default();
-    let active = Cadence {
-        window_active: true,
-        ..quiet
-    };
-    assert_eq!(interval(active), ACTIVE);
-    assert_eq!(interval(quiet), SHOWN);
-    for hot in [
-        Cadence {
-            checks_running: true,
-            ..active
-        },
-        Cadence {
-            mergeable_unknown: true,
-            ..active
-        },
-        Cadence {
-            recent_change: true,
-            ..active
-        },
-    ] {
-        assert_eq!(interval(hot), HOT);
-        // Unfocused, a Hot condition other than focus holds it at 30 s.
-        assert_eq!(
-            interval(Cadence {
-                window_active: false,
-                ..hot
-            }),
-            ACTIVE
-        );
-    }
-}
-
-#[test]
-fn a_failing_probe_backs_off_up_to_a_cap() {
-    assert_eq!(backoff(HOT, 0), HOT);
-    assert_eq!(backoff(HOT, 1), Duration::from_secs(20));
-    assert_eq!(backoff(ACTIVE, 2), Duration::from_secs(120));
-    assert_eq!(backoff(SHOWN, 9), FAIL_CAP);
-}
 
 #[test]
 fn a_checks_change_inside_the_gap_is_scheduled_not_dropped() {
@@ -78,7 +34,7 @@ fn a_checks_change_inside_the_gap_is_scheduled_not_dropped() {
 
 // --- the page ---------------------------------------------------------
 
-fn pull(head: &str, review_comments: i64, updated: &str) -> String {
+pub(super) fn pull(head: &str, review_comments: i64, updated: &str) -> String {
     serde_json::json!({
         "state": "open", "title": "probe", "head": { "sha": head },
         "review_comments": review_comments, "comments": 0, "updated_at": updated,
@@ -86,13 +42,13 @@ fn pull(head: &str, review_comments: i64, updated: &str) -> String {
     .to_string()
 }
 
-fn runs(status: &str) -> String {
+pub(super) fn runs(status: &str) -> String {
     serde_json::json!({ "check_runs": [{ "status": status }] }).to_string()
 }
 
 /// A rig whose probe endpoints answer generation zero, a detail that
 /// keeps the head the page opened on, and a page over it.
-fn watched(
+pub(super) fn watched(
     cx: &mut TestAppContext,
 ) -> (
     Rig,
@@ -103,7 +59,7 @@ fn watched(
 }
 
 /// The same, with the head the detail answers after a refetch.
-fn watched_over<'a>(
+pub(super) fn watched_over<'a>(
     cx: &'a mut TestAppContext,
     head_after: &'static str,
 ) -> (
@@ -123,20 +79,20 @@ fn watched_over<'a>(
     (rig, page, vcx)
 }
 
-fn advance(vcx: &mut gpui::VisualTestContext, secs: u64) {
+pub(super) fn advance(vcx: &mut gpui::VisualTestContext, secs: u64) {
     vcx.executor()
         .advance_clock(Duration::from_secs(secs) + Duration::from_millis(1));
     vcx.run_until_parked();
 }
 
 /// The first probe, which seeds.
-fn seed(vcx: &mut gpui::VisualTestContext) {
+pub(super) fn seed(vcx: &mut gpui::VisualTestContext) {
     advance(vcx, FIRST_PROBE.as_secs());
 }
 
 /// One Active interval: exactly one probe while the page is quiet, up to
 /// three once a change made it Hot.
-fn tick(vcx: &mut gpui::VisualTestContext) {
+pub(super) fn tick(vcx: &mut gpui::VisualTestContext) {
     advance(vcx, ACTIVE.as_secs());
 }
 
@@ -304,7 +260,8 @@ fn only_a_watched_page_probes(cx: &mut TestAppContext) {
     });
     tick(vcx);
     assert!(rig.probe_statuses(None).is_empty(), "REST paused");
-    // A GraphQL pause alone doesn't hold the REST probe.
+    // A GraphQL pause holds it too: a change it found couldn't be read
+    // (`tiers.rs` covers the thresholds).
     vcx.update(|_, cx| {
         rig.state.update(cx, |s, _| {
             s.rate_limited_until = Default::default();
@@ -312,7 +269,14 @@ fn only_a_watched_page_probes(cx: &mut TestAppContext) {
                 .arm(Lane::Graphql, crate::usage::budget_now() + 3600)
         })
     });
-    tick(vcx);
+    advance(vcx, 61);
+    assert!(rig.probe_statuses(None).is_empty(), "GraphQL paused");
+    // Both lifted: the next beat probes.
+    vcx.update(|_, cx| {
+        rig.state
+            .update(cx, |s, _| s.rate_limited_until = Default::default())
+    });
+    advance(vcx, 61);
     assert_eq!(rig.probe_statuses(None), [200, 200]);
 
     // A closed PR does not probe.
@@ -327,7 +291,7 @@ fn only_a_watched_page_probes(cx: &mut TestAppContext) {
         })
     });
     let seen = rig.probe_statuses(None).len();
-    tick(vcx);
+    advance(vcx, 61);
     assert_eq!(rig.probe_statuses(None).len(), seen, "merged");
 }
 

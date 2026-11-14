@@ -15,7 +15,6 @@ pub(super) fn bypasses_reopen_ttl(trigger: Trigger) -> bool {
         trigger,
         Trigger::Manual
             | Trigger::MutationRefetch
-            | Trigger::Recheck
             | Trigger::Refocus
             | Trigger::TabEntry
             | Trigger::NotificationLanding

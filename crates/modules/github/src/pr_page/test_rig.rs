@@ -64,6 +64,11 @@ pub(super) struct ScriptedHttp {
     /// Every probe request, as `(endpoint, URL, status answered)`.
     pub(super) probe_log: Mutex<Vec<(&'static str, String, u16)>>,
     pub(super) probe_version: AtomicUsize,
+    /// The rate-limit headers every probe answer carries.
+    pub(super) probe_rate: Mutex<Option<crate::http::RateLimit>>,
+    /// When set, every probe answers this status with a secondary-limit
+    /// body instead of its served one.
+    pub(super) probe_force: Mutex<Option<u16>>,
 }
 
 fn ok(body: String) -> Result<HttpResult, HttpError> {
@@ -101,6 +106,19 @@ impl Http for ScriptedHttp {
             let Some((body, tag)) = served else {
                 return Err(HttpError("not a lane under test".into()));
             };
+            let rate = *self.probe_rate.lock().unwrap();
+            if let Some(status) = *self.probe_force.lock().unwrap() {
+                self.probe_log
+                    .lock()
+                    .unwrap()
+                    .push((endpoint, url.to_string(), status));
+                return Ok(HttpResult {
+                    status,
+                    etag: None,
+                    rate,
+                    body: Some(r#"{"message":"You have exceeded a secondary rate limit."}"#.into()),
+                });
+            }
             let status = if etag == Some(tag.as_str()) { 304 } else { 200 };
             self.probe_log
                 .lock()
@@ -109,7 +127,7 @@ impl Http for ScriptedHttp {
             return Ok(HttpResult {
                 status,
                 etag: Some(tag),
-                rate: None,
+                rate,
                 body: (status == 200).then_some(body),
             });
         }
@@ -198,6 +216,8 @@ impl Rig {
             probe_bodies: Mutex::default(),
             probe_log: Mutex::default(),
             probe_version: AtomicUsize::new(0),
+            probe_rate: Mutex::default(),
+            probe_force: Mutex::default(),
         });
         let client: Arc<dyn Http> = http.clone();
         let records = Arc::new(MemorySink::new(256));
