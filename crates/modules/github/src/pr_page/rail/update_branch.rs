@@ -6,7 +6,7 @@
 
 use gpui::{
     AnyElement, Context, InteractiveElement as _, IntoElement as _, ParentElement as _,
-    Styled as _, div, prelude::FluentBuilder as _,
+    StatefulInteractiveElement as _, Styled as _, accesskit, div, prelude::FluentBuilder as _,
 };
 use gpui_component::{
     ActiveTheme, Disableable as _, Sizable as _,
@@ -49,7 +49,7 @@ pub(super) fn update_split(
                             this.update_branch_pr(UpdateBranchMethod::MergeCommit, window, cx)
                         })),
                 )
-                .small()
+                .xsmall()
                 .disabled(busy)
                 .menu_accessibility_label("Choose how to update the branch")
                 .dropdown_menu(move |menu, _, _| {
@@ -94,21 +94,19 @@ pub(super) fn update_split(
 /// The rebase confirm (docs/0067 D4), opened under the Mergeability row:
 /// the force-push warning with Rebase branch / Cancel.
 pub(super) fn rebase_confirm(d: &PrDetail, cx: &Context<PrDetailPage>) -> AnyElement {
+    let prompt = format!(
+        "Rebase {} onto {} and force-push the branch? Anyone \
+         working off it must re-pull.",
+        d.head_ref.as_deref().unwrap_or_default(),
+        d.base_ref.as_deref().unwrap_or_default()
+    );
     v_flex()
         .id("pr-update-rebase-confirm")
         .debug_selector(|| "pr-update-rebase-confirm".to_string())
+        .role(accesskit::Role::Group)
+        .aria_label(prompt.clone())
         .gap_2()
-        .child(
-            div()
-                .text_sm()
-                .text_color(cx.theme().warning)
-                .child(format!(
-                    "Rebase {} onto {} and force-push the branch? Anyone \
-                     working off it must re-pull.",
-                    d.head_ref.as_deref().unwrap_or_default(),
-                    d.base_ref.as_deref().unwrap_or_default()
-                )),
-        )
+        .child(div().text_sm().text_color(cx.theme().warning).child(prompt))
         .child(
             h_flex()
                 .gap_2()

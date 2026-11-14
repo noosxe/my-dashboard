@@ -21,10 +21,13 @@
 # show that the Conversation content left.
 #
 # Not here yet, because they would stop the walk at the first scenario:
-# `audit` FAILs on the unlabeled combo boxes (#768) and `tab-stops` exits
-# at the comment box's Tab trap (#733). Add both at each Conversation stop,
-# after its `assert-baseline`, when those land. Until then a PR-page PR
-# runs them as one-off verbs at the stop it touches.
+# `audit` FAILs on the comment box's unlabeled action select (#768; the
+# rail's own merge-method select is gone with the status block, docs/0083)
+# and `tab-stops` exits at the comment box's Tab trap (#733). Add both at
+# each Conversation stop, after its `assert-baseline`, when those land.
+# Until then a PR-page PR runs them as one-off verbs at the stop it
+# touches; the rail's own order is walked from the comment box's select
+# (pr-rail.txt documents the walk).
 
 --session prpage
 
@@ -43,10 +46,16 @@ mouse down 900 337
 mouse up 900 337
 wait-label "Conversation (5)"
 assert-label "#101"
-assert-label "Review approval"
-# Blocked, viewed by an admin: Merge shows (disabled, #708), Close shows.
+# The status block (docs/0083): the verdict, and the Checks gate row that
+# carries the two held runs and opens the Checks tab.
+assert-label "Merging is blocked"
+assert-label "Checks: 1 failed, 1 running, 2 waiting. Open the Checks tab"
+# Blocked, viewed by an admin: Merge shows (disabled, #708) with its method
+# caret, and the more menu holds Close.
 assert-label "Merge pull request"
-assert-label "Close pull request"
+assert-label "Choose merge method"
+assert-label "More pull request actions"
+assert-no-label "Close pull request"
 assert-label "Leave a comment"
 wait-label "Checks (9)"
 assert-baseline github-pr-populated
@@ -73,7 +82,9 @@ mouse down 900 376
 mouse up 900 376
 wait-label "Conversation (252)"
 assert-label "#102"
-assert-label "Update branch"
+# Behind its base and updatable: Update sits in the Mergeability gate row.
+assert-label "Out of date with main"
+assert-label "Choose how to update the branch"
 mouse down 472 254
 mouse up 472 254 --wait-frame
 assert-no-label "Leave a comment"
@@ -113,7 +124,9 @@ mouse down 900 452
 mouse up 900 452
 wait-label "Conversation (1)"
 assert-label "#104"
+assert-label "Merged"
 assert-no-label "Merge pull request"
+assert-no-label "More pull request actions"
 assert-baseline github-pr-merged
 mouse down 447 155
 mouse up 447 155 --wait-frame
@@ -133,8 +146,9 @@ mouse down 900 490
 mouse up 900 490
 wait-label "Conversation (0)"
 assert-label "#105"
+assert-label "Closed"
 assert-no-label "Merge pull request"
-assert-no-label "Close pull request"
+assert-no-label "More pull request actions"
 assert-no-label "Edit"
 mouse down 447 155
 mouse up 447 155 --wait-frame
@@ -158,7 +172,7 @@ assert-label "#106"
 # detail read landing; the buttons are judged only after it.
 wait-label "Checks (1)"
 assert-no-label "Merge pull request"
-assert-no-label "Close pull request"
+assert-no-label "More pull request actions"
 assert-no-label "Edit"
 mouse down 447 155
 mouse up 447 155 --wait-frame
@@ -180,44 +194,49 @@ wait-label "Conversation (3)"
 assert-label "#107"
 wait-label "Checks (3)"
 assert-label "Merge pull request"
-assert-label "Close pull request"
+assert-label "More pull request actions"
+assert-no-label "Close pull request"
 assert-no-label "Delete"
 # Merge and Close confirm before they send (#738): each opens an inline
 # confirm that names what it will do, Esc and Cancel back out, and the
-# buttons come back. Only backing out is walked here; the confirming
-# clicks and the recorded writes are pr-writes.txt (#812). Clicks
-# are bridge mouse clicks at the buttons' centres (ids under the PR page
-# differ between walks), frozen at 1280x800.
-mouse down 1022 276
-mouse up 1022 276 --wait-frame
+# action row comes back. Close lives in the more menu (docs/0083 D5). Only
+# backing out is walked here; the confirming clicks and the recorded writes
+# are pr-writes.txt (#812). Clicks are bridge mouse clicks at the controls'
+# centres (ids under the PR page differ between walks), frozen at 1280x800.
+mouse down 1083 334
+mouse up 1083 334 --wait-frame
 assert-label "Merge feature/trailing-commas into main?"
 assert-label "Confirm merge"
 assert-label "Cancel"
 assert-no-label "Merge pull request"
-assert-no-label "Close pull request"
+assert-no-label "More pull request actions"
 key esc
 wait-label "Merge pull request"
 assert-no-label "Confirm merge"
-mouse down 1022 276
-mouse up 1022 276 --wait-frame
+mouse down 1083 334
+mouse up 1083 334 --wait-frame
 wait-label "Confirm merge"
-mouse down 1101 307
-mouse up 1101 307 --wait-frame
+mouse down 1113 388
+mouse up 1113 388 --wait-frame
 wait-label "Merge pull request"
 assert-no-label "Confirm merge"
-mouse down 1162 276
-mouse up 1162 276 --wait-frame
+mouse down 1219 334
+mouse up 1219 334 --wait-frame
+mouse down 1199 367
+mouse up 1199 367 --wait-frame
 assert-label "Close this pull request without merging? It can be reopened later."
 assert-label "Close without merging"
 assert-no-label "Merge pull request"
 key esc
-wait-label "Close pull request"
-mouse down 1162 276
-mouse up 1162 276 --wait-frame
+wait-label "More pull request actions"
+mouse down 1219 334
+mouse up 1219 334 --wait-frame
+mouse down 1199 367
+mouse up 1199 367 --wait-frame
 wait-label "Close without merging"
-mouse down 1149 330
-mouse up 1149 330 --wait-frame
-wait-label "Close pull request"
+mouse down 1161 388
+mouse up 1161 388 --wait-frame
+wait-label "More pull request actions"
 assert-no-label "Close without merging"
 mouse down 447 155
 mouse up 447 155 --wait-frame
@@ -261,3 +280,45 @@ mouse up 535 155 --wait-frame
 wait-label "Approve gated workflow run fork-ci"
 assert-label "Approve gated workflow run fork-lint"
 assert-no-label "View log"
+click 12782369444481205663 --wait-frame
+wait-label "PR #113: Docs: explain the manifest grammar"
+
+# 113: ready to merge: a writer, clean, approved, passing, behind its base
+# with the Update button in the Mergeability row (docs/0083 D3, D4). The
+# lane's last rows are below the fold, so the row filter brings it up.
+mouse down 700 149
+mouse up 700 149
+type #113
+wait-label "PR #113: Docs: explain the manifest grammar"
+mouse down 900 337
+mouse up 900 337
+wait-label "Conversation (2)"
+assert-label "#113"
+assert-label "Ready to merge"
+assert-label "Approved: 2 approvals"
+assert-label "Checks passed: 2 of 2. Open the Checks tab"
+assert-label "Choose how to update the branch"
+assert-label "Squash and merge"
+assert-label "More pull request actions"
+assert-baseline github-pr-ready
+click 12782369444481205663 --wait-frame
+wait-label "PR #113: Docs: explain the manifest grammar"
+
+# 114: closed, not merged, the head branch still there (docs/0083 D6): who
+# closed it and when, the review that stands; no actions yet (#770, #773).
+mouse down 700 149
+mouse up 700 149
+key ctrl-a
+type #114
+wait-label "PR #114: Loader: try the lazy manifest reader"
+mouse down 900 337
+mouse up 900 337
+wait-label "Conversation (1)"
+assert-label "#114"
+assert-label "Closed"
+assert-label "Changes requested: reviewer-b"
+assert-no-label "Open the Checks tab"
+assert-no-label "Merge pull request"
+assert-no-label "More pull request actions"
+assert-no-label "Edit labels"
+assert-baseline github-pr-closed
