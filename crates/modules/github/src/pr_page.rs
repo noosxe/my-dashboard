@@ -64,6 +64,7 @@ mod diff_anchor;
 pub(crate) mod diff_notice;
 mod files_etag;
 mod gate_decision;
+mod gated_sweep;
 mod head_change;
 mod header_meta;
 pub(crate) mod leave_guard;
@@ -701,6 +702,9 @@ pub(crate) struct PrDetailPage {
     /// The D2 fallback ran for the current sweep — once per sweep, so an
     /// empty fallback can't loop (docs/0066 D2).
     pub(crate) gate_fallback_done: bool,
+    /// #875: the trigger of the read that armed the current sweep; the
+    /// sweep's requests are booked under it.
+    gated_trigger: Trigger,
     /// Height-resync observers (docs/0041 D3): typing grows the composer
     /// / reply textareas; the subscriptions live while the editor does.
     composer_sub: Option<gpui::Subscription>,
@@ -922,6 +926,7 @@ impl PrDetailPage {
             gate_review: None,
             gate_error: None,
             gate_fallback_done: false,
+            gated_trigger: Trigger::ViewShown,
             composer_sub: None,
             reply_sub: None,
             threads: Fetch::new(),
@@ -1055,7 +1060,7 @@ impl PrDetailPage {
             page.md = build_md_cache(&page.repo, detail);
             page.extend_threads_md();
             page.resolve_comment_anchor(cx);
-            page.fetch_gated(cx);
+            page.fetch_gated(Trigger::ViewShown, cx);
         } else {
             page.fetch_detail(Origin::new(Surface::PrPage, Trigger::ViewShown), cx);
         }
@@ -1159,7 +1164,7 @@ impl PrDetailPage {
             let result = std::cell::Cell::new(Some(result));
             let _ = this.update(cx, |page, cx| {
                 if let Some(r) = result.take() {
-                    page.apply_detail_result(r, cx);
+                    page.apply_detail_result_for(origin.trigger, r, cx);
                 }
             });
             if let Some(r) = result.take() {
@@ -1172,7 +1177,17 @@ impl PrDetailPage {
     /// The page-alive path of a landed detail read: the store half
     /// (`detail_read::land_detail_result`, which also runs when the page
     /// is gone) and then everything the page keeps beside the store.
+    #[cfg(test)]
     fn apply_detail_result(&mut self, result: crate::service::SpecResult, cx: &mut Context<Self>) {
+        self.apply_detail_result_for(Trigger::ViewShown, result, cx);
+    }
+
+    fn apply_detail_result_for(
+        &mut self,
+        trigger: Trigger,
+        result: crate::service::SpecResult,
+        cx: &mut Context<Self>,
+    ) {
         let (repo, number) = (self.repo.clone(), self.number);
         let landed = self.state.update(cx, |s, cx| {
             detail_read::land_detail_result(s, cx, &repo, number, result)
@@ -1228,7 +1243,7 @@ impl PrDetailPage {
             self.resolve_comment_anchor(cx);
             // docs/0066 D2: the detail landed — arm the
             // gated-runs sweep for the (possibly new) head.
-            self.fetch_gated(cx);
+            self.fetch_gated(trigger, cx);
         }
         self.rerun_outdated_reads(cx);
         cx.notify();
@@ -1238,9 +1253,15 @@ impl PrDetailPage {
     /// when the detail lands (the same funnel the refresh button drives
     /// — the manual-refresh contract, docs/0052) and after a gate action
     /// (D5). One sweep at a time, via the shared docs/0031 guard.
-    fn fetch_gated(&mut self, cx: &mut Context<Self>) {
+    fn fetch_gated(&mut self, trigger: Trigger, cx: &mut Context<Self>) {
         if !self.state.read(cx).auth.connected() {
             return; // the page is about to be torn down by the auth gate
+        }
+        // #875: the sweep spends REST requests (the run list, one probe
+        // per run), so a paused REST budget holds it back.
+        if self.state.read(cx).gated_for(crate::rate_pause::Lane::Rest) {
+            log::debug!("gated-runs: skipped — the REST budget is paused");
+            return;
         }
         let Some(d) = self.detail(cx) else {
             return;
@@ -1260,12 +1281,19 @@ impl PrDetailPage {
             return;
         }
         self.gate_fallback_done = false;
+        self.gated_trigger = trigger;
         self.gated.begin();
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result =
-                crate::service::load_gated_runs(state.clone(), &repo, &head_ref, &head_oid, cx)
-                    .await;
+            let result = crate::service::load_gated_runs(
+                state.clone(),
+                &repo,
+                &head_ref,
+                &head_oid,
+                trigger,
+                cx,
+            )
+            .await;
             cx.update(|cx| state.update(cx, |s, _| s.in_flight_clear(&key)));
             let _ = this.update(cx, |page, cx| page.apply_gated_result(result, cx));
         })
@@ -1297,7 +1325,7 @@ impl PrDetailPage {
     /// sweep (the flag resets when the next sweep arms), so an empty
     /// fallback can't loop.
     fn maybe_fetch_gated_fallback(&mut self, cx: &mut Context<Self>) {
-        if self.gate_fallback_done {
+        if self.gate_fallback_done || self.state.read(cx).gated_for(crate::rate_pause::Lane::Rest) {
             return;
         }
         let checks_empty = self.detail(cx).is_none_or(|d| d.checks.nodes.is_empty());
@@ -1312,6 +1340,7 @@ impl PrDetailPage {
             return;
         };
         self.gate_fallback_done = true;
+        let trigger = self.gated_trigger;
         let state = self.state.clone();
         let repo = self.repo.clone();
         let short = head_oid.get(..7).unwrap_or(&head_oid).to_string();
@@ -1323,9 +1352,14 @@ impl PrDetailPage {
         self.gated.begin();
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result =
-                crate::service::load_gated_runs_via_suites(state.clone(), &repo, &head_oid, cx)
-                    .await;
+            let result = crate::service::load_gated_runs_via_suites(
+                state.clone(),
+                &repo,
+                &head_oid,
+                trigger,
+                cx,
+            )
+            .await;
             cx.update(|cx| state.update(cx, |s, _| s.in_flight_clear(&key)));
             let _ = this.update(cx, |page, cx| page.apply_gated_result(result, cx));
         })
@@ -1483,12 +1517,12 @@ impl PrDetailPage {
             Ok(()) => {
                 self.gate_decisions
                     .record(run_id, gate_decision::GateDecision::parse(decision));
-                self.fetch_gated(cx);
+                self.fetch_gated(Trigger::MutationRefetch, cx);
             }
             Err(f) => {
                 self.gate_error = Some(gate_error_copy(&f, decision));
                 if matches!(f.status, 404 | 422) {
-                    self.fetch_gated(cx);
+                    self.fetch_gated(Trigger::MutationRefetch, cx);
                 }
             }
         }

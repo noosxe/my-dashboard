@@ -6226,6 +6226,7 @@ pub(crate) async fn load_gated_runs(
     repo: &str,
     head_branch: &str,
     head_oid: &str,
+    trigger: Trigger,
     cx: &mut AsyncApp,
 ) -> Result<Vec<GatedRunRow>, String> {
     let Some((owner, name)) = repo.split_once('/') else {
@@ -6234,7 +6235,7 @@ pub(crate) async fn load_gated_runs(
     let short = head_oid.get(..7).unwrap_or(head_oid);
     let ident = format!("{repo}#gated-{short}");
     let url = api::gated_runs_url(owner, name, head_branch);
-    let result = gated_get(&state, Kind::GatedRuns, ident, url, Trigger::ViewShown, cx).await?;
+    let result = gated_get(&state, Kind::GatedRuns, ident, url, trigger, cx).await?;
     let page: api::GatedRunsPage = serde_json::from_str(result.body.as_deref().unwrap_or_default())
         .map_err(|e| format!("Malformed gated-runs payload ({e})"))?;
     let mut rows = Vec::new();
@@ -6263,6 +6264,7 @@ pub(crate) async fn load_gated_runs_via_suites(
     state: Entity<GithubState>,
     repo: &str,
     head_oid: &str,
+    trigger: Trigger,
     cx: &mut AsyncApp,
 ) -> Result<Vec<GatedRunRow>, String> {
     let Some((owner, name)) = repo.split_once('/') else {
@@ -6271,7 +6273,7 @@ pub(crate) async fn load_gated_runs_via_suites(
     let short = head_oid.get(..7).unwrap_or(head_oid);
     let ident = format!("{repo}#suites-{short}");
     let url = api::check_suites_for_sha_url(owner, name, head_oid);
-    let result = gated_get(&state, Kind::GatedRuns, ident, url, Trigger::Expand, cx).await?;
+    let result = gated_get(&state, Kind::GatedRuns, ident, url, trigger, cx).await?;
     let page: api::CheckSuitesPage =
         serde_json::from_str(result.body.as_deref().unwrap_or_default())
             .map_err(|e| format!("Malformed check-suites payload ({e})"))?;
@@ -6282,15 +6284,8 @@ pub(crate) async fn load_gated_runs_via_suites(
         }
         let suite_ident = format!("{repo}#suite-{}", suite.id);
         let suite_url = api::workflow_runs_by_suite_url(owner, name, suite.id);
-        let runs_result = gated_get(
-            &state,
-            Kind::GatedRuns,
-            suite_ident,
-            suite_url,
-            Trigger::Expand,
-            cx,
-        )
-        .await?;
+        let runs_result =
+            gated_get(&state, Kind::GatedRuns, suite_ident, suite_url, trigger, cx).await?;
         let runs: api::WorkflowRunsPage =
             serde_json::from_str(runs_result.body.as_deref().unwrap_or_default())
                 .map_err(|e| format!("Malformed suite-runs payload ({e})"))?;
