@@ -3,7 +3,7 @@
 //! GraphQL points on `Watch` and `Changed` traffic (Q1). The first time
 //! either ceiling is reached the page drops to the Shown interval; a
 //! second time within the hour stops the probe until a refocus or
-//! Refresh (`clear`).
+//! Refresh (`resume`).
 //!
 //! The guard's only own counter is this one; the usage thresholds
 //! (Low, Critical, Exhausted) are read from the usage book by the caller

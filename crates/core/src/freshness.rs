@@ -177,10 +177,27 @@ where
     E: 'static,
     F: Freshness,
 {
+    freshness_row_labelled(id, synced_label(clock.age()), clock, cx, on_refresh)
+}
+
+/// [`freshness_row`] with the label's text chosen by the caller (the PR
+/// page says "checked 15s ago" while it is watched, docs/0084 D8). The
+/// clock still drives the spinner.
+pub fn freshness_row_labelled<E, F>(
+    id: &'static str,
+    label: Option<SharedString>,
+    clock: &F,
+    cx: &Context<E>,
+    on_refresh: impl Fn(&mut E, &mut Window, &mut Context<E>) + 'static,
+) -> AnyElement
+where
+    E: 'static,
+    F: Freshness,
+{
     h_flex()
         .gap_2()
         .items_center()
-        .when_some(synced_label(clock.age()), |row, label| {
+        .when_some(label, |row, label| {
             row.child(
                 div()
                     .debug_selector(move || format!("{id}-synced"))
