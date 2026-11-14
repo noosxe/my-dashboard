@@ -1537,7 +1537,7 @@ fn reply_box(
         .border_color(cx.theme().border)
         .p_2()
         .gap_1()
-        .child(Textarea::new(&editor))
+        .child(Textarea::new(&editor).aria_label("Reply to review thread"))
         .child(
             h_flex()
                 .gap_2()
