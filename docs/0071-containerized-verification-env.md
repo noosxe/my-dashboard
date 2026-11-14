@@ -193,7 +193,9 @@ response files and records them (docs/0081 §12.1), and a receipt asserts
 what a click sent with `assert-write` (docs/0010 D11). `pr-writes.txt`
 (session `prwrites`) walks comment, Merge, Close, a gated-run approve, the four
 metadata pickers' Save (#857), Ready for review, Convert to draft (through the
-`⋯` menu and its confirm) and Reopen:
+`⋯` menu and its confirm), Reopen and Delete branch (a confirm, on a closed
+and a merged PR; no button where the branch is gone or lives in a fork the
+viewer can't write):
 
 ```sh
 scripts/verify.sh sh -c '

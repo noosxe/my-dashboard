@@ -392,6 +392,8 @@ A `GroupBox` at the rail top:
   pushes until it is ready again." with a *Convert to draft* button, gated
   by `viewerCanUpdate` on an open, non-draft PR. Ready for review (#771)
   and Reopen (#770) don't confirm, since each is undone in one click.
+  *Delete branch* (#773) is the fourth confirm kind, "Delete branch
+  `<name>`?", gated by write access on the head repository (docs/0083 §2).
   No commit-message editing or prefill
   (`viewerMergeHeadlineText`/`viewerMergeBodyText`): deferred.
 

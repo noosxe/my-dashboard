@@ -72,6 +72,14 @@ Settled in review of this doc (2026-11-14):
   rather than a disabled Merge (D4).
 - **Closed PRs** show Reopen and Delete branch side by side, with no `⋯`
   menu (D4, D5).
+- **Delete branch's gate** (settled 2026-11-14, #773): offered when
+  `headRef` is present, the head isn't the head repository's default
+  branch, and the viewer has WRITE, MAINTAIN or ADMIN on the repository
+  that holds the head branch. For a pull request from a fork that is the
+  fork, read from `headRepository`, not the base repository. A deleted
+  fork (`headRepository` null) hides the button. Protected branches aren't
+  filtered up front: a refused delete shows its error under the action row.
+  `viewerCanDeleteHeadRef` is not used (§3.1).
 - **Team review requests** keep Reviewers display-only, with the reason
   line (D7, D8). Re-posting a team request through `requestReviews` could
   notify the team again.
@@ -97,7 +105,8 @@ public data. gpui-component facts are from the rev pinned in `Cargo.lock`
 | `merged`, `mergedAt`, `mergedBy { login }` | `PullRequest` | `mergedBy` is an `Actor`. |
 | `closedAt` | `PullRequest` | No `closedBy` field exists. The closer is `timelineItems(last: 1, itemTypes: [CLOSED_EVENT]) { nodes { ... on ClosedEvent { actor { login } createdAt } } }`, checked on live data. |
 | merge method of a merged PR | — | **Not exposed.** Only `autoMergeRequest.mergeMethod` carries a method. The merged line says who, when and into which base, never "how". |
-| `headRef { id }`, `viewerCanDeleteHeadRef`, `deleteRef(refId)` | `PullRequest`, `Mutation` | `headRef` is null once the branch is gone. The schema's description of `viewerCanDeleteHeadRef` says "restore the deleted head ref", so #773 must confirm its meaning on fixtures and live data before relying on it. |
+| `headRef { id name }`, `headRepository { viewerPermission defaultBranchRef { name } }`, `deleteRef(refId)` | `PullRequest`, `Mutation` | `headRef` is null once the branch is gone. `deleteRef` takes the `Ref` node id and answers `clientMutationId` only. `Repository.viewerPermission` is the gate, with the default branch excluded (D4). `headRepository` is null for a deleted fork. |
+| `viewerCanDeleteHeadRef` | `PullRequest` | **Not a delete gate.** The schema describes it as "Check if the viewer can restore the deleted head ref". Checked 2026-11-14 on live public data: it was `false` in every case read, including an admin on an open PR whose head exists, an admin on merged PRs whose head is already deleted, and a closed fork-head PR. No case read had it `true`, so what it gates stays unobserved; it looks like a restore flag and belongs to #851. |
 | `viewerCanReopen`, `reopenPullRequest` | `PullRequest`, `Mutation` | #770. |
 | `markPullRequestReadyForReview`, `convertPullRequestToDraft` | `Mutation` | Input is `pullRequestId` only. No dedicated viewer flag; `viewerCanUpdate` is the gate (#771, #772). |
 | `autoMergeRequest { enabledBy { login } enabledAt mergeMethod }`, `viewerCanEnableAutoMerge`, `viewerCanDisableAutoMerge`, `enablePullRequestAutoMerge`, `disablePullRequestAutoMerge` | `PullRequest`, `Mutation`; `Repository.autoMergeAllowed` | #774. |
@@ -278,7 +287,7 @@ control the PR state blocks is **disabled**, with the reason as its tooltip.
 | Queued (`isInMergeQueue`) | **Remove from queue** (secondary) | Sub-line: "Position N · <entry state>". No confirm: re-queueing is one click away (#775). |
 | Auto-merge enabled | **Disable auto-merge** (secondary) | Sub-line: "by `<login>` · squash". Shown when `viewerCanDisableAutoMerge`. No confirm (#774). |
 | Draft | **Ready for review** (primary) | Gate `viewerCanUpdate`. No confirm: it is reversible from the `⋯` menu (#771). |
-| Merged | **Delete branch** (secondary) | When `headRef` is present and the viewer can delete it. Confirm (#773). |
+| Merged | **Delete branch** (secondary) | When `headRef` is present, isn't the head repository's default branch and the viewer has write access to the head repository. Confirm (#773). |
 | Closed | **Reopen pull request** (secondary) and **Delete branch** (secondary) | Reopen when `viewerCanReopen` (#770), no confirm. Delete branch as for merged. |
 | Viewer can do none of these | no action row | The verdict and gates still show. |
 
@@ -797,7 +806,8 @@ Reopen (#770) and the default merge method (#776) settled:
 - **Layout.** The primaries sit in one row, each taking an equal share of
   the free width, so Delete branch (#773) joins Reopen side by side. Reopen
   is an outline button, Ready for review is the accent one. A draft's row
-  is Ready for review plus `⋯`; a closed PR's is Reopen alone for now.
+  is Ready for review plus `⋯`; a closed PR's was Reopen alone until Delete branch joined it (§8c, which also
+  changes the equal-width cells of the quiet buttons).
 - **Convert to draft** is the first item in the `⋯` menu (`pr-more-draft`)
   and opens the third confirm kind (`pr-convert-confirm*`), with the same
   rules as Merge and Close: one at a time, re-checked on confirm, closed by
@@ -812,6 +822,33 @@ Reopen (#770) and the default merge method (#776) settled:
   #107 carries a default its repository no longer allows, and every row
   has an explicit `viewerCanReopen`. `pr_writes.py` answers the four
   metadata writes and the three state flips (#857).
+
+## 8c. Implementation notes (Delete branch, step 5)
+
+What the PR that wired Delete branch (#773) settled:
+
+- **The gate** is the one in §2: write access on the head repository, the
+  head not being its default branch, `headRef` present. The detail query
+  selects `headRef { id name }` and `headRepository { viewerPermission
+  defaultBranchRef { name } }`, and `viewerCanDeleteHeadRef` stays out
+  (§3.1). `gql/head_branch.rs` parses them and holds the rule
+  (`HeadBranch::deletable`); `merge_gate.rs` adds the state and idle checks.
+- **Write.** `deleteRef(input: { refId })` with `headRef.id`, through the
+  store's pending write; the confirmation drops the cached head branch (the
+  button goes away at once) and refetches. A failure shows in the status
+  block under the action row, like the other state flips.
+- **Confirm.** A fourth `ConfirmKind` with the prompt "Delete branch
+  `<name>`?", a danger-toned confirm button, Esc backing out without a
+  write, and the same re-check and self-closing rules as the others.
+- **Layout.** The quiet controls of a terminal PR (Reopen, Delete branch)
+  are small and sized to their label, side by side as in the mockup. At
+  equal half widths "Reopen pull request" truncated (critique, iteration
+  1); Ready for review still fills the row.
+- **Query cost.** 1 point before and after, measured 2026-11-14 with
+  `rateLimit(dryRun: true)` on a public pull request.
+- **Fixtures.** #104 and #114 carry a deletable head branch, #115 is merged
+  with its head already gone and #116 is merged from a fork the viewer can
+  only read, although they administer the base repository.
 
 ## 9. Non-goals
 
