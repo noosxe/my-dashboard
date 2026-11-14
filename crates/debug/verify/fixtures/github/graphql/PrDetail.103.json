@@ -12,9 +12,11 @@
      "avatarUrl": "https://avatars.invalid/octo-dev",
      "login": "octo-dev"
     },
+    "autoMergeRequest": null,
     "baseRefName": "main",
     "body": "",
     "changedFiles": 1,
+    "closedAt": null,
     "comments": {
      "nodes": [],
      "totalCount": 0
@@ -42,10 +44,14 @@
     "files": {
      "totalCount": 1
     },
+    "headRef": {
+     "id": "REF_103"
+    },
     "headRefName": "feature/trailing-commas",
     "headRefOid": "0000067bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "id": "PR_103",
     "isDraft": true,
+    "isInMergeQueue": false,
     "labels": {
      "nodes": [],
      "totalCount": 0
@@ -56,8 +62,12 @@
     "latestReviews": {
      "nodes": []
     },
+    "mergeQueueEntry": null,
     "mergeStateStatus": "DRAFT",
     "mergeable": "MERGEABLE",
+    "merged": false,
+    "mergedAt": null,
+    "mergedBy": null,
     "milestone": null,
     "number": 103,
     "reactionGroups": [
@@ -129,6 +139,9 @@
     },
     "state": "OPEN",
     "statusCheckRollup": null,
+    "timelineItems": {
+     "nodes": []
+    },
     "title": "WIP: loader cleanup",
     "url": "https://github.com/fixture-user/beacon/pull/103",
     "viewerCanAssign": true,

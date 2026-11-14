@@ -18,9 +18,11 @@
      "avatarUrl": "https://avatars.invalid/octo-dev",
      "login": "octo-dev"
     },
+    "autoMergeRequest": null,
     "baseRefName": "main",
     "body": "## Summary\n\nAccept trailing commas in the manifest parser, so hand-edited files stop\nfailing the load with an opaque error.\n\n- `parse_manifest` tolerates one trailing comma per list\n- the error now names the offending line\n\n```rust\nlet manifest = parse_manifest(input)?;\n```\n\nSee the [grammar notes](https://example.com/grammar) for the full list.\n",
     "changedFiles": 1,
+    "closedAt": "2026-10-20T12:00:00Z",
     "comments": {
      "nodes": [],
      "totalCount": 0
@@ -48,10 +50,14 @@
     "files": {
      "totalCount": 1
     },
+    "headRef": {
+     "id": "REF_104"
+    },
     "headRefName": "feature/trailing-commas",
     "headRefOid": "0000068bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "id": "PR_104",
     "isDraft": false,
+    "isInMergeQueue": false,
     "labels": {
      "nodes": [
       {
@@ -86,8 +92,15 @@
       }
      ]
     },
+    "mergeQueueEntry": null,
     "mergeStateStatus": "UNKNOWN",
     "mergeable": "UNKNOWN",
+    "merged": true,
+    "mergedAt": "2026-10-20T12:00:00Z",
+    "mergedBy": {
+     "avatarUrl": "https://avatars.invalid/octo-dev",
+     "login": "octo-dev"
+    },
     "milestone": null,
     "number": 104,
     "reactionGroups": [
@@ -233,6 +246,12 @@
     "state": "MERGED",
     "statusCheckRollup": {
      "contexts": {
+      "checkRunCountsByState": [
+       {
+        "count": 2,
+        "state": "SUCCESS"
+       }
+      ],
       "nodes": [
        {
         "__typename": "CheckRun",
@@ -277,9 +296,13 @@
         "status": "COMPLETED"
        }
       ],
+      "statusContextCountsByState": [],
       "totalCount": 2
      },
      "state": "SUCCESS"
+    },
+    "timelineItems": {
+     "nodes": []
     },
     "title": "Docs: fix the manifest grammar example",
     "url": "https://github.com/fixture-user/beacon/pull/104",

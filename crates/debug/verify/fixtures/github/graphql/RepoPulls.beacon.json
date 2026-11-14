@@ -435,9 +435,65 @@
       "title": "Files: diffs that can't be drawn",
       "updatedAt": "2026-10-22T23:00:00Z",
       "url": "https://github.com/fixture-user/beacon/pull/112"
+     },
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/octo-dev",
+       "login": "octo-dev"
+      },
+      "databaseId": 50113,
+      "isDraft": false,
+      "labels": {
+       "nodes": [
+        {
+         "color": "0e8a16",
+         "name": "docs"
+        }
+       ],
+       "totalCount": 1
+      },
+      "number": 113,
+      "reviewRequests": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "state": "OPEN",
+      "statusCheckRollup": {
+       "state": "SUCCESS"
+      },
+      "title": "Docs: explain the manifest grammar",
+      "updatedAt": "2026-10-22T22:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/pull/113"
+     },
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/octo-dev",
+       "login": "octo-dev"
+      },
+      "databaseId": 50114,
+      "isDraft": false,
+      "labels": {
+       "nodes": [
+        {
+         "color": "fbca04",
+         "name": "wontfix"
+        }
+       ],
+       "totalCount": 1
+      },
+      "number": 114,
+      "reviewRequests": {
+       "nodes": [],
+       "totalCount": 0
+      },
+      "state": "OPEN",
+      "statusCheckRollup": null,
+      "title": "Loader: try the lazy manifest reader",
+      "updatedAt": "2026-10-22T21:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/pull/114"
      }
     ],
-    "totalCount": 12
+    "totalCount": 14
    },
    "pushedAt": "2026-10-23T12:00:00Z"
   }

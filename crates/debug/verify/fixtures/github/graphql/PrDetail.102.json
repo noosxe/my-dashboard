@@ -73,9 +73,11 @@
      "avatarUrl": "https://avatars.invalid/octo-dev",
      "login": "octo-dev"
     },
+    "autoMergeRequest": null,
     "baseRefName": "main",
     "body": "## Summary\n\nAccept trailing commas in the manifest parser, so hand-edited files stop\nfailing the load with an opaque error.\n\n- `parse_manifest` tolerates one trailing comma per list\n- the error now names the offending line\n\n```rust\nlet manifest = parse_manifest(input)?;\n```\n\nSee the [grammar notes](https://example.com/grammar) for the full list.\n",
     "changedFiles": 3,
+    "closedAt": null,
     "comments": {
      "nodes": [
       {
@@ -8690,10 +8692,14 @@
     "files": {
      "totalCount": 3
     },
+    "headRef": {
+     "id": "REF_102"
+    },
     "headRefName": "feature/very-long-branch-name-for-the-manifest-parser-and-loader-overhaul",
     "headRefOid": "0000066bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "id": "PR_102",
     "isDraft": false,
+    "isInMergeQueue": false,
     "labels": {
      "nodes": [
       {
@@ -8814,8 +8820,12 @@
       }
      ]
     },
+    "mergeQueueEntry": null,
     "mergeStateStatus": "BEHIND",
     "mergeable": "MERGEABLE",
+    "merged": false,
+    "mergedAt": null,
+    "mergedBy": null,
     "milestone": {
      "id": "M_2",
      "state": "CLOSED",
@@ -9861,6 +9871,16 @@
     "state": "OPEN",
     "statusCheckRollup": {
      "contexts": {
+      "checkRunCountsByState": [
+       {
+        "count": 10,
+        "state": "IN_PROGRESS"
+       },
+       {
+        "count": 127,
+        "state": "SUCCESS"
+       }
+      ],
       "nodes": [
        {
         "__typename": "CheckRun",
@@ -11963,9 +11983,13 @@
         "status": "COMPLETED"
        }
       ],
+      "statusContextCountsByState": [],
       "totalCount": 137
      },
      "state": "PENDING"
+    },
+    "timelineItems": {
+     "nodes": []
     },
     "title": "Parser and loader overhaul: accept trailing commas, keep the strict-mode error, split the manifest grammar into its own module and migrate every call site in the workspace to the new entry points, now",
     "url": "https://github.com/fixture-user/beacon/pull/102",
