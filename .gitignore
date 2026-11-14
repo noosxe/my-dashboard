@@ -4,3 +4,5 @@ result
 .pi/
 # local packaging output (scripts/macos-package.sh)
 /*.app
+# working files that must survive a restart (see AGENTS.md)
+/.scratch/
