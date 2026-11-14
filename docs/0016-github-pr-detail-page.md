@@ -365,6 +365,17 @@ A `GroupBox` at the rail top:
   selects the field, the page picks the method once per open page, and a
   missing, unknown or no-longer-allowed value falls back to the rule above,
   merge commit preferred.)*
+- **Auto-merge and the merge queue** *(amendment, docs/0083 D4, #774,
+  #775)*. When the PR can't merge yet and the viewer may enable auto-merge,
+  the primary is **Enable auto-merge** (`enablePullRequestAutoMerge`,
+  confirmed first, with the caret's method). With auto-merge on, **Disable
+  auto-merge** (`disablePullRequestAutoMerge`) takes its place for viewers
+  with `viewerCanDisableAutoMerge`. On a base with a merge queue
+  (`isMergeQueueEnabled`) the plain Merge is never offered: **Merge when
+  ready** (`enqueuePullRequest`, confirmed) when the Merge gate passes,
+  Enable auto-merge (no method) otherwise, and **Remove from queue**
+  (`dequeuePullRequest`) once queued. No timers: a write refetches, and the
+  queue's progress shows on the page's normal refreshes.
 - **Actions:** primary `Merge` button → `mergePullRequest { pullRequestId,
   mergeMethod }`; secondary `Close` (`Button::danger`) → `closePullRequest`.
   While in flight both disable + spinner; on success the refetch repaints the

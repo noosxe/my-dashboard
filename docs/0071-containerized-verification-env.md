@@ -195,7 +195,9 @@ what a click sent with `assert-write` (docs/0010 D11). `pr-writes.txt`
 metadata pickers' Save (#857), Ready for review, Convert to draft (through the
 `⋯` menu and its confirm), Reopen and Delete branch (a confirm, on a closed
 and a merged PR; no button where the branch is gone or lives in a fork the
-viewer can't write):
+viewer can't write), then Enable auto-merge (the caret's method, after a confirm Esc
+backs out of), Disable auto-merge, Merge when ready, Enable auto-merge on a queued
+base and Remove from queue (#774, #775):
 
 ```sh
 scripts/verify.sh sh -c '
@@ -294,9 +296,11 @@ scripts/verify.sh sh -c '
 ```
 
 The PR detail page (docs/0081 §12.1, #769) runs over the same fixtures.
-`pr-page.txt` opens all eight scenarios from `fixture-user/beacon` in one
+`pr-page.txt` opens its scenarios from `fixture-user/beacon` in one
 session, walks their tabs and asserts the Conversation goldens for the
-populated, draft and merged states:
+populated, draft, merged, ready, closed, auto-merge (`github-pr-automerge`,
+`github-pr-automerge-on`) and merge-queue (`github-pr-queue`,
+`github-pr-queued`) states:
 
 ```sh
 scripts/verify.sh sh -c '
