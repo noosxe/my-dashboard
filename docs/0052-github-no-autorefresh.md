@@ -157,6 +157,9 @@ timer on the page and the card re-renders — zero specs, zero
 network. This is not autorefresh (D1 forbids timer-driven *fetches*,
 not repaints).
 
+*(Amended by docs/0084 stage 5: on a watched PR page the wake runs every 5 s,
+because the header counts seconds ("checked 35s ago").)*
+
 ### D7 — Unchanged on purpose
 
 Backoff (0036), the rate-limit pause, dedup (0031), staleness
