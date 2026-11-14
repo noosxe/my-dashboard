@@ -57,6 +57,25 @@ placeholders for theme icons (D15).
 - #732 (the rail can't scroll) is fixed by this redesign, not patched
   first.
 
+Settled in review of this doc (2026-11-14):
+
+- **No hairlines** between metadata sections; space alone separates them
+  (D7).
+- **The empty Milestone section stays visible on open PRs**, also for
+  viewers who can't edit it. On merged and closed PRs, empty sections are
+  left out (D6, D10).
+- **Confirms:** Convert to draft, Delete branch, Enable auto-merge and
+  Merge when ready confirm. Ready for review, Reopen, Disable auto-merge
+  and Remove from queue don't, because each is undone in one click (D4,
+  D5).
+- **Blocked with auto-merge allowed:** the primary is "Enable auto-merge ▾"
+  rather than a disabled Merge (D4).
+- **Closed PRs** show Reopen and Delete branch side by side, with no `⋯`
+  menu (D4, D5).
+- **Team review requests** keep Reviewers display-only, with the reason
+  line (D7, D8). Re-posting a team request through `requestReviews` could
+  notify the team again.
+
 ## 3. Verified facts
 
 Everything named here was checked on 2026-11-14 against GitHub's live
