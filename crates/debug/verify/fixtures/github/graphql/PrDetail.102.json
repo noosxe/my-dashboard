@@ -8799,6 +8799,21 @@
      ],
      "totalCount": 34
     },
+    "latestOpinionatedReviews": {
+     "nodes": []
+    },
+    "latestReviews": {
+     "nodes": [
+      {
+       "author": {
+        "avatarUrl": "https://avatars.invalid/reviewer-a",
+        "login": "reviewer-a"
+       },
+       "id": "PRR_12",
+       "state": "COMMENTED"
+      }
+     ]
+    },
     "mergeStateStatus": "BEHIND",
     "mergeable": "MERGEABLE",
     "milestone": {
@@ -8865,11 +8880,13 @@
       "viewerHasReacted": false
      }
     ],
+    "reviewDecision": null,
     "reviewRequests": {
      "nodes": [
       {
        "requestedReviewer": {
         "__typename": "User",
+        "avatarUrl": "https://avatars.invalid/reviewer-00",
         "id": "U_reviewer-00",
         "login": "reviewer-00"
        }
@@ -8877,6 +8894,7 @@
       {
        "requestedReviewer": {
         "__typename": "User",
+        "avatarUrl": "https://avatars.invalid/reviewer-01",
         "id": "U_reviewer-01",
         "login": "reviewer-01"
        }
@@ -8884,6 +8902,7 @@
       {
        "requestedReviewer": {
         "__typename": "User",
+        "avatarUrl": "https://avatars.invalid/reviewer-02",
         "id": "U_reviewer-02",
         "login": "reviewer-02"
        }
@@ -8891,6 +8910,7 @@
       {
        "requestedReviewer": {
         "__typename": "User",
+        "avatarUrl": "https://avatars.invalid/reviewer-03",
         "id": "U_reviewer-03",
         "login": "reviewer-03"
        }
@@ -8898,6 +8918,7 @@
       {
        "requestedReviewer": {
         "__typename": "User",
+        "avatarUrl": "https://avatars.invalid/reviewer-04",
         "id": "U_reviewer-04",
         "login": "reviewer-04"
        }
@@ -8905,6 +8926,7 @@
       {
        "requestedReviewer": {
         "__typename": "User",
+        "avatarUrl": "https://avatars.invalid/reviewer-05",
         "id": "U_reviewer-05",
         "login": "reviewer-05"
        }
@@ -8912,6 +8934,7 @@
       {
        "requestedReviewer": {
         "__typename": "User",
+        "avatarUrl": "https://avatars.invalid/reviewer-06",
         "id": "U_reviewer-06",
         "login": "reviewer-06"
        }
@@ -8919,6 +8942,7 @@
       {
        "requestedReviewer": {
         "__typename": "User",
+        "avatarUrl": "https://avatars.invalid/reviewer-07",
         "id": "U_reviewer-07",
         "login": "reviewer-07"
        }
@@ -8926,6 +8950,7 @@
       {
        "requestedReviewer": {
         "__typename": "User",
+        "avatarUrl": "https://avatars.invalid/reviewer-08",
         "id": "U_reviewer-08",
         "login": "reviewer-08"
        }
@@ -8933,23 +8958,32 @@
       {
        "requestedReviewer": {
         "__typename": "User",
+        "avatarUrl": "https://avatars.invalid/reviewer-09",
         "id": "U_reviewer-09",
         "login": "reviewer-09"
        }
       },
       {
        "requestedReviewer": {
-        "__typename": "Team"
+        "__typename": "Team",
+        "avatarUrl": "https://avatars.invalid/team-01",
+        "id": "T_team-01",
+        "name": "team-01"
        }
       },
       {
        "requestedReviewer": {
-        "__typename": "Team"
+        "__typename": "Team",
+        "avatarUrl": "https://avatars.invalid/team-02",
+        "id": "T_team-02",
+        "name": "team-02"
        }
       },
       {
        "requestedReviewer": {
-        "__typename": "Team"
+        "__typename": "EnterpriseTeam",
+        "id": "ET_platform-01",
+        "name": "platform-01"
        }
       }
      ],

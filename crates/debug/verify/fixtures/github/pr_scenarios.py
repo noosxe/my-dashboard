@@ -7,7 +7,8 @@ each state in turn. beacon, not atlas, carries the rows: atlas's empty
 lane is part of the existing goldens and walk-derived ids.
 
 The shapes follow the queries in crates/modules/github/src/gql.rs,
-including their caps: labels, assignees and reviewRequests first 20;
+including their caps: labels, assignees, reviewRequests, latestReviews and
+latestOpinionatedReviews first 20;
 contexts, commits, reviews and comments first 100. A count above a cap
 therefore ships capped nodes with the true totalCount.
 
@@ -115,13 +116,62 @@ def conn(nodes, total=None):
     return {"totalCount": len(nodes) if total is None else total, "nodes": nodes}
 
 
-def requests(*logins, teams=0):
-    nodes = [
-        {"requestedReviewer": {"__typename": "User", "id": f"U_{login}", "login": login}}
-        for login in logins
+def requests(*logins, teams=0, enterprise_teams=0, bots=()):
+    """User requests, then named teams, enterprise teams (no avatar) and bots."""
+    nodes = [{"requestedReviewer": {"__typename": "User", **user(login, True)}} for login in logins]
+    nodes += [
+        {
+            "requestedReviewer": {
+                "__typename": "Team",
+                "id": f"T_team-{i + 1:02d}",
+                "name": f"team-{i + 1:02d}",
+                "avatarUrl": f"https://avatars.invalid/team-{i + 1:02d}",
+            }
+        }
+        for i in range(teams)
     ]
-    nodes += [{"requestedReviewer": {"__typename": "Team"}} for _ in range(teams)]
+    nodes += [
+        {
+            "requestedReviewer": {
+                "__typename": "EnterpriseTeam",
+                "id": f"ET_platform-{i + 1:02d}",
+                "name": f"platform-{i + 1:02d}",
+            }
+        }
+        for i in range(enterprise_teams)
+    ]
+    nodes += [{"requestedReviewer": {"__typename": "Bot", **user(login, True)}} for login in bots]
     return conn(nodes)
+
+
+def latest_reviews(reviews):
+    """The review fields the rail reads, derived from the timeline's reviews.
+
+    `latestReviews` is the latest non-pending review per author;
+    `latestOpinionatedReviews` the latest approval or change request per
+    author, so a commenter-only reviewer is in the first and not the
+    second. `reviewDecision` follows the opinionated list.
+    """
+    latest, opinionated = {}, {}
+    for r in reviews["nodes"]:
+        who = r["author"]["login"] if r["author"] else None
+        if who is None or r["state"] == "PENDING":
+            continue
+        node = {"id": r["id"], "state": r["state"], "author": r["author"]}
+        latest[who] = node
+        if r["state"] in ("APPROVED", "CHANGES_REQUESTED"):
+            opinionated[who] = node
+    states = {n["state"] for n in opinionated.values()}
+    decision = (
+        "CHANGES_REQUESTED"
+        if "CHANGES_REQUESTED" in states
+        else "APPROVED" if "APPROVED" in states else None
+    )
+    return {
+        "reviewDecision": decision,
+        "latestOpinionatedReviews": {"nodes": list(opinionated.values())},
+        "latestReviews": {"nodes": list(latest.values())},
+    }
 
 
 def status_context(context, state):
@@ -260,6 +310,7 @@ class Timeline:
             files={"totalCount": 3},
         )
         node.update(over)
+        node.update(latest_reviews(node["reviews"]))
         return node
 
     def populated(self, number):
@@ -286,7 +337,7 @@ class Timeline:
             ),
             assignees=conn([user("octo-dev", True), user(OWNER, True)]),
             milestone={"id": "M_1", "title": "v1.4 parser cleanup", "state": "OPEN"},
-            reviewRequests=requests("reviewer-d", "reviewer-e", teams=1),
+            reviewRequests=requests("reviewer-d", "reviewer-e", teams=1, bots=("review-bot",)),
             reactionGroups=reactions(thumbs=2, heart=1, mine=True),
             mergeStateStatus="BLOCKED",
             statusCheckRollup=rollup("FAILURE", contexts),
@@ -348,7 +399,7 @@ class Timeline:
                 "title": "2026 Q4 stabilisation milestone with a really long descriptive name",
                 "state": "CLOSED",
             },
-            reviewRequests=requests(*[f"reviewer-{i:02d}" for i in range(10)], teams=3),
+            reviewRequests=requests(*[f"reviewer-{i:02d}" for i in range(10)], teams=2, enterprise_teams=1),
             viewerCanUpdateBranch=True,
             mergeStateStatus="BEHIND",
             commits=self.commits(100, 137),
@@ -662,8 +713,11 @@ def lane_row(pr, updated_at):
             "totalCount": len(wanted),
             "nodes": [
                 {
+                    # The list query selects `... on User { login }` only.
                     "requestedReviewer": {
-                        k: v for k, v in who.items() if k in ("__typename", "login")
+                        k: v
+                        for k, v in who.items()
+                        if k == "__typename" or (k == "login" and who["__typename"] == "User")
                     }
                 }
                 for who in wanted

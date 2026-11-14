@@ -50,6 +50,12 @@
      "nodes": [],
      "totalCount": 0
     },
+    "latestOpinionatedReviews": {
+     "nodes": []
+    },
+    "latestReviews": {
+     "nodes": []
+    },
     "mergeStateStatus": "DRAFT",
     "mergeable": "MERGEABLE",
     "milestone": null,
@@ -112,6 +118,7 @@
       "viewerHasReacted": false
      }
     ],
+    "reviewDecision": null,
     "reviewRequests": {
      "nodes": [],
      "totalCount": 0

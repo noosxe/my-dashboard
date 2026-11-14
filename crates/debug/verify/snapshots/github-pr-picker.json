@@ -14,10 +14,10 @@
     {
       "accesskit_id": "285984305784222972",
       "role": "Label",
-      "label": "reviewer-e",
+      "label": "reviewer-a, approved",
       "bounds": {
         "x": 955.0,
-        "y": 257.0,
+        "y": 137.0,
         "w": 276.0,
         "h": 26.0
       },
@@ -92,10 +92,10 @@
     {
       "accesskit_id": "694475607297797892",
       "role": "Label",
-      "label": "team or bot",
+      "label": "reviewer-c, commented",
       "bounds": {
         "x": 955.0,
-        "y": 287.0,
+        "y": 167.0,
         "w": 276.0,
         "h": 26.0
       },
@@ -499,6 +499,19 @@
       "bounds": {
         "x": 955.0,
         "y": 372.0,
+        "w": 276.0,
+        "h": 26.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5064148183281435511",
+      "role": "Label",
+      "label": "reviewer-e, review pending",
+      "bounds": {
+        "x": 955.0,
+        "y": 257.0,
         "w": 276.0,
         "h": 26.0
       },
@@ -1624,6 +1637,19 @@
       "focused": false
     },
     {
+      "accesskit_id": "12660511328370840980",
+      "role": "Label",
+      "label": "review-bot, review pending",
+      "bounds": {
+        "x": 955.0,
+        "y": 197.0,
+        "w": 276.0,
+        "h": 26.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
       "accesskit_id": "12782369444481205663",
       "role": "Button",
       "label": "Back",
@@ -1634,6 +1660,19 @@
         "h": 24.0
       },
       "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12820872920304054055",
+      "role": "Label",
+      "label": "team-01, review pending",
+      "bounds": {
+        "x": 955.0,
+        "y": 287.0,
+        "w": 276.0,
+        "h": 26.0
+      },
+      "focusable": false,
       "focused": false
     },
     {
@@ -1795,10 +1834,10 @@
     {
       "accesskit_id": "14659948137655356627",
       "role": "Label",
-      "label": "reviewer-d",
+      "label": "reviewer-b, changes requested",
       "bounds": {
         "x": 955.0,
-        "y": 227.0,
+        "y": 107.0,
         "w": 276.0,
         "h": 26.0
       },
@@ -2141,6 +2180,19 @@
         "h": 14.0
       },
       "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16977576955173487923",
+      "role": "Label",
+      "label": "reviewer-d, review pending",
+      "bounds": {
+        "x": 955.0,
+        "y": 227.0,
+        "w": 276.0,
+        "h": 26.0
+      },
+      "focusable": false,
       "focused": false
     },
     {

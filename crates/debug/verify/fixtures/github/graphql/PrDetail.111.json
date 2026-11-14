@@ -78,6 +78,12 @@
      "nodes": [],
      "totalCount": 0
     },
+    "latestOpinionatedReviews": {
+     "nodes": []
+    },
+    "latestReviews": {
+     "nodes": []
+    },
     "mergeStateStatus": "CLEAN",
     "mergeable": "MERGEABLE",
     "milestone": null,
@@ -140,6 +146,7 @@
       "viewerHasReacted": false
      }
     ],
+    "reviewDecision": null,
     "reviewRequests": {
      "nodes": [],
      "totalCount": 0

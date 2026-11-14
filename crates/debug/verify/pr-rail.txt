@@ -5,12 +5,16 @@
 #        its filter focused, the rail scrolls to Save and Cancel, and Save
 #        is disabled while nothing changed; Esc closes the card first. `github-pr-picker` pins the
 #        open card (structural golden, 0065 D5).
+#        Reviewers merge reviews and requests (docs/0083 D8, #741): the
+#        changes-requested, approved and commenter-only reviewers, the
+#        pending users, a bot and a team, each with its state in its name.
 #   102  the rail scrolls at 1280x800 (the 137-comment PR with 20 of 34
-#        labels, 13 reviewers, 12 assignees): Edit labels is missing and
+#        labels, 13 review requests plus a commenter, 12 assignees): Edit labels is missing and
 #        the reason line says why.
 #   103  a draft with nothing filled in: all four sections, one-line empty
 #        states, every Edit.
-#   104  merged and 105 closed: no Edit anywhere, empty sections left out.
+#   104  merged and 105 closed: no Edit anywhere, empty sections left out;
+#        104 still lists its approving reviewer.
 #
 # Prerequisites: the containerized env (docs/0071) with the GitHub
 # fixtures and the pinned clock, and a session named `prrail` at 1280x800:
@@ -52,11 +56,21 @@ assert-label "Edit milestone"
 # A team review is requested: Reviewers stays display-only and says why.
 assert-no-label "Edit reviewers"
 assert-label "Edit on GitHub: a team review is requested"
+# One row per reviewer, outcomes first (D8); the state is in the name.
+assert-label "reviewer-b, changes requested"
+assert-label "reviewer-a, approved"
+assert-label "reviewer-c, commented"
+assert-label "reviewer-d, review pending"
+assert-label "review-bot, review pending"
+assert-label "team-01, review pending"
+assert-no-label "team or bot"
 
 # The Labels picker opens in place (62 candidates). Typing narrows the
 # list only if the filter has the focus.
-mouse down 1221 693
-mouse up 1221 693 --wait-frame
+# The seven reviewer rows push Edit labels below the window: scroll first.
+mouse scroll 1100 600 -200 --wait-frame
+mouse down 1221 613
+mouse up 1221 613 --wait-frame
 wait-label "Filter labels"
 assert-baseline github-pr-picker
 # Esc closes the card first and leaves the page open (docs/0043 D7).
@@ -90,7 +104,9 @@ wait-label "PR #108: Loader: a PR that fails its detail read"
 mouse down 900 376
 mouse up 900 376
 wait-label "Conversation (252)"
-assert-label "Show 5 more reviewers"
+assert-label "reviewer-a, commented"
+assert-label "platform-01, review pending"
+assert-label "Show 6 more reviewers"
 assert-label "Show 4 more assignees"
 assert-label "Show 12 more labels"
 assert-label "Edit on GitHub: this page loads 20 of 34 labels"
@@ -118,6 +134,7 @@ wait-label "PR #108: Loader: a PR that fails its detail read"
 mouse down 900 452
 mouse up 900 452
 wait-label "Conversation (1)"
+assert-label "reviewer-a, approved"
 assert-no-label "Edit reviewers"
 assert-no-label "Edit assignees"
 assert-no-label "Edit labels"

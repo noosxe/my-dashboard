@@ -127,6 +127,21 @@
      "nodes": [],
      "totalCount": 0
     },
+    "latestOpinionatedReviews": {
+     "nodes": []
+    },
+    "latestReviews": {
+     "nodes": [
+      {
+       "author": {
+        "avatarUrl": "https://avatars.invalid/reviewer-b",
+        "login": "reviewer-b"
+       },
+       "id": "PRR_2",
+       "state": "COMMENTED"
+      }
+     ]
+    },
     "mergeStateStatus": "UNSTABLE",
     "mergeable": "MERGEABLE",
     "milestone": null,
@@ -189,6 +204,7 @@
       "viewerHasReacted": false
      }
     ],
+    "reviewDecision": null,
     "reviewRequests": {
      "nodes": [],
      "totalCount": 0
