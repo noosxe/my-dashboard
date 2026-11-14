@@ -1,0 +1,396 @@
+//! docs/0084 D3/D5: the page's watch loop. One timer per page, armed
+//! after each probe with the next interval, dropped with the page. A tick
+//! probes only while the page is *watched* (the open sub-page, the module
+//! on screen, connected, REST not paused, the PR open) and skips while
+//! any of the page's lanes is in flight.
+//!
+//! The intervals are fixed in this stage: Hot 10 s, Active 30 s, Shown
+//! 60 s. The Settled and Unattended tiers and the budget guard are stage 4.
+
+use std::time::{Duration, Instant};
+
+use gpui::{Context, Task};
+
+use super::lane_map::{self, LanePlan};
+use super::probe::{Findings, ProbeBook, Reply, Step};
+use crate::api;
+use crate::gql;
+use crate::pr_page::{PrDetailPage, split_repo};
+use crate::rate_pause::Lane;
+use crate::service::{FetchSpec, Kind, SpecResult, run_spec_tracked};
+use crate::usage::{Origin, Surface, Trigger};
+
+/// Window active, and something is moving (docs/0084 D5, Hot).
+pub(crate) const HOT: Duration = Duration::from_secs(10);
+/// Window active, otherwise.
+pub(crate) const ACTIVE: Duration = Duration::from_secs(30);
+/// Window inactive: the second-screen case (docs/0036 D1).
+pub(crate) const SHOWN: Duration = Duration::from_secs(60);
+/// The first probe after the page opens only seeds the comparison, so it
+/// goes out soon.
+pub(crate) const FIRST_PROBE: Duration = Duration::from_secs(2);
+/// A change landed this recently keeps the page Hot.
+pub(crate) const RECENT_CHANGE: Duration = Duration::from_secs(120);
+/// Checks-only changes refetch the detail at most this often (Q4).
+pub(crate) const CHECKS_GAP: Duration = Duration::from_secs(20);
+/// A failing probe backs off by doubling, up to this.
+const FAIL_CAP: Duration = Duration::from_secs(300);
+
+/// What the interval is a function of (docs/0084 D5).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Cadence {
+    pub(crate) window_active: bool,
+    /// A check is running or queued.
+    pub(crate) checks_running: bool,
+    /// `mergeable` is UNKNOWN: GitHub is still computing it.
+    pub(crate) mergeable_unknown: bool,
+    /// A change landed in the last [`RECENT_CHANGE`].
+    pub(crate) recent_change: bool,
+}
+
+/// The probe interval. Shown stays at 30 s while a Hot condition other
+/// than focus holds.
+pub(crate) fn interval(c: Cadence) -> Duration {
+    let busy = c.checks_running || c.mergeable_unknown || c.recent_change;
+    match (c.window_active, busy) {
+        (true, true) => HOT,
+        (true, false) => ACTIVE,
+        (false, true) => ACTIVE,
+        (false, false) => SHOWN,
+    }
+}
+
+/// The delay before the next probe after `streak` failures in a row.
+pub(crate) fn backoff(base: Duration, streak: u32) -> Duration {
+    (base * 2u32.pow(streak.min(4))).min(FAIL_CAP.max(base))
+}
+
+/// What a checks-only change does (Q4).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Refetch {
+    Now,
+    /// Too soon: schedule it after this wait. Never dropped.
+    After(Duration),
+}
+
+/// The 20 s spacing of probe-caused detail reads for checks-only changes.
+#[derive(Debug, Default)]
+pub(crate) struct Coalesce {
+    /// When a probe last caused a detail read.
+    last: Option<Instant>,
+    /// A checks change waits for its slot.
+    pub(crate) pending: bool,
+}
+
+impl Coalesce {
+    pub(crate) fn checks_change(&mut self, now: Instant) -> Refetch {
+        match self.last {
+            Some(t) if now.saturating_duration_since(t) < CHECKS_GAP => {
+                self.pending = true;
+                Refetch::After(CHECKS_GAP - now.saturating_duration_since(t))
+            }
+            _ => Refetch::Now,
+        }
+    }
+
+    /// A probe-caused detail read went out; it covers anything pending.
+    pub(crate) fn dispatched(&mut self, now: Instant) {
+        self.last = Some(now);
+        self.pending = false;
+    }
+}
+
+/// Everything the page keeps for the watch loop.
+pub(crate) struct Watch {
+    pub(crate) book: ProbeBook,
+    /// The module owns the screen (the nav gate). The page is created
+    /// while it does.
+    module_shown: bool,
+    /// A tick's requests are on their way.
+    in_tick: bool,
+    /// The one timer, armed after each probe.
+    probe_timer: Option<Task<()>>,
+    /// The scheduled checks-only refetch (Q4), if one is waiting.
+    flush_timer: Option<Task<()>>,
+    pub(crate) coalesce: Coalesce,
+    /// A change landed at this instant (the Hot tier's memory).
+    changed_at: Option<Instant>,
+    fail_streak: u32,
+    /// Failed checks in the last landed detail: a rise means a run
+    /// stopped to wait for approval (docs/0066).
+    pub(crate) last_failed: Option<u32>,
+}
+
+impl Default for Watch {
+    fn default() -> Self {
+        Self {
+            book: ProbeBook::default(),
+            module_shown: true,
+            in_tick: false,
+            probe_timer: None,
+            flush_timer: None,
+            coalesce: Coalesce::default(),
+            changed_at: None,
+            fail_streak: 0,
+            last_failed: None,
+        }
+    }
+}
+
+impl PrDetailPage {
+    /// The page is built: seed the probe from the document it opened
+    /// over and arm the first tick.
+    pub(in crate::pr_page) fn start_watch(&mut self, cx: &mut Context<Self>) {
+        let seed = self
+            .detail(cx)
+            .map(|d| (d.head_oid.clone(), d.checks.counts.failed));
+        if let Some((head, failed)) = seed {
+            self.watch.book.seed_head(head);
+            self.watch.last_failed = Some(failed);
+        }
+        // The existing page tests advance the fake clock over mocks that
+        // script exact request sequences; only the probe's own tests
+        // start the loop (`start_probing`).
+        if !cfg!(test) {
+            self.arm_probe(FIRST_PROBE, cx);
+        }
+    }
+
+    /// Start the loop in a test.
+    #[cfg(test)]
+    pub(crate) fn start_probing(&mut self, cx: &mut Context<Self>) {
+        self.arm_probe(FIRST_PROBE, cx);
+    }
+
+    /// The nav gate moved: the module is on screen or it isn't.
+    pub(crate) fn set_module_shown(&mut self, shown: bool) {
+        self.watch.module_shown = shown;
+    }
+
+    /// A landed detail: the probe follows its head, and the sweep rule
+    /// sees its failed-check count. Returns the count before.
+    pub(in crate::pr_page) fn watch_note_landed(&mut self, detail: &gql::PrDetail) -> Option<u32> {
+        self.watch.book.follow_head(detail.head_oid.as_deref());
+        self.watch.last_failed.replace(detail.checks.counts.failed)
+    }
+
+    /// docs/0084 D5: watched = the open sub-page (this page exists), the
+    /// module on screen, connected, REST not paused, and the PR open.
+    pub(crate) fn watched(&self, cx: &gpui::App) -> bool {
+        let state = self.state.read(cx);
+        self.watch.module_shown
+            && state.auth.connected()
+            && !state.gated_for(Lane::Rest)
+            && self
+                .detail(cx)
+                .is_some_and(|d| d.state.as_deref() == Some("OPEN"))
+    }
+
+    /// Any lane of the page is mid-read: a probe would race it (F7).
+    fn lanes_busy(&self, cx: &gpui::App) -> bool {
+        let detail = self
+            .state
+            .read(cx)
+            .pr_entry(&self.repo, self.number)
+            .is_some_and(|e| e.books.in_flight);
+        detail
+            || self.files.in_flight
+            || self.threads.in_flight
+            || self.gated.in_flight
+            || self.watch.in_tick
+    }
+
+    fn cadence(&self, cx: &gpui::App) -> Cadence {
+        let d = self.detail(cx);
+        Cadence {
+            window_active: self.state.read(cx).window_active,
+            checks_running: self.watch.book.checks_running()
+                || d.is_some_and(|d| d.checks.counts.running > 0),
+            mergeable_unknown: d.is_some_and(|d| {
+                d.mergeable.as_deref() == Some("UNKNOWN") && d.state.as_deref() == Some("OPEN")
+            }),
+            recent_change: self
+                .watch
+                .changed_at
+                .is_some_and(|t| t.elapsed() < RECENT_CHANGE),
+        }
+    }
+
+    fn has_legacy_contexts(&self, cx: &gpui::App) -> bool {
+        self.detail(cx).is_some_and(|d| {
+            d.checks
+                .nodes
+                .iter()
+                .any(|c| c.origin == gql::CheckOrigin::StatusContext)
+        })
+    }
+
+    fn arm_probe(&mut self, delay: Duration, cx: &mut Context<Self>) {
+        self.watch.probe_timer = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(delay).await;
+            let _ = this.update(cx, |page, cx| page.watch_wake(cx));
+        }));
+    }
+
+    /// The timer fired. An unwatched or busy page sends nothing and waits
+    /// for the next interval.
+    fn watch_wake(&mut self, cx: &mut Context<Self>) {
+        self.watch.probe_timer = None;
+        if self.watched(cx) && !self.lanes_busy(cx) {
+            self.run_probe(cx);
+        } else {
+            let next = interval(self.cadence(cx));
+            self.arm_probe(next, cx);
+        }
+    }
+
+    /// One immediate probe, outside the schedule (docs/0084 D2: a
+    /// notification names this PR). Only when the comparison is seeded,
+    /// since a 200 before that means nothing; the caller falls back to a
+    /// refetch otherwise.
+    pub(in crate::pr_page) fn probe_now(&mut self, cx: &mut Context<Self>) -> bool {
+        if !self.watch.book.seeded() || !self.watched(cx) || self.watch.in_tick {
+            return false;
+        }
+        self.watch.probe_timer = None;
+        self.run_probe(cx);
+        true
+    }
+
+    fn run_probe(&mut self, cx: &mut Context<Self>) {
+        self.watch.in_tick = true;
+        self.watch.book.begin_tick();
+        self.probe_step(None, cx);
+    }
+
+    fn probe_step(&mut self, after: Option<Step>, cx: &mut Context<Self>) {
+        let legacy = self.has_legacy_contexts(cx);
+        let Some(step) = self.watch.book.next_step(after, legacy) else {
+            self.finish_probe(cx);
+            return;
+        };
+        let Some(path) = self.watch.book.path(step, self.number) else {
+            self.finish_probe(cx);
+            return;
+        };
+        let (owner, name) = split_repo(&self.repo);
+        let url = api::repo_rest_url(owner, name, &path);
+        let spec = FetchSpec {
+            origin: Origin::new(Surface::PrPage, Trigger::Watch),
+            kind: Kind::PrProbe,
+            etag: self.watch.book.etag(&url),
+            url: url.clone(),
+            ident: Some(format!("{}#{}:{}", self.repo, self.number, step.label())),
+            max_pages: 1,
+            variables: None,
+        };
+        let state = self.state.clone();
+        cx.spawn(async move |this, cx| {
+            let result = run_spec_tracked(state, spec, cx).await;
+            let _ = this.update(cx, |page, cx| page.probe_landed(step, &url, result, cx));
+        })
+        .detach();
+    }
+
+    fn probe_landed(&mut self, step: Step, url: &str, result: SpecResult, cx: &mut Context<Self>) {
+        let reply = if result.network.is_some() {
+            Reply::Failed
+        } else if result.status == 304 {
+            Reply::NotModified
+        } else if result.status == 200 {
+            Reply::Changed {
+                etag: result.etag.clone(),
+                body: result.body.clone().unwrap_or_default(),
+            }
+        } else {
+            // 401/403/404/429…: the shared handling arms the pause or the
+            // auth gate; the probe just stops this tick.
+            self.state.update(cx, |s, cx| {
+                s.apply(result);
+                cx.notify();
+            });
+            Reply::Failed
+        };
+        self.watch.book.land(step, url, reply, Instant::now());
+        self.probe_step(Some(step), cx);
+    }
+
+    /// The tick is over: act on the findings, then arm the next one.
+    fn finish_probe(&mut self, cx: &mut Context<Self>) {
+        self.watch.in_tick = false;
+        let findings = self.watch.book.finish_tick();
+        let base = interval(self.cadence(cx));
+        let next = if findings.failed {
+            self.watch.fail_streak += 1;
+            backoff(base, self.watch.fail_streak)
+        } else {
+            self.watch.fail_streak = 0;
+            base
+        };
+        self.act_on(findings, cx);
+        // Re-read: a change just made the page Hot.
+        let next = if findings.failed {
+            next
+        } else {
+            interval(self.cadence(cx))
+        };
+        self.arm_probe(next, cx);
+        cx.notify();
+    }
+
+    fn act_on(&mut self, findings: Findings, cx: &mut Context<Self>) {
+        if !findings.changed() {
+            return;
+        }
+        self.watch.changed_at = Some(Instant::now());
+        let plan = lane_map::plan(&findings, self.threads.data().is_some());
+        self.apply_plan(plan, cx);
+    }
+
+    fn apply_plan(&mut self, plan: LanePlan, cx: &mut Context<Self>) {
+        let origin = Origin::new(Surface::PrPage, Trigger::Changed);
+        if plan.detail {
+            if plan.checks_only {
+                match self.watch.coalesce.checks_change(Instant::now()) {
+                    Refetch::Now => self.dispatch_changed_detail(cx),
+                    Refetch::After(wait) => self.arm_flush(wait, cx),
+                }
+            } else {
+                self.dispatch_changed_detail(cx);
+            }
+        }
+        if plan.threads && !self.state.read(cx).gated_for(Kind::PrThreads.lane()) {
+            self.fetch_threads(origin, cx);
+        }
+    }
+
+    fn dispatch_changed_detail(&mut self, cx: &mut Context<Self>) {
+        self.watch.coalesce.dispatched(Instant::now());
+        self.watch.flush_timer = None;
+        self.fetch_detail(Origin::new(Surface::PrPage, Trigger::Changed), cx);
+    }
+
+    fn arm_flush(&mut self, wait: Duration, cx: &mut Context<Self>) {
+        self.watch.flush_timer = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(wait).await;
+            let _ = this.update(cx, |page, cx| page.flush_checks_change(cx));
+        }));
+    }
+
+    /// The scheduled checks-only refetch is due.
+    fn flush_checks_change(&mut self, cx: &mut Context<Self>) {
+        self.watch.flush_timer = None;
+        if !self.watch.coalesce.pending {
+            return;
+        }
+        if self.watched(cx) {
+            self.dispatch_changed_detail(cx);
+        } else {
+            // Not watched any more: refocus and the events refetch.
+            self.watch.coalesce.pending = false;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;

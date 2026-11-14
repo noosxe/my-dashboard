@@ -57,6 +57,13 @@ pub(super) struct ScriptedHttp {
     pub(super) mutation_status: AtomicUsize,
     /// When set, every detail read answers this instead of the script.
     pub(super) detail_override: Mutex<Option<HttpResult>>,
+    /// What the change probe's REST requests answer, by endpoint
+    /// (`pulls`, `check-runs`, `status`): body and ETag. An endpoint with
+    /// nothing served fails like any lane this rig doesn't model.
+    pub(super) probe_bodies: Mutex<std::collections::HashMap<&'static str, (String, String)>>,
+    /// Every probe request, as `(endpoint, URL, status answered)`.
+    pub(super) probe_log: Mutex<Vec<(&'static str, String, u16)>>,
+    pub(super) probe_version: AtomicUsize,
 }
 
 fn ok(body: String) -> Result<HttpResult, HttpError> {
@@ -78,8 +85,34 @@ impl Http for ScriptedHttp {
         _: Verb,
         url: &str,
         _: Option<&str>,
-        _: Option<&str>,
+        etag: Option<&str>,
     ) -> Result<HttpResult, HttpError> {
+        let endpoint = if url.ends_with(&format!("/pulls/{NUMBER}")) {
+            Some("pulls")
+        } else if url.contains("/check-runs") {
+            Some("check-runs")
+        } else if url.ends_with("/status") {
+            Some("status")
+        } else {
+            None
+        };
+        if let Some(endpoint) = endpoint {
+            let served = self.probe_bodies.lock().unwrap().get(endpoint).cloned();
+            let Some((body, tag)) = served else {
+                return Err(HttpError("not a lane under test".into()));
+            };
+            let status = if etag == Some(tag.as_str()) { 304 } else { 200 };
+            self.probe_log
+                .lock()
+                .unwrap()
+                .push((endpoint, url.to_string(), status));
+            return Ok(HttpResult {
+                status,
+                etag: Some(tag),
+                rate: None,
+                body: (status == 200).then_some(body),
+            });
+        }
         if url.contains("/actions/runs") {
             self.runs_reads.fetch_add(1, Ordering::SeqCst);
             return ok(r#"{"workflow_runs":[]}"#.into());
@@ -162,6 +195,9 @@ impl Rig {
             mutations: AtomicUsize::new(0),
             mutation_status: AtomicUsize::new(200),
             detail_override: Mutex::new(None),
+            probe_bodies: Mutex::default(),
+            probe_log: Mutex::default(),
+            probe_version: AtomicUsize::new(0),
         });
         let client: Arc<dyn Http> = http.clone();
         let records = Arc::new(MemorySink::new(256));
@@ -296,6 +332,78 @@ impl Rig {
             etag: None,
             rate,
             body: Some(body.to_string()),
+        });
+    }
+
+    /// Serve `body` for a probe endpoint from now on, under a new ETag.
+    pub(super) fn serve(&self, endpoint: &'static str, body: &str) {
+        let tag = format!(
+            "\"v{}\"",
+            self.http.probe_version.fetch_add(1, Ordering::SeqCst)
+        );
+        self.http
+            .probe_bodies
+            .lock()
+            .unwrap()
+            .insert(endpoint, (body.to_string(), tag));
+    }
+
+    /// The statuses the probe got so far, optionally of one endpoint.
+    pub(super) fn probe_statuses(&self, endpoint: Option<&str>) -> Vec<u16> {
+        self.http
+            .probe_log
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(e, _, _)| endpoint.is_none_or(|want| want == *e))
+            .map(|(_, _, status)| *status)
+            .collect()
+    }
+
+    /// The URLs the probe asked for, in order.
+    pub(super) fn probe_urls(&self) -> Vec<String> {
+        self.http
+            .probe_log
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(_, url, _)| url.clone())
+            .collect()
+    }
+
+    /// The recorded requests booked under `trigger`, by operation name.
+    pub(super) fn ops_for(&self, trigger: &str) -> Vec<String> {
+        self.records
+            .snapshot()
+            .iter()
+            .filter(|r| r.trigger.as_ref() == trigger)
+            .map(|r| r.op.to_string())
+            .collect()
+    }
+
+    pub(super) fn land_notification(&self, cx: &mut TestAppContext, number: i64, updated: &str) {
+        let body = serde_json::json!([{
+            "id": "1", "unread": true, "updated_at": updated,
+            "subject": { "title": "t", "type": "PullRequest",
+                "url": format!("https://api.github.com/repos/{REPO}/pulls/{number}") },
+            "repository": { "full_name": REPO },
+        }])
+        .to_string();
+        cx.update(|cx| {
+            self.state
+                .update(cx, |s: &mut crate::service::GithubState, cx| {
+                    s.apply(crate::service::SpecResult {
+                        kind: crate::service::Kind::Notifications,
+                        ident: None,
+                        status: 200,
+                        etag: None,
+                        rate: None,
+                        body: Some(body),
+                        network: None,
+                        cursor: None,
+                    });
+                    cx.notify();
+                })
         });
     }
 

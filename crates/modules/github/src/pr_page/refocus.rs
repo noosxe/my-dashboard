@@ -8,7 +8,8 @@ use crate::usage::Trigger;
 /// `true` when a detail read for this trigger runs whatever the age of
 /// the landed document. `Refocus` passes the 15 s floor in
 /// `refresh_if_stale` and `TabEntry` the 30 s one (docs/0084 D2) before
-/// they dispatch; a notification that names the page is a deliberate read.
+/// they dispatch; a notification that names the page is a deliberate read, and a refetch
+/// a probe asked for (`Changed`) is the answer to a change GitHub reported.
 pub(super) fn bypasses_reopen_ttl(trigger: Trigger) -> bool {
     matches!(
         trigger,
@@ -18,6 +19,7 @@ pub(super) fn bypasses_reopen_ttl(trigger: Trigger) -> bool {
             | Trigger::Refocus
             | Trigger::TabEntry
             | Trigger::NotificationLanding
+            | Trigger::Changed
     )
 }
 

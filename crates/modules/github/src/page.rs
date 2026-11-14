@@ -403,6 +403,11 @@ impl GithubPage {
             );
             let edge = active && !this.last_module_active;
             this.last_module_active = active;
+            // docs/0084 D5: an open PR page probes only while the module
+            // owns the screen.
+            if let Some(page) = this.pr.clone() {
+                page.update(cx, |p, _| p.set_module_shown(active));
+            }
             if edge {
                 // docs/0084 D2: an open PR page behaves like a refocus
                 // (15 s floor, the same gates).

@@ -35,6 +35,15 @@ pub fn find<'a>(writes: &'a [Value], op: &str, pairs: &[(String, String)]) -> Op
         .find(|w| w["op"] == op && pairs.iter().all(|(k, v)| pair_holds(&w["vars"], k, v)))
 }
 
+/// How many records have this `op` and satisfy every pair (docs/0010
+/// D12: `assert-request … count=N`).
+pub fn count(writes: &[Value], op: &str, pairs: &[(String, String)]) -> usize {
+    writes
+        .iter()
+        .filter(|w| w["op"] == op && pairs.iter().all(|(k, v)| pair_holds(&w["vars"], k, v)))
+        .count()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -60,6 +69,17 @@ mod tests {
         let wrong = [parse_pair("input.mergeMethod=MERGE").unwrap()];
         assert!(find(&w, "PrMerge", &wrong).is_none());
         assert!(find(&w, "POST /x/approve", &[]).is_some());
+    }
+
+    #[test]
+    fn counts_every_match() {
+        let mut w = log();
+        w.push(json!({"seq":3,"kind":"rest","op":"POST /x/approve","vars":null}));
+        assert_eq!(count(&w, "POST /x/approve", &[]), 2);
+        assert_eq!(count(&w, "PrMerge", &[]), 1);
+        assert_eq!(count(&w, "PrClose", &[]), 0);
+        let wrong = [parse_pair("input.mergeMethod=MERGE").unwrap()];
+        assert_eq!(count(&w, "PrMerge", &wrong), 0);
     }
 
     #[test]

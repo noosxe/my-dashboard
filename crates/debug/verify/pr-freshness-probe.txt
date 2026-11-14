@@ -1,0 +1,92 @@
+# pr-freshness-probe.txt — the PR page's change probe (docs/0084 D3/D4):
+# while PR 101 is open and watched, the page sends conditional REST
+# requests on a timer and refetches only what changed. Idle, the request
+# log shows one 200 per probed URL (the seed) and 304s after it. After
+# `fixture bump` (generation 1: a new comment, a new head with its check
+# runs done, a label swap) the new comment, the check state and the label
+# show up with no click, and the Usage page books the probes as `watch`
+# and the refetch they caused as `changed`.
+#
+# The receipt runs about 100 s: it waits out the idle minute for real,
+# because the timer runs on the app's own clock, which no bridge verb moves.
+#
+# Prerequisites: the containerized env (docs/0071), the committed fixtures,
+# and a session named `prprobe` at 1280x800. The clock is NOT pinned: the
+# Usage page's ledger view excludes flights stamped after a pinned
+# `DASHBOARD_FIXED_NOW`, and this receipt reads the page's live rows.
+#   export DASHBOARD_GITHUB_FIXTURE=/work/crates/debug/verify/fixtures/github
+#   dashboard-debug session start --name prprobe --size 1280x800 \
+#     --binary /tmp/target/debug/my-dashboard
+# Run (in-container): dashboard-debug run crates/debug/verify/pr-freshness-probe.txt
+#
+# Row clicks are bridge clicks as in pr-freshness-events.txt. The Usage
+# page's ids (chip, Requests tab, Refresh) are the ones usage-chip-paused.txt
+# and the usage receipts click.
+
+--session prprobe
+
+# Home → GitHub → beacon → PR 101 (generation 0: five comments and
+# reviews, "needs-review", one failed, one running and two waiting checks).
+assert-label "Open GitHub module"
+click 11447690740305500471 --wait-frame
+wait-label "Filter repositories"
+click 349678605523893363
+type beacon
+key down
+key enter
+wait-label "PR #101: Parser: accept trailing commas in manifest lists —"
+mouse down 900 337
+mouse up 900 337
+wait-label "Conversation (5)"
+assert-label "Checks: 1 failed, 1 running, 2 waiting. Open the Checks tab"
+assert-label "bug, area:parser, needs-review"
+
+# The first probe goes out two seconds after the page opens and only seeds
+# the comparison: one 200 per URL (the PR, the head's check runs, and its
+# combined status, which the detail's legacy context asks for) and no
+# refetch.
+sleep 5
+assert-request "GET /repos/fixture-user/beacon/pulls/101" status=200 count=1
+assert-request "GET /repos/fixture-user/beacon/commits/0000065bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/check-runs" status=200 count=1
+assert-request "GET /repos/fixture-user/beacon/commits/0000065bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/status" status=200 count=1
+assert-request "PrDetail" count=1
+
+# A minute idle (a check is running, so the page is Hot: a probe every 10 s).
+# Every probe since the seed came back 304: still exactly one 200 each,
+# and the detail was read once, by the open.
+sleep 60
+assert-request "GET /repos/fixture-user/beacon/pulls/101" status=304
+assert-request "GET /repos/fixture-user/beacon/commits/0000065bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/check-runs" status=304
+assert-request "GET /repos/fixture-user/beacon/commits/0000065bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/status" status=304
+assert-request "GET /repos/fixture-user/beacon/pulls/101" status=200 count=1
+assert-request "GET /repos/fixture-user/beacon/commits/0000065bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/check-runs" status=200 count=1
+assert-request "GET /repos/fixture-user/beacon/commits/0000065bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/status" status=200 count=1
+assert-request "PrDetail" count=1
+assert-no-label "Conversation (6)"
+
+# Change GitHub's side. Within one Hot interval (10 s, plus the read) the
+# new comment, the check state and the label swap are on screen, with no
+# click and no Refresh.
+fixture bump
+wait-label "Conversation (6)" --timeout 15
+wait-label "Checks: 1 failed. Open the Checks tab" --timeout 5
+wait-label "bug, area:parser, approved" --timeout 5
+assert-no-label "needs-review"
+
+# The probe found the new head, which moved the check-runs probe to it
+# (its first request is a 200, a seed), and the lane map asked for one
+# detail read.
+assert-request "GET /repos/fixture-user/beacon/pulls/101" status=200 generation=1
+assert-request "GET /repos/fixture-user/beacon/commits/0000065ccccccccccccccccccccccccccccccccc/check-runs" status=200 generation=1
+assert-request "PrDetail" generation=1 status=200
+assert-request "PrDetail" count=2
+
+# The Usage page: probes are `watch` rows, the refetch they caused is a
+# `changed` row. (The Requests view reads the ledger on open; Refresh
+# until it has the latest flights.)
+click 15380129928879656113 --wait-frame
+click 1150217602083837859 --wait-frame
+wait-label "pr-detail, fixture-user/beacon#101, pr-page, changed, 200 OK" --timeout 30 --poke 17243532754655376339
+assert-label "pr-probe, fixture-user/beacon#101:pulls, pr-page, watch, 200 OK"
+assert-label "pr-probe, fixture-user/beacon#101:pulls, pr-page, watch, 304 Not modified"
+assert-label "pr-probe, fixture-user/beacon#101:check-runs, pr-page, watch, 304 Not modified"

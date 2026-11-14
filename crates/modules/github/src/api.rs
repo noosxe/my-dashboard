@@ -178,6 +178,12 @@ pub struct PrFile {
     pub patch: Option<String>,
 }
 
+/// `GET /repos/{o}/{r}/{path}` — the change probe's requests (docs/0084
+/// D3); `path` is `pulls/{n}` or `commits/{sha}/…`.
+pub fn repo_rest_url(owner: &str, repo: &str, path: &str) -> String {
+    format!("{API_BASE}/repos/{owner}/{repo}/{path}")
+}
+
 pub fn pr_files_url(owner: &str, repo: &str, number: i64, page: u32) -> String {
     format!(
         "{API_BASE}/repos/{owner}/{repo}/pulls/{number}/files?{}",

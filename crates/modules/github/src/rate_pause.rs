@@ -65,6 +65,7 @@ impl Kind {
             | Kind::RateLimit
             | Kind::GatedRuns
             | Kind::GateProbe
+            | Kind::PrProbe
             | Kind::RunGateReview => Lane::Rest,
         }
     }

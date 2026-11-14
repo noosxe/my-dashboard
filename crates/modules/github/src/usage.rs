@@ -501,6 +501,12 @@ pub(crate) enum Trigger {
     /// docs/0084 D2: a notifications landing named the open PR — one
     /// immediate detail refetch (stage 3 turns it into a probe).
     NotificationLanding,
+    /// docs/0084 D3: the PR page's change probe — a conditional REST
+    /// request sent on a timer while the page is watched.
+    Watch,
+    /// docs/0084 D4: a refetch a probe caused (the lane map's answer to a
+    /// changed probe), apart from the probe and from the user's actions.
+    Changed,
 }
 
 impl Trigger {
@@ -520,6 +526,8 @@ impl Trigger {
             Trigger::Auth => "auth",
             Trigger::TabEntry => "tab-entry",
             Trigger::NotificationLanding => "notification-landing",
+            Trigger::Watch => "watch",
+            Trigger::Changed => "changed",
         }
     }
 }
