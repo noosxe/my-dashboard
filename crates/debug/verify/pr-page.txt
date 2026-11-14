@@ -156,9 +156,12 @@ wait-label "Diff for crates/manifest/src/parser.rs"
 click 12782369444481205663 --wait-frame
 wait-label "PR #108: Loader: a PR that fails its detail read"
 
-# 105: closed with conflicts, read-only viewer.
-mouse down 900 490
-mouse up 900 490
+# 105: closed with conflicts, read-only viewer. (From here the clicked rows
+# move up: a PR whose detail shows it merged or closed leaves the Open PRs
+# lane at once, #873 — 104 and 105 here — so each later row slides into the
+# freed slot.)
+mouse down 900 452
+mouse up 900 452
 wait-label "Conversation (0)"
 assert-label "#105"
 assert-label "Closed"
@@ -181,8 +184,8 @@ click 12782369444481205663 --wait-frame
 wait-label "PR #108: Loader: a PR that fails its detail read"
 
 # 106: open and clean, read-only viewer.
-mouse down 900 527
-mouse up 900 527
+mouse down 900 452
+mouse up 900 452
 wait-label "Conversation (0)"
 assert-label "#106"
 # A read-only viewer gets neither button (#737). The Checks counter is the
@@ -205,8 +208,8 @@ click 12782369444481205663 --wait-frame
 wait-label "PR #108: Loader: a PR that fails its detail read"
 
 # 107: pending review, ghost author, duplicate check names.
-mouse down 900 564
-mouse up 900 564
+mouse down 900 490
+mouse up 900 490
 wait-label "Conversation (3)"
 assert-label "#107"
 wait-label "Checks (3)"
@@ -270,8 +273,8 @@ wait-label "PR #108: Loader: a PR that fails its detail read"
 
 # 108: the detail read fails; the header stays from the row, every tab
 # stays up, and the Files tab's own read fails with its retry.
-mouse down 900 601
-mouse up 900 601
+mouse down 900 527
+mouse up 900 527
 wait-label "Conversation"
 assert-label "#108"
 assert-no-label "Leave a comment"
@@ -288,8 +291,8 @@ click 12782369444481205663 --wait-frame
 wait-label "PR #109: CI: a fork PR whose only runs wait for approval"
 
 # 109: the only CI is gated (#783). The counter reads the waiting runs.
-mouse down 900 638
-mouse up 900 638
+mouse down 900 564
+mouse up 900 564
 wait-label "Checks (2)"
 assert-label "#109"
 mouse down 535 155
@@ -348,7 +351,9 @@ tab-stops
 audit
 
 click 12782369444481205663 --wait-frame
-wait-label "PR #114: Loader: try the lazy manifest reader"
+# 114's detail says closed, so its row has left the Open PRs lane (#873):
+# the lane's filter box is the sentinel that the list is back.
+wait-label "Filter rows"
 
 # 117: blocked, the repository allows auto-merge (docs/0083 D4, #774): Enable
 # auto-merge with the method caret replaces the disabled Merge.

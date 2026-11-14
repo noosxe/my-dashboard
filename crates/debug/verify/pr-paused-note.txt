@@ -1,0 +1,36 @@
+# pr-paused-note.txt — the PR page under a GraphQL pause (#721, #751):
+# the detail read is held instead of sent, and the page says so beside the
+# refresh control with the chip's words, instead of "PR not found".
+#
+# Prerequisites: the containerized env (docs/0071), the committed fixtures
+# with the `graphql-exhausted` rate variant (docs/0082 Q10: GraphQL is
+# paused, REST stays live), the pinned clock, and a session named
+# `prpaused` at 1280x800:
+#   export DASHBOARD_GITHUB_FIXTURE=/work/crates/debug/verify/fixtures/github
+#   export DASHBOARD_FIXED_NOW=2026-10-23T12:00:00Z
+#   export DASHBOARD_GITHUB_FIXTURE_RATE=graphql-exhausted
+#   dashboard-debug session start --name prpaused --size 1280x800 \
+#     --binary /tmp/target/debug/my-dashboard
+# Run (in-container): dashboard-debug run crates/debug/verify/pr-paused-note.txt
+
+--session prpaused
+
+assert-label "Open GitHub module"
+click 11447690740305500471 --wait-frame
+wait-label "Filter repositories"
+click 349678605523893363
+type beacon
+key down
+key enter
+wait-label "PR #101: Parser: accept trailing commas in manifest lists"
+
+# Open 101: its first read lands under the pause, so the page holds the
+# detail and names the pause — beside Refresh, and as the lane's error.
+mouse down 900 337
+mouse up 900 337
+wait-label "GraphQL paused · resumes"
+assert-no-label "PR not found"
+assert-label "Refresh"
+snapshot paused-note
+audit
+tab-stops
