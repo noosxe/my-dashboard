@@ -23,13 +23,22 @@
 //!   query string dropped (`/user/orgs?per_page=100` →
 //!   `rest/user_orgs.json`).
 //!
+//! - Any of the above may have generation siblings `<name>.g<N>.json`
+//!   (docs/0084 §8): the highest N at or below the current generation
+//!   answers, else the plain name. The generation starts at 0 and
+//!   `dashboard-debug fixture bump [N]` advances it; see [`generations`].
 //! - `rate/<variant>.json` — a rate-limit variant (`healthy`, `low`,
 //!   `critical`, `exhausted`, `graphql-exhausted`), selected with
 //!   `DASHBOARD_GITHUB_FIXTURE_RATE`. Unset, no response carries rate
 //!   data (the chip stays `REST — · GraphQL —`).
 //!
 //! Writes (mutations, REST POST/PATCH/DELETE) are answered from their own
-//! files and recorded; see [`writes`].
+//! files and recorded; see [`writes`]. Reads are recorded too
+//! (`dashboard-debug requests`), and REST reads carry an ETag and answer
+//! 304 to a matching `If-None-Match`; see [`etag`]. GraphQL never does.
+//! Budgets can be set while the app runs (`fixture budget`); see
+//! [`rate_headers`]. The bridge verbs reach the transport through
+//! [`control`].
 //!
 //! A missing file answers 404 and logs a warning naming the path, so a
 //! capture that hits an unfixtured lane says so in `logs`.
@@ -47,76 +56,19 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+
+use serde_json::json;
 
 use crate::auth::{StoredCredential, TokenStore};
-use crate::http::{Http, HttpError, HttpResult, RateLimit, Verb};
+use crate::http::{Http, HttpError, HttpResult, Verb};
 use crate::usage::budget_now;
+use dashboard_core::fixture_control::record_request;
+use generations::Generation;
+use rate_headers::{Budgets, Lane, RateBucket, RateVariant, rate_variant};
 
 /// The fixture directory variable.
 pub(crate) const FIXTURE_ENV: &str = "DASHBOARD_GITHUB_FIXTURE";
-
-/// The rate-limit variant variable (`healthy` | `low` | `critical` |
-/// `exhausted` | `graphql-exhausted`, or any `<dir>/rate/<name>.json`).
-pub(crate) const RATE_ENV: &str = "DASHBOARD_GITHUB_FIXTURE_RATE";
-
-/// One bucket of a rate variant file.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
-pub(crate) struct RateBucket {
-    pub(crate) limit: u32,
-    pub(crate) remaining: u32,
-    /// Seconds from the budget clock's "now" to the window reset.
-    pub(crate) reset_in_secs: u64,
-}
-
-impl RateBucket {
-    fn at(self, now: u64) -> RateLimit {
-        RateLimit {
-            limit: self.limit,
-            remaining: self.remaining,
-            reset_epoch: now + self.reset_in_secs,
-            retry_after: None,
-        }
-    }
-}
-
-/// A rate variant (`rate/<name>.json`): the REST `core` bucket, the
-/// GraphQL bucket, and the per-query GraphQL `cost` the bodies report.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
-pub(crate) struct RateVariant {
-    pub(crate) rest: RateBucket,
-    pub(crate) graphql: RateBucket,
-    #[serde(default = "one")]
-    pub(crate) graphql_cost: u32,
-}
-
-fn one() -> u32 {
-    1
-}
-
-/// Load the variant `RATE_ENV` names from `<dir>/rate/`. Unset → `None`
-/// (no rate data, today's captures); a named variant that doesn't
-/// load is logged loudly and also yields `None`.
-fn rate_variant(dir: &std::path::Path) -> Option<RateVariant> {
-    let name = std::env::var(RATE_ENV).ok().filter(|v| !v.is_empty())?;
-    let rel = PathBuf::from("rate").join(format!("{name}.json"));
-    let parsed = std::fs::read_to_string(dir.join(&rel))
-        .map_err(|e| e.to_string())
-        .and_then(|t| serde_json::from_str::<RateVariant>(&t).map_err(|e| e.to_string()));
-    match parsed {
-        Ok(v) => {
-            log::info!("github fixture: rate variant {name}");
-            Some(v)
-        }
-        Err(e) => {
-            log::warn!(
-                "github fixture: rate variant {} unusable ({e})",
-                rel.display()
-            );
-            None
-        }
-    }
-}
 
 /// The fixture directory, when this is a debug build and the variable
 /// names one.
@@ -150,34 +102,42 @@ impl TokenStore for FixtureTokenStore {
 }
 
 /// The offline transport: one file per GraphQL operation or REST path.
+/// Cloning shares all state (the control handler holds a clone).
+#[derive(Clone)]
 pub(crate) struct FixtureHttp {
     dir: PathBuf,
     /// Requests served per file — the index into a sequence file.
-    served: Mutex<HashMap<PathBuf, usize>>,
-    /// The selected rate variant, if any (module docs).
-    rate: Option<RateVariant>,
+    served: Arc<Mutex<HashMap<PathBuf, usize>>>,
+    /// The effective rate budgets (module docs).
+    budgets: Arc<Budgets>,
+    /// The generation `fixture bump` advances.
+    generation: Arc<Generation>,
 }
 
 impl FixtureHttp {
+    /// The app's transport: also registers the `fixture …` bridge verbs.
     pub(crate) fn new(dir: PathBuf) -> Self {
         log::info!("github: serving fixtures from {}", dir.display());
         let rate = rate_variant(&dir);
-        Self::with_rate(dir, rate)
+        let http = Self::with_rate(dir, rate);
+        control::register(&http);
+        http
     }
 
     pub(crate) fn with_rate(dir: PathBuf, rate: Option<RateVariant>) -> Self {
         Self {
             dir,
-            served: Mutex::new(HashMap::new()),
-            rate,
+            served: Arc::new(Mutex::new(HashMap::new())),
+            budgets: Arc::new(Budgets::new(rate)),
+            generation: Arc::new(Generation::default()),
         }
     }
 
     /// The synthesized `GET /rate_limit` body: `resources.core` from the
-    /// variant, and the endpoint's measured phantom for
+    /// REST budget, and the endpoint's measured phantom for
     /// `resources.graphql` (always full — docs/0050 §2).
-    fn rate_limit_body(rate: &RateVariant, now: u64) -> String {
-        let core = rate.rest.at(now);
+    fn rate_limit_body(rest: RateBucket, now: u64) -> String {
+        let core = rest.at(now);
         let used = core.limit.saturating_sub(core.remaining);
         let core = serde_json::json!({
             "limit": core.limit,
@@ -195,24 +155,24 @@ impl FixtureHttp {
         .to_string()
     }
 
-    /// Stamp a served GraphQL body with the variant's `data.rateLimit`
-    /// (the field every query selects; the committed files carry
-    /// `null` there). Non-object bodies pass through untouched.
-    fn with_graphql_rate(body: String, rate: &RateVariant, now: u64) -> String {
+    /// Stamp a served GraphQL body with the GraphQL budget's
+    /// `data.rateLimit` (the field every query selects; the committed
+    /// files carry `null` there). Non-object bodies pass through untouched.
+    fn with_graphql_rate(body: String, bucket: RateBucket, cost: u32, now: u64) -> String {
         let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&body) else {
             return body;
         };
         let Some(data) = value.get_mut("data").and_then(|d| d.as_object_mut()) else {
             return body;
         };
-        let g = rate.graphql.at(now);
+        let g = bucket.at(now);
         let reset = chrono::DateTime::from_timestamp(g.reset_epoch as i64, 0)
             .map(|t| t.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
             .unwrap_or_default();
         data.insert(
             "rateLimit".into(),
             serde_json::json!({
-                "cost": rate.graphql_cost,
+                "cost": cost,
                 "limit": g.limit,
                 "remaining": g.remaining,
                 "used": g.limit.saturating_sub(g.remaining),
@@ -222,40 +182,69 @@ impl FixtureHttp {
         value.to_string()
     }
 
-    /// Serve the first candidate that exists; none → the last one's miss.
+    /// Serve the first candidate that exists at the current generation;
+    /// none → the last one's miss. GraphQL: never an ETag, never a 304.
     fn serve_first(&self, candidates: Vec<String>) -> HttpResult {
         let graphql = PathBuf::from("graphql");
+        let current = self.generation.current();
         let picked = candidates
             .iter()
-            .find(|c| self.dir.join(&graphql).join(c).is_file())
+            .find(|c| generations::resolve(&self.dir.join(&graphql), c, current).is_some())
             .or(candidates.last());
-        self.serve(graphql.join(picked.map_or("", |c| c.as_str())))
+        self.serve(graphql.join(picked.map_or("", |c| c.as_str())), None)
     }
 
-    fn serve(&self, rel: PathBuf) -> HttpResult {
-        let path = self.dir.join(&rel);
-        let Ok(text) = std::fs::read_to_string(&path) else {
+    /// Answer `rel` (`rest/<key>.json`, `graphql/<name>.json`) from the
+    /// file the current generation picks. `rest` is `Some(If-None-Match)`
+    /// for a REST read — the answer then carries an ETag, and a match
+    /// is a 304 with no body that does not advance a sequence — and
+    /// `None` for GraphQL.
+    fn serve(&self, rel: PathBuf, rest: Option<Option<&str>>) -> HttpResult {
+        let miss = || {
             log::warn!("github fixture: no file {}", rel.display());
-            return HttpResult {
+            HttpResult {
                 status: 404,
                 etag: None,
                 rate: None,
                 body: Some(r#"{"message":"Not Found (no fixture)"}"#.into()),
-            };
-        };
-        let body = match serde_json::from_str::<serde_json::Value>(&text) {
-            Ok(serde_json::Value::Array(seq)) if !seq.is_empty() => {
-                let mut served = self.served.lock().unwrap_or_else(|e| e.into_inner());
-                let n = served.entry(rel).or_insert(0);
-                let body = seq[(*n).min(seq.len() - 1)].to_string();
-                *n += 1;
-                body
             }
-            _ => text,
         };
+        let (Some(parent), Some(name)) = (rel.parent(), rel.file_name().and_then(|n| n.to_str()))
+        else {
+            return miss();
+        };
+        let current = self.generation.current();
+        let Some(path) = generations::resolve(&self.dir.join(parent), name, current) else {
+            return miss();
+        };
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            return miss();
+        };
+        let mut served = self.served.lock().unwrap_or_else(|e| e.into_inner());
+        let (body, next) = match serde_json::from_str::<serde_json::Value>(&text) {
+            Ok(serde_json::Value::Array(seq)) if !seq.is_empty() => {
+                let n = served.get(&path).copied().unwrap_or(0);
+                (seq[n.min(seq.len() - 1)].to_string(), Some(n + 1))
+            }
+            _ => (text, None),
+        };
+        let etag = rest.map(|_| etag::etag_of(&body));
+        if let (Some(tag), Some(Some(sent))) = (&etag, rest)
+            && etag::matches(sent, tag)
+        {
+            return HttpResult {
+                status: 304,
+                etag,
+                rate: None,
+                body: None,
+            };
+        }
+        if let Some(next) = next {
+            served.insert(path, next);
+        }
         HttpResult {
             status: 200,
-            etag: None,
+            etag,
             rate: None,
             body: Some(body),
         }
@@ -311,28 +300,41 @@ impl Http for FixtureHttp {
         verb: Verb,
         url: &str,
         body: Option<&str>,
-        _etag: Option<&str>,
+        etag: Option<&str>,
     ) -> Result<HttpResult, HttpError> {
         if verb != Verb::Get {
             // Answered from `rest/<path>.<verb>.json` or refused (writes.rs).
             return writes::rest(&self.dir, verb, url, body);
         }
         let key = rest_key(url);
-        let Some(rate) = self.rate else {
-            return Ok(self.serve(PathBuf::from("rest").join(format!("{key}.json"))));
-        };
         let now = budget_now();
-        let mut res = if key == "rate_limit" {
-            HttpResult {
+        let rest = self.budgets.bucket(Lane::Rest);
+        let mut res = match rest {
+            Some(rest) if key == "rate_limit" => HttpResult {
                 status: 200,
                 etag: None,
                 rate: None,
-                body: Some(Self::rate_limit_body(&rate, now)),
-            }
-        } else {
-            self.serve(PathBuf::from("rest").join(format!("{key}.json")))
+                body: Some(Self::rate_limit_body(rest, now)),
+            },
+            _ => self.serve(
+                PathBuf::from("rest").join(format!("{key}.json")),
+                Some(etag),
+            ),
         };
-        res.rate = Some(rate.rest.at(now));
+        // A 304 carries the same rate data as a 200 and costs no quota
+        // (docs/0084 F1), so the budget is stamped either way.
+        res.rate = rest.map(|b| b.at(now));
+        record_request(
+            "rest",
+            format!("GET /{}", url_path(url)),
+            json!({
+                "status": res.status,
+                "etag": res.etag,
+                "if_none_match": etag,
+                "remaining": res.rate.map(|r| r.remaining),
+                "generation": self.generation.current(),
+            }),
+        );
         Ok(res)
     }
 
@@ -348,19 +350,39 @@ impl Http for FixtureHttp {
             return writes::graphql(&self.dir, op, variables);
         }
         let mut res = self.serve_first(graphql_files(op, variables));
-        if let Some(rate) = self.rate {
+        if let Some(bucket) = self.budgets.bucket(Lane::Graphql) {
             let now = budget_now();
-            res.rate = Some(rate.graphql.at(now));
+            res.rate = Some(bucket.at(now));
             if res.status == 200 {
-                res.body = res.body.map(|b| Self::with_graphql_rate(b, &rate, now));
+                let cost = self.budgets.graphql_cost();
+                res.body = res
+                    .body
+                    .map(|b| Self::with_graphql_rate(b, bucket, cost, now));
             }
         }
+        record_request(
+            "graphql",
+            op,
+            json!({ "status": res.status, "generation": self.generation.current() }),
+        );
         Ok(res)
     }
 }
 
+#[path = "fixture/control.rs"]
+mod control;
+#[path = "fixture/etag.rs"]
+mod etag;
+#[path = "fixture/generations.rs"]
+mod generations;
+#[path = "fixture/rate_headers.rs"]
+mod rate_headers;
 #[path = "fixture/writes.rs"]
 mod writes;
+
+#[cfg(test)]
+#[path = "fixture/generation_one.rs"]
+mod generation_one;
 
 #[cfg(test)]
 #[path = "fixture/pr_scenarios.rs"]
@@ -368,7 +390,8 @@ mod pr_scenarios;
 
 #[cfg(test)]
 mod tests {
-    use super::{FixtureHttp, RateBucket, RateVariant, graphql_files, operation_name, rest_key};
+    use super::rate_headers::{RateBucket, RateVariant};
+    use super::{FixtureHttp, graphql_files, operation_name, rest_key};
     use crate::http::{Http, Verb};
     use crate::usage::{budget_now, parse_rate_limit_body};
 

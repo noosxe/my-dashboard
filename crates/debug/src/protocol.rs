@@ -22,6 +22,11 @@ pub const METHOD_WINDOW_GEOMETRY: &str = "window.geometry";
 pub const METHOD_APP_LOGS: &str = "app.logs";
 /// The fixture write record (docs/0010 D11): `{since?}` → `{writes, next_cursor}`.
 pub const METHOD_APP_WRITES: &str = "app.writes";
+/// The fixture read record (docs/0084 §8): `{since?}` → `{requests, next_cursor}`.
+pub const METHOD_APP_REQUESTS: &str = "app.requests";
+/// A fixture control command (docs/0084 §8): `{args: [string…]}` → the
+/// handler's JSON answer (`bump`, `budget`, `get`).
+pub const METHOD_APP_FIXTURE: &str = "app.fixture";
 /// Graceful shutdown request (0055 D11): the only protocol addition
 /// beyond 0010's seven commands. `{window?}` is accepted for shape
 /// symmetry but shutdown is app-wide (`App::quit`).
@@ -176,6 +181,12 @@ pub struct LogsParams {
 /// `app.writes` (docs/0010 D11).
 pub struct WritesParams {
     pub since: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+/// `app.fixture` (docs/0084 §8): the words after `fixture`.
+pub struct FixtureParams {
+    pub args: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]

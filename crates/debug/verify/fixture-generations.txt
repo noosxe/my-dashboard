@@ -1,0 +1,47 @@
+# fixture-generations.txt — the fixture transport's change simulation
+# (docs/0084 §8, docs/0081 §12.1): a REST read answers 200, then 304 to
+# its own ETag with the rate headers unchanged, then 200 with the new body
+# once `fixture bump` moved the generation. The bridge's request log
+# (`assert-request`) is the proof of what the transport answered; no UI is
+# driven or captured.
+#
+# Prerequisites: the containerized env (docs/0071), the committed fixtures,
+# the pinned clock, and a session named `fixgen` at 1280x800:
+#   export DASHBOARD_GITHUB_FIXTURE=/work/crates/debug/verify/fixtures/github
+#   export DASHBOARD_FIXED_NOW=2026-10-23T12:00:00Z
+#   dashboard-debug session start --name fixgen --size 1280x800 \
+#     --binary /tmp/target/debug/my-dashboard
+# Run (in-container): dashboard-debug run crates/debug/verify/fixture-generations.txt
+
+--session fixgen
+
+# A REST budget for the headers: 400 of 5000 left is Critical (docs/0082).
+fixture budget 400
+
+# Generation 0: PR 101's head is the old commit. 200, then 304 to the
+# ETag the first answer carried, with the same 400 remaining on both.
+fixture get repos/fixture-user/beacon/pulls/101 --expect 0000065bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+assert-request "GET /repos/fixture-user/beacon/pulls/101" status=200 generation=0 remaining=400
+fixture get repos/fixture-user/beacon/pulls/101 --revalidate
+assert-request "GET /repos/fixture-user/beacon/pulls/101" status=304 generation=0 remaining=400
+
+# The running check is still running on the old head.
+fixture get repos/fixture-user/beacon/commits/0000065bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/check-runs --expect in_progress
+
+# Bump: the same conditional request is now a 200 with the new head, and
+# the pushed commit's check runs are all complete.
+fixture bump
+assert-request "GET /repos/fixture-user/beacon/pulls/101" status=304 generation=0
+fixture get repos/fixture-user/beacon/pulls/101 --revalidate --expect 0000065ccccccccccccccccccccccccccccccccc
+assert-request "GET /repos/fixture-user/beacon/pulls/101" status=200 generation=1 remaining=400
+fixture get repos/fixture-user/beacon/commits/0000065ccccccccccccccccccccccccccccccccc/check-runs --expect completed
+fixture get repos/fixture-user/beacon/commits/0000065ccccccccccccccccccccccccccccccccc/status --expect success
+
+# Unchanged again: 304 at the new generation.
+fixture get repos/fixture-user/beacon/pulls/101 --revalidate
+assert-request "GET /repos/fixture-user/beacon/pulls/101" status=304 generation=1
+
+# Back to generation 0 and a full budget: the old body returns.
+fixture bump 0
+fixture budget 5000
+fixture get repos/fixture-user/beacon/pulls/101 --expect 0000065bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb

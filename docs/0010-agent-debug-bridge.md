@@ -15,7 +15,7 @@ Owner decisions (2026-09-02), recorded:
 
 - **v1 = seven commands** (§3 D6 table): `tree.dump`, `input.dispatch`,
   `input.click_node`, `input.focus_node`, `window.list`, `window.geometry`,
-  `app.logs` — plus `app.quit` (0055 D11) and `app.writes` (D11 below), the later additions.
+  `app.logs` — plus `app.quit` (0055 D11), `app.writes` (D11 below) and `app.requests` / `app.fixture` (D12), the later additions.
 - **MCP bridge deferred** — v1 ships a CLI; MCP is revisited only if the
   CLI cannot provide what agents need.
 - **No upstream filings** — upstream gpui gaps are worked around in-repo;
@@ -445,6 +445,41 @@ CLI verbs (also receipt-script steps):
   items by index). A JSON string compares as text, anything else as its
   JSON rendering. The newest match wins; the failure names what *was*
   recorded.
+
+### D12 — `app.requests` and `app.fixture`: reads and the fixture's clock (docs/0084 §8)
+
+The same fixture transport also records every **read** it answers, and
+exposes three control commands, so a receipt can make a change happen "on
+GitHub's side" at a time it chooses and prove what the app then fetched.
+Both live in `dashboard_core::fixture_control` (a process-wide log and a
+handler hook the transport registers) and are answered inline on the
+socket thread. Debug builds with `DASHBOARD_GITHUB_FIXTURE` only; with no
+fixture transport `app.fixture` answers `-32602` ("no fixture transport").
+
+| Method | Params | Result |
+|---|---|---|
+| `app.requests` | `{since?}` | `{requests: [{seq, kind, op, vars}], next_cursor}` (last 2048) — `kind` is `graphql` or `rest`; `op` is the operation name or `GET /<path>`; `vars` is `{status, generation}` plus, for REST, `etag` (served), `if_none_match` (received) and `remaining` (the REST budget stamped, null with none) |
+| `app.fixture` | `{args: [string…]}` | the command's JSON answer; a refused command is `-32602` with the reason |
+
+CLI verbs (also receipt-script steps):
+
+- `fixture bump [N]` — advance the fixture generation by one, or set it
+  to N (any value, so a receipt can go back). `<name>.g<N>.json` fixtures
+  answer from generation N on (docs/0081 §12.1). Answers
+  `{"generation": n}`.
+- `fixture budget <remaining> [--budget rest|graphql]` — pin one lane's
+  `remaining` (REST by default), so the docs/0082 thresholds are
+  reachable in a receipt: with a 5000 limit, 1250 is Low, 500 Critical,
+  0 Exhausted. Responses on that lane then carry
+  `x-ratelimit-limit|remaining|reset` (GraphQL also in `data.rateLimit`).
+- `fixture get <path> [--revalidate | --if-none-match <tag>] [--expect
+  <text>]` — one REST GET through the transport as the app would send it
+  (`repos/o/r/pulls/101`, query allowed). `--revalidate` sends the ETag
+  the last `get` of that path returned; `--expect` fails the verb unless
+  a 200 body contains the text. Answers `{status, etag, body_len, rate}`.
+- `requests` — print every recorded read, one JSON line each.
+- `assert-request <op> [key=value…]` — like `assert-write`, over the
+  read record: `assert-request "GET /repos/o/r/pulls/101" status=304`.
 
 Label verbs (`assert-label`, `wait-label`, `assert-no-label`; syntax in
 docs/0055) match a substring against each node's label in **either form**:

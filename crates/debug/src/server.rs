@@ -14,8 +14,8 @@ use serde_json::Value;
 use crate::jobs::{Job, WindowRegistry};
 use crate::logs::RingLog;
 use crate::protocol::{
-    AuthParams, METHOD_APP_LOGS, METHOD_APP_WRITES, METHOD_AUTH, Request, Response, RpcError,
-    error_code,
+    AuthParams, METHOD_APP_FIXTURE, METHOD_APP_LOGS, METHOD_APP_REQUESTS, METHOD_APP_WRITES,
+    METHOD_AUTH, Request, Response, RpcError, error_code,
 };
 
 const SOCKET_NAME: &str = "debug.sock";
@@ -172,6 +172,8 @@ where
             ),
             Some(request) if request.method == METHOD_APP_LOGS => app_logs(ring, &request),
             Some(request) if request.method == METHOD_APP_WRITES => app_writes(&request),
+            Some(request) if request.method == METHOD_APP_REQUESTS => app_requests(&request),
+            Some(request) if request.method == METHOD_APP_FIXTURE => app_fixture(&request),
             Some(request) => {
                 let id = request.id;
                 match dispatch(request) {
@@ -241,6 +243,50 @@ fn app_writes(request: &Request) -> Response {
         request.id,
         serde_json::json!({ "writes": writes, "next_cursor": next_cursor }),
     )
+}
+
+/// `app.requests` (docs/0084 §8): the fixture read record, answered
+/// inline from `dashboard_core::fixture_control`.
+fn app_requests(request: &Request) -> Response {
+    let Some(params) = crate::protocol::parse::<crate::protocol::WritesParams>(&request.params)
+    else {
+        return Response::err(
+            request.id,
+            RpcError::new(
+                error_code::INVALID_PARAMS,
+                "app.requests params: {since?: u64}",
+            ),
+        );
+    };
+    let (requests, next_cursor) =
+        dashboard_core::fixture_control::requests_since(params.since.unwrap_or(0));
+    Response::ok(
+        request.id,
+        serde_json::json!({ "requests": requests, "next_cursor": next_cursor }),
+    )
+}
+
+/// `app.fixture` (docs/0084 §8): one `fixture …` control command, run
+/// inline against the transport's registered handler. A refused command
+/// is an `INVALID_PARAMS` error carrying the reason.
+fn app_fixture(request: &Request) -> Response {
+    let Some(params) = crate::protocol::parse::<crate::protocol::FixtureParams>(&request.params)
+    else {
+        return Response::err(
+            request.id,
+            RpcError::new(
+                error_code::INVALID_PARAMS,
+                "app.fixture params: {args: [string…]}",
+            ),
+        );
+    };
+    match dashboard_core::fixture_control::run(&params.args) {
+        Ok(value) => Response::ok(request.id, value),
+        Err(message) => Response::err(
+            request.id,
+            RpcError::new(error_code::INVALID_PARAMS, message),
+        ),
+    }
 }
 
 fn read_line(reader: &mut BufReader<UnixStream>) -> Option<String> {
