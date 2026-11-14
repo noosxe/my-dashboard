@@ -150,13 +150,17 @@ mouse down 1221 504
 mouse up 1221 504 --wait-frame
 wait-label "Filter labels"
 wait-label "label-00"
-mouse down 1093 559
-mouse up 1093 559 --wait-frame
-# 62 candidates: the card is taller than the rail, so Save is under the fold.
-mouse scroll 1100 600 -300 --wait-frame
-mouse down 979 633
-mouse up 979 633 --wait-frame
-wait-frame
+# The opened picker scrolls itself into view a moment after its rows exist
+# (the same way the reviewer and assignee pickers above settle to y=435).
+# Wait for it to settle, then click the settled first row: the unsettled
+# row sat at y=559 and a click there lands on label-04 once the scroll has run.
+sleep 1
+mouse down 1093 435
+mouse up 1093 435 --wait-frame
+# 62 candidates, and the settled card keeps Save on screen at the same spot
+# as the other pickers.
+mouse down 979 680
+mouse up 979 680 --wait-frame
 assert-write PrUpdateMetadata input.pullRequestId=PR_103 input.labelIds.0=L_label-00
 wait-label "Edit milestone"
 mouse scroll 1100 500 600 --wait-frame
