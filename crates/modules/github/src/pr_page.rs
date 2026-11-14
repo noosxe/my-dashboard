@@ -57,6 +57,7 @@ pub(crate) const ANCHOR_FADE: Duration = Duration::from_secs(3);
 mod catch_up;
 pub(crate) mod checks;
 mod commit_label;
+mod commits_window;
 mod conversation_window;
 mod default_method;
 mod detail_read;
@@ -64,6 +65,7 @@ mod diff_anchor;
 pub(crate) mod diff_notice;
 mod files_etag;
 mod gate_decision;
+mod gated_sweep;
 mod head_change;
 mod header_meta;
 pub(crate) mod leave_guard;
@@ -71,9 +73,12 @@ mod merge_confirm;
 mod merge_gate;
 mod mergeable_poll;
 mod page_write_confirm;
+mod pause_gate;
 mod queue_writes;
 mod rail;
+mod refocus;
 mod review_drafts;
+mod review_refetch;
 mod state_writes;
 #[cfg(test)]
 mod test_rig;
@@ -383,6 +388,10 @@ async fn run_check_log_watch(
     cx: &mut AsyncApp,
 ) -> CheckWatchOutcome {
     let ident = target.ident(&repo, number);
+    // #721: the resolve and log reads are REST; a paused budget says so.
+    if let Some(note) = cx.update(|cx| state.read(cx).paused_note(crate::rate_pause::Lane::Rest)) {
+        return CheckWatchOutcome::Landed(Err(note));
+    }
     let resolved =
         match resolve_check_job(state.clone(), &repo, number, &head_oid, &target, cx).await {
             Ok(resolved) => resolved,
@@ -418,6 +427,15 @@ async fn run_check_log_watch(
         });
         if !alive.unwrap_or(false) {
             return CheckWatchOutcome::Disarmed;
+        }
+        // #721: the poll waits out a REST pause (the watch stays armed).
+        if cx.update(|cx| {
+            state
+                .read(cx)
+                .pause_in_force(crate::rate_pause::Lane::Rest)
+                .is_some()
+        }) {
+            continue;
         }
         ticks += 1;
         if ticks > CHECK_WATCH_MAX_TICKS {
@@ -699,6 +717,9 @@ pub(crate) struct PrDetailPage {
     /// The D2 fallback ran for the current sweep — once per sweep, so an
     /// empty fallback can't loop (docs/0066 D2).
     pub(crate) gate_fallback_done: bool,
+    /// #875: the trigger of the read that armed the current sweep; the
+    /// sweep's requests are booked under it.
+    gated_trigger: Trigger,
     /// Height-resync observers (docs/0041 D3): typing grows the composer
     /// / reply textareas; the subscriptions live while the editor does.
     composer_sub: Option<gpui::Subscription>,
@@ -920,6 +941,7 @@ impl PrDetailPage {
             gate_review: None,
             gate_error: None,
             gate_fallback_done: false,
+            gated_trigger: Trigger::ViewShown,
             composer_sub: None,
             reply_sub: None,
             threads: Fetch::new(),
@@ -1053,7 +1075,7 @@ impl PrDetailPage {
             page.md = build_md_cache(&page.repo, detail);
             page.extend_threads_md();
             page.resolve_comment_anchor(cx);
-            page.fetch_gated(cx);
+            page.fetch_gated(Trigger::ViewShown, cx);
         } else {
             page.fetch_detail(Origin::new(Surface::PrPage, Trigger::ViewShown), cx);
         }
@@ -1109,16 +1131,15 @@ impl PrDetailPage {
         if !self.state.read(cx).auth.connected() {
             return; // the page is about to be torn down by the auth gate
         }
+        if self.hold_detail_for_pause(cx) {
+            return;
+        }
         let state = self.state.clone();
         // docs/0072 D3: stale-while-revalidate — background opens skip
         // when the document's detail is inside the TTL window and its
         // read lane is healthy; manual refreshes and mutation refetches
         // always run.
-        let forced = matches!(
-            origin.trigger,
-            Trigger::Manual | Trigger::MutationRefetch | Trigger::Recheck
-        );
-        if !forced {
+        if !refocus::bypasses_reopen_ttl(origin.trigger) {
             let fresh = self
                 .state
                 .read(cx)
@@ -1161,7 +1182,7 @@ impl PrDetailPage {
             let result = std::cell::Cell::new(Some(result));
             let _ = this.update(cx, |page, cx| {
                 if let Some(r) = result.take() {
-                    page.apply_detail_result(r, cx);
+                    page.apply_detail_result_for(origin.trigger, r, cx);
                 }
             });
             if let Some(r) = result.take() {
@@ -1174,7 +1195,17 @@ impl PrDetailPage {
     /// The page-alive path of a landed detail read: the store half
     /// (`detail_read::land_detail_result`, which also runs when the page
     /// is gone) and then everything the page keeps beside the store.
+    #[cfg(test)]
     fn apply_detail_result(&mut self, result: crate::service::SpecResult, cx: &mut Context<Self>) {
+        self.apply_detail_result_for(Trigger::ViewShown, result, cx);
+    }
+
+    fn apply_detail_result_for(
+        &mut self,
+        trigger: Trigger,
+        result: crate::service::SpecResult,
+        cx: &mut Context<Self>,
+    ) {
         let (repo, number) = (self.repo.clone(), self.number);
         let landed = self.state.update(cx, |s, cx| {
             detail_read::land_detail_result(s, cx, &repo, number, result)
@@ -1230,7 +1261,7 @@ impl PrDetailPage {
             self.resolve_comment_anchor(cx);
             // docs/0066 D2: the detail landed — arm the
             // gated-runs sweep for the (possibly new) head.
-            self.fetch_gated(cx);
+            self.fetch_gated(trigger, cx);
         }
         self.rerun_outdated_reads(cx);
         cx.notify();
@@ -1240,9 +1271,15 @@ impl PrDetailPage {
     /// when the detail lands (the same funnel the refresh button drives
     /// — the manual-refresh contract, docs/0052) and after a gate action
     /// (D5). One sweep at a time, via the shared docs/0031 guard.
-    fn fetch_gated(&mut self, cx: &mut Context<Self>) {
+    fn fetch_gated(&mut self, trigger: Trigger, cx: &mut Context<Self>) {
         if !self.state.read(cx).auth.connected() {
             return; // the page is about to be torn down by the auth gate
+        }
+        // #875: the sweep spends REST requests (the run list, one probe
+        // per run), so a paused REST budget holds it back.
+        if self.state.read(cx).gated_for(crate::rate_pause::Lane::Rest) {
+            log::debug!("gated-runs: skipped — the REST budget is paused");
+            return;
         }
         let Some(d) = self.detail(cx) else {
             return;
@@ -1262,12 +1299,19 @@ impl PrDetailPage {
             return;
         }
         self.gate_fallback_done = false;
+        self.gated_trigger = trigger;
         self.gated.begin();
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result =
-                crate::service::load_gated_runs(state.clone(), &repo, &head_ref, &head_oid, cx)
-                    .await;
+            let result = crate::service::load_gated_runs(
+                state.clone(),
+                &repo,
+                &head_ref,
+                &head_oid,
+                trigger,
+                cx,
+            )
+            .await;
             cx.update(|cx| state.update(cx, |s, _| s.in_flight_clear(&key)));
             let _ = this.update(cx, |page, cx| page.apply_gated_result(result, cx));
         })
@@ -1299,7 +1343,7 @@ impl PrDetailPage {
     /// sweep (the flag resets when the next sweep arms), so an empty
     /// fallback can't loop.
     fn maybe_fetch_gated_fallback(&mut self, cx: &mut Context<Self>) {
-        if self.gate_fallback_done {
+        if self.gate_fallback_done || self.state.read(cx).gated_for(crate::rate_pause::Lane::Rest) {
             return;
         }
         let checks_empty = self.detail(cx).is_none_or(|d| d.checks.nodes.is_empty());
@@ -1314,6 +1358,7 @@ impl PrDetailPage {
             return;
         };
         self.gate_fallback_done = true;
+        let trigger = self.gated_trigger;
         let state = self.state.clone();
         let repo = self.repo.clone();
         let short = head_oid.get(..7).unwrap_or(&head_oid).to_string();
@@ -1325,9 +1370,14 @@ impl PrDetailPage {
         self.gated.begin();
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result =
-                crate::service::load_gated_runs_via_suites(state.clone(), &repo, &head_oid, cx)
-                    .await;
+            let result = crate::service::load_gated_runs_via_suites(
+                state.clone(),
+                &repo,
+                &head_oid,
+                trigger,
+                cx,
+            )
+            .await;
             cx.update(|cx| state.update(cx, |s, _| s.in_flight_clear(&key)));
             let _ = this.update(cx, |page, cx| page.apply_gated_result(result, cx));
         })
@@ -1485,12 +1535,12 @@ impl PrDetailPage {
             Ok(()) => {
                 self.gate_decisions
                     .record(run_id, gate_decision::GateDecision::parse(decision));
-                self.fetch_gated(cx);
+                self.fetch_gated(Trigger::MutationRefetch, cx);
             }
             Err(f) => {
                 self.gate_error = Some(gate_error_copy(&f, decision));
                 if matches!(f.status, 404 | 422) {
-                    self.fetch_gated(cx);
+                    self.fetch_gated(Trigger::MutationRefetch, cx);
                 }
             }
         }
@@ -1590,7 +1640,7 @@ impl PrDetailPage {
             .child(
                 Icon::new(IconName::Pause)
                     .size_4()
-                    .text_color(cx.theme().warning),
+                    .text_color(cx.theme().danger),
             )
             .child(div().text_sm().min_w_0().flex_1().truncate().child(label));
         let age = relative_age(gated.created_at.as_deref());
@@ -2004,6 +2054,9 @@ impl PrDetailPage {
         if !self.state.read(cx).auth.connected() {
             return; // the page is about to be torn down by the auth gate
         }
+        if self.hold_files_for_pause(cx) {
+            return;
+        }
         let state = self.state.clone();
         // docs/0038 D4: conditional revalidation when the lane holds
         // data — a cold session with a disk etag must full-fetch (a 304
@@ -2054,12 +2107,13 @@ impl PrDetailPage {
             self.files.land_unchanged();
         } else if result.status != 200 {
             // Shared 401/403 handling, same as the detail fetch (D2).
-            let status = result.status;
-            self.state.update(cx, |s, cx| {
+            let (status, kind) = (result.status, result.kind);
+            let copy = self.state.update(cx, |s, cx| {
                 s.apply(result);
                 cx.notify();
+                s.http_failure_copy(kind, status)
             });
-            self.files.fail(format!("GitHub answered HTTP {status}"));
+            self.files.fail(copy);
         } else {
             match serde_json::from_str::<Vec<PrFile>>(result.body.as_deref().unwrap_or("[]")) {
                 Ok(files) => {
@@ -2226,6 +2280,9 @@ impl PrDetailPage {
         if !self.state.read(cx).auth.connected() {
             return; // the page is about to be torn down by the auth gate
         }
+        if self.hold_threads_for_pause(cx) {
+            return;
+        }
         let state = self.state.clone();
         let spec = Self::threads_spec(&self.repo, self.number, origin);
         log::debug!(
@@ -2296,11 +2353,13 @@ impl PrDetailPage {
         } else if result.status != 200 {
             // Shared 401/403 handling, same as the detail fetch (0030 D1).
             let status = result.status;
-            self.state.update(cx, |s, cx| {
+            let kind = result.kind;
+            let copy = self.state.update(cx, |s, cx| {
                 s.apply(result);
                 cx.notify();
+                s.http_failure_copy(kind, status)
             });
-            self.threads.fail(format!("GitHub answered HTTP {status}"));
+            self.threads.fail(copy);
         } else if !self.discard_outdated_threads() {
             // #745: an errors-only 200 fails the read and keeps the last
             // good threads (`Fetch::fail` holds landed data).
@@ -3838,7 +3897,11 @@ impl PrDetailPage {
                     // starts clean.
                     summary.update(cx, |s, cx| s.set_value("", window, cx));
                 }
-                page.fetch_threads(Origin::new(Surface::PrPage, Trigger::MutationRefetch), cx);
+                // #872: the review also changes the detail's reviews,
+                // decision and count, which Conversation and the rail read.
+                let refetch = Origin::new(Surface::PrPage, Trigger::MutationRefetch);
+                page.fetch_threads(refetch, cx);
+                page.fetch_detail(refetch, cx);
             },
             cx,
         );
@@ -3982,12 +4045,12 @@ impl PrDetailPage {
         if let Some(m) = &result.network {
             failed = Some(format!("Network error: {m}"));
         } else if result.status != 200 {
-            let status = result.status;
-            self.state.update(cx, |s, cx| {
+            let (status, kind) = (result.status, result.kind);
+            failed = Some(self.state.update(cx, |s, cx| {
                 s.apply(result);
                 cx.notify();
-            });
-            failed = Some(format!("GitHub answered HTTP {status}"));
+                s.http_failure_copy(kind, status)
+            }));
         } else {
             let gql_error = result.body.as_deref().and_then(|body| {
                 serde_json::from_str::<gql::Envelope<serde_json::Value>>(body)
@@ -4407,24 +4470,45 @@ impl PrDetailPage {
                             .when_some(meta.updated, |row, text| row.child(text)),
                     ),
             )
-            .child(freshness_row(
-                "pr",
-                &crate::service::DetailClock(self.state.read(cx).pr_entry(&self.repo, self.number)),
-                cx,
-                |this, _, cx| {
-                    let origin = Origin::new(Surface::PrPage, Trigger::Manual);
-                    this.fetch_detail(origin, cx);
-                    // A refresh with files/threads already loaded refetches
-                    // those lists too (0030 D8) — collapse states reset with
-                    // the new payload.
-                    if this.files.is_ready() {
-                        this.fetch_files(origin, cx);
-                    }
-                    if this.threads.is_ready() {
-                        this.fetch_threads(origin, cx);
-                    }
-                },
-            ))
+            .child(
+                v_flex()
+                    .items_end()
+                    .gap_1()
+                    .flex_none()
+                    .child(freshness_row(
+                        "pr",
+                        &crate::service::DetailClock(
+                            self.state.read(cx).pr_entry(&self.repo, self.number),
+                        ),
+                        cx,
+                        |this, _, cx| {
+                            let origin = Origin::new(Surface::PrPage, Trigger::Manual);
+                            this.fetch_detail(origin, cx);
+                            // A refresh with files/threads already loaded refetches
+                            // those lists too (0030 D8) — collapse states reset with
+                            // the new payload.
+                            if this.files.is_ready() {
+                                this.fetch_files(origin, cx);
+                            }
+                            if this.threads.is_ready() {
+                                this.fetch_threads(origin, cx);
+                            }
+                        },
+                    ))
+                    // #751: a paused budget holds refreshes and writes;
+                    // say so beside the refresh control.
+                    .when_some(self.pause_note(cx), |col, note| {
+                        col.child(
+                            div()
+                                .id("pr-paused-note")
+                                .role(accesskit::Role::Status)
+                                .aria_label(note.clone())
+                                .text_xs()
+                                .text_color(cx.theme().danger)
+                                .child(note),
+                        )
+                    }),
+            )
             .child(
                 Button::new("pr-open-external")
                     .ghost()
@@ -4588,18 +4672,20 @@ impl PrDetailPage {
                     .into_any_element()
             })
             .collect();
-        if d.commits.total_count > d.commits.nodes.len() as i64 {
-            rows.push(
+        // #876: the query reads the newest 100, so what it cut is older
+        // than every row — the cap row leads the list.
+        if commits_window::hidden_older(d) > 0 {
+            rows.insert(
+                0,
                 div()
                     .id("pr-commits-truncated")
                     .px_3()
                     .py_2()
                     .text_xs()
                     .text_color(cx.theme().muted_foreground)
-                    .child(format!(
-                        "Showing first {} of {} commits",
+                    .child(commits_window::cap_caption(
                         d.commits.nodes.len(),
-                        d.commits.total_count
+                        d.commits.total_count,
                     ))
                     .into_any_element(),
             );

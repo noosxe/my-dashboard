@@ -29,6 +29,7 @@ pub mod notification_page;
 pub mod page;
 mod pickers;
 pub mod pr_page;
+mod pr_summary;
 mod rate_pause;
 mod run_jobs;
 pub mod service;

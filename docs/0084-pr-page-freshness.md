@@ -223,19 +223,21 @@ budgets (docs/0050, 0082 Q10).
 - The head-change fan-out (`pr_page/head_change.rs`).
 - The outdated-read rerun (#739).
 
-## 4. Defects found (filed, fixed independently of this design)
+## 4. Defects found (filed and fixed as stage 0)
 
-These cause staleness on their own. Fixing them is stage 0 and needs
-no product decision.
+These caused staleness on their own. They shipped as stage 0, in one PR
+(§9).
 
-| Issue | Defect | Effect |
-|---|---|---|
-| #871 | Refocus calls `fetch_detail` with `Trigger::Refocus`, which isn't "forced", so the 5-minute reopen TTL (`detail_fresh`) skips it. A voided `detail_at` is never "stale" to `standard_needs_refresh` | Refocus, the only documented automatic refresh, does nothing for 5 min after any landing, and never heals a voided document |
-| #872 | A submitted review batch refetches threads only | Review cards, the review decision and counts stay stale |
-| #873 | `land_detail` copies only the rollup into the summary; a late list landing can undo a confirmed state (suspected) | A PR merged by others stays in the Open list; page label edits never reach rows |
-| #874 | A notification-subject open overwrites the landed summary with a blank synthesized row | The PR drops out of the lists, and a needless drift read fires |
-| #875 | The gated-runs sweep ignores the REST pause and is booked as view-shown | Spends a paused budget; Usage receipts misattribute it |
-| #876 | The detail selects `commits(first:100)`, the oldest 100 | New pushes never show on long PRs |
+| Issue | Defect | Effect | Fix |
+|---|---|---|---|
+| #871 | Refocus calls `fetch_detail` with `Trigger::Refocus`, which isn't "forced", so the 5-minute reopen TTL (`detail_fresh`) skips it. A voided `detail_at` is never "stale" to `standard_needs_refresh` | Refocus, the only documented automatic refresh, does nothing for 5 min after any landing, and never heals a voided document | `pr_page/refocus.rs` lists the triggers that bypass the TTL; a landed document with a voided stamp is stale at any floor |
+| #872 | A submitted review batch refetches threads only | Review cards, the review decision and counts stay stale | The confirmed batch also refetches the detail |
+| #873 | `land_detail` copies only the rollup into the summary; a late list landing can undo a confirmed state (suspected) | A PR merged by others stays in the Open list; page label edits never reach rows. The suspected overwrite was reproduced by a unit test | `pr_summary.rs`: the detail refreshes every shared field; a list row no newer by `updatedAt` keeps the held state |
+| #874 | A notification-subject open overwrites the landed summary with a blank synthesized row | The PR drops out of the lists, and a needless drift read fires | `seed_summary` fills only missing fields |
+| #875 | The gated-runs sweep ignores the REST pause and is booked as view-shown | Spends a paused budget; Usage receipts misattribute it | The sweep waits out the REST pause and carries the triggering read's trigger |
+| #876 | The detail selects `commits(first:100)`, the oldest 100 | New pushes never show on long PRs | `commits(last: 100)`, cap row at the top |
+| #721 | Detail opens, threads, files, writes and the log watch ignore the pause | A refused request, then a fetch error that never names the pause | Paused lanes hold the dispatch; the page shows the pause note |
+| #751 | A null `repository` always reads "removed"; page-owned 200s never arm the pause; `Retry-After` is never read | A rate limit looks like a deleted PR | `rate_pause/classify.rs`; see docs/0050 D4 |
 
 Two smaller findings aren't filed: the header age can read newer than
 the rendered detail, and the mergeable re-poll stops quietly when a
@@ -525,13 +527,13 @@ receipt chooses", and it can't exercise 304s. Proposed:
 
 ## 9. Staged implementation (focused PRs, no code in this PR)
 
-Each stage is one PR, or a small stack where noted, with the gates from
+Each stage is one PR, and the stages ship as one stacked series, with the gates from
 AGENTS.md. UI-facing stages carry the docs/0065 receipts from the
 docs/0071 container.
 
 | Stage | Content | Tests and receipts |
 |---|---|---|
-| 0 | The defects #871–#876, one PR each, any order. #721 and #751 (pause on Manual, write and detail paths) land before stage 4 | Unit tests per issue; #871 adds "refocus at 20 s refetches" and "a voided stamp refetches"; a fixture receipt for #874 (notification open keeps the list row) |
+| 0 | **Shipped as one PR:** the defects #871–#876 plus #721 and #751 (pause on Manual, write and detail paths; both land before stage 4). The stages ship as one stack of PRs, one PR per stage | Unit tests per issue; #871 adds "refocus at 20 s refetches" and "a voided stamp refetches"; a fixture receipt for #874 (notification open keeps the list row) |
 | 1 | Fixture generations, REST ETag/304 emulation, synthetic rate-limit headers, `fixture bump` and `fixture budget` verbs (§8). Tooling only | Unit tests in `fixture.rs`; a receipt that bumps a generation and sees a 200 after 304s |
 | 2 | D2 event triggers: the tab-entry floor, the write-to-lane map, list refresh on return, notification-names-open-PR (which arrives as a manual-equivalent refetch until stage 3 lands the probe) | Unit tests with the fake clock; receipt `pr-freshness-events.txt`: switch tabs past the floor and see one refetch, return to the list and see the row updated |
 | 3 | D3/D4 probe and lane map, with the hot, active and shown tiers at fixed intervals; the `Watch` and `Changed` triggers; one live measurement on public data of the points §3 leaves unverified (the 60 s cache, whether a review, label or push moves `updated_at`, whether the PR ETag follows mergeable), recorded in this doc's §3 | Receipt `pr-freshness-probe.txt`: open #101, 60 s idle with only 304s, `fixture bump`, `wait-label` for the new comment, check and label within one interval; the Usage page lists the `watch` and `changed` rows |

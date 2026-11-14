@@ -2612,6 +2612,17 @@ impl Freshness for DetailClock<'_> {
         let Some(entry) = self.0 else {
             return true;
         };
+        // #871: a landed document whose stamp was voided has no age to
+        // compare, which `standard_needs_refresh` reads as "nothing to
+        // refresh". The voiding means "this read can't be trusted", so
+        // it is stale at any floor (still past backoff, never in flight).
+        if entry.detail.is_some() && entry.detail_at.is_none() {
+            return !entry.books.in_flight
+                && dashboard_core::freshness::standard_backoff_elapsed(
+                    entry.books.fail_streak,
+                    entry.books.attempted_at,
+                );
+        }
         dashboard_core::freshness::standard_needs_refresh(
             entry.detail_at.map(|at| at.elapsed()),
             entry.books.in_flight,
@@ -2948,7 +2959,7 @@ impl GithubState {
     }
 
     /// Arm `lane`'s pause until its bucket resets (docs/0050 D4).
-    fn pause_lane(&mut self, lane: Lane, until: u64, why: std::fmt::Arguments<'_>) {
+    pub(crate) fn pause_lane(&mut self, lane: Lane, until: u64, why: std::fmt::Arguments<'_>) {
         self.rate_limited_until.arm(lane, until);
         log::warn!("{why} — {} paused until epoch {until}", lane.name());
     }
@@ -3986,7 +3997,10 @@ impl GithubState {
                 entry.rollup_dirty = true;
                 entry.rollup_catch_up_spent = false;
             }
-            entry.summary = row.clone();
+            // #873: a row no newer than the held summary (a list read
+            // dispatched before a confirmed write or a newer detail)
+            // keeps the held state, title and labels.
+            entry.summary = crate::pr_summary::merge_landing(&entry.summary, row);
             entry.summary_at = Instant::now();
             self.persist_pull(repo, row.number);
             return;
@@ -4006,6 +4020,19 @@ impl GithubState {
             },
         );
         self.persist_pull(repo, row.number);
+    }
+
+    /// #874: land a synthesized row (a notification subject) without
+    /// disturbing a document that already landed: an existing entry only
+    /// gains the fields it was missing, a new one is inserted as usual.
+    pub(crate) fn seed_summary(&mut self, repo: &str, row: &gql::PullRequest) {
+        let key = PrKey::new(repo, row.number);
+        if let Some(entry) = self.pulls.get_mut(&key) {
+            crate::pr_summary::seed_missing(&mut entry.summary, row);
+            self.persist_pull(repo, row.number);
+        } else {
+            self.land_summary(repo, row);
+        }
     }
 
     /// Land a parsed detail into its document (docs/0072 D2/D3): the
@@ -4042,6 +4069,9 @@ impl GithubState {
         if let Some(rollup) = &detail.rollup_state {
             entry.summary.status = Some(rollup.clone());
         }
+        // #873: every other field the detail carries too, so a merge or
+        // label edit seen on the page reaches the list rows.
+        crate::pr_summary::refresh_from_detail(&mut entry.summary, &detail);
         entry.rollup_dirty = false;
         entry.rollup_catch_up_spent = false;
         entry.detail = Some(detail);
@@ -4289,9 +4319,9 @@ impl GithubState {
         if let Some(m) = &result.network {
             failed = Some(format!("Network error: {m}"));
         } else if result.status != 200 {
-            let status = result.status;
+            let (status, kind) = (result.status, result.kind);
             self.apply(result);
-            failed = Some(format!("GitHub answered HTTP {status}"));
+            failed = Some(self.http_failure_copy(kind, status));
         } else if let Some(message) = result.body.as_deref().and_then(|body| {
             serde_json::from_str::<gql::Envelope<serde_json::Value>>(body)
                 .ok()
@@ -4886,10 +4916,18 @@ impl GithubState {
                 return;
             }
             _ => {
-                if let Some(rate) = result.rate.filter(|r| r.remaining == 0) {
+                // #751: the primary header, `Retry-After` and a secondary
+                // limit's message all arm the pause (`rate_pause/classify`).
+                if let Some(until) = crate::rate_pause::pause_until(
+                    result.status,
+                    result.rate.as_ref(),
+                    result.body.as_deref(),
+                    &[],
+                    budget_now(),
+                ) {
                     self.pause_lane(
                         result.kind.lane(),
-                        rate.reset_epoch,
+                        until,
                         format_args!(
                             "{}: rate-limited (HTTP {})",
                             result.kind.kind_name(),
@@ -5632,6 +5670,9 @@ pub(crate) async fn run_spec_tracked(
         }
     };
     cx.update(|cx| status::end(cx, id));
+    // #751: page-owned reads and writes land their 200s without `apply`,
+    // so the limits a response reports are read here, once, for every run.
+    cx.update(|cx| state.update(cx, |s, _| s.note_limits(&result)));
     result
 }
 
@@ -6196,6 +6237,7 @@ pub(crate) async fn load_gated_runs(
     repo: &str,
     head_branch: &str,
     head_oid: &str,
+    trigger: Trigger,
     cx: &mut AsyncApp,
 ) -> Result<Vec<GatedRunRow>, String> {
     let Some((owner, name)) = repo.split_once('/') else {
@@ -6204,7 +6246,7 @@ pub(crate) async fn load_gated_runs(
     let short = head_oid.get(..7).unwrap_or(head_oid);
     let ident = format!("{repo}#gated-{short}");
     let url = api::gated_runs_url(owner, name, head_branch);
-    let result = gated_get(&state, Kind::GatedRuns, ident, url, Trigger::ViewShown, cx).await?;
+    let result = gated_get(&state, Kind::GatedRuns, ident, url, trigger, cx).await?;
     let page: api::GatedRunsPage = serde_json::from_str(result.body.as_deref().unwrap_or_default())
         .map_err(|e| format!("Malformed gated-runs payload ({e})"))?;
     let mut rows = Vec::new();
@@ -6233,6 +6275,7 @@ pub(crate) async fn load_gated_runs_via_suites(
     state: Entity<GithubState>,
     repo: &str,
     head_oid: &str,
+    trigger: Trigger,
     cx: &mut AsyncApp,
 ) -> Result<Vec<GatedRunRow>, String> {
     let Some((owner, name)) = repo.split_once('/') else {
@@ -6241,7 +6284,7 @@ pub(crate) async fn load_gated_runs_via_suites(
     let short = head_oid.get(..7).unwrap_or(head_oid);
     let ident = format!("{repo}#suites-{short}");
     let url = api::check_suites_for_sha_url(owner, name, head_oid);
-    let result = gated_get(&state, Kind::GatedRuns, ident, url, Trigger::Expand, cx).await?;
+    let result = gated_get(&state, Kind::GatedRuns, ident, url, trigger, cx).await?;
     let page: api::CheckSuitesPage =
         serde_json::from_str(result.body.as_deref().unwrap_or_default())
             .map_err(|e| format!("Malformed check-suites payload ({e})"))?;
@@ -6252,15 +6295,8 @@ pub(crate) async fn load_gated_runs_via_suites(
         }
         let suite_ident = format!("{repo}#suite-{}", suite.id);
         let suite_url = api::workflow_runs_by_suite_url(owner, name, suite.id);
-        let runs_result = gated_get(
-            &state,
-            Kind::GatedRuns,
-            suite_ident,
-            suite_url,
-            Trigger::Expand,
-            cx,
-        )
-        .await?;
+        let runs_result =
+            gated_get(&state, Kind::GatedRuns, suite_ident, suite_url, trigger, cx).await?;
         let runs: api::WorkflowRunsPage =
             serde_json::from_str(runs_result.body.as_deref().unwrap_or_default())
                 .map_err(|e| format!("Malformed suite-runs payload ({e})"))?;
@@ -6471,6 +6507,22 @@ pub(crate) async fn run_mutation(
         max_pages: 1,
         variables: Some(variables),
     };
+    // #721: a write is user-initiated, but a request the paused budget
+    // would refuse changes nothing: answer 429 without sending, and let
+    // the caller's failure copy say the budget is paused.
+    if cx.update(|cx| state.read(cx).pause_in_force(Lane::Graphql).is_some()) {
+        log::debug!("{}: held — GraphQL budget paused", spec.kind.kind_name());
+        return SpecResult {
+            kind: spec.kind,
+            ident: spec.ident,
+            status: 429,
+            etag: None,
+            rate: None,
+            body: None,
+            network: None,
+            cursor: None,
+        };
+    }
     run_spec_tracked(state, spec, cx).await
 }
 
@@ -7169,6 +7221,7 @@ mod tests {
                 limit: 5000,
                 remaining: 4900,
                 reset_epoch: 9_999_999,
+                retry_after: None,
             }),
             body: Some(body.into()),
         })
@@ -8761,6 +8814,7 @@ mod tests {
                 limit: 5000,
                 remaining: 0,
                 reset_epoch: 9_999_999_999,
+                retry_after: None,
             }),
             body: Some(r#"{"message":"rate limit"}"#.into()),
         })]));
@@ -11010,6 +11064,7 @@ mod tests {
                 limit: 5000,
                 remaining: 4900,
                 reset_epoch: 42,
+                retry_after: None,
             }),
             body: None,
         })]));

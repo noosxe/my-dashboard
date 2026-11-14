@@ -1380,7 +1380,9 @@ impl GithubPage {
         // layer — land it so the store holds the document before the
         // page exists (the page paints from the store; it keeps no
         // snapshot of its own).
-        self.state.update(cx, |s, _| s.land_summary(repo, pr));
+        // #874: seeding, not replacing — a synthesized notification row
+        // must not blank a summary that already landed.
+        self.state.update(cx, |s, _| s.seed_summary(repo, pr));
         let page = cx.new(|cx| {
             pr_page::PrDetailPage::new(
                 self.state.clone(),

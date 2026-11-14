@@ -326,6 +326,10 @@ pub struct Envelope<T> {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct GqlError {
     pub message: String,
+    /// GraphQL's error `type` (`RATE_LIMITED`, `FORBIDDEN`, `NOT_FOUND`,
+    /// …). GitHub sets it on most errors; absent on some (#751).
+    #[serde(default, rename = "type")]
+    pub kind: Option<String>,
 }
 
 /// `rateLimit` root field — the authoritative per-request cost for GraphQL
@@ -810,7 +814,9 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
           }
         }
       }
-      commits(first: 100) {
+      # #876: `last` — the newest 100 (still ascending), so a long PR cuts
+      # its oldest commits and a new push always shows.
+      commits(last: 100) {
         totalCount
         nodes {
           commit {

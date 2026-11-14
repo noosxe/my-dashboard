@@ -452,7 +452,11 @@ session-scoped, exactly pre-#556), and the hourly prune.
   and are naturally bounded by it). Pending entries are pinned (D6).
 - SWR staleness for a detail: 5 minutes to start, tuned on receipts — the
   tick loop (docs/0013: 60 s ticks) keeps *lists* fresh; this TTL only
-  decides when a *reopen* revalidates in the background.
+  decides when a *reopen* revalidates in the background. It never skips a
+  trigger that already passed its own age floor or asks on purpose
+  (refocus, manual, mutation refetch, re-poll); `pr_page/refocus.rs` holds
+  the list (#871). A voided stamp on a landed document is stale to
+  `DetailClock::wants_refresh` at any floor.
 - `sign_out` clears the map (it already clears session state).
 
 ### D10 — Lanes unchanged

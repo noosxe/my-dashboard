@@ -1,0 +1,52 @@
+# pr-notification-open.txt — opening a PR from a notification keeps its
+# list row (#874). The notification names beacon's PR 101, which the Open
+# PRs lane already lists. The page seeds its document from a synthesized
+# row (no state, URL or CI rollup); before the fix that row replaced the
+# landed summary, so the PR dropped out of the Open list and lost its CI
+# glyph when the user came back.
+#
+# Prerequisites: the containerized env (docs/0071), the fixture overlay
+# that adds the notification (the committed fixtures carry none), the
+# pinned clock, and a session named `prnotif` at 1280x800:
+#   crates/debug/verify/pr-notification-open-fixtures.sh /tmp/fixtures-notif
+#   export DASHBOARD_GITHUB_FIXTURE=/tmp/fixtures-notif
+#   export DASHBOARD_FIXED_NOW=2026-10-23T12:00:00Z
+#   dashboard-debug session start --name prnotif --size 1280x800 \
+#     --binary /tmp/target/debug/my-dashboard
+# Run (in-container): dashboard-debug run crates/debug/verify/pr-notification-open.txt
+#
+# Tabs and the notification row take bridge mouse clicks at their centres,
+# frozen for this fixture set at 1280x800 (see pr-page.txt).
+
+--session prnotif
+
+# Home → GitHub → beacon; the Open PRs lane lists PR 101 with its CI glyph.
+assert-label "Open GitHub module"
+click 11447690740305500471 --wait-frame
+wait-label "Filter repositories"
+click 349678605523893363
+type beacon
+key down
+key enter
+wait-label "PR #101: Parser: accept trailing commas in manifest lists — fixture-user/beacon · octo-dev · OPEN · CI: failing"
+
+# Notifications tab → the thread → the subject link opens the PR page.
+mouse down 779 227
+mouse up 779 227
+wait-label "PullRequest: Parser: accept trailing commas in manifest lists"
+mouse down 800 336
+mouse up 800 336
+wait-label "Open Parser: accept trailing commas in manifest lists #101"
+mouse down 400 113
+mouse up 400 113
+wait-label "Conversation"
+
+# Back to the repo through the breadcrumb (it returns to the Notifications
+# tab), then the Open PRs lane: it still lists the row, with its state and its CI glyph.
+mouse down 532 34
+mouse up 532 34
+wait-label "PullRequest: Parser: accept trailing commas in manifest lists"
+mouse down 599 227
+mouse up 599 227
+wait-label "PR #101: Parser: accept trailing commas in manifest lists — fixture-user/beacon · octo-dev · OPEN · CI: failing"
+snapshot after-notification-open

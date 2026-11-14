@@ -75,6 +75,7 @@ impl RateBucket {
             limit: self.limit,
             remaining: self.remaining,
             reset_epoch: now + self.reset_in_secs,
+            retry_after: None,
         }
     }
 }
