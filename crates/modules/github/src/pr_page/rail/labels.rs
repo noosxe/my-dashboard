@@ -71,7 +71,12 @@ pub(super) fn labels(
         empty_line("pr-labels-empty", "None", cx)
     } else {
         // One wrap container that holds the pills themselves (#799).
-        let names: Vec<&str> = d.labels.iter().map(|l| l.name.as_str()).collect();
+        let names: Vec<&str> = d
+            .labels
+            .iter()
+            .take(cap.shown)
+            .map(|l| l.name.as_str())
+            .collect();
         let mut pills = h_flex()
             .id("pr-labels")
             .role(gpui::accesskit::Role::Label)
