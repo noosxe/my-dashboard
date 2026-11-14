@@ -591,6 +591,9 @@ belongs to the gated-runs panel (docs/0066), so the gate rows use
     `statusContextCountsByState { state count }` on the rollup's `contexts`;
   - `merged mergedAt mergedBy { login } closedAt`, and
     `timelineItems(last: 1, itemTypes: [CLOSED_EVENT])` for the closer;
+  - `isInMergeQueue`, `mergeQueueEntry { position state }` and
+    `autoMergeRequest { enabledBy { login } mergeMethod }`, which the verdict
+    (D2 rows 4 and 5) and its sub-line read;
   - `headRef { id }` and the action fields of #770–#776, each with its own
     issue.
 - **Query cost:** the additions are small connections (20 nodes) and
@@ -681,7 +684,9 @@ container over the docs/0081 §12.1 fixtures:
     goldens;
   - `pr-writes.txt`: Close now opens the `⋯` menu first;
   - `pr-gated-runs.txt`: `pr-view-checks` becomes `pr-rail-gate-checks`;
-  - `pr-update-branch.txt`: the button moves into the gate row;
+    it runs over fixture #109 now, like the others;
+  - `pr-update-branch.txt`: the button moves into the gate row; it runs over
+    fixtures #107 and #113 and asserts the recorded writes;
   - `pr-esc-order.txt`.
 - **New receipt** `pr-rail.txt`. It covers:
   - the rail scrolls on 102 at 1280×800;
@@ -726,6 +731,46 @@ The action issues #770–#776 build on PR 3 and stay separate.
    method button and the `⋯` menu (Close and the confirm moved), and the
    terminal sub-lines. Removes the state line, the method `Select` and the
    checks card. Adds the ready and closed fixtures and goldens.
+
+## 8a. Implementation notes (status block, step 3)
+
+What the status-block PR settled where this doc left room, or changed:
+
+- **Checks counts.** The query's `checkRunCountsByState` and
+  `statusContextCountsByState` fold into the Checks tab's buckets: failed
+  (`FAILURE`, `TIMED_OUT`, `ACTION_REQUIRED`, `STARTUP_FAILURE`, `ERROR`),
+  running (`IN_PROGRESS`, `QUEUED`, `PENDING`, `WAITING`, `EXPECTED`) and
+  passed (everything else, `CANCELLED` included, since the tab ranks it with
+  the passing rows). With no counts at all, the row falls back to the
+  listed rows, then to the rollup state, so a payload persisted before the
+  counts existed still reads. "Checks status unknown" is left for a rollup
+  state this build doesn't know.
+- **Queue and auto-merge facts are queried now**, although their actions
+  ship in #774 and #775: the verdict's rows 4 and 5 and their sub-lines need
+  them. The action row's slots for them, for Ready for review, Reopen,
+  Delete branch and Convert to draft are laid out by the precedence rules
+  (`rail/actions.rs`) and stay off the screen until their issue adds the
+  handler. So a draft's action row is the `⋯` button alone, and a closed PR
+  has none, until #771, #770 and #773 land.
+- **Merged glyph tone.** The header badge's Merged tone is `accent`, a
+  near-neutral in the default themes, so as a thin icon it vanishes. The
+  merged glyph takes the `info` slot.
+- **Menu items have no a11y name.** The upstream `PopupMenu` names only its
+  plain `Item` variant; the custom-element rows the probe keys need
+  (`pr-close`, `pr-update-branch-*`, `pr-merge-method-*`) get a `MenuItem`
+  node with no label. D14's "visible label" name for them waits on an
+  upstream label for element items; the receipts click them by position.
+- **The Update button gives way to the rebase confirm** while it is open
+  (docs/0067 D4), as it replaced the old row; Cancel brings it back. It is
+  small (`xsmall`) so "No conflicts, behind `<base>`" keeps most of the row,
+  and gate labels truncate with a tooltip rather than wrap.
+- **The review jump** reuses the docs/0026 D9 anchor on review cards. The
+  target is the newest change request, else the newest approval, among the
+  loaded reviews; one outside the newest-100 window is still the row's
+  target and the anchor gives up quietly.
+- **Fixtures.** #113 (ready) and #114 (closed, reopenable) join #101–#112.
+  The closed one carries `viewerCanReopen` and a head ref the query doesn't
+  select yet; #770 and #773 will.
 
 ## 9. Non-goals
 

@@ -193,6 +193,55 @@ fn the_overflow_scenario_ships_true_totals_over_capped_nodes() {
     // `last: 100`: the nodes are the newest hundred, ascending (#742).
     assert_eq!(d.comments.nodes[0].body, "Comment 140");
     assert_eq!(d.comments.nodes[99].body, "Comment 239");
+    // The counts-by-state lists stay exact over the capped page (docs/0083
+    // D3): 137 checks, 10 of them still running.
+    assert_eq!(d.checks.counts.total(), 137);
+    assert_eq!(d.checks.counts.running, 10);
+    assert_eq!(d.checks.counts.passed, 127);
+}
+
+/// The populated scenario's counts match its rows (docs/0083 D3).
+#[test]
+fn the_populated_scenario_counts_its_checks_by_state() {
+    let d = detail(101);
+    assert_eq!(
+        (
+            d.checks.counts.failed,
+            d.checks.counts.running,
+            d.checks.counts.passed
+        ),
+        (1, 1, 5)
+    );
+    assert_eq!(d.checks.counts.total(), d.checks.total_count as u32);
+}
+
+/// The merge facts the status block reads (docs/0083 D6) and the two
+/// scenarios added for it (#798).
+#[test]
+fn the_status_scenarios_carry_how_they_ended_and_what_may_merge() {
+    let merged = detail(104);
+    assert!(merged.ending.merged);
+    assert_eq!(merged.ending.merged_by.as_deref(), Some("octo-dev"));
+    assert!(merged.ending.merged_at.is_some());
+
+    let closed = detail(105);
+    assert!(!closed.ending.merged);
+    assert_eq!(closed.ending.closed_by.as_deref(), Some("fixture-user"));
+    assert!(closed.ending.closed_at.is_some());
+
+    let ready = detail(113);
+    assert_eq!(ready.state.as_deref(), Some("OPEN"));
+    assert_eq!(ready.merge_state_status.as_deref(), Some("CLEAN"));
+    assert!(ready.viewer_can_update_branch);
+    assert_eq!(ready.review_decision.as_deref(), Some("APPROVED"));
+    assert_eq!(ready.checks.counts.passed, 2);
+    assert!(ready.merge_methods.squash && ready.merge_methods.rebase && !ready.merge_methods.merge);
+    assert_eq!(ready.viewer_permission.as_deref(), Some("WRITE"));
+
+    let reopenable = detail(114);
+    assert_eq!(reopenable.state.as_deref(), Some("CLOSED"));
+    assert_eq!(reopenable.ending.closed_by.as_deref(), Some("octo-dev"));
+    assert!(!reopenable.ending.merged);
 }
 
 #[test]
@@ -282,7 +331,7 @@ fn the_lane_lists_the_scenarios_on_beacon_only() {
     assert_eq!(repo["nameWithOwner"], "fixture-user/beacon");
     let rows = gql::repo_from_value(repo).unwrap().prs.nodes;
     let numbers: Vec<i64> = rows.iter().map(|r| r.number).collect();
-    assert_eq!(numbers, (101..=112).collect::<Vec<_>>());
+    assert_eq!(numbers, (101..=114).collect::<Vec<_>>());
     let atlas = lane("atlas");
     assert_eq!(atlas["data"]["repository"]["pullRequests"]["totalCount"], 0);
 }
