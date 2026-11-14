@@ -322,6 +322,7 @@ class Timeline:
             viewerCanUpdate=True,
             viewerCanUpdateBranch=False,
             viewerCanClose=True,
+            viewerCanReopen=False,
             viewerCanReact=True,
             viewerCanLabel=True,
             viewerCanAssign=True,
@@ -543,8 +544,11 @@ class Timeline:
                     **read_only,
                 ),
             },
+            # The viewer's last-used method (squash) is no longer allowed
+            # here: the button falls back to the first allowed (#776).
             107: {
                 "methods": (True, False, False),
+                "default_method": "SQUASH",
                 "pr": self.pull_request(
                     107,
                     "Parser: report the column in manifest errors",
@@ -600,8 +604,12 @@ class Timeline:
             },
             # docs/0083 D4: a writer's open PR that can merge: clean,
             # approved, passing, behind its base, squash and merge allowed.
+            # All three methods are allowed and the viewer's last-used one
+            # is squash, so the split button's preselection (#776) differs
+            # from the merge-commit rule it would otherwise follow.
             READY_PR: {
-                "methods": (False, True, True),
+                "methods": (True, True, True),
+                "default_method": "SQUASH",
                 "permission": "WRITE",
                 "pr": self.pull_request(
                     READY_PR,
@@ -630,8 +638,9 @@ class Timeline:
                     state="CLOSED",
                     closedAt=self.ago(48),
                     timelineItems=self.closed_by("octo-dev", 48),
-                    # Not selected by the detail query yet: Reopen and
-                    # Delete branch (#770, #773) read these.
+                    # Reopen reads `viewerCanReopen` (#770); Delete branch
+                    # reads `viewerCanDeleteHeadRef`, not selected by the
+                    # detail query yet (#773).
                     viewerCanReopen=True,
                     viewerCanDeleteHeadRef=True,
                     changedFiles=1,
@@ -836,6 +845,7 @@ def write_pr_scenarios(write, now, iso):
                         "mergeCommitAllowed": merge,
                         "squashMergeAllowed": squash,
                         "rebaseMergeAllowed": rebase,
+                        "viewerDefaultMergeMethod": scenario.get("default_method", "MERGE"),
                         "viewerPermission": scenario.get("permission", "ADMIN"),
                         "pullRequest": pr,
                     },

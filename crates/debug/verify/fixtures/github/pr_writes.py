@@ -9,7 +9,10 @@ read files, so a receipt asserts the recorded write
 
 Payload shapes are the selections the app's documents ask for, checked
 against the live GraphQL schema (MergePullRequestPayload.pullRequest,
-ClosePullRequestPayload.pullRequest, AddCommentPayload.clientMutationId,
+ClosePullRequestPayload.pullRequest, UpdatePullRequestPayload.pullRequest,
+RequestReviewsPayload.pullRequest, MarkPullRequestReadyForReviewPayload,
+ConvertPullRequestToDraftPayload and ReopenPullRequestPayload .pullRequest,
+AddCommentPayload.clientMutationId,
 AddPullRequestReviewPayload.pullRequestReview; PullRequestState and
 PullRequestReviewState values) and the REST reference (approve a fork
 run: 201; review pending deployments: 200 with an array of deployments).
@@ -31,6 +34,15 @@ def write_pr_writes(write):
 
     mutation("PrMerge", "mergePullRequest", {"pullRequest": {"state": "MERGED"}})
     mutation("PrClose", "closePullRequest", {"pullRequest": {"state": "CLOSED"}})
+    # The metadata pickers' writes (docs/0043 D1, #857). `PrUpdateMetadata`
+    # answers labels, assignees and milestone alike: one document, three
+    # op identities. `PrRequestReviews` is the reviewers' replace-all.
+    mutation("PrUpdateMetadata", "updatePullRequest", {"pullRequest": {"id": "PR_101"}})
+    mutation("PrRequestReviews", "requestReviews", {"pullRequest": {"id": "PR_101"}})
+    # The status block's state flips (docs/0083 D4, D5).
+    mutation("PrReady", "markPullRequestReadyForReview", {"pullRequest": {"id": "PR_103", "isDraft": False}})
+    mutation("PrConvertToDraft", "convertPullRequestToDraft", {"pullRequest": {"id": "PR_113", "isDraft": True}})
+    mutation("PrReopen", "reopenPullRequest", {"pullRequest": {"id": "PR_114", "state": "OPEN"}})
     mutation("PrAddComment", "addComment", {"clientMutationId": None})
     mutation(
         "PrUpdateBranch",

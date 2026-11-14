@@ -1,0 +1,10 @@
+{
+ "data": {
+  "convertPullRequestToDraft": {
+   "pullRequest": {
+    "id": "PR_113",
+    "isDraft": true
+   }
+  }
+ }
+}

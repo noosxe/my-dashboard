@@ -687,6 +687,9 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
     mergeCommitAllowed
     squashMergeAllowed
     rebaseMergeAllowed
+    # docs/0016 D5 (#776): the viewer's last-used merge method, else the
+    # repository's default; the split button's caret preselects it.
+    viewerDefaultMergeMethod
     # docs/0043 D4 — gates the milestone and reviewer pickers (no
     # PR-level flag exists upstream); read off the raw envelope node.
     viewerPermission
@@ -726,6 +729,8 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
       viewerCanUpdateBranch
       # docs/0016 D5 (#737): the Close button's per-viewer gate.
       viewerCanClose
+      # docs/0083 D4 (#770): Reopen's per-viewer gate on a closed PR.
+      viewerCanReopen
       # docs/0023 D1 on the PR surfaces (#196): the body, review summaries
       # and issue comments are all Reactable — one shared group shape.
       viewerCanReact
@@ -860,6 +865,15 @@ pub struct PrDetail {
     /// docs/0016 D5 (#737) — `viewerCanClose`; degraded default false
     /// hides the Close button.
     pub viewer_can_close: bool,
+    /// docs/0083 D4 (#770) — `viewerCanReopen`: gates Reopen on a closed
+    /// PR. Absent ⇒ false (hidden).
+    #[serde(default)]
+    pub viewer_can_reopen: bool,
+    /// docs/0016 D5 (#776) — `Repository.viewerDefaultMergeMethod`
+    /// (`MERGE` | `SQUASH` | `REBASE`); absent in payloads persisted
+    /// before the field existed.
+    #[serde(default)]
+    pub viewer_default_merge_method: Option<String>,
     /// docs/0023 D1 on the PR body (#196) — gates the body's `+` picker.
     pub viewer_can_react: bool,
     /// docs/0023 D3 — the body's reaction groups. Absent fields degrade
@@ -2182,6 +2196,14 @@ pub fn pr_detail_from_value(value: &serde_json::Value) -> Option<PrDetail> {
             .get("viewerCanClose")
             .and_then(|v| v.as_bool())
             .unwrap_or(false),
+        viewer_can_reopen: pr
+            .get("viewerCanReopen")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        viewer_default_merge_method: value
+            .get("viewerDefaultMergeMethod")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
         viewer_can_react: pr
             .get("viewerCanReact")
             .and_then(|v| v.as_bool())
@@ -2444,6 +2466,28 @@ mutation PrUpdateBranch($input: UpdatePullRequestBranchInput!) {
 pub const PR_CLOSE_MUTATION: &str = r#"
 mutation PrClose($input: ClosePullRequestInput!) {
   closePullRequest(input: $input) { pullRequest { state } }
+}
+"#;
+
+/// Ready for review (`MarkPullRequestReadyForReviewInput {
+/// pullRequestId }`, verified against the live schema 2026-11-14).
+pub const PR_READY_MUTATION: &str = r#"
+mutation PrReady($input: MarkPullRequestReadyForReviewInput!) {
+  markPullRequestReadyForReview(input: $input) { pullRequest { id isDraft } }
+}
+"#;
+
+/// Convert to draft (`ConvertPullRequestToDraftInput { pullRequestId }`).
+pub const PR_CONVERT_TO_DRAFT_MUTATION: &str = r#"
+mutation PrConvertToDraft($input: ConvertPullRequestToDraftInput!) {
+  convertPullRequestToDraft(input: $input) { pullRequest { id isDraft } }
+}
+"#;
+
+/// Reopen (`ReopenPullRequestInput { pullRequestId }`).
+pub const PR_REOPEN_MUTATION: &str = r#"
+mutation PrReopen($input: ReopenPullRequestInput!) {
+  reopenPullRequest(input: $input) { pullRequest { id state } }
 }
 "#;
 
@@ -3556,6 +3600,9 @@ mod tests {
             ("PR_MERGE_MUTATION", PR_MERGE_MUTATION),
             ("PR_UPDATE_BRANCH_MUTATION", PR_UPDATE_BRANCH_MUTATION),
             ("PR_CLOSE_MUTATION", PR_CLOSE_MUTATION),
+            ("PR_READY_MUTATION", PR_READY_MUTATION),
+            ("PR_CONVERT_TO_DRAFT_MUTATION", PR_CONVERT_TO_DRAFT_MUTATION),
+            ("PR_REOPEN_MUTATION", PR_REOPEN_MUTATION),
             ("PR_UPDATE_COMMENT_MUTATION", PR_UPDATE_COMMENT_MUTATION),
             ("PR_DELETE_COMMENT_MUTATION", PR_DELETE_COMMENT_MUTATION),
             ("PR_UPDATE_REVIEW_MUTATION", PR_UPDATE_REVIEW_MUTATION),
