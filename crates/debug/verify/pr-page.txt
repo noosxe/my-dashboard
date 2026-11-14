@@ -18,17 +18,16 @@
 # focus yet (#657). Tabs because the ids under the PR page hash its entity
 # id, so they differ between identical walks; only chrome ids are stable
 # here, and goldens compare structure rather than ids (0065 D5). The tree
-# has no title or commit-row nodes (#768), so the Commits stops can only
-# show that the Conversation content left.
+# has no title node, so the Conversation stops find the page by its tab
+# strip's label; the Commits stops assert the commit rows' own nodes
+# (pr-keyboard.txt).
 #
-# Not here yet, because they would stop the walk at the first scenario:
-# `audit` FAILs on the comment box's unlabeled action select (#768; the
-# rail's own merge-method select is gone with the status block, docs/0083)
-# and `tab-stops` exits at the comment box's Tab trap (#733). Add both at
-# each Conversation stop, after its `assert-baseline`, when those land.
-# Until then a PR-page PR runs them as one-off verbs at the stop it
-# touches; the rail's own order is walked from the comment box's select
-# (pr-rail.txt documents the walk).
+# Each Conversation stop (101 and 103-105, 113, 114) runs `tab-stops` and
+# `audit` after its `assert-baseline`: the walk must close its cycle (no
+# Tab trap, #733) and the audit must have no FAIL (#768). Their order is
+# docs/0083 D14's. 102 runs `audit` only: its 252 rows make more stops than
+# the walk's 100-stop cap, so its cycle can't close within it. The tab strip
+# and composers by keyboard, and the audit of every tab, are pr-keyboard.txt.
 
 --session prpage
 
@@ -60,6 +59,8 @@ assert-no-label "Close pull request"
 assert-label "Leave a comment"
 wait-label "Checks (9)"
 assert-baseline github-pr-populated
+tab-stops
+audit
 mouse down 447 155
 mouse up 447 155 --wait-frame
 wait-frame
@@ -86,6 +87,9 @@ assert-label "#102"
 # Behind its base and updatable: Update sits in the Mergeability gate row.
 assert-label "Out of date with main"
 assert-label "Choose how to update the branch"
+# No `tab-stops` here: 252 rows make more stops than the walk's 100-stop cap
+# (pr-keyboard.txt).
+audit
 mouse down 472 254
 mouse up 472 254 --wait-frame
 assert-no-label "Leave a comment"
@@ -112,6 +116,8 @@ assert-label "Ready for review"
 assert-label "More pull request actions"
 assert-no-label "Merge pull request"
 assert-baseline github-pr-draft
+tab-stops
+audit
 mouse down 447 155
 mouse up 447 155 --wait-frame
 wait-frame
@@ -135,6 +141,8 @@ assert-no-label "Merge pull request"
 assert-no-label "More pull request actions"
 assert-label "Delete branch"
 assert-baseline github-pr-merged
+tab-stops
+audit
 mouse down 447 155
 mouse up 447 155 --wait-frame
 wait-frame
@@ -157,6 +165,8 @@ assert-label "Closed"
 assert-no-label "Merge pull request"
 assert-no-label "More pull request actions"
 assert-no-label "Edit"
+tab-stops
+audit
 mouse down 447 155
 mouse up 447 155 --wait-frame
 wait-frame
@@ -308,6 +318,8 @@ assert-label "Choose how to update the branch"
 assert-label "Squash and merge"
 assert-label "More pull request actions"
 assert-baseline github-pr-ready
+tab-stops
+audit
 click 12782369444481205663 --wait-frame
 wait-label "PR #113: Docs: explain the manifest grammar"
 
@@ -332,6 +344,8 @@ assert-label "Delete branch"
 assert-no-label "More pull request actions"
 assert-no-label "Edit labels"
 assert-baseline github-pr-closed
+tab-stops
+audit
 
 click 12782369444481205663 --wait-frame
 wait-label "PR #114: Loader: try the lazy manifest reader"

@@ -338,9 +338,33 @@ scripts/verify.sh sh -c '
 '
 ```
 
-The script leaves out `audit` and `tab-stops` until #768 and #733 land,
-since both exit red at the first Conversation stop (its header says where
-they go). A PR-page PR runs them as one-off verbs at the stop it touches.
+`pr-page.txt` runs `tab-stops` and `audit` at each Conversation stop, so a
+trapped field or an unnamed control turns the receipt red. `pr-keyboard.txt`
+(session `prkeys`, same fixtures and clock) drives the PR page by keyboard
+(#733, #734, #768): the tab strip is one Tab stop that Left/Right/Home/End
+move along, commit and check rows carry their own nodes, and `tab-stops`
+walks a full cycle from a focused composer (the description editor, the
+comment box, a thread reply), which is the receipt that Tab leaves it. It
+also audits all four tabs of #101 and #102. A `tab-stops` walk moves focus
+off the strip, so the script re-takes it with a click on a tab (a click
+focuses the strip) or three Tabs from a freshly opened page:
+
+```sh
+scripts/verify.sh sh -c '
+  set -e
+  cargo build -p dashboard-app
+  export DASHBOARD_GITHUB_FIXTURE=/work/crates/debug/verify/fixtures/github
+  export DASHBOARD_FIXED_NOW=2026-10-23T12:00:00Z
+  cargo run -p dashboard-debug -- session start --name prkeys --size 1280x800 \
+    --binary /tmp/target/debug/my-dashboard
+  cargo run -p dashboard-debug -- run crates/debug/verify/pr-keyboard.txt
+  cargo run -p dashboard-debug -- session stop prkeys
+'
+```
+
+The walk lists at most 100 stops. A page with more (#102's 252-row
+Conversation, its 137 checks) can't close its cycle inside that, so those
+stops run `audit` only.
 
 Interactive inspection: `scripts/verify.sh bash`.
 

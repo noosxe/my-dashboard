@@ -51,6 +51,19 @@
       "focused": false
     },
     {
+      "accesskit_id": "1588128747340930101",
+      "role": "Tab",
+      "label": "Commits (3)",
+      "bounds": {
+        "x": 408.0,
+        "y": 137.0,
+        "w": 78.0,
+        "h": 36.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
       "accesskit_id": "1971259976447032466",
       "role": "TreeItem",
       "label": "Favicon",
@@ -77,26 +90,13 @@
       "focused": false
     },
     {
-      "accesskit_id": "1992816275478458406",
-      "role": "Tab",
-      "label": "Files changed (4)",
-      "bounds": {
-        "x": 585.0,
-        "y": 137.0,
-        "w": 108.0,
-        "h": 36.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "2412601065119952483",
-      "role": "Tab",
-      "label": "Conversation (0)",
+      "accesskit_id": "2949438199115174530",
+      "role": "TabList",
+      "label": null,
       "bounds": {
         "x": 288.0,
         "y": 137.0,
-        "w": 104.0,
+        "w": 955.0,
         "h": 36.0
       },
       "focusable": false,
@@ -129,19 +129,6 @@
       "focused": false
     },
     {
-      "accesskit_id": "4106238414724254663",
-      "role": "TabList",
-      "label": null,
-      "bounds": {
-        "x": 288.0,
-        "y": 137.0,
-        "w": 955.0,
-        "h": 36.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
       "accesskit_id": "4602998836821200419",
       "role": "TreeItem",
       "label": "Usage",
@@ -166,6 +153,19 @@
       },
       "focusable": true,
       "focused": false
+    },
+    {
+      "accesskit_id": "5831072103681132226",
+      "role": "TabList",
+      "label": "Pull request sections: Files changed (4)",
+      "bounds": {
+        "x": 288.0,
+        "y": 137.0,
+        "w": 955.0,
+        "h": 36.0
+      },
+      "focusable": true,
+      "focused": true
     },
     {
       "accesskit_id": "6415254724359767133",
@@ -194,13 +194,26 @@
       "focused": false
     },
     {
-      "accesskit_id": "8281659229928806970",
+      "accesskit_id": "7457186912149784588",
       "role": "Tab",
-      "label": "Checks (0)",
+      "label": "Files changed (4)",
       "bounds": {
-        "x": 502.0,
+        "x": 585.0,
         "y": 137.0,
-        "w": 67.0,
+        "w": 108.0,
+        "h": 36.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "7876971701791278665",
+      "role": "Tab",
+      "label": "Conversation (0)",
+      "bounds": {
+        "x": 288.0,
+        "y": 137.0,
+        "w": 104.0,
         "h": 36.0
       },
       "focusable": false,
@@ -337,6 +350,19 @@
       "focused": false
     },
     {
+      "accesskit_id": "13746029866600133152",
+      "role": "Tab",
+      "label": "Checks (0)",
+      "bounds": {
+        "x": 502.0,
+        "y": 137.0,
+        "w": 67.0,
+        "h": 36.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
       "accesskit_id": "13765168893117473505",
       "role": "ListItem",
       "label": null,
@@ -345,19 +371,6 @@
         "y": 361.0,
         "w": 204.0,
         "h": 27.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "14570502184379155534",
-      "role": "Tab",
-      "label": "Commits (3)",
-      "bounds": {
-        "x": 408.0,
-        "y": 137.0,
-        "w": 78.0,
-        "h": 36.0
       },
       "focusable": false,
       "focused": false
@@ -399,7 +412,7 @@
         "h": 770.0
       },
       "focusable": true,
-      "focused": true
+      "focused": false
     },
     {
       "accesskit_id": "15724809099859150912",
