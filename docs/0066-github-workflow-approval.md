@@ -96,6 +96,9 @@ endpoint honors `branch` + `event` and returns `head_sha` on every row).
 
 Fetch-record key: `(repo, head_sha, "gated-runs")`. Inflight dedup applies; the
 sweep refetches on pane refresh and after any approve/reject (D5).
+The sweep spends REST requests, so it waits out the REST pause, and its
+requests are booked under the trigger of the detail read that armed it
+(#875); the gate probes keep `probe`.
 
 **Fallback** (only if the sweep comes back empty while the PR shows zero
 `CheckRun`s *and* zero waiting rows): `GET /repos/{o}/{r}/commits/{head_sha}/check-suites`,

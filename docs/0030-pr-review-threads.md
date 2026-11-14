@@ -370,8 +370,10 @@ design text:
   ghost icon), not hover-revealed — the 0019 row-actions precedent; hover
   reveal also risks hover-only discovery for bridge/AT users.
 - **Busy handling**: while any write is in flight every Files-tab button
-  disables; Submit reads **Submitting…**. Post-mutation the threads refetch
-  re-renders the pane — the detail query (and patches) are not refetched.
+  disables; Submit reads **Submitting…**. A confirmed batch refetches the
+  threads and also the detail (#872): the review changes the review cards,
+  `reviewDecision` and the review count, which Conversation and the rail
+  read. Patches are not refetched.
 
 ### Follow-up — resolve-reason picker (#213)
 

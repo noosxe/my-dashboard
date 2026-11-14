@@ -93,6 +93,11 @@ floor, backoff, rate-limit pause, docs/0031 dedup):
 | Module home / repo list | home lane or repo rows, floor 15 s |
 | Open detail page (PR/issue/notification) | its lanes, floor 15 s |
 
+A refocus that passes the floor always refetches: the 5-minute reopen
+TTL (docs/0072 D9) never skips it, and a landed document whose freshness
+stamp was voided (an outdated read, an unpatchable confirmation) counts as
+stale at any floor (#871; docs/0084 D1).
+
 The 15 s `FOCUS_MIN_AGE` floor is kept from docs/0032 D1 (unchanged):
 rapid alt-tabbing must not become a cadence. The page's observer
 already implements the module half — the card's observer stops being
