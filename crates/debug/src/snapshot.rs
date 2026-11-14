@@ -126,7 +126,39 @@ fn parse_bounds(value: Option<&Value>) -> Option<Bounds> {
 /// Everything in a label that churns between captures and is never
 /// structural: wall-clock times and the status chip's request counts.
 fn normalize_label(label: &str) -> String {
-    normalize_request_counts(&normalize_wall_clock(label))
+    normalize_age_label(&normalize_request_counts(&normalize_wall_clock(label)))
+}
+
+/// The PR header's age label (docs/0084 D8) reads "checked 15s ago" while
+/// the page is watched and "synced 3m ago" otherwise, and which one a
+/// capture sees depends on how long the page has been open. Both become
+/// `<age label>`; a reason after it ("· auto-refresh paused (budget)") is
+/// structural and stays. The receipt that asserts the watched wording
+/// reads a live page, not a golden.
+fn normalize_age_label(label: &str) -> String {
+    for head in ["synced ", "checked "] {
+        let Some(rest) = label.strip_prefix(head) else {
+            continue;
+        };
+        let (age, reason) = match rest.split_once(" · ") {
+            Some((age, reason)) => (age, Some(reason)),
+            None => (rest, None),
+        };
+        let is_age = age == "just now"
+            || age.strip_suffix(" ago").is_some_and(|n| {
+                n.len() > 1
+                    && n[..n.len() - 1].bytes().all(|b| b.is_ascii_digit())
+                    && matches!(n.as_bytes()[n.len() - 1], b's' | b'm' | b'h' | b'd')
+            });
+        if !is_age {
+            return label.to_string();
+        }
+        return match reason {
+            Some(r) => format!("<age label> · {r}"),
+            None => "<age label>".to_string(),
+        };
+    }
+    label.to_string()
 }
 
 /// The status chip's session totals ("session: 23 requests (12 GraphQL,
@@ -633,6 +665,32 @@ mod tests {
     #[test]
     fn from_dump_requires_frame_number() {
         assert!(Snapshot::from_dump("a", &json!({"nodes": {}})).is_err());
+    }
+
+    #[test]
+    fn the_pr_header_age_label_becomes_a_token() {
+        for same in [
+            "synced just now",
+            "synced 3m ago",
+            "checked just now",
+            "checked 35s ago",
+            "checked 2h ago",
+        ] {
+            assert_eq!(normalize_label(same), "<age label>", "{same}");
+        }
+        assert_eq!(
+            normalize_label("synced 3m ago · auto-refresh paused (budget)"),
+            "<age label> · auto-refresh paused (budget)"
+        );
+        // Not the label's shape: untouched.
+        for other in [
+            "synced",
+            "synced with origin",
+            "checked 5 files",
+            "checked 35 ago",
+        ] {
+            assert_eq!(normalize_label(other), other);
+        }
     }
 
     #[test]
