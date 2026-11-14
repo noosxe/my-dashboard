@@ -89,7 +89,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gpui::{AppContext as _, Render, TestAppContext};
+    use gpui::{Render, TestAppContext};
     use gpui_component::Root;
 
     struct Harness {

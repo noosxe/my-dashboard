@@ -56,6 +56,7 @@ pub(crate) const ANCHOR_FADE: Duration = Duration::from_secs(3);
 
 mod catch_up;
 pub(crate) mod checks;
+mod commit_label;
 mod conversation_window;
 mod default_method;
 mod detail_read;
@@ -106,6 +107,7 @@ use crate::service::{
     run_spec_tracked,
 };
 use crate::tab_strip;
+use crate::textarea_name::Named as _;
 use crate::usage::{Origin, Surface, Trigger};
 use dashboard_core::freshness::{Freshness, freshness_row, relative_age};
 
@@ -804,6 +806,7 @@ impl PrDetailPage {
             TextareaState::new(window, cx)
                 .rows(4)
                 .placeholder("Leave a comment")
+                .named("Comment")
         });
         let actions: Vec<SharedString> = ["Comment", "Approve", "Request changes"]
             .iter()
@@ -1375,6 +1378,7 @@ impl PrDetailPage {
             TextareaState::new(window, cx)
                 .rows(2)
                 .placeholder("Comment (optional — a default goes on the wire)")
+                .named("Deployment review comment")
         });
         self.gate_review = Some(GateReview {
             run_id,
@@ -2621,7 +2625,8 @@ impl PrDetailPage {
                 // grow with the body — 8 rows minimum, capped at 40 (the
                 // editor scrolls internally past that, like GitHub's).
                 .auto_grow(8, 40)
-                .placeholder("Describe this pull request");
+                .placeholder("Describe this pull request")
+                .named("Pull request description");
             state.set_value(body, window, cx);
             state
         });
@@ -3098,7 +3103,8 @@ impl PrDetailPage {
         let editor = cx.new(|cx| {
             let mut state = TextareaState::new(window, cx)
                 // Grows with the body; scrolls internally past 30 rows.
-                .auto_grow(4, 30);
+                .auto_grow(4, 30)
+                .named("Edit comment");
             state.set_value(body, window, cx);
             state
         });
@@ -3360,6 +3366,7 @@ impl PrDetailPage {
             TextareaState::new(window, cx)
                 .auto_grow(2, 10)
                 .placeholder("Leave a review comment")
+                .named("Review comment")
         });
         self.reply_composer = None;
         self.reply_sub = None;
@@ -3483,6 +3490,7 @@ impl PrDetailPage {
                 TextareaState::new(window, cx)
                     .rows(2)
                     .placeholder("Summarize your review (optional)")
+                    .named("Review summary")
             }));
         }
         self.line_composer = None;
@@ -3511,6 +3519,7 @@ impl PrDetailPage {
             TextareaState::new(window, cx)
                 .auto_grow(1, 8)
                 .placeholder("Reply…")
+                .named("Reply to review thread")
         });
         // Typing grows the box — keep the list heights honest (0041 D3).
         self.composer_sub = None;
@@ -3644,7 +3653,9 @@ impl PrDetailPage {
         self.thread_delete_confirm = None;
         self.resolve_picker = None;
         let editor = cx.new(|cx| {
-            let mut state = TextareaState::new(window, cx).auto_grow(4, 30);
+            let mut state = TextareaState::new(window, cx)
+                .auto_grow(4, 30)
+                .named("Edit review comment");
             state.set_value(body, window, cx);
             state
         });
@@ -4198,6 +4209,7 @@ impl PrDetailPage {
         &self,
         prefix: &str,
         subject_id: &str,
+        subject: &str,
         groups: &[gql::ReactionGroup],
         can_react: bool,
         cx: &Context<Self>,
@@ -4224,7 +4236,11 @@ impl PrDetailPage {
                     .tooltip(g.content.label())
                     // docs/0049 D1: glyph-only labels read poorly;
                     // name the reaction explicitly.
-                    .accessibility_label(format!("{} reaction: {}", g.content.label(), g.total))
+                    .accessibility_label(format!(
+                        "{} reaction on {subject}: {}",
+                        g.content.label(),
+                        g.total
+                    ))
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.toggle_reaction(subject_id.clone(), armed, content, window, cx)
                     })),
@@ -4243,7 +4259,7 @@ impl PrDetailPage {
                     .small()
                     .label("+")
                     .tooltip("Add reaction")
-                    .accessibility_label("Add reaction")
+                    .accessibility_label(format!("Add reaction to {subject}"))
                     .disabled(busy)
                     .dropdown_menu(move |menu, _, _| {
                         // docs/0023 D4 (§10 amendment): the static
@@ -4535,8 +4551,12 @@ impl PrDetailPage {
                     .clone()
                     .or_else(|| commit.author_name.clone())
                     .unwrap_or_else(|| "ghost".into());
+                let age = relative_age(commit.committed_at.as_deref());
                 h_flex()
                     .id(SharedString::from(format!("pr-commit-{i}")))
+                    // docs/0049 D1: a role-less row paints no a11y node.
+                    .role(accesskit::Role::Group)
+                    .aria_label(commit_label::commit_label(commit, &name, &age))
                     .gap_2()
                     .items_center()
                     .px_3()
@@ -4573,7 +4593,7 @@ impl PrDetailPage {
                         div()
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
-                            .child(relative_age(commit.committed_at.as_deref())),
+                            .child(age),
                     )
                     .into_any_element()
             })
@@ -4785,6 +4805,7 @@ impl PrDetailPage {
         &self,
         prefix: &str,
         node_id: &str,
+        subject: &str,
         body: &str,
         can_update: bool,
         can_delete: bool,
@@ -4805,6 +4826,7 @@ impl PrDetailPage {
                     .ghost()
                     .small()
                     .label("Edit")
+                    .accessibility_label(format!("Edit {subject}"))
                     .disabled(busy)
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.start_edit_row(id.clone(), body.clone(), window, cx)
@@ -4819,6 +4841,7 @@ impl PrDetailPage {
                         .ghost()
                         .small()
                         .label("Delete")
+                        .accessibility_label(format!("Delete {subject}"))
                         .disabled(busy)
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.start_delete_confirm(id.clone(), cx)
@@ -4870,6 +4893,7 @@ impl PrDetailPage {
                             .ghost()
                             .small()
                             .label("Edit")
+                            .accessibility_label("Edit description")
                             .disabled(self.writes_busy(cx))
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.start_edit_description(window, cx)
@@ -4888,6 +4912,7 @@ impl PrDetailPage {
                     self.render_reaction_row(
                         "pr-reaction-row",
                         &d.id,
+                        "the description",
                         &d.reaction_groups,
                         d.viewer_can_react,
                         cx,
@@ -4964,6 +4989,7 @@ impl PrDetailPage {
                         self.row_actions(
                             &key,
                             c.id.as_str(),
+                            &format!("{}'s comment", author_name(c.author.as_ref())),
                             &c.body,
                             c.viewer_can_update,
                             c.viewer_can_delete,
@@ -4973,6 +4999,7 @@ impl PrDetailPage {
                         self.render_reaction_row(
                             &format!("{key}-reaction-row"),
                             &c.id,
+                            &format!("{}'s comment", author_name(c.author.as_ref())),
                             &c.reaction_groups,
                             c.viewer_can_react,
                             cx,
@@ -5030,6 +5057,7 @@ impl PrDetailPage {
                     let actions = self.row_actions(
                         &key,
                         r.id.as_str(),
+                        &format!("{}'s review", author_name(r.author.as_ref())),
                         r.body.as_deref().unwrap_or_default(),
                         r.viewer_can_update,
                         r.viewer_can_delete,
@@ -5059,6 +5087,7 @@ impl PrDetailPage {
                         self.render_reaction_row(
                             &format!("{key}-reaction-row"),
                             &r.id,
+                            &format!("{}'s review", author_name(r.author.as_ref())),
                             &r.reaction_groups,
                             r.viewer_can_react,
                             cx,
@@ -5238,7 +5267,12 @@ impl PrDetailPage {
                     .items_center()
                     .justify_between()
                     .when(sending, |row| row.child(Spinner::new().small()))
-                    .child(Select::new(&self.action_select).small().w_40())
+                    .child(
+                        Select::new(&self.action_select)
+                            .small()
+                            .w_40()
+                            .accessibility_label("Comment action"),
+                    )
                     .child(
                         Button::new("pr-comment-submit")
                             .label(action.clone())
@@ -5897,6 +5931,11 @@ pub(crate) fn review_event(action: &str) -> Option<&'static str> {
         "Request changes" => Some("REQUEST_CHANGES"),
         _ => None,
     }
+}
+
+/// The login a timeline row's accessible names are built from.
+fn author_name(author: Option<&gql::Author>) -> &str {
+    author.map(|a| a.login.as_str()).unwrap_or("ghost")
 }
 
 fn tab_label(name: &str, count: Option<i64>) -> SharedString {

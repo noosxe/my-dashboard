@@ -12,6 +12,9 @@ dashboard-core.workspace = true
 dashboard-agent.workspace = true
 gpui.workspace = true
 gpui-component.workspace = true
+# `InputAccessibility` (accessible names for text fields, #768) is not
+# re-exported by gpui-component.
+gpui_base.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 pulldown-cmark.workspace = true
