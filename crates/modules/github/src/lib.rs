@@ -34,7 +34,6 @@ mod rate_pause;
 mod run_jobs;
 pub mod service;
 pub mod settings;
-#[cfg(debug_assertions)]
 mod tab_escape;
 mod tab_strip;
 pub mod usage;
