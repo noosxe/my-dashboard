@@ -418,8 +418,8 @@ and the apt long tail is gone because the warm path downloads nothing.
   a repo-settings action for the owner (§6), not workflow code.
 - A shared composite action for the duplicated bootstrap steps — two copies
   were fine; `release-check` (D12) is the third copy of the apt and
-  toolchain steps and still repeats them, so the refactor is due, as its
-  own change.
+  toolchain steps and repeats them too; the refactor is left for a
+  separate change.
 
 ### D8 — Dependency audit: `cargo-deny` (#639)
 
