@@ -437,7 +437,7 @@ and the apt long tail is gone because the warm path downloads nothing.
   watch the advisory database and nixpkgs, not the runner.
 - **Build-artifact caching**: #158.
 - **Required status checks**: requiring `CI / CI result` in the `main`
-  ruleset is a repo-settings action for the owner (D13, §6), not workflow
+  ruleset is a repository-settings change (D13, §6), not workflow
   code.
 - A shared composite action for the duplicated bootstrap steps — two copies
   were fine; `release-check` (D12) is the third copy of the apt and
@@ -612,7 +612,7 @@ a required check. So no job can be required itself. Layout:
 - **Concurrency lives in the callers only**; `ci-jobs.yml` has none (a
   group shared with its caller would cancel itself). The schedule keeps its
   own group (D8).
-- **Ruleset (owner action).** Require only `CI / CI result` (source: GitHub
+- **Ruleset (repository settings).** Require only `CI / CI result` (source: GitHub
   Actions) in the `Main` ruleset. Adding or renaming a job never touches the
   ruleset again. Migration note: check names changed from `lint`/`test`/…
   to `CI / …`; the old names were never required.
@@ -814,7 +814,7 @@ jobs:
   hosted baseline (§4/§5) — until then the runs are **expected to fail** on
   missing `cc`/`xvfb-run`; that is the image-parity gap being surfaced, not
   a workflow bug. Every run is a cold build (~10–15 min/job) either way.
-- **Owner, after merge**: require the single check `CI / CI result`
+- **After merge**: require the single check `CI / CI result`
   (source: GitHub Actions) in the `Main` ruleset (D13). This is what turns
   AGENTS.md's "run the gates before pushing" from convention into
   enforcement at merge time.
