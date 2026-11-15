@@ -5,9 +5,10 @@
 Enforce the AGENTS.md quality gates — `cargo fmt --all --check`,
 `cargo clippy --workspace --all-targets` at **zero warnings** (including the
 `clippy.toml` token-discipline lints), and `cargo test --workspace` — on every
-PR to `main` that touches build-affecting paths (documentation- and
-repo-meta-only changes skip the runners — D7). Pushes to `main` re-run CI
-only when the dependency cache-key inputs change (D9).
+PR to `main`; jobs whose paths a PR does not touch (documentation- and
+repo-meta-only changes) are skipped by a change-detection job behind one
+always-running required check, `CI / CI result` (D7, D13). Pushes to `main`
+re-run CI only when the dependency cache-key inputs change (D9).
 
 The CI is **nix-free** (owner decision, §4): the
 workflow installs its own toolchain (rustup, pinned) and everything
@@ -17,7 +18,9 @@ GitHub-hosted ubuntu runners (`ubuntu-24.04`) ship it by construction.
 Two gate jobs (`lint`, `test`), a `release-check` job that compiles the
 workspace in the release profile (D12), plus a `deny` dependency audit
 (`cargo-deny` against the committed `deny.toml`, also run weekly — D8),
-SHA-pinned third-party actions only, no secrets.
+SHA-pinned third-party actions only, no secrets. The jobs live in a
+reusable workflow (`ci-jobs.yml`) called by thin `ci.yml` and
+`ci-full.yml` entry workflows (D13).
 
 One separate workflow does use Nix: the weekly flake update
 (`flake-update.yml`, D11) runs `nix flake update`, builds the package on
@@ -156,9 +159,10 @@ week-old artifacts before save).
 A third job, `deny`, audits the dependency graph (D8). A fourth,
 `release-check`, compiles the workspace in the release profile (D12).
 
-Jobs are independent (no `needs`); the platform may run them concurrently or
-queued. `concurrency: ci-<ref>` with `cancel-in-progress` kills superseded
-runs. `timeout-minutes` (30/45, `release-check` 30) bounds a hung job.
+Jobs are independent of each other (they only `needs` the `changes` job,
+D7); the platform may run them concurrently or queued. `concurrency:
+ci-<ref>` with `cancel-in-progress`, set in the caller workflows only (D13),
+kills superseded runs. `timeout-minutes` (30/45, `release-check` 30) bounds a hung job.
 
 ### D4 — Toolchain pinned, in lockstep with the flake
 
@@ -174,7 +178,7 @@ Four pins, one release, bumped **deliberately, in one PR**:
 | Pin | Where |
 |---|---|
 | Dev shell | `flake.nix` — `rust-bin.stable."<x.y.z>"` |
-| CI | `.github/workflows/ci.yml` — `RUST_TOOLCHAIN` |
+| CI | `.github/workflows/ci-jobs.yml` — `RUST_TOOLCHAIN` |
 | Verification image | `docker/Dockerfile` — `FROM rust:<x.y.z>@sha256:…` (docs/0071 D2, §5) |
 | Workspace | `Cargo.toml` — `[workspace.package] rust-version` |
 
@@ -210,42 +214,55 @@ update workflow (D11) adds `DeterminateSystems/nix-installer-action`
 (v23), same rule.
 The workflow pins the `GITHUB_TOKEN` to `permissions: contents: read`
 at the top level, so it never falls back to the repository's default token
-scopes. No `ci.yml` job writes to the repo, and the cache actions authenticate with
+scopes. No CI job writes to the repo, and the cache actions authenticate with
 the runner's cache token rather than `GITHUB_TOKEN`. The one writer is the
 D11 flake update job, in its own workflow: top-level `permissions: {}`,
 job-level `contents: write` + `pull-requests: write`, still no secrets. Fork-PR runs also stay
 behind GitHub's approval gate for outside contributors (a repository
 setting, not workflow YAML).
 
-### D7 — Path-based filtering: docs-only changes don't build anything
+### D7 — Change detection: docs-only changes don't build anything
 
-The `pull_request` trigger carries a `paths-ignore`
-**denylist** (the `push` trigger has its own, narrower allowlist — D9): `docs/**` and every Markdown file (`**/*.md` plus `*.md` for
-the repo root — README, AGENTS.md), plus the agent-skill/tooling files
-`.agents/**` and `skills-lock.json` (added 2026-10-12 after a skills-only
-PR paid two full cold builds for shell/markdown changes), and the
-repo-meta files `.pi/**` (agent working artifacts, untracked by the
-same day's hygiene PR), `.gitignore` and `LICENSE*` (added 2026-10-12
-after a `.gitignore`-only hygiene PR paid a full run), and `LICENSES/**`
-(the vendored third-party license texts, added 2026-11-04). First added
-2026-09-17 after a docs-only
-design PR paid two full cold builds (~25 min of runner time) for changes
-that cannot affect a build.
+*(rewritten with D13; the original `paths-ignore` on the `pull_request`
+trigger is gone. Path filtering at the workflow level leaves a required
+check pending, so it can't coexist with a required check.)*
 
-- **Denylist, not an allowlist, deliberately.** The repo's substance is
-  Rust, so an allowlist (`paths: crates/** …`) would silently drop CI for
-  any *future* build-affecting path — a new top-level directory, a new
-  config file — until someone remembers to extend the filter. A denylist
-  fails safe: only paths that provably cannot affect a build skip it;
-  everything else, known or future, runs both jobs.
-- **Per-event semantics.** Filters re-evaluate on every event: a PR mixing
-  docs and code runs; a PR that starts docs-only and later gains code runs
-  from the push that adds it.
-- **Required-check interaction.** A path-skipped run surfaces as a
-  "Skipped" check run; if `lint`/`test` are later enabled as required
-  status checks (a D6 repo-settings action), GitHub reports skipped checks
-  as satisfying the requirement on path-filtered events, so docs-only PRs
-  stay mergeable.
+A `changes` job in `ci-jobs.yml` runs first on every event. On
+`pull_request` it uses `dorny/paths-filter` (SHA-pinned; lists the PR's
+files through the API, so no checkout and only `contents: read` +
+`pull-requests: read`) with `predicate-quantifier: some-with-excludes`, and
+a shell `decide` step turns the matched filters into one boolean output
+per job. Each job `needs: changes` and runs `if` its output is `true`.
+
+Filters:
+
+- `force` — `.github/workflows/**`, `.github/actions/**`, `Cargo.lock`,
+  `**/Cargo.toml`, `rust-toolchain*`, `deny.toml`. A match runs every job,
+  so a PR that changes CI tests itself fully. `flake.lock` is not in the
+  list: this CI is nix-free and never reads it (D11).
+- `rust` (`lint`, `test`, `release_check`) — **default-on**: `**` minus the
+  old D7 denylist: `docs/**`, every Markdown file, `.agents/**`,
+  `skills-lock.json`, `.pi/**`, `.gitignore`, `LICENSE*`, `LICENSES/**`
+  (the list's history: docs 2026-09-17, agent tooling and repo meta
+  2026-10-12, vendored licenses 2026-11-04).
+- `deny` — `Cargo.lock`, `**/Cargo.toml`, `deny.toml`: all the audit reads.
+  A docs-only or code-only PR skips it; the weekly run (D8) covers the
+  advisory database.
+
+- **Default-on, not an allowlist, deliberately.** The repo's substance is
+  Rust, so an allowlist would silently drop CI for any *future*
+  build-affecting path until someone extends the filter. Default-on fails
+  safe: only paths that provably cannot affect a build skip the Rust jobs;
+  forgetting an exclusion costs runner minutes, not a missed failure.
+- **Everything outside a PR runs everything.** Pushes to `main` (D9), the
+  weekly schedule (D8), `workflow_dispatch` and a PR carrying the `ci: full`
+  label skip the filter and set `CHANGES='["force"]'`.
+- **Fail closed.** If the filter step's output is not a JSON array (the
+  step failed or was skipped when it should not have been), `decide`
+  exits 1, `changes` fails, and the gate (D13) goes red.
+- **Per-event semantics.** The filter re-evaluates on every push to the PR:
+  a PR that starts docs-only and later gains code runs from the push that
+  adds it.
 - **The gates themselves are unchanged.** AGENTS.md's "run the gates
   before pushing" stays the local contract; D7 only stops CI from
   re-enforcing them where they cannot matter.
@@ -268,11 +285,15 @@ of exactly the inputs that change what `main` should hold:
 
 - `Cargo.lock` and `**/Cargo.toml`: the dependency set (the cache key);
 - `deny.toml`: the audit policy (D8);
-- `.github/workflows/ci.yml`: the workflow itself, which carries
-  `RUST_TOOLCHAIN` (the rustc part of the key).
+- `.github/workflows/ci-jobs.yml`: the jobs, which carry `RUST_TOOLCHAIN`
+  (the rustc part of the key) and the package list the apt key hashes;
+  `.github/workflows/ci.yml` too, as the entry point.
 
-D7's denylist reasoning ("future paths keep CI by default") is about
-*gating*. Gating happens on the PR. This list exists for *cache
+This is the one place a trigger-level `paths` filter stays (D13): on a push
+nothing is required, so a skipped run blocks nothing. Inside the run,
+`changes` treats a push as "everything" (D7), so every job runs and saves
+its cache. D7's default-on reasoning ("future paths keep CI by default") is
+about *gating*. Gating happens on the PR. This list exists for *cache
 freshness*. It names what the run is for, so an allowlist is the right
 shape. Consequences:
 
@@ -288,8 +309,8 @@ shape. Consequences:
   *(amended 2026-10-26, D10)* Since PRs no longer save, that cold build
   repeats on every PR push until the next allowlisted push to `main`
   re-warms it — see D10 for the numbers and the trade-off.
-- **The weekly `deny` schedule is unchanged** (D8). New advisories still
-  surface on `main` without a push.
+- **The weekly schedule** (D8) now also runs every job, which re-warms
+  `main`'s caches after a quiet week.
 
 ### D10 — Cheaper caches: `.deb` cache, no debug info, saves from `main` only
 
@@ -314,7 +335,7 @@ jobs (D3):
    never a broken install. The directory sits under `/tmp` so apt's
    `_apt` sandbox user can reach it (under `$HOME` apt falls back to an
    unsandboxed download, with a warning). The key is
-   `apt-<job>-<os>-<arch>-<hash of ci.yml>` (the package list lives in
+   `apt-<job>-<os>-<arch>-<hash of ci-jobs.yml>` (the package list lives in
    the workflow), with the prefix up to the hash as restore key. Like
    rust-cache, the `.debs` are saved only on `main` and only when the
    restore wasn't an exact hit. The D1 root/sudo guard is unchanged.
@@ -348,13 +369,14 @@ jobs (D3):
    caches) and never save.
 
 **Interaction with D9.** `main` runs only when `Cargo.lock`, a
-`Cargo.toml`, `deny.toml` or `ci.yml` changes. Those are exactly the
+`Cargo.toml`, `deny.toml` or a CI workflow file changes. Those are exactly the
 inputs of the rust-cache and `.deb` keys, so every change that would make
 `main`'s cache stale also re-saves it: a dependency change re-warms the
-cache on its merge, and so does this PR's own merge (it changes `ci.yml`
+cache on its merge, and so does this PR's own merge (it changes `ci-jobs.yml`
 and the env part of the key). Code-only merges leave the dependency set,
-and so the cache, unchanged. The weekly schedule still runs only `deny`
-(D8) and saves nothing.
+and so the cache, unchanged. The weekly schedule (D8) runs every job on
+`main`'s ref, so it also saves the caches (D13 removes the quiet-week
+trade-off below).
 
 **Trade-offs, accepted:**
 
@@ -367,9 +389,9 @@ and so the cache, unchanged. The weekly schedule still runs only `deny`
   are evicted and nothing re-creates them until the next allowlisted push
   to `main`. Until then every PR push is a cold build (~6–7 min `lint`,
   ~10 min `test`, measured below). In practice the weekly dependabot cargo
-  PR's merge changes `Cargo.lock` and re-warms `main`. A manual re-warm
-  path (a `workflow_dispatch` trigger, or `lint`/`test` on the weekly
-  schedule) is deliberately not added; that is the owner's call.
+  PR's merge changes `Cargo.lock` and re-warms `main`. *(amended D13)* The
+  weekly schedule now runs every job and `workflow_dispatch` exists, so a
+  quiet week is re-warmed by the next Monday run, or by hand.
 
 **Measured (2026-10-26).** "Before" is historical runs with
 `debug = "limited"`: warm = PR runs restoring an exact `main` hit (runs
@@ -414,8 +436,9 @@ and the apt long tail is gone because the warm path downloads nothing.
   (D8) and the weekly flake update (D11) are the scheduled jobs — they
   watch the advisory database and nixpkgs, not the runner.
 - **Build-artifact caching**: #158.
-- **Required status checks**: enabling `lint`/`test` in branch protection is
-  a repo-settings action for the owner (§6), not workflow code.
+- **Required status checks**: requiring `CI / CI result` in the `main`
+  ruleset is a repo-settings action for the owner (D13, §6), not workflow
+  code.
 - A shared composite action for the duplicated bootstrap steps — two copies
   were fine; `release-check` (D12) is the third copy of the apt and
   toolchain steps and repeats them too; the refactor is left for a
@@ -441,15 +464,16 @@ toolchain bootstrap, apt step or cache, and finishes in about a minute.
 The graph is audited for the shipped platforms only (`[graph] targets`:
 x86_64/aarch64 Linux and macOS) with all features enabled.
 
-**Triggers.** The `deny` job rides the workflow's normal triggers (PRs to
-`main` under the D7 path filter; pushes to `main` under the D9 allowlist,
-which names `Cargo.lock`, every `Cargo.toml` and `deny.toml`, so a
-dependency change always runs it). It also runs on a weekly `schedule`
-(Mondays 06:00 UTC), because new advisories land in the RustSec database
-without any change here. `lint` and `test` skip the scheduled event
-(`if: github.event_name != 'schedule'`), and scheduled runs take their own
-concurrency group so they never cancel a push run on `main`. A red
-scheduled run means a new advisory: triage it the same way as below.
+**Triggers.** The `deny` job runs on PRs that touch `Cargo.lock`, a
+`Cargo.toml` or `deny.toml` (its own `changes` filter, D7), on pushes to
+`main` under the D9 allowlist (which names the same files, so a dependency
+change always runs it), and on a weekly `schedule` (Mondays 06:00 UTC),
+because new advisories land in the RustSec database without any change
+here. *(Changed with D13: the schedule used to run only `deny`; it now runs
+every job, since drift — runner images, caches, vanished sources — is not
+limited to advisories.)* Scheduled runs take their own concurrency group
+so they never cancel a push run on `main`. A red scheduled run means a new
+advisory or a drifted build: triage it the same way as below.
 
 **Run it locally** before pushing a change to `Cargo.toml`, `Cargo.lock`
 or `deny.toml` (it is not an AGENTS.md gate; CI enforces it):
@@ -512,10 +536,10 @@ show up. The PR's human-check list keeps the Mac build.
 `pull-requests: write`), no secret. It requires the repository setting
 "Allow GitHub Actions to create and approve pull requests" (enabled
 2026-11-09). GitHub doesn't start other workflows for PRs that token
-opens, so `ci.yml` doesn't run on the update PR. That is accepted on
-purpose: `ci.yml` is nix-free and never reads `flake.lock`, and step 3 is
+opens, so CI doesn't run on the update PR. That is accepted on
+purpose: CI is nix-free and never reads `flake.lock`, and step 3 is
 the check a lock change needs. A personal or App token would only buy a
-`ci.yml` run that can't see the change.
+CI run that can't see the change.
 
 The workflow never merges; the owner reviews and merges the PR like any
 other.
@@ -546,12 +570,52 @@ lock, so a break could sit on `main` for a week.
   is `cfg(debug_assertions)`, which the default-feature release build
   covers; a feature-off *and* release-only mistake is a combination the
   repo has not hit.
-- **Triggers** follow the other build jobs: PRs through the D7 path
-  filter, pushes to `main` under D9 (which also warms the main-scoped
-  cache the PRs restore), skipped on the weekly schedule.
-- **Required check.** Recommended alongside `lint` and `test` (a
-  repo-settings action, D6). Path-skipped runs count as satisfying the
-  requirement, as in D7.
+- **Triggers** follow the other build jobs: PRs through the D7 `rust`
+  filter (job id `release_check`), pushes to `main` under D9 (which also
+  warms the main-scoped cache the PRs restore), and the weekly schedule.
+- **Required check.** Covered by `CI / CI result` (D13), like every job.
+
+### D13 — One gate, a label, thin callers (change-detection layout)
+
+Workflow-level `paths` filters leave a required check *pending* when the
+whole workflow is skipped, and a job skipped by `if` counts as *success* for
+a required check. So no job can be required itself. Layout:
+
+| File | Role |
+|---|---|
+| `ci.yml` | Entry: `pull_request` (opened/synchronize/reopened), `push` to `main` (D9 paths), the weekly `schedule`, `workflow_dispatch` |
+| `ci-full.yml` | Entry: `pull_request: labeled`, runs only for the `ci: full` label |
+| `ci-jobs.yml` | `workflow_call` only: `changes` (D7), `lint`, `test`, `release_check`, `deny`, `ci-result` |
+
+- **Caller job name `CI`**, so check names read `CI / <job>` and the gate is
+  `CI / CI result`. Callers grant `contents: read` + `pull-requests: read`
+  (a called workflow can only keep or narrow them); top-level
+  `permissions: {}` everywhere.
+- **`ci-result`** — `if: always()` (never skippable; also turns a cancelled
+  run red), `needs` every job, `permissions: {}`. It fails unless `changes`
+  succeeded, then compares each job's `wanted` (the `changes` output) with
+  its `result`: `true/success` ok, `false/skipped` ok, anything else —
+  including a missing output or job — fails.
+- **Three places.** Every job except `changes` and `ci-result` must appear
+  in a `changes` output (and its `needed` line), in `ci-result`'s `needs`,
+  and in its loop. A job missing from them is not enforced. The comment at
+  the top of `ci-jobs.yml` says so; a PR that adds a job edits the
+  workflow, so `force` runs everything and the reviewer sees the list.
+- **Label `ci: full`** runs every job regardless of paths. Label events
+  can't be filtered by name at workflow level, so any label starts
+  `ci-full.yml`; a different label leaves one skipped `CI` check (no
+  runner), named so it can't stand in for `CI / CI result`. Its
+  concurrency group includes the label name so an unrelated label never
+  cancels a full run. `changes` also treats a PR already carrying the label
+  as "everything", so later pushes to a labelled PR run in full from
+  `ci.yml`. Expressions containing `ci: full` are quoted YAML strings.
+- **Concurrency lives in the callers only**; `ci-jobs.yml` has none (a
+  group shared with its caller would cancel itself). The schedule keeps its
+  own group (D8).
+- **Ruleset (owner action).** Require only `CI / CI result` (source: GitHub
+  Actions) in the `Main` ruleset. Adding or renaming a job never touches the
+  ruleset again. Migration note: check names changed from `lint`/`test`/…
+  to `CI / …`; the old names were never required.
 
 ## 4. Owner decisions (2026-09-07)
 
@@ -587,7 +651,7 @@ lock, so a break could sit on `main` for a week.
   `lint` job enforces the four-way lockstep. The dev shell is the only
   local toolchain (no Homebrew/rustup rust, docs/0001 §4).
 - *(2026-10-23)* **Push-to-`main` runs trimmed** (D9): pushes to `main`
-  re-run CI only for `Cargo.lock`/`Cargo.toml`/`deny.toml`/`ci.yml`
+  re-run CI only for `Cargo.lock`/`Cargo.toml`/`deny.toml`/workflow
   changes, keeping the PR-shared caches warm without re-checking every
   merge (~48% of October's minutes). The weekly audit stays.
 - *(2026-10-26)* **Cheaper caches** (D10): the apt `.debs` are cached
@@ -597,7 +661,16 @@ lock, so a break could sit on `main` for a week.
   jobs. Measured: caches −42 to −51%, warm `test` job 193–210 s → 143 s,
   warm `lint` 96–100 s → 78 s, apt 0 B downloaded when warm.
 
+- *(2026-11-15)* **Change detection and one gate** (D7, D13): CI moved to
+  thin callers plus a reusable `ci-jobs.yml`; the D9 push trigger is kept;
+  the label is `ci: full`; the duplicated apt/toolchain steps stay
+  duplicated (no composite action yet, D6). The weekly schedule runs every
+  job.
+
 ## 5. Implementation plan (this PR)
+
+*(Original-PR snapshot. The workflow was later split into `ci.yml`,
+`ci-full.yml` and `ci-jobs.yml`, D13; the listing below is history.)*
 
 Files:
 
@@ -741,10 +814,10 @@ jobs:
   hosted baseline (§4/§5) — until then the runs are **expected to fail** on
   missing `cc`/`xvfb-run`; that is the image-parity gap being surfaced, not
   a workflow bug. Every run is a cold build (~10–15 min/job) either way.
-- **Owner, after merge**: add `lint` and `test` as **required status
-  checks** for `main` (repo settings → Branches → protect `main`). This is
-  what turns AGENTS.md's "run the gates before pushing" from convention
-  into enforcement at merge time.
+- **Owner, after merge**: require the single check `CI / CI result`
+  (source: GitHub Actions) in the `Main` ruleset (D13). This is what turns
+  AGENTS.md's "run the gates before pushing" from convention into
+  enforcement at merge time.
 
 ## 7. Follow-ups (GitHub issues, not this PR)
 

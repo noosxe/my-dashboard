@@ -1,0 +1,30 @@
+# Full CI run on demand: adding the `ci: full` label to a PR runs every job
+# regardless of the changed paths (docs/0027 D13). Same jobs and the same
+# `CI / CI result` check as ci.yml, via ci-jobs.yml.
+#
+# GitHub cannot filter `labeled` events by label name at workflow level, so
+# any label starts this workflow; a different label leaves one skipped
+# check named `CI` (no runner). It is not named `CI / CI result`, so it can
+# neither stand in for the required check nor overwrite it.
+name: CI full
+
+on:
+  pull_request:
+    branches: [main]
+    types: [labeled]
+
+permissions: {}
+
+# Per label, so an unrelated label never cancels a full run in progress.
+concurrency:
+  group: ci-full-${{ github.ref }}-${{ github.event.label.name }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: CI
+    if: "${{ github.event.label.name == 'ci: full' }}"
+    uses: ./.github/workflows/ci-jobs.yml
+    permissions:
+      contents: read
+      pull-requests: read

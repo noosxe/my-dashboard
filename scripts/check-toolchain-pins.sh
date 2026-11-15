@@ -11,13 +11,13 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 flake=$(sed -n 's/.*rust-bin\.stable\."\([0-9.]*\)".*/\1/p' flake.nix)
-ci=$(sed -n 's/^  RUST_TOOLCHAIN: "\([0-9.]*\)"$/\1/p' .github/workflows/ci.yml)
+ci=$(sed -n 's/^  RUST_TOOLCHAIN: "\([0-9.]*\)"$/\1/p' .github/workflows/ci-jobs.yml)
 docker=$(sed -n 's/^FROM rust:\([0-9.]*\)@.*/\1/p' docker/Dockerfile)
 cargo=$(sed -n 's/^rust-version = "\([0-9.]*\)"$/\1/p' Cargo.toml)
 
 printf '%-34s %s\n' \
   "flake.nix (rust-bin.stable)" "${flake:-<missing>}" \
-  ".github/workflows/ci.yml (env)" "${ci:-<missing>}" \
+  ".github/workflows/ci-jobs.yml (env)" "${ci:-<missing>}" \
   "docker/Dockerfile (FROM rust)" "${docker:-<missing>}" \
   "Cargo.toml (rust-version)" "${cargo:-<missing>}"
 

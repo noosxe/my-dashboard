@@ -17,7 +17,7 @@ updates:
         patterns:
           - "*"
   # Weekly updates for the pinned workflow action (docs/0027 D5):
-  # actions/checkout is SHA-pinned in .github/workflows/ci.yml; Dependabot
+  # actions/checkout is SHA-pinned in .github/workflows/ci-jobs.yml; Dependabot
   # opens PRs that move the pin to the newest release, grouped into a single PR.
   - package-ecosystem: "github-actions"
     directory: "/"

@@ -1,5 +1,5 @@
 # cargo-deny — dependency audit (advisories, licenses, sources, bans).
-# Enforced by the `deny` job in .github/workflows/ci.yml; design, policy
+# Enforced by the `deny` job in .github/workflows/ci-jobs.yml; design, policy
 # and how to add an exception: docs/0027 D8. Run locally with
 # `cargo deny check` (keys verified against cargo-deny 0.20.2 docs).
 

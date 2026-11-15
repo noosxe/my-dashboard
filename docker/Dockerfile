@@ -6,13 +6,13 @@
 #
 # The base pin is deliberate (docs/0071 D2): bump the tag + digest
 # together with the other toolchain pins — the flake.nix release,
-# RUST_TOOLCHAIN in .github/workflows/ci.yml and Cargo.toml
+# RUST_TOOLCHAIN in .github/workflows/ci-jobs.yml and Cargo.toml
 # `rust-version` (scripts/check-toolchain-pins.sh, docs/0027 D4) — and
 # recreate the cargo cache volume (docs/0071 D6) in the same change.
 FROM rust:1.98.0@sha256:620dbcd124499c59e2406d3741574b5c5838cf9eb9656f0c3a03948f79b02959
 
 # GUI dev stack — keep in lockstep with the apt list in
-# .github/workflows/ci.yml (docs/0027 D1: only what the base image does
+# .github/workflows/ci-jobs.yml (docs/0027 D1: only what the base image does
 # not ship). Deliberately minus fonts-ibm-plex: that is an Ubuntu
 # package name and the rust base is Debian trixie, which ships no
 # equivalent — IBM Plex is vendored from the upstream release instead
