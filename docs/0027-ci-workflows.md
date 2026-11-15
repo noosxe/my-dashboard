@@ -14,7 +14,8 @@ workflow installs its own toolchain (rustup, pinned) and everything
 GitHub's ubuntu images do **not** ship (the GUI dev stack + fonts),
 assuming a hosted-image-parity baseline on the runner image (§2, §4, §5) —
 GitHub-hosted ubuntu runners (`ubuntu-24.04`) ship it by construction.
-Two gate jobs (`lint`, `test`) plus a `deny` dependency audit
+Two gate jobs (`lint`, `test`), a `release-check` job that compiles the
+workspace in the release profile (D12), plus a `deny` dependency audit
 (`cargo-deny` against the committed `deny.toml`, also run weekly — D8),
 SHA-pinned third-party actions only, no secrets.
 
@@ -24,7 +25,7 @@ the new lock and opens a PR carrying the result. It is maintenance, not a
 gate; the gate workflow stays nix-free.
 
 The runner platform is **GitHub-hosted** (`ubuntu-24.04` standard hosted
-runners, both jobs — switched from the owner's self-hosted docker runners
+runners, every build job — switched from the owner's self-hosted docker runners
 after they went down, §4): hosted VMs are just as ephemeral (fresh VM per
 run, torn down after). Build artifacts are cached with `rust-cache`
 (D2, #158) and the apt `.debs` with `actions/cache` (D10); both caches
@@ -152,11 +153,12 @@ week-old artifacts before save).
   fresh temp `XDG_RUNTIME_DIR` (§2 explains why both are kept despite the
   headless-green probe).
 
-A third job, `deny`, audits the dependency graph (D8).
+A third job, `deny`, audits the dependency graph (D8). A fourth,
+`release-check`, compiles the workspace in the release profile (D12).
 
 Jobs are independent (no `needs`); the platform may run them concurrently or
 queued. `concurrency: ci-<ref>` with `cancel-in-progress` kills superseded
-runs. `timeout-minutes` (30/45) bounds a hung job.
+runs. `timeout-minutes` (30/45, `release-check` 30) bounds a hung job.
 
 ### D4 — Toolchain pinned, in lockstep with the flake
 
@@ -415,7 +417,9 @@ and the apt long tail is gone because the warm path downloads nothing.
 - **Required status checks**: enabling `lint`/`test` in branch protection is
   a repo-settings action for the owner (§6), not workflow code.
 - A shared composite action for the duplicated bootstrap steps — two copies
-  are fine; refactor if a third job ever needs it.
+  were fine; `release-check` (D12) is the third copy of the apt and
+  toolchain steps and still repeats them, so the refactor is due, as its
+  own change.
 
 ### D8 — Dependency audit: `cargo-deny` (#639)
 
@@ -515,6 +519,39 @@ the check a lock change needs. A personal or App token would only buy a
 
 The workflow never merges; the owner reviews and merges the PR like any
 other.
+
+### D12 — Release-profile compile check: `release-check` (#899)
+
+`lint` and `test` build the debug profile only, so code that compiles with
+`debug_assertions` but not without it passes every PR check. It happened
+once: `mod tab_escape` was gated with `#[cfg(debug_assertions)]` while
+`lib.rs` called into it in every build; the PR was green and the release
+`nix build` broke until the next nixpkgs bump found it. The weekly flake
+update (D11) builds release too, but only on its schedule and against a new
+lock, so a break could sit on `main` for a week.
+
+- **What runs.** `cargo check --workspace --release`: type-checks every
+  workspace crate with `debug_assertions` off, which is enough to catch
+  cfg mismatches, without the codegen and link cost of `cargo build
+  --release`. Not `--all-targets`: tests, examples and benches are not
+  shipped, and a release-profile test build would double the cost for no
+  extra coverage of the shipped code.
+- **Own job**, not a `lint` step. It runs in parallel with the gates
+  (no added wall-clock time), and rust-cache keys by job id, so release
+  artifacts get their own cache entry instead of growing `lint`'s or
+  evicting the debug caches (D10). It repeats the apt and toolchain steps
+  (see D6; no `clippy`/`rustfmt` components needed).
+- **Default features only.** The bridge-less variant (`--no-default-features`,
+  docs/0010) stays a debug-profile check in `lint`. The failure class here
+  is `cfg(debug_assertions)`, which the default-feature release build
+  covers; a feature-off *and* release-only mistake is a combination the
+  repo has not hit.
+- **Triggers** follow the other build jobs: PRs through the D7 path
+  filter, pushes to `main` under D9 (which also warms the main-scoped
+  cache the PRs restore), skipped on the weekly schedule.
+- **Required check.** Recommended alongside `lint` and `test` (a
+  repo-settings action, D6). Path-skipped runs count as satisfying the
+  requirement, as in D7.
 
 ## 4. Owner decisions (2026-09-07)
 
