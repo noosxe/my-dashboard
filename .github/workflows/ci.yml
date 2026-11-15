@@ -1,9 +1,12 @@
 # CI — the AGENTS.md gates, enforced on every PR to main that touches
 # build-affecting paths (docs- and repo-meta-only changes skip — D7), and
 # on pushes to main only when the cache-key inputs change (D9).
-# Design: docs/0027-ci-workflows.md (D1–D10).
+# Design: docs/0027-ci-workflows.md (D1–D12).
 #
-# Environment: GitHub-hosted ubuntu runners (`ubuntu-24.04`, both jobs;
+# Jobs: `lint` (fmt, clippy, bridge-less check), `test`, `release-check`
+# (release-profile compile check, D12) and `deny`.
+#
+# Environment: GitHub-hosted ubuntu runners (`ubuntu-24.04`, all build jobs;
 # docs/0027 §4): the hosted image ships the build baseline (gcc/make/
 # cmake/pkg-config/xvfb/git/curl), the workflow installs the GUI dev
 # stack + fonts itself. Nix-free by owner decision (docs/0027 §4):
@@ -244,6 +247,87 @@ jobs:
         run: |
           export XDG_RUNTIME_DIR="$(mktemp -d)"
           xvfb-run --auto-servernum cargo test --workspace
+
+  release-check:
+    # Release-profile compile check (docs/0027 D12, #899): lint and test
+    # build the debug profile only, so code that compiles under
+    # `debug_assertions` but not without it (a `#[cfg(debug_assertions)]`
+    # module used unconditionally) passed every PR check and broke the
+    # release build. Own job: runs parallel to the gates and gets its own
+    # rust-cache entry (keyed by job id), so release artifacts never bloat
+    # or evict the debug caches lint/test restore.
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Restore apt archive cache (.debs)
+        # docs/0027 D10: the downloaded .debs are cached, not the
+        # installed files — dpkg still runs every postinst/trigger. The
+        # key follows this file (the package list lives here); a partial
+        # match still saves most of the download.
+        id: apt-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /tmp/apt-archives/*.deb
+          key: apt-${{ github.job }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/ci.yml') }}
+          restore-keys: |
+            apt-${{ github.job }}-${{ runner.os }}-${{ runner.arch }}-
+      - name: Install system dependencies (GUI dev stack + fonts)
+        # Installs ONLY what GitHub's ubuntu images do not ship
+        # (docs/0027 D1): the gpui link libs + IBM Plex for font parity
+        # with the dev shell. The build baseline — gcc/make/cmake/
+        # pkg-config/xvfb/git/curl — ships on the hosted ubuntu-24.04
+        # image by construction (docs/0027 §2, §4). apt reuses every
+        # cached .deb whose checksum matches the fresh index and only
+        # downloads the rest (docs/0027 D10); the dir sits under /tmp so
+        # apt's _apt sandbox user can reach it.
+        run: |
+          if [ "$(id -u)" -ne 0 ] && ! command -v sudo >/dev/null 2>&1; then
+            echo "::error::cannot install packages: non-root job user and no sudo on this runner image."
+            echo "::error::hosted-image parity requires root containers or passwordless sudo for the job user (docs/0027 §5)."
+            exit 1
+          fi
+          SUDO="$(command -v sudo >/dev/null 2>&1 && echo sudo || true)"
+          APT_OPTS="-o Dir::Cache::Archives=/tmp/apt-archives -o APT::Keep-Downloaded-Packages=true"
+          mkdir -p /tmp/apt-archives/partial
+          $SUDO apt-get update
+          $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y $APT_OPTS \
+            libwayland-dev libvulkan-dev libxcb1-dev libxkbcommon-dev \
+            libxkbcommon-x11-dev \
+            libatk1.0-dev libfontconfig1-dev libglib2.0-dev libgtk-3-dev \
+            fonts-ibm-plex
+          # Drop superseded .debs so a re-saved cache doesn't accumulate them.
+          $SUDO apt-get autoclean $APT_OPTS
+      - name: Save apt archive cache (main only)
+        # Same main-only rule as rust-cache's save-if (docs/0027 D10).
+        if: github.ref == 'refs/heads/main' && steps.apt-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /tmp/apt-archives/*.deb
+          key: ${{ steps.apt-cache.outputs.cache-primary-key }}
+      - name: Bootstrap Rust toolchain
+        run: |
+          command -v rustup >/dev/null 2>&1 || \
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+              sh -s -- -y --profile minimal --default-toolchain none
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.cargo/bin:$PATH"
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+      - name: Cache cargo artifacts (rust-cache)
+        # Same rationale as the lint job's cache step (docs/0027 D2).
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          cache-on-failure: true
+          # PRs restore main's cache but never save their own (docs/0027
+          # D10): per-PR saves crowded the 10 GB repo cap and could evict
+          # the main entries every PR starts from.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: cargo check --workspace --release (no debug_assertions)
+        run: cargo check --workspace --release
 
   deny:
     # Dependency audit against the committed deny.toml (docs/0027 D8):
