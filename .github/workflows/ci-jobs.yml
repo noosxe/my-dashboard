@@ -1,0 +1,443 @@
+# All of CI, called by ci.yml (PRs, pushes to main, schedule, manual run) and
+# ci-full.yml (the `ci: full` label). Design: docs/0027-ci-workflows.md
+# (D7 change detection, D13 the gate).
+#
+# `changes` decides which jobs a run needs; `ci-result` is the only
+# required check and passes only if every needed job ran and succeeded.
+# Every other job must appear in three places: an output of `changes`
+# (plus its `needed` line), ci-result's `needs`, and the job list in
+# ci-result's loop. A job missing from them is not enforced.
+#
+# Jobs: `lint` (fmt, clippy, bridge-less check), `test`, `release_check`
+# (release-profile compile check, D12) and `deny`.
+#
+# Environment: GitHub-hosted ubuntu runners (`ubuntu-24.04`; docs/0027 §4):
+# the hosted image ships the build baseline (gcc/make/cmake/pkg-config/
+# xvfb/git/curl), the jobs install the GUI dev stack + fonts themselves.
+# Nix-free by owner decision (docs/0027 §4): toolchain from rustup, libs
+# from apt. No secrets are used anywhere, so fork PRs are safe too.
+name: CI jobs
+
+on:
+  workflow_call:
+
+# Least-privilege GITHUB_TOKEN (docs/0027 D5): the top level grants
+# nothing; every job asks for what it needs (contents: read at most).
+# Checkout runs with persist-credentials: false and the cache actions use
+# the runner's own cache token, so nothing needs write scopes. No
+# concurrency group here: the callers own it (a group shared with the
+# caller would cancel itself).
+permissions: {}
+
+# Pinned in lockstep with the dev shell's toolchain (flake.nix names the
+# release explicitly), docker/Dockerfile and Cargo.toml `rust-version`.
+# Bump all four together, deliberately; the lint job's pin check fails
+# otherwise (docs/0027 D4).
+env:
+  RUST_TOOLCHAIN: "1.98.0"
+  # No debug info in CI builds (docs/0027 D10): nothing here runs a
+  # debugger, and DWARF is most of the target/ cache's size, link time
+  # and disk. The `test` profile inherits `dev`, so this covers
+  # `cargo test` too. Part of rust-cache's key (it hashes CARGO_* env).
+  CARGO_PROFILE_DEV_DEBUG: "0"
+
+jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      lint: ${{ steps.decide.outputs.lint }}
+      test: ${{ steps.decide.outputs.test }}
+      release_check: ${{ steps.decide.outputs.release_check }}
+      deny: ${{ steps.decide.outputs.deny }}
+    steps:
+      # On pull_request the action lists the PR's files through the API, so
+      # no checkout. Every other event (push to main, schedule, manual run)
+      # and a PR with the full label run everything instead (docs/0027 D7).
+      - name: Filter the PR's changed paths
+        id: filter
+        if: "${{ github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'ci: full') }}"
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          predicate-quantifier: some-with-excludes
+          filters: |
+            # CI definition and inputs that can break everything: a match
+            # runs every job, so a PR that changes CI tests itself fully.
+            # flake.lock is left out on purpose: CI is nix-free and never
+            # reads it (docs/0027 D11).
+            force:
+              - '.github/workflows/**'
+              - '.github/actions/**'
+              - 'Cargo.lock'
+              - '**/Cargo.toml'
+              - 'rust-toolchain*'
+              - 'deny.toml'
+            # Default-on for the Rust jobs (docs/0027 D7): everything
+            # except paths that provably cannot affect a build. A new,
+            # unlisted path runs CI until someone decides it is inert.
+            rust:
+              - '**'
+              - '!docs/**'
+              - '!**/*.md'
+              - '!*.md'
+              - '!.agents/**'
+              - '!skills-lock.json'
+              - '!.pi/**'
+              - '!.gitignore'
+              - '!LICENSE*'
+              - '!LICENSES/**'
+            # The dependency audit reads only these.
+            deny:
+              - 'Cargo.lock'
+              - '**/Cargo.toml'
+              - 'deny.toml'
+
+      - name: Decide which jobs are needed
+        id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          FULL: "${{ contains(github.event.pull_request.labels.*.name, 'ci: full') }}"
+          CHANGES: ${{ steps.filter.outputs.changes }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != pull_request ] || [ "$FULL" = true ]; then
+            echo "Event '$EVENT', full '$FULL': everything is needed"
+            CHANGES='["force"]'
+          fi
+          # Fail closed: no decision without the filter's answer.
+          if ! jq -e 'type == "array"' <<<"$CHANGES" >/dev/null 2>&1; then
+            echo "::error::No usable output from the path filter: '$CHANGES'"
+            exit 1
+          fi
+          echo "Matched filters: $CHANGES"
+          needed() {
+            local job=$1 value=false
+            shift
+            for filter in force "$@"; do
+              if jq -e --arg f "$filter" 'index($f) != null' <<<"$CHANGES" >/dev/null; then
+                value=true
+              fi
+            done
+            echo "$job=$value" | tee -a "$GITHUB_OUTPUT"
+          }
+          needed lint rust
+          needed test rust
+          needed release_check rust
+          needed deny deny
+
+  lint:
+    # Formatting + the zero-warnings clippy gate (incl. the clippy.toml
+    # token-discipline lints) + the bridge-less build variant.
+    needs: changes
+    if: needs.changes.outputs.lint == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Toolchain pins agree (flake, CI, Dockerfile, rust-version)
+        # Cheapest step first: no toolchain needed (docs/0027 D4).
+        run: scripts/check-toolchain-pins.sh
+      - name: Restore apt archive cache (.debs)
+        # docs/0027 D10: the downloaded .debs are cached, not the
+        # installed files — dpkg still runs every postinst/trigger. The
+        # key follows this file (the package list lives here); a partial
+        # match still saves most of the download.
+        id: apt-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /tmp/apt-archives/*.deb
+          key: apt-${{ github.job }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/ci-jobs.yml') }}
+          restore-keys: |
+            apt-${{ github.job }}-${{ runner.os }}-${{ runner.arch }}-
+      - name: Install system dependencies (GUI dev stack + fonts)
+        # Installs ONLY what GitHub's ubuntu images do not ship
+        # (docs/0027 D1): the gpui link libs + IBM Plex for font parity
+        # with the dev shell. The build baseline — gcc/make/cmake/
+        # pkg-config/xvfb/git/curl — ships on the hosted ubuntu-24.04
+        # image by construction (docs/0027 §2, §4). apt reuses every
+        # cached .deb whose checksum matches the fresh index and only
+        # downloads the rest (docs/0027 D10); the dir sits under /tmp so
+        # apt's _apt sandbox user can reach it.
+        run: |
+          if [ "$(id -u)" -ne 0 ] && ! command -v sudo >/dev/null 2>&1; then
+            echo "::error::cannot install packages: non-root job user and no sudo on this runner image."
+            echo "::error::hosted-image parity requires root containers or passwordless sudo for the job user (docs/0027 §5)."
+            exit 1
+          fi
+          SUDO="$(command -v sudo >/dev/null 2>&1 && echo sudo || true)"
+          APT_OPTS="-o Dir::Cache::Archives=/tmp/apt-archives -o APT::Keep-Downloaded-Packages=true"
+          mkdir -p /tmp/apt-archives/partial
+          $SUDO apt-get update
+          $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y $APT_OPTS \
+            libwayland-dev libvulkan-dev libxcb1-dev libxkbcommon-dev \
+            libxkbcommon-x11-dev \
+            libatk1.0-dev libfontconfig1-dev libglib2.0-dev libgtk-3-dev \
+            fonts-ibm-plex
+          # Drop superseded .debs so a re-saved cache doesn't accumulate them.
+          $SUDO apt-get autoclean $APT_OPTS
+      - name: Save apt archive cache (main only)
+        # Same main-only rule as rust-cache's save-if (docs/0027 D10).
+        if: github.ref == 'refs/heads/main' && steps.apt-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /tmp/apt-archives/*.deb
+          key: ${{ steps.apt-cache.outputs.cache-primary-key }}
+      - name: Bootstrap Rust toolchain
+        run: |
+          command -v rustup >/dev/null 2>&1 || \
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+              sh -s -- -y --profile minimal --default-toolchain none
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.cargo/bin:$PATH"
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal \
+            --component rustfmt --component clippy
+          rustup default "$RUST_TOOLCHAIN"
+      - name: Cache cargo artifacts (rust-cache)
+        # Pinned to the peeled v2 commit (repo convention). Placed AFTER
+        # the toolchain bootstrap: the cache key includes the rustc hash.
+        # Default `workspaces` maps . -> target — which is why the old
+        # out-of-workspace CARGO_TARGET_DIR export is gone (docs/0027
+        # D2): a custom dir would silently miss target-artifact caching.
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          cache-on-failure: true
+          # PRs restore main's cache but never save their own (docs/0027
+          # D10): per-PR saves crowded the 10 GB repo cap and could evict
+          # the main entries every PR starts from.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: cargo fmt --all --check
+        run: cargo fmt --all --check
+      - name: cargo clippy --workspace --all-targets (zero warnings)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: cargo check -p dashboard-app --no-default-features (bridge-less)
+        run: cargo check -p dashboard-app --no-default-features
+
+  test:
+    # Full test suite. Verified headless-green (docs/0027 §2), but Xvfb +
+    # a fresh XDG_RUNTIME_DIR stay as cheap insurance so a future gpui rev
+    # that wants a display fails loudly instead of mysteriously.
+    needs: changes
+    if: needs.changes.outputs.test == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Restore apt archive cache (.debs)
+        # docs/0027 D10: the downloaded .debs are cached, not the
+        # installed files — dpkg still runs every postinst/trigger. The
+        # key follows this file (the package list lives here); a partial
+        # match still saves most of the download.
+        id: apt-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /tmp/apt-archives/*.deb
+          key: apt-${{ github.job }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/ci-jobs.yml') }}
+          restore-keys: |
+            apt-${{ github.job }}-${{ runner.os }}-${{ runner.arch }}-
+      - name: Install system dependencies (GUI dev stack + fonts)
+        # Installs ONLY what GitHub's ubuntu images do not ship
+        # (docs/0027 D1): the gpui link libs + IBM Plex for font parity
+        # with the dev shell. The build baseline — gcc/make/cmake/
+        # pkg-config/xvfb/git/curl — ships on the hosted ubuntu-24.04
+        # image by construction (docs/0027 §2, §4). apt reuses every
+        # cached .deb whose checksum matches the fresh index and only
+        # downloads the rest (docs/0027 D10); the dir sits under /tmp so
+        # apt's _apt sandbox user can reach it.
+        run: |
+          if [ "$(id -u)" -ne 0 ] && ! command -v sudo >/dev/null 2>&1; then
+            echo "::error::cannot install packages: non-root job user and no sudo on this runner image."
+            echo "::error::hosted-image parity requires root containers or passwordless sudo for the job user (docs/0027 §5)."
+            exit 1
+          fi
+          SUDO="$(command -v sudo >/dev/null 2>&1 && echo sudo || true)"
+          APT_OPTS="-o Dir::Cache::Archives=/tmp/apt-archives -o APT::Keep-Downloaded-Packages=true"
+          mkdir -p /tmp/apt-archives/partial
+          $SUDO apt-get update
+          $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y $APT_OPTS \
+            libwayland-dev libvulkan-dev libxcb1-dev libxkbcommon-dev \
+            libxkbcommon-x11-dev \
+            libatk1.0-dev libfontconfig1-dev libglib2.0-dev libgtk-3-dev \
+            fonts-ibm-plex
+          # Drop superseded .debs so a re-saved cache doesn't accumulate them.
+          $SUDO apt-get autoclean $APT_OPTS
+      - name: Save apt archive cache (main only)
+        # Same main-only rule as rust-cache's save-if (docs/0027 D10).
+        if: github.ref == 'refs/heads/main' && steps.apt-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /tmp/apt-archives/*.deb
+          key: ${{ steps.apt-cache.outputs.cache-primary-key }}
+      - name: Bootstrap Rust toolchain
+        run: |
+          command -v rustup >/dev/null 2>&1 || \
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+              sh -s -- -y --profile minimal --default-toolchain none
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.cargo/bin:$PATH"
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+      - name: Cache cargo artifacts (rust-cache)
+        # Same rationale as the lint job's cache step (docs/0027 D2).
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          cache-on-failure: true
+          # PRs restore main's cache but never save their own (docs/0027
+          # D10): per-PR saves crowded the 10 GB repo cap and could evict
+          # the main entries every PR starts from.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: cargo test --workspace (Xvfb, fresh runtime dir)
+        run: |
+          export XDG_RUNTIME_DIR="$(mktemp -d)"
+          xvfb-run --auto-servernum cargo test --workspace
+
+  release_check:
+    # Release-profile compile check (docs/0027 D12, #899): lint and test
+    # build the debug profile only, so code that compiles under
+    # `debug_assertions` but not without it (a `#[cfg(debug_assertions)]`
+    # module used unconditionally) passed every PR check and broke the
+    # release build. Own job: runs parallel to the gates and gets its own
+    # rust-cache entry (keyed by job id), so release artifacts never bloat
+    # or evict the debug caches lint/test restore.
+    needs: changes
+    if: needs.changes.outputs.release_check == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Restore apt archive cache (.debs)
+        # docs/0027 D10: the downloaded .debs are cached, not the
+        # installed files — dpkg still runs every postinst/trigger. The
+        # key follows this file (the package list lives here); a partial
+        # match still saves most of the download.
+        id: apt-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /tmp/apt-archives/*.deb
+          key: apt-${{ github.job }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/ci-jobs.yml') }}
+          restore-keys: |
+            apt-${{ github.job }}-${{ runner.os }}-${{ runner.arch }}-
+      - name: Install system dependencies (GUI dev stack + fonts)
+        # Installs ONLY what GitHub's ubuntu images do not ship
+        # (docs/0027 D1): the gpui link libs + IBM Plex for font parity
+        # with the dev shell. The build baseline — gcc/make/cmake/
+        # pkg-config/xvfb/git/curl — ships on the hosted ubuntu-24.04
+        # image by construction (docs/0027 §2, §4). apt reuses every
+        # cached .deb whose checksum matches the fresh index and only
+        # downloads the rest (docs/0027 D10); the dir sits under /tmp so
+        # apt's _apt sandbox user can reach it.
+        run: |
+          if [ "$(id -u)" -ne 0 ] && ! command -v sudo >/dev/null 2>&1; then
+            echo "::error::cannot install packages: non-root job user and no sudo on this runner image."
+            echo "::error::hosted-image parity requires root containers or passwordless sudo for the job user (docs/0027 §5)."
+            exit 1
+          fi
+          SUDO="$(command -v sudo >/dev/null 2>&1 && echo sudo || true)"
+          APT_OPTS="-o Dir::Cache::Archives=/tmp/apt-archives -o APT::Keep-Downloaded-Packages=true"
+          mkdir -p /tmp/apt-archives/partial
+          $SUDO apt-get update
+          $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y $APT_OPTS \
+            libwayland-dev libvulkan-dev libxcb1-dev libxkbcommon-dev \
+            libxkbcommon-x11-dev \
+            libatk1.0-dev libfontconfig1-dev libglib2.0-dev libgtk-3-dev \
+            fonts-ibm-plex
+          # Drop superseded .debs so a re-saved cache doesn't accumulate them.
+          $SUDO apt-get autoclean $APT_OPTS
+      - name: Save apt archive cache (main only)
+        # Same main-only rule as rust-cache's save-if (docs/0027 D10).
+        if: github.ref == 'refs/heads/main' && steps.apt-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /tmp/apt-archives/*.deb
+          key: ${{ steps.apt-cache.outputs.cache-primary-key }}
+      - name: Bootstrap Rust toolchain
+        run: |
+          command -v rustup >/dev/null 2>&1 || \
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+              sh -s -- -y --profile minimal --default-toolchain none
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.cargo/bin:$PATH"
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+      - name: Cache cargo artifacts (rust-cache)
+        # Same rationale as the lint job's cache step (docs/0027 D2).
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          cache-on-failure: true
+          # PRs restore main's cache but never save their own (docs/0027
+          # D10): per-PR saves crowded the 10 GB repo cap and could evict
+          # the main entries every PR starts from.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: cargo check --workspace --release (no debug_assertions)
+        run: cargo check --workspace --release
+
+  deny:
+    # Dependency audit against the committed deny.toml (docs/0027 D8):
+    # advisories, licenses and sources fail the job; bans (duplicate
+    # versions) only warn. Needs no toolchain bootstrap or apt step —
+    # the action's container ships its own cargo + cargo-deny.
+    needs: changes
+    if: needs.changes.outputs.deny == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: cargo deny check
+        # Pinned to the peeled v2.1.1 commit (repo convention); that tag
+        # bundles cargo-deny 0.20.2.
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check
+
+  ci-result:
+    name: CI result
+    # The only required check (docs/0027 D13). Never a condition that can
+    # skip it: a skipped required check counts as success. always() also
+    # turns a cancelled run red.
+    if: always()
+    needs: [changes, lint, test, release_check, deny]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Check that every needed job succeeded
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          if [ "$(jq -r '.changes.result' <<<"$NEEDS")" != success ]; then
+            echo "::error::Change detection did not succeed; can't tell what had to run"
+            exit 1
+          fi
+          failed=0
+          for job in lint test release_check deny; do
+            wanted=$(jq -r --arg j "$job" '.changes.outputs[$j] // "missing"' <<<"$NEEDS")
+            result=$(jq -r --arg j "$job" '.[$j].result // "missing"' <<<"$NEEDS")
+            case "$wanted/$result" in
+              true/success)  echo "ok    $job" ;;
+              false/skipped) echo "skip  $job (not needed)" ;;
+              true/*)        echo "::error::$job was needed but is '$result'"; failed=1 ;;
+              false/*)       echo "::error::$job wasn't needed but is '$result'"; failed=1 ;;
+              *)             echo "::error::no decision for $job ('$wanted')"; failed=1 ;;
+            esac
+          done
+          exit "$failed"

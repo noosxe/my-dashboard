@@ -33,7 +33,7 @@ per change. Consequence: the image changes rarely (D2/D3 only), and
 
 `FROM rust:1.98.0@sha256:620dbcd1…` — tag *and* digest, matching
 the dev-shell flake's explicit release, `RUST_TOOLCHAIN` in
-`.github/workflows/ci.yml` and `rust-version` in `Cargo.toml` (docs/0027
+`.github/workflows/ci-jobs.yml` and `rust-version` in `Cargo.toml` (docs/0027
 D4's four-way lockstep, enforced by `scripts/check-toolchain-pins.sh`). The
 digest is the Docker analogue of CI's SHA-pinned actions: re-pulling the
 same tag months later must not silently change the verification env.
@@ -419,7 +419,7 @@ cached; the rebuild is short).
 
 One PR changes all four toolchain pins together (docs/0027 D4): the
 tag + digest in `docker/Dockerfile`, the release in `flake.nix`,
-`RUST_TOOLCHAIN` in `.github/workflows/ci.yml` and `rust-version` in
+`RUST_TOOLCHAIN` in `.github/workflows/ci-jobs.yml` and `rust-version` in
 `Cargo.toml`; `scripts/check-toolchain-pins.sh` must pass. After
 merging, recreate the caches and pay the one cold build:
 
