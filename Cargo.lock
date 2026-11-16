@@ -2405,8 +2405,8 @@ dependencies = [
 
 [[package]]
 name = "gpui-base"
-version = "0.9.1"
-source = "git+https://github.com/longbridge/gpui-component?rev=39ab849a93b5f15507b969164d49891db8d5b470#39ab849a93b5f15507b969164d49891db8d5b470"
+version = "0.10.0"
+source = "git+https://github.com/longbridge/gpui-component?rev=f697c3133d55c64fa8a5b67926147fb3dadd276d#f697c3133d55c64fa8a5b67926147fb3dadd276d"
 dependencies = [
  "aho-corasick",
  "anyhow",
@@ -2436,6 +2436,7 @@ dependencies = [
  "serde_json",
  "smallvec",
  "smol",
+ "sys-locale",
  "tracing",
  "unicode-linebreak",
  "unicode-segmentation",
@@ -2445,8 +2446,8 @@ dependencies = [
 
 [[package]]
 name = "gpui-component"
-version = "0.9.1"
-source = "git+https://github.com/longbridge/gpui-component?rev=39ab849a93b5f15507b969164d49891db8d5b470#39ab849a93b5f15507b969164d49891db8d5b470"
+version = "0.10.0"
+source = "git+https://github.com/longbridge/gpui-component?rev=f697c3133d55c64fa8a5b67926147fb3dadd276d#f697c3133d55c64fa8a5b67926147fb3dadd276d"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2526,8 +2527,8 @@ dependencies = [
 
 [[package]]
 name = "gpui-component-macros"
-version = "0.9.1"
-source = "git+https://github.com/longbridge/gpui-component?rev=39ab849a93b5f15507b969164d49891db8d5b470#39ab849a93b5f15507b969164d49891db8d5b470"
+version = "0.10.0"
+source = "git+https://github.com/longbridge/gpui-component?rev=f697c3133d55c64fa8a5b67926147fb3dadd276d#f697c3133d55c64fa8a5b67926147fb3dadd276d"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -2537,8 +2538,8 @@ dependencies = [
 
 [[package]]
 name = "gpui-kit-assets"
-version = "0.9.1"
-source = "git+https://github.com/longbridge/gpui-component?rev=39ab849a93b5f15507b969164d49891db8d5b470#39ab849a93b5f15507b969164d49891db8d5b470"
+version = "0.10.0"
+source = "git+https://github.com/longbridge/gpui-component?rev=f697c3133d55c64fa8a5b67926147fb3dadd276d#f697c3133d55c64fa8a5b67926147fb3dadd276d"
 dependencies = [
  "anyhow",
  "gpui-pre",

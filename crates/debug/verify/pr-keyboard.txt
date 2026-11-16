@@ -1,5 +1,6 @@
 # pr-keyboard.txt — the PR page by keyboard (#733, #734, #768): the tab strip
-# is one Tab stop that Left/Right/Home/End drive, every composer Tabs out, and
+# is one Tab stop whose arrows and Home/End move focus and Enter selects
+# (upstream's manual activation, gpui-kit v0.10.0), every composer Tabs out, and
 # each tab of the two stress scenarios passes the 0065 D3 audit.
 #
 # Prerequisites: the containerized env (docs/0071) with the GitHub fixtures
@@ -31,7 +32,8 @@ key enter
 wait-label "PR #108: Loader: a PR that fails its detail read"
 
 
-# 101: the tab strip is one stop; arrows select, Home/End jump, no wrap.
+# 101: the tab strip is one stop; arrows move focus, Enter selects, Home/End
+# jump, and the strip wraps.
 # Content assertions only here: a `tab-stops` walk moves focus off the strip.
 mouse down 900 337
 mouse up 900 337
@@ -43,29 +45,42 @@ key tab
 key tab
 assert-label "Pull request sections: Conversation (5)"
 key right
-assert-label "Pull request sections: Commits (3)"
+# Moving focus does not select: the group still names Conversation.
+assert-label "Pull request sections: Conversation (5)"
+key enter
+wait-label "Pull request sections: Commits (3)"
 # Commit rows read as one node each (#768).
 assert-label "parser: accept trailing commas in manifest lists — octo-dev, 0000001, 3d"
 assert-no-label "Leave a comment"
 key right
-assert-label "Pull request sections: Checks (9)"
+key enter
+wait-label "Pull request sections: Checks (9)"
 wait-label "View log for build (macos-latest) in CI, failed"
 assert-label "Open build (macos-latest) in CI on GitHub"
 assert-label "Open ci/legacy-status on GitHub"
 key right
-assert-label "Pull request sections: Files changed (5)"
+key enter
+wait-label "Pull request sections: Files changed (5)"
 wait-label "Diff for crates/manifest/src/parser.rs"
 key right
-assert-label "Pull request sections: Files changed (5)"
+key enter
+wait-label "Pull request sections: Conversation (5)"
+key left
+key enter
+wait-label "Pull request sections: Files changed (5)"
 key home
-assert-label "Pull request sections: Conversation (5)"
+key enter
+wait-label "Pull request sections: Conversation (5)"
 assert-label "Leave a comment"
 key end
-assert-label "Pull request sections: Files changed (5)"
+key enter
+wait-label "Pull request sections: Files changed (5)"
 key left
-assert-label "Pull request sections: Checks (9)"
+key enter
+wait-label "Pull request sections: Checks (9)"
 key home
-assert-label "Leave a comment"
+key enter
+wait-label "Leave a comment"
 
 # Each tab walks a full Tab cycle and passes the audit.
 tab-stops
@@ -141,13 +156,17 @@ key tab
 key tab
 key tab
 key right
-assert-label "Pull request sections: Commits"
+key enter
+wait-label "Pull request sections: Commits"
 key right
-assert-label "Pull request sections: Checks (137)"
+key enter
+wait-label "Pull request sections: Checks (137)"
 key right
-assert-label "Pull request sections: Files changed"
+key enter
+wait-label "Pull request sections: Files changed"
 key home
-assert-label "Pull request sections: Conversation (252)"
+key enter
+wait-label "Pull request sections: Conversation (252)"
 # No `tab-stops` on this Conversation tab: its 252 rows make well over the
 # walk's 100-stop cap, so the cycle can't close within it (not a trap).
 audit

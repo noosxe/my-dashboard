@@ -381,8 +381,8 @@ scripts/verify.sh sh -c '
 `pr-page.txt` runs `tab-stops` and `audit` at each Conversation stop, so a
 trapped field or an unnamed control turns the receipt red. `pr-keyboard.txt`
 (session `prkeys`, same fixtures and clock) drives the PR page by keyboard
-(#733, #734, #768): the tab strip is one Tab stop that Left/Right/Home/End
-move along, commit and check rows carry their own nodes, and `tab-stops`
+(#733, #734, #768): the tab strip is one Tab stop whose Left/Right/Home/End
+move focus (Enter selects), commit and check rows carry their own nodes, and `tab-stops`
 walks a full cycle from a focused composer (the description editor, the
 comment box, a thread reply), which is the receipt that Tab leaves it. It
 also audits all four tabs of #101 and #102. A `tab-stops` walk moves focus

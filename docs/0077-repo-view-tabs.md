@@ -160,7 +160,7 @@ assistive tech announces "tab 2 of 3"; the gpui-kit `Tab` primitive carries
 the a11y plumbing (its docs note keyboard nav is still upstream — tab-strip
 keyboard coverage follows the primitive, the 0065 audit records whatever it
 does; the PR page's tabs got a keyboard path in `tab_strip` (#734), and the
-repo view's still lack one, #868). The active tab's GroupBox renders below the strip; the two hidden
+repo view's lacked one, #868, until gpui-kit v0.10.0 gave `TabBar` its own). The active tab's GroupBox renders below the strip; the two hidden
 GroupBoxes render nothing (filters keep their state — `RepoViewFilters` is
 untouched; option menus derive from held nodes as today, only the active
 tab's options are computed).

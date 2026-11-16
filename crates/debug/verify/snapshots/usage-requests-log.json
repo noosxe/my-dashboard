@@ -892,7 +892,7 @@
         "w": 70.0,
         "h": 32.0
       },
-      "focusable": false,
+      "focusable": true,
       "focused": false
     },
     {
@@ -1334,7 +1334,7 @@
         "w": 41.0,
         "h": 32.0
       },
-      "focusable": false,
+      "focusable": true,
       "focused": false
     },
     {
@@ -1360,7 +1360,7 @@
         "w": 53.0,
         "h": 32.0
       },
-      "focusable": false,
+      "focusable": true,
       "focused": false
     },
     {
@@ -1477,7 +1477,7 @@
         "w": 41.0,
         "h": 32.0
       },
-      "focusable": false,
+      "focusable": true,
       "focused": false
     },
     {
@@ -2751,7 +2751,7 @@
         "w": 49.0,
         "h": 32.0
       },
-      "focusable": false,
+      "focusable": true,
       "focused": false
     },
     {
@@ -2829,7 +2829,7 @@
         "w": 49.0,
         "h": 32.0
       },
-      "focusable": false,
+      "focusable": true,
       "focused": false
     },
     {
@@ -2881,7 +2881,7 @@
         "w": 80.0,
         "h": 32.0
       },
-      "focusable": false,
+      "focusable": true,
       "focused": false
     },
     {
@@ -3869,8 +3869,8 @@
         "w": 83.0,
         "h": 32.0
       },
-      "focusable": false,
-      "focused": false
+      "focusable": true,
+      "focused": true
     },
     {
       "accesskit_id": "16306891106951055706",
@@ -3978,7 +3978,7 @@
     },
     {
       "accesskit_id": "16698708412780674693",
-      "role": "TabList",
+      "role": "Group",
       "label": "Usage view: Requests",
       "bounds": {
         "x": 288.0,
@@ -3987,7 +3987,7 @@
         "h": 32.0
       },
       "focusable": true,
-      "focused": true
+      "focused": false
     },
     {
       "accesskit_id": "16718708422717007706",
@@ -4272,12 +4272,12 @@
         "w": 49.0,
         "h": 32.0
       },
-      "focusable": false,
+      "focusable": true,
       "focused": false
     },
     {
       "accesskit_id": "17886640260443436423",
-      "role": "TabList",
+      "role": "Group",
       "label": "Transport: All",
       "bounds": {
         "x": 357.0,
@@ -4324,7 +4324,7 @@
         "w": 54.0,
         "h": 32.0
       },
-      "focusable": false,
+      "focusable": true,
       "focused": false
     },
     {
@@ -4441,7 +4441,7 @@
         "w": 41.0,
         "h": 32.0
       },
-      "focusable": false,
+      "focusable": true,
       "focused": false
     },
     {
@@ -4454,7 +4454,7 @@
         "w": 58.0,
         "h": 32.0
       },
-      "focusable": false,
+      "focusable": true,
       "focused": false
     },
     {
@@ -4472,7 +4472,7 @@
     },
     {
       "accesskit_id": "18371451918428087409",
-      "role": "TabList",
+      "role": "Group",
       "label": "Range: 24h",
       "bounds": {
         "x": 966.0,

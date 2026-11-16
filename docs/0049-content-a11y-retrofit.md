@@ -126,8 +126,9 @@ Verified against the pinned stack (`gpui-pre =0.3.3`, `gpui-component` @
 | Repo view rows | `page.rs`: `render_pr_row_inner`, `render_issue_row`, `render_notification_row` | already ListItem+id — add `aria_label`, `aria_selected` |
 | PR detail | `pr_page.rs` (30): tabs, header, checks (+log pane), merge panel, meta pickers, milestone cards, reactions, comment box, inline edit, delete confirm, cap row, files toggle | Tab `aria_label`s; Button-widget labels everywhere; ListItem for row-like actors; `aria_description` on destructive confirms |
 
-*PR detail, as shipped (#733, #734, #768):* the tab strip is one `TabList` stop
-named "Pull request sections: <tab>" (`tab_strip.rs`); the comment box's action
+*PR detail, as shipped (#733, #734, #768):* the tab strip is one Tab stop (the pinned
+`TabBar`'s `TabList`, keyboard path upstream since gpui-kit v0.10.0) inside a
+group named "Pull request sections: <tab>" (`tab_strip.rs`); the comment box's action
 select is "Comment action" and the inline edit and reply fields take their
 card's title or "Reply to review thread" as `Textarea::aria_label` (fields with a
 placeholder are named by it); timeline buttons name their target ("Edit
