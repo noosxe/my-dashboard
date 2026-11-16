@@ -960,11 +960,15 @@ Every band has the three states (0065 rubric #18, [DG]):
   view switch are one Tab stop each, with arrow keys inside (or every
   segment a stop, per upstream behaviour). The tab-stop cycle must
   close on every view (`tree --tab-stops` receipt).
-  - Upstream's segmented `TabBar` has no keyboard path at the pin, so
-    the page wraps each one in a focusable `TabList` node (#696). It
-    is one Tab stop with the framework focus ring. Left/Up and
-    Right/Down move the selection, Home and End jump to the ends, and
-    its accessible name carries the selection ("Range: 24h").
+  - Upstream's segmented `TabBar` had no keyboard path before gpui-kit
+    v0.10.0, so the page wrapped each one in a focusable `TabList` node
+    (#696). From v0.10.0 (gpui-kit#3900) the `TabBar` is one Tab stop
+    itself: Tab enters on the selected segment, Left/Right move focus
+    and wrap, Home and End jump to the ends, and Enter or Space select
+    (manual activation). The page's wrapper is now a plain group that
+    carries the accessible name with the selection ("Range: 24h") and a
+    focus handle that is not a Tab stop, which the D19 hand-over below
+    still needs: a pointer press on an upstream tab does not focus it.
   - The views' tables (#697, #698) must keep the cycle closing. Up to
     gpui-kit v0.9.0 the `DataTable` bound Tab and Shift-Tab to
     "next/previous column" and never let focus leave, so the D7

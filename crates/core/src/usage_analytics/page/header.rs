@@ -1,10 +1,10 @@
 //! The fixed header (docs/0082 D3): the view switch leads on the left
 //! (Q13); the range presets and Refresh sit right-aligned on the same
 //! row; the honesty line runs beneath. Both segmented controls are one
-//! Tab stop each with arrow keys inside (D19).
+//! Tab stop each (the upstream `TabBar` owns the keyboard path, D19).
 
 use gpui::prelude::*;
-use gpui::{Context, FocusHandle, KeyDownEvent, SharedString, Window, div};
+use gpui::{Context, FocusHandle, SharedString, Window, div};
 use gpui_component::{
     ActiveTheme, IconName, Sizable as _, ThemeStyled as _,
     button::{Button, ButtonVariants},
@@ -118,10 +118,12 @@ impl UsagePage {
     }
 }
 
-/// A segmented control as one Tab stop (D19): the focusable wrapper
-/// carries the a11y node (docs/0010 D10: id + focus + role) and the
-/// arrow keys; the upstream `TabBar` inside draws the segments and
-/// takes the pointer. Upstream's `TabBar` has no keyboard path.
+/// A segmented control (D19). The upstream `TabBar` inside draws the
+/// segments, takes the pointer and owns the keyboard path (gpui-kit
+/// v0.10.0: one Tab stop, arrows move focus, Enter/Space select). The
+/// wrapper carries the accessible name and a focus handle that is not a
+/// Tab stop: a pointer pick leaves the focus nowhere the upstream tab
+/// takes it, so the view switch hands it to the wrapper (see `focus.rs`).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn segmented_stop<F>(
     id: &'static str,
@@ -136,7 +138,6 @@ pub(super) fn segmented_stop<F>(
 where
     F: Fn(&mut UsagePage, usize, &mut Window, &mut Context<UsagePage>) + Clone + 'static,
 {
-    let count = labels.len();
     let current = labels.get(selected).copied().unwrap_or_default();
     let pick = on_select.clone();
     let bar = TabBar::new(SharedString::from(format!("{id}-tabs")))
@@ -151,50 +152,10 @@ where
     div()
         .id(id)
         .debug_selector(move || id.to_string())
-        .role(gpui::accesskit::Role::TabList)
+        .role(gpui::accesskit::Role::Group)
         .aria_label(format!("{name}: {current}"))
         .rounded(cx.theme().radius_lg)
         .when_some(focus, |this, f| this.track_focus(f))
         .when(focused, |this| this.focus_ring_style(window, cx))
-        .on_key_down(cx.listener(move |this, ev: &KeyDownEvent, window, cx| {
-            let Some(next) = arrow_target(ev.keystroke.key.as_str(), selected, count) else {
-                return;
-            };
-            cx.stop_propagation();
-            if next != selected {
-                on_select(this, next, window, cx);
-                cx.notify();
-            }
-        }))
         .child(bar)
-}
-
-/// The segment an arrow key moves to from `selected` among `count`
-/// (D19): clamped, never wrapping; `None` for keys the control ignores.
-fn arrow_target(key: &str, selected: usize, count: usize) -> Option<usize> {
-    let last = count.saturating_sub(1);
-    Some(match key {
-        "left" | "up" => selected.saturating_sub(1),
-        "right" | "down" => (selected + 1).min(last),
-        "home" => 0,
-        "end" => last,
-        _ => return None,
-    })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::arrow_target;
-
-    #[test]
-    fn arrows_move_within_the_control_and_clamp() {
-        assert_eq!(arrow_target("right", 0, 6), Some(1));
-        assert_eq!(arrow_target("down", 5, 6), Some(5), "no wrap at the end");
-        assert_eq!(arrow_target("left", 0, 6), Some(0), "no wrap at the start");
-        assert_eq!(arrow_target("up", 3, 6), Some(2));
-        assert_eq!(arrow_target("home", 4, 6), Some(0));
-        assert_eq!(arrow_target("end", 1, 6), Some(5));
-        // Tab and everything else pass through: the control is one stop.
-        assert_eq!(arrow_target("tab", 1, 6), None);
-    }
 }

@@ -1,45 +1,36 @@
-//! A tab strip that is one keyboard stop (#734).
+//! A named tab strip (#734, reworked at gpui-kit v0.10.0).
 //!
-//! The pinned `TabBar` draws the tabs (role `Tab`, selected state, set
-//! position) and takes the pointer, but has no keyboard path. The strip
-//! wraps it in a focusable `TabList` node: one Tab stop, Left/Right
-//! (Up/Down) move to the neighbouring tab, Home/End jump to the ends,
-//! selection follows focus (automatic activation) and never wraps. Tab
-//! and Shift-Tab pass through so the walk continues past the strip.
+//! The pinned `Tabs` owns the keyboard contract (ARIA tabs, manual
+//! activation): the list is one Tab stop on the selected tab, Left/Right
+//! (Up/Down on a vertical list) move focus and wrap, Home/End jump to the
+//! ends, Enter/Space select, disabled tabs are skipped, and Tab leaves
+//! the list. The strip adds an accessible name that carries the
+//! selection ("Pull request sections: Commits") and a focus handle that
+//! is not a Tab stop: the upstream tab does not take focus on a pointer
+//! click, so the click hands focus to the strip, as in a browser. The
+//! content the tab switch replaces may hold the focus, and a focus left
+//! on an unmounted element makes Tab do nothing.
 
 use gpui::prelude::*;
-use gpui::{App, Context, FocusHandle, KeyDownEvent, SharedString, Window, accesskit::Role, div};
+use gpui::{App, Context, FocusHandle, SharedString, Window, accesskit::Role, div};
 use gpui_component::{
     ThemeStyled as _,
     tab::{Tab, TabBar},
 };
 
 /// The strip's focus handle, kept in window state under `id` so the
-/// owning page needs no field for it.
+/// owning page needs no field for it. Not a Tab stop (see above).
 pub(crate) fn focus_handle(id: &'static str, window: &mut Window, cx: &mut App) -> FocusHandle {
     window
         .use_keyed_state(SharedString::from(format!("{id}-focus")), cx, |_, cx| {
-            cx.focus_handle().tab_stop(true)
+            cx.focus_handle().tab_stop(false)
         })
         .read(cx)
         .clone()
 }
 
-/// The tab an arrow / Home / End key moves to from `selected` among
-/// `count`: clamped, never wrapping; `None` for keys the strip ignores.
-pub(crate) fn key_target(key: &str, selected: usize, count: usize) -> Option<usize> {
-    let last = count.saturating_sub(1);
-    Some(match key {
-        "left" | "up" => selected.saturating_sub(1),
-        "right" | "down" => (selected + 1).min(last),
-        "home" => 0,
-        "end" => last,
-        _ => return None,
-    })
-}
-
-/// One tab strip. `name` is the list's accessible name; `on_select`
-/// runs for pointer clicks and keys alike.
+/// One tab strip. `name` is the group's accessible name; `on_select`
+/// runs for a pick by pointer or keyboard.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn strip<V, F>(
     id: &'static str,
@@ -53,55 +44,42 @@ pub(crate) fn strip<V, F>(
 ) -> impl IntoElement + use<V, F>
 where
     V: 'static,
-    F: Fn(&mut V, usize, &mut Window, &mut Context<V>) + Clone + 'static,
+    F: Fn(&mut V, usize, &mut Window, &mut Context<V>) + 'static,
 {
-    let count = labels.len();
     let current = labels.get(selected).cloned().unwrap_or_default();
-    let pick = on_select.clone();
     let click_focus = focus.clone();
     let bar = TabBar::new(SharedString::from(format!("{id}-bar")))
         .underline()
         .w_full()
         .selected_index(selected)
-        .on_click(cx.listener(move |this, ix: &usize, window, cx| {
-            // A click takes focus onto the strip, as in a browser: the
-            // content it replaces may hold the focus, and a focus left on
-            // an unmounted element makes Tab do nothing.
-            window.focus(&click_focus, cx);
-            pick(this, *ix, window, cx)
-        }))
+        .on_click(cx.listener(move |this, ix: &usize, window, cx| on_select(this, *ix, window, cx)))
         .children(labels.into_iter().map(|l| Tab::new().label(l)));
-    let focused = focus.is_focused(window);
     div()
         .id(id)
         .debug_selector(move || id.to_string())
-        .role(Role::TabList)
+        .role(Role::Group)
         .aria_label(format!("{name}: {current}"))
         .w_full()
         .track_focus(focus)
-        .when(focused, |this| this.focus_ring_style(window, cx))
-        .on_key_down(cx.listener(move |this, ev: &KeyDownEvent, window, cx| {
-            let Some(next) = key_target(ev.keystroke.key.as_str(), selected, count) else {
-                return;
-            };
-            cx.stop_propagation();
-            if next != selected {
-                on_select(this, next, window, cx);
-                cx.notify();
-            }
-        }))
+        // The pointer press, not the click: a keyboard activation must
+        // keep focus on the tab it came from.
+        .capture_any_mouse_down(move |_, window, cx| window.focus(&click_focus, cx))
+        .when(focus.is_focused(window), |this| {
+            this.focus_ring_style(window, cx)
+        })
         .child(bar)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gpui::{Render, TestAppContext};
+    use gpui::{FocusHandle, Render, TestAppContext};
     use gpui_component::Root;
 
     struct Harness {
         selected: usize,
-        focus: FocusHandle,
+        strip: FocusHandle,
+        before: FocusHandle,
         after: FocusHandle,
     }
 
@@ -109,10 +87,11 @@ mod tests {
         fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
             let labels = ["One", "Two", "Three"].map(SharedString::from).to_vec();
             div()
+                .child(div().id("before").track_focus(&self.before).child("before"))
                 .child(strip(
                     "probe-tabs",
                     "Probe sections",
-                    &self.focus,
+                    &self.strip,
                     labels,
                     self.selected,
                     |this: &mut Self, ix, _, _| this.selected = ix,
@@ -123,45 +102,55 @@ mod tests {
         }
     }
 
+    /// A full key press: GPUI activates a focused element on key release.
+    fn press(vcx: &mut gpui::VisualTestContext, key: &'static str) {
+        vcx.simulate_keystrokes(key);
+        vcx.simulate_event(gpui::KeyUpEvent {
+            keystroke: gpui::Keystroke::parse(key).unwrap(),
+        });
+    }
+
     #[gpui::test]
-    fn strip_is_one_stop_and_arrows_select(cx: &mut TestAppContext) {
+    fn strip_is_one_stop_arrows_move_focus_and_enter_selects(cx: &mut TestAppContext) {
         cx.update(gpui_component::init);
         let mut probe = None;
         let (_root, vcx) = cx.add_window_view(|window, cx| {
             let view = cx.new(|cx| Harness {
                 selected: 0,
-                focus: cx.focus_handle().tab_stop(true),
+                strip: cx.focus_handle().tab_stop(false),
+                before: cx.focus_handle().tab_stop(true),
                 after: cx.focus_handle().tab_stop(true),
             });
             probe = Some(view.clone());
             Root::new(view, window, cx)
         });
         let view = probe.unwrap();
-        let (focus, after) = vcx.read(|cx| {
+        let (before, after) = vcx.read(|cx| {
             let h = view.read(cx);
-            (h.focus.clone(), h.after.clone())
+            (h.before.clone(), h.after.clone())
         });
-        vcx.update(|window, cx| window.focus(&focus, cx));
         let selected = |vcx: &mut gpui::VisualTestContext| vcx.read(|cx| view.read(cx).selected);
-        vcx.simulate_keystrokes("right right right");
-        assert_eq!(selected(vcx), 2, "clamped at the last tab");
+        vcx.update(|window, cx| window.focus(&before, cx));
+        // One stop: Tab enters the strip on the selected tab.
+        vcx.simulate_keystrokes("tab");
+        vcx.update(|window, _| assert!(!before.is_focused(window) && !after.is_focused(window)));
+        // Arrows move focus without selecting (manual activation).
+        vcx.simulate_keystrokes("right right");
+        assert_eq!(selected(vcx), 0, "moving focus does not select");
+        press(vcx, "enter");
+        assert_eq!(selected(vcx), 2, "Enter selects the focused tab");
+        // Wraps at the end, and Home / End jump.
+        vcx.simulate_keystrokes("right");
+        press(vcx, "space");
+        assert_eq!(selected(vcx), 0, "Right wraps to the first tab");
+        vcx.simulate_keystrokes("end");
+        press(vcx, "enter");
+        assert_eq!(selected(vcx), 2);
         vcx.simulate_keystrokes("home");
+        press(vcx, "enter");
         assert_eq!(selected(vcx), 0);
-        vcx.simulate_keystrokes("end left");
-        assert_eq!(selected(vcx), 1);
-        vcx.update(|window, _| assert!(focus.is_focused(window), "focus stays on the strip"));
+        // The next Tab leaves the strip.
         vcx.simulate_keystrokes("tab");
         vcx.update(|window, _| assert!(after.is_focused(window), "Tab leaves the strip"));
-    }
-
-    #[test]
-    fn keys_move_within_the_strip_and_clamp() {
-        assert_eq!(key_target("right", 0, 4), Some(1));
-        assert_eq!(key_target("down", 3, 4), Some(3), "no wrap at the end");
-        assert_eq!(key_target("left", 0, 4), Some(0), "no wrap at the start");
-        assert_eq!(key_target("up", 2, 4), Some(1));
-        assert_eq!(key_target("home", 3, 4), Some(0));
-        assert_eq!(key_target("end", 1, 4), Some(3));
-        assert_eq!(key_target("tab", 1, 4), None, "Tab passes through");
     }
 }

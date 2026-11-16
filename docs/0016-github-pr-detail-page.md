@@ -44,11 +44,15 @@ In:
 - **Four tabs** (gpui-component `TabBar`, `underline()` variant) with live
   counts: **Conversation** (default), **Commits**, **Checks**, **Files
   changed**. Only the active tab renders; each tab keeps its own scroll handle.
-  The strip is one keyboard stop (`tab_strip`, #734): Left/Right (and
-  Up/Down) select the neighbouring tab, Home/End the first and last, none
-  wraps, and Tab moves on. A click on a tab also focuses the strip, so focus
-  never stays on content the tab switch unmounts. The list's accessible name
-  is "Pull request sections: <selected tab>"; each tab keeps the upstream
+  The strip is one keyboard stop, and the pinned `TabBar` owns the keyboard
+  path (gpui-kit v0.10.0, #3900; before that `tab_strip` added its own, #734):
+  Tab enters on the selected tab, Left/Right move focus to the neighbouring
+  tab and wrap, Home/End jump to the first and last, Enter or Space selects
+  the focused tab (manual activation), and the next Tab moves on. A pointer
+  press on a tab does not focus it upstream, so `tab_strip` hands focus to
+  the strip (a handle that is not a Tab stop), and focus never stays on
+  content the tab switch unmounts. `tab_strip` wraps the bar in a group
+  named "Pull request sections: <selected tab>"; each tab keeps the upstream
   `Tab` role with its selected state.
 - **Tab leaves text fields (#733):** Tab and Shift-Tab move focus out of every
   multi-line field on the page (comment box, edit and reply composers, review

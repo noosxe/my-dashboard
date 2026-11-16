@@ -155,7 +155,8 @@ pub struct UsagePage {
     _views_task: Option<Task<()>>,
 }
 
-/// The page's own Tab stops (D19).
+/// The page's own focus handles (D19). The segmented controls' handles
+/// are not Tab stops: the upstream `TabBar` inside each is the one stop.
 struct Focus {
     view: FocusHandle,
     range: FocusHandle,
@@ -175,10 +176,10 @@ impl UsagePage {
         );
         page.read = ReadState::Loading;
         page.focus = Some(Focus {
-            view: cx.focus_handle().tab_stop(true),
-            range: cx.focus_handle().tab_stop(true),
-            budget: cx.focus_handle().tab_stop(true),
-            transport: cx.focus_handle().tab_stop(true),
+            view: cx.focus_handle().tab_stop(false),
+            range: cx.focus_handle().tab_stop(false),
+            budget: cx.focus_handle().tab_stop(false),
+            transport: cx.focus_handle().tab_stop(false),
             diagnostics: cx.focus_handle().tab_stop(true),
         });
         page.budget_controls = Some(budget::Controls::new(page.spend, window, cx));

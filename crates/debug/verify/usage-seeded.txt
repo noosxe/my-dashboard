@@ -55,10 +55,14 @@ wait-label "1,071 requests · as of"
 assert-focus 16698708412780674693
 tab-stops
 
-# Back to Requests by keyboard: the view switch takes the arrow keys
-# (D19). The walk ended on its first stop, so focus the switch again.
+# Back to Requests by keyboard: the view switch is one Tab stop whose
+# arrows move focus and Enter selects (D19). The walk ended on its first
+# stop, so focus the switch's wrapper again; Tab enters it on the
+# selected segment.
 focus 16698708412780674693
+key tab
 key right
+key enter
 wait-label "Usage view: Requests"
 wait-label "Step chart of p90 duration per hourly bucket, 24 buckets"
 

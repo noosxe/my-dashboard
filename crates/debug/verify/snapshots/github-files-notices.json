@@ -25,12 +25,12 @@
       "focused": false
     },
     {
-      "accesskit_id": "733968405688806102",
+      "accesskit_id": "872805323400431190",
       "role": "ListItem",
       "label": null,
       "bounds": {
         "x": 296.0,
-        "y": 388.0,
+        "y": 361.0,
         "w": 204.0,
         "h": 27.0
       },
@@ -38,27 +38,27 @@
       "focused": false
     },
     {
-      "accesskit_id": "1197131841863541256",
-      "role": "Button",
-      "label": "Conversations not shown in the diff (1)",
+      "accesskit_id": "1116072149906428275",
+      "role": "Splitter",
+      "label": "Resize files sidebar",
       "bounds": {
-        "x": 520.0,
-        "y": 779.0,
-        "w": 276.0,
-        "h": 24.0
+        "x": 505.0,
+        "y": 185.0,
+        "w": 5.0,
+        "h": 622.0
       },
       "focusable": true,
       "focused": false
     },
     {
-      "accesskit_id": "1588128747340930101",
-      "role": "Tab",
-      "label": "Commits (3)",
+      "accesskit_id": "1180947396144610906",
+      "role": "Label",
+      "label": "2 unresolved",
       "bounds": {
-        "x": 408.0,
-        "y": 137.0,
-        "w": 78.0,
-        "h": 36.0
+        "x": 300.0,
+        "y": 216.0,
+        "w": 196.0,
+        "h": 19.0
       },
       "focusable": false,
       "focused": false
@@ -77,33 +77,7 @@
       "focused": false
     },
     {
-      "accesskit_id": "1972764246230311004",
-      "role": "Button",
-      "label": "Refresh",
-      "bounds": {
-        "x": 1183.0,
-        "y": 69.0,
-        "w": 24.0,
-        "h": 24.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "2949438199115174530",
-      "role": "TabList",
-      "label": null,
-      "bounds": {
-        "x": 288.0,
-        "y": 137.0,
-        "w": 955.0,
-        "h": 36.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "3493896281522098235",
+      "accesskit_id": "2087541564107347004",
       "role": "TextInput",
       "label": "Filter files…",
       "bounds": {
@@ -111,6 +85,58 @@
         "y": 277.0,
         "w": 186.0,
         "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2832445530142108597",
+      "role": "ListItem",
+      "label": null,
+      "bounds": {
+        "x": 296.0,
+        "y": 334.0,
+        "w": 204.0,
+        "h": 27.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3400697193165112097",
+      "role": "Tab",
+      "label": "Files changed (4)",
+      "bounds": {
+        "x": 585.0,
+        "y": 137.0,
+        "w": 108.0,
+        "h": 36.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3643398615140383656",
+      "role": "Group",
+      "label": "Couldn't render this diff — crates/manifest/src/lexer.rs",
+      "bounds": {
+        "x": 508.0,
+        "y": 185.0,
+        "w": 735.0,
+        "h": 590.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3820481982806606174",
+      "role": "Tab",
+      "label": "Conversation (0)",
+      "bounds": {
+        "x": 288.0,
+        "y": 137.0,
+        "w": 104.0,
+        "h": 36.0
       },
       "focusable": true,
       "focused": false
@@ -142,21 +168,34 @@
       "focused": false
     },
     {
-      "accesskit_id": "5277393978821657071",
-      "role": "List",
+      "accesskit_id": "5475247600156097162",
+      "role": "TabList",
       "label": null,
       "bounds": {
-        "x": 296.0,
-        "y": 307.0,
-        "w": 204.0,
-        "h": 492.0
+        "x": 288.0,
+        "y": 137.0,
+        "w": 955.0,
+        "h": 36.0
       },
-      "focusable": true,
+      "focusable": false,
       "focused": false
     },
     {
-      "accesskit_id": "5831072103681132226",
-      "role": "TabList",
+      "accesskit_id": "6288348909681315402",
+      "role": "ListItem",
+      "label": null,
+      "bounds": {
+        "x": 296.0,
+        "y": 388.0,
+        "w": 204.0,
+        "h": 27.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6545223395291672954",
+      "role": "Group",
       "label": "Pull request sections: Files changed (4)",
       "bounds": {
         "x": 288.0,
@@ -166,19 +205,6 @@
       },
       "focusable": true,
       "focused": true
-    },
-    {
-      "accesskit_id": "6415254724359767133",
-      "role": "Group",
-      "label": "Couldn't render this diff — crates/manifest/src/lexer.rs",
-      "bounds": {
-        "x": 508.0,
-        "y": 185.0,
-        "w": 735.0,
-        "h": 590.0
-      },
-      "focusable": false,
-      "focused": false
     },
     {
       "accesskit_id": "7124659103195741453",
@@ -194,46 +220,7 @@
       "focused": false
     },
     {
-      "accesskit_id": "7457186912149784588",
-      "role": "Tab",
-      "label": "Files changed (4)",
-      "bounds": {
-        "x": 585.0,
-        "y": 137.0,
-        "w": 108.0,
-        "h": 36.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "7876971701791278665",
-      "role": "Tab",
-      "label": "Conversation (0)",
-      "bounds": {
-        "x": 288.0,
-        "y": 137.0,
-        "w": 104.0,
-        "h": 36.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "8493494216056085373",
-      "role": "ComboBox",
-      "label": "Files view mode",
-      "bounds": {
-        "x": 296.0,
-        "y": 243.0,
-        "w": 204.0,
-        "h": 24.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "9579296309453929555",
+      "accesskit_id": "7191678516993685174",
       "role": "Button",
       "label": "Open pull request on GitHub",
       "bounds": {
@@ -246,14 +233,35 @@
       "focused": false
     },
     {
-      "accesskit_id": "9688045360946308962",
-      "role": "Button",
-      "label": "Open this file's diff on GitHub",
+      "accesskit_id": "8513665148732385421",
+      "role": "TextRun",
+      "label": null,
+      "bounds": null,
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9674893559307777140",
+      "role": "Label",
+      "label": "<age label>",
       "bounds": {
-        "x": 808.0,
-        "y": 518.0,
-        "w": 135.0,
-        "h": 24.0
+        "x": 1088.0,
+        "y": 71.0,
+        "w": 87.0,
+        "h": 19.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9689540147615460661",
+      "role": "Tab",
+      "label": "Checks (0)",
+      "bounds": {
+        "x": 502.0,
+        "y": 137.0,
+        "w": 67.0,
+        "h": 36.0
       },
       "focusable": true,
       "focused": false
@@ -285,19 +293,6 @@
       "focused": false
     },
     {
-      "accesskit_id": "11049610991670914299",
-      "role": "Label",
-      "label": "<age label>",
-      "bounds": {
-        "x": 1088.0,
-        "y": 71.0,
-        "w": 87.0,
-        "h": 19.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
       "accesskit_id": "11447690740305500471",
       "role": "TreeItem",
       "label": "GitHub",
@@ -311,16 +306,16 @@
       "focused": false
     },
     {
-      "accesskit_id": "12643203863415272660",
-      "role": "ListItem",
-      "label": null,
+      "accesskit_id": "11498356736245344864",
+      "role": "Button",
+      "label": "Conversations not shown in the diff (1)",
       "bounds": {
-        "x": 296.0,
-        "y": 307.0,
-        "w": 204.0,
-        "h": 27.0
+        "x": 520.0,
+        "y": 779.0,
+        "w": 276.0,
+        "h": 24.0
       },
-      "focusable": false,
+      "focusable": true,
       "focused": false
     },
     {
@@ -332,6 +327,19 @@
         "y": 22.0,
         "w": 24.0,
         "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12805667341728708149",
+      "role": "List",
+      "label": null,
+      "bounds": {
+        "x": 296.0,
+        "y": 307.0,
+        "w": 204.0,
+        "h": 492.0
       },
       "focusable": true,
       "focused": false
@@ -350,6 +358,19 @@
       "focused": false
     },
     {
+      "accesskit_id": "13571189755685759732",
+      "role": "Button",
+      "label": "Open this file's diff on GitHub",
+      "bounds": {
+        "x": 808.0,
+        "y": 518.0,
+        "w": 135.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
       "accesskit_id": "13573312146739392893",
       "role": "TreeItem",
       "label": "Settings",
@@ -358,32 +379,6 @@
         "y": 201.0,
         "w": 230.0,
         "h": 28.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "13746029866600133152",
-      "role": "Tab",
-      "label": "Checks (0)",
-      "bounds": {
-        "x": 502.0,
-        "y": 137.0,
-        "w": 67.0,
-        "h": 36.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "13765168893117473505",
-      "role": "ListItem",
-      "label": null,
-      "bounds": {
-        "x": 296.0,
-        "y": 361.0,
-        "w": 204.0,
-        "h": 27.0
       },
       "focusable": false,
       "focused": false
@@ -415,32 +410,6 @@
       "focused": false
     },
     {
-      "accesskit_id": "15457175277195624263",
-      "role": "Group",
-      "label": null,
-      "bounds": {
-        "x": 272.0,
-        "y": 53.0,
-        "w": 987.0,
-        "h": 770.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "15724809099859150912",
-      "role": "ListItem",
-      "label": null,
-      "bounds": {
-        "x": 296.0,
-        "y": 334.0,
-        "w": 204.0,
-        "h": 27.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
       "accesskit_id": "15886595837164326356",
       "role": "Button",
       "label": "Forward",
@@ -454,29 +423,29 @@
       "focused": false
     },
     {
-      "accesskit_id": "16173937770249214464",
-      "role": "Splitter",
-      "label": "Resize files sidebar",
+      "accesskit_id": "15978383102065809225",
+      "role": "Tab",
+      "label": "Commits (3)",
       "bounds": {
-        "x": 505.0,
-        "y": 185.0,
-        "w": 5.0,
-        "h": 622.0
+        "x": 408.0,
+        "y": 137.0,
+        "w": 78.0,
+        "h": 36.0
       },
       "focusable": true,
       "focused": false
     },
     {
-      "accesskit_id": "16238813016487397095",
-      "role": "Label",
-      "label": "2 unresolved",
+      "accesskit_id": "16271922669361582964",
+      "role": "Group",
+      "label": null,
       "bounds": {
-        "x": 300.0,
-        "y": 216.0,
-        "w": 196.0,
-        "h": 19.0
+        "x": 272.0,
+        "y": 53.0,
+        "w": 987.0,
+        "h": 770.0
       },
-      "focusable": false,
+      "focusable": true,
       "focused": false
     },
     {
@@ -488,6 +457,45 @@
         "y": 23.0,
         "w": 45.0,
         "h": 23.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16947299303446437631",
+      "role": "ComboBox",
+      "label": "Files view mode",
+      "bounds": {
+        "x": 296.0,
+        "y": 243.0,
+        "w": 204.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "18031890527546727102",
+      "role": "Button",
+      "label": "Refresh",
+      "bounds": {
+        "x": 1183.0,
+        "y": 69.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "18197584367407781960",
+      "role": "ListItem",
+      "label": null,
+      "bounds": {
+        "x": 296.0,
+        "y": 307.0,
+        "w": 204.0,
+        "h": 27.0
       },
       "focusable": false,
       "focused": false
