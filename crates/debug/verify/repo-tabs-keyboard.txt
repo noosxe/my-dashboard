@@ -1,0 +1,50 @@
+# repo-tabs-keyboard.txt — the repo view's tab strip by keyboard (#868):
+# the pinned `TabBar` (gpui-kit v0.10.0) is one Tab stop on the selected
+# tab, arrows move focus, Enter selects, and the Tab walk still closes.
+#
+# Prerequisites: the containerized env (docs/0071), the committed fixtures
+# and the pinned clock, and a session named `repotabs` at 1280x800:
+#   export DASHBOARD_GITHUB_FIXTURE=/work/crates/debug/verify/fixtures/github
+#   export DASHBOARD_FIXED_NOW=2026-10-23T12:00:00Z
+#   dashboard-debug session start --name repotabs --size 1280x800 \
+#     --binary /tmp/target/debug/my-dashboard
+# Run (in-container): dashboard-debug run crates/debug/verify/repo-tabs-keyboard.txt
+#
+# Ids are element-path ids, stable for this exact walk from a fresh boot
+# (see repo-commits.txt for the route).
+
+--session repotabs
+
+assert-label "Open GitHub module"
+click 11447690740305500471 --wait-frame
+assert-label "Filter repositories"
+click 349678605523893363
+type atlas
+key down
+key enter
+assert-label "Open repository fixture-user/atlas on GitHub"
+
+# The strip is one stop: Tab from the rows filter lands on the selected tab
+# (Open PRs), and the cycle closes through it.
+focus 10639940704989920401
+key tab
+assert-focus 6176446616852470581
+assert-label "Reviews"
+
+# Right moves focus without selecting; Enter selects (Open issues has no
+# Reviews filter).
+key right
+assert-focus 18334347736111673632
+assert-label "Reviews"
+key enter
+wait-frame
+assert-no-label "Reviews"
+assert-focus 18334347736111673632
+
+# Left wraps back the other way and Enter returns to Open PRs.
+key left
+key enter
+wait-frame
+assert-label "Reviews"
+
+tab-stops

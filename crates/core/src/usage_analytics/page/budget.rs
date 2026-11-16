@@ -7,7 +7,7 @@
 //! lays out what was derived.
 
 use gpui::prelude::*;
-use gpui::{AnyElement, Context, Window, div};
+use gpui::{AnyElement, Context, div};
 use gpui_component::{ActiveTheme, h_flex, v_flex};
 
 use super::derive::{Band, BudgetData};
@@ -46,11 +46,7 @@ fn budget_slug(b: Budget) -> &'static str {
 
 impl UsagePage {
     /// The Budget view's body (D4–D9, D18).
-    pub(super) fn render_budget(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
+    pub(super) fn render_budget(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let data: Option<BudgetData> = self.views.as_ref().and_then(|v| v.budget.clone());
         let preset = self.preset;
         let ready = |band: Band| self.band_ready(band);
@@ -74,7 +70,7 @@ impl UsagePage {
                 .into_any_element();
         }
 
-        let selector = self.budget_selector(window, cx);
+        let selector = self.budget_selector(cx);
         let tz = derive::local_offset_ms(self.as_of_ms);
         let where_ = match (&data, &self.budget_controls) {
             (Some(d), Some(c)) if ready(Band::Where) => {
@@ -119,11 +115,7 @@ impl UsagePage {
     /// The view-level Budget selector (D7): between band 1 and band 2,
     /// because bands 2–4 all follow it. One Tab stop with arrow keys
     /// (D19).
-    fn budget_selector(
-        &self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement + use<> {
+    fn budget_selector(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let selected = Budget::all()
             .iter()
             .position(|b| *b == self.budget)
@@ -139,7 +131,6 @@ impl UsagePage {
                     this.set_budget(*b, cx);
                 }
             },
-            window,
             cx,
         );
         h_flex()

@@ -449,14 +449,14 @@ impl UsagePage {
 
 impl Render for UsagePage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let header = self.render_header(window, cx);
+        let header = self.render_header(cx);
         let body: AnyElement = if self.read == ReadState::Loading {
             states::loading().into_any_element()
         } else {
             match self.view {
                 // The Budget view owns its D18 Empty: the no-snapshot
                 // cards stay above the page-level message.
-                UsageView::Budget => self.render_budget(window, cx).into_any_element(),
+                UsageView::Budget => self.render_budget(cx).into_any_element(),
                 UsageView::Requests if self.rows.is_empty() => {
                     states::page_empty(self.view, cx).into_any_element()
                 }

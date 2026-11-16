@@ -386,8 +386,8 @@ move focus (Enter selects), commit and check rows carry their own nodes, and `ta
 walks a full cycle from a focused composer (the description editor, the
 comment box, a thread reply), which is the receipt that Tab leaves it. It
 also audits all four tabs of #101 and #102. A `tab-stops` walk moves focus
-off the strip, so the script re-takes it with a click on a tab (a click
-focuses the strip) or three Tabs from a freshly opened page:
+off the strip, so the script re-takes it with a click on a tab (a pointer
+press hands focus to the strip) or three Tabs from a freshly opened page:
 
 ```sh
 scripts/verify.sh sh -c '
@@ -401,6 +401,11 @@ scripts/verify.sh sh -c '
   cargo run -p dashboard-debug -- session stop prkeys
 '
 ```
+
+`repo-tabs-keyboard.txt` (session `repotabs`, same fixtures and clock) does the
+same for the repo view's tab strip (#868): Tab from the rows filter lands on
+the selected tab, Right moves focus without selecting, Enter switches the
+lane, Left wraps, and the `tab-stops` cycle closes through the strip.
 
 The walk lists at most 100 stops. A page with more (#102's 252-row
 Conversation, its 137 checks) can't close its cycle inside that, so those
