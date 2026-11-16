@@ -4548,7 +4548,6 @@ impl PrDetailPage {
         &self,
         detail: Option<&gql::PrDetail>,
         tabs_focus: &FocusHandle,
-        window: &Window,
         cx: &Context<Self>,
     ) -> AnyElement {
         // Counts render only with a detail payload — while loading the tabs
@@ -4595,7 +4594,6 @@ impl PrDetailPage {
                     cx.notify();
                 }
             },
-            window,
             cx,
         )
         .into_any_element()
@@ -5433,7 +5431,7 @@ impl Render for PrDetailPage {
             }))
             .size_full()
             .child(self.render_header(detail, cx))
-            .child(self.render_tabs(detail, &tabs_focus, window, cx))
+            .child(self.render_tabs(detail, &tabs_focus, cx))
             .children(self.render_leave_confirm(cx))
             .child(self.render_tab_content(detail, window, cx))
     }

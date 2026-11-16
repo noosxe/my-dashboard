@@ -301,11 +301,7 @@ fn slot<V: Clone + PartialEq + 'static>(
 impl UsagePage {
     /// D10's query bar, two rows: the facets, then the grouping and the
     /// measure.
-    pub(super) fn requests_query_bar(
-        &self,
-        window: &Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement + use<> {
+    pub(super) fn requests_query_bar(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let selected = TRANSPORTS
             .iter()
             .position(|t| *t == self.requests.filters.transport)
@@ -325,7 +321,6 @@ impl UsagePage {
                     this.set_request_query(q, cx);
                 }
             },
-            window,
             cx,
         );
         let muted = cx.theme().muted_foreground;

@@ -9,14 +9,12 @@
 //! is not a Tab stop: the upstream tab does not take focus on a pointer
 //! click, so the click hands focus to the strip, as in a browser. The
 //! content the tab switch replaces may hold the focus, and a focus left
-//! on an unmounted element makes Tab do nothing.
+//! on an unmounted element makes Tab do nothing. The handle draws no
+//! focus ring: the tab keeps the ring for keyboard focus.
 
 use gpui::prelude::*;
 use gpui::{App, Context, FocusHandle, SharedString, Window, accesskit::Role, div};
-use gpui_component::{
-    ThemeStyled as _,
-    tab::{Tab, TabBar},
-};
+use gpui_component::tab::{Tab, TabBar};
 
 /// The strip's focus handle, kept in window state under `id` so the
 /// owning page needs no field for it. Not a Tab stop (see above).
@@ -31,7 +29,6 @@ pub(crate) fn focus_handle(id: &'static str, window: &mut Window, cx: &mut App) 
 
 /// One tab strip. `name` is the group's accessible name; `on_select`
 /// runs for a pick by pointer or keyboard.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn strip<V, F>(
     id: &'static str,
     name: &str,
@@ -39,7 +36,6 @@ pub(crate) fn strip<V, F>(
     labels: Vec<SharedString>,
     selected: usize,
     on_select: F,
-    window: &Window,
     cx: &Context<V>,
 ) -> impl IntoElement + use<V, F>
 where
@@ -64,9 +60,6 @@ where
         // The pointer press, not the click: a keyboard activation must
         // keep focus on the tab it came from.
         .capture_any_mouse_down(move |_, window, cx| window.focus(&click_focus, cx))
-        .when(focus.is_focused(window), |this| {
-            this.focus_ring_style(window, cx)
-        })
         .child(bar)
 }
 
@@ -84,7 +77,7 @@ mod tests {
     }
 
     impl Render for Harness {
-        fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
             let labels = ["One", "Two", "Three"].map(SharedString::from).to_vec();
             div()
                 .child(div().id("before").track_focus(&self.before).child("before"))
@@ -95,7 +88,6 @@ mod tests {
                     labels,
                     self.selected,
                     |this: &mut Self, ix, _, _| this.selected = ix,
-                    window,
                     cx,
                 ))
                 .child(div().id("after").track_focus(&self.after).child("after"))

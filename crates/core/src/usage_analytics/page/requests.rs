@@ -101,7 +101,7 @@ impl UsagePage {
             .id("usage-requests-body")
             .w_full()
             .gap_6()
-            .child(self.requests_query_bar(window, cx));
+            .child(self.requests_query_bar(cx));
 
         let glance = match &data {
             Some(d) if ready(RequestBand::Glance) => {

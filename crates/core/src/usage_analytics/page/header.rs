@@ -6,7 +6,7 @@
 use gpui::prelude::*;
 use gpui::{Context, FocusHandle, SharedString, Window, div};
 use gpui_component::{
-    ActiveTheme, IconName, Sizable as _, ThemeStyled as _,
+    ActiveTheme, IconName, Sizable as _,
     button::{Button, ButtonVariants},
     h_flex,
     tab::{Tab, TabBar},
@@ -16,11 +16,7 @@ use super::range::{self, preset_label};
 use super::{UsagePage, UsageView, states};
 
 impl UsagePage {
-    pub(super) fn render_header(
-        &self,
-        window: &Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement + use<> {
+    pub(super) fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let presets = range::presets(self.view);
         let effective = self.effective_preset();
         let preset_ix = presets.iter().position(|p| *p == effective).unwrap_or(0);
@@ -41,7 +37,6 @@ impl UsagePage {
                     this.switch_view(*view, window, cx);
                 }
             },
-            window,
             cx,
         );
         let range_switch = segmented_stop(
@@ -55,7 +50,6 @@ impl UsagePage {
                     this.set_preset(*p, cx);
                 }
             },
-            window,
             cx,
         );
         let refresh = Button::new("usage-refresh")
@@ -132,7 +126,6 @@ pub(super) fn segmented_stop<F>(
     labels: Vec<&'static str>,
     selected: usize,
     on_select: F,
-    window: &Window,
     cx: &mut Context<UsagePage>,
 ) -> impl IntoElement + use<F>
 where
@@ -148,7 +141,6 @@ where
             cx.notify();
         }))
         .children(labels.into_iter().map(|l| Tab::new().label(l)));
-    let focused = focus.is_some_and(|f| f.is_focused(window));
     div()
         .id(id)
         .debug_selector(move || id.to_string())
@@ -156,6 +148,5 @@ where
         .aria_label(format!("{name}: {current}"))
         .rounded(cx.theme().radius_lg)
         .when_some(focus, |this, f| this.track_focus(f))
-        .when(focused, |this| this.focus_ring_style(window, cx))
         .child(bar)
 }
