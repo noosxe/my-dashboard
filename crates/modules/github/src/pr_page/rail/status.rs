@@ -67,10 +67,15 @@ pub(super) fn status_block(
                 ),
         )
         .when_some(sub, |col, spans| {
+            // Named with the joined text, like the verdict row, so a screen
+            // reader and `tree` carry where the pull request stands.
+            let label: String = spans.iter().map(|s| s.text.as_str()).collect();
             col.child(
                 h_flex()
                     .id("pr-rail-verdict-sub")
                     .debug_selector(|| "pr-rail-verdict-sub".to_string())
+                    .role(accesskit::Role::Label)
+                    .aria_label(label)
                     .pl_6()
                     .flex_wrap()
                     .text_xs()

@@ -501,6 +501,19 @@
       "focused": false
     },
     {
+      "accesskit_id": "14955082732748615218",
+      "role": "Label",
+      "label": "by octo-dev · 3d ago into main",
+      "bounds": {
+        "x": 967.0,
+        "y": 228.0,
+        "w": 264.0,
+        "h": 19.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
       "accesskit_id": "15380129928879656113",
       "role": "Button",
       "label": "GitHub API: REST: no response yet; GraphQL: no response yet; session: N requests (N GraphQL, N REST, N auth)",
