@@ -16,6 +16,9 @@
 
 use std::collections::BTreeMap;
 
+mod sidebar_row;
+mod thread_header;
+
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 
@@ -739,27 +742,18 @@ fn file_row(
                         .text_xs()
                         // #794: a side with no lines says nothing.
                         .children(
-                            row_counts(adds, dels)
+                            sidebar_row::row_counts(adds, dels)
                                 .0
                                 .map(|t| div().text_color(cx.theme().success).child(t)),
                         )
                         .children(
-                            row_counts(adds, dels)
+                            sidebar_row::row_counts(adds, dels)
                                 .1
                                 .map(|t| div().text_color(cx.theme().danger).child(t)),
                         )
                         .child(file_status_glyph(prefix, path, status)),
                 ),
         )
-}
-
-/// The row's `+adds` and `−dels` text; a side with no lines is absent
-/// (#794). Pure — table-tested.
-pub(crate) fn row_counts(adds: i64, dels: i64) -> (Option<String>, Option<String>) {
-    (
-        (adds > 0).then(|| format!("+{adds}")),
-        (dels > 0).then(|| format!("−{dels}")),
-    )
 }
 
 /// Summary-line text pieces (moved from pr_page, 0018): the pure fn
@@ -1307,35 +1301,10 @@ pub(crate) fn thread_card(
         .unwrap_or_else(|| "ghost".into());
     let replies = t.comments.len().saturating_sub(1);
     let permalink = t.comments.first().and_then(|c| c.url.clone());
-    // #211: multi-line threads say which lines they span.
-    let end = t
-        .line
-        .and_then(|l| u32::try_from(l).ok())
-        .filter(|l| *l != 0);
-    let start = t
-        .start_line
-        .and_then(|l| u32::try_from(l).ok())
-        .filter(|l| *l != 0);
-    let span = match (start, end) {
-        (Some(s), Some(e)) if s < e => format!("lines {s}\u{2013}{e}"),
-        (_, Some(e)) => format!("line {e}"),
-        _ => String::new(),
-    };
-    let header = if replies > 0 && !span.is_empty() {
-        format!("{author} · {span} · {} replies", replies + 1)
-    } else if replies > 0 {
-        format!("{author} · {} replies", replies + 1)
-    } else if !span.is_empty() {
-        format!("{author} · {span}")
-    } else {
-        author.clone()
-    };
+    let span = thread_header::span(t);
     // docs/0049 D1: the card is a labeled region — author/span header
     // plus resolved state.
-    let thread_label = format!(
-        "Review thread — {header}{}",
-        if t.is_resolved { " · resolved" } else { "" }
-    );
+    let thread_label = thread_header::aria_label(&author, &span, replies, t.is_resolved);
     div()
         .debug_selector(move || format!("pr-thread-{ix}-card"))
         .id(SharedString::from(format!("pr-thread-{ix}")))
@@ -1349,76 +1318,7 @@ pub(crate) fn thread_card(
         .border_color(cx.theme().border)
         .p_2()
         .gap_1()
-        .child(
-            h_flex()
-                .w_full()
-                .min_w_0()
-                .gap_2()
-                .items_center()
-                .child(
-                    div()
-                        .min_w_0()
-                        .truncate()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(header),
-                )
-                .child(thread_chip(t))
-                .child(div().flex_1())
-                // 0030 D4/D5: reply and resolve/unresolve — schema-gated
-                // (viewerCanReply / viewerCanResolve / viewerCanUnresolve).
-                .when(t.viewer_can_reply, |row| {
-                    row.child(
-                        Button::new(SharedString::from(format!("pr-thread-{ix}-reply")))
-                            .ghost()
-                            .xsmall()
-                            .label("Reply")
-                            .disabled(page.busy.is_some())
-                            .on_click({
-                                let thread_id = t.id.clone();
-                                window.listener_for(page_h, move |this, _, window, cx| {
-                                    this.open_reply(thread_id.clone(), window, cx)
-                                })
-                            }),
-                    )
-                })
-                .when(t.viewer_can_resolve && !t.is_resolved, |row| {
-                    row.child(
-                        Button::new(SharedString::from(format!("pr-thread-{ix}-resolve")))
-                            .ghost()
-                            .xsmall()
-                            .label("Resolve")
-                            .disabled(page.busy.is_some())
-                            .on_click({
-                                let thread_id = t.id.clone();
-                                window.listener_for(page_h, move |this, _, window, cx| {
-                                    this.open_resolve_picker(thread_id.clone(), window, cx)
-                                })
-                            }),
-                    )
-                })
-                .when(t.viewer_can_unresolve && t.is_resolved, |row| {
-                    row.child(
-                        Button::new(SharedString::from(format!("pr-thread-{ix}-unresolve")))
-                            .ghost()
-                            .xsmall()
-                            .label("Unresolve")
-                            .disabled(page.busy.is_some())
-                            .on_click({
-                                let thread_id = t.id.clone();
-                                window.listener_for(page_h, move |this, _, window, cx| {
-                                    this.set_thread_resolved(
-                                        thread_id.clone(),
-                                        false,
-                                        None,
-                                        window,
-                                        cx,
-                                    )
-                                })
-                            }),
-                    )
-                }),
-        )
+        .child(thread_header::row(page, page_h, window, ix, t, cx))
         .children(
             t.comments
                 .iter()
@@ -1438,17 +1338,6 @@ pub(crate) fn thread_card(
                 ))
             },
         )
-        .when_some(permalink, |row, url| {
-            row.child(
-                Button::new(SharedString::from(format!("pr-thread-{ix}-open")))
-                    .ghost()
-                    .xsmall()
-                    .icon(IconName::ExternalLink)
-                    .tooltip("Open on GitHub")
-                    .accessibility_label("Open thread on GitHub")
-                    .on_click(move |_, _, cx| cx.open_url(&url)),
-            )
-        })
         .when(
             page.resolve_picker.as_deref() == Some(t.id.as_str())
                 && t.viewer_can_resolve
@@ -2039,15 +1928,6 @@ mod tests {
                 dels: 3,
             }
         );
-    }
-
-    #[test]
-    fn a_row_hides_a_side_with_no_lines() {
-        use crate::files::row_counts;
-        assert_eq!(row_counts(2, 1), (Some("+2".into()), Some("−1".into())));
-        assert_eq!(row_counts(4, 0), (Some("+4".into()), None));
-        assert_eq!(row_counts(0, 3), (None, Some("−3".into())));
-        assert_eq!(row_counts(0, 0), (None, None));
     }
 
     // --- thread placement (docs/0030 D3/§5) ------------------------------
