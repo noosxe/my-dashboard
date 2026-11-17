@@ -301,7 +301,7 @@ the PR page (`xref_row/`, `gql/xref_events.rs`); the page-specific wiring is
   deleted actor), `.198` (closed, locked, seen by a reader) and `.202`
   (100 of 130 references), listed by `RepoIssues.beacon`; the issue page's
   first structural golden is `github-issue-populated`; `timeline-xref.txt`
-  walks the issue page (docs/0071 §4). Known gap: the issue page's comment
-  box traps Tab (#931), so the keyboard walk runs on the locked issue, which
-  has none. The close-reason select gained an accessible name, which the
+  walks the issue page (docs/0071 §4). The keyboard walk runs on issue 201
+  (comment box included: Tab leaves it, #931) and on the locked issue 198,
+  which has none. The close-reason select gained an accessible name, which the
   first issue-page audit asked for.
