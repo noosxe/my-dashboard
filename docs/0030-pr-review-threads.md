@@ -148,11 +148,18 @@ same rows and seeds counters from each hunk header (`@@ -o,s +o,s @@`):
 Context advances both sides, Add advances new, Del advances old. Each row
 yields `(old: Option<u32>, new: Option<u32>)`.
 
-The diff pane (0018 D8) gains a fixed two-column **gutter**: old-side number
-(muted), new-side number; Hunk rows render the range, not a number. The
-hover **+** comment affordance arms per row side: Add/Context →
-`side: RIGHT` + new line; Del → `side: LEFT` + old line. Binary /
-patch-less files (existing placeholder) host no rows and no gutter.
+The line-number gutter and the comment affordance belong to the upstream
+`Diff` (docs/0070 D1), which replaced the pane this decision first drew:
+both sides' numbers, Hunk rows carrying the range, and the add-comment
+control all come from the component. Its `on_add_annotation` callback hands
+the page the selection's range (path, side and line at each end); the page
+maps the component's side to the wire side — Modified → `side: RIGHT`,
+Original → `side: LEFT` — and opens the pane-level composer
+(`open_range_composer`). A multi-line selection anchors at its end
+(`line`/`side`) and carries its start in `startLine`/`startSide`.
+`anchor_patch` no longer drives a gutter; it keeps the placement role (D3):
+the page walks it to find the diff row each thread's line lands on. Binary /
+patch-less files host no diff and no gutter (docs/0070 §11 shows a notice).
 
 `PatchLine` and its consumers stay unchanged — the anchored walk is
 additive (it can literally consume `parse_patch`'s output shape), so no
@@ -270,7 +277,9 @@ which end the page's useful life anyway).
 ### D8 — Bridge/a11y contract
 
 Every interactive element gets id + role (0010 D10), index-stable within a
-run: `pr-line-{side}-{line}-comment` (hover + buttons),
+run: the line composer is `pr-line-composer` with `pr-line-comment-send`,
+`pr-line-review-start` and `pr-line-comment-cancel` (the add-comment control
+is the upstream `Diff`'s own; there are no per-row `pr-line-…` ids),
 `pr-thread-{n}` cards with `-reply`, `-resolve`, `-unresolve`,
 `-open` buttons, `pr-thread-{n}-reply-box` + `-reply-send`,
 `pr-draft-{n}` pending rows, `pr-finish-review` bar with
