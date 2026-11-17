@@ -74,7 +74,7 @@ rejections). Exact upstream strings are captured live during implementation
   UI pattern — the update button reuses its rhythm and components rather than
   inventing a new control.
 - Rebase rewrites the branch's commits and force-pushes it — the
-  irreversible-ish action pattern (confirm popover, as close/merge use)
+  irreversible-ish action pattern (a confirm, as close/merge use)
   applies to that menu item, not to the routine merge-commit update.
 
 ### 2.3 Module constraints this must respect
@@ -156,9 +156,11 @@ targeted envelope refetch (the same path a manual refresh takes).
 
 - **Update with a merge commit** (main click and its menu item): one click,
   no confirm — a routine, additive operation.
-- **Update with rebase**: a small confirm popover — "This rebases
-  `<head>` onto `<base>` and force-pushes the branch; anyone working off it
-  must re-pull." with **Rebase branch** / **Cancel**. Same irreversible-ish
+- **Update with rebase**: a small inline confirm opening directly under
+  the Mergeability row (not a popover; the Update button gives way to it) —
+  "Rebase `<head>` onto `<base>` and force-push the branch? Anyone working
+  off it must re-pull." in the warning colour, with a danger **Rebase
+  branch** and a ghost **Cancel**. Esc also closes it. Same irreversible-ish
   pattern as close/merge.
 
 ### D5 — In-flight and refresh: busy mark, then targeted refetch
