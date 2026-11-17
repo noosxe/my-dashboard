@@ -21,7 +21,7 @@ pub(super) fn land_detail_result(
     result: SpecResult,
 ) -> Option<gql::PrDetail> {
     if let Some(m) = &result.network {
-        s.fail_detail_read(repo, number, format!("Network error: {m}"));
+        s.fail_detail_read(repo, number, super::load_error::network_copy(m));
         return None;
     }
     if result.status != 200 {
@@ -31,12 +31,16 @@ pub(super) fn land_detail_result(
         let (status, kind) = (result.status, result.kind);
         s.apply(result);
         cx.notify();
-        let copy = s.http_failure_copy(kind, status);
+        let copy = super::load_error::http_copy(s, kind, status, "this pull request");
         s.fail_detail_read(repo, number, copy);
         return None;
     }
     let Some(body) = result.body else {
-        s.fail_detail_read(repo, number, "Empty response".into());
+        s.fail_detail_read(
+            repo,
+            number,
+            super::load_error::unreadable_copy("empty body"),
+        );
         return None;
     };
     match serde_json::from_str::<gql::Envelope<gql::PrDetailData>>(body.as_str()) {
@@ -70,7 +74,11 @@ pub(super) fn land_detail_result(
         }
         Err(e) => {
             log::warn!("pr-detail payload: {e}");
-            s.fail_detail_read(repo, number, "Malformed payload".into());
+            s.fail_detail_read(
+                repo,
+                number,
+                super::load_error::unreadable_copy(&e.to_string()),
+            );
             None
         }
     }

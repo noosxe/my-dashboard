@@ -378,6 +378,17 @@ Two columns: main timeline (`flex_1`) + fixed ~300px right rail (D5).
   (order, copy, row). Not yet: labeled, assigned, review-requested,
   renamed, milestone and cross-reference events (the issue page's set,
   docs/0021) — #911 (part of #730).
+- **Load errors** (#791): a failed detail read (Conversation, Commits and
+  Checks panes) or changed-files read says what went wrong in plain words and
+  offers a labelled **Retry** under it (`pr-load-error` / `pr-files-error`,
+  buttons `…-retry`; Retry re-runs the read like the header's refresh).
+  Causes: 404/410 "Couldn't find this pull request. It may have been removed,
+  or you may no longer have access."; 401 sign-in again; 403 refused or rate
+  limited; 429 limited; 5xx a GitHub-side problem; a network or unreadable
+  response its own line. A paused lane keeps its pause note. The raw status
+  and transport detail go to the app's logs, never the pane (as the check log,
+  #815, whose Retry and Open on GitHub already sit in a left-aligned row).
+  Code: `pr_page/load_error.rs`.
 - **Empty states** (#790): a conversation with nothing in it shows no
   placeholder line — the comment box below already invites the first comment.
   A description card with no body and no reactions shows a muted "No

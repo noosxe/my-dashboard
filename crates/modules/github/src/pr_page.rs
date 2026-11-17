@@ -71,6 +71,7 @@ mod gated_sweep;
 mod head_change;
 mod header_meta;
 pub(crate) mod leave_guard;
+mod load_error;
 mod merge_confirm;
 mod merge_gate;
 mod page_write_confirm;
@@ -1132,6 +1133,21 @@ impl PrDetailPage {
 
     /// The detail read's last failure, from the store (docs/0072 D3) —
     /// rendered only when there is nothing to paint.
+    /// The detail read's failure over a Retry that re-runs it (#791).
+    fn detail_error_cell(&self, message: &str, cx: &Context<Self>) -> AnyElement {
+        let page = cx.entity();
+        load_error::error_cell(
+            "pr-load-error",
+            message,
+            move |_, cx| {
+                page.update(cx, |this, cx| {
+                    this.fetch_detail(Origin::new(Surface::PrPage, Trigger::Manual), cx)
+                })
+            },
+            cx,
+        )
+    }
+
     fn detail_load_error<'a>(&self, cx: &'a App) -> Option<&'a str> {
         self.state
             .read(cx)
@@ -2138,7 +2154,7 @@ impl PrDetailPage {
             return;
         }
         if let Some(m) = &result.network {
-            self.files.fail(format!("Network error: {m}"));
+            self.files.fail(load_error::network_copy(m));
         } else if result.status == 304 {
             // docs/0038 D4: unchanged — forward so a refreshed etag
             // persists, then land without re-parsing.
@@ -2150,7 +2166,7 @@ impl PrDetailPage {
             let copy = self.state.update(cx, |s, cx| {
                 s.apply(result);
                 cx.notify();
-                s.http_failure_copy(kind, status)
+                load_error::http_copy(s, kind, status, "the changed files")
             });
             self.files.fail(copy);
         } else {
@@ -2178,7 +2194,7 @@ impl PrDetailPage {
                 }
                 Err(e) => {
                     log::warn!("pr-files payload: {e}");
-                    self.files.fail("Malformed payload".into());
+                    self.files.fail(load_error::unreadable_copy(&e.to_string()));
                 }
             }
         }
@@ -4608,7 +4624,7 @@ impl PrDetailPage {
     fn render_commits(&self, detail: Option<&gql::PrDetail>, cx: &Context<Self>) -> AnyElement {
         let Some(d) = detail else {
             if let Some(err) = self.detail_load_error(cx) {
-                return error_cell(err, cx);
+                return self.detail_error_cell(err, cx);
             }
             return skeleton_list();
         };
@@ -4707,7 +4723,7 @@ impl PrDetailPage {
     fn render_checks(&self, detail: Option<&gql::PrDetail>, cx: &Context<Self>) -> AnyElement {
         let Some(d) = detail else {
             if let Some(err) = self.detail_load_error(cx) {
-                return error_cell(err, cx);
+                return self.detail_error_cell(err, cx);
             }
             return skeleton_list();
         };
@@ -4882,7 +4898,7 @@ impl PrDetailPage {
     ) -> AnyElement {
         let Some(d) = detail else {
             if let Some(err) = self.detail_load_error(cx) {
-                return error_cell(err, cx);
+                return self.detail_error_cell(err, cx);
             }
             return skeleton_list();
         };
@@ -6215,25 +6231,6 @@ fn check_visual(state: gql::CheckState, cx: &App) -> (IconName, Hsla) {
         gql::CheckState::Cancelled => (IconName::Ban, cx.theme().muted_foreground),
     }
 }
-fn error_cell(message: &str, cx: &App) -> AnyElement {
-    v_flex()
-        .id("pr-load-error")
-        .flex_1()
-        .min_h_0()
-        .items_center()
-        .justify_center()
-        .gap_2()
-        .text_sm()
-        .text_color(cx.theme().danger)
-        .child(message.to_string())
-        .child(
-            div()
-                .text_color(cx.theme().muted_foreground)
-                .child("Use the refresh button in the header to retry"),
-        )
-        .into_any_element()
-}
-
 /// A card in edit mode (D4; generalized for the timeline rows by 0019
 /// D4): same card chrome, body swapped for the prefilled Textarea +
 /// Save (disabled while empty/busy) / Cancel. `id` keys the bridge ids
@@ -6407,28 +6404,17 @@ fn render_files(
     // replaces the pane, including after a failed refresh — D3 keeps the
     // payload in the record, so the next successful land repaints it.
     if let Some(msg) = page.files.load_error() {
-        return v_flex()
-            .id("pr-files-error")
-            .flex_1()
-            .min_h_0()
-            .items_center()
-            .justify_center()
-            .gap_2()
-            .text_sm()
-            .text_color(cx.theme().danger)
-            .child(msg.to_string())
-            .child(
-                Button::new("pr-files-retry")
-                    .ghost()
-                    .small()
-                    .icon(IconName::RotateCw)
-                    .tooltip("Retry")
-                    .accessibility_label("Retry loading changed files")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.fetch_files(Origin::new(Surface::PrPage, Trigger::Manual), cx)
-                    })),
-            )
-            .into_any_element();
+        let page = cx.entity();
+        return load_error::error_cell(
+            "pr-files-error",
+            msg,
+            move |_, cx| {
+                page.update(cx, |this, cx| {
+                    this.fetch_files(Origin::new(Surface::PrPage, Trigger::Manual), cx)
+                })
+            },
+            cx,
+        );
     }
     if page.files.is_loading() {
         return skeleton_list();
