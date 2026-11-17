@@ -1,6 +1,6 @@
 # 0062 — Notification hub settings (badge, levels, per-source mute)
 
-Implements #388 — the settings round deferred by docs/0059 §8.
+Implemented in #416 (PR #422). Implements #388 — the settings round deferred by docs/0059 §8.
 
 ## 1. Problem
 

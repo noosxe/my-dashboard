@@ -1,6 +1,6 @@
 # 0064 — Favicon generator module
 
-Requirements #427; cut scope #428–#433. **S2 resolved at implementation:**
+Implemented in #435. Requirements #427; cut scope #428–#433. **S2 resolved at implementation:**
 resvg 0.46 rasterizes color emoji natively (`spike_emoji_raster_has_color`,
 macOS verified — the D12 fallback path stays designed but unneeded).
 
