@@ -429,7 +429,7 @@ mouse up 1038 388 --wait-frame
 assert-write PrEnableAutoMerge input.pullRequestId=PR_120
 click 12782369444481205663 --wait-frame
 
-# 121: queued (sub-line "Position 2 · awaiting checks", see the frames). Remove from
+# 121: queued (sub-line "Position 2 · awaiting checks", a named label). Remove from
 # queue is one click, no confirm, and the page offers no Merge.
 mouse down 700 149
 mouse up 700 149

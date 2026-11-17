@@ -536,6 +536,7 @@ Enter or Space activates the focused control. The rail adds no shortcuts.
 |---|---|---|
 | Status block | `Group` | "Merge status" |
 | Verdict | content node | the verdict plus its full docs/0016 D5 sentence, e.g. "Merging is blocked. Merging is blocked by required reviews or status checks" |
+| Verdict sub-line | content node | its joined text, e.g. "Position 2 · awaiting checks" (#866) |
 | Gate row, navigating | `Link` | label, value and destination, e.g. "Checks: 1 failed, 1 running, 2 waiting. Open the Checks tab" |
 | Gate row, static | content node | label and value |
 | Primary | `Button` | its visible label |
