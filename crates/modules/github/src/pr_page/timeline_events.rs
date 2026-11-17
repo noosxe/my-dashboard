@@ -20,6 +20,8 @@ use dashboard_core::freshness::relative_age;
 pub(super) enum Entry {
     Card(TimelineKind, usize),
     Event(usize),
+    /// A cross-reference row (docs/0085), by index into `references`.
+    Xref(usize),
 }
 
 fn stamp(ts: Option<&str>) -> i64 {
@@ -47,13 +49,21 @@ pub(super) fn entries(d: &gql::PrDetail) -> Vec<Entry> {
             .enumerate()
             .map(|(ix, e)| (stamp(e.created_at.as_deref()), 1, Entry::Event(ix))),
     );
+    all.extend(
+        d.references
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(ix, e)| (stamp(e.created_at.as_deref()), 1, Entry::Xref(ix))),
+    );
     all.sort_by_key(|e| (e.0, e.1));
     all.into_iter().map(|e| e.2).collect()
 }
 
-/// What the cap row adds: events the query cut.
+/// What the cap row adds: events and cross-references the query cut.
 pub(super) fn hidden(d: &gql::PrDetail) -> i64 {
     (d.events.total_count - d.events.nodes.len() as i64).max(0)
+        + (d.references.total_count - d.references.nodes.len() as i64).max(0)
 }
 
 fn look(kind: &PrEventKind) -> (Tone, Glyph) {
@@ -256,6 +266,58 @@ mod tests {
             after: Some("2222222".into()),
         };
         assert_eq!(verb_of(&bare), "force-pushed the branch");
+    }
+
+    fn xref(at: &str, n: i64) -> gql::XrefEvent {
+        gql::XrefEvent {
+            id: format!("X{n}"),
+            actor_login: Some("octo-dev".into()),
+            created_at: Some(at.into()),
+            will_close: false,
+            source: gql::XrefSource {
+                is_pr: false,
+                number: n,
+                title: "t".into(),
+                repo: "fixture-org/beacon".into(),
+                url: "u".into(),
+                state: gql::XrefState::Open,
+            },
+        }
+    }
+
+    #[test]
+    fn cross_references_interleave_with_cards_and_events_by_time() {
+        let mut d = detail(
+            "2026-10-02T00:00:00Z",
+            vec![event("2026-10-03T00:00:00Z", PrEventKind::Merged)],
+        );
+        d.references = gql::XrefEvents {
+            total_count: 2,
+            nodes: vec![
+                xref("2026-10-04T00:00:00Z", 2),
+                xref("2026-10-01T00:00:00Z", 1),
+            ],
+        };
+        assert_eq!(
+            entries(&d),
+            vec![
+                Entry::Xref(1),
+                Entry::Card(TimelineKind::Comment, 0),
+                Entry::Event(0),
+                Entry::Xref(0)
+            ]
+        );
+    }
+
+    #[test]
+    fn the_cap_counts_references_the_query_cut_too() {
+        let mut d = detail("2026-10-02T00:00:00Z", vec![]);
+        d.events.total_count = 30;
+        d.references = gql::XrefEvents {
+            total_count: 105,
+            nodes: vec![xref("2026-10-01T00:00:00Z", 1)],
+        };
+        assert_eq!(hidden(&d), 30 + 104);
     }
 
     #[test]

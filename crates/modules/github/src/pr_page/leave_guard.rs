@@ -6,7 +6,7 @@
 //! not persisted here (#281).
 //!
 //! Paths that go through the guard: Esc with nothing else open, the repo
-//! crumb, and the module crumb. Navigation that the shell has already
+//! crumb, the module crumb, and a cross-reference row that opens another page. Navigation that the shell has already
 //! committed before the module hears of it (a sidebar jump to another
 //! module, history Back/Forward) and sign-out cannot ask first.
 
@@ -33,6 +33,10 @@ pub(crate) enum LeaveIntent {
     RepoCrumb,
     /// The module crumb: back to the module root.
     ModuleRoot,
+    /// A cross-reference row opening another page in the app (docs/0085 D6).
+    /// The page emits `OpenSubject`, not `Leave`: the target rides in
+    /// `PrDetailPage::pending_subject`, which keeps this enum `Copy`.
+    Subject,
 }
 
 impl PrDetailPage {
@@ -76,6 +80,7 @@ impl PrDetailPage {
         cx: &mut Context<Self>,
     ) -> bool {
         let was_open = self.leave_confirm.take().is_some();
+        self.pending_subject = None;
         if was_open {
             self.refocus_page(window, cx);
             cx.notify();
@@ -84,8 +89,10 @@ impl PrDetailPage {
     }
 
     fn confirm_discard(&mut self, cx: &mut Context<Self>) {
-        if let Some(intent) = self.leave_confirm.take() {
-            cx.emit(PrPageEvent::Leave(intent));
+        match self.leave_confirm.take() {
+            Some(LeaveIntent::Subject) => self.emit_pending_subject(cx),
+            Some(intent) => cx.emit(PrPageEvent::Leave(intent)),
+            None => {}
         }
     }
 
@@ -101,6 +108,7 @@ impl PrDetailPage {
     pub(super) fn sync_leave_confirm(&mut self, cx: &Context<Self>) {
         if self.leave_confirm.is_some() && self.review_draft_count(cx) == 0 {
             self.leave_confirm = None;
+            self.pending_subject = None;
         }
     }
 

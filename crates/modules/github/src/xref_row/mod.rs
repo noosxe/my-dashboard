@@ -12,8 +12,6 @@ mod look;
 mod sentence;
 mod target;
 
-// `resolve` and `listed` are the pages' entry points (next commit).
-#[allow(unused_imports)]
 pub(crate) use self::target::{Target, listed, target as resolve};
 use self::{look::look, look::state_words, sentence::sentence};
 use crate::gql::XrefEvent;

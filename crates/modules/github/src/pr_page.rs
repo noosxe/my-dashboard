@@ -95,6 +95,7 @@ mod timeline_events;
 pub(crate) mod unplaced_threads;
 pub(crate) mod unresolved_count;
 mod write_refetch;
+mod xref;
 
 use checks::identity::{CheckKey, CheckTarget};
 use checks::log_cache::{JobLogCache, LandedLog};
@@ -148,6 +149,13 @@ actions!(
 /// confirmed away by then (`leave_guard.rs`).
 pub(crate) enum PrPageEvent {
     Leave(LeaveIntent),
+    /// A cross-reference row asked to open a tracked repo's issue or PR
+    /// (docs/0085 D6); unsent review drafts were already confirmed away.
+    OpenSubject {
+        repo: String,
+        number: i64,
+        is_pr: bool,
+    },
 }
 
 /// One check row's log-pane lifecycle (docs/0039 D4/D5). Content is the
@@ -673,6 +681,8 @@ pub(crate) struct PrDetailPage {
     /// #744: the discard confirm, up while the page is asked to go with
     /// unsent review drafts (`leave_guard.rs`).
     leave_confirm: Option<LeaveIntent>,
+    /// The cross-reference a `LeaveIntent::Subject` confirm will open.
+    pending_subject: Option<xref::Subject>,
     /// Merge/Close confirm (#738); exclusive with the rebase confirm.
     merge_confirm: MergeConfirm,
     /// Changed-files fetch lifecycle (D8): lazy — `Idle` until the
@@ -945,6 +955,7 @@ impl PrDetailPage {
             delete_confirm: None,
             update_rebase_confirm: false,
             leave_confirm: None,
+            pending_subject: None,
             merge_confirm: MergeConfirm::default(),
             methods: Vec::new(),
             merge_method: None,
@@ -4917,6 +4928,10 @@ impl PrDetailPage {
                 timeline_events::Entry::Card(kind, ix) => (kind, ix),
                 timeline_events::Entry::Event(ix) => {
                     children.push(timeline_events::row(ix, &d.events.nodes[ix], cx));
+                    continue;
+                }
+                timeline_events::Entry::Xref(ix) => {
+                    children.push(self.xref_row(d, ix, cx));
                     continue;
                 }
             };

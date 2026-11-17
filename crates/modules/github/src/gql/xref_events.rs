@@ -53,25 +53,38 @@ pub struct XrefEvents {
 }
 
 /// Parse the `references` alias of a PR or issue node. Repeats (same source,
-/// same actor) fold into the first (docs/0085 D4).
-pub(crate) fn parse_references(page: &Value) -> XrefEvents {
+/// same actor) fold into the first (docs/0085 D4). `repo` is the page's
+/// `nameWithOwner`: a source that is the page itself (GitHub never sends one)
+/// drops (D6).
+pub(crate) fn parse_references(page: &Value, repo: Option<&str>) -> XrefEvents {
+    let own_number = page.get("number").and_then(Value::as_i64);
     let mut nodes: Vec<XrefEvent> = Vec::new();
-    if let Some(list) = page.pointer("/references/nodes").and_then(Value::as_array) {
+    let raw = page.pointer("/references/nodes").and_then(Value::as_array);
+    let carried = raw.map_or(0, Vec::len);
+    if let Some(list) = raw {
         for ev in list.iter().filter_map(parse_event) {
             let repeat = nodes.iter().any(|n| {
                 n.actor_login == ev.actor_login
                     && n.source.repo == ev.source.repo
                     && n.source.number == ev.source.number
             });
-            if !repeat {
+            let own = repo.is_some_and(|r| {
+                ev.source.repo.eq_ignore_ascii_case(r) && Some(ev.source.number) == own_number
+            });
+            if !repeat && !own {
                 nodes.push(ev);
             }
         }
     }
+    // The cap row counts what the query cut, not what the parser dropped or
+    // folded: the nodes the window carried but no row shows come off the
+    // server's count (docs/0085 D7).
     let total_count = page
         .pointer("/references/filteredCount")
         .and_then(Value::as_i64)
-        .unwrap_or(nodes.len() as i64);
+        .map(|n| n - (carried - nodes.len()) as i64)
+        .unwrap_or(nodes.len() as i64)
+        .max(nodes.len() as i64);
     XrefEvents { nodes, total_count }
 }
 
@@ -151,7 +164,10 @@ mod tests {
     }
 
     fn parse(nodes: Vec<Value>, count: i64) -> XrefEvents {
-        parse_references(&json!({"references": {"filteredCount": count, "nodes": nodes}}))
+        parse_references(
+            &json!({"references": {"filteredCount": count, "nodes": nodes}}),
+            Some("fixture-org/home"),
+        )
     }
 
     #[test]
@@ -230,7 +246,14 @@ mod tests {
         );
         assert_eq!(e.nodes.len(), 1);
         assert_eq!(e.nodes[0].id, "6");
-        assert_eq!(e.total_count - e.nodes.len() as i64, 7);
+        // 8 counted, 8 carried: nothing was cut, the 7 unreadable are not
+        // "hidden" on github.com either.
+        assert_eq!(e.total_count - e.nodes.len() as i64, 0);
+        let cut = parse(
+            vec![event("6", Some("a"), issue(6, "OPEN", Value::Null))],
+            40,
+        );
+        assert_eq!(cut.total_count - cut.nodes.len() as i64, 39);
     }
 
     #[test]
@@ -250,8 +273,21 @@ mod tests {
     }
 
     #[test]
+    fn a_source_that_is_the_page_itself_drops() {
+        let mut own = issue(7, "OPEN", Value::Null);
+        own["repository"]["nameWithOwner"] = json!("fixture-org/home");
+        let page = json!({"number": 7, "references": {"nodes": [
+            event("1", Some("a"), own),
+            event("2", Some("a"), issue(7, "OPEN", Value::Null))
+        ]}});
+        let e = parse_references(&page, Some("fixture-org/home"));
+        assert_eq!(e.nodes.len(), 1);
+        assert_eq!(e.nodes[0].id, "2");
+    }
+
+    #[test]
     fn a_payload_without_references_is_empty() {
-        assert_eq!(parse_references(&json!({})), XrefEvents::default());
+        assert_eq!(parse_references(&json!({}), None), XrefEvents::default());
     }
 
     /// Document-level tripwire: the alias is its own window of the newest
@@ -310,6 +346,9 @@ mod tests {
             .expect("the page survives a null list element");
         assert_eq!(detail.references.nodes.len(), 1);
         assert_eq!(detail.references.nodes[0].source.number, 7);
-        assert_eq!(detail.references.total_count, 2);
+        assert_eq!(
+            detail.references.total_count, 1,
+            "the null element was carried"
+        );
     }
 }

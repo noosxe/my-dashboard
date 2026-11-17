@@ -79,6 +79,7 @@ impl PrDetailPage {
                     d.reviews.nodes[ix].id.clone()
                 }
                 Entry::Event(ix) => d.events.nodes[ix].id.clone(),
+                Entry::Xref(ix) => d.references.nodes[ix].id.clone(),
             });
         }
         while keys.len() < children {
