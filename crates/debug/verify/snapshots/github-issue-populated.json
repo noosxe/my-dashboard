@@ -1,0 +1,478 @@
+{
+  "name": "github-issue-populated",
+  "frame_number": 0,
+  "taken_at": 0,
+  "nodes": [
+    {
+      "accesskit_id": "0",
+      "role": "Window",
+      "label": "Dashboard",
+      "bounds": null,
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "446623800721446608",
+      "role": "Button",
+      "label": "Refresh",
+      "bounds": {
+        "x": 1183.0,
+        "y": 69.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "600532464688630867",
+      "role": "ListItem",
+      "label": "#201",
+      "bounds": {
+        "x": 582.0,
+        "y": 23.0,
+        "w": 36.0,
+        "h": 23.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "1971259976447032466",
+      "role": "TreeItem",
+      "label": "Favicon",
+      "bounds": {
+        "x": 29.0,
+        "y": 145.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2154233659531290567",
+      "role": "Button",
+      "label": "Edit",
+      "bounds": {
+        "x": 1202.0,
+        "y": 321.0,
+        "w": 41.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3367711313886809324",
+      "role": "Button",
+      "label": "octo-dev mentioned this issue in Docs: manifest list syntax fixture-org/elsewhere#12, open issue. Opens in the browser.",
+      "bounds": {
+        "x": 288.0,
+        "y": 567.0,
+        "w": 655.0,
+        "h": 33.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3846017331057466934",
+      "role": "Button",
+      "label": "Notifications, 0 unread",
+      "bounds": {
+        "x": 1227.0,
+        "y": 728.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4188172024324115556",
+      "role": "Button",
+      "label": "Edit",
+      "bounds": {
+        "x": 1202.0,
+        "y": 137.0,
+        "w": 41.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4450656136715486881",
+      "role": "Button",
+      "label": "Add reaction",
+      "bounds": {
+        "x": 301.0,
+        "y": 232.0,
+        "w": 25.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4602998836821200419",
+      "role": "TreeItem",
+      "label": "Usage",
+      "bounds": {
+        "x": 29.0,
+        "y": 173.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5412731508006973291",
+      "role": "Button",
+      "label": "Edit",
+      "bounds": {
+        "x": 1202.0,
+        "y": 238.0,
+        "w": 41.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5900378271169252649",
+      "role": "TextRun",
+      "label": null,
+      "bounds": null,
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6930085363246487882",
+      "role": "Button",
+      "label": "Lock",
+      "bounds": {
+        "x": 955.0,
+        "y": 587.0,
+        "w": 46.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "7124659103195741453",
+      "role": "Button",
+      "label": "Toggle sidebar",
+      "bounds": {
+        "x": 280.0,
+        "y": 22.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "7963281404471170740",
+      "role": "Button",
+      "label": "Open issue on GitHub",
+      "bounds": {
+        "x": 1219.0,
+        "y": 69.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8363984752960748936",
+      "role": "Group",
+      "label": null,
+      "bounds": {
+        "x": 272.0,
+        "y": 53.0,
+        "w": 987.0,
+        "h": 670.0
+      },
+      "focusable": true,
+      "focused": true
+    },
+    {
+      "accesskit_id": "9641990827884256065",
+      "role": "Button",
+      "label": "Comment",
+      "bounds": {
+        "x": 852.0,
+        "y": 821.0,
+        "w": 78.0,
+        "h": 24.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10504040589855407073",
+      "role": "Group",
+      "label": null,
+      "bounds": {
+        "x": 0.0,
+        "y": 0.0,
+        "w": 1276.0,
+        "h": 773.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10510743232575347742",
+      "role": "Button",
+      "label": "octo-dev mentioned this issue in Tracking: manifest consumers #57, open issue. Opens the issue.",
+      "bounds": {
+        "x": 288.0,
+        "y": 314.0,
+        "w": 655.0,
+        "h": 33.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10834513746264126060",
+      "role": "Link",
+      "label": "Home",
+      "bounds": {
+        "x": 374.0,
+        "y": 23.0,
+        "w": 38.0,
+        "h": 23.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11208048672331363116",
+      "role": "Button",
+      "label": "Edit",
+      "bounds": {
+        "x": 412.0,
+        "y": 151.0,
+        "w": 41.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11447690740305500471",
+      "role": "TreeItem",
+      "label": "GitHub",
+      "bounds": {
+        "x": 29.0,
+        "y": 117.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12556567642558995348",
+      "role": "ComboBox",
+      "label": "Close reason",
+      "bounds": {
+        "x": 955.0,
+        "y": 444.0,
+        "w": 288.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12569334267593046612",
+      "role": "Button",
+      "label": "Someone mentioned this issue in Loader notes #77, open issue. Opens the issue.",
+      "bounds": {
+        "x": 288.0,
+        "y": 612.0,
+        "w": 655.0,
+        "h": 33.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12717392378116554546",
+      "role": "Button",
+      "label": "Edit",
+      "bounds": {
+        "x": 738.0,
+        "y": 71.0,
+        "w": 41.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12782369444481205663",
+      "role": "Button",
+      "label": "Back",
+      "bounds": {
+        "x": 312.0,
+        "y": 22.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13460365343519204478",
+      "role": "TreeItem",
+      "label": "Home",
+      "bounds": {
+        "x": 29.0,
+        "y": 89.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13573312146739392893",
+      "role": "TreeItem",
+      "label": "Settings",
+      "bounds": {
+        "x": 29.0,
+        "y": 201.0,
+        "w": 230.0,
+        "h": 28.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14635110165611492447",
+      "role": "MultilineTextInput",
+      "label": "Leave a comment",
+      "bounds": {
+        "x": 302.0,
+        "y": 716.0,
+        "w": 627.0,
+        "h": 96.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14739289555652244253",
+      "role": "Link",
+      "label": "beacon",
+      "bounds": {
+        "x": 509.0,
+        "y": 23.0,
+        "w": 47.0,
+        "h": 23.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15380129928879656113",
+      "role": "Button",
+      "label": "GitHub API: REST: no response yet; GraphQL: no response yet; session: N requests (N GraphQL, N REST, N auth)",
+      "bounds": {
+        "x": 1090.0,
+        "y": 730.0,
+        "w": 129.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15418948399233838937",
+      "role": "Button",
+      "label": "octo-dev linked a pull request that will close this issue WIP: loader cleanup #103, draft pull request. Opens the pull request.",
+      "bounds": {
+        "x": 288.0,
+        "y": 657.0,
+        "w": 655.0,
+        "h": 33.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15750170522527960373",
+      "role": "Button",
+      "label": "octo-dev mentioned this issue in Docs: fix the manifest grammar example fixture-user/atlas#104, merged pull request. Opens the pull request.",
+      "bounds": {
+        "x": 288.0,
+        "y": 495.0,
+        "w": 655.0,
+        "h": 60.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15886595837164326356",
+      "role": "Button",
+      "label": "Forward",
+      "bounds": {
+        "x": 338.0,
+        "y": 22.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16815749773824791829",
+      "role": "Button",
+      "label": "Add reaction",
+      "bounds": {
+        "x": 301.0,
+        "y": 450.0,
+        "w": 25.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16834563995578148124",
+      "role": "ListItem",
+      "label": "GitHub",
+      "bounds": {
+        "x": 438.0,
+        "y": 23.0,
+        "w": 45.0,
+        "h": 23.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17145368669369598174",
+      "role": "Button",
+      "label": "Close issue",
+      "bounds": {
+        "x": 955.0,
+        "y": 476.0,
+        "w": 87.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    }
+  ]
+}

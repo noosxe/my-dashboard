@@ -1,0 +1,2320 @@
+{
+ "data": {
+  "rateLimit": null,
+  "repository": {
+   "issue": {
+    "activeLockReason": null,
+    "assignees": {
+     "nodes": [],
+     "totalCount": 0
+    },
+    "author": {
+     "avatarUrl": "https://avatars.invalid/reviewer-a",
+     "login": "reviewer-a"
+    },
+    "body": "`parse_manifest` stops at the first trailing comma in a list.",
+    "closedAt": null,
+    "comments": {
+     "nodes": [],
+     "totalCount": 0
+    },
+    "createdAt": "2026-10-19T12:00:00Z",
+    "id": "I_202",
+    "labels": {
+     "nodes": [
+      {
+       "color": "d73a4a",
+       "id": "L_bug",
+       "name": "bug"
+      }
+     ],
+     "totalCount": 1
+    },
+    "locked": false,
+    "milestone": null,
+    "number": 202,
+    "reactionGroups": [
+     {
+      "content": "THUMBS_UP",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "THUMBS_DOWN",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "LAUGH",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "HOORAY",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "CONFUSED",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "HEART",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "ROCKET",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "EYES",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     }
+    ],
+    "references": {
+     "filteredCount": 130,
+     "nodes": [
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-19T18:00:00Z",
+       "id": "XREF_0",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 300,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 0",
+        "url": "https://github.com/fixture-user/beacon/issues/300"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-19T18:30:00Z",
+       "id": "XREF_1",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 301,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 1",
+        "url": "https://github.com/fixture-user/beacon/issues/301"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-19T19:00:00Z",
+       "id": "XREF_2",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 302,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 2",
+        "url": "https://github.com/fixture-user/beacon/issues/302"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-19T19:30:00Z",
+       "id": "XREF_3",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 303,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 3",
+        "url": "https://github.com/fixture-user/beacon/issues/303"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-19T20:00:00Z",
+       "id": "XREF_4",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 304,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 4",
+        "url": "https://github.com/fixture-user/beacon/issues/304"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-19T20:30:00Z",
+       "id": "XREF_5",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 305,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 5",
+        "url": "https://github.com/fixture-user/beacon/issues/305"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-19T21:00:00Z",
+       "id": "XREF_6",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 306,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 6",
+        "url": "https://github.com/fixture-user/beacon/issues/306"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-19T21:30:00Z",
+       "id": "XREF_7",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 307,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 7",
+        "url": "https://github.com/fixture-user/beacon/issues/307"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-19T22:00:00Z",
+       "id": "XREF_8",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 308,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 8",
+        "url": "https://github.com/fixture-user/beacon/issues/308"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-19T22:30:00Z",
+       "id": "XREF_9",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 309,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 9",
+        "url": "https://github.com/fixture-user/beacon/issues/309"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-19T23:00:00Z",
+       "id": "XREF_10",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 310,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 10",
+        "url": "https://github.com/fixture-user/beacon/issues/310"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-19T23:30:00Z",
+       "id": "XREF_11",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 311,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 11",
+        "url": "https://github.com/fixture-user/beacon/issues/311"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T00:00:00Z",
+       "id": "XREF_12",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 312,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 12",
+        "url": "https://github.com/fixture-user/beacon/issues/312"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T00:30:00Z",
+       "id": "XREF_13",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 313,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 13",
+        "url": "https://github.com/fixture-user/beacon/issues/313"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T01:00:00Z",
+       "id": "XREF_14",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 314,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 14",
+        "url": "https://github.com/fixture-user/beacon/issues/314"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T01:30:00Z",
+       "id": "XREF_15",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 315,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 15",
+        "url": "https://github.com/fixture-user/beacon/issues/315"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T02:00:00Z",
+       "id": "XREF_16",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 316,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 16",
+        "url": "https://github.com/fixture-user/beacon/issues/316"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T02:30:00Z",
+       "id": "XREF_17",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 317,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 17",
+        "url": "https://github.com/fixture-user/beacon/issues/317"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T03:00:00Z",
+       "id": "XREF_18",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 318,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 18",
+        "url": "https://github.com/fixture-user/beacon/issues/318"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T03:30:00Z",
+       "id": "XREF_19",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 319,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 19",
+        "url": "https://github.com/fixture-user/beacon/issues/319"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T04:00:00Z",
+       "id": "XREF_20",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 320,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 20",
+        "url": "https://github.com/fixture-user/beacon/issues/320"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T04:30:00Z",
+       "id": "XREF_21",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 321,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 21",
+        "url": "https://github.com/fixture-user/beacon/issues/321"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T05:00:00Z",
+       "id": "XREF_22",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 322,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 22",
+        "url": "https://github.com/fixture-user/beacon/issues/322"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T05:30:00Z",
+       "id": "XREF_23",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 323,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 23",
+        "url": "https://github.com/fixture-user/beacon/issues/323"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T06:00:00Z",
+       "id": "XREF_24",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 324,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 24",
+        "url": "https://github.com/fixture-user/beacon/issues/324"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T06:30:00Z",
+       "id": "XREF_25",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 325,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 25",
+        "url": "https://github.com/fixture-user/beacon/issues/325"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T07:00:00Z",
+       "id": "XREF_26",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 326,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 26",
+        "url": "https://github.com/fixture-user/beacon/issues/326"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T07:30:00Z",
+       "id": "XREF_27",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 327,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 27",
+        "url": "https://github.com/fixture-user/beacon/issues/327"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T08:00:00Z",
+       "id": "XREF_28",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 328,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 28",
+        "url": "https://github.com/fixture-user/beacon/issues/328"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T08:30:00Z",
+       "id": "XREF_29",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 329,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 29",
+        "url": "https://github.com/fixture-user/beacon/issues/329"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T09:00:00Z",
+       "id": "XREF_30",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 330,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 30",
+        "url": "https://github.com/fixture-user/beacon/issues/330"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T09:30:00Z",
+       "id": "XREF_31",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 331,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 31",
+        "url": "https://github.com/fixture-user/beacon/issues/331"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T10:00:00Z",
+       "id": "XREF_32",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 332,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 32",
+        "url": "https://github.com/fixture-user/beacon/issues/332"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T10:30:00Z",
+       "id": "XREF_33",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 333,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 33",
+        "url": "https://github.com/fixture-user/beacon/issues/333"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T11:00:00Z",
+       "id": "XREF_34",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 334,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 34",
+        "url": "https://github.com/fixture-user/beacon/issues/334"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T11:30:00Z",
+       "id": "XREF_35",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 335,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 35",
+        "url": "https://github.com/fixture-user/beacon/issues/335"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T12:00:00Z",
+       "id": "XREF_36",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 336,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 36",
+        "url": "https://github.com/fixture-user/beacon/issues/336"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T12:30:00Z",
+       "id": "XREF_37",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 337,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 37",
+        "url": "https://github.com/fixture-user/beacon/issues/337"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T13:00:00Z",
+       "id": "XREF_38",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 338,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 38",
+        "url": "https://github.com/fixture-user/beacon/issues/338"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T13:30:00Z",
+       "id": "XREF_39",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 339,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 39",
+        "url": "https://github.com/fixture-user/beacon/issues/339"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T14:00:00Z",
+       "id": "XREF_40",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 340,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 40",
+        "url": "https://github.com/fixture-user/beacon/issues/340"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T14:30:00Z",
+       "id": "XREF_41",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 341,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 41",
+        "url": "https://github.com/fixture-user/beacon/issues/341"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T15:00:00Z",
+       "id": "XREF_42",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 342,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 42",
+        "url": "https://github.com/fixture-user/beacon/issues/342"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T15:30:00Z",
+       "id": "XREF_43",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 343,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 43",
+        "url": "https://github.com/fixture-user/beacon/issues/343"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T16:00:00Z",
+       "id": "XREF_44",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 344,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 44",
+        "url": "https://github.com/fixture-user/beacon/issues/344"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T16:30:00Z",
+       "id": "XREF_45",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 345,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 45",
+        "url": "https://github.com/fixture-user/beacon/issues/345"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T17:00:00Z",
+       "id": "XREF_46",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 346,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 46",
+        "url": "https://github.com/fixture-user/beacon/issues/346"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T17:30:00Z",
+       "id": "XREF_47",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 347,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 47",
+        "url": "https://github.com/fixture-user/beacon/issues/347"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T18:00:00Z",
+       "id": "XREF_48",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 348,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 48",
+        "url": "https://github.com/fixture-user/beacon/issues/348"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T18:30:00Z",
+       "id": "XREF_49",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 349,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 49",
+        "url": "https://github.com/fixture-user/beacon/issues/349"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T19:00:00Z",
+       "id": "XREF_50",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 350,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 50",
+        "url": "https://github.com/fixture-user/beacon/issues/350"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T19:30:00Z",
+       "id": "XREF_51",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 351,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 51",
+        "url": "https://github.com/fixture-user/beacon/issues/351"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T20:00:00Z",
+       "id": "XREF_52",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 352,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 52",
+        "url": "https://github.com/fixture-user/beacon/issues/352"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T20:30:00Z",
+       "id": "XREF_53",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 353,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 53",
+        "url": "https://github.com/fixture-user/beacon/issues/353"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T21:00:00Z",
+       "id": "XREF_54",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 354,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 54",
+        "url": "https://github.com/fixture-user/beacon/issues/354"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T21:30:00Z",
+       "id": "XREF_55",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 355,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 55",
+        "url": "https://github.com/fixture-user/beacon/issues/355"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T22:00:00Z",
+       "id": "XREF_56",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 356,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 56",
+        "url": "https://github.com/fixture-user/beacon/issues/356"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T22:30:00Z",
+       "id": "XREF_57",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 357,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 57",
+        "url": "https://github.com/fixture-user/beacon/issues/357"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T23:00:00Z",
+       "id": "XREF_58",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 358,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 58",
+        "url": "https://github.com/fixture-user/beacon/issues/358"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T23:30:00Z",
+       "id": "XREF_59",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 359,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 59",
+        "url": "https://github.com/fixture-user/beacon/issues/359"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T00:00:00Z",
+       "id": "XREF_60",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 360,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 60",
+        "url": "https://github.com/fixture-user/beacon/issues/360"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T00:30:00Z",
+       "id": "XREF_61",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 361,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 61",
+        "url": "https://github.com/fixture-user/beacon/issues/361"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T01:00:00Z",
+       "id": "XREF_62",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 362,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 62",
+        "url": "https://github.com/fixture-user/beacon/issues/362"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T01:30:00Z",
+       "id": "XREF_63",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 363,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 63",
+        "url": "https://github.com/fixture-user/beacon/issues/363"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T02:00:00Z",
+       "id": "XREF_64",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 364,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 64",
+        "url": "https://github.com/fixture-user/beacon/issues/364"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T02:30:00Z",
+       "id": "XREF_65",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 365,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 65",
+        "url": "https://github.com/fixture-user/beacon/issues/365"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T03:00:00Z",
+       "id": "XREF_66",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 366,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 66",
+        "url": "https://github.com/fixture-user/beacon/issues/366"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T03:30:00Z",
+       "id": "XREF_67",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 367,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 67",
+        "url": "https://github.com/fixture-user/beacon/issues/367"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T04:00:00Z",
+       "id": "XREF_68",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 368,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 68",
+        "url": "https://github.com/fixture-user/beacon/issues/368"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T04:30:00Z",
+       "id": "XREF_69",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 369,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 69",
+        "url": "https://github.com/fixture-user/beacon/issues/369"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T05:00:00Z",
+       "id": "XREF_70",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 370,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 70",
+        "url": "https://github.com/fixture-user/beacon/issues/370"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T05:30:00Z",
+       "id": "XREF_71",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 371,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 71",
+        "url": "https://github.com/fixture-user/beacon/issues/371"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T06:00:00Z",
+       "id": "XREF_72",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 372,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 72",
+        "url": "https://github.com/fixture-user/beacon/issues/372"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T06:30:00Z",
+       "id": "XREF_73",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 373,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 73",
+        "url": "https://github.com/fixture-user/beacon/issues/373"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T07:00:00Z",
+       "id": "XREF_74",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 374,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 74",
+        "url": "https://github.com/fixture-user/beacon/issues/374"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T07:30:00Z",
+       "id": "XREF_75",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 375,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 75",
+        "url": "https://github.com/fixture-user/beacon/issues/375"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T08:00:00Z",
+       "id": "XREF_76",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 376,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 76",
+        "url": "https://github.com/fixture-user/beacon/issues/376"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T08:30:00Z",
+       "id": "XREF_77",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 377,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 77",
+        "url": "https://github.com/fixture-user/beacon/issues/377"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T09:00:00Z",
+       "id": "XREF_78",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 378,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 78",
+        "url": "https://github.com/fixture-user/beacon/issues/378"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T09:30:00Z",
+       "id": "XREF_79",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 379,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 79",
+        "url": "https://github.com/fixture-user/beacon/issues/379"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T10:00:00Z",
+       "id": "XREF_80",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 380,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 80",
+        "url": "https://github.com/fixture-user/beacon/issues/380"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T10:30:00Z",
+       "id": "XREF_81",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 381,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 81",
+        "url": "https://github.com/fixture-user/beacon/issues/381"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T11:00:00Z",
+       "id": "XREF_82",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 382,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 82",
+        "url": "https://github.com/fixture-user/beacon/issues/382"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T11:30:00Z",
+       "id": "XREF_83",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 383,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 83",
+        "url": "https://github.com/fixture-user/beacon/issues/383"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T12:00:00Z",
+       "id": "XREF_84",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 384,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 84",
+        "url": "https://github.com/fixture-user/beacon/issues/384"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T12:30:00Z",
+       "id": "XREF_85",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 385,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 85",
+        "url": "https://github.com/fixture-user/beacon/issues/385"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T13:00:00Z",
+       "id": "XREF_86",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 386,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 86",
+        "url": "https://github.com/fixture-user/beacon/issues/386"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T13:30:00Z",
+       "id": "XREF_87",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 387,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 87",
+        "url": "https://github.com/fixture-user/beacon/issues/387"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T14:00:00Z",
+       "id": "XREF_88",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 388,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 88",
+        "url": "https://github.com/fixture-user/beacon/issues/388"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T14:30:00Z",
+       "id": "XREF_89",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 389,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 89",
+        "url": "https://github.com/fixture-user/beacon/issues/389"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T15:00:00Z",
+       "id": "XREF_90",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 390,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 90",
+        "url": "https://github.com/fixture-user/beacon/issues/390"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T15:30:00Z",
+       "id": "XREF_91",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 391,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 91",
+        "url": "https://github.com/fixture-user/beacon/issues/391"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T16:00:00Z",
+       "id": "XREF_92",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 392,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 92",
+        "url": "https://github.com/fixture-user/beacon/issues/392"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T16:30:00Z",
+       "id": "XREF_93",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 393,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 93",
+        "url": "https://github.com/fixture-user/beacon/issues/393"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T17:00:00Z",
+       "id": "XREF_94",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 394,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 94",
+        "url": "https://github.com/fixture-user/beacon/issues/394"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T17:30:00Z",
+       "id": "XREF_95",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 395,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 95",
+        "url": "https://github.com/fixture-user/beacon/issues/395"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T18:00:00Z",
+       "id": "XREF_96",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 396,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 96",
+        "url": "https://github.com/fixture-user/beacon/issues/396"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T18:30:00Z",
+       "id": "XREF_97",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 397,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 97",
+        "url": "https://github.com/fixture-user/beacon/issues/397"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T19:00:00Z",
+       "id": "XREF_98",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 398,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 98",
+        "url": "https://github.com/fixture-user/beacon/issues/398"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T19:30:00Z",
+       "id": "XREF_99",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 399,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Mention 99",
+        "url": "https://github.com/fixture-user/beacon/issues/399"
+       },
+       "willCloseTarget": false
+      }
+     ]
+    },
+    "state": "OPEN",
+    "stateReason": null,
+    "timelineItems": {
+     "filteredCount": 0,
+     "nodes": [],
+     "totalCount": 0
+    },
+    "title": "Mentioned from everywhere",
+    "url": "https://github.com/fixture-user/beacon/issues/202",
+    "viewerCanAssign": true,
+    "viewerCanClose": true,
+    "viewerCanLabel": true,
+    "viewerCanReact": true,
+    "viewerCanReopen": false,
+    "viewerCanSetMilestone": true,
+    "viewerCanUpdate": true
+   },
+   "nameWithOwner": "fixture-user/beacon",
+   "viewerPermission": "ADMIN"
+  }
+ }
+}

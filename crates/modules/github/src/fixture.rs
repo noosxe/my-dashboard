@@ -385,6 +385,10 @@ mod writes;
 mod generation_one;
 
 #[cfg(test)]
+#[path = "fixture/issue_scenarios.rs"]
+mod issue_scenarios;
+
+#[cfg(test)]
 #[path = "fixture/pr_scenarios.rs"]
 mod pr_scenarios;
 
