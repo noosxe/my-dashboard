@@ -13,6 +13,22 @@
 
 use gpui::{KeyBinding, Unbind};
 
+/// Key contexts of the GitHub pages that hold multi-line fields (#733,
+/// #931); `register` unbinds the indent keys inside each.
+pub(crate) const PAGES: [&str; 4] = [
+    "GithubPrPage",
+    "GithubIssuePage",
+    "GithubNewIssuePage",
+    "GithubNewPrPage",
+];
+
+/// Registers `bindings` for every page in [`PAGES`].
+pub(crate) fn register(cx: &mut gpui::App) {
+    for page in PAGES {
+        cx.bind_keys(bindings(page));
+    }
+}
+
 /// Bindings that release Tab / Shift-Tab inside `page_context`'s fields.
 pub(crate) fn bindings(page_context: &str) -> [KeyBinding; 2] {
     let context = format!("{page_context} > Input");
@@ -39,6 +55,7 @@ mod tests {
     };
 
     struct Probe {
+        context: &'static str,
         area: gpui::Entity<TextareaState>,
         before: FocusHandle,
         after: FocusHandle,
@@ -47,7 +64,7 @@ mod tests {
     impl Render for Probe {
         fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
             div()
-                .key_context("ProbePage")
+                .key_context(self.context)
                 .size_full()
                 .child(div().id("before").track_focus(&self.before).child("before"))
                 .child(Textarea::new(&self.area))
@@ -55,18 +72,19 @@ mod tests {
         }
     }
 
-    fn rig(
-        cx: &mut TestAppContext,
+    fn rig<'a>(
+        cx: &'a mut TestAppContext,
         escape: bool,
+        context: &'static str,
     ) -> (
         FocusHandle,
         FocusHandle,
         FocusHandle,
-        &mut gpui::VisualTestContext,
+        &'a mut gpui::VisualTestContext,
     ) {
         cx.update(gpui_component::init);
         if escape {
-            cx.update(|cx| cx.bind_keys(bindings("ProbePage")));
+            cx.update(|cx| register(cx));
         }
         let mut handles = None;
         let (_root, vcx) = cx.add_window_view(|window, cx| {
@@ -79,6 +97,7 @@ mod tests {
                 gpui::Focusable::focus_handle(&area, cx),
             ));
             let probe = cx.new(|_| Probe {
+                context,
                 area,
                 before,
                 after,
@@ -96,7 +115,7 @@ mod tests {
 
     #[gpui::test]
     fn tab_leaves_the_textarea_forward_and_back(cx: &mut TestAppContext) {
-        let (before, after, area, vcx) = rig(cx, true);
+        let (before, after, area, vcx) = rig(cx, true, "GithubPrPage");
         focus_area(vcx, &before);
         vcx.update(|window, _| assert!(area.is_focused(window), "Tab enters the textarea"));
         vcx.simulate_input("x");
@@ -108,8 +127,19 @@ mod tests {
     }
 
     #[gpui::test]
+    fn every_registered_page_releases_tab(cx: &mut TestAppContext) {
+        for page in PAGES {
+            let (before, after, area, vcx) = rig(cx, true, page);
+            focus_area(vcx, &before);
+            vcx.update(|window, _| assert!(area.is_focused(window), "{page}: Tab enters"));
+            vcx.simulate_keystrokes("tab");
+            vcx.update(|window, _| assert!(after.is_focused(window), "{page}: Tab leaves"));
+        }
+    }
+
+    #[gpui::test]
     fn without_the_binding_tab_is_trapped(cx: &mut TestAppContext) {
-        let (before, after, area, vcx) = rig(cx, false);
+        let (before, after, area, vcx) = rig(cx, false, "GithubPrPage");
         focus_area(vcx, &before);
         vcx.update(|window, _| assert!(area.is_focused(window), "Tab enters the textarea"));
         vcx.simulate_keystrokes("tab");

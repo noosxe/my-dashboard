@@ -83,7 +83,7 @@ impl Module for GithubModule {
         // scoped to each page's key context so it never fires elsewhere;
         // the page focus sits inside its context while it owns the
         // module content.
-        cx.bind_keys(tab_escape::bindings("GithubPrPage"));
+        tab_escape::register(cx);
         cx.bind_keys([
             KeyBinding::new("esc", pr_page::DismissPrPage, Some("GithubPrPage")),
             KeyBinding::new("esc", issue_page::DismissIssuePage, Some("GithubIssuePage")),
