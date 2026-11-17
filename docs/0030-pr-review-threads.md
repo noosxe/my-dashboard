@@ -431,7 +431,11 @@ design text:
   last two clicked rows (`normalize_range`, same side only in v1);
   clicking the end row again collapses back to a single line. A click on
   a different file or side starts a fresh composer (one unsubmitted text
-  at a time, D4). Cross-side ranges (a span covering a hunk's Del→Add
+  at a time, D4). A multi-line selection made in the diff
+  kit itself (drag across rows) opens the composer on the full range:
+  `line`/`side` are the selection's end, `startLine`/`startSide` its start
+  (`range_composer.rs`, #761); a cross-side selection is passed through in
+  patch order. Cross-side ranges (a span covering a hunk's Del→Add
   rows) are possible on GitHub web but need diff-order rules — follow-up
   material, not attempted here.
 - **Wire shape**: `startLine`/`startSide` are emitted by one helper

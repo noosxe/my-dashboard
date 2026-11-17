@@ -618,17 +618,19 @@ fn diff_element(
         .on_add_annotation({
             let page_h = page_h_add;
             move |range, window, cx| {
-                // GitHub anchors a comment range at its END line; opening
-                // the composer there matches thread placement (#211).
+                // The selection's full range: GitHub anchors at the END
+                // (`line`/`side`) and carries the START in `startLine`/
+                // `startSide` (#211, #761).
                 page_h.update(cx, |this, cx| {
-                    let side = match range.end_side() {
+                    let side = |s: UpstreamDiffSide| match s {
                         UpstreamDiffSide::Original => DiffSide::Left,
                         UpstreamDiffSide::Modified => DiffSide::Right,
                     };
-                    this.open_line_composer(
+                    let line = |n: usize| u32::try_from(n).unwrap_or(1);
+                    this.open_range_composer(
                         range.path().to_string(),
-                        side,
-                        u32::try_from(range.end()).unwrap_or(1),
+                        (side(range.side()), line(range.start())),
+                        (side(range.end_side()), line(range.end())),
                         window,
                         cx,
                     );
