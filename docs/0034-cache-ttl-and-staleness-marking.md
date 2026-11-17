@@ -1,6 +1,5 @@
 # 0034 · Cache TTL and staleness marking
 
-- **Status:** design — PR open against `main` (implements #193 after acceptance)
 - **Builds on:** docs/0007 (cache paint, stale-but-present), docs/0031 (records), docs/0033 (session-age labels)
 - **Related:** #193 (this), #192/#0033 (shipped: session-age labels), docs/0029 §4
 

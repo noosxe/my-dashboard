@@ -1,6 +1,5 @@
 # 0061 — Development-profile signing for macOS dev builds
 
-**Status:** shipped with this doc (small-feature flow, one PR).
 **Owner:** product owner. **Date:** 2026-09-30.
 
 ## 1. Problem

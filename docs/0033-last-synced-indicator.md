@@ -1,6 +1,5 @@
 # 0033 · Last-synced indicator on detail pages
 
-- **Status:** shipped with the implementation PR (closes #192)
 - **Builds on:** docs/0031 (`Fetch` record — `fetched_at`/`age()`), docs/0032 (auto-refresh triggers)
 - **Related:** #192 (this), #193 (staleness marking / cold-start), #224 (list surfaces), docs/0029 §4, docs/0013 (status bar)
 

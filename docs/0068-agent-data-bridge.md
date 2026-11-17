@@ -167,7 +167,7 @@ exposes the same cut to agents themselves, and quota-aware behavior (phase
 2: refuse fetches while `rate_limited_until` is in the future — the tick
 loop's self-gating, extended to agent ops) comes free.
 
-> **Status note (docs/0082 D17, 2026-11-04):** the `Agent` variants
+> **Note (docs/0082 D17, 2026-11-04):** the `Agent` variants
 > are not in the shipped enums yet. The decision stands unchanged.
 > When it lands, agent spend shows up in the redesigned usage views
 > without any UI change. docs/0082 D15 also proposes moving

@@ -1,6 +1,5 @@
 # 0043 — GitHub Module: PR Page Metadata Editing (reviewers, labels, assignees, milestone)
 
-- **Status**: design — implementation tracked in #189
 - **Prerequisites**: docs/0022 (issue metadata editing — the pattern this
   ports), docs/0016 (PR detail page), docs/0019 (inline editors),
   docs/0031/0032 (fetch-record, detail auto-refresh), docs/0010 (debug bridge)

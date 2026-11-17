@@ -1,6 +1,6 @@
 # 0021 — GitHub issue page: timeline event rows
 
-Date: 2026-09-06 · Status: design (implementation after this doc merges, against #118)
+Date: 2026-09-06 · Issue: #118
 Upstream pins: gpui-component `94a313a` (v0.6.0) · GitHub GraphQL verified live 2026-09-06
 
 ## 1. Context & problem

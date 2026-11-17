@@ -1,6 +1,5 @@
 # 0022 — GitHub Module: Issue Page Metadata Editing (title, labels, assignees, milestone)
 
-- **Status**: design — implementation tracked in #120
 - **Prerequisites**: docs/0020 (issue page), docs/0019 (inline editors),
   docs/0016 §6.2 (mutation transport), docs/0010 (debug bridge)
 - **Follows**: #120 (issue-page follow-up; grouped by #117's §11 because all

@@ -5,8 +5,6 @@
   (Files sidebar/diff body move), docs/0017 D2 (fence info not captured —
   markdown highlighting is *out* of scope here), docs/0025 (file-based
   color themes), docs/0002 D5/D9/D10 + `clippy.toml` (token discipline).
-- **Status:** design — implementation tracked in the issue(s) filed from
-  this doc.
 - **Date:** 2026-09-17. Upstream facts verified against the pinned
   gpui-pre 0.3.3 source and syntect 5.3.0 (crates.io) on this date.
 

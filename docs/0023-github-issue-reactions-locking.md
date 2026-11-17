@@ -1,6 +1,5 @@
 # 0023 — GitHub Module: Issue Page Reactions + Conversation Locking
 
-- **Status**: design — implementation tracked in #121
 - **Prerequisites**: docs/0020 (issue page), docs/0022 (metadata editing —
   editor surfaces, arming gates, rail patterns), docs/0019 (comment rows,
   inline editors), docs/0016 §6.2 (mutation transport), docs/0007 D3
