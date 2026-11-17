@@ -1542,8 +1542,16 @@ impl GithubPage {
         cx.subscribe_in(
             &page,
             window,
-            |this, _, _: &issue_page::IssuePageEvent, _, cx| {
-                this.close_issue(cx);
+            |this, _, event: &issue_page::IssuePageEvent, window, cx| match event {
+                issue_page::IssuePageEvent::CloseRequested => this.close_issue(cx),
+                // docs/0085 D6: a cross-reference row (the issue page has
+                // no leave guard).
+                issue_page::IssuePageEvent::OpenSubject {
+                    repo,
+                    number,
+                    is_pr,
+                    title,
+                } => this.open_subject(repo, *number, *is_pr, title, None, window, cx),
             },
         )
         .detach();

@@ -67,6 +67,14 @@ actions!(github, [DismissIssuePage]);
 /// Ask the hosting `GithubPage` to close the issue sub-page (docs/0020 D1).
 pub(crate) enum IssuePageEvent {
     CloseRequested,
+    /// A cross-reference row for a tracked repo (docs/0085 D6); `title`
+    /// seeds the opened page's first paint.
+    OpenSubject {
+        repo: String,
+        number: i64,
+        is_pr: bool,
+        title: String,
+    },
 }
 
 pub(crate) struct IssueDetailPage {
@@ -162,6 +170,7 @@ mod detail_read;
 #[cfg(test)]
 mod test_rig;
 mod write_refetch;
+mod xref;
 
 impl EventEmitter<IssuePageEvent> for IssueDetailPage {}
 
@@ -1846,6 +1855,10 @@ impl IssueDetailPage {
                     event_ix += 1;
                     continue;
                 }
+                TimelineRow::Xref(ix, _) => {
+                    children.push(self.xref_row(d, *ix, cx));
+                    continue;
+                }
             };
             let ix = comment_ix;
             comment_ix += 1;
@@ -2650,7 +2663,8 @@ impl IssueDetailPage {
         // hidden-row count. The row itself is the shared cap component
         // (0016 §11, also covers the PR conversation).
         let missing = (d.events_total - d.events.len() as i64).max(0)
-            + (d.comments.total_count - d.comments.nodes.len() as i64).max(0);
+            + (d.comments.total_count - d.comments.nodes.len() as i64).max(0)
+            + xref::hidden(d);
         if missing <= 0 {
             return None;
         }
@@ -3201,6 +3215,8 @@ pub(crate) fn row_is_edited(created: Option<&str>, updated: Option<&str>) -> boo
 pub(crate) enum TimelineRow<'a> {
     Comment(&'a gql::PrComment),
     Event(&'a gql::IssueEvent),
+    /// A cross-reference row (docs/0085), by index into `references`.
+    Xref(usize, &'a gql::XrefEvent),
 }
 
 /// docs/0021 D3 — comments and events interleaved chronologically.
@@ -3213,6 +3229,13 @@ pub(crate) fn sorted_timeline(d: &gql::IssueDetail) -> Vec<TimelineRow<'_>> {
         .iter()
         .map(TimelineRow::Comment)
         .chain(d.events.iter().map(TimelineRow::Event))
+        .chain(
+            d.references
+                .nodes
+                .iter()
+                .enumerate()
+                .map(|(ix, e)| TimelineRow::Xref(ix, e)),
+        )
         .collect();
     rows.sort_by_key(row_key);
     rows
@@ -3222,6 +3245,7 @@ fn row_key(row: &TimelineRow<'_>) -> (Option<i64>, u8) {
     let (stamp, rank) = match row {
         TimelineRow::Comment(c) => (c.created_at.as_deref(), 0),
         TimelineRow::Event(e) => (e.created_at.as_deref(), 1),
+        TimelineRow::Xref(_, e) => (e.created_at.as_deref(), 1),
     };
     (parse_stamp(stamp), rank)
 }
@@ -4864,6 +4888,7 @@ mod tests {
             .map(|row| match row {
                 TimelineRow::Comment(c) => format!("c:{}", c.id),
                 TimelineRow::Event(e) => format!("e:{}", e.id),
+                TimelineRow::Xref(_, e) => format!("x:{}", e.id),
             })
             .collect()
     }
