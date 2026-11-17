@@ -56,6 +56,7 @@ pub(crate) const ANCHOR_FADE: Duration = Duration::from_secs(3);
 
 mod catch_up;
 pub(crate) mod checks;
+mod comment_actions;
 mod commit_label;
 mod commits_window;
 mod conversation_window;
@@ -591,6 +592,8 @@ pub(crate) struct PrDetailPage {
     /// for the popup element's prepaint (same seam as line_composer).
     pub(crate) mention: Option<crate::mentions::MentionState>,
     action_select: Entity<SelectState<SearchableVec<SharedString>>>,
+    /// Whether the action Select was last seeded for the PR author (#755).
+    comment_actions_author: Cell<bool>,
     /// The write path in flight (D4/D5) — one at a time; every write
     /// surface disables while set.
     pub(crate) busy: Option<BusyOp>,
@@ -913,6 +916,7 @@ impl PrDetailPage {
             draft_restored,
             mention: None,
             action_select,
+            comment_actions_author: Cell::new(false),
             busy: None,
             mutation_error: None,
             description_edit: None,
@@ -5387,6 +5391,7 @@ impl Render for PrDetailPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.apply_rail_focus(window, cx);
         self.restore_timeline_anchor(window);
+        self.sync_comment_actions(window, cx);
         self.sync_diff(cx);
         self.sync_merge_confirm(cx);
         self.sync_leave_confirm(cx);
@@ -6013,6 +6018,11 @@ pub(crate) fn comment_action_allowed(action: &str, body_empty: bool) -> bool {
     }
 }
 
+/// Whether the viewer wrote the PR (comment box drops review actions, #755).
+pub(crate) fn comment_box_viewer_is_author(author: Option<&str>, viewer: Option<&str>) -> bool {
+    matches!((author, viewer), (Some(a), Some(v)) if a == v)
+}
+
 /// Comment-box action → `PullRequestReviewEvent` wire value.
 pub(crate) fn review_event(action: &str) -> Option<&'static str> {
     match action {
@@ -6500,10 +6510,10 @@ mod tests {
     use crate::pr_page::{
         BusyOp, ChecksCounts, ErrorScope, FinishEvent, LineComposer, MergeMethod, PrDetailPage,
         PrMetaEditor, PrStateTone, PrTab, ReviewTone, TimelineKind, allowed_methods, checks_counts,
-        comment_action_allowed, composer_body_allowed, gate_error_copy, pr_assignees_arming,
-        pr_labels_arming, pr_milestone_arming, pr_reviewers_arming, pr_state_tone,
-        review_batch_allowed, review_event, review_state_label, short_sha, split_repo,
-        timeline_order, update_branch_enabled,
+        comment_action_allowed, comment_box_viewer_is_author, composer_body_allowed,
+        gate_error_copy, pr_assignees_arming, pr_labels_arming, pr_milestone_arming,
+        pr_reviewers_arming, pr_state_tone, review_batch_allowed, review_event, review_state_label,
+        short_sha, split_repo, timeline_order, update_branch_enabled,
     };
     use crate::service::{GithubCache, GithubState, PendingKind, update_branch_error_copy};
     use crate::usage::Origin;
@@ -9895,6 +9905,14 @@ mod tests {
         assert!(!comment_action_allowed("Request changes", true));
         assert!(comment_action_allowed("Request changes", false));
         assert!(!comment_action_allowed("Something else", false));
+    }
+
+    #[test]
+    fn viewer_is_author_matches_logins() {
+        assert!(comment_box_viewer_is_author(Some("a"), Some("a")));
+        assert!(!comment_box_viewer_is_author(Some("a"), Some("b")));
+        assert!(!comment_box_viewer_is_author(None, Some("a")));
+        assert!(!comment_box_viewer_is_author(Some("a"), None));
     }
 
     #[test]
