@@ -362,6 +362,10 @@ Two columns: main timeline (`flex_1`) + fixed ~300px right rail (D5).
   review dismissed), the age at the trailing edge — in
   `pr_page/review_event.rs`. Its edit/delete actions (when the viewer may)
   stay on the line; the reaction picker goes with the card.
+- **Empty states** (#790): a conversation with nothing in it shows no
+  placeholder line — the comment box below already invites the first comment.
+  A description card with no body and no reactions shows a muted "No
+  description" instead of a bare header.
 - **Comment box** (bottom, sticky end of the scroll region): `Textarea` +
   action `Select` (**Comment** / **Approve** / **Request changes**) + primary
   Submit button. Gating (pure fn, table-tested): Comment requires a non-empty
