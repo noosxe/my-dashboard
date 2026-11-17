@@ -213,7 +213,7 @@ Out (non-goals):
 | Q | Decision |
 | --- | --- |
 | Q1 — full takeover vs right column | **Full takeover** — the PR page replaces the module's whole content; the left repo rail hides while a PR is open. |
-| Q2 — review actions | **Full support** — the comment box gets an action selector: Comment / Approve / Request changes (`addComment` / `addPullRequestReview`). |
+| Q2 — review actions | **Full support** — the comment box gets an action selector: Comment / Approve / Request changes (`addComment` / `addPullRequestReview`). The PR author only gets Comment — GitHub refuses self-approval and self-request-changes. Merged and closed PRs keep all three: GitHub accepts reviews there. |
 | Q3 — merge methods | **All enabled options surfaced** — the method list comes from the repo's `mergeCommitAllowed`/`squashMergeAllowed`/`rebaseMergeAllowed`. |
 | Q4 — comment edit/delete | **Out of scope** — filed as a follow-up issue; only the description is editable. |
 
