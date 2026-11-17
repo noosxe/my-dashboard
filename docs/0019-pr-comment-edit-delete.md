@@ -118,11 +118,13 @@ the page.
 - **Header row** (#789): Edit and Delete live in one `⋯` menu button at
   the header's trailing edge — age, then the react control (#788), then
   `⋯` — not beside the author's name. Delete is drawn in the danger
-  colour; the description card's menu holds Edit alone. Review rows keep
+  colour (a named item takes no text colour, so a danger-tinted trash glyph; Edit
+  carries a pencil); the description card's menu holds Edit alone. Review rows keep
   their state badge beside the author. Ids: the button is
   `pr-comment-{ix}-more` / `pr-review-{ix}-more` /
   `pr-description-more` (accessible name "More actions for …"); its rows
-  keep `…-edit` / `…-delete`. Code: `pr_page/card_menu.rs`.
+  are plain labelled items — "Edit" / "Delete" — so each is a named
+  `MenuItem` in `tree` (docs/0067 D7). Code: `pr_page/card_menu.rs`.
 - **Edit**: the card body swaps to a prefilled Textarea + Save/Cancel —
   a mirror of `description_edit_card`. `auto_grow(4, 30)`: grows with the
   body, scrolls internally past 30 rows. Save is disabled on trimmed-empty
