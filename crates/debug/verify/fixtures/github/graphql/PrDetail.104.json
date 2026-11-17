@@ -48,6 +48,20 @@
      "totalCount": 1
     },
     "createdAt": "2026-10-19T12:00:00Z",
+    "events": {
+     "filteredCount": 1,
+     "nodes": [
+      {
+       "__typename": "MergedEvent",
+       "actor": {
+        "avatarUrl": "https://avatars.invalid/octo-dev",
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T12:00:00Z",
+       "id": "EV_MergedEvent_0"
+      }
+     ]
+    },
     "files": {
      "totalCount": 1
     },

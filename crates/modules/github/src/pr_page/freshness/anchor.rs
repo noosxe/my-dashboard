@@ -69,13 +69,16 @@ impl PrDetailPage {
         if crate::pr_page::conversation_window::hidden_older(d) > 0 {
             keys.push("~older-cap".to_string());
         }
-        for (kind, ix) in crate::pr_page::conversation_window::visible_timeline(
-            &d.comments.nodes,
-            &d.reviews.nodes,
-        ) {
-            keys.push(match kind {
-                crate::pr_page::TimelineKind::Comment => d.comments.nodes[ix].id.clone(),
-                crate::pr_page::TimelineKind::Review => d.reviews.nodes[ix].id.clone(),
+        for entry in crate::pr_page::timeline_events::entries(d) {
+            use crate::pr_page::timeline_events::Entry;
+            keys.push(match entry {
+                Entry::Card(crate::pr_page::TimelineKind::Comment, ix) => {
+                    d.comments.nodes[ix].id.clone()
+                }
+                Entry::Card(crate::pr_page::TimelineKind::Review, ix) => {
+                    d.reviews.nodes[ix].id.clone()
+                }
+                Entry::Event(ix) => d.events.nodes[ix].id.clone(),
             });
         }
         while keys.len() < children {

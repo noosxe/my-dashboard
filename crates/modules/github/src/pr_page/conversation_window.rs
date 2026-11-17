@@ -45,11 +45,12 @@ pub(super) fn has_pending_review(reviews: &[gql::PrReview]) -> bool {
     reviews.iter().any(is_pending_review)
 }
 
-/// Comments and reviews the query cut. The two sets are disjoint, so the
-/// sum is the honest count (docs/0021 D3).
+/// Comments, reviews and events the query cut. The sets are disjoint, so
+/// the sum is the honest count (docs/0021 D3).
 pub(super) fn hidden_older(d: &gql::PrDetail) -> i64 {
     (d.comments.total_count - d.comments.nodes.len() as i64).max(0)
         + (d.reviews.total_count - d.reviews.nodes.len() as i64).max(0)
+        + super::timeline_events::hidden(d)
 }
 
 /// The Conversation tab's count: every comment and review the server

@@ -362,6 +362,20 @@ Two columns: main timeline (`flex_1`) + fixed ~300px right rail (D5).
   review dismissed), the age at the trailing edge — in
   `pr_page/review_event.rs`. Its edit/delete actions (when the viewer may)
   stay on the line; the reaction picker goes with the card.
+- **Event rows** (#787): `merged`, `closed`, `reopened` and `force-pushed`
+  events from `timelineItems` (an aliased `events` selection of the detail
+  query, `last: 100`, itemTypes `MERGED_EVENT`, `CLOSED_EVENT`,
+  `REOPENED_EVENT`, `HEAD_REF_FORCE_PUSHED_EVENT`; the force-push row names
+  the abbreviated before and after commit ids). Each is a muted one-line row
+  in the review-event style — glyph, "actor verb", age at the trailing edge,
+  ids `pr-event-{ix}` — and interleaves with the cards by time (a card
+  precedes an event at an equal stamp). They are not counted in the
+  Conversation tab; what the query cut adds to the "older on github.com"
+  count. Parsing is tolerant (0007 D3): other node types and nodes missing a
+  field drop out. Code: `gql/pr_events.rs` (wire), `pr_page/timeline_events.rs`
+  (order, copy, row). Not yet: labeled, assigned, review-requested,
+  renamed, milestone and cross-reference events (the issue page's set,
+  docs/0021) — #911 (part of #730).
 - **Empty states** (#790): a conversation with nothing in it shows no
   placeholder line — the comment box below already invites the first comment.
   A description card with no body and no reactions shows a muted "No

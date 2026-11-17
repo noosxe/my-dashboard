@@ -48,6 +48,38 @@
      "totalCount": 1
     },
     "createdAt": "2026-10-19T12:00:00Z",
+    "events": {
+     "filteredCount": 3,
+     "nodes": [
+      {
+       "__typename": "ClosedEvent",
+       "actor": {
+        "avatarUrl": "https://avatars.invalid/octo-dev",
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T14:00:00Z",
+       "id": "EV_ClosedEvent_0"
+      },
+      {
+       "__typename": "ReopenedEvent",
+       "actor": {
+        "avatarUrl": "https://avatars.invalid/fixture-user",
+        "login": "fixture-user"
+       },
+       "createdAt": "2026-10-21T00:00:00Z",
+       "id": "EV_ReopenedEvent_1"
+      },
+      {
+       "__typename": "ClosedEvent",
+       "actor": {
+        "avatarUrl": "https://avatars.invalid/octo-dev",
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T12:00:00Z",
+       "id": "EV_ClosedEvent_2"
+      }
+     ]
+    },
     "files": {
      "totalCount": 1
     },

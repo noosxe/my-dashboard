@@ -70,6 +70,20 @@
      "totalCount": 3
     },
     "createdAt": "2026-10-19T12:00:00Z",
+    "events": {
+     "filteredCount": 1,
+     "nodes": [
+      {
+       "__typename": "ClosedEvent",
+       "actor": {
+        "avatarUrl": "https://avatars.invalid/fixture-user",
+        "login": "fixture-user"
+       },
+       "createdAt": "2026-10-21T12:00:00Z",
+       "id": "EV_ClosedEvent_0"
+      }
+     ]
+    },
     "files": {
      "totalCount": 3
     },
