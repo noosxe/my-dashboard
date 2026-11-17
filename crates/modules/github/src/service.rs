@@ -2154,6 +2154,18 @@ pub(crate) const PR_DETAIL_TTL: Duration = Duration::from_secs(5 * 60);
 /// seconds; this catches dead pages and silent transports, not slow ones.
 pub(crate) const PR_PENDING_MAX_AGE: Duration = Duration::from_secs(120);
 
+/// The inline note an expired pending op leaves (docs/0072 D4).
+const EXPIRED_PENDING_MESSAGE: &str = "Still in flight upstream — check the PR on github.com";
+
+/// Redeem an expired op's token (#766): the op's kind when `token` is the
+/// one the store expired, clearing the slot.
+fn take_expired(entry: &mut PrEntry, token: u64) -> Option<PendingKind> {
+    match &entry.expired {
+        Some(op) if op.token == token => entry.expired.take().map(|op| op.kind),
+        _ => None,
+    }
+}
+
 /// Branch-update failure copy (docs/0067 D6): stable-fragment match
 /// with the generic fallback carrying the upstream message — never raw
 /// prose in the panel, never guessed data in the message. Lives beside
@@ -2572,6 +2584,10 @@ pub(crate) struct PrEntry {
     pub(crate) detail_at: Option<Instant>,
     pub(crate) books: DetailBooks,
     pub(crate) pending: Option<PendingOp<PendingKind>>,
+    /// The op the store gave up waiting for ([`PR_PENDING_MAX_AGE`]).
+    /// Its confirmation may still arrive — a merge can succeed after the
+    /// store stopped waiting — so the token stays redeemable (#766).
+    pub(crate) expired: Option<PendingOp<PendingKind>>,
     /// The last optimistic-write failure, rendered inline in its scope
     /// (docs/0016 D5 placement — docs/0072 D4).
     pub(crate) error: Option<MutationError>,
@@ -3995,6 +4011,7 @@ impl GithubState {
                 detail_at,
                 books: DetailBooks::default(),
                 pending: None,
+                expired: None,
                 error: None,
                 rollup_dirty: false,
                 rollup_catch_up_spent: false,
@@ -4059,6 +4076,7 @@ impl GithubState {
                 detail_at: None,
                 books: DetailBooks::default(),
                 pending: None,
+                expired: None,
                 error: None,
                 rollup_dirty: false,
                 rollup_catch_up_spent: false,
@@ -4189,15 +4207,32 @@ impl GithubState {
         let Some(entry) = self.pulls.get_mut(&key) else {
             return false;
         };
-        let Some(op) = &entry.pending else {
-            return false;
+        // #766: a confirmation for an op the store already expired still
+        // applies — the write happened upstream. Only an unknown token
+        // is stale (D6).
+        let kind = match &entry.pending {
+            Some(op) if op.token == token => {
+                let kind = op.kind;
+                entry.pending = None;
+                kind
+            }
+            _ => match take_expired(entry, token) {
+                Some(kind) => {
+                    if entry
+                        .error
+                        .as_ref()
+                        .is_some_and(|e| e.message == EXPIRED_PENDING_MESSAGE)
+                    {
+                        entry.error = None;
+                    }
+                    kind
+                }
+                None => {
+                    log::warn!("pr-store: stale confirmation {repo}#{number} (token {token})");
+                    return false;
+                }
+            },
         };
-        if op.token != token {
-            log::warn!("pr-store: stale confirmation {repo}#{number} (token {token})");
-            return false;
-        }
-        let kind = op.kind;
-        entry.pending = None;
         // docs/0072 D4 (#739): a read flying now was dispatched before
         // this confirmation, so it may not show the write. Marked here
         // rather than in the page's refetch: the page may be gone.
@@ -4315,15 +4350,21 @@ impl GithubState {
         let Some(entry) = self.pulls.get_mut(&key) else {
             return false;
         };
-        let Some(op) = &entry.pending else {
-            return false;
+        // #766: a late failure for an expired op replaces the expiry note.
+        let kind = match &entry.pending {
+            Some(op) if op.token == token => {
+                let kind = op.kind;
+                entry.pending = None;
+                kind
+            }
+            _ => match take_expired(entry, token) {
+                Some(kind) => kind,
+                None => {
+                    log::warn!("pr-store: stale failure {repo}#{number} (token {token})");
+                    return false;
+                }
+            },
         };
-        if op.token != token {
-            log::warn!("pr-store: stale failure {repo}#{number} (token {token})");
-            return false;
-        }
-        let kind = op.kind;
-        entry.pending = None;
         entry.error = Some(MutationError {
             scope: kind.error_scope(),
             message: message.clone(),
@@ -4396,7 +4437,7 @@ impl GithubState {
     /// document returns to its prior state and the inline surface
     /// explains on next visit; **no toast** — an expiry does not know
     /// that the op failed upstream, and a "failed" toast would lie. A
-    /// late confirmation is refused by its gone token (D6). Returns how
+    /// late confirmation is still accepted (#766). Returns how
     /// many documents were unblocked (the tick loop notifies on >0).
     pub(crate) fn expire_stale_pending(&mut self) -> usize {
         let now = Instant::now();
@@ -4416,10 +4457,10 @@ impl GithubState {
             if !armed {
                 continue;
             }
-            entry.pending = None;
+            entry.expired = entry.pending.take();
             entry.error = Some(MutationError {
                 scope: kind.error_scope(),
-                message: "Still in flight upstream — check the PR on github.com".into(),
+                message: EXPIRED_PENDING_MESSAGE.into(),
             });
             log::warn!(
                 "pr-store: pending {kind:?} on {}#{} expired unconfirmed",
@@ -9888,9 +9929,54 @@ mod tests {
         assert!(entry.error.as_ref().unwrap().message.contains("github.com"));
         assert!(state.take_pending_alerts().is_empty(), "no lying toast");
 
-        // The late confirmation arrives into a document that moved on:
-        // refused, not applied (D6).
+        // #766: the late confirmation still applies — the merge happened
+        // upstream — and clears the expiry note.
+        assert!(state.resolve_pending("acme/one", 482, token));
+        let entry = state.pr_entry("acme/one", 482).unwrap();
+        assert_eq!(entry.summary.state.as_deref(), Some("MERGED"));
+        assert!(entry.error.is_none());
+        assert!(entry.expired.is_none());
+        // A token the store never issued (or already redeemed) is stale.
         assert!(!state.resolve_pending("acme/one", 482, token));
+        assert!(!state.resolve_pending("acme/one", 482, token + 99));
+    }
+
+    /// #766: a late failure replaces the expiry note with the real error;
+    /// a late confirmation does not clear a newer op's pending state.
+    #[test]
+    fn late_failure_and_newer_pending_are_handled() {
+        let mut state = make_state(Arc::new(MockHttp::new(vec![])));
+        state.land_summary("acme/one", &store_row(482));
+        let token = state
+            .begin_pending("acme/one", 482, PendingKind::Merge)
+            .unwrap();
+        let expire = |state: &mut GithubState| {
+            state
+                .pulls
+                .get_mut(&PrKey::new("acme/one", 482))
+                .unwrap()
+                .pending
+                .as_mut()
+                .unwrap()
+                .started_at = Instant::now() - PR_PENDING_MAX_AGE - Duration::from_secs(1);
+            assert_eq!(state.expire_stale_pending(), 1);
+        };
+        expire(&mut state);
+        assert!(state.fail_pending("acme/one", 482, token, "boom".into()));
+        let entry = state.pr_entry("acme/one", 482).unwrap();
+        assert_eq!(entry.error.as_ref().unwrap().message, "boom");
+
+        // Expire again, arm a newer op, then the first one confirms late.
+        let token = state
+            .begin_pending("acme/one", 482, PendingKind::Close)
+            .unwrap();
+        expire(&mut state);
+        let newer = state
+            .begin_pending("acme/one", 482, PendingKind::Reopen)
+            .unwrap();
+        assert!(state.resolve_pending("acme/one", 482, token));
+        let entry = state.pr_entry("acme/one", 482).unwrap();
+        assert_eq!(entry.pending.as_ref().unwrap().token, newer);
     }
 
     /// docs/0072 D3: the checks rollup is a shared fact between the two
