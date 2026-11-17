@@ -72,8 +72,8 @@ pub(super) fn event_line(
                 )
                 .child(verb(state)),
         )
-        .children(trailing)
         .child(div().ml_auto().text_xs().child(age))
+        .children(trailing)
         .into_any_element()
 }
 

@@ -63,6 +63,8 @@ label the GitHub integration.
   (docs/0079 D1), which is not one of Lucide's Feather-derived icons.
 - `crates/app/assets/icons/circle-dot.svg` and `circle-dashed.svg`: the
   state pills' Open and Draft glyphs, copied unchanged from Lucide.
+- `crates/app/assets/icons/smile-plus.svg`: the add-reaction control's
+  glyph, copied unchanged from Lucide.
 
 Source: <https://github.com/lucide-icons/lucide>.
 

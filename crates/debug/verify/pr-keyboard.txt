@@ -110,18 +110,21 @@ wait-label "Leave a comment"
 
 # The description editor (at the top of the timeline): Edit, then Tab out
 # of its field.
-mouse down 418 211
-mouse up 418 211 --wait-frame
+# Edit is a row of the card's more menu (#789).
+mouse down 922 212
+mouse up 922 212 --wait-frame
+wait-label "Edit"
+mouse down 936 239
+mouse up 936 239 --wait-frame
 wait-label "Editing description"
 tab-stops
 key esc
-wait-label "Edit description"
+wait-label "More actions for the description"
 
 # Conversation: the comment box is a Tab stop and Tab leaves it. A click on
 # the tab takes focus onto the strip, the walk's fixed starting point.
 mouse down 340 155
 mouse up 340 155 --wait-frame
-key tab
 key tab
 key tab
 key tab

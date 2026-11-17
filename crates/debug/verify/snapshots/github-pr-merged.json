@@ -68,9 +68,9 @@
       "role": "Button",
       "label": "Add reaction to the description",
       "bounds": {
-        "x": 914.0,
+        "x": 886.0,
         "y": 201.0,
-        "w": 16.0,
+        "w": 20.0,
         "h": 20.0
       },
       "focusable": true,
@@ -87,6 +87,19 @@
         "h": 25.0
       },
       "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2825704541516575850",
+      "role": "Button",
+      "label": "More actions for the description",
+      "bounds": {
+        "x": 910.0,
+        "y": 201.0,
+        "w": 20.0,
+        "h": 20.0
+      },
+      "focusable": true,
       "focused": false
     },
     {
@@ -456,19 +469,6 @@
         "x": 301.0,
         "y": 648.0,
         "w": 543.0,
-        "h": 24.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "14593091229260192940",
-      "role": "Button",
-      "label": "Edit description",
-      "bounds": {
-        "x": 398.0,
-        "y": 199.0,
-        "w": 41.0,
         "h": 24.0
       },
       "focusable": true,

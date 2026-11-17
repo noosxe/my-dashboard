@@ -53,6 +53,7 @@ use std::time::Duration;
 pub(crate) const ANCHOR_FADE: Duration = Duration::from_secs(3);
 
 mod branch_chip;
+mod card_menu;
 mod catch_up;
 pub(crate) mod checks;
 mod comment_actions;
@@ -4854,62 +4855,6 @@ impl PrDetailPage {
             .into_any_element()
     }
 
-    /// The header Edit/Delete affordances for one timeline row (0019
-    /// D3/D4): present only when the payload's viewer flags allow. The
-    /// `prefix` keys the bridge ids (`{prefix}-edit` / `{prefix}-delete`).
-    fn row_actions(
-        &self,
-        prefix: &str,
-        node_id: &str,
-        subject: &str,
-        body: &str,
-        (can_update, can_delete): (bool, bool),
-        cx: &Context<Self>,
-    ) -> Option<AnyElement> {
-        if !can_update && !can_delete {
-            return None;
-        }
-        let busy = self.busy.is_some();
-        let node_id = node_id.to_string();
-        let body = body.to_string();
-        let mut bar = h_flex().gap_1();
-        if can_update {
-            let id = node_id.clone();
-            let body = body.clone();
-            bar = bar.child(
-                Button::new(format!("{prefix}-edit"))
-                    .ghost()
-                    .small()
-                    .label("Edit")
-                    .accessibility_label(format!("Edit {subject}"))
-                    .disabled(busy)
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.start_edit_row(id.clone(), body.clone(), window, cx)
-                    })),
-            );
-        }
-        if can_delete {
-            let id = node_id.clone();
-            bar =
-                bar.child(
-                    Button::new(format!("{prefix}-delete"))
-                        .ghost()
-                        .small()
-                        .label("Delete")
-                        .accessibility_label(format!("Delete {subject}"))
-                        .disabled(busy)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.start_delete_confirm(id.clone(), cx)
-                        })),
-                );
-        }
-        // Test-only probe key wrapping the buttons; the buttons themselves
-        // carry the bridge-visible accesskit ids (0019 D8).
-        Some(
-            bar.debug_selector(|| format!("{prefix}-actions"))
-                .into_any_element(),
-        )
-    }
     fn render_conversation(
         &self,
         detail: Option<&gql::PrDetail>,
@@ -4941,20 +4886,6 @@ impl PrDetailPage {
                 cx,
             ),
             None => {
-                let edit = d
-                    .viewer_can_update
-                    .then(|| {
-                        Button::new("pr-description-edit")
-                            .ghost()
-                            .small()
-                            .label("Edit")
-                            .accessibility_label("Edit description")
-                            .disabled(self.writes_busy(cx))
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.start_edit_description(window, cx)
-                            }))
-                    })
-                    .map(|b| b.into_any_element());
                 body_card(
                     "pr-description",
                     &author_login,
@@ -4962,7 +4893,7 @@ impl PrDetailPage {
                     relative_age(d.created_at.as_deref()),
                     d.body.as_deref(),
                     self.md.get("pr-description").map(Arc::as_ref),
-                    edit,
+                    None,
                     // docs/0023 D3 (#196): the body's chips row.
                     self.render_reaction_row(
                         "pr-reaction-row",
@@ -4972,13 +4903,16 @@ impl PrDetailPage {
                         cx,
                     ),
                     false,
-                    self.render_reaction_add(
-                        "pr-reaction-row",
-                        &d.id,
-                        "the description",
-                        &d.reaction_groups,
-                        d.viewer_can_react,
-                        cx,
+                    card_menu::trailing_controls(
+                        self.render_reaction_add(
+                            "pr-reaction-row",
+                            &d.id,
+                            "the description",
+                            &d.reaction_groups,
+                            d.viewer_can_react,
+                            cx,
+                        ),
+                        self.description_actions(d.viewer_can_update, cx),
                     ),
                     cx,
                 )
@@ -5048,14 +4982,7 @@ impl PrDetailPage {
                         age,
                         Some(c.body.as_str()),
                         self.md.get(&key).map(Arc::as_ref),
-                        self.row_actions(
-                            &key,
-                            c.id.as_str(),
-                            &format!("{}'s comment", author_name(c.author.as_ref())),
-                            &c.body,
-                            (c.viewer_can_update, c.viewer_can_delete),
-                            cx,
-                        ),
+                        None,
                         // docs/0023 D3 (#196): the comment's chips row.
                         self.render_reaction_row(
                             &format!("{key}-reaction-row"),
@@ -5065,13 +4992,23 @@ impl PrDetailPage {
                             cx,
                         ),
                         anchored,
-                        self.render_reaction_add(
-                            &format!("{key}-reaction-row"),
-                            &c.id,
-                            &format!("{}'s comment", author_name(c.author.as_ref())),
-                            &c.reaction_groups,
-                            c.viewer_can_react,
-                            cx,
+                        card_menu::trailing_controls(
+                            self.render_reaction_add(
+                                &format!("{key}-reaction-row"),
+                                &c.id,
+                                &format!("{}'s comment", author_name(c.author.as_ref())),
+                                &c.reaction_groups,
+                                c.viewer_can_react,
+                                cx,
+                            ),
+                            self.row_actions(
+                                &key,
+                                c.id.as_str(),
+                                &format!("{}'s comment", author_name(c.author.as_ref())),
+                                &c.body,
+                                (c.viewer_can_update, c.viewer_can_delete),
+                                cx,
+                            ),
                         ),
                         cx,
                     ));
@@ -5146,15 +5083,6 @@ impl PrDetailPage {
                         }
                         continue;
                     }
-                    // 0019 D4: badge and actions share the header's
-                    // trailing slot.
-                    let trailing = match (badge, actions) {
-                        (Some(b), Some(a)) => {
-                            Some(h_flex().gap_2().child(b).child(a).into_any_element())
-                        }
-                        (Some(b), None) => Some(b),
-                        (None, a) => a,
-                    };
                     children.push(body_card(
                         &key,
                         r.author
@@ -5165,7 +5093,9 @@ impl PrDetailPage {
                         age,
                         r.body.as_deref().filter(|b| !b.is_empty()),
                         self.md.get(&key).map(Arc::as_ref),
-                        trailing,
+                        // 0019 D4: the state badge beside the author; the
+                        // actions ride the trailing edge (#789).
+                        badge,
                         // docs/0023 D3 (#196): the review's chips row.
                         self.render_reaction_row(
                             &format!("{key}-reaction-row"),
@@ -5175,13 +5105,16 @@ impl PrDetailPage {
                             cx,
                         ),
                         anchored,
-                        self.render_reaction_add(
-                            &format!("{key}-reaction-row"),
-                            &r.id,
-                            &format!("{}'s review", author_name(r.author.as_ref())),
-                            &r.reaction_groups,
-                            r.viewer_can_react,
-                            cx,
+                        card_menu::trailing_controls(
+                            self.render_reaction_add(
+                                &format!("{key}-reaction-row"),
+                                &r.id,
+                                &format!("{}'s review", author_name(r.author.as_ref())),
+                                &r.reaction_groups,
+                                r.viewer_can_react,
+                                cx,
+                            ),
+                            actions,
                         ),
                         cx,
                     ));

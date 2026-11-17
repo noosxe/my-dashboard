@@ -12,19 +12,6 @@
       "focused": false
     },
     {
-      "accesskit_id": "419807887481000066",
-      "role": "Button",
-      "label": "Edit description",
-      "bounds": {
-        "x": 398.0,
-        "y": 199.0,
-        "w": 41.0,
-        "h": 24.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
       "accesskit_id": "600532464688630867",
       "role": "ListItem",
       "label": "#114",
@@ -107,9 +94,9 @@
       "role": "Button",
       "label": "Add reaction to the description",
       "bounds": {
-        "x": 914.0,
+        "x": 886.0,
         "y": 201.0,
-        "w": 16.0,
+        "w": 20.0,
         "h": 20.0
       },
       "focusable": true,
@@ -139,6 +126,19 @@
         "h": 28.0
       },
       "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4685959947982101032",
+      "role": "ComboBox",
+      "label": "Comment action",
+      "bounds": {
+        "x": 301.0,
+        "y": 707.0,
+        "w": 543.0,
+        "h": 24.0
+      },
+      "focusable": true,
       "focused": false
     },
     {
@@ -220,6 +220,19 @@
       "focused": false
     },
     {
+      "accesskit_id": "8161442208448638286",
+      "role": "MultilineTextInput",
+      "label": "Leave a comment",
+      "bounds": {
+        "x": 302.0,
+        "y": 602.0,
+        "w": 627.0,
+        "h": 96.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
       "accesskit_id": "8929704044433368670",
       "role": "Button",
       "label": "Comment",
@@ -243,19 +256,6 @@
         "h": 23.0
       },
       "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "10386448815078107880",
-      "role": "ComboBox",
-      "label": "Comment action",
-      "bounds": {
-        "x": 301.0,
-        "y": 707.0,
-        "w": 543.0,
-        "h": 24.0
-      },
-      "focusable": true,
       "focused": false
     },
     {
@@ -311,6 +311,14 @@
       "focused": false
     },
     {
+      "accesskit_id": "11602822161551794909",
+      "role": "TextRun",
+      "label": null,
+      "bounds": null,
+      "focusable": false,
+      "focused": false
+    },
+    {
       "accesskit_id": "11794860710650956975",
       "role": "Tab",
       "label": "Conversation (1)",
@@ -328,9 +336,9 @@
       "role": "Button",
       "label": "Add reaction to reviewer-b's review",
       "bounds": {
-        "x": 914.0,
+        "x": 910.0,
         "y": 496.0,
-        "w": 16.0,
+        "w": 20.0,
         "h": 20.0
       },
       "focusable": true,
@@ -386,19 +394,6 @@
         "h": 28.0
       },
       "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "13785112307324036159",
-      "role": "MultilineTextInput",
-      "label": "Leave a comment",
-      "bounds": {
-        "x": 302.0,
-        "y": 602.0,
-        "w": 627.0,
-        "h": 96.0
-      },
-      "focusable": true,
       "focused": false
     },
     {
@@ -480,6 +475,19 @@
       "focused": false
     },
     {
+      "accesskit_id": "16147297871330302012",
+      "role": "Button",
+      "label": "More actions for the description",
+      "bounds": {
+        "x": 910.0,
+        "y": 201.0,
+        "w": 20.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
       "accesskit_id": "16539050098212078242",
       "role": "Label",
       "label": "<age label>",
@@ -529,14 +537,6 @@
         "h": 20.0
       },
       "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "17296454842389312568",
-      "role": "TextRun",
-      "label": null,
-      "bounds": null,
-      "focusable": false,
       "focused": false
     },
     {
