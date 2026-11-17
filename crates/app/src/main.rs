@@ -15,7 +15,7 @@ const MIN_SIZE: (f32, f32) = (900., 600.);
 /// Asset source: gpui-component's embedded set + our own icons (GitHub mark;
 /// private-repo lock; the Commits tab's branch glyph — all octicons,
 /// @primer/octicons 19.33.0; the state pills' `circle-dot` and
-/// `circle-dashed` and the reaction control's `smile-plus` are Lucide, ISC).
+/// `circle-dashed` and the reaction control's `smile-plus` and the card menu's `trash` are Lucide, ISC).
 struct AppAssets;
 
 impl gpui::AssetSource for AppAssets {
@@ -59,6 +59,11 @@ impl gpui::AssetSource for AppAssets {
             return Ok(Some(std::borrow::Cow::Borrowed(include_bytes!(
                 "../assets/icons/circle-dashed.svg",
             ) as &[u8])));
+        }
+        if path == "icons/trash.svg" {
+            return Ok(Some(std::borrow::Cow::Borrowed(
+                include_bytes!("../assets/icons/trash.svg",) as &[u8],
+            )));
         }
         if path == "icons/smile-plus.svg" {
             return Ok(Some(std::borrow::Cow::Borrowed(include_bytes!(

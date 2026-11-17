@@ -129,19 +129,6 @@
       "focused": false
     },
     {
-      "accesskit_id": "4685959947982101032",
-      "role": "ComboBox",
-      "label": "Comment action",
-      "bounds": {
-        "x": 301.0,
-        "y": 707.0,
-        "w": 543.0,
-        "h": 24.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
       "accesskit_id": "5506017756200608411",
       "role": "Tab",
       "label": "Commits (1)",
@@ -220,19 +207,6 @@
       "focused": false
     },
     {
-      "accesskit_id": "8161442208448638286",
-      "role": "MultilineTextInput",
-      "label": "Leave a comment",
-      "bounds": {
-        "x": 302.0,
-        "y": 602.0,
-        "w": 627.0,
-        "h": 96.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
       "accesskit_id": "8929704044433368670",
       "role": "Button",
       "label": "Comment",
@@ -256,6 +230,27 @@
         "h": 23.0
       },
       "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9416083248281453485",
+      "role": "TextRun",
+      "label": null,
+      "bounds": null,
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9771638299389880290",
+      "role": "ComboBox",
+      "label": "Comment action",
+      "bounds": {
+        "x": 301.0,
+        "y": 707.0,
+        "w": 543.0,
+        "h": 24.0
+      },
+      "focusable": true,
       "focused": false
     },
     {
@@ -311,11 +306,16 @@
       "focused": false
     },
     {
-      "accesskit_id": "11602822161551794909",
-      "role": "TextRun",
-      "label": null,
-      "bounds": null,
-      "focusable": false,
+      "accesskit_id": "11793013658723335784",
+      "role": "MultilineTextInput",
+      "label": "Leave a comment",
+      "bounds": {
+        "x": 302.0,
+        "y": 602.0,
+        "w": 627.0,
+        "h": 96.0
+      },
+      "focusable": true,
       "focused": false
     },
     {

@@ -110,10 +110,12 @@ wait-label "Leave a comment"
 
 # The description editor (at the top of the timeline): Edit, then Tab out
 # of its field.
-# Edit is a row of the card's more menu (#789).
+# Edit is a row of the card's more menu (#789). The open menu is audited:
+# its rows are labelled items, so each has a name (docs/0010 D10).
 mouse down 922 212
 mouse up 922 212 --wait-frame
 wait-label "Edit"
+audit
 mouse down 936 239
 mouse up 936 239 --wait-frame
 wait-label "Editing description"

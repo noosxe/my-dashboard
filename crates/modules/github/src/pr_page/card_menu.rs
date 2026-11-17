@@ -23,7 +23,6 @@ enum Pick {
 
 struct Entry {
     label: &'static str,
-    probe: String,
     danger: bool,
     pick: Pick,
 }
@@ -63,7 +62,6 @@ impl PrDetailPage {
         if can_update {
             entries.push(Entry {
                 label: "Edit",
-                probe: format!("{prefix}-edit"),
                 danger: false,
                 pick: Pick::EditRow {
                     id: node_id.to_string(),
@@ -74,7 +72,6 @@ impl PrDetailPage {
         if can_delete {
             entries.push(Entry {
                 label: "Delete",
-                probe: format!("{prefix}-delete"),
                 danger: true,
                 pick: Pick::DeleteRow {
                     id: node_id.to_string(),
@@ -91,9 +88,8 @@ impl PrDetailPage {
         cx: &Context<Self>,
     ) -> Option<AnyElement> {
         let entries = can_update
-            .then(|| Entry {
+            .then_some(Entry {
                 label: "Edit",
-                probe: "pr-description-edit".to_string(),
                 danger: false,
                 pick: Pick::EditDescription,
             })
@@ -131,44 +127,46 @@ impl PrDetailPage {
                         .tooltip("More actions")
                         .accessibility_label(format!("More actions for {subject}"))
                         .disabled(busy)
-                        .dropdown_menu(move |menu, _, _| {
+                        .dropdown_menu(move |menu, _, cx| {
+                            // Labelled items, so each shows in `tree` as a
+                            // named `MenuItem` (the element variant has no
+                            // accessible name, docs/0067 D7). A named item
+                            // cannot take a text colour, so Delete is told
+                            // apart by a danger-tinted trash glyph; Edit
+                            // carries the pencil.
                             let mut next = menu;
                             for e in &entries {
-                                let (label, probe, danger) = (e.label, e.probe.clone(), e.danger);
                                 let pick = e.pick.clone();
                                 let item_weak = weak.clone();
-                                next = next.item(
-                                    PopupMenuItem::element(move |_, cx| {
-                                        // Probe-visible row (0010 D10); delete reads
-                                        // as the destructive one.
-                                        let key = probe.clone();
-                                        h_flex()
-                                            .debug_selector(move || key.clone())
-                                            .when(danger, |r| r.text_color(cx.theme().danger))
-                                            .child(label)
-                                    })
-                                    .on_click(
-                                        move |_, window, cx| {
-                                            // Defer: the click dispatches inside the
-                                            // window's update (see the reaction picker).
-                                            let weak = item_weak.clone();
-                                            let pick = pick.clone();
-                                            window.defer(cx, move |window, cx| {
-                                                let _ = weak.update(cx, |page, cx| match pick {
-                                                    Pick::EditDescription => {
-                                                        page.start_edit_description(window, cx)
-                                                    }
-                                                    Pick::EditRow { id, body } => {
-                                                        page.start_edit_row(id, body, window, cx)
-                                                    }
-                                                    Pick::DeleteRow { id } => {
-                                                        page.start_delete_confirm(id, cx)
-                                                    }
-                                                });
+                                let icon = if e.danger {
+                                    Icon::empty()
+                                        .path("icons/trash.svg")
+                                        .text_color(cx.theme().danger)
+                                } else {
+                                    crate::state_pill::icon(crate::state_pill::Glyph::Edit)
+                                };
+                                next = next.item(PopupMenuItem::new(e.label).icon(icon).on_click(
+                                    move |_, window, cx| {
+                                        // Defer: the click dispatches inside
+                                        // the window's update (see the
+                                        // reaction picker).
+                                        let weak = item_weak.clone();
+                                        let pick = pick.clone();
+                                        window.defer(cx, move |window, cx| {
+                                            let _ = weak.update(cx, |page, cx| match pick {
+                                                Pick::EditDescription => {
+                                                    page.start_edit_description(window, cx)
+                                                }
+                                                Pick::EditRow { id, body } => {
+                                                    page.start_edit_row(id, body, window, cx)
+                                                }
+                                                Pick::DeleteRow { id } => {
+                                                    page.start_delete_confirm(id, cx)
+                                                }
                                             });
-                                        },
-                                    ),
-                                );
+                                        });
+                                    },
+                                ));
                             }
                             next
                         }),

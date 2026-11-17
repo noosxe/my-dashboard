@@ -65,6 +65,8 @@ label the GitHub integration.
   state pills' Open and Draft glyphs, copied unchanged from Lucide.
 - `crates/app/assets/icons/smile-plus.svg`: the add-reaction control's
   glyph, copied unchanged from Lucide.
+- `crates/app/assets/icons/trash.svg`: the card menu's Delete glyph, copied
+  unchanged from Lucide.
 
 Source: <https://github.com/lucide-icons/lucide>.
 
