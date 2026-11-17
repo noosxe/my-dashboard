@@ -75,5 +75,14 @@ fn newest<'a>(a: Option<&'a str>, b: Option<&'a str>) -> Option<&'a str> {
     }
 }
 
+/// The head side of the header's branch line: `owner:branch` for a fork
+/// (#765), the bare branch otherwise.
+pub(crate) fn head_label(head: &str, fork_owner: Option<&str>) -> String {
+    match fork_owner {
+        Some(owner) => format!("{owner}:{head}"),
+        None => head.to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests;

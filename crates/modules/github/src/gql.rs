@@ -738,6 +738,9 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
       # `viewerCanDeleteHeadRef`, which describes restoring (§3.1).
       headRef { id name }
       headRepository { viewerPermission defaultBranchRef { name } }
+      # #765: the header names a fork's head as `owner:branch`.
+      isCrossRepository
+      headRepositoryOwner { login }
       url
       createdAt
       updatedAt
@@ -922,6 +925,11 @@ pub struct PrDetail {
     /// gate reads (docs/0083 D4, #773). `None` once it is deleted.
     #[serde(default)]
     pub head_branch: Option<HeadBranch>,
+    /// The head repository's owner login when the PR comes from another
+    /// repository (`isCrossRepository`); the header shows `owner:branch`
+    /// (#765). `None` for same-repository PRs and when unreadable.
+    #[serde(default)]
+    pub head_fork_owner: Option<String>,
     /// `reviewDecision` (docs/0083 D17): null when no review rule applies.
     /// Parsed for the status block; the reviewer rows don't read it.
     #[serde(default)]
@@ -2245,6 +2253,7 @@ pub fn pr_detail_from_value(value: &serde_json::Value) -> Option<PrDetail> {
         ending: status::parse_ending(pr),
         queueing: status::parse_queueing(pr, value),
         head_branch: head_branch::parse_head_branch(pr),
+        head_fork_owner: head_branch::parse_head_fork_owner(pr),
         review_decision: str_field("reviewDecision"),
         latest_opinionated_reviews: reviewers::parse_latest_reviews(pr, "latestOpinionatedReviews"),
         latest_reviews: reviewers::parse_latest_reviews(pr, "latestReviews"),
