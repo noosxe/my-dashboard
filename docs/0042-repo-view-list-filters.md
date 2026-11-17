@@ -94,7 +94,10 @@ reason/kind/sort choices + the shared search text. Semantics:
 ### D3 — Control set: one toolbar row per box
 
 Directly under each GroupBox title, before the row list — compact
-ghost buttons opening the docs/0022-style `PopupMenu`:
+ghost buttons opening the docs/0022-style `PopupMenu`. Each choice is a plain
+labelled `PopupMenuItem::new` row (named for screen readers, no probe key;
+click it with `click-label --role MenuItem`), and the active choice is the
+item's checked state:
 
 | Box | Controls |
 | --- | --- |
