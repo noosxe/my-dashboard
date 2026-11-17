@@ -25,13 +25,26 @@
       "focused": false
     },
     {
+      "accesskit_id": "795281189567943664",
+      "role": "Group",
+      "label": "Branches: main ← feature/trailing-commas",
+      "bounds": {
+        "x": 591.0,
+        "y": 103.0,
+        "w": 230.0,
+        "h": 20.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
       "accesskit_id": "872805323400431190",
       "role": "ListItem",
       "label": null,
       "bounds": {
-        "x": 296.0,
-        "y": 361.0,
-        "w": 204.0,
+        "x": 297.0,
+        "y": 362.0,
+        "w": 194.0,
         "h": 27.0
       },
       "focusable": false,
@@ -42,10 +55,10 @@
       "role": "Splitter",
       "label": "Resize files sidebar",
       "bounds": {
-        "x": 505.0,
-        "y": 185.0,
+        "x": 496.0,
+        "y": 186.0,
         "w": 5.0,
-        "h": 622.0
+        "h": 620.0
       },
       "focusable": true,
       "focused": false
@@ -55,9 +68,9 @@
       "role": "Label",
       "label": "2 unresolved",
       "bounds": {
-        "x": 300.0,
-        "y": 216.0,
-        "w": 196.0,
+        "x": 301.0,
+        "y": 217.0,
+        "w": 186.0,
         "h": 19.0
       },
       "focusable": false,
@@ -81,12 +94,25 @@
       "role": "TextInput",
       "label": "Filter files…",
       "bounds": {
-        "x": 305.0,
-        "y": 277.0,
-        "w": 186.0,
+        "x": 306.0,
+        "y": 278.0,
+        "w": 176.0,
         "h": 20.0
       },
       "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "2274344565539768838",
+      "role": "Image",
+      "label": "added file",
+      "bounds": {
+        "x": 453.0,
+        "y": 393.0,
+        "w": 26.0,
+        "h": 18.0
+      },
+      "focusable": false,
       "focused": false
     },
     {
@@ -94,9 +120,9 @@
       "role": "ListItem",
       "label": null,
       "bounds": {
-        "x": 296.0,
-        "y": 334.0,
-        "w": 204.0,
+        "x": 297.0,
+        "y": 335.0,
+        "w": 194.0,
         "h": 27.0
       },
       "focusable": false,
@@ -107,9 +133,9 @@
       "role": "Tab",
       "label": "Files changed (4)",
       "bounds": {
-        "x": 585.0,
+        "x": 539.0,
         "y": 137.0,
-        "w": 108.0,
+        "w": 104.0,
         "h": 36.0
       },
       "focusable": true,
@@ -135,7 +161,7 @@
       "bounds": {
         "x": 288.0,
         "y": 137.0,
-        "w": 104.0,
+        "w": 83.0,
         "h": 36.0
       },
       "focusable": true,
@@ -185,9 +211,9 @@
       "role": "ListItem",
       "label": null,
       "bounds": {
-        "x": 296.0,
-        "y": 388.0,
-        "w": 204.0,
+        "x": 297.0,
+        "y": 389.0,
+        "w": 194.0,
         "h": 27.0
       },
       "focusable": false,
@@ -233,6 +259,19 @@
       "focused": false
     },
     {
+      "accesskit_id": "7615872970577468454",
+      "role": "Image",
+      "label": "modified file",
+      "bounds": {
+        "x": 453.0,
+        "y": 339.0,
+        "w": 26.0,
+        "h": 18.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
       "accesskit_id": "8513665148732385421",
       "role": "TextRun",
       "label": null,
@@ -258,12 +297,25 @@
       "role": "Tab",
       "label": "Checks (0)",
       "bounds": {
-        "x": 502.0,
+        "x": 477.0,
         "y": 137.0,
-        "w": 67.0,
+        "w": 46.0,
         "h": 36.0
       },
       "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "10483868734410982652",
+      "role": "Image",
+      "label": "modified file",
+      "bounds": {
+        "x": 453.0,
+        "y": 312.0,
+        "w": 26.0,
+        "h": 18.0
+      },
+      "focusable": false,
       "focused": false
     },
     {
@@ -290,6 +342,19 @@
         "h": 23.0
       },
       "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11407376683352483629",
+      "role": "Button",
+      "label": "Copy branch name feature/trailing-commas",
+      "bounds": {
+        "x": 646.0,
+        "y": 103.0,
+        "w": 175.0,
+        "h": 20.0
+      },
+      "focusable": true,
       "focused": false
     },
     {
@@ -336,10 +401,10 @@
       "role": "List",
       "label": null,
       "bounds": {
-        "x": 296.0,
-        "y": 307.0,
-        "w": 204.0,
-        "h": 492.0
+        "x": 297.0,
+        "y": 308.0,
+        "w": 194.0,
+        "h": 490.0
       },
       "focusable": true,
       "focused": false
@@ -363,7 +428,7 @@
       "label": "Open this file's diff on GitHub",
       "bounds": {
         "x": 808.0,
-        "y": 518.0,
+        "y": 517.0,
         "w": 135.0,
         "h": 24.0
       },
@@ -381,6 +446,19 @@
         "h": 28.0
       },
       "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13851902461864619205",
+      "role": "Button",
+      "label": "Copy branch name main",
+      "bounds": {
+        "x": 591.0,
+        "y": 103.0,
+        "w": 37.0,
+        "h": 20.0
+      },
+      "focusable": true,
       "focused": false
     },
     {
@@ -427,9 +505,9 @@
       "role": "Tab",
       "label": "Commits (3)",
       "bounds": {
-        "x": 408.0,
+        "x": 387.0,
         "y": 137.0,
-        "w": 78.0,
+        "w": 74.0,
         "h": 36.0
       },
       "focusable": true,
@@ -466,12 +544,25 @@
       "role": "ComboBox",
       "label": "Files view mode",
       "bounds": {
-        "x": 296.0,
-        "y": 243.0,
-        "w": 204.0,
+        "x": 297.0,
+        "y": 244.0,
+        "w": 194.0,
         "h": 24.0
       },
       "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17239271206726341706",
+      "role": "Image",
+      "label": "added file",
+      "bounds": {
+        "x": 453.0,
+        "y": 366.0,
+        "w": 26.0,
+        "h": 18.0
+      },
+      "focusable": false,
       "focused": false
     },
     {
@@ -492,9 +583,9 @@
       "role": "ListItem",
       "label": null,
       "bounds": {
-        "x": 296.0,
-        "y": 307.0,
-        "w": 204.0,
+        "x": 297.0,
+        "y": 308.0,
+        "w": 194.0,
         "h": 27.0
       },
       "focusable": false,
