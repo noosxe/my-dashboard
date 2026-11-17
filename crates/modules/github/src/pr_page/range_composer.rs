@@ -5,7 +5,7 @@
 
 use gpui::{Context, Window};
 
-use super::PrDetailPage;
+use super::{PrDetailPage, normalize_range};
 use crate::gql::DiffSide;
 
 /// `(end, start)` for a selection: the end anchor, and the start anchor
@@ -20,10 +20,11 @@ pub(crate) fn range_anchors(
     if start == end {
         return (end, None);
     }
-    if start.0 == end.0 && start.1 > end.1 {
-        return (start, Some(end));
+    // Same side: either order, normalized (#211). Cross-side: patch order.
+    match normalize_range(start, end) {
+        Some((s, e)) => (e, Some(s)),
+        None => (end, Some(start)),
     }
-    (end, Some(start))
 }
 
 impl PrDetailPage {
@@ -45,9 +46,17 @@ impl PrDetailPage {
         if self.busy.is_some() {
             return;
         }
-        // A fresh composer on the range end; the range replaces whatever
-        // an earlier composer held.
-        self.line_composer = None;
+        // A composer already open on this file keeps its typed text: only
+        // the anchors move (as the #211 click-to-extend does).
+        if let Some(c) = self.line_composer.as_mut()
+            && c.path == path
+        {
+            c.side = end.0;
+            c.line = end.1;
+            c.start = Some(start);
+            cx.notify();
+            return;
+        }
         self.open_line_composer(path, end.0, end.1, window, cx);
         if let Some(c) = self.line_composer.as_mut() {
             c.start = Some(start);
