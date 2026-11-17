@@ -19,6 +19,8 @@ they read as a row that went stale after the list landed.
 
 from datetime import timedelta
 
+import pr_references
+
 OWNER = "fixture-user"
 REPO = "beacon"
 FULL = f"{OWNER}/{REPO}"
@@ -374,6 +376,8 @@ class Timeline:
             # `activity: timelineItems(last: 100, ...)`: labels, assignees, review
             # requests, title and milestone (#911), capped apart from `events`.
             activity=self.events(),
+            # docs/0085: the cross-reference rows' own window.
+            references=pr_references.references(self),
             # Delete branch (#773): `headRef` is null once the branch is
             # gone; the gate is the viewer's permission on the head
             # repository and its default branch.
@@ -443,6 +447,7 @@ class Timeline:
                 self.requested("ReviewRequestedEvent", "octo-dev", 85, {"combinedSlug": "fixture-org/team-01"}),
                 self.requested("ReviewRequestRemovedEvent", "octo-dev", 54, {"login": "reviewer-c"}),
             ),
+            references=pr_references.populated(self),
             statusCheckRollup=rollup("FAILURE", contexts),
             reviews=conn(
                 [
@@ -489,6 +494,7 @@ class Timeline:
             number,
             title,
             headRefName="feature/very-long-branch-name-for-the-manifest-parser-and-loader-overhaul",
+            references=pr_references.overflow(self),
             labels=conn(
                 [
                     label(f"area:subsystem-{i:02d}", ROW_COLORS[i % len(ROW_COLORS)])
@@ -1101,6 +1107,7 @@ def write_pr_scenarios(write, now, iso):
                 "data": {
                     "rateLimit": RATE,
                     "repository": {
+                        "nameWithOwner": FULL,
                         "mergeCommitAllowed": merge,
                         "squashMergeAllowed": squash,
                         "rebaseMergeAllowed": rebase,

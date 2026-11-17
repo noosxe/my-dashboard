@@ -4,6 +4,7 @@
   "repository": {
    "autoMergeAllowed": false,
    "mergeCommitAllowed": true,
+   "nameWithOwner": "fixture-user/beacon",
    "pullRequest": {
     "activity": {
      "filteredCount": 13,
@@ -607,6 +608,166 @@
       "viewerHasReacted": false
      }
     ],
+    "references": {
+     "filteredCount": 7,
+     "nodes": [
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "reviewer-a"
+       },
+       "createdAt": "2026-10-20T14:00:00Z",
+       "id": "XREF_0",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 201,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Manifest parser rejects trailing commas",
+        "url": "https://github.com/fixture-user/beacon/issues/201"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-20T18:00:00Z",
+       "id": "XREF_1",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "PullRequest",
+        "isDraft": true,
+        "merged": false,
+        "number": 103,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "OPEN",
+        "title": "WIP: loader cleanup",
+        "url": "https://github.com/fixture-user/beacon/pull/103"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T10:00:00Z",
+       "id": "XREF_2",
+       "isCrossRepository": true,
+       "source": {
+        "__typename": "PullRequest",
+        "isDraft": false,
+        "merged": true,
+        "number": 104,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/atlas"
+        },
+        "state": "MERGED",
+        "title": "Docs: fix the manifest grammar example",
+        "url": "https://github.com/fixture-user/atlas/pull/104"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "reviewer-b"
+       },
+       "createdAt": "2026-10-21T20:00:00Z",
+       "id": "XREF_3",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "PullRequest",
+        "isDraft": false,
+        "merged": false,
+        "number": 99,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "CLOSED",
+        "title": "Revert parser strictness",
+        "url": "https://github.com/fixture-user/beacon/pull/99"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-22T06:00:00Z",
+       "id": "XREF_4",
+       "isCrossRepository": true,
+       "source": {
+        "__typename": "Issue",
+        "number": 12,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-org/elsewhere"
+        },
+        "state": "OPEN",
+        "stateReason": null,
+        "title": "Docs: manifest list syntax",
+        "url": "https://github.com/fixture-org/elsewhere/issues/12"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": null,
+       "createdAt": "2026-10-22T16:00:00Z",
+       "id": "XREF_5",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "Issue",
+        "number": 198,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "CLOSED",
+        "stateReason": "COMPLETED",
+        "title": "Trailing comma crash",
+        "url": "https://github.com/fixture-user/beacon/issues/198"
+       },
+       "willCloseTarget": false
+      },
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-23T02:00:00Z",
+       "id": "XREF_6",
+       "isCrossRepository": true,
+       "source": {
+        "__typename": "Issue",
+        "number": 57,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/atlas"
+        },
+        "state": "CLOSED",
+        "stateReason": "NOT_PLANNED",
+        "title": "Tracking: migrate every manifest consumer to the new loader entry points, drop the legacy reader and document the strict-mode error in the guide",
+        "url": "https://github.com/fixture-user/atlas/issues/57"
+       },
+       "willCloseTarget": false
+      }
+     ]
+    },
     "reviewDecision": "CHANGES_REQUESTED",
     "reviewRequests": {
      "nodes": [

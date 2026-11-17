@@ -389,7 +389,22 @@ Two columns: main timeline (`flex_1`) + fixed ~300px right rail (D5).
   count. Parsing is tolerant (0007 D3): other node types and nodes missing a
   field drop out. Code: `gql/pr_events.rs` (wire), `pr_page/timeline_events.rs`
   (order, row) and `pr_page/timeline_events/sentence.rs` (the words, one
-  function per event family). Not yet: cross-reference events (interactive); the design is docs/0085 — #918 (part of #730).
+  function per event family).
+- **Cross-reference rows** (docs/0085, #922): "octo-dev mentioned this pull
+  request in Fix loader #42" — the one interactive event row. It comes from
+  its own aliased `references` window (`CROSS_REFERENCED_EVENT`, `last: 100`,
+  `gql/xref_events.rs`), so mentions cannot push merged or closed rows out;
+  what it cuts joins the cap row's count. Repeats of the same source by the
+  same actor fold into the first, and a source the viewer cannot read, or the
+  page itself, drops without a row or an error. The glyph is the *source's*
+  state (open, draft, merged, closed, not planned); the title wraps, the
+  `#N` (or `owner/repo#N` for another repository) and the age do not. The row
+  is one button (ids continue the event rows': `pr-event-{ix}`, a tab stop,
+  focus ring, hover as the mention list): a source in a repository the module
+  lists opens in the app through the host's `open_subject` (the leave guard
+  asks first when review drafts are unsent, and Back returns); any other
+  source opens in the browser at the URL the query returned. Code:
+  `xref_row/` (shared row: sentence, look, target) and `pr_page/xref.rs`.
 - **Event window split** (#911): the event rows come from two aliased
   `timelineItems` selections, each `last: 100` on its own: `events` (state
   changes: merged, closed, reopened, force-pushed, ready for review,

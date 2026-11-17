@@ -300,14 +300,16 @@ and the issue page, `tree --tab-stops` (the new stops), `assert-baseline` for
 the goldens below, `critique` before/after with the Appendix A rubric (max 3
 iterations), and a new receipt script `crates/debug/verify/timeline-xref.txt`
 that opens each scenario, asserts the row labels, tabs to a row and activates
-a tracked and an untracked source (the browser path asserted through the
-recorded open-url). Anchor (docs/0065 D8): github.com's timeline for the
+a tracked and an untracked source. The bridge records no browser opens, so
+the untracked path is asserted by what it does not do (the page stays) and by
+the target unit tests. Anchor (docs/0065 D8): github.com's timeline for the
 sentence and glyph rhythm; the #919 rows for density and emphasis.
 
 ## 9. Fixtures and goldens
 
-Synthetic scenarios only (docs/0081 §12.1), `fixture-user`, `fixture-org`,
-`beacon`, `atlas`, `octo-dev`:
+Synthetic scenarios only (docs/0081 §12.1): `fixture-user` owns the tracked
+repositories `beacon` and `atlas`, `fixture-org/elsewhere` is the untracked
+one, `octo-dev` is the author:
 
 - `PrDetail.101` (populated) gains `references`: an open issue and a draft PR
   in `beacon`, a merged PR in tracked `atlas` (cross-repo reference), a closed
