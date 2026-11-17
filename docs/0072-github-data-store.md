@@ -234,9 +234,12 @@ mid-flight, or GitHub went silent — unblocks itself: the tick loop runs
 `expire_stale_pending` each beat, and a document pending longer than
 `PR_PENDING_MAX_AGE` (120 s) returns to its prior state with the inline
 surface explaining on next visit. **No toast** — an expiry does not know
-that the op failed upstream, and a "failed" toast would lie; a late
-confirmation is refused by its gone token (D6), so a slow-but-alive
-GitHub merge can never apply into an expired document uninvited. The
+that the op failed upstream, and a "failed" toast would lie. The expired
+op's token stays redeemable (#766): a late confirmation still applies —
+the merge happened upstream, and showing it open would be the lie — and
+clears the expiry note; a late failure replaces it with the real error.
+Only a token the store never issued (or already redeemed) is refused
+(D6). The
 success path's background revalidate (below) only flies while the arming
 page is still alive; a dead page's document revalidates on its own
 freshness gates at next open (D3).
@@ -402,7 +405,7 @@ already does.
 ### D6 — Stale-work rejection
 
 Every `PendingOp` carries a store-issued `token`; a confirmation applies
-only if the entry's pending token matches. Fetch landings apply only to a
+only if the entry's pending token matches (or the token of the op the store expired, #766). Fetch landings apply only to a
 living entry (key identity). Entries with pending ops are pinned against
 eviction (D9) so a slow mutation can never confirm into a void — the token
 check stays as belt-and-braces.
