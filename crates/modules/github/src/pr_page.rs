@@ -155,6 +155,7 @@ pub(crate) enum PrPageEvent {
         repo: String,
         number: i64,
         is_pr: bool,
+        title: String,
     },
 }
 
