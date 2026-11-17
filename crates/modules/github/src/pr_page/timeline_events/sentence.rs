@@ -73,6 +73,8 @@ pub(super) fn sentence(kind: &PrEventKind, actor: Option<&str>) -> Sentence {
         PrEventKind::Renamed { from, to } => renamed(from, to),
         PrEventKind::Milestoned { title } => milestone("added this to the", title),
         PrEventKind::Demilestoned { title } => milestone("removed this from the", title),
+        PrEventKind::ReadyForReview => Sentence::plain("marked this as ready for review"),
+        PrEventKind::ConvertedToDraft => Sentence::plain("marked this as a draft"),
     }
 }
 
@@ -174,6 +176,18 @@ mod tests {
         assert_eq!(
             sentence(&k, None).text(),
             "removed this from the v1 milestone"
+        );
+    }
+
+    #[test]
+    fn draft_flips_read_like_github() {
+        assert_eq!(
+            sentence(&PrEventKind::ReadyForReview, None).text(),
+            "marked this as ready for review"
+        );
+        assert_eq!(
+            sentence(&PrEventKind::ConvertedToDraft, None).text(),
+            "marked this as a draft"
         );
     }
 

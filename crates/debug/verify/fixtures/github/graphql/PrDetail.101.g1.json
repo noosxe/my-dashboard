@@ -485,8 +485,26 @@
     },
     "createdAt": "2026-10-19T12:00:00Z",
     "events": {
-     "filteredCount": 1,
+     "filteredCount": 3,
      "nodes": [
+      {
+       "__typename": "ConvertToDraftEvent",
+       "actor": {
+        "avatarUrl": "https://avatars.invalid/octo-dev",
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T14:00:00Z",
+       "id": "EV_ConvertToDraftEvent_0"
+      },
+      {
+       "__typename": "ReadyForReviewEvent",
+       "actor": {
+        "avatarUrl": "https://avatars.invalid/octo-dev",
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T15:00:00Z",
+       "id": "EV_ReadyForReviewEvent_1"
+      },
       {
        "__typename": "HeadRefForcePushedEvent",
        "actor": {
@@ -500,7 +518,7 @@
         "abbreviatedOid": "3f2a9c1"
        },
        "createdAt": "2026-10-21T20:00:00Z",
-       "id": "EV_HeadRefForcePushedEvent_0"
+       "id": "EV_HeadRefForcePushedEvent_2"
       }
      ]
     },

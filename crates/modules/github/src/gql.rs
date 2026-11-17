@@ -722,13 +722,15 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
       }
       # #787: the conversation's event rows, in two selections so a burst of
       # one kind cannot push another out of its window. `events` holds the
-      # state changes (what happened to the PR), `activity` the chatty
+      # state changes (what happened to the PR: merged, closed, reopened,
+      # force-pushed, ready for review, converted to draft), `activity` the chatty
       # bookkeeping (#911). Each is the newest 100, still ascending, like
       # comments and reviews; `parse_events` merges them and sums the
       # `filteredCount`s. The fields ride each inline fragment (selections
       # on the union itself are an error).
       events: timelineItems(last: 100, itemTypes: [MERGED_EVENT, CLOSED_EVENT,
-          REOPENED_EVENT, HEAD_REF_FORCE_PUSHED_EVENT]) {
+          REOPENED_EVENT, HEAD_REF_FORCE_PUSHED_EVENT, READY_FOR_REVIEW_EVENT,
+          CONVERT_TO_DRAFT_EVENT]) {
         filteredCount
         nodes {
           __typename
@@ -742,6 +744,8 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
             beforeCommit { abbreviatedOid }
             afterCommit { abbreviatedOid }
           }
+          ... on ReadyForReviewEvent { id createdAt actor { login } }
+          ... on ConvertToDraftEvent { id createdAt actor { login } }
         }
       }
       activity: timelineItems(last: 100, itemTypes: [LABELED_EVENT,
