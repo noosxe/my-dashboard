@@ -551,7 +551,9 @@ The repo Commits tab's row (docs/0081 D5, shared in code through
 `commit_row`, #793): local-day headers ("Commits on Oct 21, 2026"), the
 headline, the Verified/Unverified tag and CI glyph, the author (login, falling
 back to `author.name`) with "committed 3h", and the short SHA with a copy
-button right-aligned in a fixed spot. A click opens the commit on github.com.
+button right-aligned in a fixed spot. A click or Enter opens the commit on
+github.com and ⌘/Ctrl+Enter copies its SHA; the list is one tab stop with
+arrow selection (docs/0081 D6, #912).
 Oldest first, as GitHub's PR Commits tab reads. The query selects
 `abbreviatedOid url signature statusCheckRollup { state }` per commit for it.
 The query reads the newest 100 (`commits(last: 100)`, still

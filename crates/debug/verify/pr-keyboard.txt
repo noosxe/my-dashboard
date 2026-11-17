@@ -57,6 +57,18 @@ wait-label "Pull request sections: Commits (3)"
 assert-label "Commits on Oct 20, 2026"
 assert-label "parser: accept trailing commas in manifest lists — octo-dev, committed 3d, CI: passing, 0000001"
 assert-no-label "Leave a comment"
+# The list is one tab stop, however many rows (#912, docs/0081 D6): Tab
+# from the strip lands on it, the arrows select, Enter opens the commit
+# and Ctrl+Enter copies its SHA. Read the log afterwards (scripts have no
+# log verb): `pr commits: opened 0000002 on GitHub` then `pr commits:
+# copied 0000002aaa…` (RUST_LOG=warn,dashboard_module_github=debug).
+key tab
+key down
+key down
+key enter
+key ctrl-enter
+key shift-tab
+assert-label "Pull request sections: Commits (3)"
 key right
 key enter
 wait-label "Pull request sections: Checks (9)"
