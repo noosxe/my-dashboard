@@ -57,7 +57,7 @@ mod card_menu;
 mod catch_up;
 pub(crate) mod checks;
 mod comment_actions;
-mod commit_label;
+mod commits_list;
 mod commits_window;
 mod conversation_window;
 mod default_method;
@@ -4617,10 +4617,9 @@ impl PrDetailPage {
         }
     }
 
-    /// Commits tab (D6): scrollable rows — avatar/name (login, falling
-    /// back to `author.name`), `messageHeadline` (`text_sm`), 7-char SHA
-    /// (mono, muted), relative age; muted truncation caption when the
-    /// connection holds more than the `first: 100` page.
+    /// Commits tab (D6, #793): the repo Commits tab's day-grouped rows
+    /// (`commits_list`), newest first; muted truncation caption when the
+    /// connection holds more than the newest-100 window.
     fn render_commits(&self, detail: Option<&gql::PrDetail>, cx: &Context<Self>) -> AnyElement {
         let Some(d) = detail else {
             if let Some(err) = self.detail_load_error(cx) {
@@ -4631,89 +4630,7 @@ impl PrDetailPage {
         if d.commits.nodes.is_empty() {
             return empty_cell("No commits yet", cx);
         }
-        let mut rows: Vec<AnyElement> = d
-            .commits
-            .nodes
-            .iter()
-            .enumerate()
-            .map(|(i, commit)| {
-                let name = commit
-                    .author_login
-                    .clone()
-                    .or_else(|| commit.author_name.clone())
-                    .unwrap_or_else(|| "ghost".into());
-                let age = relative_age(commit.committed_at.as_deref());
-                h_flex()
-                    .id(SharedString::from(format!("pr-commit-{i}")))
-                    // docs/0049 D1: a role-less row paints no a11y node.
-                    .role(accesskit::Role::Group)
-                    .aria_label(commit_label::commit_label(commit, &name, &age))
-                    .gap_2()
-                    .items_center()
-                    .px_3()
-                    .py_2()
-                    .border_b_1()
-                    .border_color(cx.theme().border)
-                    .child(
-                        Avatar::new()
-                            .src(commit.author_avatar.clone().unwrap_or_default())
-                            .xsmall(),
-                    )
-                    .child(
-                        div()
-                            .text_sm()
-                            .min_w_0()
-                            .flex_1()
-                            .truncate()
-                            .child(commit.headline.clone()),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(name),
-                    )
-                    .child(
-                        div()
-                            .font_family(cx.theme().mono_font_family.clone())
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(short_sha(&commit.oid)),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(age),
-                    )
-                    .into_any_element()
-            })
-            .collect();
-        // #876: the query reads the newest 100, so what it cut is older
-        // than every row — the cap row leads the list.
-        if commits_window::hidden_older(d) > 0 {
-            rows.insert(
-                0,
-                div()
-                    .id("pr-commits-truncated")
-                    .px_3()
-                    .py_2()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(commits_window::cap_caption(
-                        d.commits.nodes.len(),
-                        d.commits.total_count,
-                    ))
-                    .into_any_element(),
-            );
-        }
-        div()
-            .id("pr-commits")
-            .flex_1()
-            .min_h_0()
-            .overflow_y_scroll()
-            .child(v_flex().children(rows))
-            .into_any_element()
+        commits_list::commits_list(d, cx)
     }
 
     /// Checks tab (D7): summary header outside the scroll (derived
@@ -6151,12 +6068,6 @@ fn empty_cell(text: &str, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-/// First 7 SHA characters (D6) — `oid` is hex ASCII; `chars().take`
-/// keeps this panic-free on any payload.
-fn short_sha(oid: &str) -> String {
-    oid.chars().take(7).collect()
-}
-
 /// Counts derived from the parsed contexts list (D7) — the summary
 /// header and nothing else. They cover the listed rows only: over the cap
 /// the header takes its total and verdict from the server (`checks::cap`).
@@ -6443,7 +6354,7 @@ mod tests {
         comment_action_allowed, comment_box_viewer_is_author, composer_body_allowed,
         gate_error_copy, pr_assignees_arming, pr_labels_arming, pr_milestone_arming,
         pr_reviewers_arming, pr_state_tone, review_batch_allowed, review_event, review_state_label,
-        short_sha, split_repo, timeline_order, update_branch_enabled,
+        split_repo, timeline_order, update_branch_enabled,
     };
     use crate::service::{GithubCache, GithubState, PendingKind, update_branch_error_copy};
     use crate::usage::Origin;
@@ -9639,14 +9550,6 @@ mod tests {
                 );
             });
         });
-    }
-
-    #[test]
-    fn short_sha_takes_seven_chars() {
-        assert_eq!(short_sha("abcdef1234567890"), "abcdef1");
-        // Short oids don't panic and don't pad.
-        assert_eq!(short_sha("abc"), "abc");
-        assert_eq!(short_sha(""), "");
     }
 
     #[test]

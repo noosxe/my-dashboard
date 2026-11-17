@@ -547,9 +547,14 @@ A `GroupBox` at the rail top:
 
 ### D6 — Commits tab
 
-Scrollable rows: author avatar/name (fall back to `author.name` when no user
-login), `messageHeadline` (`text_sm`), short SHA (7-char, mono token, muted),
-relative age. The query reads the newest 100 (`commits(last: 100)`, still
+The repo Commits tab's row (docs/0081 D5, shared in code through
+`commit_row`, #793): local-day headers ("Commits on Oct 21, 2026"), the
+headline, the Verified/Unverified tag and CI glyph, the author (login, falling
+back to `author.name`) with "committed 3h", and the short SHA with a copy
+button right-aligned in a fixed spot. A click opens the commit on github.com.
+Oldest first, as GitHub's PR Commits tab reads. The query selects
+`abbreviatedOid url signature statusCheckRollup { state }` per commit for it.
+The query reads the newest 100 (`commits(last: 100)`, still
 ascending; verified live 2026-11-14: `first` is the oldest page), so a new
 push on a long PR always shows (#876). A muted caption leads the list when
 `commits.totalCount > nodes.len()`: "Showing the newest 100 of N commits".

@@ -53,8 +53,9 @@ key right
 assert-label "Pull request sections: Conversation (5)"
 key enter
 wait-label "Pull request sections: Commits (3)"
-# Commit rows read as one node each (#768).
-assert-label "parser: accept trailing commas in manifest lists — octo-dev, 0000001, 3d"
+# Commit rows read as one node each (#768, #793), under their day headers.
+assert-label "Commits on Oct 20, 2026"
+assert-label "parser: accept trailing commas in manifest lists — octo-dev, committed 3d, CI: passing, 0000001"
 assert-no-label "Leave a comment"
 key right
 key enter

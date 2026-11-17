@@ -846,9 +846,13 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
         nodes {
           commit {
             oid
+            abbreviatedOid
             messageHeadline
             committedDate
+            url
             author { name avatarUrl user { login } }
+            signature { isValid state wasSignedByGitHub }
+            statusCheckRollup { state }
           }
         }
       }
@@ -1020,6 +1024,43 @@ pub struct PrCommit {
     /// `author.user.login` — `None` for non-user commits.
     pub author_login: Option<String>,
     pub author_avatar: Option<String>,
+    /// The commit's github.com URL (#793); empty on a cached payload that
+    /// predates it.
+    #[serde(default)]
+    pub url: String,
+    /// `signature` — `None` when unsigned.
+    #[serde(default)]
+    pub signature: Option<CommitSignature>,
+    /// `statusCheckRollup.state` — `None` when no checks ran.
+    #[serde(default)]
+    pub ci_state: Option<String>,
+}
+
+impl PrCommit {
+    /// The same row the repo Commits tab renders (#793), so both lists
+    /// share one row element.
+    pub fn to_row(&self) -> CommitRow {
+        let date = self.committed_at.clone().unwrap_or_default();
+        CommitRow {
+            oid: self.oid.clone(),
+            abbreviated_oid: self.oid.chars().take(7).collect(),
+            message_headline: self.headline.clone(),
+            committed_date: date.clone(),
+            authored_date: date,
+            url: self.url.clone(),
+            author: Some(CommitActor {
+                name: self.author_name.clone(),
+                email: None,
+                avatar_url: self.author_avatar.clone(),
+                user: self.author_login.clone().map(|login| CommitUser { login }),
+            }),
+            signature: self.signature.clone(),
+            status_check_rollup: self
+                .ci_state
+                .clone()
+                .map(|s| CommitRollup { state: Some(s) }),
+        }
+    }
 }
 
 /// Checks connection from `statusCheckRollup.contexts` (docs/0016 D7).
@@ -2104,6 +2145,18 @@ pub fn pr_detail_from_value(value: &serde_json::Value) -> Option<PrDetail> {
                             .map(str::to_string),
                         author_avatar: author
                             .and_then(|a| a.get("avatarUrl"))
+                            .and_then(|v| v.as_str())
+                            .map(str::to_string),
+                        url: commit
+                            .get("url")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .to_string(),
+                        signature: commit
+                            .get("signature")
+                            .and_then(|v| serde_json::from_value(v.clone()).ok()),
+                        ci_state: commit
+                            .pointer("/statusCheckRollup/state")
                             .and_then(|v| v.as_str())
                             .map(str::to_string),
                     })

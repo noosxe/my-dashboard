@@ -26,6 +26,7 @@
      "nodes": [
       {
        "commit": {
+        "abbreviatedOid": "0000001",
         "author": {
          "avatarUrl": "https://avatars.invalid/octo-dev",
          "name": "octo-dev",
@@ -35,7 +36,12 @@
         },
         "committedDate": "2026-10-20T12:00:00Z",
         "messageHeadline": "parser: accept trailing commas in manifest lists",
-        "oid": "0000001aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        "oid": "0000001aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000001"
        }
       }
      ],

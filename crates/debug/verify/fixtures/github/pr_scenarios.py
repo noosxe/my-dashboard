@@ -300,12 +300,27 @@ class Timeline:
             "tests: cover the trailing-comma cases",
             "docs: note the manifest grammar change",
         ]
+        # Spread over several local days, with every row shape the shared
+        # commit row draws (#793): signed, unverified, unsigned, and a CI
+        # rollup of each tone or none.
+        rollups = ["SUCCESS", "FAILURE", "PENDING", None]
+        sigs = [
+            None,
+            {"isValid": True, "state": "VALID", "wasSignedByGitHub": True},
+            {"isValid": False, "state": "UNKNOWN_KEY", "wasSignedByGitHub": False},
+        ]
         nodes = [
             {
                 "commit": {
                     "oid": f"{i + 1:07x}" + "a" * 33,
+                    "abbreviatedOid": f"{i + 1:07x}",
+                    "url": f"https://github.com/fixture-user/beacon/commit/{i + 1:07x}",
+                    "signature": sigs[i % 3],
+                    "statusCheckRollup": (
+                        {"state": rollups[i % 4]} if rollups[i % 4] else None
+                    ),
                     "messageHeadline": headlines[i % len(headlines)],
-                    "committedDate": self.ago(72 - (i % 48)),
+                    "committedDate": self.ago(72 - 20 * (i % 5) - (i // 5) % 3),
                     "author": {
                         "name": who or "Unlinked Author",
                         "avatarUrl": f"https://avatars.invalid/{who or 'unlinked'}",

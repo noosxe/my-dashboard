@@ -254,6 +254,7 @@
      "nodes": [
       {
        "commit": {
+        "abbreviatedOid": "0000001",
         "author": {
          "avatarUrl": "https://avatars.invalid/octo-dev",
          "name": "octo-dev",
@@ -263,11 +264,17 @@
         },
         "committedDate": "2026-10-20T12:00:00Z",
         "messageHeadline": "parser: accept trailing commas in manifest lists",
-        "oid": "0000001aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        "oid": "0000001aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000001"
        }
       },
       {
        "commit": {
+        "abbreviatedOid": "0000002",
         "author": {
          "avatarUrl": "https://avatars.invalid/octo-dev",
          "name": "octo-dev",
@@ -275,13 +282,23 @@
           "login": "octo-dev"
          }
         },
-        "committedDate": "2026-10-20T13:00:00Z",
+        "committedDate": "2026-10-21T08:00:00Z",
         "messageHeadline": "tests: cover the trailing-comma cases",
-        "oid": "0000002aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        "oid": "0000002aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": {
+         "state": "FAILURE"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000002"
        }
       },
       {
        "commit": {
+        "abbreviatedOid": "0000003",
         "author": {
          "avatarUrl": "https://avatars.invalid/octo-dev",
          "name": "octo-dev",
@@ -289,9 +306,18 @@
           "login": "octo-dev"
          }
         },
-        "committedDate": "2026-10-20T14:00:00Z",
+        "committedDate": "2026-10-22T04:00:00Z",
         "messageHeadline": "docs: note the manifest grammar change",
-        "oid": "0000003aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        "oid": "0000003aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": false,
+         "state": "UNKNOWN_KEY",
+         "wasSignedByGitHub": false
+        },
+        "statusCheckRollup": {
+         "state": "PENDING"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000003"
        }
       }
      ],

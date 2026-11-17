@@ -349,7 +349,7 @@ uniform rows (§2 fact 5):
 - **Debug ids** (docs/0010 D10): `commits-list` (the List element),
   `commit-<oid12>` row selectors (`debug_selector`, the first 12 hex
   digits of the oid, unique and stable within a run),
-  `commit-copy-<oid12>`, `commits-day-<yyyy-mm-dd>`, `commits-more`
+  `commit-copy-<oid12>`, `commits-day-<yyyy-mm-dd>` (`-<first row>` appended on the PR tab, where a day can repeat), `commits-more`
   (the tail row), `commits-ref-select` (the D7 selector) and
   `commits-retry`.
 - **Quick filter (docs/0042 D5).** The shared `repo-row-search` box
@@ -1088,6 +1088,18 @@ that is part of the lane key, not a docs/0042 chip.
   commits (one complete page), and `SessionInventory.json`'s viewer
   carries `id: "U_fixture"`. The generator leaves every existing
   fixture byte-identical.
+
+## 15 Implementation notes (PR Commits tab reuse, #793)
+
+The PR detail page's Commits tab renders this tab's row instead of its own
+sparser one. The row, its accessible name, the copy-SHA button and the day
+header live in `commit_row.rs`; `commits.rs` (the virtual list and its
+delegate) and `pr_page/commits_list.rs` (the PR's scroll of day sections) both
+call it. The PR query reads the extra per-commit fields and
+`gql::PrCommit::to_row` adapts them to `CommitRow`. The PR list is not
+virtualized (at most the newest 100 commits, docs/0016 D6), keeps the
+connection's oldest-first order, and has no keyboard path to a row yet, so
+the copy button there is pointer-only.
 
 ## 10 Mockup
 
