@@ -90,15 +90,15 @@ assert-label "Choose how to update the branch"
 # No `tab-stops` here: 252 rows make more stops than the walk's 100-stop cap
 # (pr-keyboard.txt).
 audit
-mouse down 472 212
-mouse up 472 212 --wait-frame
+mouse down 472 184
+mouse up 472 184 --wait-frame
 assert-no-label "Leave a comment"
-mouse down 578 212
-mouse up 578 212 --wait-frame
+mouse down 578 184
+mouse up 578 184 --wait-frame
 wait-label "View log"
 assert-label "View all 137 checks on GitHub"
-mouse down 690 212
-mouse up 690 212 --wait-frame
+mouse down 690 184
+mouse up 690 184 --wait-frame
 wait-label "Diff for crates/manifest/src/parser.rs"
 click 12782369444481205663 --wait-frame
 wait-label "PR #108: Loader: a PR that fails its detail read"

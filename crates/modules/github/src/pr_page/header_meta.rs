@@ -110,5 +110,7 @@ pub(crate) fn head_label(head: &str, fork_owner: Option<&str>) -> String {
     }
 }
 
+pub(crate) mod branch;
+
 #[cfg(test)]
 mod tests;

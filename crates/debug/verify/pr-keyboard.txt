@@ -40,6 +40,10 @@ mouse up 900 337
 wait-label "Conversation (5)"
 assert-label "#101"
 wait-label "Checks (9)"
+# Two branch-name copy buttons (#785) now precede the refresh and
+# open-on-GitHub buttons, so the strip is the fifth stop.
+key tab
+key tab
 key tab
 key tab
 key tab
@@ -155,6 +159,8 @@ wait-label "Checks (137)"
 key tab
 key tab
 key tab
+key tab
+key tab
 key right
 key enter
 wait-label "Pull request sections: Commits"
@@ -170,18 +176,18 @@ wait-label "Pull request sections: Conversation (252)"
 # No `tab-stops` on this Conversation tab: its 252 rows make well over the
 # walk's 100-stop cap, so the cycle can't close within it (not a trap).
 audit
-mouse down 472 212
-mouse up 472 212 --wait-frame
+mouse down 472 184
+mouse up 472 184 --wait-frame
 wait-label "Commits"
 tab-stops
 audit
-mouse down 578 212
-mouse up 578 212 --wait-frame
+mouse down 578 184
+mouse up 578 184 --wait-frame
 wait-label "View log"
 # No `tab-stops` here either: the 100 listed checks (of 137) are the walk's cap.
 audit
-mouse down 690 212
-mouse up 690 212 --wait-frame
+mouse down 690 184
+mouse up 690 184 --wait-frame
 wait-label "Diff for crates/manifest/src/parser.rs"
 tab-stops
 audit
