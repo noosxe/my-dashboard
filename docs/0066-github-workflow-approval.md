@@ -156,9 +156,11 @@ When the sweep returns ≥ 1 row, the service probes
 `GET …/runs/{run_id}/pending_deployments` per gated run (1 GET per run, fetch-record
 cached, deduped):
 
-- **non-empty** → environment gate. Row actions: **Approve…** and **Reject…**
-  opening a small confirm popover listing the pending environments (all
-  preselected) with an optional comment. The POST sends every selected
+- **non-empty** → environment gate. The row carries one action,
+  **Approve…**, which opens an inline review panel under the row listing the
+  pending environments (all preselected), an optional comment, any prior
+  reviews, and **Approve** / **Reject** / **Cancel**. Reject lives in that
+  panel, not on the row. The POST sends every selected
   `environment_id`, the chosen `state`, and `comment` — the wire comment is
   always non-empty: the UI text if given, else `"Approved via my-dashboard"` /
   `"Rejected via my-dashboard"` (the API requires the field; we never send a
@@ -175,7 +177,7 @@ isolation per docs/0029 §1, toasts per docs/0058).
 
 ### D5 — Optimism and refresh
 
-Approve/reject marks the row optimistically (*approved — starting…* /
+Approve/reject marks the row optimistically (*approved, starting…* /
 *rejected*) and fires a targeted sweep refetch + gate-probe invalidation on
 completion. Success: the run leaves `action_required`, the row leaves the
 section, CheckRun rows appear as jobs start. Failure: revert + scoped error
@@ -186,13 +188,18 @@ surface (docs/0052).
 
 | Upstream | Copy |
 |---|---|
-| 403 on approve/reject | *"GitHub refused: your token lacks Actions write access (or you're not a required reviewer on this environment)."* |
+| 403 on approve/reject | *"GitHub refused: your token lacks Actions write access, or you are not a required reviewer on this environment."* |
 | 404/422 (run no longer waiting, already reviewed) | *"This run is no longer waiting for approval — refreshing."* + auto refetch |
 | network/fetch-layer | standard module error row on the section, retry affordance |
 
-The module cannot know reviewer-writability up front (no cheap upstream
-signal), so we rely on the 403 copy instead of pre-disabling — except the
-fork-gate reject which never renders (D4).
+The gate probe's `pending_deployments` entries carry
+`current_user_can_approve`, so the environment gate's **Approve…** button is
+pre-disabled (tooltip: *"You are not a required reviewer on this
+environment"*) when any pending deployment reports `false`; an absent value
+counts as yes. The fork gate has no such signal, so it relies on the 403 copy,
+which also remains the fallback for tokens that lack Actions write access. The
+fork-gate reject never renders (D4). If the probe itself fails, the row shows
+*"Couldn't determine the gate — refresh to retry"* instead of actions.
 
 ### D7 — A11y, debug bridge, and the 0065 gate
 
