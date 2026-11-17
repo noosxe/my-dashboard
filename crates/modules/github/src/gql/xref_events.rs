@@ -351,4 +351,43 @@ mod tests {
             "the null element was carried"
         );
     }
+    /// The issue page's alias is the same window of the newest 100, with the
+    /// same fields, and the repository node carries the page's repo for the
+    /// self-reference drop.
+    #[test]
+    fn the_issue_selection_is_its_own_newest_window_with_every_field() {
+        let q = crate::gql::ISSUE_DETAIL_QUERY;
+        assert!(
+            q.contains("references: timelineItems(last: 100, itemTypes: [CROSS_REFERENCED_EVENT])")
+        );
+        let after = &q[q.find("references: timelineItems").unwrap()..];
+        for f in [
+            "filteredCount",
+            "id createdAt actor { login }",
+            "willCloseTarget",
+            "... on Issue { number title state stateReason url",
+            "... on PullRequest { number title state isDraft merged url",
+            "repository { nameWithOwner isPrivate }",
+        ] {
+            assert!(after.contains(f), "missing {f}");
+        }
+        let head = &q[..q.find("issue(number").unwrap()];
+        assert!(head.contains("nameWithOwner"), "the repo's own name rides");
+    }
+
+    /// An issue payload parses its references with the repo from the
+    /// repository node, and a PR that will close it keeps the flag.
+    #[test]
+    fn an_issue_payload_reads_its_references() {
+        let mut ev = event("1", Some("octo-dev"), pr(9, "OPEN", false, false));
+        ev["willCloseTarget"] = json!(true);
+        let repo = json!({"nameWithOwner": "fixture-org/home", "issue": {
+            "id": "I", "number": 7, "title": "t", "url": "u", "state": "OPEN",
+            "references": {"filteredCount": 1, "nodes": [ev]}
+        }});
+        let d = crate::gql::issue_detail_from_value(&repo).unwrap();
+        assert_eq!(d.references.nodes.len(), 1);
+        assert!(d.references.nodes[0].will_close);
+        assert_eq!(d.references.total_count, 1);
+    }
 }

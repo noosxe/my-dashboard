@@ -1318,6 +1318,7 @@ query IssueDetail($owner: String!, $name: String!, $number: Int!) {
     # docs/0023 D5: the lock gate — no viewerCanLock flag exists
     # upstream; triage-and-above locks, read off the repo permission.
     viewerPermission
+    nameWithOwner
     issue(number: $number) {
       id
       number
@@ -1450,6 +1451,25 @@ query IssueDetail($owner: String!, $name: String!, $number: Int!) {
           }
         }
       }
+      # docs/0085: cross-reference rows, their own window (D2) so a burst of
+      # mentions cannot push state events out. Fields ride inline fragments
+      # (a bare selection on the ReferencedSubject union is an error).
+      references: timelineItems(last: 100, itemTypes: [CROSS_REFERENCED_EVENT]) {
+        filteredCount
+        nodes {
+          __typename
+          ... on CrossReferencedEvent {
+            id createdAt actor { login } isCrossRepository willCloseTarget
+            source {
+              __typename
+              ... on Issue { number title state stateReason url
+                             repository { nameWithOwner isPrivate } }
+              ... on PullRequest { number title state isDraft merged url
+                                   repository { nameWithOwner isPrivate } }
+            }
+          }
+        }
+      }
     }
   }
 }
@@ -1529,6 +1549,10 @@ pub struct IssueDetail {
     /// docs/0023 D5 — the lock gate: no `viewerCanLock` flag exists
     /// upstream, so triage-and-above is read off the repo permission.
     pub viewer_permission: Option<String>,
+    /// Cross-reference rows (docs/0085): their own window, parsed apart
+    /// from `events`. Absent in payloads persisted before the field existed.
+    #[serde(default)]
+    pub references: XrefEvents,
 }
 
 /// `Label { id name color }`. `id` feeds the labels picker's
@@ -1885,6 +1909,10 @@ pub fn issue_detail_from_value(value: &serde_json::Value) -> Option<IssueDetail>
             .get("viewerPermission")
             .and_then(|v| v.as_str())
             .map(str::to_string),
+        references: xref_events::parse_references(
+            issue,
+            value.get("nameWithOwner").and_then(|v| v.as_str()),
+        ),
     })
 }
 
