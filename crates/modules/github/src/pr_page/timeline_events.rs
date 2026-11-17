@@ -106,7 +106,23 @@ pub(super) fn row(ix: usize, e: &PrEvent, cx: &App) -> AnyElement {
                         .text_color(cx.theme().foreground)
                         .child(e.actor.clone().unwrap_or_else(|| "Someone".into())),
                 )
-                .child(verb(&e.kind)),
+                .child(match &e.kind {
+                    // The commit ids are mono, as the header's branch names.
+                    PrEventKind::ForcePushed {
+                        before: Some(b),
+                        after: Some(a),
+                    } => {
+                        let mono = cx.theme().mono_font_family.clone();
+                        h_flex()
+                            .gap_1()
+                            .child("force-pushed from")
+                            .child(div().font_family(mono.clone()).child(b.clone()))
+                            .child("to")
+                            .child(div().font_family(mono).child(a.clone()))
+                            .into_any_element()
+                    }
+                    kind => div().child(verb(kind)).into_any_element(),
+                }),
         )
         .child(
             div()

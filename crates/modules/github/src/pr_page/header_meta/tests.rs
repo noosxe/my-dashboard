@@ -95,7 +95,7 @@ fn head_label_names_the_fork_owner() {
 #[test]
 fn action_copy_follows_the_pr_state() {
     use PrStateTone::*;
-    let c = |t, n| action_copy(Some(t), n, Some("main"));
+    let c = |t, n| action_copy(Some(t), n, Some("main"), Some("closer"));
     assert_eq!(c(Open, Some(1)).as_deref(), Some("wants to merge 1 commit"));
     assert_eq!(
         c(Draft, Some(3)).as_deref(),
@@ -110,10 +110,21 @@ fn action_copy_follows_the_pr_state() {
         Some("merged 4 commits into main")
     );
     assert_eq!(c(Merged, None).as_deref(), Some("merged into main"));
-    assert_eq!(c(Closed, Some(4)).as_deref(), Some("closed"));
+    assert_eq!(
+        c(Closed, Some(4)).as_deref(),
+        Some("4 commits · closed by closer")
+    );
+    assert_eq!(
+        action_copy(Some(Closed), Some(1), None, None).as_deref(),
+        Some("1 commit · closed")
+    );
+    assert_eq!(
+        action_copy(Some(Closed), None, None, None).as_deref(),
+        Some("closed")
+    );
     assert_eq!(c(Open, None), None);
     assert_eq!(
-        action_copy(None, Some(2), None),
+        action_copy(None, Some(2), None, None),
         Some("wants to merge 2 commits".into())
     );
 }

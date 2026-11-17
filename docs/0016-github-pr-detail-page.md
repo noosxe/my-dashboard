@@ -300,8 +300,10 @@ pub struct GithubPage {
   open-on-GitHub icon buttons (icon-only ⇒ tooltip, [DG]). Meta line: muted
   `#number` first (#784 — it never trails a wrapped title), author
   avatar + login, the verb phrase by state — "wants to merge N commits"
-  (open/draft, "1 commit" singular), "merged N commits into main" (merged),
-  "closed" (closed) — `base ← head` (each name a mono copy button: a name over 32 characters is middle-truncated, the tooltip carries the full name and a click copies it, #785; mono, `text_xs`; `owner:branch` for a head in another repository, #765),
+  (open/draft, "1 commit" singular), "<merger> merged N commits into main"
+  (merged: the merger is the subject, GitHub's wording, with no avatar; the
+  author is not named), "N commits · closed by <closer>" (closed: the author
+  stays the subject, the closer is explicit and left out when unknown) — `base ← head` (each name a mono copy button: a name over 32 characters is middle-truncated, the tooltip carries the full name and a click copies it, #785; mono, `text_xs`; `owner:branch` for a head in another repository, #765),
   then a labelled "updated 1d ago" (#764). The age is always the PR's
   `updatedAt` — the store summary's before the detail lands, the newer of the
   two after — never `createdAt`, so landing the detail never swaps the figure.
@@ -366,7 +368,7 @@ Two columns: main timeline (`flex_1`) + fixed ~300px right rail (D5).
   events from `timelineItems` (an aliased `events` selection of the detail
   query, `last: 100`, itemTypes `MERGED_EVENT`, `CLOSED_EVENT`,
   `REOPENED_EVENT`, `HEAD_REF_FORCE_PUSHED_EVENT`; the force-push row names
-  the abbreviated before and after commit ids). Each is a muted one-line row
+  the abbreviated before and after commit ids, in mono). Each is a muted one-line row
   in the review-event style — glyph, "actor verb", age at the trailing edge,
   ids `pr-event-{ix}` — and interleaves with the cards by time (a card
   precedes an event at an equal stamp). They are not counted in the
