@@ -286,7 +286,7 @@ mouse up 483 155 --wait-frame
 assert-no-label "View log"
 mouse down 565 155
 mouse up 565 155 --wait-frame
-wait-label "Retry loading changed files"
+wait-label "Retry"
 click 12782369444481205663 --wait-frame
 wait-label "PR #109: CI: a fork PR whose only runs wait for approval"
 
