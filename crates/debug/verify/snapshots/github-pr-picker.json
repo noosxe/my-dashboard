@@ -142,6 +142,19 @@
       "focused": false
     },
     {
+      "accesskit_id": "795281189567943664",
+      "role": "Group",
+      "label": "Branches: main ← feature/trailing-commas",
+      "bounds": {
+        "x": 547.0,
+        "y": 104.0,
+        "w": 217.0,
+        "h": 19.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
       "accesskit_id": "1186778718521667974",
       "role": "CheckBox",
       "label": null,
