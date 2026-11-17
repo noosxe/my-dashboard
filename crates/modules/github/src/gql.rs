@@ -725,7 +725,7 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
       # fragment (selections on the union itself are an error).
       events: timelineItems(last: 100, itemTypes: [MERGED_EVENT, CLOSED_EVENT,
           REOPENED_EVENT, HEAD_REF_FORCE_PUSHED_EVENT, LABELED_EVENT,
-          UNLABELED_EVENT]) {
+          UNLABELED_EVENT, ASSIGNED_EVENT, UNASSIGNED_EVENT]) {
         filteredCount
         nodes {
           __typename
@@ -742,6 +742,17 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
           # #911
           ... on LabeledEvent { id createdAt actor { login } label { name color } }
           ... on UnlabeledEvent { id createdAt actor { login } label { name color } }
+          # The Assignee union: every member has a login.
+          ... on AssignedEvent {
+            id createdAt actor { login }
+            assignee { ... on User { login } ... on Bot { login }
+              ... on Organization { login } ... on Mannequin { login } }
+          }
+          ... on UnassignedEvent {
+            id createdAt actor { login }
+            assignee { ... on User { login } ... on Bot { login }
+              ... on Organization { login } ... on Mannequin { login } }
+          }
         }
       }
       # docs/0083 D2 rows 4-5: the verdict and its sub-line.

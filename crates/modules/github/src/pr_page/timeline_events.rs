@@ -64,6 +64,8 @@ fn look(kind: &PrEventKind) -> (Tone, Glyph) {
         PrEventKind::ForcePushed { .. } => (Tone::Muted, Glyph::Right),
         PrEventKind::Labeled { .. } => (Tone::Muted, Glyph::Plus),
         PrEventKind::Unlabeled { .. } => (Tone::Muted, Glyph::Minus),
+        PrEventKind::Assigned { .. } => (Tone::Muted, Glyph::Plus),
+        PrEventKind::Unassigned { .. } => (Tone::Muted, Glyph::Minus),
     }
 }
 
@@ -130,7 +132,7 @@ pub(super) fn row(ix: usize, e: &PrEvent, cx: &App) -> AnyElement {
                             .child(div().font_family(mono).child(a.clone()))
                             .into_any_element()
                     }
-                    kind => sentence_line(&sentence(kind), cx),
+                    kind => sentence_line(&sentence(kind, e.actor.as_deref()), cx),
                 }),
         )
         .child(
@@ -200,7 +202,7 @@ mod tests {
     }
 
     fn verb_of(kind: &PrEventKind) -> String {
-        sentence(kind).text()
+        sentence(kind, None).text()
     }
 
     #[test]

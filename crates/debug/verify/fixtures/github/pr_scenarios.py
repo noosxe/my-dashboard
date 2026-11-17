@@ -424,6 +424,9 @@ class Timeline:
                 self.labeled("LabeledEvent", "octo-dev", 90, "bug", "d73a4a"),
                 self.labeled("LabeledEvent", "octo-dev", 89, "needs-review", "fbca04"),
                 self.labeled("UnlabeledEvent", OWNER, 60, "wip", "ededed"),
+                self.assigned("AssignedEvent", OWNER, 88, "octo-dev"),
+                self.assigned("AssignedEvent", OWNER, 87, OWNER),
+                self.assigned("UnassignedEvent", "octo-dev", 55, "reviewer-c"),
                 self.force_pushed("octo-dev", 40, "3f2a9c1", "b81d4e7"),
             ),
             statusCheckRollup=rollup("FAILURE", contexts),
@@ -546,6 +549,9 @@ class Timeline:
 
     def labeled(self, typename, login, hours, name, color):
         return (typename, login, hours, {"label": {"name": name, "color": color}})
+
+    def assigned(self, typename, login, hours, assignee):
+        return (typename, login, hours, {"assignee": user(assignee)})
 
     def closed_by(self, login, hours):
         """`timelineItems(last: 1, itemTypes: [CLOSED_EVENT])` for the closer."""

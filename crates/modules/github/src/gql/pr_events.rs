@@ -1,5 +1,5 @@
 //! The PR conversation's event rows (#787, #911): merged, closed, reopened,
-//! force-pushed and labeled/unlabeled, read from `timelineItems` (fields verified against
+//! force-pushed, labeled/unlabeled and assigned/unassigned, read from `timelineItems` (fields verified against
 //! GitHub's schema 2026-11-17). Parsing is tolerant (docs/0007 D3): a node
 //! of another type, or one missing a field its row needs, drops out while
 //! the rest parse.
@@ -36,6 +36,14 @@ pub enum PrEventKind {
     Unlabeled {
         name: String,
         color: Option<String>,
+    },
+    /// Someone assigned or unassigned, by login (#911). The actor may be
+    /// the assignee: the row then reads "self-assigned".
+    Assigned {
+        assignee: String,
+    },
+    Unassigned {
+        assignee: String,
     },
 }
 
@@ -78,6 +86,12 @@ fn parse_event(node: &Value) -> Option<PrEvent> {
             let (name, color) = label(node)?;
             PrEventKind::Unlabeled { name, color }
         }
+        "AssignedEvent" => PrEventKind::Assigned {
+            assignee: oid("/assignee/login")?,
+        },
+        "UnassignedEvent" => PrEventKind::Unassigned {
+            assignee: oid("/assignee/login")?,
+        },
         _ => return None,
     };
     Some(PrEvent {
@@ -163,6 +177,32 @@ mod tests {
                 PrEventKind::Unlabeled {
                     name: "wip".into(),
                     color: None
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn assignments_parse_and_a_deleted_assignee_drops() {
+        let pr = json!({"events": {"nodes": [
+            {"__typename": "AssignedEvent", "id": "A1", "actor": {"login": "a"},
+             "assignee": {"login": "b"}},
+            {"__typename": "UnassignedEvent", "id": "A2", "assignee": {"login": "c"}},
+            {"__typename": "AssignedEvent", "id": "A3", "assignee": null}
+        ]}});
+        let kinds: Vec<_> = parse_events(&pr)
+            .nodes
+            .into_iter()
+            .map(|n| n.kind)
+            .collect();
+        assert_eq!(
+            kinds,
+            vec![
+                PrEventKind::Assigned {
+                    assignee: "b".into()
+                },
+                PrEventKind::Unassigned {
+                    assignee: "c".into()
                 },
             ]
         );
