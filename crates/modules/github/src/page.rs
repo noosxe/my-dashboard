@@ -1453,6 +1453,55 @@ impl GithubPage {
         cx.notify();
     }
 
+    /// Open the in-app page for an issue or PR known only by repo and
+    /// number (docs/0085 D6): the notification hand-off and the timeline's
+    /// cross-reference rows both land here. A synthesized minimal row seeds
+    /// the initial paint only; the native page re-fetches full detail on open
+    /// and records a trail place, so Back returns to the caller.
+    #[allow(clippy::too_many_arguments)]
+    fn open_subject(
+        &mut self,
+        full_name: &str,
+        number: i64,
+        is_pr: bool,
+        title: &str,
+        anchor: Option<i64>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let key = format!("{full_name}#{number}");
+        if is_pr {
+            let pr = gql::PullRequest {
+                key,
+                database_id: None,
+                number,
+                title: title.to_string(),
+                draft: false,
+                state: None,
+                author: None,
+                updated_at: None,
+                url: String::new(),
+                status: None,
+                labels: None,
+                review_requests: None,
+            };
+            self.open_pr(full_name, &pr, anchor, window, cx);
+        } else {
+            let issue = gql::Issue {
+                key,
+                database_id: None,
+                number,
+                state: None,
+                title: title.to_string(),
+                author: None,
+                updated_at: None,
+                url: String::new(),
+                labels: None,
+            };
+            self.open_issue(full_name, &issue, anchor, window, cx);
+        }
+    }
+
     /// Open the in-app issue page for a snapshot row (docs/0020 D1): the
     /// PR page's takeover pattern — full-content sub-page, detail fetch,
     /// crumb `#number` suffix. The row's old browser hand-off moves to
@@ -1658,39 +1707,7 @@ impl GithubPage {
                     anchor,
                 } => {
                     this.close_notification(cx);
-                    // A synthesized minimal row — initial paint only;
-                    // the native page re-fetches full detail on open.
-                    let key = format!("{full_name}#{number}");
-                    if *is_pr {
-                        let pr = gql::PullRequest {
-                            key,
-                            database_id: None,
-                            number: *number,
-                            title: title.clone(),
-                            draft: false,
-                            state: None,
-                            author: None,
-                            updated_at: None,
-                            url: String::new(),
-                            status: None,
-                            labels: None,
-                            review_requests: None,
-                        };
-                        this.open_pr(full_name, &pr, *anchor, window, cx);
-                    } else {
-                        let issue = gql::Issue {
-                            key,
-                            database_id: None,
-                            number: *number,
-                            state: None,
-                            title: title.clone(),
-                            author: None,
-                            updated_at: None,
-                            url: String::new(),
-                            labels: None,
-                        };
-                        this.open_issue(full_name, &issue, *anchor, window, cx);
-                    }
+                    this.open_subject(full_name, *number, *is_pr, title, *anchor, window, cx);
                 }
             },
         )
