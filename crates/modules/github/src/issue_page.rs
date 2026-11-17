@@ -55,6 +55,7 @@ use crate::pr_page::{
     MentionSelectPrev, MutationError, body_card, cap_row, delete_confirm_card, inline_edit_card,
     split_repo,
 };
+use crate::reaction_menu::reaction_row_label;
 use crate::service::{
     FetchSpec, GithubState, IssuePendingKind, Kind, Mutation, run_mutation, run_spec_tracked,
 };
@@ -2746,41 +2747,26 @@ impl IssueDetailPage {
                                 .unwrap_or(0);
                             let subject = subject_id.clone();
                             let item_weak = weak.clone();
-                            let probe = format!("issue-reaction-pick-{}", content.wire());
                             next = next.item(
-                                PopupMenuItem::element(move |_, _| {
-                                    // Probe-visible row (0010 D10) — the
-                                    // plain Item variant is not.
-                                    let key = probe.clone();
-                                    h_flex()
-                                        .debug_selector(move || key.clone())
-                                        .gap_2()
-                                        .child(format!(
-                                            "{} {} ({})",
-                                            content.glyph(),
-                                            content.label(),
-                                            count
-                                        ))
-                                        .when(armed, |row| row.child("· you"))
-                                })
-                                .checked(armed)
-                                .disabled(busy)
-                                .on_click(move |_, window, cx| {
-                                    // The click dispatches inside the window's
-                                    // update — any re-entrant window update here
-                                    // fails ("window not found"). Defer to the end
-                                    // of the effect cycle, then post from the live
-                                    // context (the page.rs spawn pattern, inline).
-                                    let weak = item_weak.clone();
-                                    let subject = subject.clone();
-                                    window.defer(cx, move |window, cx| {
-                                        let _ = weak.update(cx, |page, cx| {
-                                            page.toggle_reaction(
-                                                subject, armed, content, window, cx,
-                                            )
+                                PopupMenuItem::new(reaction_row_label(content, count))
+                                    .checked(armed)
+                                    .disabled(busy)
+                                    .on_click(move |_, window, cx| {
+                                        // The click dispatches inside the window's
+                                        // update — any re-entrant window update here
+                                        // fails ("window not found"). Defer to the end
+                                        // of the effect cycle, then post from the live
+                                        // context (the page.rs spawn pattern, inline).
+                                        let weak = item_weak.clone();
+                                        let subject = subject.clone();
+                                        window.defer(cx, move |window, cx| {
+                                            let _ = weak.update(cx, |page, cx| {
+                                                page.toggle_reaction(
+                                                    subject, armed, content, window, cx,
+                                                )
+                                            });
                                         });
-                                    });
-                                }),
+                                    }),
                             );
                         }
                         next
@@ -5172,12 +5158,11 @@ mod tests {
             .expect("+ row visible");
         vcx.simulate_click(add.center(), gpui::Modifiers::default());
         let _ = vcx.debug_bounds("issue-reaction-row-THUMBS_UP"); // flush frames
-        let row0 = vcx
-            .debug_bounds("issue-reaction-pick-THUMBS_UP")
-            .expect("menu row visible");
-        vcx.simulate_click(row0.center(), gpui::Modifiers::default());
+        // The rows are plain labelled items (no probe key): pick the
+        // first one from the keyboard, as the menu's own focus allows.
+        vcx.simulate_keystrokes("down enter");
         // the handler defers to the end of the effect cycle — flush it
-        let _ = vcx.debug_bounds("issue-reaction-pick-THUMBS_UP");
+        vcx.run_until_parked();
         vcx.update(|_, cx| {
             page.update(cx, |page, cx| {
                 // The full chain ran: deferred post → ProbeHttp failed

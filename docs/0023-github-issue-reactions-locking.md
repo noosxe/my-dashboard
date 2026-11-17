@@ -172,8 +172,8 @@ single-choice action). Cancel/Esc closes without writing.
 - The picker participates in the one-editor rule (0022 D7): opening it
   closes any other editor surface; `cancel_top_editor` picks it up before
   the page closes (Esc interception order extends to six surfaces).
-- Probe ids: `issue-reaction-pick`, `issue-reaction-pick-{CONTENT}`,
-  `issue-reaction-pick-cancel`.
+- Probe ids: `issue-reaction-pick`, `issue-reaction-pick-cancel`. The
+  picker rows have no probe key (see the §10 amendment).
 
 **Emoji rendering risk (recorded, checked at impl)**: glyphs are text runs
 through the normal font stack; if the platform font lacks emoji the chips
@@ -344,9 +344,11 @@ Consequences, all simplifications:
 - The one-editor rule is back to **five in-page surfaces**; the menu is
   transient, not an editor — `cancel_top_editor` no longer intercepts
   for it.
-- Menu rows render via `PopupMenuItem::element` so each row keeps its
-  probe key (`issue-reaction-pick-{CONTENT}` — §7 as written; no Cancel
-  row — the menu dismisses natively). The toggle direction still rides
+- Menu rows are plain `PopupMenuItem::new` rows, so each has an
+  accessible name: `<emoji> <name>[, <count>]`
+  (`reaction_menu::reaction_row_label`, shared with the PR card picker;
+  no probe key — click them with `click-label --role MenuItem`; no
+  Cancel row — the menu dismisses natively). The toggle direction still rides
   `reaction_direction` (pure, table-tested).
 - Item handlers must **defer** their page update (`window.defer`): a
   click dispatches inside the window's update, and any re-entrant
