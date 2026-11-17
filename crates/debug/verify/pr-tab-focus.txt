@@ -1,0 +1,47 @@
+# pr-tab-focus.txt — focus must not outlive the PR tab that held it (#818).
+#
+# Fixture: #109, whose rail Checks row opens the Checks tab. The row is a
+# Tab stop inside the Conversation tab (the eighth: Refresh, Open on GitHub,
+# the strip, Edit, reaction, comment box, action select, the row). Enter on
+# it changes the tab and unmounts it; focus moves to the tab strip.
+#
+# Prerequisites: the containerized env (docs/0071) with the GitHub
+# fixtures and the pinned clock, and a session named `tabfocus` at 1280x800:
+#   export DASHBOARD_GITHUB_FIXTURE=/work/crates/debug/verify/fixtures/github
+#   export DASHBOARD_FIXED_NOW=2026-10-23T12:00:00Z
+#   dashboard-debug session start --name tabfocus --size 1280x800 \
+#     --binary /tmp/target/debug/my-dashboard
+# Run (in-container): dashboard-debug run crates/debug/verify/pr-tab-focus.txt
+#
+# Clicks are bridge mouse clicks at the controls' centres, frozen at
+# 1280x800 (see pr-gated-runs.txt).
+
+--session tabfocus
+
+assert-label "Open GitHub module"
+click 11447690740305500471 --wait-frame
+wait-label "Filter repositories"
+click 349678605523893363
+type beacon
+key down
+key enter
+wait-label "PR #109: CI: a fork PR whose only runs wait for approval"
+mouse down 900 638
+mouse up 900 638
+wait-label "Checks (2)"
+assert-label "Checks: 2 waiting. Open the Checks tab"
+
+# Keyboard to the rail's Checks row, then Enter: the tab changes under focus.
+key tab
+key tab
+key tab
+key tab
+key tab
+key tab
+key tab
+key tab
+key enter
+wait-label "Approve gated workflow run fork-ci"
+# Focus is on a node of the new page, so the walk closes (before #818 every
+# step read "focus on an element without an a11y node").
+tab-stops

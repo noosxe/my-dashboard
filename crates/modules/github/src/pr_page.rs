@@ -82,6 +82,7 @@ mod refocus;
 mod review_drafts;
 mod review_refetch;
 mod state_writes;
+mod tab_focus;
 #[cfg(test)]
 mod test_rig;
 pub(crate) mod threads_cap;
@@ -578,7 +579,11 @@ pub(crate) struct PrDetailPage {
     repo: String,
     pub(crate) number: i64,
     tab: PrTab,
+    /// The tab the last frame rendered (#818: `tab_focus`).
+    focus_tab: PrTab,
     focus_handle: FocusHandle,
+    /// Wraps the tab content so a focus inside it is recognisable.
+    content_focus: FocusHandle,
     /// Comment box (D4): draft textarea + action select.
     comment: Entity<TextareaState>,
     /// Comment-box draft persistence (docs/0045 D4/D8): keyed
@@ -911,7 +916,9 @@ impl PrDetailPage {
             repo,
             number,
             tab: PrTab::Conversation,
+            focus_tab: PrTab::Conversation,
             focus_handle: cx.focus_handle(),
+            content_focus: cx.focus_handle().tab_stop(false),
             comment,
             draft,
             draft_restored,
@@ -5439,6 +5446,7 @@ impl Render for PrDetailPage {
             self.methods = methods;
         }
         let tabs_focus = tab_strip::focus_handle("pr-tabs", window, cx);
+        self.settle_tab_focus(&tabs_focus, window, cx);
         let detail = self.detail(cx);
         page_canvas()
             .id("pr-detail")
@@ -5460,7 +5468,13 @@ impl Render for PrDetailPage {
             .child(self.render_header(detail, cx))
             .child(self.render_tabs(detail, &tabs_focus, cx))
             .children(self.render_leave_confirm(cx))
-            .child(self.render_tab_content(detail, window, cx))
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_h_0()
+                    .track_focus(&self.content_focus)
+                    .child(self.render_tab_content(detail, window, cx)),
+            )
     }
 }
 
