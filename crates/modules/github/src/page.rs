@@ -18,7 +18,6 @@ use gpui::*;
 use gpui_component::{
     ActiveTheme, Disableable, Icon, IconName, IndexPath, Selectable as _, Sizable as _,
     avatar::Avatar,
-    badge::Badge,
     button::{Button, ButtonVariants},
     group_box::GroupBox,
     h_flex,
@@ -118,6 +117,7 @@ use crate::service::{
     LandedClock, LaneView, RefKey, RepoLane, ThreadOp, run_read_deduped, run_spec_tracked,
     start_connect,
 };
+use crate::state_pill::{Glyph, Tone, label_chip, state_pill};
 use crate::usage::{Origin, Surface, Trigger};
 
 /// The reconcile view's fixed left column (0002 D10).
@@ -2174,7 +2174,7 @@ impl GithubPage {
                                 row.child(glyph)
                             })
                             .when(pr.draft, |row| {
-                                row.child(Badge::new().xsmall().child("Draft"))
+                                row.child(state_pill(Tone::Muted, Glyph::Draft, "Draft"))
                             })
                             .when(show_repo, |row| {
                                 // docs/0047 D5: home rows span repositories
@@ -2418,7 +2418,7 @@ impl GithubPage {
                         h_flex()
                             .gap_2()
                             .items_center()
-                            .child(Badge::new().xsmall().child(n.subject.kind.clone()))
+                            .child(label_chip(n.subject.kind.clone()))
                             .child(n.subject.title.clone()),
                     )
                     .child(

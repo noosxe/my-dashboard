@@ -25,7 +25,6 @@ use gpui::*;
 use gpui_component::{
     ActiveTheme, Disableable, Icon, IconName, Sizable as _,
     avatar::Avatar,
-    badge::Badge,
     button::{Button, ButtonVariants},
     checkbox::Checkbox,
     diff::DiffState,
@@ -81,6 +80,7 @@ mod range_composer;
 mod refocus;
 mod review_drafts;
 mod review_refetch;
+mod state_pill;
 mod state_writes;
 mod tab_focus;
 #[cfg(test)]
@@ -4471,12 +4471,7 @@ impl PrDetailPage {
                             .items_center()
                             .flex_wrap()
                             .when_some(meta.tone, |row, tone| {
-                                row.child(
-                                    Badge::new()
-                                        .xsmall()
-                                        .color(state_color(tone, cx))
-                                        .child(state_label(tone)),
-                                )
+                                row.child(state_pill::pr_state_pill(tone))
                             })
                             .child(page_title(title))
                             .child(
@@ -5162,7 +5157,7 @@ impl PrDetailPage {
                     if row_is_edited(r.submitted_at.as_deref(), r.updated_at.as_deref()) {
                         age.push_str(" (edited)");
                     }
-                    let badge = review_badge(r.state.as_deref(), cx);
+                    let badge = review_badge(r.state.as_deref());
                     // docs/0083 D3: the Reviews gate row's jump rides the
                     // same anchor as the notification hand-off.
                     let anchored = matches!(
@@ -5545,25 +5540,6 @@ pub(crate) fn pr_state_tone(state: Option<&str>, draft: bool) -> PrStateTone {
         Some("OPEN") => PrStateTone::Open,
         _ if draft => PrStateTone::Draft,
         _ => PrStateTone::Unknown,
-    }
-}
-
-fn state_label(tone: PrStateTone) -> &'static str {
-    match tone {
-        PrStateTone::Open => "Open",
-        PrStateTone::Draft => "Draft",
-        PrStateTone::Merged => "Merged",
-        PrStateTone::Closed => "Closed",
-        PrStateTone::Unknown => "Unknown",
-    }
-}
-
-fn state_color(tone: PrStateTone, cx: &Context<PrDetailPage>) -> Hsla {
-    match tone {
-        PrStateTone::Open => cx.theme().success,
-        PrStateTone::Merged => cx.theme().accent,
-        PrStateTone::Closed => cx.theme().danger,
-        PrStateTone::Draft | PrStateTone::Unknown => cx.theme().muted_foreground,
     }
 }
 
@@ -6080,20 +6056,9 @@ fn tab_label(name: &str, count: Option<i64>) -> SharedString {
 /// covers interactive elements only), but ids ride along for tree greps.
 /// The review-state badge for a timeline card header (D4) — tone colors
 /// from `review_state_label`.
-fn review_badge(state: Option<&str>, cx: &Context<PrDetailPage>) -> Option<AnyElement> {
+fn review_badge(state: Option<&str>) -> Option<AnyElement> {
     let (label, tone) = review_state_label(state);
-    let color = match tone {
-        ReviewTone::Approved => cx.theme().success,
-        ReviewTone::ChangesRequested => cx.theme().danger,
-        ReviewTone::Muted => cx.theme().muted_foreground,
-    };
-    Some(
-        Badge::new()
-            .xsmall()
-            .color(color)
-            .child(label)
-            .into_any_element(),
-    )
+    Some(state_pill::review_pill(tone, label))
 }
 
 // Markdown bodies add one parameter to an already wide card seam; the

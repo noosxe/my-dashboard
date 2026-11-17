@@ -21,7 +21,6 @@ use gpui::*;
 
 use gpui_component::{
     ActiveTheme, Disableable, Icon, IconName, IndexPath, Sizable as _,
-    badge::Badge,
     button::{Button, ButtonVariants},
     diff::{Diff, DiffAnnotation, DiffFile, DiffLinePosition, DiffSide as UpstreamDiffSide},
     h_flex,
@@ -42,6 +41,7 @@ use crate::pr_page::{
     review_batch_allowed, row_is_edited,
 };
 use crate::service::{AnchoredLine, PatchLine, anchor_patch};
+use crate::state_pill::{Glyph, Tone, state_pill};
 use dashboard_core::freshness::relative_age;
 use dashboard_core::panes::{
     FILES_SIDEBAR_DEFAULT, FILES_SIDEBAR_MAX, FILES_SIDEBAR_MIN, RESIZE_KEYBOARD_STEP,
@@ -528,7 +528,7 @@ fn diff_pane(
             page,
             file,
             notice,
-            file_status_badge(&file.status, cx),
+            file_status_badge(&file.status),
             cx,
         ),
         None => diff_element(page_h, page, file, &rows),
@@ -586,7 +586,7 @@ fn diff_element(
         .on_line_hover(move |position, _, _| anchor_hover.note(position))
         .on_line_click(move |position, _, _, _| anchor_click.note(Some(position)))
         .annotations(thread_annotations(page, &path, &rows))
-        .render_header_title_suffix(move |_, _, cx| file_status_badge(&status, cx))
+        .render_header_title_suffix(move |_, _, _| file_status_badge(&status))
         .render_annotation(move |annotation, window, cx| {
             let page = page_h.read(cx);
             let id = annotation.id().to_string();
@@ -729,7 +729,7 @@ fn file_row(
                                 .text_color(cx.theme().danger)
                                 .child(format!("−{dels}")),
                         )
-                        .child(file_status_badge(status, cx)),
+                        .child(file_status_badge(status)),
                 ),
         )
 }
@@ -750,18 +750,15 @@ pub(crate) fn files_summary(files: usize, adds: i64, dels: i64) -> FilesSummary 
 /// Change-type badge (moved from pr_page, 0018): the four GitHub kinds
 /// map to tones; anything else (future API kinds, 0007 D3) renders as
 /// the raw string, muted.
-pub(crate) fn file_status_badge(status: &str, cx: &App) -> AnyElement {
-    let (label, tone) = match status {
-        "added" => (status, cx.theme().success),
-        "removed" => (status, cx.theme().danger),
-        "renamed" => (status, cx.theme().muted_foreground),
-        _ => (status, cx.theme().muted_foreground),
+pub(crate) fn file_status_badge(status: &str) -> AnyElement {
+    let (tone, glyph) = match status {
+        "added" => (Tone::Success, Glyph::Plus),
+        "removed" => (Tone::Danger, Glyph::Minus),
+        "renamed" => (Tone::Muted, Glyph::Right),
+        "modified" => (Tone::Muted, Glyph::Edit),
+        _ => (Tone::Muted, Glyph::Info),
     };
-    Badge::new()
-        .xsmall()
-        .color(tone)
-        .child(label.to_string())
-        .into_any_element()
+    state_pill(tone, glyph, status.to_string())
 }
 
 /// Split a repo path for the row header (moved from pr_page, 0018): dir
@@ -1086,12 +1083,7 @@ fn draft_chip(
             h_flex()
                 .gap_2()
                 .items_center()
-                .child(
-                    Badge::new()
-                        .xsmall()
-                        .color(cx.theme().warning)
-                        .child("Pending"),
-                )
+                .child(state_pill(Tone::Warning, Glyph::Alert, "Pending"))
                 .when_some(d.start, |chip, (_, s)| {
                     chip.child(
                         div()
@@ -1327,7 +1319,7 @@ pub(crate) fn thread_card(
                         .text_color(cx.theme().muted_foreground)
                         .child(header),
                 )
-                .child(thread_chip(t, cx))
+                .child(thread_chip(t))
                 .child(div().flex_1())
                 // 0030 D4/D5: reply and resolve/unresolve — schema-gated
                 // (viewerCanReply / viewerCanResolve / viewerCanUnresolve).
@@ -1665,24 +1657,16 @@ fn files_error_row(page: &PrDetailPage, cx: &Context<PrDetailPage>) -> Option<An
 }
 
 /// The resolved / outdated chip on a thread header (0030 D3).
-fn thread_chip(t: &PrThread, cx: &App) -> AnyElement {
+fn thread_chip(t: &PrThread) -> AnyElement {
     if t.is_resolved {
         let by = t
             .resolved_by
             .as_deref()
             .map(|l| format!("Resolved by {l}"))
             .unwrap_or_else(|| "Resolved".into());
-        Badge::new()
-            .xsmall()
-            .color(cx.theme().success)
-            .child(by)
-            .into_any_element()
+        state_pill(Tone::Success, Glyph::Check, by)
     } else if t.is_outdated {
-        Badge::new()
-            .xsmall()
-            .color(cx.theme().muted_foreground)
-            .child("Outdated")
-            .into_any_element()
+        state_pill(Tone::Muted, Glyph::Info, "Outdated")
     } else {
         div().into_any_element()
     }
