@@ -12,12 +12,25 @@
       "focused": false
     },
     {
+      "accesskit_id": "213697830737529745",
+      "role": "Button",
+      "label": "octo-dev mentioned this pull request in Docs: fix the manifest grammar example fixture-user/atlas#104, merged pull request. Opens the pull request.",
+      "bounds": {
+        "x": 288.0,
+        "y": 1243.0,
+        "w": 655.0,
+        "h": 60.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
       "accesskit_id": "362569217367832935",
       "role": "Button",
       "label": "Comment",
       "bounds": {
         "x": 852.0,
-        "y": 1790.0,
+        "y": 2236.0,
         "w": 78.0,
         "h": 24.0
       },
@@ -64,12 +77,25 @@
       "focused": false
     },
     {
+      "accesskit_id": "1310884814760923498",
+      "role": "Button",
+      "label": "reviewer-b mentioned this pull request in Revert parser strictness #99, closed pull request. Opens the pull request.",
+      "bounds": {
+        "x": 288.0,
+        "y": 1684.0,
+        "w": 655.0,
+        "h": 33.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
       "accesskit_id": "1633140852790213569",
       "role": "Button",
       "label": "Add reaction to fixture-user's comment",
       "bounds": {
         "x": 886.0,
-        "y": 1165.0,
+        "y": 1327.0,
         "w": 20.0,
         "h": 20.0
       },
@@ -116,6 +142,19 @@
       "focused": false
     },
     {
+      "accesskit_id": "2980275039370946303",
+      "role": "Button",
+      "label": "octo-dev mentioned this pull request in WIP: loader cleanup #103, draft pull request. Opens the pull request.",
+      "bounds": {
+        "x": 288.0,
+        "y": 1022.0,
+        "w": 655.0,
+        "h": 33.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
       "accesskit_id": "3400697193165112097",
       "role": "Tab",
       "label": "Files changed (5)",
@@ -147,7 +186,7 @@
       "label": "Add reaction to octo-dev's comment",
       "bounds": {
         "x": 910.0,
-        "y": 1579.0,
+        "y": 1858.0,
         "w": 20.0,
         "h": 20.0
       },
@@ -181,6 +220,19 @@
       "focused": false
     },
     {
+      "accesskit_id": "4276914592258518546",
+      "role": "Button",
+      "label": "octo-dev mentioned this pull request in Tracking: migrate every manifest consumer to the new loader entry points, drop the legacy reader and document the strict-mode error in the guide fixture-user/atlas#57, closed issue (not planned). Opens the issue.",
+      "bounds": {
+        "x": 288.0,
+        "y": 1995.0,
+        "w": 655.0,
+        "h": 110.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
       "accesskit_id": "4602998836821200419",
       "role": "TreeItem",
       "label": "Usage",
@@ -191,6 +243,19 @@
         "h": 28.0
       },
       "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5296088769352524200",
+      "role": "Button",
+      "label": "Someone mentioned this pull request in Trailing comma crash #198, closed issue. Opens the issue.",
+      "bounds": {
+        "x": 288.0,
+        "y": 1950.0,
+        "w": 655.0,
+        "h": 33.0
+      },
+      "focusable": true,
       "focused": false
     },
     {
@@ -394,7 +459,7 @@
       "label": "Comment action",
       "bounds": {
         "x": 301.0,
-        "y": 1790.0,
+        "y": 2236.0,
         "w": 543.0,
         "h": 24.0
       },
@@ -420,7 +485,7 @@
       "label": "Add reaction to reviewer-b's review",
       "bounds": {
         "x": 910.0,
-        "y": 1301.0,
+        "y": 1463.0,
         "w": 20.0,
         "h": 20.0
       },
@@ -680,7 +745,7 @@
       "label": "+1 reaction on fixture-user's comment: 1",
       "bounds": {
         "x": 301.0,
-        "y": 1244.0,
+        "y": 1406.0,
         "w": 35.0,
         "h": 24.0
       },
@@ -706,7 +771,7 @@
       "label": "Leave a comment",
       "bounds": {
         "x": 302.0,
-        "y": 1685.0,
+        "y": 2131.0,
         "w": 627.0,
         "h": 96.0
       },
@@ -740,7 +805,7 @@
       "label": "More actions for fixture-user's comment",
       "bounds": {
         "x": 910.0,
-        "y": 1165.0,
+        "y": 1327.0,
         "w": 20.0,
         "h": 20.0
       },
@@ -813,6 +878,19 @@
       "focused": false
     },
     {
+      "accesskit_id": "16978753255102320266",
+      "role": "Button",
+      "label": "octo-dev mentioned this pull request in Docs: manifest list syntax fixture-org/elsewhere#12, open issue. Opens in the browser.",
+      "bounds": {
+        "x": 288.0,
+        "y": 1729.0,
+        "w": 655.0,
+        "h": 60.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
       "accesskit_id": "16993670666932534256",
       "role": "Button",
       "label": "Merge pull request",
@@ -823,6 +901,19 @@
         "h": 24.0
       },
       "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17336317645438968628",
+      "role": "Button",
+      "label": "reviewer-a mentioned this pull request in Manifest parser rejects trailing commas #201, open issue. Opens the issue.",
+      "bounds": {
+        "x": 288.0,
+        "y": 977.0,
+        "w": 655.0,
+        "h": 33.0
+      },
+      "focusable": true,
       "focused": false
     },
     {

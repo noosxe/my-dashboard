@@ -4,6 +4,7 @@
   "repository": {
    "autoMergeAllowed": true,
    "mergeCommitAllowed": true,
+   "nameWithOwner": "fixture-user/beacon",
    "pullRequest": {
     "activity": {
      "filteredCount": 0,
@@ -169,6 +170,10 @@
       "viewerHasReacted": false
      }
     ],
+    "references": {
+     "filteredCount": 0,
+     "nodes": []
+    },
     "reviewDecision": "APPROVED",
     "reviewRequests": {
      "nodes": [],

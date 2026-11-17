@@ -92,6 +92,7 @@ pub(crate) fn row(
         .debug_selector(move || probe.clone())
         .role(Role::Button)
         .aria_label(SharedString::from(name))
+        .focusable()
         .tab_stop(true)
         .w_full()
         .gap_2()
@@ -108,7 +109,7 @@ pub(crate) fn row(
             let hover = cx.theme().accent.opacity(0.5);
             move |style| style.bg(hover)
         })
-        .focus_visible({
+        .focus({
             let ring = cx.theme().ring;
             move |style| style.border_color(ring)
         })

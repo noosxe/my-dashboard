@@ -1,7 +1,8 @@
 # pr-conversation-caps.txt — the PR page's caps and the pending-review
 # notice over the committed fixtures (docs/0081 §12.1; #742, #745, #746):
-#   102  240 comments, the newest 100 carried: the cap row leads the
-#        timeline and reads "older"; the newest comment shows.
+#   102  240 comments and 130 cross-references, the newest 100 of each
+#        carried: the cap row leads the
+#        timeline and reads "170 older" (140 + 30); the newest comment shows.
 #   107  the viewer's PENDING review is not a timeline row: no Edit or
 #        Delete, a notice at the composer instead.
 #   110  130 threads upstream (two carried), one with 130 comments: both
@@ -31,12 +32,12 @@ key down
 key enter
 wait-label "PR #108: Loader: a PR that fails its detail read"
 
-# 102: the cap row leads the timeline and counts the 140 older items.
+# 102: the cap row leads the timeline and counts the 170 older items (140 comments and reviews, 30 cross-references).
 # (Card bodies are not tree nodes, so the order is judged in the frame.)
 mouse down 900 376
 mouse up 900 376
 wait-label "Conversation (252)"
-assert-label "140 older on github.com"
+assert-label "170 older on github.com"
 click 12782369444481205663 --wait-frame
 wait-label "PR #108: Loader: a PR that fails its detail read"
 

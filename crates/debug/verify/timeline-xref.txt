@@ -1,0 +1,76 @@
+# timeline-xref.txt — the PR page's cross-reference rows over the committed
+# fixtures (docs/0085, #922): "octo-dev mentioned this pull request in …"
+# rows in PR 101's timeline, one per distinct source, then their activation.
+#   - every row is a Button with a full accessible name (sentence, the
+#     source's state, what activating does);
+#   - a source in a listed repository opens in the app (focus + Enter) and
+#     Back returns;
+#   - a source elsewhere opens the browser: the bridge records no browser
+#     opens, so the receipt asserts that the page stays;
+#   - 102 carries 100 of 130 references: the cap row counts the 30 cut.
+#
+# Prerequisites: the containerized env (docs/0071) with the GitHub
+# fixtures and the pinned clock, and a session named `prxref` at 1280x800:
+#   export DASHBOARD_GITHUB_FIXTURE=/work/crates/debug/verify/fixtures/github
+#   export DASHBOARD_FIXED_NOW=2026-10-23T12:00:00Z
+#   dashboard-debug session start --name prxref --size 1280x800 \
+#     --binary /tmp/target/debug/my-dashboard
+# Run (in-container): dashboard-debug run crates/debug/verify/timeline-xref.txt
+#
+# Rows and tabs take bridge mouse clicks at their centres, frozen for this
+# fixture set at 1280x800 (see pr-page.txt); the cross-reference rows are
+# found by their labels.
+
+--session prxref
+
+assert-label "Open GitHub module"
+click 11447690740305500471 --wait-frame
+wait-label "Filter repositories"
+click 349678605523893363
+type beacon
+key down
+key enter
+wait-frame
+wait-label "PR #108: Loader: a PR that fails its detail read"
+
+# 101: seven distinct sources, each with its state and its action.
+mouse down 900 337
+mouse up 900 337
+wait-label "Conversation (5)"
+wait-label "Checks (9)"
+assert-label "reviewer-a mentioned this pull request in Manifest parser rejects trailing commas #201, open issue. Opens the issue."
+assert-label "octo-dev mentioned this pull request in WIP: loader cleanup #103, draft pull request. Opens the pull request."
+assert-label "octo-dev mentioned this pull request in Docs: fix the manifest grammar example fixture-user/atlas#104, merged pull request. Opens the pull request."
+assert-label "reviewer-b mentioned this pull request in Revert parser strictness #99, closed pull request. Opens the pull request."
+assert-label "octo-dev mentioned this pull request in Docs: manifest list syntax fixture-org/elsewhere#12, open issue. Opens in the browser."
+assert-label "Someone mentioned this pull request in Trailing comma crash #198, closed issue. Opens the issue."
+assert-label "closed issue (not planned). Opens the issue."
+assert-baseline github-pr-populated
+tab-stops
+audit
+
+# An untracked source goes to the browser: the page stays.
+click-label "Opens in the browser" --role Button
+wait-frame
+assert-label "Conversation (5)"
+assert-label "Leave a comment"
+
+# A tracked source opens in the app (the draft PR in beacon), by keyboard:
+# the row is a tab stop and Enter activates it…
+focus 2980275039370946303
+wait-frame
+assert-focus 2980275039370946303
+key enter
+wait-frame
+wait-label "Conversation (0)"
+assert-label "#103"
+assert-no-label "Checks (9)"
+
+# …and Back returns to the page that asked.
+mouse down 326 36
+mouse up 326 36 --wait-frame
+wait-label "Conversation (5)"
+wait-label "Checks (9)"
+assert-label "octo-dev mentioned this pull request in WIP: loader cleanup #103"
+click 12782369444481205663 --wait-frame
+wait-label "PR #108: Loader: a PR that fails its detail read"

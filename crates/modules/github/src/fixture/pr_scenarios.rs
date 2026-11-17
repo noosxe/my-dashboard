@@ -193,11 +193,61 @@ fn the_overflow_scenario_ships_true_totals_over_capped_nodes() {
     // `last: 100`: the nodes are the newest hundred, ascending (#742).
     assert_eq!(d.comments.nodes[0].body, "Comment 140");
     assert_eq!(d.comments.nodes[99].body, "Comment 239");
+    // The cross-references ride their own window: 100 of 130 (docs/0085).
+    assert_eq!(
+        (d.references.total_count, d.references.nodes.len()),
+        (130, 100)
+    );
     // The counts-by-state lists stay exact over the capped page (docs/0083
     // D3): 137 checks, 10 of them still running.
     assert_eq!(d.checks.counts.total(), 137);
     assert_eq!(d.checks.counts.running, 10);
     assert_eq!(d.checks.counts.passed, 127);
+}
+
+/// docs/0085 D9: every source state, a cross-repository and an untracked
+/// source, a deleted actor; none is the page itself.
+#[test]
+fn the_populated_scenario_covers_every_cross_reference_kind() {
+    use crate::gql::XrefState::*;
+    let d = detail(101);
+    let got: Vec<_> = d
+        .references
+        .nodes
+        .iter()
+        .map(|e| (e.source.is_pr, e.source.state))
+        .collect();
+    assert_eq!(
+        got,
+        [
+            (false, Open),
+            (true, Draft),
+            (true, Merged),
+            (true, Closed),
+            (false, Open),
+            (false, Closed),
+            (false, NotPlanned)
+        ]
+    );
+    assert!(d.references.nodes.iter().any(|e| e.actor_login.is_none()));
+    assert!(
+        d.references
+            .nodes
+            .iter()
+            .any(|e| e.source.repo == "fixture-user/atlas")
+    );
+    assert!(
+        d.references
+            .nodes
+            .iter()
+            .any(|e| e.source.repo == "fixture-org/elsewhere")
+    );
+    assert!(
+        d.references
+            .nodes
+            .iter()
+            .any(|e| e.source.title.len() > 100)
+    );
 }
 
 /// The populated scenario's counts match its rows (docs/0083 D3).
