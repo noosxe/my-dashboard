@@ -56,33 +56,27 @@ pub(super) fn update_split(
                     let mut next = menu;
                     for method in [UpdateBranchMethod::MergeCommit, UpdateBranchMethod::Rebase] {
                         let item_weak = weak.clone();
-                        let probe = format!("pr-update-branch-{}", method.slug());
+                        // A plain labelled item: the upstream element
+                        // variant has no accessible name (docs/0067 D7).
                         next = next.item(
-                            PopupMenuItem::element(move |_, _| {
-                                // Probe-visible row (0010 D10): the plain
-                                // Item variant is not.
-                                let key = probe.clone();
-                                h_flex()
-                                    .debug_selector(move || key.clone())
-                                    .child(method.menu_label())
-                            })
-                            .disabled(busy)
-                            .on_click(move |_, window, cx| {
-                                // The click dispatches inside the window's
-                                // update: defer to the end of the effect
-                                // cycle, then post from the live context.
-                                let item_weak = item_weak.clone();
-                                window.defer(cx, move |window, cx| {
-                                    let _ = item_weak.update(cx, |page, cx| match method {
-                                        UpdateBranchMethod::MergeCommit => {
-                                            page.update_branch_pr(method, window, cx)
-                                        }
-                                        UpdateBranchMethod::Rebase => {
-                                            page.arm_update_rebase(window, cx)
-                                        }
+                            PopupMenuItem::new(method.menu_label())
+                                .disabled(busy)
+                                .on_click(move |_, window, cx| {
+                                    // The click dispatches inside the window's
+                                    // update: defer to the end of the effect
+                                    // cycle, then post from the live context.
+                                    let item_weak = item_weak.clone();
+                                    window.defer(cx, move |window, cx| {
+                                        let _ = item_weak.update(cx, |page, cx| match method {
+                                            UpdateBranchMethod::MergeCommit => {
+                                                page.update_branch_pr(method, window, cx)
+                                            }
+                                            UpdateBranchMethod::Rebase => {
+                                                page.arm_update_rebase(window, cx)
+                                            }
+                                        });
                                     });
-                                });
-                            }),
+                                }),
                         );
                     }
                     next

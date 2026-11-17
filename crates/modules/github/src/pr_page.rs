@@ -4220,9 +4220,25 @@ impl PrDetailPage {
             // page is still alive — the next open of a dead page's
             // document revalidates through its voided freshness gate
             // (docs/0072 D3/D4).
+            // #748: an update-branch head mismatch says "refreshing" —
+            // so refresh, or the page keeps the stale head OID and every
+            // retry fails the same way.
+            let head_moved = !confirmed
+                && kind == PendingKind::UpdateBranch
+                && cx
+                    .update(|_, cx| {
+                        state
+                            .read(cx)
+                            .pr_entry(&repo, number)
+                            .and_then(|e| e.error.as_ref())
+                            .is_some_and(|e| e.message == crate::service::UPDATE_BRANCH_HEAD_MOVED)
+                    })
+                    .unwrap_or(false);
             let _ = this.update_in(cx, |page, window, cx| {
                 if confirmed {
                     on_confirmed(page, window, cx);
+                } else if head_moved {
+                    page.refetch_for_write(freshness::write_lanes::WriteKind::State, cx);
                 }
                 cx.notify();
             });
@@ -5970,14 +5986,6 @@ impl UpdateBranchMethod {
         match self {
             Self::MergeCommit => "Update with a merge commit",
             Self::Rebase => "Update with rebase",
-        }
-    }
-
-    /// The debug-bridge id suffix (0010 D10).
-    fn slug(self) -> &'static str {
-        match self {
-            Self::MergeCommit => "merge",
-            Self::Rebase => "rebase",
         }
     }
 }
