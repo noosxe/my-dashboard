@@ -2170,6 +2170,10 @@ fn take_expired(entry: &mut PrEntry, token: u64) -> Option<PendingKind> {
 /// with the generic fallback carrying the upstream message — never raw
 /// prose in the panel, never guessed data in the message. Lives beside
 /// the store since docs/0072: the session-scoped resolver maps it.
+/// The copy for a head mismatch; the page refetches when it sees it (#748).
+pub(crate) const UPDATE_BRANCH_HEAD_MOVED: &str =
+    "The branch moved while you were viewing it — refreshing.";
+
 pub(crate) fn update_branch_error_copy(message: &str) -> String {
     let m = message.to_ascii_lowercase();
     if m.contains("expectedheadoid")
@@ -2177,7 +2181,7 @@ pub(crate) fn update_branch_error_copy(message: &str) -> String {
         || (m.contains("branch") && m.contains("moved"))
         || (m.contains("branch") && m.contains("changed"))
     {
-        "The branch moved while you were viewing it — refreshing.".into()
+        UPDATE_BRANCH_HEAD_MOVED.into()
     } else if m.contains("conflict") {
         "GitHub can't update this branch — the merge/rebase conflicts must be resolved first."
             .into()

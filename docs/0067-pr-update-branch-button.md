@@ -187,10 +187,15 @@ fall through to the generic copy — never raw JSON in a toast (docs/0058).
 
 ### D7 — A11y, debug bridge, and the 0065 gate
 
-`pr-update-branch` (button), `pr-update-branch-menu`,
-`pr-update-branch-merge`, `pr-update-branch-rebase` (menu items):
-`.id(...)` + roles + explicit labels (docs/0010 D10) — clickable from
-`dashboard-debug click`. The rail joins the 0065 program in the
+`pr-update-branch` (the main button, named "Update") and the caret,
+named "Choose how to update the branch" (`menu_accessibility_label`; the
+upstream `DropdownButton` fixes the caret's element id, so it carries no
+`pr-update-branch-menu` id of our own). The two menu items are plain
+labelled items — "Update with a merge commit" and "Update with rebase" —
+so each shows in `tree` as a named `MenuItem`; the upstream element-item
+variant has no accessible name, and a name beats a probe id here
+(docs/0010 D10). All are clickable from `dashboard-debug click`, and
+`pr-update-branch.txt` replays them. The rail joins the 0065 program in the
 implementation PR: `audit` + `tree --tab-stops` receipts, a structural golden
 for the rail with the button (captured on the Linux box), and a critique pass
 against docs/0065 Appendix A (before/after pair in the PR body). Reference
