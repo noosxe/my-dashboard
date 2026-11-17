@@ -720,14 +720,15 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
       timelineItems(last: 1, itemTypes: [CLOSED_EVENT]) {
         nodes { ... on ClosedEvent { actor { login } createdAt } }
       }
-      # #787: the conversation's event rows. `last`: the newest 100, still
-      # ascending, like comments and reviews. The fields ride each inline
-      # fragment (selections on the union itself are an error).
+      # #787: the conversation's event rows, in two selections so a burst of
+      # one kind cannot push another out of its window. `events` holds the
+      # state changes (what happened to the PR), `activity` the chatty
+      # bookkeeping (#911). Each is the newest 100, still ascending, like
+      # comments and reviews; `parse_events` merges them and sums the
+      # `filteredCount`s. The fields ride each inline fragment (selections
+      # on the union itself are an error).
       events: timelineItems(last: 100, itemTypes: [MERGED_EVENT, CLOSED_EVENT,
-          REOPENED_EVENT, HEAD_REF_FORCE_PUSHED_EVENT, LABELED_EVENT,
-          UNLABELED_EVENT, ASSIGNED_EVENT, UNASSIGNED_EVENT,
-          REVIEW_REQUESTED_EVENT, REVIEW_REQUEST_REMOVED_EVENT,
-          RENAMED_TITLE_EVENT, MILESTONED_EVENT, DEMILESTONED_EVENT]) {
+          REOPENED_EVENT, HEAD_REF_FORCE_PUSHED_EVENT]) {
         filteredCount
         nodes {
           __typename
@@ -741,7 +742,15 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
             beforeCommit { abbreviatedOid }
             afterCommit { abbreviatedOid }
           }
-          # #911
+        }
+      }
+      activity: timelineItems(last: 100, itemTypes: [LABELED_EVENT,
+          UNLABELED_EVENT, ASSIGNED_EVENT, UNASSIGNED_EVENT,
+          REVIEW_REQUESTED_EVENT, REVIEW_REQUEST_REMOVED_EVENT,
+          RENAMED_TITLE_EVENT, MILESTONED_EVENT, DEMILESTONED_EVENT]) {
+        filteredCount
+        nodes {
+          __typename
           ... on LabeledEvent { id createdAt actor { login } label { name color } }
           ... on UnlabeledEvent { id createdAt actor { login } label { name color } }
           # The Assignee union: every member has a login.

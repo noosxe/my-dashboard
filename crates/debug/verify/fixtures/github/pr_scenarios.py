@@ -371,6 +371,9 @@ class Timeline:
             # #787: `events: timelineItems(last: 100, itemTypes: [MERGED_EVENT,
             # CLOSED_EVENT, REOPENED_EVENT, HEAD_REF_FORCE_PUSHED_EVENT])`.
             events=self.events(),
+            # `activity: timelineItems(last: 100, ...)`: labels, assignees, review
+            # requests, title and milestone (#911), capped apart from `events`.
+            activity=self.events(),
             # Delete branch (#773): `headRef` is null once the branch is
             # gone; the gate is the viewer's permission on the head
             # repository and its default branch.
@@ -421,6 +424,9 @@ class Timeline:
             reactionGroups=reactions(thumbs=2, heart=1, mine=True),
             mergeStateStatus="BLOCKED",
             events=self.events(
+                self.force_pushed("octo-dev", 40, "3f2a9c1", "b81d4e7"),
+            ),
+            activity=self.events(
                 self.labeled("LabeledEvent", "octo-dev", 90, "bug", "d73a4a"),
                 self.labeled("LabeledEvent", "octo-dev", 89, "needs-review", "fbca04"),
                 self.labeled("UnlabeledEvent", OWNER, 60, "wip", "ededed"),
@@ -434,7 +440,6 @@ class Timeline:
                 self.requested("ReviewRequestedEvent", "octo-dev", 86, {"login": "reviewer-a"}),
                 self.requested("ReviewRequestedEvent", "octo-dev", 85, {"combinedSlug": "fixture-org/team-01"}),
                 self.requested("ReviewRequestRemovedEvent", "octo-dev", 54, {"login": "reviewer-c"}),
-                self.force_pushed("octo-dev", 40, "3f2a9c1", "b81d4e7"),
             ),
             statusCheckRollup=rollup("FAILURE", contexts),
             reviews=conn(

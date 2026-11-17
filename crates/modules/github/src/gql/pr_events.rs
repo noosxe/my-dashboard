@@ -75,16 +75,26 @@ pub struct PrEvents {
     pub nodes: Vec<PrEvent>,
 }
 
+/// The two aliased selections of the detail query (`events`: state changes,
+/// `activity`: labels, assignees, review requests, title, milestone), each
+/// capped on its own so a burst of one kind cannot push the other out. The
+/// nodes are the two lists together (the page sorts by time) and the count
+/// is the sum of both `filteredCount`s.
 pub(crate) fn parse_events(pr: &Value) -> PrEvents {
-    let nodes: Vec<PrEvent> = pr
-        .pointer("/events/nodes")
-        .and_then(Value::as_array)
-        .map(|nodes| nodes.iter().filter_map(parse_event).collect())
-        .unwrap_or_default();
-    let total_count = pr
-        .pointer("/events/filteredCount")
-        .and_then(Value::as_i64)
-        .unwrap_or(nodes.len() as i64);
+    let mut nodes = Vec::new();
+    let mut total_count = 0;
+    for alias in ["events", "activity"] {
+        let parsed: Vec<PrEvent> = pr
+            .pointer(&format!("/{alias}/nodes"))
+            .and_then(Value::as_array)
+            .map(|nodes| nodes.iter().filter_map(parse_event).collect())
+            .unwrap_or_default();
+        total_count += pr
+            .pointer(&format!("/{alias}/filteredCount"))
+            .and_then(Value::as_i64)
+            .unwrap_or(parsed.len() as i64);
+        nodes.extend(parsed);
+    }
     PrEvents { total_count, nodes }
 }
 
@@ -308,6 +318,41 @@ mod tests {
                 PrEventKind::Demilestoned { title: "v1".into() },
             ]
         );
+    }
+
+    /// The two selections are capped separately: a burst of chatty events
+    /// fills only `activity`, so a state event keeps its place and the
+    /// hidden count adds both connections' overflow.
+    #[test]
+    fn a_burst_of_activity_cannot_push_a_state_event_out() {
+        let labels: Vec<Value> = (0..100)
+            .map(|i| {
+                json!({"__typename": "LabeledEvent", "id": format!("L{i}"),
+                    "label": {"name": "x"}})
+            })
+            .collect();
+        let pr = json!({
+            "events": {"filteredCount": 1, "nodes": [
+                {"__typename": "MergedEvent", "id": "M"}]},
+            "activity": {"filteredCount": 250, "nodes": labels}
+        });
+        let e = parse_events(&pr);
+        assert!(e.nodes.iter().any(|n| n.kind == PrEventKind::Merged));
+        assert_eq!(e.nodes.len(), 101);
+        assert_eq!(e.total_count, 251);
+        assert_eq!(e.total_count - e.nodes.len() as i64, 150);
+    }
+
+    #[test]
+    fn the_query_caps_state_events_apart_from_the_chatty_ones() {
+        let q = crate::gql::PR_DETAIL_QUERY;
+        let state = q.split("events: timelineItems").nth(1).unwrap();
+        let state = state.split("activity: timelineItems").next().unwrap();
+        assert!(state.contains("MERGED_EVENT") && state.contains("CLOSED_EVENT"));
+        assert!(!state.contains("LABELED_EVENT"));
+        let chatty = q.split("activity: timelineItems").nth(1).unwrap();
+        assert!(chatty.starts_with("(last: 100,"));
+        assert!(chatty.contains("LABELED_EVENT") && !chatty.contains("MERGED_EVENT"));
     }
 
     #[test]
