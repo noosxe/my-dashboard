@@ -29,7 +29,7 @@ shared module, one query shape, fixtures and receipts.
 
 **Out (each gets a `deferred` issue before the implementation merges):**
 
-- `ReferencedEvent` (commit references) — see D1.
+- `ReferencedEvent` (commit references) — see D1 (Q4).
 - Rows for the closer of a `ClosedEvent` ("closed this in #N") and
   `duplicateOf` — a different event, with its own wording.
 - Connected/disconnected, sub-issue and project events.
@@ -70,21 +70,17 @@ repository, 2026-11-18.
 - The issue page has no GraphQL detail fixtures today (`RepoIssues` only): the
   issue page cannot be captured in fixture mode yet (D9).
 
-## 4. Questions (recommendation recorded; doc updated on answer)
+## 4. Decisions on the open questions
 
-**Q1 — Should a source in an untracked repository open in the app?**
-Recommended: no. Open in the browser; in-app only for repos the module lists.
-The page's lanes, trail and refresh assume a tracked repo (D6).
+Decided 2026-11-18, each matching the recommendation first recorded here.
 
-**Q2 — Collapse a burst of references?** Recommended: no collapsing; only exact
-repeats (same source, same actor) fold into the first (D4). A run of different
-sources is information a reader wants to scan.
-
-**Q3 — Show a non-interactive stub for an unreadable source?**
-Recommended: no, drop the row (D7). There is nothing true to say beyond "someone
-mentioned this somewhere", which github.com's own count already implies.
-
-**Q4 — Include `ReferencedEvent` (commit mentions)?** Recommended: out (D1).
+- **Q1 — Source in an untracked repository:** opens in the browser; in-app
+  only for repos the module lists (D6, follow-up §12).
+- **Q2 — Bursts of references:** only exact repeats (same source, same actor)
+  fold into the first; different sources never collapse (D4).
+- **Q3 — Unreadable source:** the row is dropped, no stub (D7).
+- **Q4 — `ReferencedEvent` (commit mentions):** stays out; filed as a
+  `deferred` issue before the implementation merges (D1, §2, §12).
 
 ## 5. Design
 
