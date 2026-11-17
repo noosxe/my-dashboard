@@ -271,6 +271,12 @@ walks the cross-reference rows in fixture PR #101's timeline (docs/0085,
 listed repository opens in the app on focus + Enter and Back returns, a
 source elsewhere leaves the page where it is (the bridge records no browser
 opens), and PR #102's cap row counts the 30 references the query cut.
+The same receipt then walks the issue page (#923): issue 201's rows and
+golden (`github-issue-populated`), an unsent comment draft that survives
+opening the closing PR and Back to the *issue* (sent from the restored box
+and read back with `assert-write`), the closed and locked issue 198 with
+`tab-stops` and `audit`, and issue 202's cap row. The issue page's node ids
+vary between runs, so that half finds everything by label.
 
 The usage surfaces (docs/0081 §12.1) run over the same fixtures, with
 two opt-in extras. `DASHBOARD_GITHUB_USAGE_SEED=<days>` seeds a

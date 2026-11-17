@@ -21,9 +21,9 @@ docs/0020 §11 deferred this (Q1): render timeline event rows via
 reopened, renamed-title, milestoned / demilestoned — merged into the existing
 conversation in chronological order, comments first-class as today.
 
-**Out (follow-ups, not silently dropped):** cross-referenced / referenced
-events (need `source`/`closer` sub-objects — a row that opens another issue/PR;
-its own follow-up), locked/unlocked (ride #121 locking), project/sub-issue/
+**Out (follow-ups, not silently dropped):** cross-referenced events
+(shipped later, docs/0085 — see "Cross-reference rows" at the end),
+referenced events (commit mentions), locked/unlocked (ride #121 locking), project/sub-issue/
 connected/pinned events, reactions (see docs/0020 §11 / #121).
 
 ## 3. Verified facts (live `gh api graphql` introspection, 2026-09-06)
@@ -203,7 +203,7 @@ events count) and the probe tests carry the automated share.
 
 ## 11. Follow-ups (GitHub issues, not this PR)
 
-- Cross-referenced / referenced event rows (interactive, `source` resolution): designed in docs/0085 (#918).
+- ~~Cross-referenced event rows~~ shipped with docs/0085 (#918, #923); referenced (commit) events stay a follow-up there.
 - Locked/unlocked rows (with #121).
 - ~~Unify the "+N more" cap-row component with #123's comments cap row.~~
   Done with #123 (2026-09-06): the row is now the shared
@@ -256,3 +256,52 @@ text:
   fragment carries them. Found via the app log during the owner's
   human-check pass — the debug-bridge `logs` channel doing exactly its
   job (docs/0010).
+
+---
+
+## 9. Cross-reference rows (docs/0085, #923)
+
+The issue page shows `CrossReferencedEvent` rows ("octo-dev mentioned this
+issue in Fix loader #42") through the row, wire type and parser shared with
+the PR page (`xref_row/`, `gql/xref_events.rs`); the page-specific wiring is
+`issue_page/xref.rs`.
+
+- **Query (amends D1):** `ISSUE_DETAIL_QUERY` gains the aliased
+  `references: timelineItems(last: 100, itemTypes: [CROSS_REFERENCED_EVENT])`
+  window, apart from the `first: 100` events window so a burst of mentions
+  cannot push state events out, and the repository's `nameWithOwner` (a source
+  that is the page itself drops). `IssueDetail.references` carries the parsed
+  rows (`#[serde(default)]`, so persisted payloads still load). A response
+  with `errors` and a null list element (a source the viewer cannot read)
+  still lands its data: the unreadable row drops.
+- **Merge (amends D3):** `TimelineRow::Xref(ix, event)` joins the merged
+  timeline at the same rank as events: by time, the comment first at an equal
+  stamp, missing stamps first. The row ids are
+  `issue-event-{events.len() + ix}`, after the event rows, so the ids stay
+  unique. Exact repeats (same source, same actor) fold at parse time.
+- **Cap row:** the references the window cut (`filteredCount` minus the
+  carried rows, beyond what the parser dropped) join the "+N more on
+  github.com" count with the hidden events and comments.
+- **Wording:** page kind "issue"; a PR source with `willCloseTarget` reads
+  "{actor} linked a pull request that will close this issue", every other
+  source "{actor} mentioned this issue in"; no actor reads "Someone".
+- **Activation:** the whole row is one Button (tab stop). A source in a
+  repository the module lists emits `IssuePageEvent::OpenSubject` with the
+  title; the host opens the in-app page through its `open_subject` (the
+  notification page's hand-off), which records a trail place, so Back returns
+  to the issue. Any other source opens in the browser and the page stays.
+- **No leave guard:** the issue page has none. Esc closes it at once, and it
+  holds nothing that opening another page could lose: the comment draft
+  saves to the draft store 500 ms after the last keystroke (docs/0045) and
+  is restored when the page reopens (verified: an unsent draft survives
+  the round trip and is sent from the restored box). So the row emits
+  straight away, where the PR page runs its unsent-review-draft guard first.
+- **Fixtures and receipts:** `IssueDetail.201` (open, a PR that will close
+  it, a mention from a listed repo, an `atlas` PR, an untracked source, a
+  deleted actor), `.198` (closed, locked, seen by a reader) and `.202`
+  (100 of 130 references), listed by `RepoIssues.beacon`; the issue page's
+  first structural golden is `github-issue-populated`; `timeline-xref.txt`
+  walks the issue page (docs/0071 §4). Known gap: the issue page's comment
+  box traps Tab (#931), so the keyboard walk runs on the locked issue, which
+  has none. The close-reason select gained an accessible name, which the
+  first issue-page audit asked for.
