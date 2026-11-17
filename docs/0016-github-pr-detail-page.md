@@ -356,7 +356,12 @@ Two columns: main timeline (`flex_1`) + fixed ~300px right rail (D5).
   sorted ascending by timestamp (stable merge — pure fn, table-tested). A
   review row renders its state as a pill (`APPROVED` success, check /
   `CHANGES_REQUESTED` danger, alert / `COMMENTED` muted, info) beside the author + age,
-  body below, same card visual as comments.
+  body below, same card visual as comments. A review with no text and no
+  reactions (#786) is not a card but a one-line event — the verdict's glyph,
+  "reviewer-a approved" (verbs: approved / requested changes / reviewed /
+  review dismissed), the age at the trailing edge — in
+  `pr_page/review_event.rs`. Its edit/delete actions (when the viewer may)
+  stay on the line; the reaction picker goes with the card.
 - **Comment box** (bottom, sticky end of the scroll region): `Textarea` +
   action `Select` (**Comment** / **Approve** / **Request changes**) + primary
   Submit button. Gating (pure fn, table-tested): Comment requires a non-empty

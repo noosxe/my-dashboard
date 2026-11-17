@@ -133,7 +133,6 @@ key tab
 key tab
 key tab
 key tab
-key tab
 type "a note"
 tab-stops
 

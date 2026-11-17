@@ -68,7 +68,7 @@ pub(crate) fn variant(tone: Tone) -> TagVariant {
     }
 }
 
-fn icon(glyph: Glyph) -> Icon {
+pub(crate) fn icon(glyph: Glyph) -> Icon {
     match glyph {
         Glyph::Open => Icon::empty().path(CIRCLE_DOT),
         Glyph::Draft => Icon::empty().path(CIRCLE_DASHED),
