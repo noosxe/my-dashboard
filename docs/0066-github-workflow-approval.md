@@ -1,6 +1,5 @@
 # 0066 — GitHub: manually-approved (gated) workflow runs
 
-- **Status:** design PR (docs-only)
 - **Tracked by:** noosxe/my-dashboard#447
 - **Trigger case:** noosxe/worker-mcp#69 — the automated `nix flake update` PR whose
   CI and Nix-flake runs have sat in `action_required` since 2026-10-05, invisible to

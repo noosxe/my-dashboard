@@ -1,6 +1,5 @@
 # 0067 — PR page: the "Update branch" split button (merge-commit / rebase)
 
-- **Status:** design PR (docs-only)
 - **Tracked by:** noosxe/my-dashboard#455
 - **Trigger case:** owner request — mirror github.com's "Update branch" split
   button (dropdown: update with a merge commit / update with rebase) on the
