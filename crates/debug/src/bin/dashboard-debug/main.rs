@@ -803,8 +803,16 @@ pub(crate) fn tab_stops(conn: &mut Conn, window: &Option<u64>) -> i32 {
         previous = Some(id);
         moved = true;
     }
-    let (id, role) = last_stop.expect("at least one stop");
-    eprintln!("cycle did not close after 100 stops — last: #{id} {role}");
+    match last_stop {
+        Some((id, role)) => {
+            eprintln!("cycle did not close after 100 stops — last: #{id} {role}");
+        }
+        None => eprintln!(
+            "tab-stop walk failed: none of the 100 stops exposed an a11y node, \
+             so the cycle cannot be anchored — give the focusable elements \
+             an `.id(...)` and a role (docs/0010 D10)"
+        ),
+    }
     1
 }
 
