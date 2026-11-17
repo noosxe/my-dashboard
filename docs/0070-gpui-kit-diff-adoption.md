@@ -7,8 +7,6 @@
   docs/0041 (virtualized diff scroll), docs/0069 (resizable pane seam),
   docs/0025 (file-based color themes), docs/0002 D5/D9/D10 + `clippy.toml`
   (token discipline), docs/0007/0008 (verify against pinned upstream).
-- **Status:** design — implementation tracked in the issue(s) filed from
-  this doc.
 - **Date:** 2026-10-12. Upstream facts verified against the pinned
   gpui-component `67265a3` (v0.7.3) checkout and the gpui-pre 0.3.9 stack
   on this date. Line numbers below refer to that checkout.

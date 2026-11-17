@@ -354,7 +354,8 @@ Two columns: main timeline (`flex_1`) + fixed ~300px right rail (D5).
   collapses the `relative(1.)` height to the 1-line minimum). The editor
   state now uses `auto_grow(8, 40)`: grows with the body from 8 rows, caps
   at 40 with internal scrolling, matching GitHub's edit box behavior.
-- **Timeline:** `comments` and `reviews` (with non-empty bodies) merged and
+- **Timeline:** `comments` and `reviews` (empty ones included; the viewer's
+  pending review excluded) merged and
   sorted ascending by timestamp (stable merge — pure fn, table-tested). A
   review row renders its state as a pill (`APPROVED` success, check /
   `CHANGES_REQUESTED` danger, alert / `COMMENTED` muted, info) beside the author + age,
@@ -450,11 +451,14 @@ A `GroupBox` at the rail top:
   Enable auto-merge (no method) otherwise, and **Remove from queue**
   (`dequeuePullRequest`) once queued. No timers: a write refetches, and the
   queue's progress shows on the page's normal refreshes.
-- **Actions:** primary `Merge` button → `mergePullRequest { pullRequestId,
-  mergeMethod }`; secondary `Close` (`Button::danger`) → `closePullRequest`.
-  While in flight both disable + spinner; on success the refetch repaints the
-  header state badge and the panel swaps to a terminal note ("Merged ✓"/
-  "Closed") — the next snapshot tick removes the row from the repo view list
+- **Actions:** primary merge button, labelled with the method's verb
+  ("Merge pull request", "Squash and merge", "Rebase and merge") →
+  `mergePullRequest { pullRequestId, mergeMethod }`; secondary `Close` →
+  `closePullRequest`. While in flight both disable and the merge button reads
+  "Working…"; on success the refetch repaints the header state badge and the
+  status block's verdict row swaps to a terminal row ("Merged" with
+  "by <who> · <age> ago into <base>" / "Closed" with
+  "by <who> · <age> ago · not merged") — the next snapshot tick removes the row from the repo view list
   (no extra work).
 
   **Confirm (amended 2026-11-06, #738; `pr_page/merge_confirm.rs`).**
