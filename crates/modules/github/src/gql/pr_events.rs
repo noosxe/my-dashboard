@@ -1,6 +1,7 @@
 //! The PR conversation's event rows (#787, #911): merged, closed, reopened,
 //! force-pushed, labeled/unlabeled, assigned/unassigned, review
-//! requested/removed, renamed and milestoned/demilestoned, read from `timelineItems` (fields verified against
+//! requested/removed, renamed, milestoned/demilestoned and
+//! ready-for-review/converted-to-draft, read from `timelineItems` (fields verified against
 //! GitHub's schema 2026-11-17). Parsing is tolerant (docs/0007 D3): a node
 //! of another type, or one missing a field its row needs, drops out while
 //! the rest parse.
@@ -65,6 +66,9 @@ pub enum PrEventKind {
     Demilestoned {
         title: String,
     },
+    /// The draft state flipped (#911).
+    ReadyForReview,
+    ConvertedToDraft,
 }
 
 /// The events and how many the server counts for the filter; the cap row
@@ -138,6 +142,8 @@ fn parse_event(node: &Value) -> Option<PrEvent> {
         "DemilestonedEvent" => PrEventKind::Demilestoned {
             title: oid("/milestoneTitle")?,
         },
+        "ReadyForReviewEvent" => PrEventKind::ReadyForReview,
+        "ConvertToDraftEvent" => PrEventKind::ConvertedToDraft,
         _ => return None,
     };
     Some(PrEvent {
@@ -349,10 +355,31 @@ mod tests {
         let state = q.split("events: timelineItems").nth(1).unwrap();
         let state = state.split("activity: timelineItems").next().unwrap();
         assert!(state.contains("MERGED_EVENT") && state.contains("CLOSED_EVENT"));
+        assert!(state.contains("READY_FOR_REVIEW_EVENT"));
+        assert!(state.contains("CONVERT_TO_DRAFT_EVENT"));
         assert!(!state.contains("LABELED_EVENT"));
         let chatty = q.split("activity: timelineItems").nth(1).unwrap();
         assert!(chatty.starts_with("(last: 100,"));
         assert!(chatty.contains("LABELED_EVENT") && !chatty.contains("MERGED_EVENT"));
+        assert!(!chatty.contains("READY_FOR_REVIEW_EVENT"));
+        assert!(!chatty.contains("CONVERT_TO_DRAFT_EVENT"));
+    }
+
+    #[test]
+    fn draft_flips_parse() {
+        let pr = json!({"events": {"nodes": [
+            {"__typename": "ReadyForReviewEvent", "id": "D1", "actor": {"login": "a"}},
+            {"__typename": "ConvertToDraftEvent", "id": "D2"}
+        ]}});
+        let kinds: Vec<_> = parse_events(&pr)
+            .nodes
+            .into_iter()
+            .map(|n| n.kind)
+            .collect();
+        assert_eq!(
+            kinds,
+            vec![PrEventKind::ReadyForReview, PrEventKind::ConvertedToDraft]
+        );
     }
 
     #[test]

@@ -72,6 +72,8 @@ fn look(kind: &PrEventKind) -> (Tone, Glyph) {
         PrEventKind::Renamed { .. } => (Tone::Muted, Glyph::Edit),
         PrEventKind::Milestoned { .. } => (Tone::Muted, Glyph::Plus),
         PrEventKind::Demilestoned { .. } => (Tone::Muted, Glyph::Minus),
+        PrEventKind::ReadyForReview => (Tone::Success, Glyph::Check),
+        PrEventKind::ConvertedToDraft => (Tone::Muted, Glyph::Draft),
     }
 }
 

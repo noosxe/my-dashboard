@@ -424,6 +424,8 @@ class Timeline:
             reactionGroups=reactions(thumbs=2, heart=1, mine=True),
             mergeStateStatus="BLOCKED",
             events=self.events(
+                ("ConvertToDraftEvent", "octo-dev", 46, {}),
+                ("ReadyForReviewEvent", "octo-dev", 45, {}),
                 self.force_pushed("octo-dev", 40, "3f2a9c1", "b81d4e7"),
             ),
             activity=self.events(
