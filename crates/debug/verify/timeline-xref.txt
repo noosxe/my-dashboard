@@ -96,6 +96,8 @@ assert-label "Someone mentioned this issue in Loader notes #77, open issue. Open
 assert-label "octo-dev linked a pull request that will close this issue WIP: loader cleanup #103, draft pull request. Opens the pull request."
 assert-baseline github-issue-populated
 audit
+# The comment box releases Tab (#931): the walk leaves it and the cycle closes.
+tab-stops
 
 # An unsent comment draft (it saves 500 ms after the last keystroke,
 # docs/0045), then the untracked source: the browser opens and the page
@@ -137,9 +139,7 @@ wait-label "Open issue on GitHub"
 assert-no-label "Leave a comment"
 assert-label "octo-dev linked a pull request that will close this issue Revert parser strictness #99, merged pull request. Opens the pull request."
 # Locked and seen by a reader, so no comment box: the keyboard walk covers
-# the page. The rows
-# are tab stops and the cycle closes (the comment box of an unlocked issue
-# is a Tab trap, #931).
+# the page without one. The rows are tab stops and the cycle closes.
 tab-stops
 audit
 

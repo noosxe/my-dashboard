@@ -274,8 +274,8 @@ opens), and PR #102's cap row counts the 30 references the query cut.
 The same receipt then walks the issue page (#923): issue 201's rows and
 golden (`github-issue-populated`), an unsent comment draft that survives
 opening the closing PR and Back to the *issue* (sent from the restored box
-and read back with `assert-write`), the closed and locked issue 198 with
-`tab-stops` and `audit`, and issue 202's cap row. The issue page's node ids
+and read back with `assert-write`), `tab-stops` on issue 201 (its comment box releases Tab, #931), the closed and
+locked issue 198 with `tab-stops` and `audit`, and issue 202's cap row. The issue page's node ids
 vary between runs, so that half finds everything by label.
 
 The usage surfaces (docs/0081 §12.1) run over the same fixtures, with

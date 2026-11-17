@@ -61,7 +61,9 @@ In:
   multi-line field on the page (comment box, edit and reply composers, review
   summary) instead of indenting; the pinned `Input` context binds them to
   indent actions, which `tab_escape` unbinds inside `GithubPrPage`. Indent
-  stays on Ctrl-] / Ctrl-[ (Cmd on macOS).
+  stays on Ctrl-] / Ctrl-[ (Cmd on macOS). The same unbind is registered
+  for `GithubIssuePage`, `GithubNewIssuePage` and `GithubNewPrPage` (#931),
+  so their comment, title and body fields release Tab too.
 - **Conversation:** description card (body editable in place), timeline of
   comments + review events, and a comment box with a **full action selector**
   — Comment / Approve / Request changes.
