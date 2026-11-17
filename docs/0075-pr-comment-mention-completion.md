@@ -51,7 +51,8 @@ depending on available room, capped at 10 rows (~240px).
 **D3 — Trigger and token rules (GitHub parity).** `@` opens the popup only
 at line start or directly after whitespace — `user@example.com` never
 triggers. The query is `@` + characters up to the caret; it filters
-case-insensitively by substring against login, then name. The popup
+case-insensitively by substring against login, and against name too when a
+candidate carries one (D6 — today none does, so it is login-only). The popup
 dismisses when: the caret leaves the token, whitespace follows the token,
 the composer loses focus, the draft is submitted, or the filter matches
 nothing (quiet dismissal — no "no results" ghost row in v1). A second `@`
@@ -63,7 +64,7 @@ selection with wrap-around, Enter and Tab accept, Esc dismisses — and Esc
 must not bubble into page-level handlers (takeover close, history back).
 Typing filters; mouse hover highlights and click accepts. Bridge-visible
 per docs/0010 D10: the popup is named "Mention suggestions", rows carry
-`.id()`s and `option` roles inside a `listbox`, and the active row reports
+`.id()`s and `ListItem` roles inside a `Group`, and the active row reports
 its selected state so `tree` and audits see the whole thing.
 
 **D5 — Insert semantics.** Accepting replaces the token range with
@@ -72,10 +73,12 @@ step (the state's atomic edit path). The draft debounce-save observes a
 normal `InputEvent`, so docs/0045 draft persistence is untouched.
 
 **D6 — Candidate model and ranking.** `MentionCandidate { login, name,
-avatar_url }`, deduped by login, derived synchronously from the loaded PR
-document at popup open — no fetch, no spinner, no rate cost. Ranking:
+avatar_url }`, deduped by login (`name` stays empty until the loaded
+document carries display names, and rows render `@login` only), derived
+synchronously from the loaded PR document at popup open — no fetch, no spinner, no rate cost. Ranking:
 review-requested reviewers, then assignees, then the PR author, then
-comment/review authors by recency; filtered results keep that order and
+comment authors newest-first, then review authors newest-first (the two
+lists are not interleaved by time); filtered results keep that order and
 cap at 10. (GitHub web additionally searches org-wide people; that needs a
 new query and is a non-goal here.)
 
