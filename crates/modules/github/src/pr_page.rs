@@ -4592,28 +4592,30 @@ impl PrDetailPage {
         // stay bare so nothing flashes a wrong "0" (docs/0016 D3).
         let labels = match detail {
             Some(d) => vec![
-                tab_label(
+                tab_text(
                     "Conversation",
                     Some(conversation_window::conversation_count(d)),
+                    true,
                 ),
-                tab_label("Commits", Some(d.commits.total_count)),
+                tab_text("Commits", Some(d.commits.total_count), false),
                 // The contexts connection's server-side count (D7) plus
                 // the runs waiting for approval (docs/0066 D3, #783).
-                tab_label(
+                tab_text(
                     "Checks",
                     checks::counter::checks_tab_count(
                         d.checks.total_count,
                         self.gated.data().map_or(0, |rows| rows.len()),
                         self.gated.in_flight,
                     ),
+                    true,
                 ),
-                tab_label("Files changed", d.changed_files),
+                tab_text("Files changed", d.changed_files, false),
             ],
             None => vec![
-                "Conversation".into(),
-                "Commits".into(),
-                "Checks".into(),
-                "Files changed".into(),
+                tab_strip::TabText::plain("Conversation"),
+                tab_strip::TabText::plain("Commits"),
+                tab_strip::TabText::plain("Checks"),
+                tab_strip::TabText::plain("Files changed"),
             ],
         };
         tab_strip::strip(
@@ -6050,10 +6052,11 @@ fn author_name(author: Option<&gql::Author>) -> &str {
     author.map(|a| a.login.as_str()).unwrap_or("ghost")
 }
 
-fn tab_label(name: &str, count: Option<i64>) -> SharedString {
-    match count {
-        Some(c) => format!("{name} ({c})").into(),
-        None => name.into(),
+fn tab_text(name: &'static str, count: Option<i64>, hide_zero: bool) -> tab_strip::TabText {
+    tab_strip::TabText {
+        name,
+        count,
+        hide_zero,
     }
 }
 
