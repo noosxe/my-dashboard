@@ -41,7 +41,7 @@ use crate::pr_page::{
     review_batch_allowed, row_is_edited,
 };
 use crate::service::{AnchoredLine, PatchLine, anchor_patch};
-use crate::state_pill::{Glyph, Tone, state_pill};
+use crate::state_pill::{Glyph, Tone, state_glyph, state_pill};
 use dashboard_core::freshness::relative_age;
 use dashboard_core::panes::{
     FILES_SIDEBAR_DEFAULT, FILES_SIDEBAR_MAX, FILES_SIDEBAR_MIN, RESIZE_KEYBOARD_STEP,
@@ -729,7 +729,7 @@ fn file_row(
                                 .text_color(cx.theme().danger)
                                 .child(format!("−{dels}")),
                         )
-                        .child(file_status_badge(status)),
+                        .child(file_status_glyph(prefix, path, status)),
                 ),
         )
 }
@@ -751,14 +751,30 @@ pub(crate) fn files_summary(files: usize, adds: i64, dels: i64) -> FilesSummary 
 /// map to tones; anything else (future API kinds, 0007 D3) renders as
 /// the raw string, muted.
 pub(crate) fn file_status_badge(status: &str) -> AnyElement {
-    let (tone, glyph) = match status {
+    let (tone, glyph) = status_look(status);
+    state_pill(tone, glyph, status.to_string())
+}
+
+/// The sidebar row's compact form: glyph only, the word on the tooltip
+/// and the accessible name (the pill's word cost the file name its width).
+fn file_status_glyph(prefix: &str, path: &str, status: &str) -> AnyElement {
+    let (tone, glyph) = status_look(status);
+    state_glyph(
+        SharedString::from(format!("{prefix}-status-{path}")),
+        tone,
+        glyph,
+        format!("{status} file"),
+    )
+}
+
+fn status_look(status: &str) -> (Tone, Glyph) {
+    match status {
         "added" => (Tone::Success, Glyph::Plus),
         "removed" => (Tone::Danger, Glyph::Minus),
         "renamed" => (Tone::Muted, Glyph::Right),
         "modified" => (Tone::Muted, Glyph::Edit),
         _ => (Tone::Muted, Glyph::Info),
-    };
-    state_pill(tone, glyph, status.to_string())
+    }
 }
 
 /// Split a repo path for the row header (moved from pr_page, 0018): dir

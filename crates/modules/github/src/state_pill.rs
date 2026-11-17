@@ -8,10 +8,14 @@
 //! with a glyph (docs/0065 Appendix A item 17: colour is never the only
 //! signal).
 
-use gpui::{AnyElement, IntoElement as _, ParentElement as _, SharedString, Styled as _};
+use gpui::{
+    AnyElement, ElementId, InteractiveElement as _, IntoElement as _, ParentElement as _,
+    SharedString, StatefulInteractiveElement as _, Styled as _, accesskit::Role, div,
+};
 use gpui_component::{
     Icon, IconName, Sizable as _, h_flex,
     tag::{Tag, TagVariant},
+    tooltip::Tooltip,
 };
 
 /// What the state means; the pill's colour follows.
@@ -92,6 +96,31 @@ pub(crate) fn state_pill(tone: Tone, glyph: Glyph, label: impl Into<SharedString
                 .items_center()
                 .child(icon(glyph).xsmall())
                 .child(label.into()),
+        )
+        .into_any_element()
+}
+
+/// A glyph-only pill for a narrow row (the Files sidebar): the colour and
+/// glyph stay, the word moves to the tooltip and the accessible name.
+pub(crate) fn state_glyph(
+    id: impl Into<ElementId>,
+    tone: Tone,
+    glyph: Glyph,
+    label: impl Into<SharedString>,
+) -> AnyElement {
+    let label: SharedString = label.into();
+    let tip = label.clone();
+    div()
+        .id(id)
+        .flex_none()
+        .role(Role::Image)
+        .aria_label(label)
+        .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+        .child(
+            Tag::new()
+                .with_variant(variant(tone))
+                .xsmall()
+                .child(icon(glyph).xsmall()),
         )
         .into_any_element()
 }
