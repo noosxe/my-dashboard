@@ -53,6 +53,7 @@ use std::time::Duration;
 /// the fade clears it (GitHub-like flash).
 pub(crate) const ANCHOR_FADE: Duration = Duration::from_secs(3);
 
+mod branch_chip;
 mod catch_up;
 pub(crate) mod checks;
 mod comment_actions;
@@ -4452,7 +4453,7 @@ impl PrDetailPage {
         let url = meta.url;
         let commits = detail.as_ref().map(|d| d.commits.total_count);
         let branch_meta = match (&base, &head) {
-            (Some(base), Some(head)) => Some(format!("{base} ← {head}")),
+            (Some(base), Some(head)) => Some((base.clone(), head.clone())),
             _ => None,
         };
         h_flex()
@@ -4468,12 +4469,13 @@ impl PrDetailPage {
                     .child(
                         h_flex()
                             .gap_2()
-                            .items_center()
-                            .flex_wrap()
+                            .items_start()
                             .when_some(meta.tone, |row, tone| {
                                 row.child(state_pill::pr_state_pill(tone))
                             })
-                            .child(page_title(title)),
+                            // #785: wraps to two lines; the number lives on the meta
+                            // line (#784), so a long title never loses it.
+                            .child(page_title(title).min_w_0().flex_1().line_clamp(2)),
                     )
                     .child(
                         h_flex()
@@ -4500,15 +4502,27 @@ impl PrDetailPage {
                                 header_meta::action_copy(meta.tone, commits, base.as_deref()),
                                 |row, text| row.child(text),
                             )
-                            .when_some(branch_meta, |row, meta| {
+                            .when_some(branch_meta, |row, (base, head)| {
+                                let mono = cx.theme().mono_font_family.clone();
                                 row.child(
-                                    div()
+                                    h_flex()
                                         .id("pr-branch-meta")
                                         .role(accesskit::Role::Group)
-                                        .aria_label(format!("Branches: {meta}"))
-                                        .font_family(cx.theme().mono_font_family.clone())
+                                        .aria_label(format!("Branches: {base} ← {head}"))
+                                        .gap_1()
+                                        .items_center()
                                         .text_xs()
-                                        .child(meta),
+                                        .child(branch_chip::branch_chip(
+                                            "pr-base-branch",
+                                            &base,
+                                            mono.clone(),
+                                        ))
+                                        .child("←")
+                                        .child(branch_chip::branch_chip(
+                                            "pr-head-branch",
+                                            &head,
+                                            mono,
+                                        )),
                                 )
                             })
                             .when_some(meta.updated, |row, text| row.child(text)),

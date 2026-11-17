@@ -12,20 +12,7 @@
       "focused": false
     },
     {
-      "accesskit_id": "600532464688630867",
-      "role": "ListItem",
-      "label": "#121",
-      "bounds": {
-        "x": 582.0,
-        "y": 23.0,
-        "w": 36.0,
-        "h": 23.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "766777551033890023",
+      "accesskit_id": "505105519681541153",
       "role": "Link",
       "label": "Checks passed: 2 of 2. Open the Checks tab",
       "bounds": {
@@ -38,68 +25,16 @@
       "focused": false
     },
     {
-      "accesskit_id": "1501647748125321680",
-      "role": "Button",
-      "label": "Edit reviewers",
+      "accesskit_id": "600532464688630867",
+      "role": "ListItem",
+      "label": "#121",
       "bounds": {
-        "x": 1211.0,
-        "y": 397.0,
-        "w": 20.0,
-        "h": 20.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "1545354887871523628",
-      "role": "Tab",
-      "label": "Files changed (1)",
-      "bounds": {
-        "x": 585.0,
-        "y": 137.0,
-        "w": 108.0,
-        "h": 36.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "1580945381471266721",
-      "role": "Label",
-      "label": "No conflicts",
-      "bounds": {
-        "x": 967.0,
-        "y": 315.0,
-        "w": 264.0,
-        "h": 26.0
+        "x": 582.0,
+        "y": 23.0,
+        "w": 36.0,
+        "h": 23.0
       },
       "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "1691242722104084909",
-      "role": "Label",
-      "label": "None",
-      "bounds": {
-        "x": 955.0,
-        "y": 483.0,
-        "w": 276.0,
-        "h": 24.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "1965139677445908841",
-      "role": "Tab",
-      "label": "Conversation (1)",
-      "bounds": {
-        "x": 288.0,
-        "y": 137.0,
-        "w": 104.0,
-        "h": 36.0
-      },
-      "focusable": true,
       "focused": false
     },
     {
@@ -116,52 +51,39 @@
       "focused": false
     },
     {
-      "accesskit_id": "2099002949837670999",
-      "role": "Button",
-      "label": "Add reaction to the description",
-      "bounds": {
-        "x": 301.0,
-        "y": 471.0,
-        "w": 25.0,
-        "h": 24.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "2222050053034072111",
-      "role": "Button",
-      "label": "Edit assignees",
-      "bounds": {
-        "x": 1211.0,
-        "y": 461.0,
-        "w": 20.0,
-        "h": 20.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "3710765643857576796",
-      "role": "Button",
-      "label": "Remove from queue",
-      "bounds": {
-        "x": 967.0,
-        "y": 351.0,
-        "w": 119.0,
-        "h": 20.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "3733054148548855845",
+      "accesskit_id": "2702249994942232472",
       "role": "Group",
-      "label": "Pull request sections: Conversation (1)",
+      "label": null,
       "bounds": {
-        "x": 288.0,
+        "x": 272.0,
+        "y": 53.0,
+        "w": 987.0,
+        "h": 670.0
+      },
+      "focusable": true,
+      "focused": true
+    },
+    {
+      "accesskit_id": "2839639575170791057",
+      "role": "Group",
+      "label": "Branches: main ← feature/trailing-commas",
+      "bounds": {
+        "x": 584.0,
+        "y": 103.0,
+        "w": 230.0,
+        "h": 20.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "3286342982520953961",
+      "role": "Tab",
+      "label": "Commits (1)",
+      "bounds": {
+        "x": 408.0,
         "y": 137.0,
-        "w": 955.0,
+        "w": 78.0,
         "h": 36.0
       },
       "focusable": true,
@@ -181,29 +103,29 @@
       "focused": false
     },
     {
-      "accesskit_id": "4092287472528080909",
+      "accesskit_id": "4264776271419488644",
       "role": "Button",
-      "label": "Comment",
+      "label": "Add reaction to the description",
       "bounds": {
-        "x": 852.0,
-        "y": 724.0,
-        "w": 78.0,
+        "x": 301.0,
+        "y": 471.0,
+        "w": 25.0,
         "h": 24.0
       },
-      "focusable": false,
+      "focusable": true,
       "focused": false
     },
     {
-      "accesskit_id": "4378026773324432084",
-      "role": "TabList",
-      "label": null,
+      "accesskit_id": "4486998781762331333",
+      "role": "Button",
+      "label": "Remove from queue",
       "bounds": {
-        "x": 288.0,
-        "y": 137.0,
-        "w": 955.0,
-        "h": 36.0
+        "x": 967.0,
+        "y": 351.0,
+        "w": 119.0,
+        "h": 20.0
       },
-      "focusable": false,
+      "focusable": true,
       "focused": false
     },
     {
@@ -220,33 +142,85 @@
       "focused": false
     },
     {
-      "accesskit_id": "4771837411441813936",
-      "role": "Group",
-      "label": "Pull request details",
+      "accesskit_id": "4778348308731957261",
+      "role": "TabList",
+      "label": null,
+      "bounds": {
+        "x": 288.0,
+        "y": 137.0,
+        "w": 955.0,
+        "h": 36.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4800359482022386272",
+      "role": "Label",
+      "label": "reviewer-a, approved",
       "bounds": {
         "x": 955.0,
-        "y": 397.0,
-        "w": 288.0,
-        "h": 310.0
+        "y": 419.0,
+        "w": 276.0,
+        "h": 26.0
       },
       "focusable": false,
       "focused": false
     },
     {
-      "accesskit_id": "5490639202913086750",
-      "role": "Label",
-      "label": "<age label>",
+      "accesskit_id": "5059667341462547500",
+      "role": "Button",
+      "label": "Edit milestone",
       "bounds": {
-        "x": 1088.0,
-        "y": 71.0,
-        "w": 87.0,
-        "h": 19.0
+        "x": 1211.0,
+        "y": 585.0,
+        "w": 20.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5192560644524854422",
+      "role": "Button",
+      "label": "More pull request actions",
+      "bounds": {
+        "x": 1207.0,
+        "y": 349.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "5366172739142946955",
+      "role": "Label",
+      "label": "None",
+      "bounds": {
+        "x": 955.0,
+        "y": 607.0,
+        "w": 276.0,
+        "h": 24.0
       },
       "focusable": false,
       "focused": false
     },
     {
-      "accesskit_id": "6094457690162020096",
+      "accesskit_id": "6130650522290408372",
+      "role": "Label",
+      "label": "No conflicts",
+      "bounds": {
+        "x": 967.0,
+        "y": 315.0,
+        "w": 264.0,
+        "h": 26.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6494779225569545273",
       "role": "Button",
       "label": "Open pull request on GitHub",
       "bounds": {
@@ -272,33 +246,46 @@
       "focused": false
     },
     {
-      "accesskit_id": "7463562102010174814",
-      "role": "Button",
-      "label": "Add reaction to reviewer-a's review",
+      "accesskit_id": "7858264501506527288",
+      "role": "Label",
+      "label": "None",
       "bounds": {
-        "x": 301.0,
-        "y": 560.0,
-        "w": 25.0,
+        "x": 955.0,
+        "y": 483.0,
+        "w": 276.0,
         "h": 24.0
       },
-      "focusable": true,
+      "focusable": false,
       "focused": false
     },
     {
-      "accesskit_id": "7834197842321872192",
-      "role": "Tab",
-      "label": "Checks (2)",
+      "accesskit_id": "8131910762704545192",
+      "role": "Group",
+      "label": "Pull request details",
       "bounds": {
-        "x": 502.0,
+        "x": 955.0,
+        "y": 397.0,
+        "w": 288.0,
+        "h": 310.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "8791993949606316564",
+      "role": "Group",
+      "label": "Pull request sections: Conversation (1)",
+      "bounds": {
+        "x": 288.0,
         "y": 137.0,
-        "w": 67.0,
+        "w": 955.0,
         "h": 36.0
       },
       "focusable": true,
       "focused": false
     },
     {
-      "accesskit_id": "7928346529218907871",
+      "accesskit_id": "8818630719530343580",
       "role": "MultilineTextInput",
       "label": "Leave a comment",
       "bounds": {
@@ -311,7 +298,46 @@
       "focused": false
     },
     {
-      "accesskit_id": "7972091695785203585",
+      "accesskit_id": "9052810512277754589",
+      "role": "Button",
+      "label": "Copy branch name feature/trailing-commas",
+      "bounds": {
+        "x": 639.0,
+        "y": 103.0,
+        "w": 175.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9155401147329808448",
+      "role": "Tab",
+      "label": "Files changed (1)",
+      "bounds": {
+        "x": 585.0,
+        "y": 137.0,
+        "w": 108.0,
+        "h": 36.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9575185936971302525",
+      "role": "Tab",
+      "label": "Conversation (1)",
+      "bounds": {
+        "x": 288.0,
+        "y": 137.0,
+        "w": 104.0,
+        "h": 36.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9596182469583060936",
       "role": "ComboBox",
       "label": "Comment action",
       "bounds": {
@@ -321,27 +347,6 @@
         "h": 24.0
       },
       "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "9532834929638441576",
-      "role": "Label",
-      "label": null,
-      "bounds": {
-        "x": 301.0,
-        "y": 436.0,
-        "w": 629.0,
-        "h": 23.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "9561290909385042537",
-      "role": "TextRun",
-      "label": null,
-      "bounds": null,
-      "focusable": false,
       "focused": false
     },
     {
@@ -358,19 +363,6 @@
       "focused": false
     },
     {
-      "accesskit_id": "10702064755201315738",
-      "role": "Group",
-      "label": null,
-      "bounds": {
-        "x": 272.0,
-        "y": 53.0,
-        "w": 987.0,
-        "h": 670.0
-      },
-      "focusable": true,
-      "focused": true
-    },
-    {
       "accesskit_id": "10834513746264126060",
       "role": "Link",
       "label": "Home",
@@ -379,19 +371,6 @@
         "y": 23.0,
         "w": 38.0,
         "h": 23.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "11010521056698766040",
-      "role": "Label",
-      "label": "reviewer-a, approved",
-      "bounds": {
-        "x": 955.0,
-        "y": 419.0,
-        "w": 276.0,
-        "h": 26.0
       },
       "focusable": false,
       "focused": false
@@ -410,25 +389,38 @@
       "focused": false
     },
     {
-      "accesskit_id": "11539485096908295192",
-      "role": "Label",
-      "label": "Queued to merge. This pull request is in the merge queue",
+      "accesskit_id": "11497336290789890165",
+      "role": "Button",
+      "label": "Copy branch name main",
       "bounds": {
-        "x": 967.0,
-        "y": 197.0,
-        "w": 264.0,
-        "h": 23.0
+        "x": 584.0,
+        "y": 103.0,
+        "w": 37.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11719251944910624533",
+      "role": "Label",
+      "label": "<age label>",
+      "bounds": {
+        "x": 1088.0,
+        "y": 71.0,
+        "w": 87.0,
+        "h": 19.0
       },
       "focusable": false,
       "focused": false
     },
     {
-      "accesskit_id": "11576334313819326723",
+      "accesskit_id": "11934495369685985570",
       "role": "Label",
       "label": "None",
       "bounds": {
         "x": 955.0,
-        "y": 607.0,
+        "y": 545.0,
         "w": 276.0,
         "h": 24.0
       },
@@ -436,46 +428,7 @@
       "focused": false
     },
     {
-      "accesskit_id": "11900084000619533218",
-      "role": "Button",
-      "label": "Edit milestone",
-      "bounds": {
-        "x": 1211.0,
-        "y": 585.0,
-        "w": 20.0,
-        "h": 20.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "12265852286517378884",
-      "role": "Group",
-      "label": "Merge status",
-      "bounds": {
-        "x": 955.0,
-        "y": 185.0,
-        "w": 288.0,
-        "h": 200.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "12310589983282939384",
-      "role": "Button",
-      "label": "Edit description",
-      "bounds": {
-        "x": 398.0,
-        "y": 199.0,
-        "w": 41.0,
-        "h": 24.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "12735561045036710406",
+      "accesskit_id": "12473889013684361536",
       "role": "Link",
       "label": "Approved: 1 approval. Show the review",
       "bounds": {
@@ -501,16 +454,24 @@
       "focused": false
     },
     {
-      "accesskit_id": "13212917729282485201",
-      "role": "Button",
-      "label": "Edit labels",
+      "accesskit_id": "12835232701305492473",
+      "role": "Label",
+      "label": null,
       "bounds": {
-        "x": 1211.0,
-        "y": 523.0,
-        "w": 20.0,
-        "h": 20.0
+        "x": 301.0,
+        "y": 436.0,
+        "w": 629.0,
+        "h": 23.0
       },
-      "focusable": true,
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12866362695205535148",
+      "role": "TextRun",
+      "label": null,
+      "bounds": null,
+      "focusable": false,
       "focused": false
     },
     {
@@ -540,26 +501,39 @@
       "focused": false
     },
     {
-      "accesskit_id": "14123040796772220756",
-      "role": "Tab",
-      "label": "Commits (1)",
+      "accesskit_id": "13744301766019672296",
+      "role": "Button",
+      "label": "Edit assignees",
       "bounds": {
-        "x": 408.0,
-        "y": 137.0,
-        "w": 78.0,
-        "h": 36.0
+        "x": 1211.0,
+        "y": 461.0,
+        "w": 20.0,
+        "h": 20.0
       },
       "focusable": true,
       "focused": false
     },
     {
-      "accesskit_id": "14360497921229835174",
+      "accesskit_id": "14097602477521357613",
       "role": "Button",
-      "label": "More pull request actions",
+      "label": "Comment",
       "bounds": {
-        "x": 1207.0,
-        "y": 349.0,
-        "w": 24.0,
+        "x": 852.0,
+        "y": 724.0,
+        "w": 78.0,
+        "h": 24.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14580512030512145989",
+      "role": "Button",
+      "label": "Add reaction to reviewer-a's review",
+      "bounds": {
+        "x": 301.0,
+        "y": 560.0,
+        "w": 25.0,
         "h": 24.0
       },
       "focusable": true,
@@ -579,19 +553,6 @@
       "focused": false
     },
     {
-      "accesskit_id": "15057770906882804889",
-      "role": "Group",
-      "label": "Branches: main ← feature/trailing-commas",
-      "bounds": {
-        "x": 584.0,
-        "y": 104.0,
-        "w": 217.0,
-        "h": 19.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
       "accesskit_id": "15380129928879656113",
       "role": "Button",
       "label": "GitHub API: REST: no response yet; GraphQL: no response yet; session: N requests (N GraphQL, N REST, N auth)",
@@ -602,6 +563,32 @@
         "h": 20.0
       },
       "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15444244101780157012",
+      "role": "Tab",
+      "label": "Checks (2)",
+      "bounds": {
+        "x": 502.0,
+        "y": 137.0,
+        "w": 67.0,
+        "h": 36.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15625925637847219004",
+      "role": "Group",
+      "label": "Merge status",
+      "bounds": {
+        "x": 955.0,
+        "y": 185.0,
+        "w": 288.0,
+        "h": 200.0
+      },
+      "focusable": false,
       "focused": false
     },
     {
@@ -618,6 +605,32 @@
       "focused": false
     },
     {
+      "accesskit_id": "16089190237794545707",
+      "role": "Label",
+      "label": "Queued to merge. This pull request is in the merge queue",
+      "bounds": {
+        "x": 967.0,
+        "y": 197.0,
+        "w": 264.0,
+        "h": 23.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "16155170425690067185",
+      "role": "Button",
+      "label": "Edit description",
+      "bounds": {
+        "x": 398.0,
+        "y": 199.0,
+        "w": 41.0,
+        "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
       "accesskit_id": "16834563995578148124",
       "role": "ListItem",
       "label": "GitHub",
@@ -631,7 +644,7 @@
       "focused": false
     },
     {
-      "accesskit_id": "16934669700715062024",
+      "accesskit_id": "17334991236055478337",
       "role": "Button",
       "label": "Refresh",
       "bounds": {
@@ -644,16 +657,29 @@
       "focused": false
     },
     {
-      "accesskit_id": "18144656944295256474",
-      "role": "Label",
-      "label": "None",
+      "accesskit_id": "17910802721674595458",
+      "role": "Button",
+      "label": "Edit labels",
       "bounds": {
-        "x": 955.0,
-        "y": 545.0,
-        "w": 276.0,
-        "h": 24.0
+        "x": 1211.0,
+        "y": 523.0,
+        "w": 20.0,
+        "h": 20.0
       },
-      "focusable": false,
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "18021402356179054590",
+      "role": "Button",
+      "label": "Edit reviewers",
+      "bounds": {
+        "x": 1211.0,
+        "y": 397.0,
+        "w": 20.0,
+        "h": 20.0
+      },
+      "focusable": true,
       "focused": false
     }
   ]

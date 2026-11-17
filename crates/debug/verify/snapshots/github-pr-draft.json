@@ -480,9 +480,9 @@
       "label": "Branches: main ← feature/trailing-commas",
       "bounds": {
         "x": 584.0,
-        "y": 104.0,
-        "w": 217.0,
-        "h": 19.0
+        "y": 103.0,
+        "w": 230.0,
+        "h": 20.0
       },
       "focusable": false,
       "focused": false
@@ -509,6 +509,19 @@
         "y": 383.0,
         "w": 627.0,
         "h": 96.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15023380931829246124",
+      "role": "Button",
+      "label": "Copy branch name feature/trailing-commas",
+      "bounds": {
+        "x": 639.0,
+        "y": 103.0,
+        "w": 175.0,
+        "h": 20.0
       },
       "focusable": true,
       "focused": false
@@ -600,6 +613,19 @@
         "y": 69.0,
         "w": 24.0,
         "h": 24.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17467906710341381700",
+      "role": "Button",
+      "label": "Copy branch name main",
+      "bounds": {
+        "x": 584.0,
+        "y": 103.0,
+        "w": 37.0,
+        "h": 20.0
       },
       "focusable": true,
       "focused": false

@@ -296,12 +296,12 @@ pub struct GithubPage {
 
 - **Header:** state pill (#740; `Open` success / `Draft` muted / `Merged` info, the
   rail's merged slot / `Closed` danger), each paired with a glyph (docs/0065
-  Appendix A item 17), `text_lg` semibold title, refresh +
+  Appendix A item 17), `text_lg` semibold title (wraps to at most two lines, #785), refresh +
   open-on-GitHub icon buttons (icon-only ⇒ tooltip, [DG]). Meta line: muted
   `#number` first (#784 — it never trails a wrapped title), author
   avatar + login, the verb phrase by state — "wants to merge N commits"
   (open/draft, "1 commit" singular), "merged N commits into main" (merged),
-  "closed" (closed) — `base ← head` (mono, `text_xs`; `owner:branch` for a head in another repository, #765),
+  "closed" (closed) — `base ← head` (each name a mono copy button: a name over 32 characters is middle-truncated, the tooltip carries the full name and a click copies it, #785; mono, `text_xs`; `owner:branch` for a head in another repository, #765),
   then a labelled "updated 1d ago" (#764). The age is always the PR's
   `updatedAt` — the store summary's before the detail lands, the newer of the
   two after — never `createdAt`, so landing the detail never swaps the figure.

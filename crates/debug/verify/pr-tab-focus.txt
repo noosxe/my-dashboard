@@ -41,6 +41,8 @@ key tab
 key tab
 key tab
 key tab
+key tab
+key tab
 key enter
 wait-label "Approve gated workflow run fork-ci"
 # Focus is on a node of the new page, so the walk closes (before #818 every
