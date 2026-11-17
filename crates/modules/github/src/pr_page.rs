@@ -77,6 +77,7 @@ mod page_write_confirm;
 mod pause_gate;
 mod queue_writes;
 mod rail;
+mod range_composer;
 mod refocus;
 mod review_drafts;
 mod review_refetch;
@@ -5768,9 +5769,8 @@ pub(crate) struct LineComposer {
     /// The range's END line (GitHub's `line`/`side` fields).
     pub(crate) side: gql::DiffSide,
     pub(crate) line: u32,
-    /// #211: the range's START line when a second row was picked — same
-    /// side only in v1 (cross-side spans need diff-order rules). None =
-    /// single-line comment.
+    /// #211: the range's START line when a second row was picked or the
+    /// diff kit selected a span (#761). None = single-line comment.
     pub(crate) start: Option<(gql::DiffSide, u32)>,
     pub(crate) editor: Entity<TextareaState>,
 }
