@@ -635,6 +635,7 @@ mod tests {
                 total_count: 2,
                 nodes: vec![comment("oldcommenter"), comment("newcommenter")],
             },
+            events: Default::default(),
         }
     }
 

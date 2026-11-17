@@ -90,6 +90,7 @@ mod tab_focus;
 mod test_rig;
 pub(crate) mod threads_cap;
 pub(crate) mod threads_read;
+mod timeline_events;
 pub(crate) mod unplaced_threads;
 pub(crate) mod unresolved_count;
 mod write_refetch;
@@ -4940,8 +4941,14 @@ impl PrDetailPage {
         if hidden > 0 {
             children.push(conversation_window::older_cap_row(hidden, &d.url, cx));
         }
-        let entries = conversation_window::visible_timeline(&d.comments.nodes, &d.reviews.nodes);
-        for (kind, ix) in entries {
+        for entry in timeline_events::entries(d) {
+            let (kind, ix) = match entry {
+                timeline_events::Entry::Card(kind, ix) => (kind, ix),
+                timeline_events::Entry::Event(ix) => {
+                    children.push(timeline_events::row(ix, &d.events.nodes[ix], cx));
+                    continue;
+                }
+            };
             match kind {
                 TimelineKind::Comment => {
                     let c = &d.comments.nodes[ix];

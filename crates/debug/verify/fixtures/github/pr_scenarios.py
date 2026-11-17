@@ -353,6 +353,9 @@ class Timeline:
             closedAt=None,
             # `timelineItems(last: 1, itemTypes: [CLOSED_EVENT])`.
             timelineItems={"nodes": []},
+            # #787: `events: timelineItems(last: 100, itemTypes: [MERGED_EVENT,
+            # CLOSED_EVENT, REOPENED_EVENT, HEAD_REF_FORCE_PUSHED_EVENT])`.
+            events=self.events(),
             # Delete branch (#773): `headRef` is null once the branch is
             # gone; the gate is the viewer's permission on the head
             # repository and its default branch.
@@ -402,6 +405,7 @@ class Timeline:
             reviewRequests=requests("reviewer-d", "reviewer-e", teams=1, bots=("review-bot",)),
             reactionGroups=reactions(thumbs=2, heart=1, mine=True),
             mergeStateStatus="BLOCKED",
+            events=self.events(self.force_pushed("octo-dev", 40, "3f2a9c1", "b81d4e7")),
             statusCheckRollup=rollup("FAILURE", contexts),
             reviews=conn(
                 [
@@ -494,6 +498,32 @@ class Timeline:
             ),
         )
 
+    def events(self, *items):
+        """The conversation's event nodes, oldest first. Each item is
+        (typename, actor login or None, hours ago, extra fields)."""
+        nodes = []
+        for ix, (typename, login, hours, extra) in enumerate(items):
+            node = {
+                "__typename": typename,
+                "id": f"EV_{typename}_{ix}",
+                "createdAt": self.ago(hours),
+                "actor": user(login) if login else None,
+            }
+            node.update(extra)
+            nodes.append(node)
+        return {"filteredCount": len(nodes), "nodes": nodes}
+
+    def force_pushed(self, login, hours, before, after):
+        return (
+            "HeadRefForcePushedEvent",
+            login,
+            hours,
+            {
+                "beforeCommit": {"abbreviatedOid": before},
+                "afterCommit": {"abbreviatedOid": after},
+            },
+        )
+
     def closed_by(self, login, hours):
         """`timelineItems(last: 1, itemTypes: [CLOSED_EVENT])` for the closer."""
         return {"nodes": [{"actor": user(login), "createdAt": self.ago(hours)}]}
@@ -531,6 +561,7 @@ class Timeline:
                     mergedAt=self.ago(72),
                     mergedBy=user("octo-dev"),
                     closedAt=self.ago(72),
+                    events=self.events(("MergedEvent", "octo-dev", 72, {})),
                     mergeable="UNKNOWN",
                     mergeStateStatus="UNKNOWN",
                     changedFiles=1,
@@ -550,6 +581,7 @@ class Timeline:
                     state="CLOSED",
                     closedAt=self.ago(48),
                     timelineItems=self.closed_by(OWNER, 48),
+                    events=self.events(("ClosedEvent", OWNER, 48, {})),
                     mergeable="CONFLICTING",
                     mergeStateStatus="DIRTY",
                     **read_only,
@@ -660,6 +692,11 @@ class Timeline:
                     state="CLOSED",
                     closedAt=self.ago(48),
                     timelineItems=self.closed_by("octo-dev", 48),
+                    events=self.events(
+                        ("ClosedEvent", "octo-dev", 70, {}),
+                        ("ReopenedEvent", OWNER, 60, {}),
+                        ("ClosedEvent", "octo-dev", 48, {}),
+                    ),
                     # Reopen reads `viewerCanReopen` (#770); Delete branch
                     # reads the head repository's permission (#773). The
                     # schema's `viewerCanDeleteHeadRef` is a restore flag,

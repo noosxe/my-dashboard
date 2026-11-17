@@ -14,9 +14,11 @@
 use serde::{Deserialize, Serialize};
 
 mod head_branch;
+mod pr_events;
 mod reviewers;
 mod status;
 pub use head_branch::HeadBranch;
+pub use pr_events::{PrEvent, PrEventKind, PrEvents};
 pub use reviewers::{LatestReview, PrReviewRequest, ReviewerKind};
 pub use status::{AutoMerge, CheckCounts, Ending, Queueing};
 
@@ -718,6 +720,26 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
       timelineItems(last: 1, itemTypes: [CLOSED_EVENT]) {
         nodes { ... on ClosedEvent { actor { login } createdAt } }
       }
+      # #787: the conversation's event rows. `last`: the newest 100, still
+      # ascending, like comments and reviews. The fields ride each inline
+      # fragment (selections on the union itself are an error).
+      events: timelineItems(last: 100, itemTypes: [MERGED_EVENT, CLOSED_EVENT,
+          REOPENED_EVENT, HEAD_REF_FORCE_PUSHED_EVENT]) {
+        filteredCount
+        nodes {
+          __typename
+          ... on MergedEvent { id createdAt actor { login } }
+          ... on ClosedEvent { id createdAt actor { login } }
+          ... on ReopenedEvent { id createdAt actor { login } }
+          ... on HeadRefForcePushedEvent {
+            id
+            createdAt
+            actor { login }
+            beforeCommit { abbreviatedOid }
+            afterCommit { abbreviatedOid }
+          }
+        }
+      }
       # docs/0083 D2 rows 4-5: the verdict and its sub-line.
       isInMergeQueue
       mergeQueueEntry { position state }
@@ -976,6 +998,10 @@ pub struct PrDetail {
     pub checks: PrChecks,
     pub reviews: PrReviews,
     pub comments: PrComments,
+    /// Merged, closed, reopened and force-pushed rows (#787). Absent in
+    /// payloads persisted before the field existed.
+    #[serde(default)]
+    pub events: PrEvents,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -2297,6 +2323,7 @@ pub fn pr_detail_from_value(value: &serde_json::Value) -> Option<PrDetail> {
             total_count: comments_total,
             nodes: comments,
         },
+        events: pr_events::parse_events(pr),
     })
 }
 
