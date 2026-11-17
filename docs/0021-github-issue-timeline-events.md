@@ -203,7 +203,7 @@ events count) and the probe tests carry the automated share.
 
 ## 11. Follow-ups (GitHub issues, not this PR)
 
-- Cross-referenced / referenced event rows (interactive, `source` resolution).
+- Cross-referenced / referenced event rows (interactive, `source` resolution): designed in docs/0085 (#918).
 - Locked/unlocked rows (with #121).
 - ~~Unify the "+N more" cap-row component with #123's comments cap row.~~
   Done with #123 (2026-09-06): the row is now the shared

@@ -389,7 +389,7 @@ Two columns: main timeline (`flex_1`) + fixed ~300px right rail (D5).
   count. Parsing is tolerant (0007 D3): other node types and nodes missing a
   field drop out. Code: `gql/pr_events.rs` (wire), `pr_page/timeline_events.rs`
   (order, row) and `pr_page/timeline_events/sentence.rs` (the words, one
-  function per event family). Not yet: cross-reference events (interactive, need their own design) — #918 (part of #730).
+  function per event family). Not yet: cross-reference events (interactive); the design is docs/0085 — #918 (part of #730).
 - **Event window split** (#911): the event rows come from two aliased
   `timelineItems` selections, each `last: 100` on its own: `events` (state
   changes: merged, closed, reopened, force-pushed, ready for review,
