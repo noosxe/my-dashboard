@@ -17,10 +17,12 @@ mod head_branch;
 mod pr_events;
 mod reviewers;
 mod status;
+mod xref_events;
 pub use head_branch::HeadBranch;
 pub use pr_events::{PrEvent, PrEventKind, PrEvents};
 pub use reviewers::{LatestReview, PrReviewRequest, ReviewerKind};
 pub use status::{AutoMerge, CheckCounts, Ending, Queueing};
+pub use xref_events::{XrefEvent, XrefEvents, XrefSource, XrefState};
 
 pub const GRAPHQL_ENDPOINT: &str = "https://api.github.com/graphql";
 
@@ -786,6 +788,25 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
           ... on DemilestonedEvent { id createdAt actor { login } milestoneTitle }
         }
       }
+      # docs/0085: cross-reference rows, their own window (D2) so a burst of
+      # mentions cannot push state events out. Fields ride inline fragments
+      # (a bare selection on the ReferencedSubject union is an error).
+      references: timelineItems(last: 100, itemTypes: [CROSS_REFERENCED_EVENT]) {
+        filteredCount
+        nodes {
+          __typename
+          ... on CrossReferencedEvent {
+            id createdAt actor { login } isCrossRepository willCloseTarget
+            source {
+              __typename
+              ... on Issue { number title state stateReason url
+                             repository { nameWithOwner isPrivate } }
+              ... on PullRequest { number title state isDraft merged url
+                                   repository { nameWithOwner isPrivate } }
+            }
+          }
+        }
+      }
       # docs/0083 D2 rows 4-5: the verdict and its sub-line.
       isInMergeQueue
       mergeQueueEntry { position state }
@@ -1052,6 +1073,10 @@ pub struct PrDetail {
     /// payloads persisted before the field existed.
     #[serde(default)]
     pub events: PrEvents,
+    /// Cross-reference rows (docs/0085): their own window, parsed apart
+    /// from `events`. Absent in payloads persisted before the field existed.
+    #[serde(default)]
+    pub references: XrefEvents,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -2423,6 +2448,7 @@ pub fn pr_detail_from_value(value: &serde_json::Value) -> Option<PrDetail> {
             nodes: comments,
         },
         events: pr_events::parse_events(pr),
+        references: xref_events::parse_references(pr),
     })
 }
 

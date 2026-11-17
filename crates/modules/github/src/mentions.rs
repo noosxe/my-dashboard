@@ -636,6 +636,7 @@ mod tests {
                 nodes: vec![comment("oldcommenter"), comment("newcommenter")],
             },
             events: Default::default(),
+            references: Default::default(),
         }
     }
 
