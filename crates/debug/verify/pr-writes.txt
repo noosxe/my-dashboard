@@ -83,8 +83,8 @@ snapshot merge-sent
 # confirm, Confirm.
 mouse down 1219 334
 mouse up 1219 334 --wait-frame
-mouse down 1199 403
-mouse up 1199 403 --wait-frame
+click-label "Close pull request" --role MenuItem --exact
+wait-frame
 wait-label "Close without merging"
 snapshot close-confirm
 mouse down 1045 388
@@ -203,8 +203,8 @@ assert-no-label "Merge pull request"
 # Convert to draft sends.
 mouse down 1219 334
 mouse up 1219 334 --wait-frame
-mouse down 1199 367
-mouse up 1199 367 --wait-frame
+click-label "Convert to draft" --role MenuItem --exact
+wait-frame
 wait-label "Convert to draft? Reviewers"
 snapshot convert-confirm
 key esc
@@ -213,8 +213,8 @@ assert-label "Conversation (2)"
 assert-label "Squash and merge"
 mouse down 1219 334
 mouse up 1219 334 --wait-frame
-mouse down 1199 367
-mouse up 1199 367 --wait-frame
+click-label "Convert to draft" --role MenuItem --exact
+wait-frame
 wait-label "Convert to draft? Reviewers"
 mouse down 1025 411
 mouse up 1025 411 --wait-frame
@@ -339,8 +339,8 @@ assert-no-label "Enable auto-merge with squash? It merges once the requirements 
 assert-label "Enable auto-merge"
 mouse down 1187 334
 mouse up 1187 334 --wait-frame
-mouse down 1105 423
-mouse up 1105 423 --wait-frame
+click-label "Rebase and merge" --role MenuItem --exact
+wait-frame
 mouse down 1071 334
 mouse up 1071 334 --wait-frame
 wait-label "Enable auto-merge with rebase? It merges once the requirements pass."

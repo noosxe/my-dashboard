@@ -361,24 +361,20 @@ fn split_button(
                     let mut next = menu;
                     for m in methods.iter().copied() {
                         let item_weak = weak.clone();
-                        let probe = format!("pr-merge-method-{}", m.as_str().to_lowercase());
                         next = next.item(
-                            PopupMenuItem::element(move |_, _| {
-                                let key = probe.clone();
-                                h_flex()
-                                    .debug_selector(move || key.clone())
-                                    .child(m.label())
-                            })
-                            .checked(current == Some(m))
-                            .on_click(move |_, window, cx| {
-                                let item_weak = item_weak.clone();
-                                window.defer(cx, move |_, cx| {
-                                    let _ = item_weak.update(cx, |page, cx| {
-                                        page.merge_method = Some(m);
-                                        cx.notify();
+                            // A labelled item, so it shows in `tree` as a
+                            // named `MenuItem` (docs/0067 D7).
+                            PopupMenuItem::new(m.label())
+                                .checked(current == Some(m))
+                                .on_click(move |_, window, cx| {
+                                    let item_weak = item_weak.clone();
+                                    window.defer(cx, move |_, cx| {
+                                        let _ = item_weak.update(cx, |page, cx| {
+                                            page.merge_method = Some(m);
+                                            cx.notify();
+                                        });
                                     });
-                                });
-                            }),
+                                }),
                         );
                     }
                     next
@@ -401,7 +397,8 @@ fn more_menu(items: Vec<MenuItem>, busy: bool, cx: &Context<PrDetailPage>) -> An
                 .accessibility_label("More pull request actions")
                 .tooltip("More pull request actions")
                 .disabled(busy)
-                .dropdown_menu(move |menu, _, _| {
+                .dropdown_menu(move |menu, _, cx| {
+                    let danger = cx.theme().danger;
                     let mut next = menu;
                     for item in items.iter().copied() {
                         match item {
@@ -409,17 +406,13 @@ fn more_menu(items: Vec<MenuItem>, busy: bool, cx: &Context<PrDetailPage>) -> An
                             MenuItem::Close => {
                                 let item_weak = weak.clone();
                                 next = next.item(
-                                    PopupMenuItem::element(|_, cx| {
-                                        // Probe-visible row (0010 D10). The upstream
-                                        // MenuItem of a custom element has no a11y
-                                        // name; the receipts click it by this key.
-                                        h_flex()
-                                            .debug_selector(|| "pr-close".to_string())
-                                            .text_color(cx.theme().danger)
-                                            .child("Close pull request")
-                                    })
-                                    .on_click(
-                                        move |_, window, cx| {
+                                    // Labelled, so the row is a named `MenuItem`.
+                                    // A named item cannot take a text colour:
+                                    // the danger tint rides on the glyph, as in
+                                    // the card menu's Delete.
+                                    PopupMenuItem::new("Close pull request")
+                                        .icon(Icon::new(IconName::CircleX).text_color(danger))
+                                        .on_click(move |_, window, cx| {
                                             let item_weak = item_weak.clone();
                                             window.defer(cx, move |window, cx| {
                                                 let _ = item_weak.update(cx, |page, cx| {
@@ -430,33 +423,25 @@ fn more_menu(items: Vec<MenuItem>, busy: bool, cx: &Context<PrDetailPage>) -> An
                                                     )
                                                 });
                                             });
-                                        },
-                                    ),
+                                        }),
                                 );
                             }
                             MenuItem::ConvertToDraft => {
                                 let item_weak = weak.clone();
-                                next = next.item(
-                                    PopupMenuItem::element(|_, _| {
-                                        h_flex()
-                                            .debug_selector(|| "pr-more-draft".to_string())
-                                            .child("Convert to draft")
-                                    })
-                                    .on_click(
-                                        move |_, window, cx| {
-                                            let item_weak = item_weak.clone();
-                                            window.defer(cx, move |window, cx| {
-                                                let _ = item_weak.update(cx, |page, cx| {
-                                                    page.open_merge_confirm(
-                                                        ConfirmKind::ConvertToDraft,
-                                                        window,
-                                                        cx,
-                                                    )
-                                                });
+                                next = next.item(PopupMenuItem::new("Convert to draft").on_click(
+                                    move |_, window, cx| {
+                                        let item_weak = item_weak.clone();
+                                        window.defer(cx, move |window, cx| {
+                                            let _ = item_weak.update(cx, |page, cx| {
+                                                page.open_merge_confirm(
+                                                    ConfirmKind::ConvertToDraft,
+                                                    window,
+                                                    cx,
+                                                )
                                             });
-                                        },
-                                    ),
-                                );
+                                        });
+                                    },
+                                ));
                             }
                         }
                     }

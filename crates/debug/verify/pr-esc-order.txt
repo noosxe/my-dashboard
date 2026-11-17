@@ -30,10 +30,10 @@ wait-label "Conversation (252)"
 
 # Update's caret → rebase arms the force-push confirm, under the
 # Mergeability row (docs/0083 D3).
-mouse down 1221 400
-mouse up 1221 400 --wait-frame
-mouse down 1128 459
-mouse up 1128 459 --wait-frame
+click-label "Choose how to update the branch"
+wait-frame
+click-label "Update with rebase" --role MenuItem --exact
+wait-frame
 wait-label "Rebase branch"
 snapshot rebase-confirm
 

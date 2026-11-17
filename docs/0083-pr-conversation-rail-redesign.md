@@ -791,11 +791,15 @@ What the status-block PR settled where this doc left room, or changed:
 - **Merged glyph tone.** The header badge's Merged tone is `accent`, a
   near-neutral in the default themes, so as a thin icon it vanishes. The
   merged glyph takes the `info` slot.
-- **Menu items have no a11y name.** The upstream `PopupMenu` names only its
-  plain `Item` variant; the custom-element rows the probe keys need
-  (`pr-close`, `pr-update-branch-*`, `pr-merge-method-*`) get a `MenuItem`
-  node with no label. D14's "visible label" name for them waits on an
-  upstream label for element items; the receipts click them by position.
+- **Menu items are named.** The upstream `PopupMenu` names only its plain
+  `Item` variant, so every rail menu row (Update caret, merge-method caret,
+  `⋯` menu's Close pull request and Convert to draft) is built with
+  `PopupMenuItem::new(label)` and shows in `tree` as a `MenuItem` named with
+  its visible label (D14). The rows lose their probe keys (`pr-close`,
+  `pr-more-draft`, `pr-update-branch-*`, `pr-merge-method-*`): receipts and
+  tests click them by name. A named item cannot take a text colour, so Close
+  pull request is told apart by a danger-tinted glyph, as the card menu's
+  Delete is.
 - **The Update button gives way to the rebase confirm** while it is open
   (docs/0067 D4), as it replaced the old row; Cancel brings it back. It is
   small (`xsmall`) so "No conflicts, behind `<base>`" keeps most of the row,
@@ -835,7 +839,7 @@ Reopen (#770) and the default merge method (#776) settled:
   is an outline button, Ready for review is the accent one. A draft's row
   is Ready for review plus `⋯`; a closed PR's was Reopen alone until Delete branch joined it (§8c, which also
   changes the equal-width cells of the quiet buttons).
-- **Convert to draft** is the first item in the `⋯` menu (`pr-more-draft`)
+- **Convert to draft** is the first item in the `⋯` menu (a `MenuItem` named "Convert to draft")
   and opens the third confirm kind (`pr-convert-confirm*`), with the same
   rules as Merge and Close: one at a time, re-checked on confirm, closed by
   itself when the gate shuts, Esc backs out without a write.
