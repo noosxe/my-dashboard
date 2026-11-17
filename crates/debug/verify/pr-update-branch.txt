@@ -74,8 +74,8 @@ snapshot menu
 snapshot menu-tree
 
 # Rebase arms the confirm under the row; the button gives way to it.
-mouse down 1128 360
-mouse up 1128 360 --wait-frame
+click-label "Update with rebase" --role MenuItem --exact
+wait-frame
 wait-label "Rebase branch"
 assert-label "force-push the branch"
 assert-no-label "Choose how to update the branch"
@@ -91,8 +91,8 @@ assert-no-label "Rebase branch"
 # Rebase for real: confirm, send.
 mouse down 1221 301
 mouse up 1221 301 --wait-frame
-mouse down 1128 360
-mouse up 1128 360 --wait-frame
+click-label "Update with rebase" --role MenuItem --exact
+wait-frame
 wait-label "Rebase branch"
 mouse down 1022 411
 mouse up 1022 411 --wait-frame

@@ -242,8 +242,8 @@ wait-label "Merge pull request"
 assert-no-label "Confirm merge"
 mouse down 1219 334
 mouse up 1219 334 --wait-frame
-mouse down 1199 403
-mouse up 1199 403 --wait-frame
+click-label "Close pull request" --role MenuItem --exact
+wait-frame
 assert-label "Close this pull request without merging? It can be reopened later."
 assert-label "Close without merging"
 assert-no-label "Merge pull request"
@@ -251,8 +251,8 @@ key esc
 wait-label "More pull request actions"
 mouse down 1219 334
 mouse up 1219 334 --wait-frame
-mouse down 1199 403
-mouse up 1199 403 --wait-frame
+click-label "Close pull request" --role MenuItem --exact
+wait-frame
 wait-label "Close without merging"
 mouse down 1161 388
 mouse up 1161 388 --wait-frame
