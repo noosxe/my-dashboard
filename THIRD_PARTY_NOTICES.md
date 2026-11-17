@@ -61,6 +61,8 @@ label the GitHub integration.
 - `crates/app/assets/macos/AppIcon.svg` and the generated
   `AppIcon.icns`: the glyph is Lucide's `gallery-vertical-end`
   (docs/0079 D1), which is not one of Lucide's Feather-derived icons.
+- `crates/app/assets/icons/circle-dot.svg` and `circle-dashed.svg`: the
+  state pills' Open and Draft glyphs, copied unchanged from Lucide.
 
 Source: <https://github.com/lucide-icons/lucide>.
 

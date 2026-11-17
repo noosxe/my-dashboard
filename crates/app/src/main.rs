@@ -14,7 +14,8 @@ const MIN_SIZE: (f32, f32) = (900., 600.);
 /// Asset source: gpui-component's embedded set + our own icons (the GitHub
 /// Asset source: gpui-component's embedded set + our own icons (GitHub mark;
 /// private-repo lock; the Commits tab's branch glyph — all octicons,
-/// @primer/octicons 19.33.0).
+/// @primer/octicons 19.33.0; the state pills' `circle-dot` and
+/// `circle-dashed` are Lucide, ISC).
 struct AppAssets;
 
 impl gpui::AssetSource for AppAssets {
@@ -47,6 +48,16 @@ impl gpui::AssetSource for AppAssets {
         if path == "icons/git-merge.svg" {
             return Ok(Some(std::borrow::Cow::Borrowed(include_bytes!(
                 "../assets/icons/git-merge.svg",
+            ) as &[u8])));
+        }
+        if path == "icons/circle-dot.svg" {
+            return Ok(Some(std::borrow::Cow::Borrowed(include_bytes!(
+                "../assets/icons/circle-dot.svg",
+            ) as &[u8])));
+        }
+        if path == "icons/circle-dashed.svg" {
+            return Ok(Some(std::borrow::Cow::Borrowed(include_bytes!(
+                "../assets/icons/circle-dashed.svg",
             ) as &[u8])));
         }
         gpui_kit_assets::Assets.load(path)

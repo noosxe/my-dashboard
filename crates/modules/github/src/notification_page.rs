@@ -36,7 +36,6 @@ use gpui::*;
 
 use gpui_component::{
     ActiveTheme, Disableable, Icon, IconName, Sizable as _,
-    badge::Badge,
     button::{Button, ButtonVariants},
     group_box::GroupBox,
     h_flex,
@@ -46,6 +45,7 @@ use gpui_component::{
 
 use crate::api;
 use crate::page::notification_url;
+use crate::state_pill::{Glyph, Tone, label_chip, state_pill};
 use crate::usage::{Origin, Surface, Trigger};
 use dashboard_core::freshness::{Freshness, freshness_row, relative_age};
 use std::time::Duration;
@@ -502,25 +502,14 @@ impl NotificationDetailPage {
                             .gap_2()
                             .items_center()
                             .flex_wrap()
-                            .child(Badge::new().xsmall().child(n.subject.kind.clone()))
+                            .child(label_chip(n.subject.kind.clone()))
                             .when_some(n.reason.as_deref(), |row, reason| {
-                                row.child(
-                                    Badge::new()
-                                        .xsmall()
-                                        .color(cx.theme().muted_foreground)
-                                        .child(reason.to_string()),
-                                )
+                                row.child(label_chip(reason.to_string()))
                             })
                             .child(if self.read {
-                                Badge::new()
-                                    .xsmall()
-                                    .color(cx.theme().muted_foreground)
-                                    .child("Read")
+                                state_pill(Tone::Muted, Glyph::Check, "Read")
                             } else {
-                                Badge::new()
-                                    .xsmall()
-                                    .color(cx.theme().warning)
-                                    .child("Unread")
+                                state_pill(Tone::Warning, Glyph::Bell, "Unread")
                             })
                             .when(
                                 self.thread.is_loading()

@@ -34,6 +34,7 @@ mod rate_pause;
 mod run_jobs;
 pub mod service;
 pub mod settings;
+mod state_pill;
 mod tab_escape;
 mod tab_strip;
 pub mod usage;

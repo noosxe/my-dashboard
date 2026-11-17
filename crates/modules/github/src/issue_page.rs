@@ -29,7 +29,6 @@ use std::time::Duration;
 use gpui_component::{
     ActiveTheme, Disableable, IconName, Sizable as _,
     avatar::Avatar,
-    badge::Badge,
     button::{Button, ButtonVariants},
     checkbox::Checkbox,
     group_box::GroupBox,
@@ -59,6 +58,7 @@ use crate::pr_page::{
 use crate::service::{
     FetchSpec, GithubState, IssuePendingKind, Kind, Mutation, run_mutation, run_spec_tracked,
 };
+use crate::state_pill::{Glyph, Tone, state_pill};
 use crate::usage::{Origin, Surface, Trigger};
 use dashboard_core::freshness::{Freshness, freshness_row, relative_age};
 
@@ -1649,12 +1649,10 @@ impl IssueDetailPage {
             .gap_2()
             .items_center()
             .flex_wrap()
-            .child(
-                Badge::new()
-                    .xsmall()
-                    .color(badge_color(badge_tone, cx))
-                    .child(badge_label),
-            )
+            .child({
+                let (tone, glyph) = badge_look(badge_tone);
+                state_pill(tone, glyph, badge_label)
+            })
             .child(page_title(title))
             .child(
                 div()
@@ -3015,11 +3013,11 @@ pub(crate) fn issue_badge(
     }
 }
 
-fn badge_color(tone: IssueBadgeTone, cx: &Context<IssueDetailPage>) -> Hsla {
+fn badge_look(tone: IssueBadgeTone) -> (Tone, Glyph) {
     match tone {
-        IssueBadgeTone::Open => cx.theme().success,
-        IssueBadgeTone::Closed => cx.theme().danger,
-        IssueBadgeTone::Unknown => cx.theme().muted_foreground,
+        IssueBadgeTone::Open => (Tone::Success, Glyph::Open),
+        IssueBadgeTone::Closed => (Tone::Danger, Glyph::Cross),
+        IssueBadgeTone::Unknown => (Tone::Muted, Glyph::Info),
     }
 }
 

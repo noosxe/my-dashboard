@@ -193,7 +193,7 @@ Out (non-goals):
   chrome; `selected_index` + `on_click` drive an enum in our state.
 - `ui::input::textarea::{Textarea, TextareaState}` — multiline input with
   `.h/.appearance/.bordered/.disabled/.role/.aria_label`.
-- `ui::{Badge, GroupBox, Skeleton, Button}` (Button has the `danger` variant
+- `ui::{Tag, GroupBox, Skeleton, Button}` (state pills: see below; upstream `Badge` is a count/dot overlay and paints nothing for a state word, #740) (Button has the `danger` variant
   used by settings.rs), `Select` (0009), `List` delegate infra.
 - Theme: semantic `success/danger/warning` (+foregrounds) tokens; a
   `mono_font_family` token for SHAs/paths/diff text — no literal colors or
@@ -294,8 +294,9 @@ pub struct GithubPage {
 └───────────────────────────────────────────────┴──────────────┘
 ```
 
-- **Header:** state badge (`Open` success / `Draft` muted / `Merged` accent /
-  `Closed` danger), `text_lg` semibold title, muted `#number`, refresh +
+- **Header:** state pill (#740; `Open` success / `Draft` muted / `Merged` info, the
+  rail's merged slot / `Closed` danger), each paired with a glyph (docs/0065
+  Appendix A item 17), `text_lg` semibold title, muted `#number`, refresh +
   open-on-GitHub icon buttons (icon-only ⇒ tooltip, [DG]). Meta line: author
   avatar + login, "wants to merge N commits", `base ← head` (mono, `text_xs`; `owner:branch` for a head in another repository, #765),
   then a labelled "updated 1d ago" (#764). The age is always the PR's
@@ -347,8 +348,8 @@ Two columns: main timeline (`flex_1`) + fixed ~300px right rail (D5).
   at 40 with internal scrolling, matching GitHub's edit box behavior.
 - **Timeline:** `comments` and `reviews` (with non-empty bodies) merged and
   sorted ascending by timestamp (stable merge — pure fn, table-tested). A
-  review row renders its state as a badge (`APPROVED` success /
-  `CHANGES_REQUESTED` danger / `COMMENTED` muted) beside the author + age,
+  review row renders its state as a pill (`APPROVED` success, check /
+  `CHANGES_REQUESTED` danger, alert / `COMMENTED` muted, info) beside the author + age,
   body below, same card visual as comments.
 - **Comment box** (bottom, sticky end of the scroll region): `Textarea` +
   action `Select` (**Comment** / **Approve** / **Request changes**) + primary
@@ -843,3 +844,16 @@ same seam (0007 §10).
   finishing after the page closed still voids the cached detail.
 - Rules and reasons: docs/0072 D3/D4. **Code**: `pr_page/head_change.rs`,
   `pr_page/page_write_confirm.rs` (`mergeable_poll.rs` is removed).
+
+### State pills (#740)
+
+One helper, `state_pill` in the github module, draws every state word as a
+gpui-component `Tag` (the pinned rev's status chip; `Badge` stays for counts
+and dots only): a tone picks the `Tag` variant (success, merged → info, danger,
+warning, muted → secondary) and a glyph pairs the colour with an icon
+(docs/0065 Appendix A item 17). Surfaces: the PR header and review cards, the
+Files tab (change type, thread resolved/outdated, pending drafts), the issue
+page header (Open / Closed), the notification page (Read / Unread; kind and
+reason are plain label chips with no state meaning) and the repo list's Draft
+chip. The Open and Draft glyphs are vendored Lucide icons the app's asset
+source serves (`circle-dot`, `circle-dashed`).
