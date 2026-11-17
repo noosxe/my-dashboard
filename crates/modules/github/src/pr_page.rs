@@ -4430,7 +4430,9 @@ impl PrDetailPage {
                 d.number,
                 d.author.clone(),
                 d.base_ref.clone(),
-                d.head_ref.clone(),
+                d.head_ref
+                    .as_deref()
+                    .map(|h| header_meta::head_label(h, d.head_fork_owner.as_deref())),
             ),
             // docs/0073 D4 — no page-local snapshot: the header paints
             // from the store's entry (the lane landed it before the page
@@ -4503,6 +4505,9 @@ impl PrDetailPage {
                             .when_some(branch_meta, |row, meta| {
                                 row.child(
                                     div()
+                                        .id("pr-branch-meta")
+                                        .role(accesskit::Role::Group)
+                                        .aria_label(format!("Branches: {meta}"))
                                         .font_family(cx.theme().mono_font_family.clone())
                                         .text_xs()
                                         .child(meta),

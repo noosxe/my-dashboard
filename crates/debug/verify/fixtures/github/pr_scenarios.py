@@ -711,6 +711,7 @@ class Timeline:
                     mergeable="UNKNOWN",
                     mergeStateStatus="UNKNOWN",
                     isCrossRepository=True,
+                    headRepositoryOwner={"login": "fork-user"},
                     headRepository={"viewerPermission": "READ", "defaultBranchRef": {"name": "main"}},
                     changedFiles=1,
                     files={"totalCount": 1},

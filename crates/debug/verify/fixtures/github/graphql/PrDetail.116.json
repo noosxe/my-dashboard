@@ -57,6 +57,9 @@
      },
      "viewerPermission": "READ"
     },
+    "headRepositoryOwner": {
+     "login": "fork-user"
+    },
     "id": "PR_116",
     "isCrossRepository": true,
     "isDraft": false,

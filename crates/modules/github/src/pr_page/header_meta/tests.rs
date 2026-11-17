@@ -85,3 +85,9 @@ fn newer_of_detail_and_summary_updated_wins() {
     let m = header_meta(Some(&d), Some(&summary(false, Some(ago(0)), "u")), REPO, 7);
     assert_eq!(m.updated.as_deref(), Some("updated just now"));
 }
+
+#[test]
+fn head_label_names_the_fork_owner() {
+    assert_eq!(super::head_label("fix", None), "fix");
+    assert_eq!(super::head_label("fix", Some("fork-user")), "fork-user:fix");
+}

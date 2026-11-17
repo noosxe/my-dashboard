@@ -294,7 +294,7 @@ pub struct GithubPage {
 - **Header:** state badge (`Open` success / `Draft` muted / `Merged` accent /
   `Closed` danger), `text_lg` semibold title, muted `#number`, refresh +
   open-on-GitHub icon buttons (icon-only ⇒ tooltip, [DG]). Meta line: author
-  avatar + login, "wants to merge N commits", `base ← head` (mono, `text_xs`),
+  avatar + login, "wants to merge N commits", `base ← head` (mono, `text_xs`; `owner:branch` for a head in another repository, #765),
   then a labelled "updated 1d ago" (#764). The age is always the PR's
   `updatedAt` — the store summary's before the detail lands, the newer of the
   two after — never `createdAt`, so landing the detail never swaps the figure.

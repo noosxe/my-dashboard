@@ -56,6 +56,19 @@ pub(crate) fn parse_head_branch(pr: &Value) -> Option<HeadBranch> {
     })
 }
 
+/// The head repository's owner login for a cross-repository PR (#765).
+/// A same-repository PR, or a fork whose owner is gone (`null`), gives
+/// `None`: the header then shows the plain branch name.
+pub(crate) fn parse_head_fork_owner(pr: &Value) -> Option<String> {
+    if pr.get("isCrossRepository").and_then(Value::as_bool) != Some(true) {
+        return None;
+    }
+    pr.pointer("/headRepositoryOwner/login")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -69,6 +82,18 @@ mod tests {
                 "defaultBranchRef": {"name": default},
             },
         })
+    }
+
+    #[test]
+    fn fork_owner_only_for_cross_repository_prs() {
+        let fork =
+            json!({"isCrossRepository": true, "headRepositoryOwner": {"login": "fork-user"}});
+        assert_eq!(parse_head_fork_owner(&fork).as_deref(), Some("fork-user"));
+        let same = json!({"isCrossRepository": false, "headRepositoryOwner": {"login": "o"}});
+        assert_eq!(parse_head_fork_owner(&same), None);
+        let gone = json!({"isCrossRepository": true, "headRepositoryOwner": null});
+        assert_eq!(parse_head_fork_owner(&gone), None);
+        assert_eq!(parse_head_fork_owner(&json!({})), None);
     }
 
     #[test]

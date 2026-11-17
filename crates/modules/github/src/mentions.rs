@@ -606,6 +606,7 @@ mod tests {
             ending: Default::default(),
             queueing: Default::default(),
             head_branch: None,
+            head_fork_owner: None,
             review_decision: None,
             latest_opinionated_reviews: Vec::new(),
             latest_reviews: Vec::new(),

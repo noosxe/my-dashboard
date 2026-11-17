@@ -311,6 +311,8 @@ mouse up 900 337
 wait-label "Conversation (0)"
 assert-label "Merged. This pull request was merged"
 assert-no-label "Delete branch"
+# The header names the fork's owner on the head branch (#765).
+assert-label "Branches: main ← fork-user:"
 
 # Auto-merge and the merge queue (docs/0083 D4, #774, #775). 117: blocked,
 # the repository allows auto-merge, three methods with squash preselected.
