@@ -7,12 +7,12 @@ use gpui::*;
 use gpui_component::{
     Disableable as _, Icon, Sizable as _,
     button::{Button, ButtonVariants as _},
-    h_flex,
     menu::{DropdownMenu as _, PopupMenuItem},
 };
 
 use super::{PrDetailPage, gql};
 use crate::issue_page::reaction_direction;
+use crate::reaction_menu::reaction_row_label;
 
 impl PrDetailPage {
     /// The header's add-reaction button, `None` when the viewer cannot react.
@@ -60,39 +60,24 @@ impl PrDetailPage {
                         .unwrap_or(0);
                     let subject = subject_id.clone();
                     let item_weak = weak.clone();
-                    let probe = format!("pr-reaction-pick-{}", content.wire());
                     next = next.item(
-                        PopupMenuItem::element(move |_, _| {
-                            // Probe-visible row (0010 D10) — the
-                            // plain Item variant is not.
-                            let key = probe.clone();
-                            h_flex()
-                                .debug_selector(move || key.clone())
-                                .gap_2()
-                                .child(format!(
-                                    "{} {} ({})",
-                                    content.glyph(),
-                                    content.label(),
-                                    count
-                                ))
-                                .when(armed, |row| row.child("· you"))
-                        })
-                        .checked(armed)
-                        .disabled(busy)
-                        .on_click(move |_, window, cx| {
-                            // The click dispatches inside the window's
-                            // update — any re-entrant window update here
-                            // fails ("window not found"). Defer to the end
-                            // of the effect cycle, then post from the live
-                            // context (the page.rs spawn pattern, inline).
-                            let weak = item_weak.clone();
-                            let subject = subject.clone();
-                            window.defer(cx, move |window, cx| {
-                                let _ = weak.update(cx, |page, cx| {
-                                    page.toggle_reaction(subject, armed, content, window, cx)
+                        PopupMenuItem::new(reaction_row_label(content, count))
+                            .checked(armed)
+                            .disabled(busy)
+                            .on_click(move |_, window, cx| {
+                                // The click dispatches inside the window's
+                                // update — any re-entrant window update here
+                                // fails ("window not found"). Defer to the end
+                                // of the effect cycle, then post from the live
+                                // context (the page.rs spawn pattern, inline).
+                                let weak = item_weak.clone();
+                                let subject = subject.clone();
+                                window.defer(cx, move |window, cx| {
+                                    let _ = weak.update(cx, |page, cx| {
+                                        page.toggle_reaction(subject, armed, content, window, cx)
+                                    });
                                 });
-                            });
-                        }),
+                            }),
                     );
                 }
                 next

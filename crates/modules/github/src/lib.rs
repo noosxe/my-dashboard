@@ -32,6 +32,7 @@ mod pickers;
 pub mod pr_page;
 mod pr_summary;
 mod rate_pause;
+mod reaction_menu;
 mod run_jobs;
 pub mod service;
 pub mod settings;
