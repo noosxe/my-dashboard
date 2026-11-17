@@ -774,6 +774,8 @@ pub(crate) struct PrDetailPage {
     pub(crate) view_select: Entity<SelectState<SearchableVec<SharedString>>>,
     pub(crate) file_filter: Entity<InputState>,
     pub(crate) file_list: Entity<ListState<FileListDelegate>>,
+    /// The Commits tab's virtual list (#912): one tab stop, built once.
+    commits_list: Entity<ListState<commits_list::PrCommitsDelegate>>,
     pub(crate) file_tree: Entity<TreeState>,
     /// Files-split pane seam (docs/0069): upstream resizable state for
     /// the group, the seam handle's keyboard focus, and the seeded
@@ -989,6 +991,7 @@ impl PrDetailPage {
             view_select: view_select.clone(),
             file_filter: file_filter.clone(),
             file_list: file_list.clone(),
+            commits_list: commits_list::new_list(window, cx),
             file_tree: file_tree.clone(),
             files_split: files_split.clone(),
             files_handle_focus,
@@ -4630,7 +4633,23 @@ impl PrDetailPage {
         if d.commits.nodes.is_empty() {
             return empty_cell("No commits yet", cx);
         }
-        commits_list::commits_list(d, cx)
+        commits_list::commits_list(&self.commits_list, d, cx)
+    }
+
+    /// Push the PR's commits into the Commits tab's list while the tab
+    /// shows (compare-first: an unchanged window does not notify).
+    fn sync_commits_list(&mut self, cx: &mut Context<Self>) {
+        if self.tab != PrTab::Commits {
+            return;
+        }
+        let Some(rows) = self.detail(cx).map(commits_list::rows) else {
+            return;
+        };
+        self.commits_list.update(cx, |list, cx| {
+            if list.delegate_mut().set_rows(rows) {
+                cx.notify();
+            }
+        });
     }
 
     /// Checks tab (D7): summary header outside the scroll (derived
@@ -5298,6 +5317,7 @@ impl Render for PrDetailPage {
         self.restore_timeline_anchor(window);
         self.sync_comment_actions(window, cx);
         self.sync_diff(cx);
+        self.sync_commits_list(cx);
         self.sync_merge_confirm(cx);
         self.sync_leave_confirm(cx);
         // docs/0026 D9: fire the armed jump the frame the target card

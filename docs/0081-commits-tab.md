@@ -1094,12 +1094,15 @@ that is part of the lane key, not a docs/0042 chip.
 The PR detail page's Commits tab renders this tab's row instead of its own
 sparser one. The row, its accessible name, the copy-SHA button and the day
 header live in `commit_row.rs`; `commits.rs` (the virtual list and its
-delegate) and `pr_page/commits_list.rs` (the PR's scroll of day sections) both
-call it. The PR query reads the extra per-commit fields and
-`gql::PrCommit::to_row` adapts them to `CommitRow`. The PR list is not
-virtualized (at most the newest 100 commits, docs/0016 D6), keeps the
-connection's oldest-first order, and has no keyboard path to a row yet, so
-the copy button there is pointer-only.
+delegate) and `pr_page/commits_list.rs` (the PR's delegate over the same
+`List`, #912) both call it. The PR query reads the extra per-commit fields and
+`gql::PrCommit::to_row` adapts them to `CommitRow`. The PR list keeps the
+connection's oldest-first order (at most the newest 100 commits, docs/0016
+D6) and has the repo tab's keyboard (D6): one tab stop, ↑/↓ to select, Enter
+opens the commit, ⌘/Ctrl+Enter copies the SHA. The list's group is named
+"Commits in this pull request". Committer dates aren't monotonic, so a day
+can head two sections; the header ids carry the section's first row index
+(a duplicate a11y id panics in dev builds).
 
 ## 10 Mockup
 

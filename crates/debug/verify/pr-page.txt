@@ -65,6 +65,10 @@ mouse down 447 155
 mouse up 447 155 --wait-frame
 wait-frame
 assert-no-label "Leave a comment"
+# The Commits list is one tab stop (#912, docs/0081 D6), not a stop per row.
+assert-label "Commits in this pull request"
+tab-stops
+audit
 mouse down 535 155
 mouse up 535 155 --wait-frame
 wait-label "Approve gated workflow run fork-ci"
