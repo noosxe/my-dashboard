@@ -405,7 +405,7 @@ scripts/verify.sh sh -c '
 `pr-tab-focus.txt` (session `tabfocus`, same fixtures and clock) is the
 receipt for #818: on #109 it Tabs to the rail's Checks row, presses Enter, and
 the `tab-stops` walk on the Checks tab closes its cycle instead of reporting a
-focus with no a11y node.
+focus with no a11y node. It then opens #101's Files changed tab and walks it (#735): every stop is named and the cycle closes in 19 stops.
 
 `repo-tabs-keyboard.txt` (session `repotabs`, same fixtures and clock) does the
 same for the repo view's tab strip (#868): Tab from the rows filter lands on

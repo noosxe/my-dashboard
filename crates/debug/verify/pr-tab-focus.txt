@@ -12,6 +12,7 @@
 #   dashboard-debug session start --name tabfocus --size 1280x800 \
 #     --binary /tmp/target/debug/my-dashboard
 # Run (in-container): dashboard-debug run crates/debug/verify/pr-tab-focus.txt
+# (the Files section at the end opens #101 from the list, same session)
 #
 # Clicks are bridge mouse clicks at the controls' centres, frozen at
 # 1280x800 (see pr-gated-runs.txt).
@@ -44,4 +45,20 @@ key enter
 wait-label "Approve gated workflow run fork-ci"
 # Focus is on a node of the new page, so the walk closes (before #818 every
 # step read "focus on an element without an a11y node").
+tab-stops
+
+# The Files changed tab's walk (#735): every stop carries an a11y node and
+# the cycle closes. The stops are the strip, the view-mode select, the file
+# filter, the diff document, its collapse toggle and each thread's buttons;
+# the "(focus on an element without an a11y node)" line the walk prints for a
+# stop with no node never appears. Its 100-line run came from a focus left on
+# the previous tab's unmounted content (#818), not from a Files element.
+click 12782369444481205663 --wait-frame
+wait-label "PR #108: Loader: a PR that fails its detail read"
+mouse down 900 337
+mouse up 900 337
+wait-label "Conversation (5)"
+mouse down 639 155
+mouse up 639 155 --wait-frame
+wait-label "Diff for crates/manifest/src/parser.rs"
 tab-stops
