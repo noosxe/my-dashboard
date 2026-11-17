@@ -50,8 +50,11 @@ In:
   tab and wrap, Home/End jump to the first and last, Enter or Space selects
   the focused tab (manual activation), and the next Tab moves on. A pointer
   press on a tab does not focus it upstream, so `tab_strip` hands focus to
-  the strip (a handle that is not a Tab stop), and focus never stays on
-  content the tab switch unmounts. `tab_strip` wraps the bar in a group
+  the strip (a handle that is not a Tab stop). Focus never stays on
+  content the tab switch unmounts (#818): whatever changes the tab — the
+  strip, or the rail's Checks row — a focus inside the old tab's content moves
+  to the strip on the next frame, and a focus on the strip or the header is
+  left alone. `tab_strip` wraps the bar in a group
   named "Pull request sections: <selected tab>"; each tab keeps the upstream
   `Tab` role with its selected state.
 - **Tab leaves text fields (#733):** Tab and Shift-Tab move focus out of every
