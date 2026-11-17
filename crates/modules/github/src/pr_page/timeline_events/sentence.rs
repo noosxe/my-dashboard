@@ -16,6 +16,8 @@ pub(super) struct LabelRef {
 pub(super) struct Sentence {
     pub lead: String,
     pub label: Option<LabelRef>,
+    /// A person or team the event names, in the actor's emphasis.
+    pub subject: Option<String>,
     pub tail: String,
 }
 
@@ -24,6 +26,7 @@ impl Sentence {
         Self {
             lead: lead.into(),
             label: None,
+            subject: None,
             tail: String::new(),
         }
     }
@@ -34,6 +37,7 @@ impl Sentence {
         [
             Some(self.lead.as_str()),
             self.label.as_ref().map(|l| l.name.as_str()),
+            self.subject.as_deref(),
             Some(self.tail.as_str()),
         ]
         .into_iter()
@@ -58,6 +62,20 @@ pub(super) fn sentence(kind: &PrEventKind, actor: Option<&str>) -> Sentence {
         PrEventKind::Unlabeled { name, color } => label("removed the", name, color),
         PrEventKind::Assigned { assignee } => assignment("assigned", assignee, actor),
         PrEventKind::Unassigned { assignee } => assignment("unassigned", assignee, actor),
+        PrEventKind::ReviewRequested { reviewer } => request("requested a review from", reviewer),
+        PrEventKind::ReviewRequestRemoved { reviewer } => {
+            request("removed the review request for", reviewer)
+        }
+    }
+}
+
+/// Review requested / removed: "requested a review from [reviewer]".
+fn request(lead: &str, reviewer: &str) -> Sentence {
+    Sentence {
+        lead: lead.into(),
+        label: None,
+        subject: Some(reviewer.into()),
+        tail: String::new(),
     }
 }
 
@@ -75,7 +93,8 @@ fn assignment(verb: &str, assignee: &str, actor: Option<&str>) -> Sentence {
     Sentence {
         lead: verb.into(),
         label: None,
-        tail: assignee.into(),
+        subject: Some(assignee.into()),
+        tail: String::new(),
     }
 }
 
@@ -87,6 +106,7 @@ fn label(lead: &str, name: &str, color: &Option<String>) -> Sentence {
             name: name.into(),
             color: color.clone(),
         }),
+        subject: None,
         tail: "label".into(),
     }
 }
@@ -107,6 +127,24 @@ mod tests {
             color: None,
         };
         assert_eq!(sentence(&k, None).text(), "removed the bug label");
+    }
+
+    #[test]
+    fn review_requests_name_the_reviewer() {
+        let k = PrEventKind::ReviewRequested {
+            reviewer: "bob".into(),
+        };
+        assert_eq!(
+            sentence(&k, Some("amy")).text(),
+            "requested a review from bob"
+        );
+        let k = PrEventKind::ReviewRequestRemoved {
+            reviewer: "org/core".into(),
+        };
+        assert_eq!(
+            sentence(&k, None).text(),
+            "removed the review request for org/core"
+        );
     }
 
     #[test]

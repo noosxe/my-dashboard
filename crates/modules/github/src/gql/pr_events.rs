@@ -1,5 +1,6 @@
 //! The PR conversation's event rows (#787, #911): merged, closed, reopened,
-//! force-pushed, labeled/unlabeled and assigned/unassigned, read from `timelineItems` (fields verified against
+//! force-pushed, labeled/unlabeled, assigned/unassigned and review
+//! requested/removed, read from `timelineItems` (fields verified against
 //! GitHub's schema 2026-11-17). Parsing is tolerant (docs/0007 D3): a node
 //! of another type, or one missing a field its row needs, drops out while
 //! the rest parse.
@@ -44,6 +45,14 @@ pub enum PrEventKind {
     },
     Unassigned {
         assignee: String,
+    },
+    /// A review requested of, or a request removed for, a user or a team
+    /// (#911): the login, or the team's `org/slug`.
+    ReviewRequested {
+        reviewer: String,
+    },
+    ReviewRequestRemoved {
+        reviewer: String,
     },
 }
 
@@ -92,6 +101,12 @@ fn parse_event(node: &Value) -> Option<PrEvent> {
         "UnassignedEvent" => PrEventKind::Unassigned {
             assignee: oid("/assignee/login")?,
         },
+        "ReviewRequestedEvent" => PrEventKind::ReviewRequested {
+            reviewer: reviewer(node)?,
+        },
+        "ReviewRequestRemovedEvent" => PrEventKind::ReviewRequestRemoved {
+            reviewer: reviewer(node)?,
+        },
         _ => return None,
     };
     Some(PrEvent {
@@ -114,6 +129,16 @@ fn label(node: &Value) -> Option<(String, Option<String>)> {
         .and_then(Value::as_str)
         .map(str::to_string);
     Some((name, color))
+}
+
+/// The requested reviewer: a user's, bot's or mannequin's login, else a
+/// team's `org/slug`. A deleted reviewer (null) drops the row.
+fn reviewer(node: &Value) -> Option<String> {
+    ["login", "combinedSlug"]
+        .iter()
+        .find_map(|k| node.pointer(&format!("/requestedReviewer/{k}")))
+        .and_then(Value::as_str)
+        .map(str::to_string)
 }
 
 #[cfg(test)]
@@ -203,6 +228,34 @@ mod tests {
                 },
                 PrEventKind::Unassigned {
                     assignee: "c".into()
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn review_requests_name_a_user_or_a_team() {
+        let pr = json!({"events": {"nodes": [
+            {"__typename": "ReviewRequestedEvent", "id": "R1",
+             "requestedReviewer": {"login": "b"}},
+            {"__typename": "ReviewRequestRemovedEvent", "id": "R2",
+             "requestedReviewer": {"combinedSlug": "org/core"}},
+            {"__typename": "ReviewRequestedEvent", "id": "R3", "requestedReviewer": null},
+            {"__typename": "ReviewRequestedEvent", "id": "R4", "requestedReviewer": {}}
+        ]}});
+        let kinds: Vec<_> = parse_events(&pr)
+            .nodes
+            .into_iter()
+            .map(|n| n.kind)
+            .collect();
+        assert_eq!(
+            kinds,
+            vec![
+                PrEventKind::ReviewRequested {
+                    reviewer: "b".into()
+                },
+                PrEventKind::ReviewRequestRemoved {
+                    reviewer: "org/core".into()
                 },
             ]
         );

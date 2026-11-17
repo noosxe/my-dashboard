@@ -66,10 +66,22 @@ fn look(kind: &PrEventKind) -> (Tone, Glyph) {
         PrEventKind::Unlabeled { .. } => (Tone::Muted, Glyph::Minus),
         PrEventKind::Assigned { .. } => (Tone::Muted, Glyph::Plus),
         PrEventKind::Unassigned { .. } => (Tone::Muted, Glyph::Minus),
+        PrEventKind::ReviewRequested { .. } | PrEventKind::ReviewRequestRemoved { .. } => {
+            (Tone::Muted, Glyph::Info)
+        }
     }
 }
 
-/// "lead [label chip] tail": the chip is the rail's, on the page surface.
+/// A name in the actor's emphasis, so it does not blend into the verb.
+fn emphasis(text: &str, cx: &App) -> AnyElement {
+    div()
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(cx.theme().foreground)
+        .child(text.to_string())
+        .into_any_element()
+}
+
+/// "lead [label chip] [name] tail": the chip is the rail's, on the page surface.
 fn sentence_line(s: &Sentence, cx: &App) -> AnyElement {
     let mut line = h_flex().gap_1().items_center().child(s.lead.clone());
     if let Some(l) = &s.label {
@@ -80,6 +92,9 @@ fn sentence_line(s: &Sentence, cx: &App) -> AnyElement {
             surface,
             cx,
         ));
+    }
+    if let Some(who) = &s.subject {
+        line = line.child(emphasis(who, cx));
     }
     if !s.tail.is_empty() {
         line = line.child(s.tail.clone());
