@@ -23,7 +23,6 @@ use gpui_component::{
     h_flex,
     input::{Input, InputEvent, InputState},
     list::{List, ListDelegate, ListEvent, ListItem, ListState},
-    menu::{DropdownMenu as _, PopupMenuItem},
     searchable_list::SearchableVec,
     select::{Select, SelectEvent, SelectState},
     skeleton::Skeleton,
@@ -4138,63 +4137,6 @@ impl GithubPage {
     // Repo-view filter toolbars (docs/0042 D3/D6)
     // ------------------------------------------------------------------
 
-    /// One dropdown filter button (docs/0022-style PopupMenu): the label
-    /// shows the active choice; a `•` prefix marks non-default state so
-    /// a forgotten filter is visible even collapsed. `apply` runs
-    /// deferred off the menu click (the docs/0023 D4 pattern).
-    #[allow(clippy::too_many_arguments)]
-    fn filter_menu_button<T: Clone + PartialEq + 'static>(
-        &self,
-        id: &'static str,
-        label: String,
-        non_default: bool,
-        choices: Vec<(String, T)>,
-        active: T,
-        apply: fn(&mut Self, T, &mut Context<Self>),
-        cx: &Context<Self>,
-    ) -> impl IntoElement {
-        let weak = cx.entity().downgrade();
-        Button::new(id)
-            .debug_selector({
-                let probe = id.to_string();
-                move || probe.clone()
-            })
-            .ghost()
-            .small()
-            .label(if non_default {
-                format!("• {label}")
-            } else {
-                label
-            })
-            .dropdown_menu(move |menu, _, _| {
-                let mut next = menu;
-                for (text, value) in choices.clone() {
-                    let is_checked = value == active;
-                    let weak = weak.clone();
-                    let probe = format!("{id}-{}", text);
-                    next = next.item(
-                        PopupMenuItem::element(move |_, _| {
-                            h_flex()
-                                .debug_selector({
-                                    let probe = probe.clone();
-                                    move || probe.clone()
-                                })
-                                .child(text.clone())
-                        })
-                        .checked(is_checked)
-                        .on_click(move |_, window, cx| {
-                            let weak = weak.clone();
-                            let value = value.clone();
-                            window.defer(cx, move |_, cx| {
-                                let _ = weak.update(cx, |this, cx| apply(this, value, cx));
-                            });
-                        }),
-                    );
-                }
-                next
-            })
-    }
-
     /// The quick-filter event handler (docs/0042 D5): reads the input
     /// and re-renders when it moved. Extracted from the subscription so
     /// tests drive the same path (`set_value` suppresses events).
@@ -4771,6 +4713,8 @@ pub(crate) fn stale_chip_label(
     let label = synced_label(Some(age)).unwrap_or_default();
     (age >= STALE_AGE).then(|| format!("last {label} — reconnect to update").into())
 }
+
+mod filter_menu;
 
 #[cfg(test)]
 mod list_return_tests;
