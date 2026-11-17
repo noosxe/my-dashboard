@@ -144,8 +144,9 @@ text fallback — see D4's emoji risk).
   one click away.
   **PR page (#788):** the chips row exists only when there are chips, and
   the `+` is not in it: it is a small muted control at the trailing edge of
-  the card's header (after the age; id `<prefix>-add`, still an ordinary Tab
-  stop, "Add reaction to …"). The issue page keeps the row as described.
+  the card's header (after the age, before the `⋯` menu, #789; the Lucide
+  `smile-plus` glyph; id `<prefix>-add`, still an ordinary Tab stop, "Add
+  reaction to …"). The issue page keeps the row as described.
 - **Click semantics**: chip click → `viewerHasReacted` ? `RemoveReaction`
   : `AddReaction` (single-flight busy op; further clicks ignored while
   busy, per the page's model). `+` click → opens the picker (D4). No

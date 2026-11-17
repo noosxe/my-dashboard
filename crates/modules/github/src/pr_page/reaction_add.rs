@@ -5,7 +5,7 @@
 use gpui::prelude::*;
 use gpui::*;
 use gpui_component::{
-    Disableable as _, Sizable as _,
+    Disableable as _, Icon, Sizable as _,
     button::{Button, ButtonVariants as _},
     h_flex,
     menu::{DropdownMenu as _, PopupMenuItem},
@@ -38,7 +38,7 @@ impl PrDetailPage {
             .debug_selector(move || probe.clone())
             .ghost()
             .xsmall()
-            .label("+")
+            .icon(Icon::empty().path("icons/smile-plus.svg"))
             .tooltip("Add reaction")
             .accessibility_label(format!("Add reaction to {subject}"))
             .disabled(busy)

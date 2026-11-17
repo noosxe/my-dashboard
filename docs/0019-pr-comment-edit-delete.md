@@ -115,10 +115,14 @@ the page.
 
 ### D4 — Affordances: header buttons, inline editor, two-step delete
 
-- **Header row** (`body_card`'s `trailing` slot): ghost small `Edit` and
-  `Delete` buttons, exactly the `pr-description-edit` recipe. Review rows
-  keep their state badge beside the buttons. Ids: `pr-comment-{ix}-edit`
-  / `pr-comment-{ix}-delete` / `pr-review-{ix}-edit` / `pr-review-{ix}-delete`.
+- **Header row** (#789): Edit and Delete live in one `⋯` menu button at
+  the header's trailing edge — age, then the react control (#788), then
+  `⋯` — not beside the author's name. Delete is drawn in the danger
+  colour; the description card's menu holds Edit alone. Review rows keep
+  their state badge beside the author. Ids: the button is
+  `pr-comment-{ix}-more` / `pr-review-{ix}-more` /
+  `pr-description-more` (accessible name "More actions for …"); its rows
+  keep `…-edit` / `…-delete`. Code: `pr_page/card_menu.rs`.
 - **Edit**: the card body swaps to a prefilled Textarea + Save/Cancel —
   a mirror of `description_edit_card`. `auto_grow(4, 30)`: grows with the
   body, scrolls internally past 30 rows. Save is disabled on trimmed-empty

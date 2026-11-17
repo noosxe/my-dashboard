@@ -51,13 +51,26 @@
       "focused": false
     },
     {
+      "accesskit_id": "1265011969996258256",
+      "role": "Button",
+      "label": "More actions for the description",
+      "bounds": {
+        "x": 910.0,
+        "y": 201.0,
+        "w": 20.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
       "accesskit_id": "1633140852790213569",
       "role": "Button",
       "label": "Add reaction to fixture-user's comment",
       "bounds": {
-        "x": 914.0,
+        "x": 886.0,
         "y": 573.0,
-        "w": 16.0,
+        "w": 20.0,
         "h": 20.0
       },
       "focusable": true,
@@ -116,19 +129,6 @@
       "focused": false
     },
     {
-      "accesskit_id": "3583368833054558685",
-      "role": "Button",
-      "label": "Edit description",
-      "bounds": {
-        "x": 398.0,
-        "y": 199.0,
-        "w": 41.0,
-        "h": 24.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
       "accesskit_id": "3820481982806606174",
       "role": "Tab",
       "label": "Conversation (5)",
@@ -146,9 +146,9 @@
       "role": "Button",
       "label": "Add reaction to octo-dev's comment",
       "bounds": {
-        "x": 914.0,
+        "x": 910.0,
         "y": 858.0,
-        "w": 16.0,
+        "w": 20.0,
         "h": 20.0
       },
       "focusable": true,
@@ -419,9 +419,9 @@
       "role": "Button",
       "label": "Add reaction to reviewer-b's review",
       "bounds": {
-        "x": 914.0,
+        "x": 910.0,
         "y": 709.0,
-        "w": 16.0,
+        "w": 20.0,
         "h": 20.0
       },
       "focusable": true,
@@ -477,19 +477,6 @@
         "h": 26.0
       },
       "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "12087454761207040422",
-      "role": "Button",
-      "label": "Delete fixture-user's comment",
-      "bounds": {
-        "x": 465.0,
-        "y": 571.0,
-        "w": 58.0,
-        "h": 24.0
-      },
-      "focusable": true,
       "focused": false
     },
     {
@@ -679,9 +666,9 @@
       "role": "Button",
       "label": "Add reaction to the description",
       "bounds": {
-        "x": 914.0,
+        "x": 886.0,
         "y": 201.0,
-        "w": 16.0,
+        "w": 20.0,
         "h": 20.0
       },
       "focusable": true,
@@ -745,6 +732,19 @@
       "label": null,
       "bounds": null,
       "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15706914905368362864",
+      "role": "Button",
+      "label": "More actions for fixture-user's comment",
+      "bounds": {
+        "x": 910.0,
+        "y": 573.0,
+        "w": 20.0,
+        "h": 20.0
+      },
+      "focusable": true,
       "focused": false
     },
     {
@@ -823,19 +823,6 @@
         "h": 24.0
       },
       "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "17421601389142081034",
-      "role": "Button",
-      "label": "Edit fixture-user's comment",
-      "bounds": {
-        "x": 420.0,
-        "y": 571.0,
-        "w": 41.0,
-        "h": 24.0
-      },
-      "focusable": true,
       "focused": false
     },
     {
