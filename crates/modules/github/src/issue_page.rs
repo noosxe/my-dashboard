@@ -1825,6 +1825,7 @@ impl IssueDetailPage {
                         cx,
                     ),
                     false,
+                    None,
                     cx,
                 )
             }
@@ -1915,6 +1916,7 @@ impl IssueDetailPage {
                     cx,
                 ),
                 anchored,
+                None,
                 cx,
             ));
             if let Some(ix) = jump_ix {

@@ -142,6 +142,10 @@ text fallback — see D4's emoji risk).
   `viewerCanReact` (hidden otherwise, 0020 D5). If the row is empty (no
   reactions yet), the `+` button renders alone so first-reaction is still
   one click away.
+  **PR page (#788):** the chips row exists only when there are chips, and
+  the `+` is not in it: it is a small muted control at the trailing edge of
+  the card's header (after the age; id `<prefix>-add`, still an ordinary Tab
+  stop, "Add reaction to …"). The issue page keeps the row as described.
 - **Click semantics**: chip click → `viewerHasReacted` ? `RemoveReaction`
   : `AddReaction` (single-flight busy op; further clicks ignored while
   busy, per the page's model). `+` click → opens the picker (D4). No

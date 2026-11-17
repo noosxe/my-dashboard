@@ -82,7 +82,7 @@
       "label": "Comment",
       "bounds": {
         "x": 852.0,
-        "y": 1133.0,
+        "y": 1069.0,
         "w": 78.0,
         "h": 24.0
       },
@@ -198,10 +198,10 @@
       "role": "Button",
       "label": "Add reaction to fixture-user's comment",
       "bounds": {
-        "x": 340.0,
-        "y": 652.0,
-        "w": 25.0,
-        "h": 24.0
+        "x": 914.0,
+        "y": 573.0,
+        "w": 16.0,
+        "h": 20.0
       },
       "focusable": true,
       "focused": false
@@ -518,10 +518,10 @@
       "role": "Button",
       "label": "Add reaction to octo-dev's comment",
       "bounds": {
-        "x": 301.0,
-        "y": 969.0,
-        "w": 25.0,
-        "h": 24.0
+        "x": 914.0,
+        "y": 858.0,
+        "w": 16.0,
+        "h": 20.0
       },
       "focusable": true,
       "focused": false
@@ -1312,7 +1312,7 @@
       "label": "Comment action",
       "bounds": {
         "x": 301.0,
-        "y": 1133.0,
+        "y": 1069.0,
         "w": 543.0,
         "h": 24.0
       },
@@ -1376,10 +1376,10 @@
       "role": "Button",
       "label": "Add reaction to reviewer-b's review",
       "bounds": {
-        "x": 301.0,
-        "y": 788.0,
-        "w": 25.0,
-        "h": 24.0
+        "x": 914.0,
+        "y": 709.0,
+        "w": 16.0,
+        "h": 20.0
       },
       "focusable": true,
       "focused": false
@@ -1987,10 +1987,10 @@
       "role": "Button",
       "label": "Add reaction to the description",
       "bounds": {
-        "x": 386.0,
-        "y": 471.0,
-        "w": 25.0,
-        "h": 24.0
+        "x": 914.0,
+        "y": 201.0,
+        "w": 16.0,
+        "h": 20.0
       },
       "focusable": true,
       "focused": false
@@ -2066,7 +2066,7 @@
       "label": "Leave a comment",
       "bounds": {
         "x": 302.0,
-        "y": 1028.0,
+        "y": 964.0,
         "w": 627.0,
         "h": 96.0
       },
