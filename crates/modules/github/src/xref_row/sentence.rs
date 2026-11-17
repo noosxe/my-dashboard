@@ -4,13 +4,13 @@
 use super::PageKind;
 use crate::gql::XrefEvent;
 
-/// "{lead} {title} {reference}": the actor leads, the title is emphasised,
+/// "{actor} {verb} {title} {reference}": the actor leads, the title is emphasised,
 /// the reference is mono and never breaks.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Sentence {
-    /// Actor plus verb phrase, e.g. "octo-dev mentioned this issue in".
-    pub lead: String,
     pub actor: String,
+    /// The verb phrase, e.g. "mentioned this issue in".
+    pub verb: String,
     pub title: String,
     pub reference: String,
 }
@@ -18,7 +18,10 @@ pub(super) struct Sentence {
 impl Sentence {
     /// The row as one plain string.
     pub(super) fn text(&self) -> String {
-        format!("{} {} {}", self.lead, self.title, self.reference)
+        format!(
+            "{} {} {} {}",
+            self.actor, self.verb, self.title, self.reference
+        )
     }
 }
 
@@ -45,8 +48,8 @@ pub(super) fn sentence(page: PageKind, e: &XrefEvent, page_repo: &str) -> Senten
         format!("mentioned this {} in", page.noun())
     };
     Sentence {
-        lead: format!("{who} {verb}"),
         actor: who,
+        verb,
         title: e.source.title.clone(),
         reference: reference(e, page_repo),
     }
@@ -115,6 +118,6 @@ mod tests {
         let s = sentence(PageKind::PullRequest, &e, HOME);
         assert_eq!(s.reference, "fixture-org/atlas#42");
         assert_eq!(s.actor, "Someone");
-        assert!(s.lead.starts_with("Someone mentioned"));
+        assert!(s.verb.starts_with("mentioned"));
     }
 }

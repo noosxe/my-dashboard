@@ -130,7 +130,7 @@ pub(crate) fn row(
                         .text_color(cx.theme().foreground)
                         .child(s.actor.clone()),
                 )
-                .child(div().child(s.lead[s.actor.len()..].trim().to_string()))
+                .child(div().child(s.verb.clone()))
                 .child(
                     div()
                         .min_w_0()
