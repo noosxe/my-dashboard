@@ -116,52 +116,63 @@ impl PrDetailPage {
         let weak = cx.entity().downgrade();
         let id = format!("{prefix}-more");
         let probe = id.clone();
+        let wrap = format!("{prefix}-actions");
         Some(
-            Button::new(id)
-                .debug_selector(move || probe.clone())
-                .icon(Icon::new(IconName::Ellipsis))
-                .ghost()
-                .xsmall()
-                .tooltip("More actions")
-                .accessibility_label(format!("More actions for {subject}"))
-                .disabled(busy)
-                .dropdown_menu(move |menu, _, _| {
-                    let mut next = menu;
-                    for e in &entries {
-                        let (label, probe, danger) = (e.label, e.probe.clone(), e.danger);
-                        let pick = e.pick.clone();
-                        let item_weak = weak.clone();
-                        next = next.item(
-                            PopupMenuItem::element(move |_, cx| {
-                                // Probe-visible row (0010 D10); delete reads
-                                // as the destructive one.
-                                let key = probe.clone();
-                                h_flex()
-                                    .debug_selector(move || key.clone())
-                                    .when(danger, |r| r.text_color(cx.theme().danger))
-                                    .child(label)
-                            })
-                            .on_click(move |_, window, cx| {
-                                // Defer: the click dispatches inside the
-                                // window's update (see the reaction picker).
-                                let weak = item_weak.clone();
-                                let pick = pick.clone();
-                                window.defer(cx, move |window, cx| {
-                                    let _ = weak.update(cx, |page, cx| match pick {
-                                        Pick::EditDescription => {
-                                            page.start_edit_description(window, cx)
-                                        }
-                                        Pick::EditRow { id, body } => {
-                                            page.start_edit_row(id, body, window, cx)
-                                        }
-                                        Pick::DeleteRow { id } => page.start_delete_confirm(id, cx),
-                                    });
-                                });
-                            }),
-                        );
-                    }
-                    next
-                })
+            div()
+                .flex_none()
+                // Test-only probe key wrapping the menu button (0019 D8).
+                .debug_selector(move || wrap.clone())
+                .child(
+                    Button::new(id)
+                        .debug_selector(move || probe.clone())
+                        .icon(Icon::new(IconName::Ellipsis))
+                        .ghost()
+                        .xsmall()
+                        .tooltip("More actions")
+                        .accessibility_label(format!("More actions for {subject}"))
+                        .disabled(busy)
+                        .dropdown_menu(move |menu, _, _| {
+                            let mut next = menu;
+                            for e in &entries {
+                                let (label, probe, danger) = (e.label, e.probe.clone(), e.danger);
+                                let pick = e.pick.clone();
+                                let item_weak = weak.clone();
+                                next = next.item(
+                                    PopupMenuItem::element(move |_, cx| {
+                                        // Probe-visible row (0010 D10); delete reads
+                                        // as the destructive one.
+                                        let key = probe.clone();
+                                        h_flex()
+                                            .debug_selector(move || key.clone())
+                                            .when(danger, |r| r.text_color(cx.theme().danger))
+                                            .child(label)
+                                    })
+                                    .on_click(
+                                        move |_, window, cx| {
+                                            // Defer: the click dispatches inside the
+                                            // window's update (see the reaction picker).
+                                            let weak = item_weak.clone();
+                                            let pick = pick.clone();
+                                            window.defer(cx, move |window, cx| {
+                                                let _ = weak.update(cx, |page, cx| match pick {
+                                                    Pick::EditDescription => {
+                                                        page.start_edit_description(window, cx)
+                                                    }
+                                                    Pick::EditRow { id, body } => {
+                                                        page.start_edit_row(id, body, window, cx)
+                                                    }
+                                                    Pick::DeleteRow { id } => {
+                                                        page.start_delete_confirm(id, cx)
+                                                    }
+                                                });
+                                            });
+                                        },
+                                    ),
+                                );
+                            }
+                            next
+                        }),
+                )
                 .into_any_element(),
         )
     }
