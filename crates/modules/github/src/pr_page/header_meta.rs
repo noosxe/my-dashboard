@@ -64,19 +64,28 @@ pub(crate) fn header_meta(
 
 /// The meta line's verb phrase, by how the PR stands: an open or draft
 /// PR "wants to merge N commits", a merged one "merged N commits into
-/// main", a closed one just "closed" (#784). `None` when the commit
-/// count is unknown (no detail) and the state does not need it.
+/// main" (the subject before it is the merger, GitHub's wording), a closed
+/// one "N commits · closed by <closer>" (the subject before it stays the
+/// author; #784). The closer is left out when unknown. `None` when nothing
+/// is known to say.
 pub(crate) fn action_copy(
     tone: Option<PrStateTone>,
     commits: Option<i64>,
     base: Option<&str>,
+    closed_by: Option<&str>,
 ) -> Option<String> {
     let count = commits.filter(|c| *c > 0).map(|c| match c {
         1 => "1 commit".to_string(),
         n => format!("{n} commits"),
     });
     match tone {
-        Some(PrStateTone::Closed) => Some("closed".to_string()),
+        Some(PrStateTone::Closed) => {
+            let closed = closed_by.map_or("closed".to_string(), |c| format!("closed by {c}"));
+            Some(match count {
+                Some(c) => format!("{c} · {closed}"),
+                None => closed,
+            })
+        }
         Some(PrStateTone::Merged) => {
             let into = base.map(|b| format!(" into {b}")).unwrap_or_default();
             Some(match count {

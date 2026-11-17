@@ -4381,6 +4381,11 @@ impl PrDetailPage {
         };
         let url = meta.url;
         let commits = detail.as_ref().map(|d| d.commits.total_count);
+        let ending = detail.map(|d| &d.ending);
+        let merger = ending
+            .filter(|_| meta.tone == Some(PrStateTone::Merged))
+            .and_then(|e| e.merged_by.clone());
+        let closed_by = ending.and_then(|e| e.closed_by.clone());
         let branch_meta = match (&base, &head) {
             (Some(base), Some(head)) => Some((base.clone(), head.clone())),
             _ => None,
@@ -4416,19 +4421,33 @@ impl PrDetailPage {
                             // #784: the number sits first on the meta line,
                             // so it never trails a wrapped title.
                             .child(div().child(format!("#{number}")))
-                            .when_some(author, |row, author| {
-                                row.child(
-                                    h_flex()
-                                        .gap_1()
-                                        .items_center()
-                                        .child(
-                                            Avatar::new().src(author.avatar_url.clone()).xsmall(),
-                                        )
-                                        .child(author.login.clone()),
-                                )
-                            })
+                            // The subject of the verb is who did it: the
+                            // merger for a merged PR, else the author
+                            // (a closed PR names its closer after).
+                            .when_some(merger.clone(), |row, login| row.child(login))
                             .when_some(
-                                header_meta::action_copy(meta.tone, commits, base.as_deref()),
+                                author.filter(|_| meta.tone != Some(PrStateTone::Merged)),
+                                |row, author| {
+                                    row.child(
+                                        h_flex()
+                                            .gap_1()
+                                            .items_center()
+                                            .child(
+                                                Avatar::new()
+                                                    .src(author.avatar_url.clone())
+                                                    .xsmall(),
+                                            )
+                                            .child(author.login.clone()),
+                                    )
+                                },
+                            )
+                            .when_some(
+                                header_meta::action_copy(
+                                    meta.tone,
+                                    commits,
+                                    base.as_deref(),
+                                    closed_by.as_deref(),
+                                ),
                                 |row, text| row.child(text),
                             )
                             .when_some(branch_meta, |row, (base, head)| {
