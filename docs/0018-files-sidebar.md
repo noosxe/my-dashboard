@@ -165,6 +165,12 @@ box, so the List never renders its own.
   `text_xs` path (muted dir prefix via `split_path`), `+adds/−dels`
   in success/danger, change badge (`file_status_badge` stays). The
   selected row uses the `ListItem` selected styling.
+- **Row fit** (#794): the directory gives way first — it truncates while
+  the basename keeps its width, and the basename truncates only when it
+  alone outgrows the row. A side with no lines (`+0`, `−0`) is not drawn.
+  The change type is a glyph with the word on the tooltip and accessible
+  name (#907). The sidebar wears the same one-pixel frame as the diff pane,
+  from the same top edge, with a gutter between the two.
 - `ListEvent::Confirm(IndexPath)` → `selected_file = Some(path)`; the
   delegate owns the ix→path mapping (table-tested).
 - Rebuild on fetch-ready (`set_items`-equivalent: delegate swap +
