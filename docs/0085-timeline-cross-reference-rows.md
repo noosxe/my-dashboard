@@ -258,8 +258,12 @@ GitHub; if one arrives it drops at parse time.
 - Accessible name: the full sentence plus the source's state and reference
   ("octo-dev mentioned this issue in Fix loader #42, open pull request. Opens the
   pull request.").
-- Focus: a border in the theme `ring` token on the row's rounded rect, as
-  gpui-component's `Select` and `ColorPicker` draw their focus; hover paints
+- Focus: a border in the theme `ring` token on the row's rounded rect, drawn
+  by `.focus(…)` on a `.focusable()` element, so the ring shows on any focus,
+  a click included (not only keyboard focus). Reason: it is always visible
+  while the row is focused, receipts can verify it, and upstream's
+  `focus_visible` did not paint under the debug bridge. A row needs
+  `.focusable()` beside `.tab_stop(true)` to take focus at all. Hover paints
   the theme `accent` token at half opacity, as the mention list does
   (`mentions.rs`). Both tokens exist on `f697c31` (`ThemeColor::ring` in
   `crates/component/src/theme/theme_color.rs`, `ColorTokens::accent`). No data-coloured
