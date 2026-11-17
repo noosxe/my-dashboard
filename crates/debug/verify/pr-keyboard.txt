@@ -145,8 +145,8 @@ tab-stops
 mouse down 639 155
 mouse up 639 155 --wait-frame
 wait-label "Diff for crates/manifest/src/parser.rs"
-mouse down 1142 399
-mouse up 1142 399 --wait-frame
+mouse down 1116 399
+mouse up 1116 399 --wait-frame
 wait-label "Reply to review thread"
 type ok
 tab-stops

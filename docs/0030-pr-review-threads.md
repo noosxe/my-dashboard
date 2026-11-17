@@ -247,6 +247,13 @@ state as everywhere else (0019 D7).
   first comment's `url` — that is where *Apply suggestion* lives, since no
   API exists (§3). Opening external links is the established
   `shell.open` path (0017 links).
+- **Thread header** (#795): one line — where the thread sits ("line 11",
+  "lines 11–12", "File comment", plus "· N comments" once it has replies),
+  the resolved / outdated chip, and on the trailing edge Reply, Resolve or
+  Unresolve and then the Open on GitHub icon button. The author and age
+  are each comment's own line below, so the header no longer repeats the
+  author. The card's accessible name still carries author, span, count
+  and resolved state. Code: `files/thread_header.rs`.
 
 ### D7 — Mutations: four new documents, transport unchanged
 
