@@ -31,7 +31,6 @@ use gpui_component::{
     h_flex,
     input::{InputEvent, InputState, Textarea, TextareaState},
     list::{ListEvent, ListState},
-    menu::{DropdownMenu as _, PopupMenuItem},
     resizable::ResizableState,
     scroll::ScrollableElement as _,
     searchable_list::SearchableVec,
@@ -78,6 +77,7 @@ mod pause_gate;
 mod queue_writes;
 mod rail;
 mod range_composer;
+mod reaction_add;
 mod refocus;
 mod review_drafts;
 mod review_event;
@@ -105,7 +105,7 @@ use crate::api::{self, PrFile};
 use crate::drafts::{self, DraftHandle};
 use crate::files::{self, FileEntry, FileListDelegate, FilesView, build_file_forest, path_matches};
 use crate::gql;
-use crate::issue_page::{reaction_chips, reaction_direction};
+use crate::issue_page::reaction_chips;
 use crate::markdown;
 use crate::pickers::{
     PickerDraft, PickerFetch, PickerRow, PickerSource, assignee_rows, compute_replace_ids,
@@ -4314,14 +4314,14 @@ impl PrDetailPage {
         subject_id: &str,
         subject: &str,
         groups: &[gql::ReactionGroup],
-        can_react: bool,
         cx: &Context<Self>,
     ) -> Option<AnyElement> {
         let chips = reaction_chips(groups);
-        if chips.is_empty() && !can_react {
+        // #788: the row exists only when there are chips to show; the add
+        // affordance lives in the card header (`reaction_add`).
+        if chips.is_empty() {
             return None;
         }
-        let busy = self.busy.is_some();
         let mut row = h_flex().gap_1().flex_wrap();
         for g in &chips {
             let id = format!("{prefix}-{}", g.content.wire());
@@ -4347,80 +4347,6 @@ impl PrDetailPage {
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.toggle_reaction(subject_id.clone(), armed, content, window, cx)
                     })),
-            );
-        }
-        if can_react {
-            let subject_id = subject_id.to_string();
-            let groups = groups.to_vec();
-            let weak = cx.entity().downgrade();
-            let picker_id = format!("{prefix}-add");
-            let probe = picker_id.clone();
-            row = row.child(
-                Button::new(picker_id)
-                    .debug_selector(move || probe.clone())
-                    .ghost()
-                    .small()
-                    .label("+")
-                    .tooltip("Add reaction")
-                    .accessibility_label(format!("Add reaction to {subject}"))
-                    .disabled(busy)
-                    .dropdown_menu(move |menu, _, _| {
-                        // docs/0023 D4 (§10 amendment): the static
-                        // eight-row picker rides the + button as a
-                        // PopupMenu. Rows freeze at open — built from
-                        // this render's snapshot, so a refetch mid-pick
-                        // repaints chips, never the open menu — and a
-                        // row commits on click (the mutation is the
-                        // commit; no Save ritual).
-                        let mut next = menu;
-                        for content in gql::ReactionContent::ALL {
-                            let armed = reaction_direction(&groups, content);
-                            let count = groups
-                                .iter()
-                                .find(|g| g.content == content)
-                                .map(|g| g.total)
-                                .unwrap_or(0);
-                            let subject = subject_id.clone();
-                            let item_weak = weak.clone();
-                            let probe = format!("pr-reaction-pick-{}", content.wire());
-                            next = next.item(
-                                PopupMenuItem::element(move |_, _| {
-                                    // Probe-visible row (0010 D10) — the
-                                    // plain Item variant is not.
-                                    let key = probe.clone();
-                                    h_flex()
-                                        .debug_selector(move || key.clone())
-                                        .gap_2()
-                                        .child(format!(
-                                            "{} {} ({})",
-                                            content.glyph(),
-                                            content.label(),
-                                            count
-                                        ))
-                                        .when(armed, |row| row.child("· you"))
-                                })
-                                .checked(armed)
-                                .disabled(busy)
-                                .on_click(move |_, window, cx| {
-                                    // The click dispatches inside the window's
-                                    // update — any re-entrant window update here
-                                    // fails ("window not found"). Defer to the end
-                                    // of the effect cycle, then post from the live
-                                    // context (the page.rs spawn pattern, inline).
-                                    let weak = item_weak.clone();
-                                    let subject = subject.clone();
-                                    window.defer(cx, move |window, cx| {
-                                        let _ = weak.update(cx, |page, cx| {
-                                            page.toggle_reaction(
-                                                subject, armed, content, window, cx,
-                                            )
-                                        });
-                                    });
-                                }),
-                            );
-                        }
-                        next
-                    }),
             );
         }
         Some(
@@ -5043,10 +4969,17 @@ impl PrDetailPage {
                         &d.id,
                         "the description",
                         &d.reaction_groups,
-                        d.viewer_can_react,
                         cx,
                     ),
                     false,
+                    self.render_reaction_add(
+                        "pr-reaction-row",
+                        &d.id,
+                        "the description",
+                        &d.reaction_groups,
+                        d.viewer_can_react,
+                        cx,
+                    ),
                     cx,
                 )
             }
@@ -5129,10 +5062,17 @@ impl PrDetailPage {
                             &c.id,
                             &format!("{}'s comment", author_name(c.author.as_ref())),
                             &c.reaction_groups,
-                            c.viewer_can_react,
                             cx,
                         ),
                         anchored,
+                        self.render_reaction_add(
+                            &format!("{key}-reaction-row"),
+                            &c.id,
+                            &format!("{}'s comment", author_name(c.author.as_ref())),
+                            &c.reaction_groups,
+                            c.viewer_can_react,
+                            cx,
+                        ),
                         cx,
                     ));
                     if let Some(ix) = jump_ix {
@@ -5232,10 +5172,17 @@ impl PrDetailPage {
                             &r.id,
                             &format!("{}'s review", author_name(r.author.as_ref())),
                             &r.reaction_groups,
-                            r.viewer_can_react,
                             cx,
                         ),
                         anchored,
+                        self.render_reaction_add(
+                            &format!("{key}-reaction-row"),
+                            &r.id,
+                            &format!("{}'s review", author_name(r.author.as_ref())),
+                            &r.reaction_groups,
+                            r.viewer_can_react,
+                            cx,
+                        ),
                         cx,
                     ));
                     if let Some(ix) = jump_ix {
@@ -6109,6 +6056,8 @@ pub(crate) fn body_card(
     // (the notification hand-off's latest-comment jump). Everything else
     // passes `false`.
     anchored: bool,
+    // #788: a quiet control at the header's trailing edge (add reaction).
+    header_end: Option<AnyElement>,
     cx: &App,
 ) -> AnyElement {
     v_flex()
@@ -6143,7 +6092,8 @@ pub(crate) fn body_card(
                         .text_xs()
                         .text_color(cx.theme().muted_foreground)
                         .child(age),
-                ),
+                )
+                .children(header_end),
         )
         .when_some(body, |card, body| {
             // Markdown when the detail payload was parsed (0017); the raw
