@@ -367,14 +367,15 @@ Two columns: main timeline (`flex_1`) + fixed ~300px right rail (D5).
   stay on the line; the reaction picker goes with the card.
 - **Event rows** (#787, #911): `merged`, `closed`, `reopened`, `force-pushed`,
   `labeled`, `unlabeled`, `assigned`, `unassigned`,
-  `review requested` and `review request removed` events from `timelineItems` (an aliased `events`
+  `review requested`, `review request removed`,
+  `renamed`, `milestoned` and `demilestoned` events from `timelineItems` (an aliased `events`
   selection of the detail query, `last: 100`, itemTypes `MERGED_EVENT`,
   `CLOSED_EVENT`, `REOPENED_EVENT`, `HEAD_REF_FORCE_PUSHED_EVENT`,
-  `LABELED_EVENT`, `UNLABELED_EVENT`, `ASSIGNED_EVENT`, `UNASSIGNED_EVENT`, `REVIEW_REQUESTED_EVENT`, `REVIEW_REQUEST_REMOVED_EVENT`; the force-push row names the
+  `LABELED_EVENT`, `UNLABELED_EVENT`, `ASSIGNED_EVENT`, `UNASSIGNED_EVENT`, `REVIEW_REQUESTED_EVENT`, `REVIEW_REQUEST_REMOVED_EVENT`, `RENAMED_TITLE_EVENT`, `MILESTONED_EVENT`, `DEMILESTONED_EVENT`; the force-push row names the
   abbreviated before and after commit ids, in mono). A label row reads
   "actor added the [chip] label" / "removed the [chip] label", the issue
   page's wording (docs/0021 D3), with the rail's label chip in the label's
-  own colour (`page::label_pill`); a label without a name drops out. An assignment row reads "actor assigned bob" / "unassigned bob" (the issue page's wording); when the actor is the assignee it reads "self-assigned" / "removed their assignment" (GitHub's wording; the issue page names the login either way). A review row reads "actor requested a review from reviewer" / "removed the review request for reviewer"; a team reviewer shows as `org/slug`, and a deleted reviewer drops the row. The named login, team or assignee is in the actor's emphasis (medium weight, foreground), as on github.com. An assignee-less node drops out. Each is a muted one-line row
+  own colour (`page::label_pill`); a label without a name drops out. An assignment row reads "actor assigned bob" / "unassigned bob" (the issue page's wording); when the actor is the assignee it reads "self-assigned" / "removed their assignment" (GitHub's wording; the issue page names the login either way). A review row reads "actor requested a review from reviewer" / "removed the review request for reviewer"; a team reviewer shows as `org/slug`, and a deleted reviewer drops the row. The named login, team or assignee is in the actor's emphasis (medium weight, foreground), as on github.com. A rename reads "actor changed the title ~~old~~ new" (the old title struck through, the new in emphasis; the issue page reads "from old to new", GitHub's form is used here); a milestone row reads "added this to the [name] milestone" / "removed this from the [name] milestone", the issue page's wording, with the name in emphasis. A long title wraps beside the actor, the age keeps the trailing edge. A rename or milestone node missing a title drops out. An assignee-less node drops out. Each is a muted one-line row
   in the review-event style — glyph, "actor verb", age at the trailing edge,
   ids `pr-event-{ix}` — and interleaves with the cards by time (a card
   precedes an event at an equal stamp). They are not counted in the
@@ -382,8 +383,7 @@ Two columns: main timeline (`flex_1`) + fixed ~300px right rail (D5).
   count. Parsing is tolerant (0007 D3): other node types and nodes missing a
   field drop out. Code: `gql/pr_events.rs` (wire), `pr_page/timeline_events.rs`
   (order, row) and `pr_page/timeline_events/sentence.rs` (the words, one
-  function per event family). Not yet: renamed,
-  milestone, draft-state and cross-reference events — #911 (part of #730).
+  function per event family). Not yet: draft-state and cross-reference events — #911 (part of #730).
 - **Load errors** (#791): a failed detail read (Conversation, Commits and
   Checks panes) or changed-files read says what went wrong in plain words and
   offers a labelled **Retry** under it (`pr-load-error` / `pr-files-error`,

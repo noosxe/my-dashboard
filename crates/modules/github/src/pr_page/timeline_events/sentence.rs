@@ -16,6 +16,8 @@ pub(super) struct LabelRef {
 pub(super) struct Sentence {
     pub lead: String,
     pub label: Option<LabelRef>,
+    /// Text the event replaced, struck through (a renamed title's old one).
+    pub struck: Option<String>,
     /// A person or team the event names, in the actor's emphasis.
     pub subject: Option<String>,
     pub tail: String,
@@ -26,6 +28,7 @@ impl Sentence {
         Self {
             lead: lead.into(),
             label: None,
+            struck: None,
             subject: None,
             tail: String::new(),
         }
@@ -37,6 +40,7 @@ impl Sentence {
         [
             Some(self.lead.as_str()),
             self.label.as_ref().map(|l| l.name.as_str()),
+            self.struck.as_deref(),
             self.subject.as_deref(),
             Some(self.tail.as_str()),
         ]
@@ -66,6 +70,9 @@ pub(super) fn sentence(kind: &PrEventKind, actor: Option<&str>) -> Sentence {
         PrEventKind::ReviewRequestRemoved { reviewer } => {
             request("removed the review request for", reviewer)
         }
+        PrEventKind::Renamed { from, to } => renamed(from, to),
+        PrEventKind::Milestoned { title } => milestone("added this to the", title),
+        PrEventKind::Demilestoned { title } => milestone("removed this from the", title),
     }
 }
 
@@ -74,8 +81,31 @@ fn request(lead: &str, reviewer: &str) -> Sentence {
     Sentence {
         lead: lead.into(),
         label: None,
+        struck: None,
         subject: Some(reviewer.into()),
         tail: String::new(),
+    }
+}
+
+/// Renamed: "changed the title ~~old~~ new", the old text struck through.
+fn renamed(from: &str, to: &str) -> Sentence {
+    Sentence {
+        lead: "changed the title".into(),
+        label: None,
+        struck: Some(from.into()),
+        subject: Some(to.into()),
+        tail: String::new(),
+    }
+}
+
+/// Milestoned / demilestoned: "added this to the [name] milestone".
+fn milestone(lead: &str, title: &str) -> Sentence {
+    Sentence {
+        lead: lead.into(),
+        label: None,
+        struck: None,
+        subject: Some(title.into()),
+        tail: "milestone".into(),
     }
 }
 
@@ -93,6 +123,7 @@ fn assignment(verb: &str, assignee: &str, actor: Option<&str>) -> Sentence {
     Sentence {
         lead: verb.into(),
         label: None,
+        struck: None,
         subject: Some(assignee.into()),
         tail: String::new(),
     }
@@ -106,6 +137,7 @@ fn label(lead: &str, name: &str, color: &Option<String>) -> Sentence {
             name: name.into(),
             color: color.clone(),
         }),
+        struck: None,
         subject: None,
         tail: "label".into(),
     }
@@ -127,6 +159,22 @@ mod tests {
             color: None,
         };
         assert_eq!(sentence(&k, None).text(), "removed the bug label");
+    }
+
+    #[test]
+    fn a_rename_names_both_titles_and_a_milestone_its_name() {
+        let k = PrEventKind::Renamed {
+            from: "old".into(),
+            to: "new".into(),
+        };
+        assert_eq!(sentence(&k, None).text(), "changed the title old new");
+        let k = PrEventKind::Milestoned { title: "v1".into() };
+        assert_eq!(sentence(&k, None).text(), "added this to the v1 milestone");
+        let k = PrEventKind::Demilestoned { title: "v1".into() };
+        assert_eq!(
+            sentence(&k, None).text(),
+            "removed this from the v1 milestone"
+        );
     }
 
     #[test]
