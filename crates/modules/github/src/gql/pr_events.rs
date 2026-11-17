@@ -1,6 +1,6 @@
 //! The PR conversation's event rows (#787, #911): merged, closed, reopened,
-//! force-pushed, labeled/unlabeled, assigned/unassigned and review
-//! requested/removed, read from `timelineItems` (fields verified against
+//! force-pushed, labeled/unlabeled, assigned/unassigned, review
+//! requested/removed, renamed and milestoned/demilestoned, read from `timelineItems` (fields verified against
 //! GitHub's schema 2026-11-17). Parsing is tolerant (docs/0007 D3): a node
 //! of another type, or one missing a field its row needs, drops out while
 //! the rest parse.
@@ -54,6 +54,17 @@ pub enum PrEventKind {
     ReviewRequestRemoved {
         reviewer: String,
     },
+    /// The title changed from one text to another (#911).
+    Renamed {
+        from: String,
+        to: String,
+    },
+    Milestoned {
+        title: String,
+    },
+    Demilestoned {
+        title: String,
+    },
 }
 
 /// The events and how many the server counts for the filter; the cap row
@@ -106,6 +117,16 @@ fn parse_event(node: &Value) -> Option<PrEvent> {
         },
         "ReviewRequestRemovedEvent" => PrEventKind::ReviewRequestRemoved {
             reviewer: reviewer(node)?,
+        },
+        "RenamedTitleEvent" => PrEventKind::Renamed {
+            from: oid("/previousTitle")?,
+            to: oid("/currentTitle")?,
+        },
+        "MilestonedEvent" => PrEventKind::Milestoned {
+            title: oid("/milestoneTitle")?,
+        },
+        "DemilestonedEvent" => PrEventKind::Demilestoned {
+            title: oid("/milestoneTitle")?,
         },
         _ => return None,
     };
@@ -257,6 +278,34 @@ mod tests {
                 PrEventKind::ReviewRequestRemoved {
                     reviewer: "org/core".into()
                 },
+            ]
+        );
+    }
+
+    #[test]
+    fn renames_and_milestones_parse_and_incomplete_ones_drop() {
+        let pr = json!({"events": {"nodes": [
+            {"__typename": "RenamedTitleEvent", "id": "T1",
+             "previousTitle": "old", "currentTitle": "new"},
+            {"__typename": "RenamedTitleEvent", "id": "T2", "currentTitle": "new"},
+            {"__typename": "MilestonedEvent", "id": "M1", "milestoneTitle": "v1"},
+            {"__typename": "DemilestonedEvent", "id": "M2", "milestoneTitle": "v1"},
+            {"__typename": "MilestonedEvent", "id": "M3"}
+        ]}});
+        let kinds: Vec<_> = parse_events(&pr)
+            .nodes
+            .into_iter()
+            .map(|n| n.kind)
+            .collect();
+        assert_eq!(
+            kinds,
+            vec![
+                PrEventKind::Renamed {
+                    from: "old".into(),
+                    to: "new".into()
+                },
+                PrEventKind::Milestoned { title: "v1".into() },
+                PrEventKind::Demilestoned { title: "v1".into() },
             ]
         );
     }

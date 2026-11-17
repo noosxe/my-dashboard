@@ -427,6 +427,10 @@ class Timeline:
                 self.assigned("AssignedEvent", OWNER, 88, "octo-dev"),
                 self.assigned("AssignedEvent", OWNER, 87, OWNER),
                 self.assigned("UnassignedEvent", "octo-dev", 55, "reviewer-c"),
+                self.renamed("octo-dev", 91, "Parser: allow trailing commas", "Parser: accept trailing commas in manifest lists"),
+                self.milestone("MilestonedEvent", OWNER, 84, "v1.3 parser cleanup"),
+                self.milestone("DemilestonedEvent", OWNER, 83, "v1.3 parser cleanup"),
+                self.milestone("MilestonedEvent", OWNER, 82, "v1.4 parser cleanup"),
                 self.requested("ReviewRequestedEvent", "octo-dev", 86, {"login": "reviewer-a"}),
                 self.requested("ReviewRequestedEvent", "octo-dev", 85, {"combinedSlug": "fixture-org/team-01"}),
                 self.requested("ReviewRequestRemovedEvent", "octo-dev", 54, {"login": "reviewer-c"}),
@@ -558,6 +562,12 @@ class Timeline:
 
     def requested(self, typename, login, hours, reviewer):
         return (typename, login, hours, {"requestedReviewer": reviewer})
+
+    def renamed(self, login, hours, old, new):
+        return ("RenamedTitleEvent", login, hours, {"previousTitle": old, "currentTitle": new})
+
+    def milestone(self, typename, login, hours, title):
+        return (typename, login, hours, {"milestoneTitle": title})
 
     def closed_by(self, login, hours):
         """`timelineItems(last: 1, itemTypes: [CLOSED_EVENT])` for the closer."""

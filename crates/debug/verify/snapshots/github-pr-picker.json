@@ -82,7 +82,7 @@
       "label": "Comment",
       "bounds": {
         "x": 852.0,
-        "y": 1505.0,
+        "y": 1704.0,
         "w": 78.0,
         "h": 24.0
       },
@@ -212,7 +212,7 @@
       "label": "Add reaction to fixture-user's comment",
       "bounds": {
         "x": 886.0,
-        "y": 966.0,
+        "y": 1165.0,
         "w": 20.0,
         "h": 20.0
       },
@@ -519,7 +519,7 @@
       "label": "Add reaction to octo-dev's comment",
       "bounds": {
         "x": 910.0,
-        "y": 1294.0,
+        "y": 1493.0,
         "w": 20.0,
         "h": 20.0
       },
@@ -1312,7 +1312,7 @@
       "label": "Comment action",
       "bounds": {
         "x": 301.0,
-        "y": 1505.0,
+        "y": 1704.0,
         "w": 543.0,
         "h": 24.0
       },
@@ -1377,7 +1377,7 @@
       "label": "Add reaction to reviewer-b's review",
       "bounds": {
         "x": 910.0,
-        "y": 1102.0,
+        "y": 1301.0,
         "w": 20.0,
         "h": 20.0
       },
@@ -1988,7 +1988,7 @@
       "label": "+1 reaction on fixture-user's comment: 1",
       "bounds": {
         "x": 301.0,
-        "y": 1045.0,
+        "y": 1244.0,
         "w": 35.0,
         "h": 24.0
       },
@@ -2053,7 +2053,7 @@
       "label": "Leave a comment",
       "bounds": {
         "x": 302.0,
-        "y": 1400.0,
+        "y": 1599.0,
         "w": 627.0,
         "h": 96.0
       },
@@ -2100,7 +2100,7 @@
       "label": "More actions for fixture-user's comment",
       "bounds": {
         "x": 910.0,
-        "y": 966.0,
+        "y": 1165.0,
         "w": 20.0,
         "h": 20.0
       },

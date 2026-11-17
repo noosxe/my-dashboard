@@ -726,7 +726,8 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
       events: timelineItems(last: 100, itemTypes: [MERGED_EVENT, CLOSED_EVENT,
           REOPENED_EVENT, HEAD_REF_FORCE_PUSHED_EVENT, LABELED_EVENT,
           UNLABELED_EVENT, ASSIGNED_EVENT, UNASSIGNED_EVENT,
-          REVIEW_REQUESTED_EVENT, REVIEW_REQUEST_REMOVED_EVENT]) {
+          REVIEW_REQUESTED_EVENT, REVIEW_REQUEST_REMOVED_EVENT,
+          RENAMED_TITLE_EVENT, MILESTONED_EVENT, DEMILESTONED_EVENT]) {
         filteredCount
         nodes {
           __typename
@@ -767,6 +768,9 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
               ... on Mannequin { login } ... on Team { combinedSlug }
               ... on EnterpriseTeam { combinedSlug } }
           }
+          ... on RenamedTitleEvent { id createdAt actor { login } previousTitle currentTitle }
+          ... on MilestonedEvent { id createdAt actor { login } milestoneTitle }
+          ... on DemilestonedEvent { id createdAt actor { login } milestoneTitle }
         }
       }
       # docs/0083 D2 rows 4-5: the verdict and its sub-line.

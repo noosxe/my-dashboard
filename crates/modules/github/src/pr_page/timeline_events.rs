@@ -69,37 +69,49 @@ fn look(kind: &PrEventKind) -> (Tone, Glyph) {
         PrEventKind::ReviewRequested { .. } | PrEventKind::ReviewRequestRemoved { .. } => {
             (Tone::Muted, Glyph::Info)
         }
+        PrEventKind::Renamed { .. } => (Tone::Muted, Glyph::Edit),
+        PrEventKind::Milestoned { .. } => (Tone::Muted, Glyph::Plus),
+        PrEventKind::Demilestoned { .. } => (Tone::Muted, Glyph::Minus),
     }
 }
 
 /// A name in the actor's emphasis, so it does not blend into the verb.
 fn emphasis(text: &str, cx: &App) -> AnyElement {
     div()
+        .min_w_0()
         .font_weight(FontWeight::MEDIUM)
         .text_color(cx.theme().foreground)
         .child(text.to_string())
         .into_any_element()
 }
 
-/// "lead [label chip] [name] tail": the chip is the rail's, on the page surface.
-fn sentence_line(s: &Sentence, cx: &App) -> AnyElement {
-    let mut line = h_flex().gap_1().items_center().child(s.lead.clone());
+/// "lead [label chip] [old] [name] tail" as the row's own flex items, so a
+/// long title wraps word by word beside the actor. The chip is the rail's, on
+/// the page surface.
+fn sentence_parts(s: &Sentence, cx: &App) -> Vec<AnyElement> {
+    let mut parts = vec![div().child(s.lead.clone()).into_any_element()];
     if let Some(l) = &s.label {
         let surface = cx.theme().background;
-        line = line.child(crate::page::label_pill(
-            &l.name,
-            l.color.as_deref(),
-            surface,
-            cx,
-        ));
+        parts.push(
+            crate::page::label_pill(&l.name, l.color.as_deref(), surface, cx).into_any_element(),
+        );
+    }
+    if let Some(old) = &s.struck {
+        parts.push(
+            div()
+                .min_w_0()
+                .line_through()
+                .child(old.clone())
+                .into_any_element(),
+        );
     }
     if let Some(who) = &s.subject {
-        line = line.child(emphasis(who, cx));
+        parts.push(emphasis(who, cx));
     }
     if !s.tail.is_empty() {
-        line = line.child(s.tail.clone());
+        parts.push(div().child(s.tail.clone()).into_any_element());
     }
-    line.into_any_element()
+    parts
 }
 
 pub(super) fn row(ix: usize, e: &PrEvent, cx: &App) -> AnyElement {
@@ -124,7 +136,11 @@ pub(super) fn row(ix: usize, e: &PrEvent, cx: &App) -> AnyElement {
         .text_color(cx.theme().muted_foreground)
         .child(icon(glyph).xsmall().text_color(color))
         .child(
+            // A long title wraps inside the row; the age keeps its edge.
             h_flex()
+                .flex_1()
+                .min_w_0()
+                .flex_wrap()
                 .gap_1()
                 .child(
                     div()
@@ -132,27 +148,30 @@ pub(super) fn row(ix: usize, e: &PrEvent, cx: &App) -> AnyElement {
                         .text_color(cx.theme().foreground)
                         .child(e.actor.clone().unwrap_or_else(|| "Someone".into())),
                 )
-                .child(match &e.kind {
+                .children(match &e.kind {
                     // The commit ids are mono, as the header's branch names.
                     PrEventKind::ForcePushed {
                         before: Some(b),
                         after: Some(a),
                     } => {
                         let mono = cx.theme().mono_font_family.clone();
-                        h_flex()
-                            .gap_1()
-                            .child("force-pushed from")
-                            .child(div().font_family(mono.clone()).child(b.clone()))
-                            .child("to")
-                            .child(div().font_family(mono).child(a.clone()))
-                            .into_any_element()
+                        vec![
+                            div().child("force-pushed from").into_any_element(),
+                            div()
+                                .font_family(mono.clone())
+                                .child(b.clone())
+                                .into_any_element(),
+                            div().child("to").into_any_element(),
+                            div().font_family(mono).child(a.clone()).into_any_element(),
+                        ]
                     }
-                    kind => sentence_line(&sentence(kind, e.actor.as_deref()), cx),
+                    kind => sentence_parts(&sentence(kind, e.actor.as_deref()), cx),
                 }),
         )
         .child(
             div()
                 .ml_auto()
+                .flex_shrink_0()
                 .text_xs()
                 .child(relative_age(e.created_at.as_deref())),
         )
