@@ -6,7 +6,7 @@ DASHBOARD_GITHUB_FIXTURE=<this dir> (see crates/modules/github/src/
 fixture.rs for the lookup rules). Captures also pin
 DASHBOARD_FIXED_NOW=2026-10-23T12:00:00Z so relative ages are stable.
 
-The PR page's scenarios live in pr_scenarios.py, their generation 1
+The issue page's scenarios live in issue_scenarios.py. The PR page's scenarios live in pr_scenarios.py, their generation 1
 (docs/0084 §8) in pr_generations.py, and the answers to the writes it
 sends in pr_writes.py, all called from main().
 
@@ -20,8 +20,9 @@ from datetime import datetime, timedelta, timezone
 
 sys.dont_write_bytecode = True  # no __pycache__ beside the fixtures
 
+from issue_scenarios import write_issue_scenarios
 from pr_generations import write_generation_one
-from pr_scenarios import write_pr_scenarios
+from pr_scenarios import Timeline, write_pr_scenarios
 from pr_writes import write_pr_writes
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -351,6 +352,7 @@ def main():
     for name, variant in RATE_VARIANTS.items():
         write(f"rate/{name}.json", variant)
     write_pr_scenarios(write, NOW, iso)
+    write_issue_scenarios(write, NOW, iso, Timeline(NOW, iso))
     write_generation_one(write, NOW, iso)
     write_pr_writes(write)
 

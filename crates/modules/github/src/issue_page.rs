@@ -2567,6 +2567,7 @@ impl IssueDetailPage {
                                     Select::new(&self.close_reason)
                                         .small()
                                         .w_full()
+                                        .accessibility_label("Close reason")
                                         .disabled(busy),
                                 )
                                 .child(

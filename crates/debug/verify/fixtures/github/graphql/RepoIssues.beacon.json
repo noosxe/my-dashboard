@@ -1,0 +1,87 @@
+{
+ "data": {
+  "rateLimit": null,
+  "repository": {
+   "databaseId": 2001,
+   "description": "A second fixture repository",
+   "hasIssuesEnabled": true,
+   "id": "R_beacon",
+   "isArchived": false,
+   "isPrivate": false,
+   "issues": {
+    "nodes": [
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/reviewer-a",
+       "login": "reviewer-a"
+      },
+      "databaseId": 60201,
+      "labels": {
+       "nodes": [
+        {
+         "color": "d73a4a",
+         "id": "L_bug",
+         "name": "bug"
+        }
+       ],
+       "totalCount": 1
+      },
+      "number": 201,
+      "title": "Manifest parser rejects trailing commas",
+      "updatedAt": "2026-10-23T11:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/issues/201"
+     },
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/reviewer-a",
+       "login": "reviewer-a"
+      },
+      "databaseId": 60198,
+      "labels": {
+       "nodes": [
+        {
+         "color": "d73a4a",
+         "id": "L_bug",
+         "name": "bug"
+        }
+       ],
+       "totalCount": 1
+      },
+      "number": 198,
+      "title": "Trailing comma crash",
+      "updatedAt": "2026-10-23T10:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/issues/198"
+     },
+     {
+      "author": {
+       "avatarUrl": "https://avatars.invalid/reviewer-a",
+       "login": "reviewer-a"
+      },
+      "databaseId": 60202,
+      "labels": {
+       "nodes": [
+        {
+         "color": "d73a4a",
+         "id": "L_bug",
+         "name": "bug"
+        }
+       ],
+       "totalCount": 1
+      },
+      "number": 202,
+      "title": "Mentioned from everywhere",
+      "updatedAt": "2026-10-23T09:00:00Z",
+      "url": "https://github.com/fixture-user/beacon/issues/202"
+     }
+    ],
+    "totalCount": 3
+   },
+   "name": "beacon",
+   "nameWithOwner": "fixture-user/beacon",
+   "owner": {
+    "login": "fixture-user"
+   },
+   "pushedAt": "2026-10-23T12:00:00Z"
+  }
+ }
+}

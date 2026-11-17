@@ -1,13 +1,21 @@
-# timeline-xref.txt — the PR page's cross-reference rows over the committed
-# fixtures (docs/0085, #922): "octo-dev mentioned this pull request in …"
-# rows in PR 101's timeline, one per distinct source, then their activation.
+# timeline-xref.txt — the cross-reference rows of the PR page (#922) and the
+# issue page (#923) over the committed fixtures (docs/0085): "octo-dev
+# mentioned this pull request in …" rows in PR 101's timeline, one per
+# distinct source, then their activation; then the same rows on issue 201
+# ("linked a pull request that will close this issue"), the closed issue
+# 198 and the capped issue 202.
 #   - every row is a Button with a full accessible name (sentence, the
 #     source's state, what activating does);
 #   - a source in a listed repository opens in the app (focus + Enter) and
 #     Back returns;
 #   - a source elsewhere opens the browser: the bridge records no browser
 #     opens, so the receipt asserts that the page stays;
-#   - 102 carries 100 of 130 references: the cap row counts the 30 cut.
+#   - 102 carries 100 of 130 references: the cap row counts the 30 cut;
+#   - on the issue page the in-app open and Back return to the *issue* (the
+#     host's trail records the issue place), and an unsent comment draft
+#     survives the round trip (the restored box sends it: `assert-write`).
+#     The issue page has no leave guard: it emits at once. Its node ids
+#     vary between runs, so the issue section finds everything by label.
 #
 # Prerequisites: the containerized env (docs/0071) with the GitHub
 # fixtures and the pinned clock, and a session named `prxref` at 1280x800:
@@ -74,3 +82,71 @@ wait-label "Checks (9)"
 assert-label "octo-dev mentioned this pull request in WIP: loader cleanup #103"
 click 12782369444481205663 --wait-frame
 wait-label "PR #108: Loader: a PR that fails its detail read"
+
+# ---- The issue page (#923). The repo view is back; Open issues lists the
+# three issue scenarios (201 open with a closing PR, 198 closed, 202 capped).
+click-label "Open issues" --role Tab
+wait-label "Issue #201: Manifest parser rejects trailing commas — fixture-user/beacon · reviewer-a"
+click-label "Issue #201: Manifest parser rejects trailing commas — fixture-user/beacon · reviewer-a"
+wait-label "Leave a comment"
+assert-label "octo-dev mentioned this issue in Tracking: manifest consumers #57, open issue. Opens the issue."
+assert-label "octo-dev mentioned this issue in Docs: fix the manifest grammar example fixture-user/atlas#104, merged pull request. Opens the pull request."
+assert-label "octo-dev mentioned this issue in Docs: manifest list syntax fixture-org/elsewhere#12, open issue. Opens in the browser."
+assert-label "Someone mentioned this issue in Loader notes #77, open issue. Opens the issue."
+assert-label "octo-dev linked a pull request that will close this issue WIP: loader cleanup #103, draft pull request. Opens the pull request."
+assert-baseline github-issue-populated
+audit
+
+# An unsent comment draft (it saves 500 ms after the last keystroke,
+# docs/0045), then the untracked source: the browser opens and the page
+# stays (the bridge records no browser opens).
+mouse scroll 640 500 -600 --wait-frame
+mouse down 615 609
+mouse up 615 609
+type "unsent draft"
+sleep 1
+click-label "Opens in the browser" --role Button
+wait-frame
+assert-label "Leave a comment"
+assert-label "octo-dev linked a pull request that will close this issue"
+
+# The closing PR is in a listed repository: its row opens the PR page…
+click-label "linked a pull request that will close this issue" --role Button
+wait-label "Conversation (0)"
+assert-label "#103"
+assert-no-label "will close this issue"
+
+# …and Back returns to the issue, not the repo view, with its draft: sent
+# from the restored box, the comment carries the text typed before leaving.
+click 12782369444481205663 --wait-frame
+wait-label "Leave a comment"
+assert-label "#201"
+assert-label "octo-dev linked a pull request that will close this issue"
+assert-no-label "Open issues"
+mouse scroll 640 400 -600 --wait-frame
+click-label "Comment" --role Button --exact
+wait-frame
+assert-write PrAddComment input.subjectId=I_201 "input.body=unsent draft"
+
+# The closed issue: the merged PR that closed it reads the same sentence.
+click-label "beacon" --role Link
+wait-label "Open issues"
+click-label "Open issues" --role Tab
+click-label "Issue #198: Trailing comma crash — fixture-user/beacon · reviewer-a"
+wait-label "Open issue on GitHub"
+assert-no-label "Leave a comment"
+assert-label "octo-dev linked a pull request that will close this issue Revert parser strictness #99, merged pull request. Opens the pull request."
+# Locked and seen by a reader, so no comment box: the keyboard walk covers
+# the page. The rows
+# are tab stops and the cycle closes (the comment box of an unlocked issue
+# is a Tab trap, #931).
+tab-stops
+audit
+
+# 202 carries 100 of 130 references: the cap row counts the 30 cut.
+click-label "beacon" --role Link
+wait-label "Open issues"
+click-label "Open issues" --role Tab
+click-label "Issue #202: Mentioned from everywhere — fixture-user/beacon · reviewer-a"
+wait-label "+30 more on github.com"
+assert-label "octo-dev mentioned this issue in Mention 99 #399, open issue. Opens the issue."

@@ -1,0 +1,154 @@
+{
+ "data": {
+  "rateLimit": null,
+  "repository": {
+   "issue": {
+    "activeLockReason": "RESOLVED",
+    "assignees": {
+     "nodes": [],
+     "totalCount": 0
+    },
+    "author": {
+     "avatarUrl": "https://avatars.invalid/reviewer-a",
+     "login": "reviewer-a"
+    },
+    "body": "`parse_manifest` stops at the first trailing comma in a list.",
+    "closedAt": "2026-10-22T16:00:00Z",
+    "comments": {
+     "nodes": [],
+     "totalCount": 0
+    },
+    "createdAt": "2026-10-19T12:00:00Z",
+    "id": "I_198",
+    "labels": {
+     "nodes": [
+      {
+       "color": "d73a4a",
+       "id": "L_bug",
+       "name": "bug"
+      }
+     ],
+     "totalCount": 1
+    },
+    "locked": true,
+    "milestone": null,
+    "number": 198,
+    "reactionGroups": [
+     {
+      "content": "THUMBS_UP",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "THUMBS_DOWN",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "LAUGH",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "HOORAY",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "CONFUSED",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "HEART",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "ROCKET",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     },
+     {
+      "content": "EYES",
+      "reactors": {
+       "totalCount": 0
+      },
+      "viewerHasReacted": false
+     }
+    ],
+    "references": {
+     "filteredCount": 1,
+     "nodes": [
+      {
+       "__typename": "CrossReferencedEvent",
+       "actor": {
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T20:00:00Z",
+       "id": "XREF_0",
+       "isCrossRepository": false,
+       "source": {
+        "__typename": "PullRequest",
+        "isDraft": false,
+        "merged": true,
+        "number": 99,
+        "repository": {
+         "isPrivate": false,
+         "nameWithOwner": "fixture-user/beacon"
+        },
+        "state": "MERGED",
+        "title": "Revert parser strictness",
+        "url": "https://github.com/fixture-user/beacon/pull/99"
+       },
+       "willCloseTarget": true
+      }
+     ]
+    },
+    "state": "CLOSED",
+    "stateReason": "COMPLETED",
+    "timelineItems": {
+     "filteredCount": 1,
+     "nodes": [
+      {
+       "__typename": "ClosedEvent",
+       "actor": {
+        "avatarUrl": "https://avatars.invalid/octo-dev",
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-22T16:00:00Z",
+       "id": "CLO_1",
+       "stateReason": "COMPLETED"
+      }
+     ],
+     "totalCount": 1
+    },
+    "title": "Trailing comma crash",
+    "url": "https://github.com/fixture-user/beacon/issues/198",
+    "viewerCanAssign": false,
+    "viewerCanClose": false,
+    "viewerCanLabel": false,
+    "viewerCanReact": true,
+    "viewerCanReopen": false,
+    "viewerCanSetMilestone": false,
+    "viewerCanUpdate": false
+   },
+   "nameWithOwner": "fixture-user/beacon",
+   "viewerPermission": "READ"
+  }
+ }
+}
