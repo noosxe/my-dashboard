@@ -3,6 +3,7 @@
 Addresses [#311](https://github.com/noosxe/my-dashboard/issues/311)
 (and subsumes [#57](https://github.com/noosxe/my-dashboard/issues/57),
 [#95](https://github.com/noosxe/my-dashboard/issues/95)).
+Implemented in #317 (chrome + list surfaces) and #318 (detail pages).
 
 > The two upstream name gaps (SidebarMenuItem, ListItem, SidebarToggleButton) are
 > filed as [longbridge/gpui-kit#3160](https://github.com/longbridge/gpui-kit/pull/3160);

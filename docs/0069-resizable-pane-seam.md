@@ -1,6 +1,7 @@
 # 0069 — Resizable pane seam: one split mechanism, pane roles, inspector scope
 
 Date: 2026-10-10
+Implemented in #497
 
 ## 1. Context
 
