@@ -1,13 +1,18 @@
 # 0085 — Timeline cross-reference rows (PR and issue pages)
 
-Date: 2026-11-18 · Status: design (implementation after this doc merges, against #918)
-Upstream pins: gpui-component `94a313a` (v0.6.0) · GitHub GraphQL verified live 2026-11-18
+- **Date:** 2026-11-18
+- **Issue:** #918
+- **Part of:** #730 (PR view fixes)
+- **Amends:** docs/0016 (the PR page event rows: "Not yet: cross-reference"),
+  docs/0021 (its cross-reference deferral)
+- **Upstream pins:** gpui-component `f697c31` (v0.10.0) · GitHub GraphQL
+  verified live 2026-11-18
 
 ## 1. Context & problem
 
 Both conversation timelines interleave comment cards with muted one-line event
 rows: the PR page's shipped in #911 (docs/0016, "PR timeline event rows"), the
-issue page's in docs/0021. Both deferred cross-references — the "alice mentioned
+issue page's in docs/0021. Both deferred cross-references — the "octo-dev mentioned
 this pull request in #42" lines — because they are the only event rows that
 point at another object and so are interactive. Without them a PR page hides
 the linked issue that it will close, and an issue page hides the PR that fixes
@@ -255,10 +260,13 @@ GitHub; if one arrives it drops at parse time.
   activated by Enter or Space. Reason: a click-only row would be invisible to
   keyboard users and to the dump.
 - Accessible name: the full sentence plus the source's state and reference
-  ("alice mentioned this issue in Fix loader #42, open pull request. Opens the
+  ("octo-dev mentioned this issue in Fix loader #42, open pull request. Opens the
   pull request.").
-- Focus: the shared focus ring (the ghost `Button`'s ring token), inset on the
-  row's rounded rect; hover paints the muted-surface token. No data-coloured
+- Focus: a border in the theme `ring` token on the row's rounded rect, as
+  gpui-component's `Select` and `ColorPicker` draw their focus; hover paints
+  the theme `accent` token at half opacity, as the mention list does
+  (`mentions.rs`). Both tokens exist on `f697c31` (`ThemeColor::ring` in
+  `crates/component/src/theme/theme_color.rs`, `ColorTokens::accent`). No data-coloured
   hex, no ad-hoc sizes (docs/0002 D5/D9/D10 lints apply).
 - Many rows mean many tab stops; accepted (bounded at 100, and github.com is
   the same). A debug-bridge `tree --tab-stops` receipt covers the order.
