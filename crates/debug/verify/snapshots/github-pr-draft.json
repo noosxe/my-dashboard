@@ -50,9 +50,9 @@
       "role": "Tab",
       "label": "Checks (0)",
       "bounds": {
-        "x": 502.0,
+        "x": 477.0,
         "y": 137.0,
-        "w": 67.0,
+        "w": 46.0,
         "h": 36.0
       },
       "focusable": true,
@@ -219,9 +219,9 @@
       "role": "Tab",
       "label": "Commits (1)",
       "bounds": {
-        "x": 408.0,
+        "x": 387.0,
         "y": 137.0,
-        "w": 78.0,
+        "w": 74.0,
         "h": 36.0
       },
       "focusable": true,
@@ -427,9 +427,9 @@
       "role": "Tab",
       "label": "Files changed (1)",
       "bounds": {
-        "x": 585.0,
+        "x": 539.0,
         "y": 137.0,
-        "w": 108.0,
+        "w": 104.0,
         "h": 36.0
       },
       "focusable": true,
@@ -442,7 +442,7 @@
       "bounds": {
         "x": 288.0,
         "y": 137.0,
-        "w": 104.0,
+        "w": 83.0,
         "h": 36.0
       },
       "focusable": true,

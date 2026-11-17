@@ -286,7 +286,7 @@ pub struct GithubPage {
 │ [Open●] Add retry budget to fetch layer #482        [↻] [↗]  │ header (fixed)
 │ alice wants to merge 12 commits  main ← add-retry-budget      │
 ├──────────────────────────────────────────────────────────────┤
-│  Conversation (12)  Commits (12)  Checks (8)  Files changed   │ TabBar underline
+│  Conversation 12  Commits 12  Checks 8  Files changed          │ TabBar underline
 ├───────────────────────────────────────────────┬──────────────┤
 │  tab content: one scroll region per tab,      │ right rail   │
 │  only the active tab renders                  │ (conversation│
@@ -320,9 +320,12 @@ pub struct GithubPage {
   the Conversation keeps its first visible card in place
   (`freshness/anchor.rs`), and an editor whose comment was deleted on GitHub
   stays open under a "Deleted on GitHub" notice (`freshness/vanished.rs`).
-- **Tabs:** `TabBar::new("pr-tabs").underline()`; labels carry counts
-  (`Conversation (12)` … counts from `PrDetail` connections; hidden while
-  loading). Tab state is `enum PrTab { Conversation, Commits, Checks, Files }`
+- **Tabs:** `TabBar::new("pr-tabs").underline()`; each tab draws its name and
+  a muted count beside it (#796; counts from `PrDetail` connections; hidden
+  while loading). A zero count is not drawn on Conversation and Checks. The
+  accessible name keeps the parenthesised count (`Conversation (12)`,
+  `Checks (0)`) either way, so a loaded empty tab reads differently from a
+  tab still loading. Tab state is `enum PrTab { Conversation, Commits, Checks, Files }`
   on `PrDetailPage`; per-tab `ScrollHandle`s so switching back preserves
   position.
 - **Loading:** per-tab `Skeleton` rows (the page chrome + tabs render
