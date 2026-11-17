@@ -1,7 +1,6 @@
 # 0047 — GitHub module home view: account-wide open PRs
 
 - **Issue:** #295
-- **Status:** design (docs-only PR)
 - **Depends on:** 0009 (module structure, two-column layout), 0031/0035/0037 (fetch, list auto-refresh, freshness), 0042 (list filters), 0044 §9 (truncation-hint idiom)
 
 ## 1. Summary

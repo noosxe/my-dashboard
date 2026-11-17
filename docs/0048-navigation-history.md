@@ -1,7 +1,6 @@
 # 0048 — Navigation history: back/forward over a page tree
 
 - **Issue:** #303
-- **Status:** design (docs-only PR)
 - **Depends on:** 0003 (shell & Navigator), 0010 (debug bridge — new controls must be visible), 0014 §5 D7 (module-crumb re-entry), 0031 (fetch dedup — restores must not refetch-storm)
 
 ## 1. Summary

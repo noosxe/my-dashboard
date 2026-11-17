@@ -1,6 +1,6 @@
 # 0063 — The app database (generalizing `usage.db`) + notification log persistence
 
-Status: implemented via #425 (PR #426). Implements #387 — the storage round
+Implements #387 — the storage round
 deferred by docs/0059 §8 — and generalizes the docs/0057 sink so any
 persistent data has one home.
 

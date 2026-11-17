@@ -1,7 +1,6 @@
 # GitHub Module: Repo-View List Filters & Sort
 
 - **Issue:** #190 (gap audit: docs/0029 §3 "Navigation & discovery")
-- **Status:** design — docs-only PR; implementation follows after merge + go-ahead
 - **Depends on:** nothing; orthogonal to 0035 (freshness) and 0038 (realtime)
 
 ## 1. Context & problem

@@ -1,9 +1,7 @@
 # 0074 — Built-in theme presets: the kit's theme gallery, bundled
 
 Date: 2026-10-14
-Status: design (docs-only PR)
-Follow-ups: implementation issue(s) to be filed after merge; upstream
-accessor contribution filed `deferred`
+Follow-ups: upstream accessor contribution filed `deferred`
 Amends: docs/0025 D3 (bundled set = factory pair only), D10 (no bundled
 Catppuccin), §2 D2 note (`highlight` sections unused); docs/README index
 

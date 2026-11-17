@@ -1,7 +1,7 @@
 # 0059 — Notification hub (unread log, status-bar badge, panel)
 
-Status: design for review. Implements the durable side of docs/0058: toasts are
-ephemeral; this adds the record. Tracking: (issue filed on merge of this doc).
+Implements the durable side of docs/0058: toasts are ephemeral; this adds the
+record.
 
 ## 1. Problem
 

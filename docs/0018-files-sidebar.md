@@ -1,7 +1,6 @@
 # 0018 — Files changed tab: sidebar with list/tree views and master–detail diff
 
 Date: 2026-09-04
-Status: Shipped (2026-09-04, see §8)
 
 ## 1. Context
 

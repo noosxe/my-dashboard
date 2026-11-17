@@ -1,6 +1,5 @@
 # 0072 — GitHub data store: one shared PR/issue cache, stale-while-revalidate reads, optimistic mutations
 
-- **Status:** design PR (docs-only)
 - **Tracked by:** implementation issue (filed at design merge)
 - **Trigger case:** owner request — the module's UX trails github.com, mostly
   because a slow GraphQL round-trip sits between every intent and every pixel.

@@ -1,8 +1,6 @@
 # 0073 — PR single store: one copy of every PR fact
 
 Date: 2026-10-14
-Status: design (docs-only PR)
-Follow-ups: implementation issue(s) to be filed after merge
 
 ## 1 — Problem
 
