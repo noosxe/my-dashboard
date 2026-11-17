@@ -44,7 +44,7 @@ impl Sentence {
     }
 }
 
-pub(super) fn sentence(kind: &PrEventKind) -> Sentence {
+pub(super) fn sentence(kind: &PrEventKind, actor: Option<&str>) -> Sentence {
     match kind {
         PrEventKind::Merged => Sentence::plain("merged this"),
         PrEventKind::Closed => Sentence::plain("closed this"),
@@ -56,6 +56,26 @@ pub(super) fn sentence(kind: &PrEventKind) -> Sentence {
         PrEventKind::ForcePushed { .. } => Sentence::plain("force-pushed the branch"),
         PrEventKind::Labeled { name, color } => label("added the", name, color),
         PrEventKind::Unlabeled { name, color } => label("removed the", name, color),
+        PrEventKind::Assigned { assignee } => assignment("assigned", assignee, actor),
+        PrEventKind::Unassigned { assignee } => assignment("unassigned", assignee, actor),
+    }
+}
+
+/// Assigned / unassigned: "assigned bob"; "self-assigned" or "removed their
+/// assignment" when the actor is the assignee (GitHub's own wording). The issue page names the login
+/// either way; the self case reads better here and costs nothing.
+fn assignment(verb: &str, assignee: &str, actor: Option<&str>) -> Sentence {
+    if actor == Some(assignee) {
+        return Sentence::plain(if verb == "assigned" {
+            "self-assigned"
+        } else {
+            "removed their assignment"
+        });
+    }
+    Sentence {
+        lead: verb.into(),
+        label: None,
+        tail: assignee.into(),
     }
 }
 
@@ -81,11 +101,26 @@ mod tests {
             name: "bug".into(),
             color: None,
         };
-        assert_eq!(sentence(&k).text(), "added the bug label");
+        assert_eq!(sentence(&k, None).text(), "added the bug label");
         let k = PrEventKind::Unlabeled {
             name: "bug".into(),
             color: None,
         };
-        assert_eq!(sentence(&k).text(), "removed the bug label");
+        assert_eq!(sentence(&k, None).text(), "removed the bug label");
+    }
+
+    #[test]
+    fn assignments_name_the_assignee_or_read_self() {
+        let k = PrEventKind::Assigned {
+            assignee: "bob".into(),
+        };
+        assert_eq!(sentence(&k, Some("amy")).text(), "assigned bob");
+        assert_eq!(sentence(&k, Some("bob")).text(), "self-assigned");
+        assert_eq!(sentence(&k, None).text(), "assigned bob");
+        let k = PrEventKind::Unassigned {
+            assignee: "bob".into(),
+        };
+        assert_eq!(sentence(&k, Some("amy")).text(), "unassigned bob");
+        assert_eq!(sentence(&k, Some("bob")).text(), "removed their assignment");
     }
 }

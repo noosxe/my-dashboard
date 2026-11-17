@@ -253,7 +253,7 @@
     },
     "createdAt": "2026-10-19T12:00:00Z",
     "events": {
-     "filteredCount": 4,
+     "filteredCount": 7,
      "nodes": [
       {
        "__typename": "LabeledEvent",
@@ -295,6 +295,45 @@
        }
       },
       {
+       "__typename": "AssignedEvent",
+       "actor": {
+        "avatarUrl": "https://avatars.invalid/fixture-user",
+        "login": "fixture-user"
+       },
+       "assignee": {
+        "avatarUrl": "https://avatars.invalid/octo-dev",
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-19T20:00:00Z",
+       "id": "EV_AssignedEvent_3"
+      },
+      {
+       "__typename": "AssignedEvent",
+       "actor": {
+        "avatarUrl": "https://avatars.invalid/fixture-user",
+        "login": "fixture-user"
+       },
+       "assignee": {
+        "avatarUrl": "https://avatars.invalid/fixture-user",
+        "login": "fixture-user"
+       },
+       "createdAt": "2026-10-19T21:00:00Z",
+       "id": "EV_AssignedEvent_4"
+      },
+      {
+       "__typename": "UnassignedEvent",
+       "actor": {
+        "avatarUrl": "https://avatars.invalid/octo-dev",
+        "login": "octo-dev"
+       },
+       "assignee": {
+        "avatarUrl": "https://avatars.invalid/reviewer-c",
+        "login": "reviewer-c"
+       },
+       "createdAt": "2026-10-21T05:00:00Z",
+       "id": "EV_UnassignedEvent_5"
+      },
+      {
        "__typename": "HeadRefForcePushedEvent",
        "actor": {
         "avatarUrl": "https://avatars.invalid/octo-dev",
@@ -307,7 +346,7 @@
         "abbreviatedOid": "3f2a9c1"
        },
        "createdAt": "2026-10-21T20:00:00Z",
-       "id": "EV_HeadRefForcePushedEvent_3"
+       "id": "EV_HeadRefForcePushedEvent_6"
       }
      ]
     },
