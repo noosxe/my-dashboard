@@ -84,7 +84,7 @@ mod tests {
     ) {
         cx.update(gpui_component::init);
         if escape {
-            cx.update(|cx| register(cx));
+            cx.update(register);
         }
         let mut handles = None;
         let (_root, vcx) = cx.add_window_view(|window, cx| {
