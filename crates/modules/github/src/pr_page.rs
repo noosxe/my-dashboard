@@ -80,6 +80,7 @@ mod rail;
 mod range_composer;
 mod refocus;
 mod review_drafts;
+mod review_event;
 mod review_refetch;
 mod state_pill;
 mod state_writes;
@@ -5189,6 +5190,22 @@ impl PrDetailPage {
                         (r.viewer_can_update, r.viewer_can_delete),
                         cx,
                     );
+                    if review_event::is_event(r) {
+                        // #786: nothing to show but the verdict.
+                        children.push(review_event::event_line(
+                            &key,
+                            author_name(r.author.as_ref()),
+                            r.state.as_deref(),
+                            age,
+                            actions,
+                            anchored,
+                            cx,
+                        ));
+                        if let Some(ix) = jump_ix {
+                            self.timeline_scroll.scroll_to_top_of_item(ix);
+                        }
+                        continue;
+                    }
                     // 0019 D4: badge and actions share the header's
                     // trailing slot.
                     let trailing = match (badge, actions) {

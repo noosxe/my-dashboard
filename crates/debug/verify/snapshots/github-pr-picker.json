@@ -82,7 +82,7 @@
       "label": "Comment",
       "bounds": {
         "x": 852.0,
-        "y": 1221.0,
+        "y": 1133.0,
         "w": 78.0,
         "h": 24.0
       },
@@ -199,7 +199,7 @@
       "label": "Add reaction to fixture-user's comment",
       "bounds": {
         "x": 340.0,
-        "y": 696.0,
+        "y": 652.0,
         "w": 25.0,
         "h": 24.0
       },
@@ -363,19 +363,6 @@
       "focused": false
     },
     {
-      "accesskit_id": "3188404176196228230",
-      "role": "Button",
-      "label": "Add reaction to reviewer-c's review",
-      "bounds": {
-        "x": 301.0,
-        "y": 921.0,
-        "w": 25.0,
-        "h": 24.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
       "accesskit_id": "3240035198884440349",
       "role": "CheckBox",
       "label": null,
@@ -532,7 +519,7 @@
       "label": "Add reaction to octo-dev's comment",
       "bounds": {
         "x": 301.0,
-        "y": 1057.0,
+        "y": 969.0,
         "w": 25.0,
         "h": 24.0
       },
@@ -1255,19 +1242,6 @@
       "focused": false
     },
     {
-      "accesskit_id": "10291796816804331360",
-      "role": "Button",
-      "label": "Add reaction to reviewer-a's review",
-      "bounds": {
-        "x": 301.0,
-        "y": 560.0,
-        "w": 25.0,
-        "h": 24.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
       "accesskit_id": "10452439732426359684",
       "role": "CheckBox",
       "label": null,
@@ -1338,7 +1312,7 @@
       "label": "Comment action",
       "bounds": {
         "x": 301.0,
-        "y": 1221.0,
+        "y": 1133.0,
         "w": 543.0,
         "h": 24.0
       },
@@ -1403,7 +1377,7 @@
       "label": "Add reaction to reviewer-b's review",
       "bounds": {
         "x": 301.0,
-        "y": 832.0,
+        "y": 788.0,
         "w": 25.0,
         "h": 24.0
       },
@@ -1559,7 +1533,7 @@
       "label": "Delete fixture-user's comment",
       "bounds": {
         "x": 465.0,
-        "y": 615.0,
+        "y": 571.0,
         "w": 58.0,
         "h": 24.0
       },
@@ -2027,7 +2001,7 @@
       "label": "+1 reaction on fixture-user's comment: 1",
       "bounds": {
         "x": 301.0,
-        "y": 696.0,
+        "y": 652.0,
         "w": 35.0,
         "h": 24.0
       },
@@ -2092,7 +2066,7 @@
       "label": "Leave a comment",
       "bounds": {
         "x": 302.0,
-        "y": 1116.0,
+        "y": 1028.0,
         "w": 627.0,
         "h": 96.0
       },
@@ -2386,7 +2360,7 @@
       "label": "Edit fixture-user's comment",
       "bounds": {
         "x": 420.0,
-        "y": 615.0,
+        "y": 571.0,
         "w": 41.0,
         "h": 24.0
       },
