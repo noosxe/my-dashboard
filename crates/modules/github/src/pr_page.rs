@@ -4891,17 +4891,32 @@ impl PrDetailPage {
                     &author_login,
                     author_avatar.as_deref(),
                     relative_age(d.created_at.as_deref()),
-                    d.body.as_deref(),
+                    d.body.as_deref().filter(|b| !b.trim().is_empty()),
                     self.md.get("pr-description").map(Arc::as_ref),
                     None,
-                    // docs/0023 D3 (#196): the body's chips row.
+                    // docs/0023 D3 (#196): the body's chips row; #790: a
+                    // muted "No description" when there is neither a body
+                    // nor a chip, so the card is not a bare header.
                     self.render_reaction_row(
                         "pr-reaction-row",
                         &d.id,
                         "the description",
                         &d.reaction_groups,
                         cx,
-                    ),
+                    )
+                    .or_else(|| {
+                        d.body
+                            .as_deref()
+                            .is_none_or(|b| b.trim().is_empty())
+                            .then(|| {
+                                div()
+                                    .id("pr-description-empty")
+                                    .pt_2()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child("No description")
+                                    .into_any_element()
+                            })
+                    }),
                     false,
                     card_menu::trailing_controls(
                         self.render_reaction_add(
@@ -4926,7 +4941,6 @@ impl PrDetailPage {
             children.push(conversation_window::older_cap_row(hidden, &d.url, cx));
         }
         let entries = conversation_window::visible_timeline(&d.comments.nodes, &d.reviews.nodes);
-        let none_shown = entries.is_empty();
         for (kind, ix) in entries {
             match kind {
                 TimelineKind::Comment => {
@@ -5124,9 +5138,8 @@ impl PrDetailPage {
                 }
             }
         }
-        if none_shown {
-            children.push(empty_state("No conversation yet", cx).into_any_element());
-        }
+        // #790: no "No conversation yet" line — the composer below already
+        // invites the first comment.
         // #746: the viewer's pending review reads as a notice, not a row.
         children.extend(self.render_pending_review_notice(d, cx));
         children.extend(self.render_vanished_editor(d, cx));
