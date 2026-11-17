@@ -428,20 +428,27 @@ fn more_menu(items: Vec<MenuItem>, busy: bool, cx: &Context<PrDetailPage>) -> An
                             }
                             MenuItem::ConvertToDraft => {
                                 let item_weak = weak.clone();
-                                next = next.item(PopupMenuItem::new("Convert to draft").on_click(
-                                    move |_, window, cx| {
-                                        let item_weak = item_weak.clone();
-                                        window.defer(cx, move |window, cx| {
-                                            let _ = item_weak.update(cx, |page, cx| {
-                                                page.open_merge_confirm(
-                                                    ConfirmKind::ConvertToDraft,
-                                                    window,
-                                                    cx,
-                                                )
+                                next = next.item(
+                                    PopupMenuItem::new("Convert to draft")
+                                        // A neutral glyph keeps the labels aligned
+                                        // with Close's; the danger tint stays
+                                        // Close's alone.
+                                        .icon(crate::state_pill::icon(
+                                            crate::state_pill::Glyph::Draft,
+                                        ))
+                                        .on_click(move |_, window, cx| {
+                                            let item_weak = item_weak.clone();
+                                            window.defer(cx, move |window, cx| {
+                                                let _ = item_weak.update(cx, |page, cx| {
+                                                    page.open_merge_confirm(
+                                                        ConfirmKind::ConvertToDraft,
+                                                        window,
+                                                        cx,
+                                                    )
+                                                });
                                             });
-                                        });
-                                    },
-                                ));
+                                        }),
+                                );
                             }
                         }
                     }
