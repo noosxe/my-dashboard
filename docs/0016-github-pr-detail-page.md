@@ -368,10 +368,14 @@ Two columns: main timeline (`flex_1`) + fixed ~300px right rail (D5).
 - **Event rows** (#787, #911): `merged`, `closed`, `reopened`, `force-pushed`,
   `labeled`, `unlabeled`, `assigned`, `unassigned`,
   `review requested`, `review request removed`,
-  `renamed`, `milestoned` and `demilestoned` events from `timelineItems` (an aliased `events`
-  selection of the detail query, `last: 100`, itemTypes `MERGED_EVENT`,
-  `CLOSED_EVENT`, `REOPENED_EVENT`, `HEAD_REF_FORCE_PUSHED_EVENT`,
-  `LABELED_EVENT`, `UNLABELED_EVENT`, `ASSIGNED_EVENT`, `UNASSIGNED_EVENT`, `REVIEW_REQUESTED_EVENT`, `REVIEW_REQUEST_REMOVED_EVENT`, `RENAMED_TITLE_EVENT`, `MILESTONED_EVENT`, `DEMILESTONED_EVENT`; the force-push row names the
+  `renamed`, `milestoned` and `demilestoned` events from `timelineItems` (the
+  aliased `events` and `activity` selections of the detail query, split as
+  below; itemTypes `MERGED_EVENT`, `CLOSED_EVENT`, `REOPENED_EVENT`,
+  `HEAD_REF_FORCE_PUSHED_EVENT` in `events`; `LABELED_EVENT`,
+  `UNLABELED_EVENT`, `ASSIGNED_EVENT`, `UNASSIGNED_EVENT`,
+  `REVIEW_REQUESTED_EVENT`, `REVIEW_REQUEST_REMOVED_EVENT`,
+  `RENAMED_TITLE_EVENT`, `MILESTONED_EVENT`, `DEMILESTONED_EVENT` in
+  `activity`); the force-push row names the
   abbreviated before and after commit ids, in mono). A label row reads
   "actor added the [chip] label" / "removed the [chip] label", the issue
   page's wording (docs/0021 D3), with the rail's label chip in the label's
@@ -384,6 +388,17 @@ Two columns: main timeline (`flex_1`) + fixed ~300px right rail (D5).
   field drop out. Code: `gql/pr_events.rs` (wire), `pr_page/timeline_events.rs`
   (order, row) and `pr_page/timeline_events/sentence.rs` (the words, one
   function per event family). Not yet: draft-state and cross-reference events — #911 (part of #730).
+- **Event window split** (#911): the event rows come from two aliased
+  `timelineItems` selections, each `last: 100` on its own: `events` (state
+  changes: merged, closed, reopened, force-pushed) and `activity` (the
+  chatty bookkeeping: labels, assignees, review requests, title,
+  milestone). A burst of one kind (a bot adding labels in a loop) fills only
+  its own window, so a merged or closed row cannot fall out of the page.
+  `parse_events` merges both lists (the page sorts by time) and adds the two
+  `filteredCount`s, so `timeline_events::hidden` stays the honest count of
+  rows the queries cut. The cost is up to 200 event nodes per read; a PR
+  with more than 100 force-pushes still loses the oldest ones from the
+  `events` window, counted in the same cap row.
 - **Load errors** (#791): a failed detail read (Conversation, Commits and
   Checks panes) or changed-files read says what went wrong in plain words and
   offers a labelled **Retry** under it (`pr-load-error` / `pr-files-error`,

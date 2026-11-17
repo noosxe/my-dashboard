@@ -5,6 +5,10 @@
    "autoMergeAllowed": false,
    "mergeCommitAllowed": false,
    "pullRequest": {
+    "activity": {
+     "filteredCount": 0,
+     "nodes": []
+    },
     "assignees": {
      "nodes": [],
      "totalCount": 0

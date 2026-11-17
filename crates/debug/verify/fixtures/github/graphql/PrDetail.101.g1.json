@@ -5,6 +5,166 @@
    "autoMergeAllowed": false,
    "mergeCommitAllowed": true,
    "pullRequest": {
+    "activity": {
+     "filteredCount": 13,
+     "nodes": [
+      {
+       "__typename": "LabeledEvent",
+       "actor": {
+        "avatarUrl": "https://avatars.invalid/octo-dev",
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-19T18:00:00Z",
+       "id": "EV_LabeledEvent_0",
+       "label": {
+        "color": "d73a4a",
+        "name": "bug"
+       }
+      },
+      {
+       "__typename": "LabeledEvent",
+       "actor": {
+        "avatarUrl": "https://avatars.invalid/octo-dev",
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-19T19:00:00Z",
+       "id": "EV_LabeledEvent_1",
+       "label": {
+        "color": "fbca04",
+        "name": "needs-review"
+       }
+      },
+      {
+       "__typename": "UnlabeledEvent",
+       "actor": {
+        "avatarUrl": "https://avatars.invalid/fixture-user",
+        "login": "fixture-user"
+       },
+       "createdAt": "2026-10-21T00:00:00Z",
+       "id": "EV_UnlabeledEvent_2",
+       "label": {
+        "color": "ededed",
+        "name": "wip"
+       }
+      },
+      {
+       "__typename": "AssignedEvent",
+       "actor": {
+        "avatarUrl": "https://avatars.invalid/fixture-user",
+        "login": "fixture-user"
+       },
+       "assignee": {
+        "avatarUrl": "https://avatars.invalid/octo-dev",
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-19T20:00:00Z",
+       "id": "EV_AssignedEvent_3"
+      },
+      {
+       "__typename": "AssignedEvent",
+       "actor": {
+        "avatarUrl": "https://avatars.invalid/fixture-user",
+        "login": "fixture-user"
+       },
+       "assignee": {
+        "avatarUrl": "https://avatars.invalid/fixture-user",
+        "login": "fixture-user"
+       },
+       "createdAt": "2026-10-19T21:00:00Z",
+       "id": "EV_AssignedEvent_4"
+      },
+      {
+       "__typename": "UnassignedEvent",
+       "actor": {
+        "avatarUrl": "https://avatars.invalid/octo-dev",
+        "login": "octo-dev"
+       },
+       "assignee": {
+        "avatarUrl": "https://avatars.invalid/reviewer-c",
+        "login": "reviewer-c"
+       },
+       "createdAt": "2026-10-21T05:00:00Z",
+       "id": "EV_UnassignedEvent_5"
+      },
+      {
+       "__typename": "RenamedTitleEvent",
+       "actor": {
+        "avatarUrl": "https://avatars.invalid/octo-dev",
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-19T17:00:00Z",
+       "currentTitle": "Parser: accept trailing commas in manifest lists",
+       "id": "EV_RenamedTitleEvent_6",
+       "previousTitle": "Parser: allow trailing commas"
+      },
+      {
+       "__typename": "MilestonedEvent",
+       "actor": {
+        "avatarUrl": "https://avatars.invalid/fixture-user",
+        "login": "fixture-user"
+       },
+       "createdAt": "2026-10-20T00:00:00Z",
+       "id": "EV_MilestonedEvent_7",
+       "milestoneTitle": "v1.3 parser cleanup"
+      },
+      {
+       "__typename": "DemilestonedEvent",
+       "actor": {
+        "avatarUrl": "https://avatars.invalid/fixture-user",
+        "login": "fixture-user"
+       },
+       "createdAt": "2026-10-20T01:00:00Z",
+       "id": "EV_DemilestonedEvent_8",
+       "milestoneTitle": "v1.3 parser cleanup"
+      },
+      {
+       "__typename": "MilestonedEvent",
+       "actor": {
+        "avatarUrl": "https://avatars.invalid/fixture-user",
+        "login": "fixture-user"
+       },
+       "createdAt": "2026-10-20T02:00:00Z",
+       "id": "EV_MilestonedEvent_9",
+       "milestoneTitle": "v1.4 parser cleanup"
+      },
+      {
+       "__typename": "ReviewRequestedEvent",
+       "actor": {
+        "avatarUrl": "https://avatars.invalid/octo-dev",
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-19T22:00:00Z",
+       "id": "EV_ReviewRequestedEvent_10",
+       "requestedReviewer": {
+        "login": "reviewer-a"
+       }
+      },
+      {
+       "__typename": "ReviewRequestedEvent",
+       "actor": {
+        "avatarUrl": "https://avatars.invalid/octo-dev",
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-19T23:00:00Z",
+       "id": "EV_ReviewRequestedEvent_11",
+       "requestedReviewer": {
+        "combinedSlug": "fixture-org/team-01"
+       }
+      },
+      {
+       "__typename": "ReviewRequestRemovedEvent",
+       "actor": {
+        "avatarUrl": "https://avatars.invalid/octo-dev",
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T06:00:00Z",
+       "id": "EV_ReviewRequestRemovedEvent_12",
+       "requestedReviewer": {
+        "login": "reviewer-c"
+       }
+      }
+     ]
+    },
     "assignees": {
      "nodes": [
       {
@@ -325,163 +485,8 @@
     },
     "createdAt": "2026-10-19T12:00:00Z",
     "events": {
-     "filteredCount": 14,
+     "filteredCount": 1,
      "nodes": [
-      {
-       "__typename": "LabeledEvent",
-       "actor": {
-        "avatarUrl": "https://avatars.invalid/octo-dev",
-        "login": "octo-dev"
-       },
-       "createdAt": "2026-10-19T18:00:00Z",
-       "id": "EV_LabeledEvent_0",
-       "label": {
-        "color": "d73a4a",
-        "name": "bug"
-       }
-      },
-      {
-       "__typename": "LabeledEvent",
-       "actor": {
-        "avatarUrl": "https://avatars.invalid/octo-dev",
-        "login": "octo-dev"
-       },
-       "createdAt": "2026-10-19T19:00:00Z",
-       "id": "EV_LabeledEvent_1",
-       "label": {
-        "color": "fbca04",
-        "name": "needs-review"
-       }
-      },
-      {
-       "__typename": "UnlabeledEvent",
-       "actor": {
-        "avatarUrl": "https://avatars.invalid/fixture-user",
-        "login": "fixture-user"
-       },
-       "createdAt": "2026-10-21T00:00:00Z",
-       "id": "EV_UnlabeledEvent_2",
-       "label": {
-        "color": "ededed",
-        "name": "wip"
-       }
-      },
-      {
-       "__typename": "AssignedEvent",
-       "actor": {
-        "avatarUrl": "https://avatars.invalid/fixture-user",
-        "login": "fixture-user"
-       },
-       "assignee": {
-        "avatarUrl": "https://avatars.invalid/octo-dev",
-        "login": "octo-dev"
-       },
-       "createdAt": "2026-10-19T20:00:00Z",
-       "id": "EV_AssignedEvent_3"
-      },
-      {
-       "__typename": "AssignedEvent",
-       "actor": {
-        "avatarUrl": "https://avatars.invalid/fixture-user",
-        "login": "fixture-user"
-       },
-       "assignee": {
-        "avatarUrl": "https://avatars.invalid/fixture-user",
-        "login": "fixture-user"
-       },
-       "createdAt": "2026-10-19T21:00:00Z",
-       "id": "EV_AssignedEvent_4"
-      },
-      {
-       "__typename": "UnassignedEvent",
-       "actor": {
-        "avatarUrl": "https://avatars.invalid/octo-dev",
-        "login": "octo-dev"
-       },
-       "assignee": {
-        "avatarUrl": "https://avatars.invalid/reviewer-c",
-        "login": "reviewer-c"
-       },
-       "createdAt": "2026-10-21T05:00:00Z",
-       "id": "EV_UnassignedEvent_5"
-      },
-      {
-       "__typename": "RenamedTitleEvent",
-       "actor": {
-        "avatarUrl": "https://avatars.invalid/octo-dev",
-        "login": "octo-dev"
-       },
-       "createdAt": "2026-10-19T17:00:00Z",
-       "currentTitle": "Parser: accept trailing commas in manifest lists",
-       "id": "EV_RenamedTitleEvent_6",
-       "previousTitle": "Parser: allow trailing commas"
-      },
-      {
-       "__typename": "MilestonedEvent",
-       "actor": {
-        "avatarUrl": "https://avatars.invalid/fixture-user",
-        "login": "fixture-user"
-       },
-       "createdAt": "2026-10-20T00:00:00Z",
-       "id": "EV_MilestonedEvent_7",
-       "milestoneTitle": "v1.3 parser cleanup"
-      },
-      {
-       "__typename": "DemilestonedEvent",
-       "actor": {
-        "avatarUrl": "https://avatars.invalid/fixture-user",
-        "login": "fixture-user"
-       },
-       "createdAt": "2026-10-20T01:00:00Z",
-       "id": "EV_DemilestonedEvent_8",
-       "milestoneTitle": "v1.3 parser cleanup"
-      },
-      {
-       "__typename": "MilestonedEvent",
-       "actor": {
-        "avatarUrl": "https://avatars.invalid/fixture-user",
-        "login": "fixture-user"
-       },
-       "createdAt": "2026-10-20T02:00:00Z",
-       "id": "EV_MilestonedEvent_9",
-       "milestoneTitle": "v1.4 parser cleanup"
-      },
-      {
-       "__typename": "ReviewRequestedEvent",
-       "actor": {
-        "avatarUrl": "https://avatars.invalid/octo-dev",
-        "login": "octo-dev"
-       },
-       "createdAt": "2026-10-19T22:00:00Z",
-       "id": "EV_ReviewRequestedEvent_10",
-       "requestedReviewer": {
-        "login": "reviewer-a"
-       }
-      },
-      {
-       "__typename": "ReviewRequestedEvent",
-       "actor": {
-        "avatarUrl": "https://avatars.invalid/octo-dev",
-        "login": "octo-dev"
-       },
-       "createdAt": "2026-10-19T23:00:00Z",
-       "id": "EV_ReviewRequestedEvent_11",
-       "requestedReviewer": {
-        "combinedSlug": "fixture-org/team-01"
-       }
-      },
-      {
-       "__typename": "ReviewRequestRemovedEvent",
-       "actor": {
-        "avatarUrl": "https://avatars.invalid/octo-dev",
-        "login": "octo-dev"
-       },
-       "createdAt": "2026-10-21T06:00:00Z",
-       "id": "EV_ReviewRequestRemovedEvent_12",
-       "requestedReviewer": {
-        "login": "reviewer-c"
-       }
-      },
       {
        "__typename": "HeadRefForcePushedEvent",
        "actor": {
@@ -495,7 +500,7 @@
         "abbreviatedOid": "3f2a9c1"
        },
        "createdAt": "2026-10-21T20:00:00Z",
-       "id": "EV_HeadRefForcePushedEvent_13"
+       "id": "EV_HeadRefForcePushedEvent_0"
       }
      ]
     },
