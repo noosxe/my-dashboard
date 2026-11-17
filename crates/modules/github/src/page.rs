@@ -1428,11 +1428,21 @@ impl GithubPage {
             &page,
             window,
             |this, _, event: &pr_page::PrPageEvent, window, cx| {
-                let pr_page::PrPageEvent::Leave(intent) = event;
-                match intent {
-                    LeaveIntent::Close => this.close_pr(cx),
-                    LeaveIntent::RepoCrumb => this.show_repo_view(cx),
-                    LeaveIntent::ModuleRoot => this.reenter_root(window, cx),
+                match event {
+                    pr_page::PrPageEvent::Leave(intent) => match intent {
+                        LeaveIntent::Close => this.close_pr(cx),
+                        LeaveIntent::RepoCrumb => this.show_repo_view(cx),
+                        LeaveIntent::ModuleRoot => this.reenter_root(window, cx),
+                        // The page emits `OpenSubject` for this intent.
+                        LeaveIntent::Subject => {}
+                    },
+                    // docs/0085 D6: a cross-reference row; the leave guard
+                    // already ran on the page.
+                    pr_page::PrPageEvent::OpenSubject {
+                        repo,
+                        number,
+                        is_pr,
+                    } => this.open_subject(repo, *number, *is_pr, "", None, window, cx),
                 }
             },
         )

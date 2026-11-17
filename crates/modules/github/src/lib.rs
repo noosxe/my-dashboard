@@ -41,7 +41,6 @@ mod tab_strip;
 pub mod usage;
 mod usage_chip;
 mod usage_seed;
-#[allow(dead_code)] // wired into the PR page in the next commit
 mod xref_row;
 
 use std::rc::Rc;

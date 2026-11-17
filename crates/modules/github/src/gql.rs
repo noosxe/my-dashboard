@@ -694,6 +694,8 @@ pub const PR_DETAIL_QUERY: &str = r#"
 query PrDetail($owner: String!, $name: String!, $number: Int!) {
   rateLimit { cost remaining resetAt limit }
   repository(owner: $owner, name: $name) {
+    # docs/0085: the page's own identity, to drop a self-reference.
+    nameWithOwner
     mergeCommitAllowed
     squashMergeAllowed
     rebaseMergeAllowed
@@ -2448,7 +2450,10 @@ pub fn pr_detail_from_value(value: &serde_json::Value) -> Option<PrDetail> {
             nodes: comments,
         },
         events: pr_events::parse_events(pr),
-        references: xref_events::parse_references(pr),
+        references: xref_events::parse_references(
+            pr,
+            value.get("nameWithOwner").and_then(|v| v.as_str()),
+        ),
     })
 }
 

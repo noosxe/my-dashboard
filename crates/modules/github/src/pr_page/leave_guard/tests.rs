@@ -14,6 +14,7 @@ use crate::gql;
 use crate::http::{Http, HttpError, HttpResult, Verb};
 use crate::pr_page::{GateReview, LineDraft, PrDetailPage, PrPageEvent};
 use crate::service::{AuthStatus, GithubCache, GithubState};
+use crate::xref_row::Target;
 
 struct NoNetwork;
 
@@ -87,8 +88,11 @@ fn open(
     let sink = log.clone();
     vcx.update(|_, cx| {
         cx.subscribe(&page, move |_, event: &PrPageEvent, _| {
-            let PrPageEvent::Leave(intent) = event;
-            sink.borrow_mut().push(*intent);
+            sink.borrow_mut().push(match event {
+                PrPageEvent::Leave(intent) => *intent,
+                // The log records that the host was asked to open a page.
+                PrPageEvent::OpenSubject { .. } => LeaveIntent::Subject,
+            });
         })
         .detach();
     });
@@ -208,5 +212,39 @@ fn the_confirm_closes_when_the_drafts_are_gone(cx: &mut TestAppContext) {
     });
     vcx.run_until_parked();
     let _ = vcx.debug_bounds("pr-discard-confirm");
+    assert!(vcx.debug_bounds("pr-discard-confirm").is_none());
+}
+
+fn in_app() -> Target {
+    Target::InApp {
+        repo: "fixture-org/atlas".into(),
+        number: 42,
+        is_pr: false,
+    }
+}
+
+#[gpui::test]
+fn a_cross_reference_with_a_draft_asks_before_opening(cx: &mut TestAppContext) {
+    let (page, vcx, log) = open(cx);
+    page.update(vcx, |p, _| p.drafts = vec![draft("a")]);
+    vcx.update(|window, cx| page.update(cx, |p, cx| p.open_xref(in_app(), window, cx)));
+    // Guarded: nothing reached the host, the confirm is up.
+    assert!(log.borrow().is_empty());
+    assert!(vcx.debug_bounds("pr-discard-confirm").is_some());
+    // Keep editing: still nothing, and the stale target is gone.
+    esc(vcx, &page);
+    assert!(log.borrow().is_empty());
+    page.update(vcx, |p, _| assert!(p.pending_subject.is_none()));
+    // Ask again and discard: the host is asked to open the page.
+    vcx.update(|window, cx| page.update(cx, |p, cx| p.open_xref(in_app(), window, cx)));
+    vcx.update(|_, cx| page.update(cx, |p, cx| p.confirm_discard(cx)));
+    assert_eq!(*log.borrow(), [LeaveIntent::Subject]);
+}
+
+#[gpui::test]
+fn a_cross_reference_without_drafts_opens_at_once(cx: &mut TestAppContext) {
+    let (page, vcx, log) = open(cx);
+    vcx.update(|window, cx| page.update(cx, |p, cx| p.open_xref(in_app(), window, cx)));
+    assert_eq!(*log.borrow(), [LeaveIntent::Subject]);
     assert!(vcx.debug_bounds("pr-discard-confirm").is_none());
 }
