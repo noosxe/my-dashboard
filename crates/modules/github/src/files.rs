@@ -308,60 +308,69 @@ fn sidebar(page: &PrDetailPage, files: &[PrFile], cx: &Context<PrDetailPage>) ->
         .fold((0, 0), |(a, d), (fa, fd)| (a + fa, d + fd));
     let summary = files_summary(files.len(), adds, dels);
     let unresolved = crate::pr_page::unresolved_count::label(page.threads.data());
-    v_flex()
-        .id("pr-files-sidebar")
-        .debug_selector(|| "files-sidebar".into())
-        // The resizable panel (0069 D1) owns the width now — the
-        // sidebar fills it and hosts the seam handle at its right edge.
-        .relative()
-        .size_full()
-        .min_h_0()
-        .p_2()
-        .gap_2()
+    // #794: the sidebar wears the same one-pixel frame as the diff pane,
+    // from the same top edge; the gutter to its right keeps the two
+    // frames apart.
+    let frame = div().size_full().min_h_0().pr_2();
+    frame
         .child(
-            div().debug_selector(|| "files-summary-wrap".into()).child(
-                v_flex()
-                    .px_1()
-                    .text_sm()
-                    .child(
-                        h_flex()
-                            .gap_1()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(format!("{} files changed", summary.files))
-                            .child(format!("· +{}", summary.adds))
-                            .child(format!("−{}", summary.dels)),
-                    )
-                    // #760: the open-review count, hidden at zero.
-                    .children(unresolved.map(|text| {
-                        div()
-                            .id("pr-files-unresolved")
-                            .debug_selector(|| "files-unresolved".into())
-                            .role(accesskit::Role::Label)
-                            .aria_label(text.clone())
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(text)
-                    })),
-            ),
+            v_flex()
+                .id("pr-files-sidebar")
+                .debug_selector(|| "files-sidebar".into())
+                // The resizable panel (0069 D1) owns the width now — the
+                // sidebar fills it and hosts the seam handle at its right edge.
+                .relative()
+                .size_full()
+                .min_h_0()
+                .p_2()
+                .gap_2()
+                .border_1()
+                .border_color(cx.theme().border)
+                .child(
+                    div().debug_selector(|| "files-summary-wrap".into()).child(
+                        v_flex()
+                            .px_1()
+                            .text_sm()
+                            .child(
+                                h_flex()
+                                    .gap_1()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(format!("{} files changed", summary.files))
+                                    .child(format!("· +{}", summary.adds))
+                                    .child(format!("−{}", summary.dels)),
+                            )
+                            // #760: the open-review count, hidden at zero.
+                            .children(unresolved.map(|text| {
+                                div()
+                                    .id("pr-files-unresolved")
+                                    .debug_selector(|| "files-unresolved".into())
+                                    .role(accesskit::Role::Label)
+                                    .aria_label(text.clone())
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(text)
+                            })),
+                    ),
+                )
+                .child(
+                    div().debug_selector(|| "files-select-wrap".into()).child(
+                        Select::new(&page.view_select)
+                            .small()
+                            .w_full()
+                            .accessibility_label("Files view mode"),
+                    ),
+                )
+                .child(
+                    div().debug_selector(|| "files-filter-wrap".into()).child(
+                        Input::new(&page.file_filter)
+                            .small()
+                            .w_full()
+                            .accessibility_id("pr-files-filter"),
+                    ),
+                )
+                .child(seam_handle(page))
+                .child(view_area(page, cx)),
         )
-        .child(
-            div().debug_selector(|| "files-select-wrap".into()).child(
-                Select::new(&page.view_select)
-                    .small()
-                    .w_full()
-                    .accessibility_label("Files view mode"),
-            ),
-        )
-        .child(
-            div().debug_selector(|| "files-filter-wrap".into()).child(
-                Input::new(&page.file_filter)
-                    .small()
-                    .w_full()
-                    .accessibility_id("pr-files-filter"),
-            ),
-        )
-        .child(seam_handle(page))
-        .child(view_area(page, cx))
         .into_any_element()
 }
 
@@ -702,36 +711,55 @@ fn file_row(
                     h_flex()
                         .min_w_0()
                         .flex_1()
-                        .gap_1()
                         .font_family(cx.theme().mono_font_family.clone())
+                        // #794: the directory gives way first; the basename
+                        // keeps its width and only truncates when it alone
+                        // outgrows the row.
                         .when_some(dir, |row, dir| {
                             row.child(
                                 div()
+                                    .min_w_0()
                                     .truncate()
                                     .text_color(cx.theme().muted_foreground)
                                     .child(format!("{dir}/")),
                             )
                         })
-                        .child(div().truncate().child(name.to_string())),
+                        .child(
+                            div()
+                                .flex_shrink_0()
+                                .max_w_full()
+                                .truncate()
+                                .child(name.to_string()),
+                        ),
                 )
                 .child(
                     h_flex()
                         .flex_none()
                         .gap_1p5()
                         .text_xs()
-                        .child(
-                            div()
-                                .text_color(cx.theme().success)
-                                .child(format!("+{adds}")),
+                        // #794: a side with no lines says nothing.
+                        .children(
+                            row_counts(adds, dels)
+                                .0
+                                .map(|t| div().text_color(cx.theme().success).child(t)),
                         )
-                        .child(
-                            div()
-                                .text_color(cx.theme().danger)
-                                .child(format!("−{dels}")),
+                        .children(
+                            row_counts(adds, dels)
+                                .1
+                                .map(|t| div().text_color(cx.theme().danger).child(t)),
                         )
                         .child(file_status_glyph(prefix, path, status)),
                 ),
         )
+}
+
+/// The row's `+adds` and `−dels` text; a side with no lines is absent
+/// (#794). Pure — table-tested.
+pub(crate) fn row_counts(adds: i64, dels: i64) -> (Option<String>, Option<String>) {
+    (
+        (adds > 0).then(|| format!("+{adds}")),
+        (dels > 0).then(|| format!("−{dels}")),
+    )
 }
 
 /// Summary-line text pieces (moved from pr_page, 0018): the pure fn
@@ -2011,6 +2039,15 @@ mod tests {
                 dels: 3,
             }
         );
+    }
+
+    #[test]
+    fn a_row_hides_a_side_with_no_lines() {
+        use crate::files::row_counts;
+        assert_eq!(row_counts(2, 1), (Some("+2".into()), Some("−1".into())));
+        assert_eq!(row_counts(4, 0), (Some("+4".into()), None));
+        assert_eq!(row_counts(0, 3), (None, Some("−3".into())));
+        assert_eq!(row_counts(0, 0), (None, None));
     }
 
     // --- thread placement (docs/0030 D3/§5) ------------------------------
