@@ -7288,6 +7288,7 @@
      "nodes": [
       {
        "commit": {
+        "abbreviatedOid": "0000001",
         "author": {
          "avatarUrl": "https://avatars.invalid/octo-dev",
          "name": "octo-dev",
@@ -7297,277 +7298,17 @@
         },
         "committedDate": "2026-10-20T12:00:00Z",
         "messageHeadline": "parser: accept trailing commas in manifest lists",
-        "oid": "0000001aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
+        "oid": "0000001aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "SUCCESS"
         },
-        "committedDate": "2026-10-20T13:00:00Z",
-        "messageHeadline": "tests: cover the trailing-comma cases",
-        "oid": "0000002aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        "url": "https://github.com/fixture-user/beacon/commit/0000001"
        }
       },
       {
        "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-20T14:00:00Z",
-        "messageHeadline": "docs: note the manifest grammar change",
-        "oid": "0000003aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-20T15:00:00Z",
-        "messageHeadline": "parser: accept trailing commas in manifest lists",
-        "oid": "0000004aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-20T16:00:00Z",
-        "messageHeadline": "tests: cover the trailing-comma cases",
-        "oid": "0000005aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-20T17:00:00Z",
-        "messageHeadline": "docs: note the manifest grammar change",
-        "oid": "0000006aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-20T18:00:00Z",
-        "messageHeadline": "parser: accept trailing commas in manifest lists",
-        "oid": "0000007aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-20T19:00:00Z",
-        "messageHeadline": "tests: cover the trailing-comma cases",
-        "oid": "0000008aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-20T20:00:00Z",
-        "messageHeadline": "docs: note the manifest grammar change",
-        "oid": "0000009aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-20T21:00:00Z",
-        "messageHeadline": "parser: accept trailing commas in manifest lists",
-        "oid": "000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-20T22:00:00Z",
-        "messageHeadline": "tests: cover the trailing-comma cases",
-        "oid": "000000baaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-20T23:00:00Z",
-        "messageHeadline": "docs: note the manifest grammar change",
-        "oid": "000000caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T00:00:00Z",
-        "messageHeadline": "parser: accept trailing commas in manifest lists",
-        "oid": "000000daaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T01:00:00Z",
-        "messageHeadline": "tests: cover the trailing-comma cases",
-        "oid": "000000eaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T02:00:00Z",
-        "messageHeadline": "docs: note the manifest grammar change",
-        "oid": "000000faaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T03:00:00Z",
-        "messageHeadline": "parser: accept trailing commas in manifest lists",
-        "oid": "0000010aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T04:00:00Z",
-        "messageHeadline": "tests: cover the trailing-comma cases",
-        "oid": "0000011aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T05:00:00Z",
-        "messageHeadline": "docs: note the manifest grammar change",
-        "oid": "0000012aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T06:00:00Z",
-        "messageHeadline": "parser: accept trailing commas in manifest lists",
-        "oid": "0000013aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T07:00:00Z",
-        "messageHeadline": "tests: cover the trailing-comma cases",
-        "oid": "0000014aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
+        "abbreviatedOid": "0000002",
         "author": {
          "avatarUrl": "https://avatars.invalid/octo-dev",
          "name": "octo-dev",
@@ -7576,12 +7317,112 @@
          }
         },
         "committedDate": "2026-10-21T08:00:00Z",
-        "messageHeadline": "docs: note the manifest grammar change",
-        "oid": "0000015aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        "messageHeadline": "tests: cover the trailing-comma cases",
+        "oid": "0000002aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": {
+         "state": "FAILURE"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000002"
        }
       },
       {
        "commit": {
+        "abbreviatedOid": "0000003",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-22T04:00:00Z",
+        "messageHeadline": "docs: note the manifest grammar change",
+        "oid": "0000003aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": false,
+         "state": "UNKNOWN_KEY",
+         "wasSignedByGitHub": false
+        },
+        "statusCheckRollup": {
+         "state": "PENDING"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000003"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000004",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-23T00:00:00Z",
+        "messageHeadline": "parser: accept trailing commas in manifest lists",
+        "oid": "0000004aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null,
+        "statusCheckRollup": null,
+        "url": "https://github.com/fixture-user/beacon/commit/0000004"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000005",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-23T20:00:00Z",
+        "messageHeadline": "tests: cover the trailing-comma cases",
+        "oid": "0000005aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000005"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000006",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-20T13:00:00Z",
+        "messageHeadline": "docs: note the manifest grammar change",
+        "oid": "0000006aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": false,
+         "state": "UNKNOWN_KEY",
+         "wasSignedByGitHub": false
+        },
+        "statusCheckRollup": {
+         "state": "FAILURE"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000006"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000007",
         "author": {
          "avatarUrl": "https://avatars.invalid/octo-dev",
          "name": "octo-dev",
@@ -7591,277 +7432,17 @@
         },
         "committedDate": "2026-10-21T09:00:00Z",
         "messageHeadline": "parser: accept trailing commas in manifest lists",
-        "oid": "0000016aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
+        "oid": "0000007aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "PENDING"
         },
-        "committedDate": "2026-10-21T10:00:00Z",
-        "messageHeadline": "tests: cover the trailing-comma cases",
-        "oid": "0000017aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        "url": "https://github.com/fixture-user/beacon/commit/0000007"
        }
       },
       {
        "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T11:00:00Z",
-        "messageHeadline": "docs: note the manifest grammar change",
-        "oid": "0000018aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T12:00:00Z",
-        "messageHeadline": "parser: accept trailing commas in manifest lists",
-        "oid": "0000019aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T13:00:00Z",
-        "messageHeadline": "tests: cover the trailing-comma cases",
-        "oid": "000001aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T14:00:00Z",
-        "messageHeadline": "docs: note the manifest grammar change",
-        "oid": "000001baaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T15:00:00Z",
-        "messageHeadline": "parser: accept trailing commas in manifest lists",
-        "oid": "000001caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T16:00:00Z",
-        "messageHeadline": "tests: cover the trailing-comma cases",
-        "oid": "000001daaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T17:00:00Z",
-        "messageHeadline": "docs: note the manifest grammar change",
-        "oid": "000001eaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T18:00:00Z",
-        "messageHeadline": "parser: accept trailing commas in manifest lists",
-        "oid": "000001faaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T19:00:00Z",
-        "messageHeadline": "tests: cover the trailing-comma cases",
-        "oid": "0000020aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T20:00:00Z",
-        "messageHeadline": "docs: note the manifest grammar change",
-        "oid": "0000021aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T21:00:00Z",
-        "messageHeadline": "parser: accept trailing commas in manifest lists",
-        "oid": "0000022aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T22:00:00Z",
-        "messageHeadline": "tests: cover the trailing-comma cases",
-        "oid": "0000023aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T23:00:00Z",
-        "messageHeadline": "docs: note the manifest grammar change",
-        "oid": "0000024aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-22T00:00:00Z",
-        "messageHeadline": "parser: accept trailing commas in manifest lists",
-        "oid": "0000025aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-22T01:00:00Z",
-        "messageHeadline": "tests: cover the trailing-comma cases",
-        "oid": "0000026aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-22T02:00:00Z",
-        "messageHeadline": "docs: note the manifest grammar change",
-        "oid": "0000027aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-22T03:00:00Z",
-        "messageHeadline": "parser: accept trailing commas in manifest lists",
-        "oid": "0000028aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-22T04:00:00Z",
-        "messageHeadline": "tests: cover the trailing-comma cases",
-        "oid": "0000029aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
+        "abbreviatedOid": "0000008",
         "author": {
          "avatarUrl": "https://avatars.invalid/octo-dev",
          "name": "octo-dev",
@@ -7870,12 +7451,110 @@
          }
         },
         "committedDate": "2026-10-22T05:00:00Z",
-        "messageHeadline": "docs: note the manifest grammar change",
-        "oid": "000002aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        "messageHeadline": "tests: cover the trailing-comma cases",
+        "oid": "0000008aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": null,
+        "url": "https://github.com/fixture-user/beacon/commit/0000008"
        }
       },
       {
        "commit": {
+        "abbreviatedOid": "0000009",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-23T01:00:00Z",
+        "messageHeadline": "docs: note the manifest grammar change",
+        "oid": "0000009aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": false,
+         "state": "UNKNOWN_KEY",
+         "wasSignedByGitHub": false
+        },
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000009"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "000000a",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-23T21:00:00Z",
+        "messageHeadline": "parser: accept trailing commas in manifest lists",
+        "oid": "000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "FAILURE"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/000000a"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "000000b",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-20T14:00:00Z",
+        "messageHeadline": "tests: cover the trailing-comma cases",
+        "oid": "000000baaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": {
+         "state": "PENDING"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/000000b"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "000000c",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-21T10:00:00Z",
+        "messageHeadline": "docs: note the manifest grammar change",
+        "oid": "000000caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": false,
+         "state": "UNKNOWN_KEY",
+         "wasSignedByGitHub": false
+        },
+        "statusCheckRollup": null,
+        "url": "https://github.com/fixture-user/beacon/commit/000000c"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "000000d",
         "author": {
          "avatarUrl": "https://avatars.invalid/octo-dev",
          "name": "octo-dev",
@@ -7885,11 +7564,17 @@
         },
         "committedDate": "2026-10-22T06:00:00Z",
         "messageHeadline": "parser: accept trailing commas in manifest lists",
-        "oid": "000002baaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        "oid": "000000daaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/000000d"
        }
       },
       {
        "commit": {
+        "abbreviatedOid": "000000e",
         "author": {
          "avatarUrl": "https://avatars.invalid/octo-dev",
          "name": "octo-dev",
@@ -7897,13 +7582,23 @@
           "login": "octo-dev"
          }
         },
-        "committedDate": "2026-10-22T07:00:00Z",
+        "committedDate": "2026-10-23T02:00:00Z",
         "messageHeadline": "tests: cover the trailing-comma cases",
-        "oid": "000002caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        "oid": "000000eaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": {
+         "state": "FAILURE"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/000000e"
        }
       },
       {
        "commit": {
+        "abbreviatedOid": "000000f",
         "author": {
          "avatarUrl": "https://avatars.invalid/octo-dev",
          "name": "octo-dev",
@@ -7911,55 +7606,23 @@
           "login": "octo-dev"
          }
         },
-        "committedDate": "2026-10-22T08:00:00Z",
+        "committedDate": "2026-10-23T22:00:00Z",
         "messageHeadline": "docs: note the manifest grammar change",
-        "oid": "000002daaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
+        "oid": "000000faaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": false,
+         "state": "UNKNOWN_KEY",
+         "wasSignedByGitHub": false
         },
-        "committedDate": "2026-10-22T09:00:00Z",
-        "messageHeadline": "parser: accept trailing commas in manifest lists",
-        "oid": "000002eaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
+        "statusCheckRollup": {
+         "state": "PENDING"
         },
-        "committedDate": "2026-10-22T10:00:00Z",
-        "messageHeadline": "tests: cover the trailing-comma cases",
-        "oid": "000002faaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        "url": "https://github.com/fixture-user/beacon/commit/000000f"
        }
       },
       {
        "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-22T11:00:00Z",
-        "messageHeadline": "docs: note the manifest grammar change",
-        "oid": "0000030aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
+        "abbreviatedOid": "0000010",
         "author": {
          "avatarUrl": "https://avatars.invalid/octo-dev",
          "name": "octo-dev",
@@ -7969,277 +7632,15 @@
         },
         "committedDate": "2026-10-20T12:00:00Z",
         "messageHeadline": "parser: accept trailing commas in manifest lists",
-        "oid": "0000031aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        "oid": "0000010aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null,
+        "statusCheckRollup": null,
+        "url": "https://github.com/fixture-user/beacon/commit/0000010"
        }
       },
       {
        "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-20T13:00:00Z",
-        "messageHeadline": "tests: cover the trailing-comma cases",
-        "oid": "0000032aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-20T14:00:00Z",
-        "messageHeadline": "docs: note the manifest grammar change",
-        "oid": "0000033aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-20T15:00:00Z",
-        "messageHeadline": "parser: accept trailing commas in manifest lists",
-        "oid": "0000034aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-20T16:00:00Z",
-        "messageHeadline": "tests: cover the trailing-comma cases",
-        "oid": "0000035aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-20T17:00:00Z",
-        "messageHeadline": "docs: note the manifest grammar change",
-        "oid": "0000036aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-20T18:00:00Z",
-        "messageHeadline": "parser: accept trailing commas in manifest lists",
-        "oid": "0000037aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-20T19:00:00Z",
-        "messageHeadline": "tests: cover the trailing-comma cases",
-        "oid": "0000038aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-20T20:00:00Z",
-        "messageHeadline": "docs: note the manifest grammar change",
-        "oid": "0000039aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-20T21:00:00Z",
-        "messageHeadline": "parser: accept trailing commas in manifest lists",
-        "oid": "000003aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-20T22:00:00Z",
-        "messageHeadline": "tests: cover the trailing-comma cases",
-        "oid": "000003baaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-20T23:00:00Z",
-        "messageHeadline": "docs: note the manifest grammar change",
-        "oid": "000003caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T00:00:00Z",
-        "messageHeadline": "parser: accept trailing commas in manifest lists",
-        "oid": "000003daaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T01:00:00Z",
-        "messageHeadline": "tests: cover the trailing-comma cases",
-        "oid": "000003eaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T02:00:00Z",
-        "messageHeadline": "docs: note the manifest grammar change",
-        "oid": "000003faaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T03:00:00Z",
-        "messageHeadline": "parser: accept trailing commas in manifest lists",
-        "oid": "0000040aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T04:00:00Z",
-        "messageHeadline": "tests: cover the trailing-comma cases",
-        "oid": "0000041aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T05:00:00Z",
-        "messageHeadline": "docs: note the manifest grammar change",
-        "oid": "0000042aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T06:00:00Z",
-        "messageHeadline": "parser: accept trailing commas in manifest lists",
-        "oid": "0000043aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T07:00:00Z",
-        "messageHeadline": "tests: cover the trailing-comma cases",
-        "oid": "0000044aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
+        "abbreviatedOid": "0000011",
         "author": {
          "avatarUrl": "https://avatars.invalid/octo-dev",
          "name": "octo-dev",
@@ -8248,12 +7649,112 @@
          }
         },
         "committedDate": "2026-10-21T08:00:00Z",
-        "messageHeadline": "docs: note the manifest grammar change",
-        "oid": "0000045aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        "messageHeadline": "tests: cover the trailing-comma cases",
+        "oid": "0000011aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000011"
        }
       },
       {
        "commit": {
+        "abbreviatedOid": "0000012",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-22T04:00:00Z",
+        "messageHeadline": "docs: note the manifest grammar change",
+        "oid": "0000012aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": false,
+         "state": "UNKNOWN_KEY",
+         "wasSignedByGitHub": false
+        },
+        "statusCheckRollup": {
+         "state": "FAILURE"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000012"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000013",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-23T00:00:00Z",
+        "messageHeadline": "parser: accept trailing commas in manifest lists",
+        "oid": "0000013aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "PENDING"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000013"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000014",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-23T20:00:00Z",
+        "messageHeadline": "tests: cover the trailing-comma cases",
+        "oid": "0000014aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": null,
+        "url": "https://github.com/fixture-user/beacon/commit/0000014"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000015",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-20T13:00:00Z",
+        "messageHeadline": "docs: note the manifest grammar change",
+        "oid": "0000015aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": false,
+         "state": "UNKNOWN_KEY",
+         "wasSignedByGitHub": false
+        },
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000015"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000016",
         "author": {
          "avatarUrl": "https://avatars.invalid/octo-dev",
          "name": "octo-dev",
@@ -8263,277 +7764,17 @@
         },
         "committedDate": "2026-10-21T09:00:00Z",
         "messageHeadline": "parser: accept trailing commas in manifest lists",
-        "oid": "0000046aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
+        "oid": "0000016aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "FAILURE"
         },
-        "committedDate": "2026-10-21T10:00:00Z",
-        "messageHeadline": "tests: cover the trailing-comma cases",
-        "oid": "0000047aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        "url": "https://github.com/fixture-user/beacon/commit/0000016"
        }
       },
       {
        "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T11:00:00Z",
-        "messageHeadline": "docs: note the manifest grammar change",
-        "oid": "0000048aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T12:00:00Z",
-        "messageHeadline": "parser: accept trailing commas in manifest lists",
-        "oid": "0000049aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T13:00:00Z",
-        "messageHeadline": "tests: cover the trailing-comma cases",
-        "oid": "000004aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T14:00:00Z",
-        "messageHeadline": "docs: note the manifest grammar change",
-        "oid": "000004baaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T15:00:00Z",
-        "messageHeadline": "parser: accept trailing commas in manifest lists",
-        "oid": "000004caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T16:00:00Z",
-        "messageHeadline": "tests: cover the trailing-comma cases",
-        "oid": "000004daaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T17:00:00Z",
-        "messageHeadline": "docs: note the manifest grammar change",
-        "oid": "000004eaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T18:00:00Z",
-        "messageHeadline": "parser: accept trailing commas in manifest lists",
-        "oid": "000004faaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T19:00:00Z",
-        "messageHeadline": "tests: cover the trailing-comma cases",
-        "oid": "0000050aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T20:00:00Z",
-        "messageHeadline": "docs: note the manifest grammar change",
-        "oid": "0000051aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T21:00:00Z",
-        "messageHeadline": "parser: accept trailing commas in manifest lists",
-        "oid": "0000052aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T22:00:00Z",
-        "messageHeadline": "tests: cover the trailing-comma cases",
-        "oid": "0000053aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-21T23:00:00Z",
-        "messageHeadline": "docs: note the manifest grammar change",
-        "oid": "0000054aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-22T00:00:00Z",
-        "messageHeadline": "parser: accept trailing commas in manifest lists",
-        "oid": "0000055aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-22T01:00:00Z",
-        "messageHeadline": "tests: cover the trailing-comma cases",
-        "oid": "0000056aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-22T02:00:00Z",
-        "messageHeadline": "docs: note the manifest grammar change",
-        "oid": "0000057aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-22T03:00:00Z",
-        "messageHeadline": "parser: accept trailing commas in manifest lists",
-        "oid": "0000058aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-22T04:00:00Z",
-        "messageHeadline": "tests: cover the trailing-comma cases",
-        "oid": "0000059aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
+        "abbreviatedOid": "0000017",
         "author": {
          "avatarUrl": "https://avatars.invalid/octo-dev",
          "name": "octo-dev",
@@ -8542,12 +7783,112 @@
          }
         },
         "committedDate": "2026-10-22T05:00:00Z",
-        "messageHeadline": "docs: note the manifest grammar change",
-        "oid": "000005aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        "messageHeadline": "tests: cover the trailing-comma cases",
+        "oid": "0000017aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": {
+         "state": "PENDING"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000017"
        }
       },
       {
        "commit": {
+        "abbreviatedOid": "0000018",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-23T01:00:00Z",
+        "messageHeadline": "docs: note the manifest grammar change",
+        "oid": "0000018aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": false,
+         "state": "UNKNOWN_KEY",
+         "wasSignedByGitHub": false
+        },
+        "statusCheckRollup": null,
+        "url": "https://github.com/fixture-user/beacon/commit/0000018"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000019",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-23T21:00:00Z",
+        "messageHeadline": "parser: accept trailing commas in manifest lists",
+        "oid": "0000019aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000019"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "000001a",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-20T14:00:00Z",
+        "messageHeadline": "tests: cover the trailing-comma cases",
+        "oid": "000001aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": {
+         "state": "FAILURE"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/000001a"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "000001b",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-21T10:00:00Z",
+        "messageHeadline": "docs: note the manifest grammar change",
+        "oid": "000001baaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": false,
+         "state": "UNKNOWN_KEY",
+         "wasSignedByGitHub": false
+        },
+        "statusCheckRollup": {
+         "state": "PENDING"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/000001b"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "000001c",
         "author": {
          "avatarUrl": "https://avatars.invalid/octo-dev",
          "name": "octo-dev",
@@ -8557,11 +7898,15 @@
         },
         "committedDate": "2026-10-22T06:00:00Z",
         "messageHeadline": "parser: accept trailing commas in manifest lists",
-        "oid": "000005baaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        "oid": "000001caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null,
+        "statusCheckRollup": null,
+        "url": "https://github.com/fixture-user/beacon/commit/000001c"
        }
       },
       {
        "commit": {
+        "abbreviatedOid": "000001d",
         "author": {
          "avatarUrl": "https://avatars.invalid/octo-dev",
          "name": "octo-dev",
@@ -8569,13 +7914,23 @@
           "login": "octo-dev"
          }
         },
-        "committedDate": "2026-10-22T07:00:00Z",
+        "committedDate": "2026-10-23T02:00:00Z",
         "messageHeadline": "tests: cover the trailing-comma cases",
-        "oid": "000005caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        "oid": "000001daaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/000001d"
        }
       },
       {
        "commit": {
+        "abbreviatedOid": "000001e",
         "author": {
          "avatarUrl": "https://avatars.invalid/octo-dev",
          "name": "octo-dev",
@@ -8583,55 +7938,23 @@
           "login": "octo-dev"
          }
         },
-        "committedDate": "2026-10-22T08:00:00Z",
+        "committedDate": "2026-10-23T22:00:00Z",
         "messageHeadline": "docs: note the manifest grammar change",
-        "oid": "000005daaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
+        "oid": "000001eaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": false,
+         "state": "UNKNOWN_KEY",
+         "wasSignedByGitHub": false
         },
-        "committedDate": "2026-10-22T09:00:00Z",
-        "messageHeadline": "parser: accept trailing commas in manifest lists",
-        "oid": "000005eaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
+        "statusCheckRollup": {
+         "state": "FAILURE"
         },
-        "committedDate": "2026-10-22T10:00:00Z",
-        "messageHeadline": "tests: cover the trailing-comma cases",
-        "oid": "000005faaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        "url": "https://github.com/fixture-user/beacon/commit/000001e"
        }
       },
       {
        "commit": {
-        "author": {
-         "avatarUrl": "https://avatars.invalid/octo-dev",
-         "name": "octo-dev",
-         "user": {
-          "login": "octo-dev"
-         }
-        },
-        "committedDate": "2026-10-22T11:00:00Z",
-        "messageHeadline": "docs: note the manifest grammar change",
-        "oid": "0000060aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-       }
-      },
-      {
-       "commit": {
+        "abbreviatedOid": "000001f",
         "author": {
          "avatarUrl": "https://avatars.invalid/octo-dev",
          "name": "octo-dev",
@@ -8641,11 +7964,107 @@
         },
         "committedDate": "2026-10-20T12:00:00Z",
         "messageHeadline": "parser: accept trailing commas in manifest lists",
-        "oid": "0000061aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        "oid": "000001faaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "PENDING"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/000001f"
        }
       },
       {
        "commit": {
+        "abbreviatedOid": "0000020",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-21T08:00:00Z",
+        "messageHeadline": "tests: cover the trailing-comma cases",
+        "oid": "0000020aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": null,
+        "url": "https://github.com/fixture-user/beacon/commit/0000020"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000021",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-22T04:00:00Z",
+        "messageHeadline": "docs: note the manifest grammar change",
+        "oid": "0000021aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": false,
+         "state": "UNKNOWN_KEY",
+         "wasSignedByGitHub": false
+        },
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000021"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000022",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-23T00:00:00Z",
+        "messageHeadline": "parser: accept trailing commas in manifest lists",
+        "oid": "0000022aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "FAILURE"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000022"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000023",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-23T20:00:00Z",
+        "messageHeadline": "tests: cover the trailing-comma cases",
+        "oid": "0000023aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": {
+         "state": "PENDING"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000023"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000024",
         "author": {
          "avatarUrl": "https://avatars.invalid/octo-dev",
          "name": "octo-dev",
@@ -8654,12 +8073,106 @@
          }
         },
         "committedDate": "2026-10-20T13:00:00Z",
-        "messageHeadline": "tests: cover the trailing-comma cases",
-        "oid": "0000062aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        "messageHeadline": "docs: note the manifest grammar change",
+        "oid": "0000024aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": false,
+         "state": "UNKNOWN_KEY",
+         "wasSignedByGitHub": false
+        },
+        "statusCheckRollup": null,
+        "url": "https://github.com/fixture-user/beacon/commit/0000024"
        }
       },
       {
        "commit": {
+        "abbreviatedOid": "0000025",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-21T09:00:00Z",
+        "messageHeadline": "parser: accept trailing commas in manifest lists",
+        "oid": "0000025aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000025"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000026",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-22T05:00:00Z",
+        "messageHeadline": "tests: cover the trailing-comma cases",
+        "oid": "0000026aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": {
+         "state": "FAILURE"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000026"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000027",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-23T01:00:00Z",
+        "messageHeadline": "docs: note the manifest grammar change",
+        "oid": "0000027aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": false,
+         "state": "UNKNOWN_KEY",
+         "wasSignedByGitHub": false
+        },
+        "statusCheckRollup": {
+         "state": "PENDING"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000027"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000028",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-23T21:00:00Z",
+        "messageHeadline": "parser: accept trailing commas in manifest lists",
+        "oid": "0000028aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null,
+        "statusCheckRollup": null,
+        "url": "https://github.com/fixture-user/beacon/commit/0000028"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000029",
         "author": {
          "avatarUrl": "https://avatars.invalid/octo-dev",
          "name": "octo-dev",
@@ -8668,12 +8181,22 @@
          }
         },
         "committedDate": "2026-10-20T14:00:00Z",
-        "messageHeadline": "docs: note the manifest grammar change",
-        "oid": "0000063aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        "messageHeadline": "tests: cover the trailing-comma cases",
+        "oid": "0000029aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000029"
        }
       },
       {
        "commit": {
+        "abbreviatedOid": "000002a",
         "author": {
          "avatarUrl": "https://avatars.invalid/octo-dev",
          "name": "octo-dev",
@@ -8681,9 +8204,1300 @@
           "login": "octo-dev"
          }
         },
-        "committedDate": "2026-10-20T15:00:00Z",
+        "committedDate": "2026-10-21T10:00:00Z",
+        "messageHeadline": "docs: note the manifest grammar change",
+        "oid": "000002aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": false,
+         "state": "UNKNOWN_KEY",
+         "wasSignedByGitHub": false
+        },
+        "statusCheckRollup": {
+         "state": "FAILURE"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/000002a"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "000002b",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-22T06:00:00Z",
         "messageHeadline": "parser: accept trailing commas in manifest lists",
-        "oid": "0000064aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        "oid": "000002baaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "PENDING"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/000002b"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "000002c",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-23T02:00:00Z",
+        "messageHeadline": "tests: cover the trailing-comma cases",
+        "oid": "000002caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": null,
+        "url": "https://github.com/fixture-user/beacon/commit/000002c"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "000002d",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-23T22:00:00Z",
+        "messageHeadline": "docs: note the manifest grammar change",
+        "oid": "000002daaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": false,
+         "state": "UNKNOWN_KEY",
+         "wasSignedByGitHub": false
+        },
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/000002d"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "000002e",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-20T12:00:00Z",
+        "messageHeadline": "parser: accept trailing commas in manifest lists",
+        "oid": "000002eaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "FAILURE"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/000002e"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "000002f",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-21T08:00:00Z",
+        "messageHeadline": "tests: cover the trailing-comma cases",
+        "oid": "000002faaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": {
+         "state": "PENDING"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/000002f"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000030",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-22T04:00:00Z",
+        "messageHeadline": "docs: note the manifest grammar change",
+        "oid": "0000030aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": false,
+         "state": "UNKNOWN_KEY",
+         "wasSignedByGitHub": false
+        },
+        "statusCheckRollup": null,
+        "url": "https://github.com/fixture-user/beacon/commit/0000030"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000031",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-23T00:00:00Z",
+        "messageHeadline": "parser: accept trailing commas in manifest lists",
+        "oid": "0000031aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000031"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000032",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-23T20:00:00Z",
+        "messageHeadline": "tests: cover the trailing-comma cases",
+        "oid": "0000032aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": {
+         "state": "FAILURE"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000032"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000033",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-20T13:00:00Z",
+        "messageHeadline": "docs: note the manifest grammar change",
+        "oid": "0000033aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": false,
+         "state": "UNKNOWN_KEY",
+         "wasSignedByGitHub": false
+        },
+        "statusCheckRollup": {
+         "state": "PENDING"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000033"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000034",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-21T09:00:00Z",
+        "messageHeadline": "parser: accept trailing commas in manifest lists",
+        "oid": "0000034aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null,
+        "statusCheckRollup": null,
+        "url": "https://github.com/fixture-user/beacon/commit/0000034"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000035",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-22T05:00:00Z",
+        "messageHeadline": "tests: cover the trailing-comma cases",
+        "oid": "0000035aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000035"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000036",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-23T01:00:00Z",
+        "messageHeadline": "docs: note the manifest grammar change",
+        "oid": "0000036aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": false,
+         "state": "UNKNOWN_KEY",
+         "wasSignedByGitHub": false
+        },
+        "statusCheckRollup": {
+         "state": "FAILURE"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000036"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000037",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-23T21:00:00Z",
+        "messageHeadline": "parser: accept trailing commas in manifest lists",
+        "oid": "0000037aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "PENDING"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000037"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000038",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-20T14:00:00Z",
+        "messageHeadline": "tests: cover the trailing-comma cases",
+        "oid": "0000038aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": null,
+        "url": "https://github.com/fixture-user/beacon/commit/0000038"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000039",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-21T10:00:00Z",
+        "messageHeadline": "docs: note the manifest grammar change",
+        "oid": "0000039aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": false,
+         "state": "UNKNOWN_KEY",
+         "wasSignedByGitHub": false
+        },
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000039"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "000003a",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-22T06:00:00Z",
+        "messageHeadline": "parser: accept trailing commas in manifest lists",
+        "oid": "000003aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "FAILURE"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/000003a"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "000003b",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-23T02:00:00Z",
+        "messageHeadline": "tests: cover the trailing-comma cases",
+        "oid": "000003baaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": {
+         "state": "PENDING"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/000003b"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "000003c",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-23T22:00:00Z",
+        "messageHeadline": "docs: note the manifest grammar change",
+        "oid": "000003caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": false,
+         "state": "UNKNOWN_KEY",
+         "wasSignedByGitHub": false
+        },
+        "statusCheckRollup": null,
+        "url": "https://github.com/fixture-user/beacon/commit/000003c"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "000003d",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-20T12:00:00Z",
+        "messageHeadline": "parser: accept trailing commas in manifest lists",
+        "oid": "000003daaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/000003d"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "000003e",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-21T08:00:00Z",
+        "messageHeadline": "tests: cover the trailing-comma cases",
+        "oid": "000003eaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": {
+         "state": "FAILURE"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/000003e"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "000003f",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-22T04:00:00Z",
+        "messageHeadline": "docs: note the manifest grammar change",
+        "oid": "000003faaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": false,
+         "state": "UNKNOWN_KEY",
+         "wasSignedByGitHub": false
+        },
+        "statusCheckRollup": {
+         "state": "PENDING"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/000003f"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000040",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-23T00:00:00Z",
+        "messageHeadline": "parser: accept trailing commas in manifest lists",
+        "oid": "0000040aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null,
+        "statusCheckRollup": null,
+        "url": "https://github.com/fixture-user/beacon/commit/0000040"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000041",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-23T20:00:00Z",
+        "messageHeadline": "tests: cover the trailing-comma cases",
+        "oid": "0000041aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000041"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000042",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-20T13:00:00Z",
+        "messageHeadline": "docs: note the manifest grammar change",
+        "oid": "0000042aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": false,
+         "state": "UNKNOWN_KEY",
+         "wasSignedByGitHub": false
+        },
+        "statusCheckRollup": {
+         "state": "FAILURE"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000042"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000043",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-21T09:00:00Z",
+        "messageHeadline": "parser: accept trailing commas in manifest lists",
+        "oid": "0000043aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "PENDING"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000043"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000044",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-22T05:00:00Z",
+        "messageHeadline": "tests: cover the trailing-comma cases",
+        "oid": "0000044aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": null,
+        "url": "https://github.com/fixture-user/beacon/commit/0000044"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000045",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-23T01:00:00Z",
+        "messageHeadline": "docs: note the manifest grammar change",
+        "oid": "0000045aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": false,
+         "state": "UNKNOWN_KEY",
+         "wasSignedByGitHub": false
+        },
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000045"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000046",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-23T21:00:00Z",
+        "messageHeadline": "parser: accept trailing commas in manifest lists",
+        "oid": "0000046aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "FAILURE"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000046"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000047",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-20T14:00:00Z",
+        "messageHeadline": "tests: cover the trailing-comma cases",
+        "oid": "0000047aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": {
+         "state": "PENDING"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000047"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000048",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-21T10:00:00Z",
+        "messageHeadline": "docs: note the manifest grammar change",
+        "oid": "0000048aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": false,
+         "state": "UNKNOWN_KEY",
+         "wasSignedByGitHub": false
+        },
+        "statusCheckRollup": null,
+        "url": "https://github.com/fixture-user/beacon/commit/0000048"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000049",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-22T06:00:00Z",
+        "messageHeadline": "parser: accept trailing commas in manifest lists",
+        "oid": "0000049aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000049"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "000004a",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-23T02:00:00Z",
+        "messageHeadline": "tests: cover the trailing-comma cases",
+        "oid": "000004aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": {
+         "state": "FAILURE"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/000004a"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "000004b",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-23T22:00:00Z",
+        "messageHeadline": "docs: note the manifest grammar change",
+        "oid": "000004baaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": false,
+         "state": "UNKNOWN_KEY",
+         "wasSignedByGitHub": false
+        },
+        "statusCheckRollup": {
+         "state": "PENDING"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/000004b"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "000004c",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-20T12:00:00Z",
+        "messageHeadline": "parser: accept trailing commas in manifest lists",
+        "oid": "000004caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null,
+        "statusCheckRollup": null,
+        "url": "https://github.com/fixture-user/beacon/commit/000004c"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "000004d",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-21T08:00:00Z",
+        "messageHeadline": "tests: cover the trailing-comma cases",
+        "oid": "000004daaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/000004d"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "000004e",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-22T04:00:00Z",
+        "messageHeadline": "docs: note the manifest grammar change",
+        "oid": "000004eaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": false,
+         "state": "UNKNOWN_KEY",
+         "wasSignedByGitHub": false
+        },
+        "statusCheckRollup": {
+         "state": "FAILURE"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/000004e"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "000004f",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-23T00:00:00Z",
+        "messageHeadline": "parser: accept trailing commas in manifest lists",
+        "oid": "000004faaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "PENDING"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/000004f"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000050",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-23T20:00:00Z",
+        "messageHeadline": "tests: cover the trailing-comma cases",
+        "oid": "0000050aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": null,
+        "url": "https://github.com/fixture-user/beacon/commit/0000050"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000051",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-20T13:00:00Z",
+        "messageHeadline": "docs: note the manifest grammar change",
+        "oid": "0000051aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": false,
+         "state": "UNKNOWN_KEY",
+         "wasSignedByGitHub": false
+        },
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000051"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000052",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-21T09:00:00Z",
+        "messageHeadline": "parser: accept trailing commas in manifest lists",
+        "oid": "0000052aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "FAILURE"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000052"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000053",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-22T05:00:00Z",
+        "messageHeadline": "tests: cover the trailing-comma cases",
+        "oid": "0000053aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": {
+         "state": "PENDING"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000053"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000054",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-23T01:00:00Z",
+        "messageHeadline": "docs: note the manifest grammar change",
+        "oid": "0000054aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": false,
+         "state": "UNKNOWN_KEY",
+         "wasSignedByGitHub": false
+        },
+        "statusCheckRollup": null,
+        "url": "https://github.com/fixture-user/beacon/commit/0000054"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000055",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-23T21:00:00Z",
+        "messageHeadline": "parser: accept trailing commas in manifest lists",
+        "oid": "0000055aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000055"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000056",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-20T14:00:00Z",
+        "messageHeadline": "tests: cover the trailing-comma cases",
+        "oid": "0000056aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": {
+         "state": "FAILURE"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000056"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000057",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-21T10:00:00Z",
+        "messageHeadline": "docs: note the manifest grammar change",
+        "oid": "0000057aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": false,
+         "state": "UNKNOWN_KEY",
+         "wasSignedByGitHub": false
+        },
+        "statusCheckRollup": {
+         "state": "PENDING"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000057"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000058",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-22T06:00:00Z",
+        "messageHeadline": "parser: accept trailing commas in manifest lists",
+        "oid": "0000058aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null,
+        "statusCheckRollup": null,
+        "url": "https://github.com/fixture-user/beacon/commit/0000058"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000059",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-23T02:00:00Z",
+        "messageHeadline": "tests: cover the trailing-comma cases",
+        "oid": "0000059aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000059"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "000005a",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-23T22:00:00Z",
+        "messageHeadline": "docs: note the manifest grammar change",
+        "oid": "000005aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": false,
+         "state": "UNKNOWN_KEY",
+         "wasSignedByGitHub": false
+        },
+        "statusCheckRollup": {
+         "state": "FAILURE"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/000005a"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "000005b",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-20T12:00:00Z",
+        "messageHeadline": "parser: accept trailing commas in manifest lists",
+        "oid": "000005baaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "PENDING"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/000005b"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "000005c",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-21T08:00:00Z",
+        "messageHeadline": "tests: cover the trailing-comma cases",
+        "oid": "000005caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": null,
+        "url": "https://github.com/fixture-user/beacon/commit/000005c"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "000005d",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-22T04:00:00Z",
+        "messageHeadline": "docs: note the manifest grammar change",
+        "oid": "000005daaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": false,
+         "state": "UNKNOWN_KEY",
+         "wasSignedByGitHub": false
+        },
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/000005d"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "000005e",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-23T00:00:00Z",
+        "messageHeadline": "parser: accept trailing commas in manifest lists",
+        "oid": "000005eaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "FAILURE"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/000005e"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "000005f",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-23T20:00:00Z",
+        "messageHeadline": "tests: cover the trailing-comma cases",
+        "oid": "000005faaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": {
+         "state": "PENDING"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/000005f"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000060",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-20T13:00:00Z",
+        "messageHeadline": "docs: note the manifest grammar change",
+        "oid": "0000060aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": false,
+         "state": "UNKNOWN_KEY",
+         "wasSignedByGitHub": false
+        },
+        "statusCheckRollup": null,
+        "url": "https://github.com/fixture-user/beacon/commit/0000060"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000061",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-21T09:00:00Z",
+        "messageHeadline": "parser: accept trailing commas in manifest lists",
+        "oid": "0000061aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null,
+        "statusCheckRollup": {
+         "state": "SUCCESS"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000061"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000062",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-22T05:00:00Z",
+        "messageHeadline": "tests: cover the trailing-comma cases",
+        "oid": "0000062aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": true,
+         "state": "VALID",
+         "wasSignedByGitHub": true
+        },
+        "statusCheckRollup": {
+         "state": "FAILURE"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000062"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000063",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-23T01:00:00Z",
+        "messageHeadline": "docs: note the manifest grammar change",
+        "oid": "0000063aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": {
+         "isValid": false,
+         "state": "UNKNOWN_KEY",
+         "wasSignedByGitHub": false
+        },
+        "statusCheckRollup": {
+         "state": "PENDING"
+        },
+        "url": "https://github.com/fixture-user/beacon/commit/0000063"
+       }
+      },
+      {
+       "commit": {
+        "abbreviatedOid": "0000064",
+        "author": {
+         "avatarUrl": "https://avatars.invalid/octo-dev",
+         "name": "octo-dev",
+         "user": {
+          "login": "octo-dev"
+         }
+        },
+        "committedDate": "2026-10-23T21:00:00Z",
+        "messageHeadline": "parser: accept trailing commas in manifest lists",
+        "oid": "0000064aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "signature": null,
+        "statusCheckRollup": null,
+        "url": "https://github.com/fixture-user/beacon/commit/0000064"
        }
       }
      ],

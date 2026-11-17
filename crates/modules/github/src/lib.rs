@@ -13,6 +13,7 @@ pub mod agent_ops;
 pub mod api;
 pub mod auth;
 pub mod card;
+mod commit_row;
 mod commits;
 pub mod drafts;
 pub mod files;
