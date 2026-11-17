@@ -420,7 +420,12 @@ class Timeline:
             reviewRequests=requests("reviewer-d", "reviewer-e", teams=1, bots=("review-bot",)),
             reactionGroups=reactions(thumbs=2, heart=1, mine=True),
             mergeStateStatus="BLOCKED",
-            events=self.events(self.force_pushed("octo-dev", 40, "3f2a9c1", "b81d4e7")),
+            events=self.events(
+                self.labeled("LabeledEvent", "octo-dev", 90, "bug", "d73a4a"),
+                self.labeled("LabeledEvent", "octo-dev", 89, "needs-review", "fbca04"),
+                self.labeled("UnlabeledEvent", OWNER, 60, "wip", "ededed"),
+                self.force_pushed("octo-dev", 40, "3f2a9c1", "b81d4e7"),
+            ),
             statusCheckRollup=rollup("FAILURE", contexts),
             reviews=conn(
                 [
@@ -538,6 +543,9 @@ class Timeline:
                 "afterCommit": {"abbreviatedOid": after},
             },
         )
+
+    def labeled(self, typename, login, hours, name, color):
+        return (typename, login, hours, {"label": {"name": name, "color": color}})
 
     def closed_by(self, login, hours):
         """`timelineItems(last: 1, itemTypes: [CLOSED_EVENT])` for the closer."""

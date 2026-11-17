@@ -1,5 +1,5 @@
-//! The PR conversation's event rows (#787): merged, closed, reopened and
-//! force-pushed, read from `timelineItems` (fields verified against
+//! The PR conversation's event rows (#787, #911): merged, closed, reopened,
+//! force-pushed and labeled/unlabeled, read from `timelineItems` (fields verified against
 //! GitHub's schema 2026-11-17). Parsing is tolerant (docs/0007 D3): a node
 //! of another type, or one missing a field its row needs, drops out while
 //! the rest parse.
@@ -27,6 +27,15 @@ pub enum PrEventKind {
     ForcePushed {
         before: Option<String>,
         after: Option<String>,
+    },
+    /// A label added or removed (#911). The colour is the label's hex.
+    Labeled {
+        name: String,
+        color: Option<String>,
+    },
+    Unlabeled {
+        name: String,
+        color: Option<String>,
     },
 }
 
@@ -61,6 +70,14 @@ fn parse_event(node: &Value) -> Option<PrEvent> {
             before: oid("/beforeCommit/abbreviatedOid"),
             after: oid("/afterCommit/abbreviatedOid"),
         },
+        "LabeledEvent" => {
+            let (name, color) = label(node)?;
+            PrEventKind::Labeled { name, color }
+        }
+        "UnlabeledEvent" => {
+            let (name, color) = label(node)?;
+            PrEventKind::Unlabeled { name, color }
+        }
         _ => return None,
     };
     Some(PrEvent {
@@ -73,6 +90,16 @@ fn parse_event(node: &Value) -> Option<PrEvent> {
         created_at: oid("/createdAt"),
         kind,
     })
+}
+
+/// The label's name and colour; a node without a name drops out.
+fn label(node: &Value) -> Option<(String, Option<String>)> {
+    let name = node.pointer("/label/name")?.as_str()?.to_string();
+    let color = node
+        .pointer("/label/color")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    Some((name, color))
 }
 
 #[cfg(test)]
@@ -110,6 +137,35 @@ mod tests {
         );
         assert_eq!(e.nodes[0].actor.as_deref(), Some("a"));
         assert_eq!(e.nodes[1].actor, None);
+    }
+
+    #[test]
+    fn labels_parse_with_colour_and_a_nameless_one_drops() {
+        let pr = json!({"events": {"nodes": [
+            {"__typename": "LabeledEvent", "id": "L1", "actor": {"login": "a"},
+             "label": {"name": "bug", "color": "d73a4a"}},
+            {"__typename": "UnlabeledEvent", "id": "L2",
+             "label": {"name": "wip"}},
+            {"__typename": "LabeledEvent", "id": "L3", "label": null}
+        ]}});
+        let kinds: Vec<_> = parse_events(&pr)
+            .nodes
+            .into_iter()
+            .map(|n| n.kind)
+            .collect();
+        assert_eq!(
+            kinds,
+            vec![
+                PrEventKind::Labeled {
+                    name: "bug".into(),
+                    color: Some("d73a4a".into())
+                },
+                PrEventKind::Unlabeled {
+                    name: "wip".into(),
+                    color: None
+                },
+            ]
+        );
     }
 
     #[test]

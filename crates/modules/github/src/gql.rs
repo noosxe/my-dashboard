@@ -724,7 +724,8 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
       # ascending, like comments and reviews. The fields ride each inline
       # fragment (selections on the union itself are an error).
       events: timelineItems(last: 100, itemTypes: [MERGED_EVENT, CLOSED_EVENT,
-          REOPENED_EVENT, HEAD_REF_FORCE_PUSHED_EVENT]) {
+          REOPENED_EVENT, HEAD_REF_FORCE_PUSHED_EVENT, LABELED_EVENT,
+          UNLABELED_EVENT]) {
         filteredCount
         nodes {
           __typename
@@ -738,6 +739,9 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
             beforeCommit { abbreviatedOid }
             afterCommit { abbreviatedOid }
           }
+          # #911
+          ... on LabeledEvent { id createdAt actor { login } label { name color } }
+          ... on UnlabeledEvent { id createdAt actor { login } label { name color } }
         }
       }
       # docs/0083 D2 rows 4-5: the verdict and its sub-line.

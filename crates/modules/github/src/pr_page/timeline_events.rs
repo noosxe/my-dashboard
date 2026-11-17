@@ -7,6 +7,9 @@ use gpui::prelude::*;
 use gpui::{AnyElement, App, FontWeight, SharedString, div};
 use gpui_component::{ActiveTheme as _, Sizable as _, h_flex};
 
+mod sentence;
+
+use self::sentence::{Sentence, sentence};
 use super::{TimelineKind, conversation_window::visible_timeline};
 use crate::gql::{self, PrEvent, PrEventKind};
 use crate::state_pill::{Glyph, Tone, icon};
@@ -53,27 +56,33 @@ pub(super) fn hidden(d: &gql::PrDetail) -> i64 {
     (d.events.total_count - d.events.nodes.len() as i64).max(0)
 }
 
-/// The words after the actor's login.
-pub(super) fn verb(kind: &PrEventKind) -> String {
-    match kind {
-        PrEventKind::Merged => "merged this".into(),
-        PrEventKind::Closed => "closed this".into(),
-        PrEventKind::Reopened => "reopened this".into(),
-        PrEventKind::ForcePushed {
-            before: Some(b),
-            after: Some(a),
-        } => format!("force-pushed from {b} to {a}"),
-        PrEventKind::ForcePushed { .. } => "force-pushed the branch".into(),
-    }
-}
-
 fn look(kind: &PrEventKind) -> (Tone, Glyph) {
     match kind {
         PrEventKind::Merged => (Tone::Merged, Glyph::Merged),
         PrEventKind::Closed => (Tone::Danger, Glyph::Cross),
         PrEventKind::Reopened => (Tone::Success, Glyph::Open),
         PrEventKind::ForcePushed { .. } => (Tone::Muted, Glyph::Right),
+        PrEventKind::Labeled { .. } => (Tone::Muted, Glyph::Plus),
+        PrEventKind::Unlabeled { .. } => (Tone::Muted, Glyph::Minus),
     }
+}
+
+/// "lead [label chip] tail": the chip is the rail's, on the page surface.
+fn sentence_line(s: &Sentence, cx: &App) -> AnyElement {
+    let mut line = h_flex().gap_1().items_center().child(s.lead.clone());
+    if let Some(l) = &s.label {
+        let surface = cx.theme().background;
+        line = line.child(crate::page::label_pill(
+            &l.name,
+            l.color.as_deref(),
+            surface,
+            cx,
+        ));
+    }
+    if !s.tail.is_empty() {
+        line = line.child(s.tail.clone());
+    }
+    line.into_any_element()
 }
 
 pub(super) fn row(ix: usize, e: &PrEvent, cx: &App) -> AnyElement {
@@ -121,7 +130,7 @@ pub(super) fn row(ix: usize, e: &PrEvent, cx: &App) -> AnyElement {
                             .child(div().font_family(mono).child(a.clone()))
                             .into_any_element()
                     }
-                    kind => div().child(verb(kind)).into_any_element(),
+                    kind => sentence_line(&sentence(kind), cx),
                 }),
         )
         .child(
@@ -190,21 +199,25 @@ mod tests {
         );
     }
 
+    fn verb_of(kind: &PrEventKind) -> String {
+        sentence(kind).text()
+    }
+
     #[test]
     fn verbs_read_after_the_login() {
-        assert_eq!(verb(&PrEventKind::Merged), "merged this");
-        assert_eq!(verb(&PrEventKind::Closed), "closed this");
-        assert_eq!(verb(&PrEventKind::Reopened), "reopened this");
+        assert_eq!(verb_of(&PrEventKind::Merged), "merged this");
+        assert_eq!(verb_of(&PrEventKind::Closed), "closed this");
+        assert_eq!(verb_of(&PrEventKind::Reopened), "reopened this");
         let push = PrEventKind::ForcePushed {
             before: Some("1111111".into()),
             after: Some("2222222".into()),
         };
-        assert_eq!(verb(&push), "force-pushed from 1111111 to 2222222");
+        assert_eq!(verb_of(&push), "force-pushed from 1111111 to 2222222");
         let bare = PrEventKind::ForcePushed {
             before: None,
             after: Some("2222222".into()),
         };
-        assert_eq!(verb(&bare), "force-pushed the branch");
+        assert_eq!(verb_of(&bare), "force-pushed the branch");
     }
 
     #[test]
