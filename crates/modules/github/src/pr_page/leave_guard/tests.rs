@@ -91,7 +91,10 @@ fn open(
             sink.borrow_mut().push(match event {
                 PrPageEvent::Leave(intent) => *intent,
                 // The log records that the host was asked to open a page.
-                PrPageEvent::OpenSubject { .. } => LeaveIntent::Subject,
+                PrPageEvent::OpenSubject { title, .. } => {
+                    assert_eq!(title, "Fix loader");
+                    LeaveIntent::Subject
+                }
             });
         })
         .detach();
@@ -227,7 +230,9 @@ fn in_app() -> Target {
 fn a_cross_reference_with_a_draft_asks_before_opening(cx: &mut TestAppContext) {
     let (page, vcx, log) = open(cx);
     page.update(vcx, |p, _| p.drafts = vec![draft("a")]);
-    vcx.update(|window, cx| page.update(cx, |p, cx| p.open_xref(in_app(), window, cx)));
+    vcx.update(|window, cx| {
+        page.update(cx, |p, cx| p.open_xref(in_app(), "Fix loader", window, cx))
+    });
     // Guarded: nothing reached the host, the confirm is up.
     assert!(log.borrow().is_empty());
     assert!(vcx.debug_bounds("pr-discard-confirm").is_some());
@@ -236,7 +241,9 @@ fn a_cross_reference_with_a_draft_asks_before_opening(cx: &mut TestAppContext) {
     assert!(log.borrow().is_empty());
     page.update(vcx, |p, _| assert!(p.pending_subject.is_none()));
     // Ask again and discard: the host is asked to open the page.
-    vcx.update(|window, cx| page.update(cx, |p, cx| p.open_xref(in_app(), window, cx)));
+    vcx.update(|window, cx| {
+        page.update(cx, |p, cx| p.open_xref(in_app(), "Fix loader", window, cx))
+    });
     vcx.update(|_, cx| page.update(cx, |p, cx| p.confirm_discard(cx)));
     assert_eq!(*log.borrow(), [LeaveIntent::Subject]);
 }
@@ -244,7 +251,9 @@ fn a_cross_reference_with_a_draft_asks_before_opening(cx: &mut TestAppContext) {
 #[gpui::test]
 fn a_cross_reference_without_drafts_opens_at_once(cx: &mut TestAppContext) {
     let (page, vcx, log) = open(cx);
-    vcx.update(|window, cx| page.update(cx, |p, cx| p.open_xref(in_app(), window, cx)));
+    vcx.update(|window, cx| {
+        page.update(cx, |p, cx| p.open_xref(in_app(), "Fix loader", window, cx))
+    });
     assert_eq!(*log.borrow(), [LeaveIntent::Subject]);
     assert!(vcx.debug_bounds("pr-discard-confirm").is_none());
 }

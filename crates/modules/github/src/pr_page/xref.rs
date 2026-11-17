@@ -15,6 +15,8 @@ pub(super) struct Subject {
     pub repo: String,
     pub number: i64,
     pub is_pr: bool,
+    /// The row's title, for the opened page's first paint.
+    pub title: String,
 }
 
 impl PrDetailPage {
@@ -28,6 +30,7 @@ impl PrDetailPage {
             })
         };
         let page = cx.entity();
+        let title = e.source.title.clone();
         xref_row::row(
             Place {
                 id_prefix: "pr-event",
@@ -39,7 +42,7 @@ impl PrDetailPage {
             e,
             target,
             move |target, window, cx| {
-                page.update(cx, |p, cx| p.open_xref(target, window, cx));
+                page.update(cx, |p, cx| p.open_xref(target, &title, window, cx));
             },
             cx,
         )
@@ -50,6 +53,7 @@ impl PrDetailPage {
     pub(super) fn open_xref(
         &mut self,
         target: Target,
+        title: &str,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -64,6 +68,7 @@ impl PrDetailPage {
                     repo,
                     number,
                     is_pr,
+                    title: title.to_string(),
                 });
                 if self.guard_leave(LeaveIntent::Subject, window, cx) {
                     self.emit_pending_subject(cx);
@@ -78,6 +83,7 @@ impl PrDetailPage {
                 repo: s.repo,
                 number: s.number,
                 is_pr: s.is_pr,
+                title: s.title,
             });
         }
     }

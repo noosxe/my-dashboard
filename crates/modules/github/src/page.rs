@@ -1442,7 +1442,8 @@ impl GithubPage {
                         repo,
                         number,
                         is_pr,
-                    } => this.open_subject(repo, *number, *is_pr, "", None, window, cx),
+                        title,
+                    } => this.open_subject(repo, *number, *is_pr, title, None, window, cx),
                 }
             },
         )
