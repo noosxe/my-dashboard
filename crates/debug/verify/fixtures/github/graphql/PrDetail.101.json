@@ -253,7 +253,7 @@
     },
     "createdAt": "2026-10-19T12:00:00Z",
     "events": {
-     "filteredCount": 7,
+     "filteredCount": 10,
      "nodes": [
       {
        "__typename": "LabeledEvent",
@@ -334,6 +334,42 @@
        "id": "EV_UnassignedEvent_5"
       },
       {
+       "__typename": "ReviewRequestedEvent",
+       "actor": {
+        "avatarUrl": "https://avatars.invalid/octo-dev",
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-19T22:00:00Z",
+       "id": "EV_ReviewRequestedEvent_6",
+       "requestedReviewer": {
+        "login": "reviewer-a"
+       }
+      },
+      {
+       "__typename": "ReviewRequestedEvent",
+       "actor": {
+        "avatarUrl": "https://avatars.invalid/octo-dev",
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-19T23:00:00Z",
+       "id": "EV_ReviewRequestedEvent_7",
+       "requestedReviewer": {
+        "combinedSlug": "fixture-org/team-01"
+       }
+      },
+      {
+       "__typename": "ReviewRequestRemovedEvent",
+       "actor": {
+        "avatarUrl": "https://avatars.invalid/octo-dev",
+        "login": "octo-dev"
+       },
+       "createdAt": "2026-10-21T06:00:00Z",
+       "id": "EV_ReviewRequestRemovedEvent_8",
+       "requestedReviewer": {
+        "login": "reviewer-c"
+       }
+      },
+      {
        "__typename": "HeadRefForcePushedEvent",
        "actor": {
         "avatarUrl": "https://avatars.invalid/octo-dev",
@@ -346,7 +382,7 @@
         "abbreviatedOid": "3f2a9c1"
        },
        "createdAt": "2026-10-21T20:00:00Z",
-       "id": "EV_HeadRefForcePushedEvent_6"
+       "id": "EV_HeadRefForcePushedEvent_9"
       }
      ]
     },

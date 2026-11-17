@@ -725,7 +725,8 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
       # fragment (selections on the union itself are an error).
       events: timelineItems(last: 100, itemTypes: [MERGED_EVENT, CLOSED_EVENT,
           REOPENED_EVENT, HEAD_REF_FORCE_PUSHED_EVENT, LABELED_EVENT,
-          UNLABELED_EVENT, ASSIGNED_EVENT, UNASSIGNED_EVENT]) {
+          UNLABELED_EVENT, ASSIGNED_EVENT, UNASSIGNED_EVENT,
+          REVIEW_REQUESTED_EVENT, REVIEW_REQUEST_REMOVED_EVENT]) {
         filteredCount
         nodes {
           __typename
@@ -752,6 +753,19 @@ query PrDetail($owner: String!, $name: String!, $number: Int!) {
             id createdAt actor { login }
             assignee { ... on User { login } ... on Bot { login }
               ... on Organization { login } ... on Mannequin { login } }
+          }
+          # The RequestedReviewer union: a login, or a team's org/slug.
+          ... on ReviewRequestedEvent {
+            id createdAt actor { login }
+            requestedReviewer { ... on User { login } ... on Bot { login }
+              ... on Mannequin { login } ... on Team { combinedSlug }
+              ... on EnterpriseTeam { combinedSlug } }
+          }
+          ... on ReviewRequestRemovedEvent {
+            id createdAt actor { login }
+            requestedReviewer { ... on User { login } ... on Bot { login }
+              ... on Mannequin { login } ... on Team { combinedSlug }
+              ... on EnterpriseTeam { combinedSlug } }
           }
         }
       }

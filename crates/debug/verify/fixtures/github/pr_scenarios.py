@@ -427,6 +427,9 @@ class Timeline:
                 self.assigned("AssignedEvent", OWNER, 88, "octo-dev"),
                 self.assigned("AssignedEvent", OWNER, 87, OWNER),
                 self.assigned("UnassignedEvent", "octo-dev", 55, "reviewer-c"),
+                self.requested("ReviewRequestedEvent", "octo-dev", 86, {"login": "reviewer-a"}),
+                self.requested("ReviewRequestedEvent", "octo-dev", 85, {"combinedSlug": "fixture-org/team-01"}),
+                self.requested("ReviewRequestRemovedEvent", "octo-dev", 54, {"login": "reviewer-c"}),
                 self.force_pushed("octo-dev", 40, "3f2a9c1", "b81d4e7"),
             ),
             statusCheckRollup=rollup("FAILURE", contexts),
@@ -552,6 +555,9 @@ class Timeline:
 
     def assigned(self, typename, login, hours, assignee):
         return (typename, login, hours, {"assignee": user(assignee)})
+
+    def requested(self, typename, login, hours, reviewer):
+        return (typename, login, hours, {"requestedReviewer": reviewer})
 
     def closed_by(self, login, hours):
         """`timelineItems(last: 1, itemTypes: [CLOSED_EVENT])` for the closer."""
