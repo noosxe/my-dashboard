@@ -62,6 +62,32 @@ pub(crate) fn header_meta(
     HeaderMeta { tone, updated, url }
 }
 
+/// The meta line's verb phrase, by how the PR stands: an open or draft
+/// PR "wants to merge N commits", a merged one "merged N commits into
+/// main", a closed one just "closed" (#784). `None` when the commit
+/// count is unknown (no detail) and the state does not need it.
+pub(crate) fn action_copy(
+    tone: Option<PrStateTone>,
+    commits: Option<i64>,
+    base: Option<&str>,
+) -> Option<String> {
+    let count = commits.filter(|c| *c > 0).map(|c| match c {
+        1 => "1 commit".to_string(),
+        n => format!("{n} commits"),
+    });
+    match tone {
+        Some(PrStateTone::Closed) => Some("closed".to_string()),
+        Some(PrStateTone::Merged) => {
+            let into = base.map(|b| format!(" into {b}")).unwrap_or_default();
+            Some(match count {
+                Some(c) => format!("merged {c}{into}"),
+                None => format!("merged{into}"),
+            })
+        }
+        _ => count.map(|c| format!("wants to merge {c}")),
+    }
+}
+
 /// The later of two RFC 3339 timestamps; an unparseable one loses.
 fn newest<'a>(a: Option<&'a str>, b: Option<&'a str>) -> Option<&'a str> {
     let parse = |s: &str| chrono::DateTime::parse_from_rfc3339(s).ok();

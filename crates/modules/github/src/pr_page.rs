@@ -4473,12 +4473,7 @@ impl PrDetailPage {
                             .when_some(meta.tone, |row, tone| {
                                 row.child(state_pill::pr_state_pill(tone))
                             })
-                            .child(page_title(title))
-                            .child(
-                                div()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(format!("#{number}")),
-                            ),
+                            .child(page_title(title)),
                     )
                     .child(
                         h_flex()
@@ -4487,6 +4482,9 @@ impl PrDetailPage {
                             .text_sm()
                             .text_color(cx.theme().muted_foreground)
                             .flex_wrap()
+                            // #784: the number sits first on the meta line,
+                            // so it never trails a wrapped title.
+                            .child(div().child(format!("#{number}")))
                             .when_some(author, |row, author| {
                                 row.child(
                                     h_flex()
@@ -4499,9 +4497,7 @@ impl PrDetailPage {
                                 )
                             })
                             .when_some(
-                                commits
-                                    .filter(|c| *c > 0)
-                                    .map(|c| format!("wants to merge {c} commits")),
+                                header_meta::action_copy(meta.tone, commits, base.as_deref()),
                                 |row, text| row.child(text),
                             )
                             .when_some(branch_meta, |row, meta| {

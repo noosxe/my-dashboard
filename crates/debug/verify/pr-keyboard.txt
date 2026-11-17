@@ -170,18 +170,18 @@ wait-label "Pull request sections: Conversation (252)"
 # No `tab-stops` on this Conversation tab: its 252 rows make well over the
 # walk's 100-stop cap, so the cycle can't close within it (not a trap).
 audit
-mouse down 472 254
-mouse up 472 254 --wait-frame
+mouse down 472 212
+mouse up 472 212 --wait-frame
 wait-label "Commits"
 tab-stops
 audit
-mouse down 578 254
-mouse up 578 254 --wait-frame
+mouse down 578 212
+mouse up 578 212 --wait-frame
 wait-label "View log"
 # No `tab-stops` here either: the 100 listed checks (of 137) are the walk's cap.
 audit
-mouse down 690 254
-mouse up 690 254 --wait-frame
+mouse down 690 212
+mouse up 690 212 --wait-frame
 wait-label "Diff for crates/manifest/src/parser.rs"
 tab-stops
 audit
