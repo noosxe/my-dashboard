@@ -265,6 +265,13 @@ that draws has no notice, the sidebar shows "2 unresolved", and threads
 with no diff row wait in a collapsed bucket. `assert-baseline
 github-files-notices` pins the first notice's stop.
 
+`timeline-xref.txt` (session `prxref`, 1280x800, same fixtures and clock)
+walks the cross-reference rows in fixture PR #101's timeline (docs/0085,
+#922): each row is a Button with its full accessible name, a source in a
+listed repository opens in the app on focus + Enter and Back returns, a
+source elsewhere leaves the page where it is (the bridge records no browser
+opens), and PR #102's cap row counts the 30 references the query cut.
+
 The usage surfaces (docs/0081 §12.1) run over the same fixtures, with
 two opt-in extras. `DASHBOARD_GITHUB_USAGE_SEED=<days>` seeds a
 deterministic ledger, so the usage page opens populated.
