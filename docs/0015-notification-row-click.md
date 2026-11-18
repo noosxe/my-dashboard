@@ -11,7 +11,7 @@
   carry over unchanged.
 - **Depends on:** 0005 (GitHub module), 0012 (per-repo sections, D4 row
   treatment), 0010 (debug bridge, D10 id rule)
-- **Closes the design need of:** issue #81 — owner request: "add click
+- **Closes the design need of:** issue #81 — request: "add click
   support for notifications on repo page, should work similar to PRs and
   issues, open the notification page on github"
 
@@ -41,10 +41,9 @@ Out (non-goals):
 - **No per-thread deep links.** The notifications REST payload carries
   no subject URL — deep-linking a row to its exact PR/issue would need a
   resolution fetch per subject. The notifications page needs no API
-  change (owner decision, issue #81 Q1).
+  change (decision, issue #81 Q1).
 - **No home-card rows.** `render_notification_row` has exactly one call
-  site (the repo page GroupBox); the home card is untouched (owner
-  decision, issue #81 Q2).
+  site (the repo page GroupBox); the home card is untouched (decision, issue #81 Q2).
 - No mark-as-read, no unread styling changes, no API surface changes.
 
 ## 3. Design
@@ -117,7 +116,7 @@ unread notifications present:
    --all-targets` (zero warnings), `cargo test --workspace`; doc +
    README row merged with the implementation PR.
 
-## 7. Human checks (owner)
+## 7. Human checks
 
 - [ ] Click a notification row on the repo page: browser opens the
       repo's notifications page signed in as your account.

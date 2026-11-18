@@ -6,7 +6,7 @@ of handing off to the browser. The page shows the notification's content
 (subject, kind, reason, freshness, read state), **automatically marks the
 notification as seen when opened**, and exposes the read state — within
 the upstream constraint that GitHub's API has no "mark as unread"
-(§2.3), resolved by owner decision in §4: do what GitHub itself does.
+(§2.3), resolved by decision in §4: do what GitHub itself does.
 
 ## 1. Summary
 
@@ -99,7 +99,7 @@ them today — §2.2). The repo-view list keeps rendering exactly as before.
 
 ### D3 — Auto mark-as-seen on open (the feature's core)
 
-The instant the page starts loading its contents (owner decision, §4.3) it
+The instant the page starts loading its contents (decision, §4.3) it
 fires `PATCH /notifications/threads/{id}` — before the thread GET returns,
 the two requests in parallel — and optimistically flips its local `unread`
 to `false` (the read state is rendered from the page's own field, not from
@@ -122,8 +122,8 @@ action offered is **"Mark as read"** (idempotent `PATCH`), which doubles as
 the retry when the auto-mark failed. **There is no "mark as unread".**
 Rationale: upstream has no such endpoint (§2.3) and GitHub's inbox doesn't
 either; a local-only unread flag would desync from github.com and lie to
-the user. The owner asked for a read/unread toggle — this is the one place
-the feature as stated collides with the API. Owner decision (§4.1): do
+the user. A read/unread toggle was requested — this is the one place
+the feature as stated collides with the API. Decision (§4.1): do
 what GitHub itself does — display + mark-read only.
 ### D5 — The ↗ browser button: kind-aware web URL, safe fallback
 
@@ -146,7 +146,7 @@ stayed unused this round (filed §7) — superseded by D9, #154.
 When the subject is `Issue`/`PullRequest` and the number parses out of
 `subject.url`, the page shows an **`Open #n`** button that closes the
 `subject.url`, the page links to the native page — an **`Open #n`** link
-(the subject title links the same way, owner decision §4.2) that closes
+(the subject title links the same way, decision §4.2) that closes
 the notification page and opens the native detail page via the existing
 `{full_name}#{n}`, number, title; author `None`, age from the thread) —
 both pages already fetch full detail on open, so the seed is display-only.
@@ -169,18 +169,18 @@ the inbox is rendered, over the lanes 0026 already reserved:
 
 - **Page-level**: a **Mark as done** button beside Mark as read. Unlike
   the read button it is **always offered, Read included** — done ≠ read
-  (owner decision §4.5); hidden-not-disabled does not apply. Disabled
+  (decision §4.5); hidden-not-disabled does not apply. Disabled
   only while its DELETE is in flight; a failure keeps the page and
   re-arms the button as retry (the D4 failure pattern, no optimistic
   flip — nothing local to revert, the thread simply stays).
 - **Row-level**: an icon-only done button (`notif-done-{id}`, check
-  circle) on every repo-view row, owner decision §4.5 — the DELETE fires
+  circle) on every repo-view row, decision §4.5 — the DELETE fires
   straight from the row, no page takeover. A guard div swallows the
   click so the row's open handler never fires (gpui bubbles clicks;
   `Button` only stops propagation while loading). The in-flight round
   disables the row's button (double-click guard); the guard clears on
   settle — on success the refetch replaces the list anyway.
-- **Post-done UX (owner decision §4.4)**: a settled DELETE is the
+- **Post-done UX (decision §4.4)**: a settled DELETE is the
   github.com-like behavior — the open page closes back to the repo view
   (crumb suffix drops) and the host runs `mark_refetch_specs()`
   (RepoNotifications + the global Notifications) so the row leaves the
@@ -238,7 +238,7 @@ Issue/PR subjects, over the field 0026 carried but left unused (D5,
     gives up quietly: no jump, no highlight, no error row; the page
     opens unanchored (log line only).
 
-## 4. Owner decisions (2026-09-07, PR #150 review — first three; #153
+## 4. Decisions (2026-09-07, PR #150 review — first three; #153
    — 4/5, 2026-09-09)
 
 1. **No-unread constraint (D4):** go with what GitHub itself does — the
@@ -291,7 +291,7 @@ Issue/PR subjects, over the field 0026 carried but left unused (D5,
   view with the accent ring (bridge `tree` shows it in the viewport
   bounds); the ring fades after ~3s; `Open #n` without the jump still
   opens the page at the top.
-- Owner: real-account round trip — open an unread PR notification (row
+- Human: real-account round trip — open an unread PR notification (row
   vanishes from the unread list, card count drops), check github.com shows
   it read, Esc, open a Discussion notification (metadata-only page, ↗ to
   the repo notifications page), open an Issue notification and follow

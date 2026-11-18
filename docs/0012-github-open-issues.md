@@ -17,7 +17,7 @@ consumes it — every issue field is annotated
 `#[allow(dead_code)] // consumed by the issues UI (follow-up)` in `gql.rs`.
 0007 explicitly recorded this as groundwork.
 
-Owner request (this design):
+Request (this design):
 
 1. **Home card** — a third count row next to `Notifications {n}` /
    `Open PRs {m}`: open issues.
@@ -225,7 +225,7 @@ Per AGENTS.md PR discipline, exercised before pushing:
 7. All gates green; docs updated (this doc + index; 0005 wording where
    shipped behavior diverges).
 
-## 9. Human checks (owner)
+## 9. Human checks
 
 - Card visual: three count rows fit the 320×200 card comfortably; alignment
   matches the existing rows.
@@ -237,7 +237,7 @@ Per AGENTS.md PR discipline, exercised before pushing:
 ## 10. Follow-ups (GitHub issues, not this PR)
 
 - Issues depth (labels, assignees, comment counts, section filtering) — only
-  on owner request.
+  on request.
 - Pre-existing, untouched: `statusCheckRollup` surfacing in PR rows
   (0007 §9).
 
@@ -260,6 +260,6 @@ cap render exactly as before. Implementation notes:
 - **Probe test** mounts the full page (`repo` fixture: PRs 2/2 → no hint,
   issues 2 nodes/137 total → hint) and asserts via the probe keys.
 
-Not a link: the owner's proposal left interactivity optional; rows already
+Not a link: the original proposal left interactivity optional; rows already
 open github.com, and a list-link would need `.id()` + role + click
 semantics for little gain (filed back if wanted).

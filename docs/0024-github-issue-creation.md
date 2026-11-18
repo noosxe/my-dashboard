@@ -166,7 +166,7 @@ and the refetch. No OS-level input injection, per the bridge rules.
 - [ ] Zero clippy warnings; token discipline holds (the creator uses
       theme tokens only — no data colors here).
 
-## 8. Human checks (owner)
+## 8. Human checks
 
 - [ ] Create an issue on a real repo; verify it on github.com (title,
       body, markdown rendering).

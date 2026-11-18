@@ -16,11 +16,11 @@ chrome, app identity (title + Wayland `app_id`), and a code structure ready to h
 the module system (0003). The shell is the frame the dashboard lives in — it should
 be settled before modules land.
 
-## 2. Decisions (owner review 2026-08-28)
+## 2. Decisions (review 2026-08-28)
 
 All recommendations below were reviewed and accepted; the values feed the §5
 listings directly. The one substantive addition from review: a titlebar-less mode
-(D7), triggered by the owner running Hyprland titlebar-less everywhere.
+(D7), triggered by running Hyprland titlebar-less everywhere.
 
 | # | Question | Options | My recommendation |
 | --- | --- | --- | --- |
@@ -43,7 +43,7 @@ always + min/max only if the compositor honors them (`window.window_controls()`)
 right-click → WM window menu and double-click → maximize. The "native" option (b) is the
 one that yields *no titlebar at all* on tiling WMs.
 
-**D7 — SUPERSEDED (2026-08-29, owner decision in 0004 PR #13):** the runtime chrome
+**D7 — SUPERSEDED (2026-08-29, decision in 0004 PR #13):** the runtime chrome
 toggle, the `ctrl-shift-t` binding and the ghost close button are all removed.
 Chrome is now **decoration-driven** — resolved per render from
 `window.window_decorations()`: `Client` → the app draws the full title bar
@@ -58,12 +58,12 @@ traffic lights only — the app draws the title bar strip there after all.
 The historical D7 text below is kept for the record.
 
 **D7 — titlebar-less mode (added at review):** the shell carries a runtime
-chrome toggle, because the owner runs most apps titlebar-less on Hyprland:
+chrome toggle, because most apps run titlebar-less on Hyprland:
 
 - `ToggleTitleBar` gpui action, bound to **`ctrl-shift-t`** (context-free binding; the
   pattern — `actions!` + `cx.bind_keys` + `on_action(cx.listener(..))` — verified in
   upstream's gpui skill `references/action.md`).
-- Default state: **titlebar-less on Linux** (owner's daily driver), full title bar on
+- Default state: **titlebar-less on Linux** (the daily-driver setup), full title bar on
   macOS/Windows (`cfg`-selected const; persistence lands in 0004 so the choice is
   remembered).
 - In titlebar-less mode a **small ghost close button** overlays the top-right of the
@@ -181,7 +181,7 @@ host and new files/crates grow from there.
   derive from them (`.opacity(..)`).
 - **D6 — Root invariant preserved**: `Root` remains the window's first-level view;
   `TitleBar` lives inside the shell view, first child of the top-level `v_flex`.
-- **D8 — Window padding & framed panel** (2026-09-02, owner decision in its PR):
+- **D8 — Window padding & framed panel** (2026-09-02, decision in its PR):
   the work area — both main columns (sidebar + content column) — sits inside a
   framed panel: an outer wrapper supplies a 16px (`p_4`) margin from the window
   edges; the inner panel carries `border_1` (`theme.border`), `theme.radius`
@@ -212,7 +212,7 @@ host and new files/crates grow from there.
   as named constants. D9's `text_size`/`line_height` and D5's color literals
   are enforced by `clippy.toml` `disallowed-methods`; escape hatch is
   `#[allow(clippy::disallowed_methods)]` + a justifying comment.
-- **D11 — macOS draws the title bar strip** (2026-09-24, owner request): D7's
+- **D11 — macOS draws the title bar strip** (2026-09-24, request): D7's
   decoration-driven rule mis-modeled macOS — with `appears_transparent: true`
   (`TitleBar::title_bar_options()`, set in `main.rs`) macOS draws **only the
   floating traffic lights**, never a bar, and `window_decorations()` still
@@ -375,7 +375,7 @@ use gpui_component::{
 
 actions!(dashboard, [ToggleTitleBar]);
 
-/// Default chrome state (D7): titlebar-less on Linux (owner runs Hyprland),
+/// Default chrome state (D7): titlebar-less on Linux (Hyprland runs titlebar-less),
 /// full title bar elsewhere. Persisted choice arrives in 0004.
 #[cfg(target_os = "linux")]
 const DEFAULT_TITLEBAR: bool = false;

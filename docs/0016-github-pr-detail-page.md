@@ -4,7 +4,7 @@
 - **Depends on:** 0003 (§4.3 module-internal sub-pages), 0005 (GitHub module),
   0007 (snapshot + edge-freshness pattern), 0009 (repo view rows), 0010 (debug
   bridge, D10 id rule), 0013 (tracked fetches), 0014 (crumb prefix + suffix rule)
-- **Closes the design need of:** owner request — in-app PR review page opened
+- **Closes the design need of:** request — in-app PR review page opened
   from a repo-view PR row ("PR title on the top, description … editable, list of
   commits which is scrollable, the conversation, a comment input, checks, and
   changed files"; tabs like github.com's PR view)
@@ -13,7 +13,7 @@
 
 The repo view lists open PRs from the global snapshot (0007), but a PR row is a
 dead end: clicking hands off to github.com in the browser (0012 D4 parity).
-Reviewing means leaving the app. The owner wants the full review loop — read the
+Reviewing means leaving the app. The goal is the full review loop — read the
 description and conversation, inspect commits/checks/diff, comment or submit a
 review, and merge or close — in-app, on a dedicated page.
 
@@ -213,7 +213,7 @@ Out (non-goals):
   suffix (`reconcile_preserves_subpage_suffix` test) and `Crumb.on_click`
   exists in core nav.rs — no core changes needed.
 
-## 4. Owner decisions (recorded 2026-09-03)
+## 4. Decisions (recorded 2026-09-03)
 
 | Q | Decision |
 | --- | --- |
@@ -575,7 +575,7 @@ A `GroupBox` at the rail top:
   `items_start` + the timeline carries an explicit `h_full()` — the
   timeline owns the scroll bounded to the split's height, the rail hugs
   its content at the top and never rides along while the left column
-  scrolls (owner report: the rail used to move with the page). Plain
+  scrolls (report: the rail used to move with the page). Plain
   cross-axis stretch also bounds the timeline, but it stretches the
   rail's v_flex and pushes its panels down the column — probe-verified
   on the live build, so `items_start` + `h_full` is the pinned
@@ -825,7 +825,7 @@ With the app running, a repo selected, an open PR present:
    (zero warnings), `cargo test --workspace`; doc + README index row merged
    with this PR.
 
-## 10. Human checks (owner)
+## 10. Human checks
 
 - [ ] Open PRs of several shapes: draft, blocked-by-checks, conflicting,
       clean; confirm the merge panel copy/tone and button states match.
@@ -841,7 +841,7 @@ With the app running, a repo selected, an open PR present:
 
 ## 11. Follow-ups (GitHub issues, not this PR)
 
-- Comment edit/delete on conversation comments (owner-approved deferral, Q4)
+- Comment edit/delete on conversation comments (approved deferral, Q4)
   — **filed with this PR**.
 - Markdown rendering for PR bodies/comments (options: in-house minimal
   renderer vs a crate; separate doc if it grows).

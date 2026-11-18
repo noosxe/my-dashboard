@@ -10,7 +10,7 @@ repo-meta-only changes) are skipped by a change-detection job behind one
 always-running required check, `CI / CI result` (D7, D13). Pushes to `main`
 re-run CI only when the dependency cache-key inputs change (D9).
 
-The CI is **nix-free** (owner decision, §4): the
+The CI is **nix-free** (decision, §4): the
 workflow installs its own toolchain (rustup, pinned) and everything
 GitHub's ubuntu images do **not** ship (the GUI dev stack + fonts),
 assuming a hosted-image-parity baseline on the runner image (§2, §4, §5) —
@@ -28,7 +28,7 @@ the new lock and opens a PR carrying the result. It is maintenance, not a
 gate; the gate workflow stays nix-free.
 
 The runner platform is **GitHub-hosted** (`ubuntu-24.04` standard hosted
-runners, every build job — switched from the owner's self-hosted docker runners
+runners, every build job — switched from the self-hosted docker runners
 after they went down, §4): hosted VMs are just as ephemeral (fresh VM per
 run, torn down after). Build artifacts are cached with `rust-cache`
 (D2, #158) and the apt `.debs` with `actions/cache` (D10); both caches
@@ -452,7 +452,7 @@ pinned to its peeled v2.1.1 commit (bundles cargo-deny 0.20.2). The action
 runs in its own container with its own cargo, so the job needs no
 toolchain bootstrap, apt step or cache, and finishes in about a minute.
 
-**Policy** (owner decisions 2026-10-22, §4):
+**Policy** (decisions 2026-10-22, §4):
 
 | Check | Fails the job on | Notes |
 |---|---|---|
@@ -528,7 +528,7 @@ D8 audit) plus `workflow_dispatch` for a manual run.
 5. If the build failed, the run goes red after the PR is up, so a broken
    update is both visible in Actions and labelled in the PR.
 
-Linux-only (owner decision 2026-11-09): hosted Linux runners can't build
+Linux-only (decision 2026-11-09): hosted Linux runners can't build
 aarch64-darwin, and a macOS runner is deferred until Mac-only breakages
 show up. The PR's human-check list keeps the Mac build.
 
@@ -541,7 +541,7 @@ purpose: CI is nix-free and never reads `flake.lock`, and step 3 is
 the check a lock change needs. A personal or App token would only buy a
 CI run that can't see the change.
 
-The workflow never merges; the owner reviews and merges the PR like any
+The workflow never merges; the PR is reviewed and merged by hand like any
 other.
 
 ### D12 — Release-profile compile check: `release-check` (#899)
@@ -617,7 +617,7 @@ a required check. So no job can be required itself. Layout:
   ruleset again. Migration note: check names changed from `lint`/`test`/…
   to `CI / …`; the old names were never required.
 
-## 4. Owner decisions (2026-09-07)
+## 4. Decisions (2026-09-07)
 
 - **No Nix on CI** — D1/D6 reworked from the original nix-based proposal
   (rustup + apt instead of `nix develop`; nix jobs dropped).
@@ -625,7 +625,7 @@ a required check. So no job can be required itself. Layout:
   together) — the small-feature flow of AGENTS.md.
 - **Maintenance workflow** deferred to its own issue (#155).
 - **Theme gates** stay local-only for now; nix-free port filed (#156).
-- *(same day, after the first CI run)* **Runner platform is the owner's
+- *(same day, after the first CI run)* **Runner platform is the
   ephemeral docker product** (one container per run, teardown): the §5
   host-provisioning requirement is dropped in favor of the self-sufficient
   in-workflow apt step (D1); D2's warm-cache rationale is void — cold runs
@@ -637,7 +637,7 @@ a required check. So no job can be required itself. Layout:
   accepted in exchange for the lean, portable workflow.
 - *(2026-09-24)* **Runner platform switched to GitHub-hosted ubuntu
   runners** — both jobs run on `ubuntu-24.04` standard hosted runners:
-  the owner's self-hosted runners are down, and the hosted image meets
+  the self-hosted runners are down, and the hosted image meets
   the workflow's parity contract by construction (§2), so the interim
   parity-gap caveats are void. Workflow logic is unchanged — only the
   `runs-on` labels, surrounding comments and this doc move; the §5
@@ -684,7 +684,7 @@ binutils/CMake/pkg-config/xvfb/curl + base fonts), **and apt privilege**
 (root containers or passwordless sudo for the job user — what hosted
 images give their `runner` user). The workflow installs the GUI dev stack +
 `fonts-ibm-plex` itself, guarded by an explicit contract error when neither
-privilege path exists. (Written when CI ran on the owner's self-hosted
+privilege path exists. (Written when CI ran on the self-hosted
 docker runners; since the 2026-09-24 hosted-runner switch (§4), GitHub's
 `ubuntu-24.04` image satisfies this contract by construction.)
 
@@ -810,7 +810,7 @@ jobs:
   `cargo test --workspace` re-run before pushing (AGENTS.md discipline).
 - **Headless probe** (§2) already reproduced the CI conditions locally:
   fresh `XDG_RUNTIME_DIR`, no display, no session bus — suite green.
-- **Owner, on the PR**: CI turns green once the runner images carry the
+- **On the PR**: CI turns green once the runner images carry the
   hosted baseline (§4/§5) — until then the runs are **expected to fail** on
   missing `cc`/`xvfb-run`; that is the image-parity gap being surfaced, not
   a workflow bug. Every run is a cold build (~10–15 min/job) either way.

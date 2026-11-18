@@ -155,7 +155,7 @@ skipped, never queued (docs/0031 D1/D2). No new guard work.
 
 **D4 — No UI changes.** No chip, no label, no spinner: the rows just
 stay current. (docs/0034 owns cold-start marking; #192 owns labels.
-If the owner wants a "rows synced Xm ago" line on the repo page, it is
+If a "rows synced Xm ago" line on the repo page is wanted, it is
 a small follow-up on top of `rows_landed`.)
 
 **D5 — Notifications page and home lists: untouched.** Recorded
@@ -186,7 +186,7 @@ surfaces by this design, two by explicit no-change with reasons.
 3. docs/0035 §8 Shipped + docs/README row (if not already present from
    this PR) land with the implementation PR.
 
-## 7. Open questions (owner)
+## 7. Open questions
 
 - Q1: D2's cadence means ~2 requests/min (repo snapshot + repo
   notifications) while a repo page sits open. Acceptable? (The detail

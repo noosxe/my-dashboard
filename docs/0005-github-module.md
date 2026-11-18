@@ -27,11 +27,11 @@ The first real data module, and the first consumer of everything 0003/0004
 built. v1 ships:
 
 - **Auth**: GitHub OAuth App **device flow**, token stored in the **OS
-  keychain** (owner policy: any token material lives in keychains, never in
+  keychain** (policy: any token material lives in keychains, never in
   files). Client ID is public and committed, exactly like `gh` CLI.
 - **Home card**: counts only — unread notifications + total open PRs across
   the user's repos.
-- **Module page** (owner-specified layout): two columns. Left = fixed-ish
+- **Module page** (specified layout): two columns. Left = fixed-ish
   width, org dropdown (default: the user's personal account) with the repo
   list for the selected org below it, independently scrollable, selectable.
   Right = nothing until a repo is selected; then repo name + description as
@@ -72,7 +72,7 @@ notifications*, *Rate limits for the REST API*. Pinned gpui-component
   both `/notifications` and repo-scoped notifications. Notifications force
   the OAuth App path.
 - Device flow must be **enabled** in the app settings (off by default).
-  Owner has registered `my-dashboard`, enabled device flow.
+  The OAuth App `my-dashboard` is registered with device flow.
 - **Client ID (public, committed): `Ov23lisWKGYvlnBf2OY3`**. No client
   secret exists in this flow (verified: *"The `client_secret` is not needed
   for the device flow"*).
@@ -135,11 +135,11 @@ consent screen the user approves.
 
 ## 4. Design decisions
 
-Small-Q format as 0004; owner pre-approved Q1–Q4 in review conversation,
+Small-Q format as 0004; Q1–Q4 were pre-approved in review conversation,
 Q5–Q10 stand per the silence rule on merge.
 
 - **Q1 — App type: OAuth App.** Notifications endpoints exclude GitHub Apps
-  and fine-grained PATs (§3.1). Owner registered the OAuth App and enabled
+  and fine-grained PATs (§3.1). The OAuth App is registered with
   device flow.
 - **Q2 — Scopes: `repo read:org notifications`.** Coarseness accepted
   knowingly (§3.2).
@@ -151,7 +151,7 @@ Q5–Q10 stand per the silence rule on merge.
   macOS: `apple-native` (Security.framework already in the lockfile). If no
   Secret Service is reachable on a Linux box: **designed error state**
   ("no keyring service available — start gnome-keyring or an compatible
-  agent"), **no file fallback** (owner policy: tokens never in files).
+  agent"), **no file fallback** (policy: tokens never in files).
 - **Q4 — HTTP client: `ureq` 2.x** (sync, rustls 0.23 — same major already
   in the lockfile). Called exclusively on `cx.background_executor`; no
   async runtime in the app. `serde`/`serde_json` for payloads (in tree).
@@ -198,7 +198,7 @@ Q5–Q10 stand per the silence rule on merge.
   errors → inline error + Retry in the affected surface, stderr log,
   stale last-known data stays visible (degrade, don't blank).
 - **Q10 — Personal account in the org dropdown:** `GET /user`'s login is
-  prepended as the first entry (owner requirement: personal is the
+  prepended as the first entry (requirement: personal is the
   default selection), orgs follow in API order.
 
 ## 5. Architecture
@@ -249,7 +249,7 @@ once), and a `Spinner` while polling. Terminal states get their own copy:
 restart"), keychain-unavailable (Q3), network error + Retry. Success melts
 into the normal page.
 
-### 6.3 Module page (owner-specified)
+### 6.3 Module page (specified)
 
 > **Amended by 0009 (PR-era note):** the shipped org dropdown and repo
 > list were hand-rolled (inline popover + eager div rows), not the
@@ -355,7 +355,7 @@ Unknown fields ignored (serde default) — forward compatible. GitHub payloads a
   org grouping incl. personal-account-first ordering.
 - **Keychain:** unit tests use keyring's mock credential store; real
   Secret Service covered by human checks.
-- **Human checks (owner, Hyprland):** connect end-to-end; `secret-tool
+- **Human checks (Hyprland):** connect end-to-end; `secret-tool
   lookup service com.noosxe.my-dashboard` shows the token; card counts vs
   github.com; repo browsing; PR list matches the repo's open tab; PR click
   opens browser; unfocused card updates (clock regression: does the tick

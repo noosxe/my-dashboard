@@ -55,7 +55,7 @@ connected/pinned events, reactions (see docs/0020 §11 / #121).
     `milestoneTitle String!`.
 - `actor` is the `Actor` interface — `login` selects directly (no fragments).
 
-## 4. Owner questions (lean recorded; doc updated on answer)
+## 4. Questions (lean recorded; doc updated on answer)
 
 **Q1 — which event set for v1?** Lean: the §2 set (assigned/unassigned,
 labeled/unlabeled, closed/reopened, renamed, milestoned/demilestoned = 9
@@ -193,7 +193,7 @@ events count) and the probe tests carry the automated share.
    with events present.
 5. Gates green; new tests per §7.
 
-## 10. Human checks (owner)
+## 10. Human checks
 
 - [ ] Own a scratch issue: label it, assign, rename, close (both reasons),
       reopen — rows appear in order, copy reads right, ghost-actor case (if
@@ -253,7 +253,7 @@ text:
   shared fields now ride each member's inline fragment (the response
   merges them into the node object, so the parser and fixtures are
   unchanged); a document-level tripwire test asserts every member
-  fragment carries them. Found via the app log during the owner's
+  fragment carries them. Found via the app log during
   human-check pass — the debug-bridge `logs` channel doing exactly its
   job (docs/0010).
 

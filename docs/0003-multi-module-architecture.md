@@ -1,14 +1,14 @@
 # 0003 — Phase 2: Multi-module Architecture (Module Trait, Registry, Navigation)
 
 - **Implementation record:** rebase-merged as 514f59a (7 commits); all §6 gates
-  passed; UI corrections from owner review (breadcrumb pinned, card
+  passed; UI corrections from review (breadcrumb pinned, card
   alignment/packing, sidebar brand + header spacing) and the §3.12 Wayland
   unfocused-update pattern shipped in the same PR.
 - **Date:** 2026-08-28
 - **Phase:** 2 (Framework)
 - **Depends on:** 0001 (PR #1), 0002 (PR #4)
 - **Design authority:** gpui-component Design Guides — cited as **[DG]** (see
-  `docs/README.md` → Conventions). Requirements from owner recorded in
+  `docs/README.md` → Conventions). Requirements recorded in
   `docs/README.md` → Planned docs → 0003.
 
 ## 1. Scope & goals
@@ -282,7 +282,7 @@ v_flex (existing key_context("Dashboard") + ToggleTitleBar wiring — unchanged)
     │               on_click → open_module)))))
     └── v_flex (content column, flex_1, min_w via… n/a — plain flex_1)
         ├── h_flex (chrome row: p_2, gap_2, border_b)
-        │   ├── SidebarToggleButton (left of breadcrumb — owner-verified
+        │   ├── SidebarToggleButton (left of breadcrumb — verified
         │   │    sidebar_story.rs layout) → nav.toggle_sidebar
         │   └── Breadcrumb: [Home] + [module title] + [crumbs…]
         └── page content (flex_1, relative):

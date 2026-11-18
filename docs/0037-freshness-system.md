@@ -4,7 +4,7 @@
 |---|---|
 | Status | design |
 | Builds on | docs/0031 (`Fetch` record), 0032/0035 (heartbeat + repo-rows beat), 0033 (synced labels), 0034 (cold-start staleness), 0036 (backoff) |
-| Related | #192/#193/#224 (closed — their deferral loop is §1), the owner's "consistent systemic approach" direction |
+| Related | #192/#193/#224 (closed — their deferral loop is §1), the "consistent systemic approach" direction |
 | Ratified | Q2 via design review: **dashboard-core from day one** — all modules are to share the same UI/UX and differ only in what they do |
 
 ## 1. Problem
@@ -61,7 +61,7 @@ synced indicator automatic instead of re-assembled.
 - N2: The 0034 stale chip keeps its own rendering — its semantics are
   cold-start-specific (disk-seeded cache age, threshold-marked,
   reconnect copy), not lane freshness. It does not join the component.
-- N3: *Removed at design review* — the owner's platform direction
+- N3: *Removed at design review* — the platform direction
   ("all our modules are going to have an exact same UI/UX just doing
   different things") makes dashboard-core the home from day one. The
   module keeps only what is genuinely module-local: the `Fetch<T>`
@@ -216,7 +216,7 @@ session's rows).
 4. docs/0029 §4 pointer + this doc's §7 Shipped + README row land
    with the implementation PR.
 
-## 7. Open questions (owner)
+## 7. Open questions
 
 - **Q1** *(open)*: D6 placement — the label goes in the module main
   page's header area next to the 0034 stale chip (one freshness

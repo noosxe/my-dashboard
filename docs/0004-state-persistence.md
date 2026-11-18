@@ -13,7 +13,7 @@ later modules (0005 GitHub module first) build on.
 
 1. A `paths` layer in `dashboard-core` resolving config/data/state/cache
    roots per OS (XDG on Linux, native equivalents on macOS; Windows out
-   of scope this phase per owner).
+   of scope this phase by decision).
 2. Atomic, debounced JSON persistence primitives (`store` layer).
 3. Persist the sidebar toggle (`Navigator.sidebar_collapsed`) → state dir.
    (The titlebar toggle was removed in review — decoration-driven chrome;
@@ -63,7 +63,7 @@ into Application Support). Zed works around this by using
 `~/.local/state/zed` on macOS — a non-native XDG-ism (zed `8cfa848c`
 `crates/paths/src/paths.rs:169-192`).
 
-**Recommendation:** follow the owner requirement (native locations on
+**Recommendation:** follow the requirement (native locations on
 macOS): state falls back to the **data root** on macOS (i.e. Application
 Support), not Zed's `~/.local` deviation. On Linux all four roots are
 distinct XDG dirs.
@@ -142,7 +142,7 @@ real home. Empty/unset = normal OS locations.
 2. **Zed's per-OS mapping** (`crates/paths/src/paths.rs`):
    - `config_dir()`: Linux `$XDG_CONFIG_HOME`/`zed` (honoring Flatpak
      vars); macOS **`~/.config/zed`** (deliberate cross-platform
-     deviation — we do NOT copy this; owner wants native macOS).
+     deviation — we do NOT copy this; native macOS is wanted).
    - `data_dir()`: macOS `~/Library/Application Support/Zed`;
      Linux `$XDG_DATA_HOME`/`zed`.
    - `state_dir()`: Linux `$XDG_STATE_HOME`/`zed`; macOS
@@ -195,7 +195,7 @@ real home. Empty/unset = normal OS locations.
    window access from entity contexts works (refines 0003 §3.12's
    note that `AsyncApp::update` returns `()`).
 7. **Window-level key bindings were dead from first launch (0002
-   regression surfaced by owner on Hyprland)**: gpui dispatches key
+   regression surfaced on Hyprland)**: gpui dispatches key
    actions from the focused node UP the dispatch tree; with nothing
    focused, dispatch starts at the tree root and no `on_action` on a
    descendant fires — `ctrl-shift-t` did nothing regardless of window
@@ -210,7 +210,7 @@ real home. Empty/unset = normal OS locations.
    is broken on this Hyprland 0.56.2 build (Lua IPC parser); argless
    dispatchers (`cyclenext`) still work — cycle until `activewindow`
    matches, then inject keys with `nix shell nixpkgs#wtype`.
-8. **Chrome became decoration-driven (owner decision, this PR's review)** —
+8. **Chrome became decoration-driven (decision, this PR's review)** —
    the `ctrl-shift-t` toggle, `ToggleTitleBar` action, `show_titlebar`
    persistence and the titlebar-less ghost close button are all removed.
    Rule: `Client` → app draws full title bar (gpui-component's
@@ -285,7 +285,7 @@ no dead ends).
 { "sidebar_collapsed": false, "files_sidebar_px": 300.0 }
 ```
 
-- Chrome is no longer persisted at all (owner decision in this PR's
+- Chrome is no longer persisted at all (decision in this PR's
   review, superseding 0002 D7: chrome is decoration-driven, resolved
   per render from `window.window_decorations()` — Client → full title
   bar; Server → nothing, not even a close X). `ShellState` shrank to
@@ -362,7 +362,7 @@ Automated gates (CI = the PR check suite, run locally):
 - [ ] Smoke run (timeout-exit 124, empty log) with isolated
       `DASHBOARD_STATE_DIR`
 
-Human checks (owner, desktop):
+Human checks (desktop):
 
 - [ ] Toggle sidebar collapsed + titlebar-less, quit, relaunch: both
       survive (Linux, state under `~/.local/state/my-dashboard/`).
