@@ -1,7 +1,7 @@
 # 0082 — Usage surfaces redesign: two audiences, intent first
 
-- **Issue:** implementation #695–#700 (§11). Review umbrella: #439, whose "visual layer only" rule the
-  owner lifted on 2026-11-04 for meaningful improvements.
+- **Issue:** implementation #695–#700 (§11). Review umbrella: #439, whose "visual layer only" rule was
+  lifted on 2026-11-04 for meaningful improvements.
 - **Amends:** docs/0054 §2, D2, D3, D4, D5, D6, D9, D11, D13, D15 and
   D17; docs/0050 D4 (the pause becomes per budget), D5 (the chip shows
   on every page) and its non-goals; docs/0053 §1 (the goal
@@ -17,12 +17,12 @@
   receipts), docs/0074 and 0078 (bundled theme presets), docs/0080
   G3/D7 (poll receipts), docs/0081 §12.1 (GitHub fixtures).
 
-> **Decision status.** The owner reviewed the mockups on 2026-11-05
+> **Decision status.** The mockups were reviewed on 2026-11-05
 > (§2.1) and settled the proposals they covered; those decisions are
 > no longer marked. A decision still marked **[P]** was not covered by
 > the mockup review and stays a proposal: it states its trade-off in a
-> line or two, for correction in review. Unmarked decisions are owner
-> decisions (§2, §2.1) or plain consequences of them.
+> line or two, for correction in review. Unmarked decisions are
+> settled decisions (§2, §2.1) or plain consequences of them.
 
 ## 1 Summary
 
@@ -33,13 +33,13 @@ miss part of what the docs set out to answer.
 
 This doc restarts from **intent**. It distils the questions docs
 0050/0053/0054/0057/0068/0080 asked these surfaces to answer (§3), then
-gives them a structure built around **two audiences** (§4, owner
+gives them a structure built around **two audiences** (§4,
 decision):
 
-- **Budget** is the default view, for the owner as a *user*: how much
+- **Budget** is the default view, for the *user*: how much
   GitHub API budget is left, what spends it, how spending looks across
   past windows, and which spend could be avoided.
-- **Requests** is for the owner as the dashboard's *developer*: request
+- **Requests** is for the dashboard's *developer*: request
   forensics, meaning latency, errors, contention and a full request log.
 
 Beyond the split, this doc:
@@ -50,21 +50,21 @@ Beyond the split, this doc:
 - drops the donut;
 - folds the keyboard and a11y fixes into the same work.
 
-The order is fixed by the owner (§2):
+The order is fixed (§2):
 1. **This doc.**
-2. **Mockups**, rendered as static HTML at the owner's request (§10).
-3. **Owner approval.**
+2. **Mockups**, rendered as static HTML on request (§10).
+3. **Approval.**
 4. **Implementation.**
 
-## 2 Owner decisions (2026-11-04)
+## 2 Decisions (2026-11-04)
 
-1. **Two audiences, on purpose.** Some usage surfaces serve the owner
-   as a user (budget health) and some serve the owner as the
+1. **Two audiences, on purpose.** Some usage surfaces serve the
+   user (budget health) and some serve the
    dashboard's developer (request forensics). Both stay, and the split
    is explicit in the docs (D1).
 2. **#439's "visual layer only" rule is lifted** for meaningful
    improvements. Amending docs/0054 and its relatives is allowed.
-3. **Process:** docs → mockups → owner approval → implementation.
+3. **Process:** docs → mockups → approval → implementation.
 4. **Open questions are settled in this doc** as proposed decisions
    ([P]) with trade-offs, for correction in review.
 5. **The fixture prerequisites are built separately**, in parallel:
@@ -73,9 +73,8 @@ The order is fixed by the owner (§2):
 
 ### 2.1 Mockup review (2026-11-05)
 
-The owner reviewed the HTML mockups (§10) and the 14 questions they
-raised (Q1–Q14; not §3's intent questions Q-a to Q-f). **Owner
-decisions:**
+The HTML mockups were reviewed (§10) and the 14 questions they
+raised (Q1–Q14; not §3's intent questions Q-a to Q-f). **Decisions:**
 
 | # | Decision | Where |
 |---|---|---|
@@ -91,7 +90,7 @@ decisions:**
 | #709 | **Source follows audience** is the usage section's general rule ("this should be our philosophy for the usage section for the app in general") | §4 principle; D1, D6–D10 |
 | #712 | View derivation runs off the UI thread with band skeletons (D11 measurement: 36–42 ms optimized over 90 days) | D11, D18 |
 
-**Adopted per mockup recommendation** (the owner accepted the
+**Adopted per mockup recommendation** (the
 mockups' recommendations wholesale):
 
 | # | Decision | Where |
@@ -168,7 +167,7 @@ seeded ledger (2026-11-04, docs/0071) found the following:
 
 ### Principle — Source follows audience
 
-The general rule for the usage section (owner decision, §2.1). Later
+The general rule for the usage section (decision, §2.1). Later
 work cites it as "source follows audience (0082 §4)".
 
 - **User-facing usage figures come from the provider's own
@@ -191,8 +190,8 @@ segmented control at the head of the page:
 
 | View | Audience | Answers | Default |
 |---|---|---|---|
-| **Budget** | the owner as a user | Q-a, Q-b, Q-c, Q-d | yes |
-| **Requests** | the owner as the dashboard's developer | Q-e, Q-f | no |
+| **Budget** | the user | Q-a, Q-b, Q-c, Q-d | yes |
+| **Requests** | the dashboard's developer | Q-e, Q-f | no |
 
 - **Budget = GitHub's reporting; Requests = this app's records**: the
   source follows the audience (§4 principle). Budget's attribution
@@ -542,7 +541,7 @@ the band is accepted as mostly a REST and long-range tool (Q12).
      their group, labelled "group: key". The key column takes the
      width the figure columns leave, so the table spans the band.
      It sizes to its rows up to 12, then scrolls inside (D20).
-     It has no Transport column (owner decision, #698, a change from
+     It has no Transport column (decision, #698, a change from
      the approved mockup): `Group by Transport` gives that split.
   4. **Diagnostics** (a collapsed disclosure): the duration histogram,
      the payload × duration grid, contention, and the 304-vs-200
@@ -609,7 +608,7 @@ the band is accepted as mostly a REST and long-range tool (Q12).
   (amends 0054 D13).
 - **The read runs on the background executor**, with a designed
   loading state (D18), because the gate tripped. The gate (0057 D8's
-  owner-accepted UI-thread read, kept until a 90-day read measured
+  accepted UI-thread read, kept until a 90-day read measured
   above one frame) was measured in #696:
   - **Ledger:** the seeded ledger (`DASHBOARD_GITHUB_USAGE_SEED`, whose
     cap grew from 30 to 90 days for this) over 90 days: about 96,600
@@ -634,7 +633,7 @@ the band is accepted as mostly a REST and long-range tool (Q12).
     ~10⁵-row log.
   - **Receipt:** the ignored test `usage_read_gate` in
     `crates/modules/github/src/usage_seed.rs`.
-- **The views' derivation runs off the UI thread** (owner decision,
+- **The views' derivation runs off the UI thread** (decision,
   #712): refresh runs the read, the D7 default budget and the active
   view's band procedures in one background task. A control change that
   changes what the view reads (view, effective preset, budget)
@@ -706,7 +705,7 @@ changes in these ways:
   tooltip explaining "no response yet".
 
 *As shipped (#699):*
-- **Signed in only** (owner decision on #724). "Every page" applies
+- **Signed in only** (decision on #724). "Every page" applies
   while the GitHub module is `Connected`. Signed out, during the
   connect flow, after a rejected token or with a keychain error, the
   status bar carries no chip: there is no budget to show. Signed in,
@@ -1062,8 +1061,8 @@ gallery remains the widget-level one.
 | 10 | 0054 D13 "CLI/MCP consume the same results" vs 0068's own `api_usage` aggregation | D15: migration is a follow-up |
 | 11 | 0068 D6 decided but not in code | D17 |
 | 12 | "Rarely worth their cost" has no metric | D9 |
-| 13 | No doc names the pages' user | D1, owner decision |
-| 14 | 0054 D9 "reads off-main" vs 0057 D8 "UI-thread reads, owner-accepted" | 0057 D8 rules until the D11 measurement gate. The 0054 D9 bullet is annotated |
+| 13 | No doc names the pages' user | D1, decision |
+| 14 | 0054 D9 "reads off-main" vs 0057 D8 "UI-thread reads, accepted" | 0057 D8 rules until the D11 measurement gate. The 0054 D9 bullet is annotated |
 | 15 | 0050 D4's global pause vs two independent budgets (0050 §2) | Q10: one `rate_limited_until` per bucket; 0050 D4 amended |
 | 16 | D20 "no nested scroll" vs a virtualized log above Diagnostics (first draft of D10) | Q8: Diagnostics above, the log last and viewport-filling |
 | 17 | D5/D13 colouring state text vs the kit's `warning`/`danger` contrast | Q1: the tokens colour marks and icons only |
@@ -1101,7 +1100,7 @@ with the procedures only it used; the right column is built by #697 and
   variant, so the cards and the chip can be captured in every D5 state.
 
 **Mockups** (step 2 of the process, done 2026-11-05):
-- **rendered as static HTML at the owner's request**, because the
+- **rendered as static HTML on request**, because the
   redesigned views don't exist in code yet. Every colour is mapped
   from the app's theme tokens, the data is a port of the seed
   generator over fixture identities, and each frame was rendered to
@@ -1165,7 +1164,7 @@ The split is proposed and refined when the issues are filed:
    projection guard, per-day peaks, avoidable ranking).
 2. **Page shell:** the D1 view switch, the D3 header, the D11 presets
    and read bound with the measurement gate, D18 and D19 header work.
-   - **The old page content is removed** (owner decision, #696): the
+   - **The old page content is removed** (decision, #696): the
      Overview, Quota usage and Request latency bodies, their render
      code, and the calculator procedures only they used. Until items 3
      and 4 land, each view's body is a neutral placeholder ("This view

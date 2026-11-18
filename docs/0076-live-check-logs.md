@@ -6,7 +6,7 @@ Design for #585. Extends the docs/0039 checks surface: expanding an
 with an on-demand live watch: step-level progress while the job runs, and
 the log tail landing automatically the moment the job completes.
 
-**Constraint (owner-set): official APIs only.** The github.com web UI's
+**Constraint (set by decision): official APIs only.** The github.com web UI's
 live log view runs on internal endpoints; they are out of scope by
 decision, which rules true streaming out entirely (research verified
 2026-10-16, see §2). What remains — and what we build — is *progressive
@@ -140,7 +140,7 @@ add round-trips. The tick runs strictly after the previous tick settles
 (no overlapping chains) — the loop is one async task with a sleep between
 iterations, not a timer fan-out.
 
-### D6 — Cadence and caps (owner-tunable consts, defaults proposed)
+### D6 — Cadence and caps (tunable consts, defaults proposed)
 
 | Knob | Default | Rationale |
 |---|---|---|
@@ -170,7 +170,7 @@ iterations, not a timer fan-out.
 ### D8 — Non-goals
 
 - **True streaming / log tailing** — impossible via official APIs; the web
-  UI's internal endpoints are excluded by owner decision (#585).
+  UI's internal endpoints are excluded by decision (#585).
 - **Log persistence** — docs/0039 D5 keeps logs page-local; docs/0072's
   store is for documents, not 512 KiB tails.
 - **Third-party (non-Actions) checks** — no Actions logs exist for them;
@@ -182,12 +182,12 @@ iterations, not a timer fan-out.
 - **Run cancel/re-run or approvals** — docs/0066 owns the gated-run
   interactions.
 
-## 4. Owner decisions
+## 4. Decisions
 
 Proposed defaults, to be confirmed (or adjusted) on the design-doc review:
 tick **10 s**; 404 materialization retries **5**; consecutive network
 failures **3**; hard watch cap **90 ticks**; **no** etag use; **no** log
-persistence. The on-demand-only scope (D1) is already owner-set (#585).
+persistence. The on-demand-only scope (D1) is already set by decision (#585).
 
 ## 5. Implementation plan
 
@@ -226,5 +226,5 @@ D3 amendment, and the docs/0039 §6 deferred-note supersession):
 
 - Per-step log retrieval (official step-logs endpoint) if the whole-job
   tail proves unwieldy on matrix-heavy runs.
-- Reactions on the run level (cancel/re-run buttons) — only if the owner
-  wants run control in-app; docs/0066 adjacency.
+- Reactions on the run level (cancel/re-run buttons) — only if
+  run control is wanted in-app; docs/0066 adjacency.

@@ -6,7 +6,7 @@
 
 ## 1 — Decision
 
-Owner verdict (2026-10-20): maintaining app-owned theme content is a hassle we
+Verdict (2026-10-20): maintaining app-owned theme content is a hassle we
 stop taking on. The bundled set becomes **exactly the pinned gpui-component
 gallery — every file, including `aurora.json`** — and the factory defaults
 become **the kit's own `Default Light` / `Default Dark` pair**. The app-owned

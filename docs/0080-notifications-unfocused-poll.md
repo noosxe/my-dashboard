@@ -5,7 +5,7 @@ implementation rides a follow-up after this merges.*
 
 ## 1. Context & problem
 
-The owner's report (2026-10-21): "PR merged notifications arrive 10–15
+The report (2026-10-21): "PR merged notifications arrive 10–15
 minutes after the merge." Investigation verified the full path:
 
 - GitHub creates a notifications thread on merge; the dashboard learns
@@ -23,11 +23,11 @@ minutes after the merge." Investigation verified the full path:
   docs/0060 D2) — and new threads never reach it.
 
 So the observed latency is **merge time → the next view-shown /
-refocus / manual trigger** — the owner's alt-tab rhythm. The app
+refocus / manual trigger** — the alt-tab rhythm. The app
 sitting focused-but-untouched (or in the background) never learns a
 merge happened.
 
-The owner picked the fix direction: poll, but only when it cannot
+The fix direction was picked: poll, but only when it cannot
 churn — **while the window is inactive**, mirroring docs/0060's
 banner-when-unfocused gate (fetch exactly when the user can't see the
 app, which is exactly when a banner is useful).
@@ -64,9 +64,9 @@ app, which is exactly when a banner is useful).
 **Goals**
 
 - G1: A PR merged (or any GitHub notification thread created) while
-  the owner is away from the app surfaces as an OS banner within
+  the user is away from the app surfaces as an OS banner within
   ~a poll period.
-- G2: Zero timer-driven fetches while the owner is actively using the
+- G2: Zero timer-driven fetches while the user is actively using the
   app — docs/0052's quiet-while-focused guarantee holds verbatim.
 - G3: Every poll fetch is receipted (Usage page) with a trigger that
   names it as a poll.
@@ -188,7 +188,7 @@ matters).
 - **Persisted seen-state** (docs/0063 log as the seed): restart
   forgets what was announced; threads that arrived while the app was
   closed announce nothing (they're in the inbox). Cheap follow-up if
-  the owner wants cross-restart correctness.
+  cross-restart correctness.
 - **Per-reason level mapping** (e.g. `ci_activity` vs `merge`):
   everything announces as `Info`; a mapping table is a follow-up.
 - **Any other lane on a timer**: totals, repo rows, detail pages stay
