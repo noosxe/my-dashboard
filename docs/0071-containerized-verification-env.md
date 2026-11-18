@@ -10,7 +10,7 @@
 ## 1. Context
 
 docs/0065 receipts (audit, tab-stops, critique) require a Linux session:
-headless sway + the debug bridge + the a11y bus. The product owner has no
+headless sway + the debug bridge + the a11y bus. There is no
 Linux box; the sanctioned substitute is a Docker container (decision
 recorded on #523). Until now that container existed only as an
 unversioned `docker run` invocation pasted into the #523 PR body — every
@@ -119,7 +119,7 @@ credential stores, never the Docker socket.
 
 ### D9 — UI receipts are container-only *(amendment, 2026-10-23)*
 
-Owner policy: **no UI captures on the host.** Every UI receipt is
+Policy: **no UI captures on the host.** Every UI receipt is
 captured in this environment and nowhere else: `audit`, `tree
 --tab-stops`, `assert-baseline` and structural goldens, `critique`
 screenshots, and pixel goldens. The macOS host may build, run unit

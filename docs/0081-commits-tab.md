@@ -223,7 +223,7 @@ query RepoCommitsMore($owner: String!, $name: String!, $tip: GitObjectID!,
   rows, more than the List's `load_more_threshold` of 20 needs. It also
   keeps the per-page server time down: `statusCheckRollup` is the
   expensive field on large repos, and 100 doubles it. This is a knob, so
-  the owner can tune it.
+  it can be tuned.
 - **Hard cap: 1,000 held commits** (`COMMITS_HELD_CAP`, 20 pages). Past
   the cap, `has_more()` returns false and the tail row reads "Older
   history on GitHub ↗" (opens `…/commits/<ref>`). It is an honest cap,
@@ -416,7 +416,7 @@ unifying them).
 
 ## 5 Flagged patterns: what doesn't fit, with alternatives
 
-The owner asked for these to be named, not silently deviated from.
+These are named, not silently deviated from.
 
 ### F1: The repo column is one scroll container; virtual lists need bounded height
 
@@ -484,7 +484,7 @@ The owner asked for these to be named, not silently deviated from.
   history on every refocus.
 - **Recommendation.** D4 (prepend-merge on tip overlap, replace on a
   force-push). It is not retrofitted onto the home lane; that is a
-  follow-up issue if the owner wants it.
+  follow-up issue if wanted.
 
 ### F6: docs/0077 says things the code no longer does
 
@@ -501,7 +501,7 @@ The owner asked for these to be named, not silently deviated from.
   in, per README immutability ("substantive changes go into a new
   doc").
 
-## 6 Open questions (owner)
+## 6 Open questions
 
 - **Q1: Commit detail.** What does clicking a commit do?
   (a) open on github.com, the v1 default in D6; (b) an in-app commit
@@ -525,7 +525,7 @@ The owner asked for these to be named, not silently deviated from.
 - **Q5: Tab order.** Commits goes last (D1, for index stability), or
   after Open issues to match GitHub's emphasis? I recommend last.
 
-### 6.1 Resolutions (owner, 2026-10-23)
+### 6.1 Resolutions (2026-10-23)
 
 - **Q1:** (a) is accepted. v1 opens the commit on github.com. The in-app
   commit page is a follow-up design doc (§7).

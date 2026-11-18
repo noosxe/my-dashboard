@@ -106,7 +106,7 @@ lane first lands (same semantics as today's seed-then-refresh).
 GraphQL cost note, recorded deliberately: visiting both row tabs costs
 ~2×100 + 2 scalars ≈ two points, versus today's single ~201-unit query —
 one point either way by GitHub's rounding; the split buys view-relevance,
-which is the owner-set goal.
+which is the goal set by decision.
 
 ### D3 — The lane map (what fires when)
 
@@ -174,7 +174,7 @@ exactly as today.
 ## 5 Knobs
 
 - Lane freshness floor on re-offer: the existing `FOCUS_MIN_AGE` (no new
-  constant; owner-tuned like today).
+  constant; tuned like today).
 - Notifications pages: unchanged (`max_pages: 2`).
 - Row cap: unchanged (100 per connection; cap hints as today).
 

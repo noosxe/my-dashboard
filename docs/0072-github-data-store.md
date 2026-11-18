@@ -1,9 +1,9 @@
 # 0072 — GitHub data store: one shared PR/issue cache, stale-while-revalidate reads, optimistic mutations
 
 - **Tracked by:** implementation issue (filed at design merge)
-- **Trigger case:** owner request — the module's UX trails github.com, mostly
+- **Trigger case:** request — the module's UX trails github.com, mostly
   because a slow GraphQL round-trip sits between every intent and every pixel.
-  The owner wants the module to behave like github.com: one shared store that
+  The module should behave like github.com: one shared store that
   every fetch and every client-side write updates, mutations that run in the
   background with a toast on completion, and screens that repaint from the
   store instantly — including going back to a list that already reflects a
@@ -213,7 +213,7 @@ when a page-routed continuation loses its entity):
 
 `BusyOp`/`MutationError` move to store scope (the page keeps only
 presentation). Because pending lives on the *entry*, not the page, the user
-can navigate anywhere the instant they click — exactly the owner's scenario:
+can navigate anywhere the instant they click — exactly this scenario:
 merge, jump home, see the row flip when the confirmation lands, with no
 home refetch in between.
 
@@ -444,11 +444,11 @@ session-scoped, exactly pre-#556), and the hourly prune.
   skipped, never fatal. Summaries restore unconditionally (a stale
   summary still beats a skeleton; the snapshot revalidates on its own
   lanes). **Details restore only within a 1-hour TTL of their landing
-  (owner-tuned)** — beyond it the row restores summary-only. In-session
+  (tuned by decision)** — beyond it the row restores summary-only. In-session
   gates keep their own TTLs: a restored 30-minute detail paints stale
   and refetches on open, which is the point.
 - **Bounds**: the in-memory cap and the table cap are the same number
-  (1024, owner-set). Memory evicts on write (D9's two-pass, pending
+  (1024, set by decision). Memory evicts on write (D9's two-pass, pending
   pinned); the table prunes drop-oldest-touched in the hourly pass,
   arrival order breaking equal-touch ties.
 - **Sign-out** wipes the persisted rows with the memory maps (the
@@ -509,10 +509,10 @@ the existing fetch pipeline, not a new pipeline.
 ## 6. Stages
 
 1. **Store + SWR reads** — D1–D3, D9: document map, land paths, pr_page
-   reading the store, no skeleton on warm opens. Owner-visible win #1:
+   reading the store, no skeleton on warm opens. User-visible win #1:
    reopening PRs is instant.
 2. **Optimistic merge / close / update-branch** — D4–D7: pending pills,
-   background completion, toasts. Owner-visible win #2: mutations stop
+   background completion, toasts. User-visible win #2: mutations stop
    being modal.
 3. **Remaining mutations** — comment, review submit, description edit,
    timeline row writes, line comments/replies onto the same machinery
