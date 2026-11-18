@@ -45,7 +45,7 @@ const INSPECTOR_W: f32 = 300.0;
 const STAGE_MIN_W: f32 = 400.0;
 const RAIL_W: f32 = 280.0;
 /// Content width below which the rail drops under the stage (§12 L1,
-/// owner-accepted §12.4): 300 + 400 + 280 + two 16 px gutters + the
+/// accepted §12.4): 300 + 400 + 280 + two 16 px gutters + the
 /// canvas inset.
 const RAIL_BREAKPOINT: f32 = 1040.0;
 

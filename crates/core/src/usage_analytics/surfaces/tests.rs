@@ -569,7 +569,7 @@ fn per_day_columns_show_each_days_peak_window() {
             .all(|w| w[1].day_start_ms == w[0].day_end_ms)
     );
     let d0 = columns.iter().find(|d| d.day_start_ms == day0).unwrap();
-    // The height is the reported drop (owner decision on #709), and it
+    // The height is the reported drop (decision on #709), and it
     // names its own window — not the costlier one by recorded spend.
     assert_eq!(d0.peak_drop, Some(3_000));
     assert_eq!(d0.peak_window_reset_ms, Some(day0 + 3 * HOUR_MS));

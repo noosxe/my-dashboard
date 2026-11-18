@@ -14,7 +14,7 @@
 # Environment: GitHub-hosted ubuntu runners (`ubuntu-24.04`; docs/0027 §4):
 # the hosted image ships the build baseline (gcc/make/cmake/pkg-config/
 # xvfb/git/curl), the jobs install the GUI dev stack + fonts themselves.
-# Nix-free by owner decision (docs/0027 §4): toolchain from rustup, libs
+# Nix-free by decision (docs/0027 §4): toolchain from rustup, libs
 # from apt. No secrets are used anywhere, so fork PRs are safe too.
 name: CI jobs
 

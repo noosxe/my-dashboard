@@ -147,7 +147,7 @@ fn connect_and_discover() -> Result<A11ySession, RpcError> {
             .await
             .map_err(|err| unavailable(format!("reading ScreenReaderEnabled: {err}")))?;
         if !enabled {
-            // Auto-enable (owner decision, #46 review): this is the
+            // Auto-enable (decision, #46 review): this is the
             // session-wide "screen reader present" signal. On compositors
             // without an Orca-style watcher it only makes accesskit apps
             // publish their trees. Restored by `shutdown`.

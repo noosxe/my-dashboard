@@ -2200,7 +2200,7 @@ pub(crate) fn update_branch_error_copy(message: &str) -> String {
 }
 
 /// docs/0072 D9 — detail bodies are the heavy part: details evict
-/// oldest-landed past this many documents (owner-set for #556: 1024 —
+/// oldest-landed past this many documents (set by decision for #556: 1024 —
 /// the working set, mirrored by the persisted table's prune). Summaries
 /// track the home list and are naturally bounded by it.
 pub(crate) const PR_STORE_DETAIL_CAP: usize = 1024;
@@ -2208,7 +2208,7 @@ pub(crate) const PR_STORE_DETAIL_CAP: usize = 1024;
 /// docs/0072 D8 (#556) — the restore staleness bar: a detail whose age
 /// at boot is past this is not restored (the row still restores its
 /// summary). The in-session gates keep their own TTLs — this only
-/// decides whether the disk copy is worth showing at all. Owner-tuned;
+/// decides whether the disk copy is worth showing at all. Tuned by hand;
 /// revisit if it feels wrong.
 pub(crate) const RESTORE_DETAIL_TTL: Duration = Duration::from_secs(60 * 60);
 
@@ -7778,7 +7778,7 @@ mod tests {
 
     #[test]
     fn keychain_launch_fires_inventory_on_first_tick() {
-        // Regression (owner report): a launch with an existing keychain
+        // Regression (report): a launch with an existing keychain
         // token must not wait — the bootstrap arm fetches the session
         // inventory + notifications on the first tick (docs/0051 D6).
         let mut state = make_state(Arc::new(MockHttp::new(vec![])));

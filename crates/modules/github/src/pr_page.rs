@@ -256,7 +256,7 @@ fn strip_escapes(segment: &str) -> String {
 
 // --- live check watch (docs/0076) -------------------------------------------
 
-/// D6 knobs, owner-tunable: the tick cadence and the caps that keep a
+/// D6 knobs, tunable: the tick cadence and the caps that keep a
 /// watch honest. Tests drive the loop with immediate mocks, so under
 /// `cfg!(test)` the tick is a 1 ms no-op while the caps stay real (the
 /// hard-cap test walks all 90).

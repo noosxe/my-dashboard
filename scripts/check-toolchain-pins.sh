@@ -2,7 +2,7 @@
 # Fail when the Rust toolchain pins disagree (docs/0027 D4).
 #
 # The dev-shell flake is the reference toolchain; CI (rustup, nix-free by
-# owner decision), the verification image (docs/0071 D2) and the workspace
+# decision), the verification image (docs/0071 D2) and the workspace
 # `rust-version` pin the same release. A bump changes all four in one PR —
 # this check is what makes "in lockstep" more than a comment. Runs in the
 # CI lint job; needs only grep/sed, no toolchain.

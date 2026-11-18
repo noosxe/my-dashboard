@@ -1,4 +1,4 @@
-//! The Budget view (docs/0082 §5, D4–D9): the owner as a user, from
+//! The Budget view (docs/0082 §5, D4–D9): the user view, from
 //! GitHub's reporting (§4 principle). Four bands in one scroll:
 //! [`cards`] (D4), then, below the Budget selector, [`spend`] (D7),
 //! [`history`] (D8) and [`avoidable`] (D9). Every band reads the data

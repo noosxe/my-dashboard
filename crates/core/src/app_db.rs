@@ -17,7 +17,7 @@
 //! Durability (0057 D5): WAL journal, `synchronous = NORMAL`, one writer
 //! connection owned by the writer thread and one lazy reader connection.
 //! Reads are direct indexed queries on the calling thread (D8) — the
-//! owner accepted UI-thread blocking at this app's volume.
+//! UI-thread blocking was accepted at this app's volume.
 //!
 //! Failure handling (0057 D6 + 0063 D4): an unusable data dir or
 //! database flips the store into degraded mode — *usage* records route

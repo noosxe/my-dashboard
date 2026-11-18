@@ -33,7 +33,7 @@ use critical::CriticalWatch;
 pub(crate) use model::local_hhmm;
 use model::{ChipModel, Segment};
 
-/// Whether the chip shows at all (docs/0082 D13, owner decision on
+/// Whether the chip shows at all (docs/0082 D13, decision on
 /// #724): only once a token is connected. Signed out, mid connect-flow,
 /// token-rejected or keychain-broken, there is no budget to show, so the
 /// status bar carries no chip. Signed in, a budget without a snapshot

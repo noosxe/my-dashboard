@@ -844,7 +844,7 @@ pub struct WindowColumn {
     pub cost: u64,
     pub requests: u64,
     pub unknown: u64,
-    /// The column height (D8, owner decision on #709): GitHub's
+    /// The column height (D8, decision on #709): GitHub's
     /// deepest reported drop in the window, `limit − min remaining`,
     /// other clients included. `None` without a ceiling: the view
     /// leaves a gap, never a 0-height bar.
@@ -861,7 +861,7 @@ pub struct DayColumn {
     /// Local midnight (per `tz_offset_ms`).
     pub day_start_ms: u64,
     pub day_end_ms: u64,
-    /// The column height (D8, owner decision on #709): the day's
+    /// The column height (D8, decision on #709): the day's
     /// peak window drop as GitHub reports it, `limit − min remaining`,
     /// including other clients' spend. `None` when none of the day's
     /// windows reported a ceiling: the view draws no column there (an

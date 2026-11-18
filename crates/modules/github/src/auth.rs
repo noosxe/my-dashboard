@@ -348,7 +348,7 @@ fn parse_json<T: for<'de> Deserialize<'de>>(result: &HttpResult) -> Result<T, Au
 // Keychain storage (docs/0005 Q3, docs/0011 §4.1) — trait so tests run
 // in-memory; the real store is keyring v3 (Secret Service via zbus on
 // Linux, Security.framework on macOS), holding one JSON credential
-// document per docs/0011. No file fallback by owner policy.
+// document per docs/0011. No file fallback by policy.
 // ---------------------------------------------------------------------------
 
 pub trait TokenStore: Send + Sync + 'static {

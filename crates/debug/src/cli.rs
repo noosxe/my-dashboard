@@ -26,7 +26,7 @@ pub enum Command {
     },
     /// `audit [--json] [--window N]` — deterministic rules over the
     /// tree dump (docs/0065 D3). Exit 1 only on FAIL-severity
-    /// findings; findings/incomplete print for the owner checklist.
+    /// findings; findings/incomplete print for the human-check list.
     Audit { json: bool, window: Option<u64> },
     /// `baseline <surface> [--update] [--window N]` — structural
     /// golden against the committed `crates/debug/verify/snapshots/
