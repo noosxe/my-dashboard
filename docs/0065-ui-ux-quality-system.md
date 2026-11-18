@@ -15,7 +15,7 @@ favicon (#437) + usage/analytics (issue filed with this PR).
 ## 1. Context & problem
 
 The agent writes every line of UI in this repo. Each PR is human-tested,
-but the tester is not a designer and cannot articulate visual fixes — the
+but visual fixes are hard to put into words at review — the
 verdict arrives as "not good at all", which is unfollowable as an
 instruction. Three structural gaps cause this:
 
@@ -30,8 +30,8 @@ instruction. Three structural gaps cause this:
    on rendered output. macOS cannot even screenshot (#401; in-app frame
    capture is a pending follow-up).
 3. **There is no operational review instrument.** Human checks are
-   free-text asks; nothing converts taste into named verdicts a
-   non-designer can mark and an agent can act on.
+   free-text asks; nothing converts taste into named verdicts that
+   can be marked by hand and an agent can act on.
 
 
 ## 2. Research base (evidence-graded)
@@ -68,7 +68,7 @@ Each layer catches a failure class the others cannot see:
 
 Goldens hold a once-approved look; critique lifts first-pass quality;
 mechanical layers catch layout facts that vision measurably misses. The
-human reviewer stays the approver throughout — the system's job is to hand them
+human check stays the approval step throughout — the system's job is to hand it
 named, checkable findings instead of "not good at all".
 
 
@@ -88,8 +88,8 @@ redo) and the usage/analytics review issue filed with this PR.
 NN/g's ten heuristics restated as per-surface checkables + the
 Refactoring UI tactics checklist + cross-references to the mechanical
 gates (so items that should never be eyeballed aren't). Every UI-facing
-PR body carries the checklist; the **reviewer marks boxes** — pass, fail,
-or n/a — and writes no prose. An unfollowable verdict becomes twelve to
+PR body carries the checklist; the **boxes are marked by hand at review** — pass, fail,
+or n/a — with no prose. An unfollowable verdict becomes twelve to
 twenty followable ones.
 
 ### D3 — `audit` verb (deterministic tree checks)
@@ -245,7 +245,7 @@ masquerade as a fixed finding.
 
 ### D8 — Reference anchors (taste by selection)
 
-The reviewer cannot articulate fixes but **can pick what looks right**.
+Fixes are hard to put into words, but **picking what looks right** is easy.
 3–6 approved native-desktop exemplars (whole apps, panels, tool
 windows — screenshots or links, whatever is easiest) get committed under
 `docs/references/` with a one-line note each. Every new UI surface
@@ -259,8 +259,8 @@ secondary anchor for widget-level composition.
 
 The in-app frame capture follow-up (docs/0010/0055, #401-adjacent)
 moves from "known follow-up" to **blocking priority for this system**:
-until it lands, every visual gate optimizes a rendering the reviewer never
-sees on their platform. The implementation round files/tracks the
+until it lands, every visual gate optimizes a rendering never
+seen on the real host platform. The implementation round files/tracks the
 capture issue if it doesn't already exist and sequences it early.
 
 ### D10 — Process wiring (AGENTS.md, at implementation)
@@ -287,7 +287,7 @@ bridge and say so" from ritual to artifact.
 
 - **Phase 1** (macOS-safe, ~a week): rubric adoption + contrast test +
   `audit` verb + structural goldens. Immediately makes every review —
-  including the backlog's — operational for a non-designer reviewer.
+  including the backlog's — operational without design expertise.
 - **Phase 2** (Linux CI): pixel goldens + the critique ritual wired
   into PRs.
 - **Phase 3**: anchor library once exemplars are picked; backlog
@@ -324,7 +324,7 @@ Implementation issues are split per phase after this doc merges.
 3. Critique loop (screenshot + tree, Appendix A, ≤3 iterations) on the
    Linux box; before/after + findings land in the redo PR.
 4. The PR is opened: rubric boxes already marked by the agent with
-   evidence; the reviewer flips the ones they disagree with — a checkbox, not
+   evidence; findings can be flipped at review — a checkbox, not
    a design essay.
 5. Merge only when the box list is clean or remaining n/a's are
    accepted explicitly.
@@ -343,7 +343,7 @@ The usage/analytics review follows the identical flow.
 - No macOS a11y-tree work here — that is #401's track; D9 links to it,
   does not absorb it.
 - No automated taste. The system produces **named findings**; the human
-  reviewer remains the approver, always.
+  check remains the approval step, always.
 
 
 ## 8. Docs amendments (ride the implementation PRs)
