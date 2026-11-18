@@ -304,8 +304,8 @@ crumb derivation, row click swap) → docs §8 shipped notes. Reused unchanged:
 markdown renderer, `inline_edit_card`, `delete_confirm_card`, comment-gate
 parsing, mutation transport, takeover mechanics.
 
-Crates touched: `dashboard-module-github` only. (If preferred,
-a split — read-path PR, then write-path PR — the seam is D4's comment box: the
+Crates touched: `dashboard-module-github` only. (If a split is preferred
+— read-path PR, then write-path PR — the seam is D4's comment box: the
 read path lands complete without it.)
 
 ## 7. Testing
