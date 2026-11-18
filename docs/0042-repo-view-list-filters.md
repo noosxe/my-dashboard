@@ -158,7 +158,7 @@ substring match on the row title, plus exact `#N` number match;
 `InputEvent::Change` → notify (≤300 rows total — an in-memory scan per
 keystroke is noise; no debounce). It applies to all three boxes at once.
 
-*Open for owner review:* per-box inputs instead? One input means one
+*Open for review:* per-box inputs instead? One input means one
 focus stop and one mental model ("what am I looking for"); per-box is
 more precise but triples the chrome and focus order.
 
@@ -258,7 +258,7 @@ Deterministic only — no live network, no screenshots:
 - Gates green; docs/0029 §3 row annotated "(→ docs/0042)" at impl;
   docs/README index row added with this PR.
 
-## 8. Human checks (owner)
+## 8. Human checks
 
 - [ ] Toolbar readability at narrow tile widths (controls wrap or
       truncate gracefully inside each GroupBox)
@@ -287,7 +287,7 @@ Implemented as designed; the introspected wire facts held. Notes:
 - PR/issue rows gained `debug_selector`s (docs/0010 D10) — their plain
   `.id()`s were invisible to the dump and to tests.
 
-### 2026-09-17 (owner feedback): D7 dots become named pills
+### 2026-09-17 (review feedback): D7 dots become named pills
 
 The 6 px dots (D7) read as decoration, not labels. Rows now render up
 to three **GitHub-style named chips right of the row title and `#N`** —

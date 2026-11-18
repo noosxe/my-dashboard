@@ -80,7 +80,7 @@ opens a **panel** listing unread notifications, where they can be cleared.
   level icon + title + message (single line truncated) + relative time + a
   per-row dismiss button. Empty state: "No unread notifications". Opening
   the panel marks every unread entry read — the badge clears at open, not
-  at close (owner ruling) — while the displayed list is the snapshot
+  at close (ruling) — while the displayed list is the snapshot
   captured at open, so it doesn't vanish mid-read; rows stay individually
   dismissible until the panel closes, and the next open re-snapshots
   (previously read entries don't reappear).
@@ -144,7 +144,7 @@ opens a **panel** listing unread notifications, where they can be cleared.
      feeds the upstream issue from docs/0058 F8.
   4. Close and reopen → empty state; `Clear all` on a second entry → view
      empties, badge 0; a fresh raise after reopen → badge 1 again.
-- **Human checks (owner)**: badge sits rightmost next to module items on both
+- **Human checks**: badge sits rightmost next to module items on both
   platforms; panel opens upward, dismisses on outside click/Esc; sticky
   error toast X marks its entry read; appearance flip doesn't restyle the
   badge; VoiceOver/NVDA announces the trigger label with count.
@@ -173,7 +173,7 @@ opens a **panel** listing unread notifications, where they can be cleared.
   macOS-only window-activation gate (banner click marks read via the
   key); Windows/Linux remain deferred there (0060 §7).
 
-## 9. Review resolutions (owner, 2026-09-27)
+## 9. Review resolutions (2026-09-27)
 
 1. Read on **panel open** — the badge clears the moment the panel opens;
    the displayed list is the open-time snapshot so it doesn't empty

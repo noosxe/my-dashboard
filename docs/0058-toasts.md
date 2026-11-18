@@ -248,9 +248,9 @@ the hub's type) maps level → severity ctor, `dedupe_key` → `.id1`, error →
 - Max 3 visible; identical messages refresh, never stack; errors sticky,
   everything else auto-dismisses in 5 s.
 - No persisted toast state; nothing survives restart.
-- fmt/clippy/tests green; bridge script (§7) passes on the owner's machine.
+- fmt/clippy/tests green; bridge script (§7) passes on a dev machine.
 
-## 9. Human checks (owner)
+## 9. Human checks
 
 - [ ] Toast appears top-right, severity icon themed, never over the title bar.
 - [ ] Error/warning degrade toast: sticky, dismisses on click, doesn't steal focus.

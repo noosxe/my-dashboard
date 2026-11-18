@@ -1,12 +1,12 @@
 0065 — UI/UX quality system for agent-authored surfaces
 ========================================================
 
-Implemented in #440 (phase 1), #441 (phase 2), #442 (phase 3). Born from an owner-directed research
+Implemented in #440 (phase 1), #441 (phase 2), #442 (phase 3). Born from a directed research
 round (prompt: "figure out a systematic approach for giving AI agents
 proper tools for high-quality UI/UX design") after the favicon module's
 PR verdict — functionally right, visually not good at all.
 
-Scope note (owner): the quality problem is **not favicon-specific** — the
+Scope note: the quality problem is **not favicon-specific** — the
 usage/analytics pages already need review and improvement too. This doc
 defines the system for **all** UI surfaces; the initial review backlog is
 favicon (#437) + usage/analytics (issue filed with this PR).
@@ -14,8 +14,8 @@ favicon (#437) + usage/analytics (issue filed with this PR).
 
 ## 1. Context & problem
 
-The agent writes every line of UI in this repo. The owner human-tests
-each PR but is not a designer and cannot articulate visual fixes — the
+The agent writes every line of UI in this repo. Each PR is human-tested,
+but the tester is not a designer and cannot articulate visual fixes — the
 verdict arrives as "not good at all", which is unfollowable as an
 instruction. Three structural gaps cause this:
 
@@ -29,7 +29,7 @@ instruction. Three structural gaps cause this:
    (Linux-only) screenshots; PR review runs on code and receipts, never
    on rendered output. macOS cannot even screenshot (#401; in-app frame
    capture is a pending follow-up).
-3. **The owner has no operational review instrument.** Human checks are
+3. **There is no operational review instrument.** Human checks are
    free-text asks; nothing converts taste into named verdicts a
    non-designer can mark and an agent can act on.
 
@@ -64,11 +64,11 @@ Each layer catches a failure class the others cannot see:
     structural    tree-shaped goldens            (new: committed snapshots + diff)
     pixel         image-shaped goldens           (new: Linux baselines + differ)
     critique      rubric + eyes, agent-side      (new: vision loop per UI PR)
-    anchors       taste by selection             (new: owner-picked exemplars)
+    anchors       taste by selection             (new: hand-picked exemplars)
 
 Goldens hold a once-approved look; critique lifts first-pass quality;
 mechanical layers catch layout facts that vision measurably misses. The
-owner stays the approver throughout — the system's job is to hand them
+human reviewer stays the approver throughout — the system's job is to hand them
 named, checkable findings instead of "not good at all".
 
 
@@ -88,7 +88,7 @@ redo) and the usage/analytics review issue filed with this PR.
 NN/g's ten heuristics restated as per-surface checkables + the
 Refactoring UI tactics checklist + cross-references to the mechanical
 gates (so items that should never be eyeballed aren't). Every UI-facing
-PR body carries the checklist; the **owner marks boxes** — pass, fail,
+PR body carries the checklist; the **reviewer marks boxes** — pass, fail,
 or n/a — and writes no prose. An unfollowable verdict becomes twelve to
 twenty followable ones.
 
@@ -110,7 +110,7 @@ twenty followable ones.
 
 Design virtues lifted from axe: deterministic, biased toward zero false
 positives, and anything the rules cannot decide is reported
-`incomplete` and routed to the owner checklist instead of hard-failing.
+`incomplete` and routed to the human-check list instead of hard-failing.
 `audit` is receipt-scriptable (`crates/debug/verify/*.txt` gains the
 step) so one command produces the audit receipt.
 
@@ -137,7 +137,7 @@ border/bar register sitting at 1.0–1.7:1 against its surfaces. (b) is
 the quiet-chrome aesthetic working as designed, and SC 1.4.11 exempts
 visual information not required to identify components — so the *gate*
 covers text pairs only, and the non-text slots live on the documented
-exemption list. Promoting any of them to gating is an owner decision
+exemption list. Promoting any of them to gating is a decision
 made in a PR, never a test.
 
 ### D5 — Structural goldens (same-environment, gated in the container)
@@ -199,7 +199,7 @@ weakness is the standing rule: never pixels-only) → multimodal critique
 against Appendix A → fix named findings → re-capture. **Iteration cap:
 3** — findings remaining after the cap ship as known-issues listed in
 the PR, not as silent debt. The PR body carries the before/after pair
-plus the findings list; the owner's final human pass remains the merge
+plus the findings list; the final human pass remains the merge
 gate.
 
 The judge step is a tool (#539 §2): `dashboard-debug critique --panel
@@ -245,8 +245,8 @@ masquerade as a fixed finding.
 
 ### D8 — Reference anchors (taste by selection)
 
-The owner cannot articulate fixes but **can pick what looks right**.
-3–6 owner-approved native-desktop exemplars (whole apps, panels, tool
+The reviewer cannot articulate fixes but **can pick what looks right**.
+3–6 approved native-desktop exemplars (whole apps, panels, tool
 windows — screenshots or links, whatever is easiest) get committed under
 `docs/references/` with a one-line note each. Every new UI surface
 **names its anchor in the PR body** and composes toward it using
@@ -259,7 +259,7 @@ secondary anchor for widget-level composition.
 
 The in-app frame capture follow-up (docs/0010/0055, #401-adjacent)
 moves from "known follow-up" to **blocking priority for this system**:
-until it lands, every visual gate optimizes a rendering the owner never
+until it lands, every visual gate optimizes a rendering the reviewer never
 sees on their platform. The implementation round files/tracks the
 capture issue if it doesn't already exist and sequences it early.
 
@@ -287,10 +287,10 @@ bridge and say so" from ritual to artifact.
 
 - **Phase 1** (macOS-safe, ~a week): rubric adoption + contrast test +
   `audit` verb + structural goldens. Immediately makes every review —
-  including the backlog's — operational for a non-designer owner.
+  including the backlog's — operational for a non-designer reviewer.
 - **Phase 2** (Linux CI): pixel goldens + the critique ritual wired
   into PRs.
-- **Phase 3**: anchor library once the owner picks exemplars; backlog
+- **Phase 3**: anchor library once exemplars are picked; backlog
   reviews (#437, usage/analytics) execute under the full system.
 
 Implementation issues are split per phase after this doc merges.
@@ -318,13 +318,13 @@ Implementation issues are split per phase after this doc merges.
 
 **#437 (favicon redo), after Phase 1–3 land:**
 
-1. Owner picks anchors (maybe one exemplar per surface type).
+1. Anchors are picked by hand (maybe one exemplar per surface type).
 2. Agent runs `audit` + contrast + goldens → mechanical findings fixed
    first, no vision spent on them.
 3. Critique loop (screenshot + tree, Appendix A, ≤3 iterations) on the
    Linux box; before/after + findings land in the redo PR.
-4. Owner opens the PR: rubric boxes already marked by the agent with
-   evidence; owner flips the ones they disagree with — a checkbox, not
+4. The PR is opened: rubric boxes already marked by the agent with
+   evidence; the reviewer flips the ones they disagree with — a checkbox, not
    a design essay.
 5. Merge only when the box list is clean or remaining n/a's are
    accepted explicitly.
@@ -335,15 +335,15 @@ The usage/analytics review follows the identical flow.
 ## 7. Non-goals
 
 - No design staff, no agency process, no paid tooling required (the
-  optional Refactoring UI purchase, ~$99, is an owner convenience
+  optional Refactoring UI purchase, ~$99, is a convenience
   ruling — the system works without it; its galleries are web-styled
   and only ever secondary to D8 anchors).
 - No re-litigation of docs/0002 token rules; this doc governs the
   layers above them.
 - No macOS a11y-tree work here — that is #401's track; D9 links to it,
   does not absorb it.
-- No automated taste. The system produces **named findings**; the owner
-  remains the approver, always.
+- No automated taste. The system produces **named findings**; the human
+  reviewer remains the approver, always.
 
 
 ## 8. Docs amendments (ride the implementation PRs)
@@ -357,7 +357,7 @@ The usage/analytics review follows the identical flow.
   contradicts a decision — same amendment-rules as every house doc.
 
 
-## 9. Review resolutions (owner)
+## 9. Review resolutions
 
 None yet — the doc stands as written pending review.
 

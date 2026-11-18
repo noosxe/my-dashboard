@@ -6,7 +6,7 @@ docs/0058 (toasts), docs/0059 (hub), docs/0058 §13 (raise-site adoption)
 ## 1. Problem
 
 The hub (docs/0059) surfaces every alert in-app: toast + bell badge + log.
-When the window is unfocused or hidden, nothing reaches the owner until they
+When the window is unfocused or hidden, nothing reaches the user until they
 look at the app again — an expired GitHub token or a poll-offline incident
 can sit unnoticed for the whole session. macOS offers exactly one sanctioned
 channel for that: the system notification center.
@@ -66,7 +66,7 @@ to today.
 `forward_toasts` (shell.rs) reads `window.is_active(cx)` once per drain and
 passes it through `into_notification`:
 
-- focused (`Some(true)`) → `InApp` — the owner is looking at the app; the
+- focused (`Some(true)`) → `InApp` — the user is looking at the app; the
   toast is the right surface;
 - unfocused or unknown (`Some(false)` / `None`) → `InAppAndSystem` — banner
   now, toast still queued in-app for when they return.
@@ -163,7 +163,7 @@ already has a home for it.
 - macOS human checks (below) are the real delivery verification; the bridge
   cannot drive macOS notification center.
 
-## 6. Human checks (owner, on the bundled app)
+## 6. Human checks (on the bundled app)
 
 - [ ] First unfocused raise → authorization prompt; allow → banner appears.
 - [ ] Focused raise → toast only, no banner. Unfocused raise → banner **and**
@@ -214,7 +214,7 @@ already has a home for it.
   until an identity is set).
 
 **Shipped 2026-09-30 (docs/0061):** the script now defaults to the
-owner's Apple Development identity (auto-discovered from the keychain;
+a personal Apple Development identity (auto-discovered from the keychain;
 `SIGN_IDENTITY` still overrides, ad-hoc remains the fallback) and grew a
 `--dev` profile (`My Dashboard Dev.app`, debug binary, own bundle id
 `com.noosxe.my-dashboard.dev`, independent notification authorization).

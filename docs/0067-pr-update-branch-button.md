@@ -1,7 +1,7 @@
 # 0067 — PR page: the "Update branch" split button (merge-commit / rebase)
 
 - **Tracked by:** noosxe/my-dashboard#455
-- **Trigger case:** owner request — mirror github.com's "Update branch" split
+- **Trigger case:** request — mirror github.com's "Update branch" split
   button (dropdown: update with a merge commit / update with rebase) on the
   app's PR page.
 
@@ -213,7 +213,7 @@ speaks. PR list rows (docs/0047), notification pages, and repo CI surfaces
 get nothing (§7); the service-layer entry point is shaped so a later surface
 could call it without rework (repo/PR identity + method in, result out).
 
-## 4. Owner decisions (open questions for design review)
+## 4. Decisions (open questions for design review)
 
 1. **Rebase confirmation** (D4): confirm popover (proposed) — or one-click
    rebase with only a toast? The popover matches the close/merge

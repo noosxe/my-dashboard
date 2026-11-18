@@ -37,12 +37,12 @@ record log:
 - General session indicators. (Overview tab — designed later, in its own
   round, then appended to this doc)
 
-Design method, per the owner: **step by step, case by case** — each
+Design method, **step by step, case by case** — each
 general use case becomes one tab on the page. The page skeleton and use
 case #1 are decided here; later use cases land as new sections before
 their implementation.
 
-**Designing for the general case (owner rule).** The page programs
+**Designing for the general case (rule).** The page programs
 against the record *contract* (schema + sink, docs/0053), never against
 the storage behind it: swapping `MemorySink` for the SQLite sink (#333)
 requires zero page changes. Ranges that out-run the data (1w/1m while
@@ -123,8 +123,8 @@ the frozen `as_of`** (both page-global, not per-tab). v1 ships the strip with th
 landed designs — an Overview slot is reserved but the tab appears only
 with its implementation.
 
-**D10 — Frozen `as_of` view: nothing on this page is live (owner
-rule, round 3).** *(implemented in the step-3 PR — #341: the honesty
+**D10 — Frozen `as_of` view: nothing on this page is live (rule,
+round 3).** *(implemented in the step-3 PR — #341: the honesty
 header is additionally exposed as an a11y `Status` node per the
 docs/0049 pattern, so the freeze is observable in the debug bridge and
 announced by screen readers)* The page keeps a memoized timestamp `as_of` that
@@ -297,7 +297,7 @@ strip; runway rides as its own `≈` line per transport so the
 projection is never glued to a measured number; each card is a
 `Label`-role node carrying title + all numbers in its aria label)*
 
-**Schema enabler (owner decision, round 4): records gain
+**Schema enabler (decision, round 4): records gain
 `limit_after`.** The percentage treatment above rides on one additive
 pipeline field — see §8's amendment note (D14).
 
@@ -337,7 +337,7 @@ summary instead of a drawn line — all revisited at the rev bump)*
 
 **D16 — Overview health axis (round 7): one line + one card from use
 case #2.** Overview gains a latency axis — a sampler of the latency
-tab, deliberately condensed (owner pick A + B):
+tab, deliberately condensed (pick A + B):
 
 1. **Latency p90 trend (condensed)** — one pooled p90 line per time
    bucket, its own small panel beside the quota charts (shared
@@ -471,7 +471,7 @@ round-tripping outputs; the tie-break convention beyond the doc's
 "cost desc, flights desc" is key-asc everywhere, and query structs
 are serde too, so the future CLI/MCP can carry them verbatim)*
 structured so the eventual programmatic exposure (CLI/MCP) consumes
-the *same* results the UI renders (owner rule: "we would be golden"):
+the *same* results the UI renders (rule: "we would be golden"):
 
 - **Inputs**: the record rows (the page's single refresh read, D10)
   plus a per-tab query — `QuotaQuery { window, group_by, then_by,
@@ -485,9 +485,8 @@ the *same* results the UI renders (owner rule: "we would be golden"):
   slowest_op }`)
   built from plain owned types (no gpui types leak into the API).
   **Per-tab procedures** on the module's interface — one call per tab
-  view, never "everything for every tab at once" (owner rule).
-- **The Overview tab is treated exactly like any other tab** (owner
-  decision): `overview(rows, query)` is just another procedure
+  view, never "everything for every tab at once" (rule).
+- **The Overview tab is treated exactly like any other tab** (decision): `overview(rows, query)` is just another procedure
   returning the tab's full view — D11's three quota cards, D15's two
   quota charts, D16's latency line and slowest-op card.
 - **The page is a thin renderer**: components map output structs to
@@ -571,7 +570,7 @@ Design choices:
 - **Reads may block.** The trait is sync. This bullet originally said
   the page calls it off-main via the background executor when the
   backend isn't in-memory (the same discipline as `Http`, docs/0005
-  Q4). docs/0057 D8 later chose direct UI-thread reads (owner-accepted),
+  Q4). docs/0057 D8 later chose direct UI-thread reads (accepted),
   and that is what shipped. docs/0082 D11 adds a measurement gate for
   the 90-day reach.
 - **Deliberately absent:** an `on_change` callback (liveness would
@@ -595,7 +594,7 @@ dispatch — re-stamped per 401-retry round — with auth/connect flows
 stamping from spawn; GQL `limit_after` extends the body parse by one
 member, REST rides the header snapshot.)*
 
-1. **`limit_after: Option<u32>`** (owner round 4) — the quota
+1. **`limit_after: Option<u32>`** (round 4) — the quota
    ceiling the response itself reported, snapshotted beside
    `remaining_after`: REST from the already-parsed
    `x-ratelimit-limit` header (`RateLimit.limit` — parsed today,
@@ -605,7 +604,7 @@ member, REST rides the header snapshot.)*
    Unlocks percentage cards (D11 card 2), burn-down ceiling lines,
    clean reset detection (`remaining == limit` after a jump), and
    cross-module comparability once forgejo/gitea arrive.
-2. **`queue_ms: Option<u32>`** (owner round 5) — wait from spec
+2. **`queue_ms: Option<u32>`** (round 5) — wait from spec
    dispatch to flight start, stamped where `run_spec_tracked` hands
    off to the decorator (auth flows stamp from spawn). Makes
    self-inflicted contention visible and separable from network
@@ -660,7 +659,7 @@ any `None` degrades gracefully across every consumer.
 ## 10. Non-goals / follow-ups
 
 - Custom start/end range (later, after v1).
-- Live/auto-updating analytics — permanently out (D10, owner rule):
+- Live/auto-updating analytics — permanently out (D10, rule):
   the refresh button is the only clock.
 - Cycle selector — permanently rejected (independent transport cycles).
 - A third group-by selector — permanently rejected (D4).
@@ -700,7 +699,7 @@ any `None` degrades gracefully across every consumer.
 
 ### Round 3
 
-- **Nothing live (owner rule)**: memoized `as_of` + explicit refresh
+- **Nothing live (rule)**: memoized `as_of` + explicit refresh
   button (D10); range windows derive from `as_of`, never wall-clock;
   the read contract grows the upper bound (`records_between`, §8).
 
@@ -737,7 +736,7 @@ any `None` degrades gracefully across every consumer.
 ### Round 7
 
 - **Overview health axis**: condensed p90 trend line (pooled, tooltip
-  splits per transport) + slowest-op card (D16) — owner pick A + B;
+  splits per transport) + slowest-op card (D16) — pick A + B;
   failed-flights card stays deferred in #336, the >1s badge and
   p50/p90 strip stay deferred in #337 (scope amended by comment).
 

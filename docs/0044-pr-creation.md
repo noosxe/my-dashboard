@@ -208,7 +208,7 @@ the repo refetch. No OS-level input injection, per the bridge rules.
 - [ ] Zero clippy warnings; token discipline holds (theme tokens only —
       no data colors here).
 
-## 8. Human checks (owner)
+## 8. Human checks
 
 - [ ] Create a PR on a real repo (a scratch fork-branch pair); verify
       on github.com (title, body, draft flag, branches).

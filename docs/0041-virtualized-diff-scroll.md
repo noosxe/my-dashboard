@@ -235,7 +235,7 @@ The old implicit "the pane renders everything" cost stops bounding file
 - [ ] A per-minute refresh no longer resets or janks the diff viewport.
 - [ ] `anchor_patch` runs once per file version, not twice per frame.
 
-## 8. Human checks (owner)
+## 8. Human checks
 
 - [ ] Scroll `syntax.rs` (460 rows) and a >2,000-row diff in the real app:
       buttery on wheel and scrollbar drag, no jank on refresh ticks.

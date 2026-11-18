@@ -229,7 +229,7 @@ its cached snapshot; exercise a filter preset against home rows.
   marking; the right column is never blank and never says
   "Select a repository".
 
-## 8. Human checks (owner)
+## 8. Human checks
 
 - [ ] Row density of the home list next to the left repo list feels
       right; the `owner/name` chip reads clearly.

@@ -15,7 +15,7 @@ a single linear visit trail with a cursor, stored with the
 gpui-component tree, plus a minimal module contract so a restored
 position re-activates the exact place ("go back to where I was").
 
-The model, per the owner's clarification on #303:
+The model, per the clarification on #303:
 
 - **The page tree is the IA** — modules → pages → sub-pages. It defines
   breadcrumbs, branches, and state ownership. It is *not* stored as a
@@ -160,7 +160,7 @@ implements).
 - **Deep-leaf restore**: Back across a branch jump lands on the exact
   abandoned place — `… → PR #5 → Settings → [Back]` re-activates
   `GitHub → acme/one → PR #5`, because `restore` re-activates the whole
-  ancestor path from the route payload. Rationale: the owner's stated
+  ancestor path from the route payload. Rationale: the stated
   main need is "go back to where I was"; browsers do the same. (Decision
   to confirm in review — the alternative was landing on the module
   root.)
@@ -172,7 +172,7 @@ implements).
 
 When a visit's `Page` differs from the current page, the shell asks the
 abandoned module to `collapse()` before appending the destination. This
-is the owner's "pop the stack until the common ancestor" — expressed as
+is the "pop the stack until the common ancestor" — expressed as
 module state teardown, not trail surgery. Consequence, intended:
 **sidebar away-and-back now lands on the module home** (the deep
 position survives only through the trail — get it back with Back).
@@ -260,7 +260,7 @@ per-pane split) are explicitly not built — one global trail.
 - No `text_size`/`line_height`/literal-color lints; buttons are
   bridge-visible (docs/0010 D10).
 
-## 8. Human checks (owner)
+## 8. Human checks
 
 - [ ] Alt+←/→ feels right; back/forward across modules, deep dives,
       and into/out of Settings.
@@ -312,7 +312,7 @@ final shapes now authoritative:
   `alt-right` (no conflicts), handled on the shell's focused root;
   `nav-back`/`nav-forward` ghost icon buttons sit left of the
   breadcrumb with `.debug_selector` for the bridge.
-- **Keyboard focus after page switches** (post-merge fix, owner
+- **Keyboard focus after page switches** (post-merge fix, from a
   report): gpui dispatches key actions along the *focused node's*
   dispatch path — a module sub-page (PR page) steals focus on open,
   and Back unmounts it, leaving a dead focus whose dispatch fallback

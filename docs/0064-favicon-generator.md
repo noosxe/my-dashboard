@@ -237,7 +237,7 @@ set fonts/colors → toggle platforms → set export dir → export → assert
 the summary toast and the file set on disk (`tree` + `logs` correlate).
 macOS local: attach + logs smoke only (#401 gating).
 
-Human checks (owner): preview matches exported files byte-identically
+Human checks: preview matches exported files byte-identically
 (D2 — open the SVG next to the 512 PNG); dark-mode swap renders in a
 browser that follows the OS theme; emoji export correctness (S2 result);
 rfd folder picker on both platforms; a v1 install with an old
@@ -261,7 +261,7 @@ favicon.json still opens.
   module id).
 - README: 0064 row.
 
-## 9. Review resolutions (owner)
+## 9. Review resolutions
 
 _Filled during review of this PR._
 
@@ -304,7 +304,7 @@ The revision:
 ## 11. The spacing ladder (2026-10-13) — rhythm expresses grouping
 
 The 0065 §1 loop's panel verdicts (every judge, baseline through
-experiment 2) and the owner both read the controls column the same
+experiment 2) and the human review both read the controls column the same
 way: cramped, no breathing room, hard to tell what relates to what.
 The cause was structural: the column ran a single `gap_2` (8 px)
 almost everywhere, and the guides are explicit — "equal gaps imply
@@ -350,7 +350,7 @@ Mockup source: [`assets/0064-favicon-layout-v3.svg`](assets/0064-favicon-layout-
 (hand-drawn in the app's dark theme at the canonical 1280×800,
 rasterized with resvg). It is a composition target, not a pixel spec.
 
-### 12.1 Problem (owner screenshot, §10/§11 layout)
+### 12.1 Problem (screenshot, §10/§11 layout)
 
 §10 fixed the page structurally and §11 fixed its rhythm, but the page
 still reads as unfinished:
@@ -547,7 +547,7 @@ re-captured golden, and the critique before/after pair (§10's
 - **Font previews in the select** (each family drawn in its own
   face). This needs a custom `SearchableListItem` render.
 
-### 12.4 Review resolutions (owner)
+### 12.4 Review resolutions
 
 - **Font list** — curated list by default, every installed family
   behind an "All fonts" toggle (L2).

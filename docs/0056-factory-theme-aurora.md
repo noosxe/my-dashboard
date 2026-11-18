@@ -1,7 +1,7 @@
 # 0056 — Factory color theme: Aurora (dark + light)
 
 - **Date:** 2026-09-22
-- **Issue:** none — owner pick from live candidate previews (session
+- **Issue:** none — pick from live candidate previews (session
   receipts below)
 - **Amends:** docs/0025 D3 (bundled set = the upstream defaults), D5
   (defaults restored from a runtime snapshot), D9 (default-name
@@ -52,8 +52,8 @@ precedent as 0025's own Catppuccin Mocha removal.
 - **Selection:** three multi-hue candidate pairs (Ember Ink — Flexoki-
   adapted; Aurora; Sage Rose — warm-green) were rendered live at
   1280×800 in both modes over the home and GitHub pages via the
-  docs/0025 themes-dir watcher + the docs/0010 bridge, and the owner
-  picked Aurora. The other two candidates were never committed.
+  docs/0025 themes-dir watcher + the docs/0010 bridge, and Aurora
+  was picked. The other two candidates were never committed.
 
 ## 3. Design
 

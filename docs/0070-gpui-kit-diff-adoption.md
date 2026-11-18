@@ -191,8 +191,8 @@ Unified mode (upstream default), line numbers on, soft wrap off
 (docs/0016's horizontal band stands), upstream default separator /
 indicator / hover styling — we adopt the component's look instead of
 re-decorating it (docs/references restraint: compose with the anchor,
-don't re-theme it). Hunk separators and indicators have knobs if the
-owner wants a different flavor after human review. Split view stays a
+don't re-theme it). Hunk separators and indicators have knobs if a
+different flavor is wanted after human review. Split view stays a
 follow-up (#203) — free capability, deliberately unshipped here to keep
 the migration PR reviewable.
 
@@ -262,7 +262,7 @@ for split diff stay open (#203).
   Linux box; before/after `critique` on the Files pane (D7 cap: 3
   iterations, findings listed, never silent).
 
-## 8. Human checks (owner)
+## 8. Human checks
 
 - [ ] Diff body looks right in both themes; inline word-diff off by
       default reads cleanly (we ship `inline_unit` off at first — same

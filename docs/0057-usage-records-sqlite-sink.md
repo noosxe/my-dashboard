@@ -29,7 +29,7 @@ Consequences today: every restart wipes the log, so the analytics page
 accumulate. This doc designs the SQLite-backed `UsageStore` that becomes the
 **default sink at startup**, with retention replacing the memory cap.
 
-Owner decisions (2026-09-27, #333): SQLite is the default sink; retention is
+Decisions (2026-09-27, #333): SQLite is the default sink; retention is
 90 days with pruning that never touches the startup path; reads are direct
 indexed queries on the UI thread; open/write failures degrade to in-process
 memory with the app fully working.
@@ -170,7 +170,7 @@ boundary (c) — storage failures are the sink's own.
 **D7 — Retention: 90 days, pruned on the writer thread only.**
 `DELETE FROM usage_records WHERE ts_epoch_ms < ?` (now − 90 d), checked at
 most once per hour *inside the writer thread's loop* — never at startup
-(owner constraint: a slow launch is a bug), never on the UI thread. A missed
+(constraint: a slow launch is a bug), never on the UI thread. A missed
 prune is harmless; the check is one indexed `DELETE` on a table sized in the
 hundreds of thousands of rows at worst. The mutation token moves on prune
 (eviction alters the retained set — the existing `UsageSource` contract).
@@ -183,7 +183,7 @@ calendar moves past the pinned instant.)*
 `records_between(from, to)` = `SELECT … WHERE ts_epoch_ms >= ? AND
 ts_epoch_ms < ? ORDER BY seq` on the lazy reader connection (idx from D4;
 `ORDER BY seq` preserves arrival order — the documented contract). The
-owner accepted UI-thread blocking here explicitly: at this app's flight
+UI-thread blocking was accepted here explicitly: at this app's flight
 volume the window query is millisecond-scale; "if things ever get slow we
 will address it." `to = u64::MAX` (`records_since`) maps to an open upper
 bound. `snapshot()` = `records_since(0)`. `u64` boundary values round-trip
@@ -252,7 +252,7 @@ memoization honest).
 - Clean quit never loses buffered records (flush-on-quit; test + a kill-free
   manual pass).
 - Startup latency unchanged — no prune, no query, no schema work beyond
-  `user_version` read on the launch path (owner constraint).
+  `user_version` read on the launch path (constraint).
 - Unwritable data dir → `warn!` in logs, app fully functional, analytics
   session-local (degraded mode), zero user-facing breakage.
 - Gates: `cargo fmt --all --check`, `cargo clippy --workspace
