@@ -4,7 +4,7 @@
 //! macOS: native locations — config/data in `~/Library/Application
 //! Support`, cache in `~/Library/Caches`; state has no native slot
 //! (`dirs::state_dir()` is `None` there), so it falls back to the data
-//! root (owner decision 0004 Q2 — native locations, not Zed's
+//! root (decision 0004 Q2 — native locations, not Zed's
 //! `~/.local/state` deviation).
 //!
 //! `DASHBOARD_STATE_DIR` redirects all roots under itself

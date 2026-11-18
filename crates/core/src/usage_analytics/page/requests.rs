@@ -1,5 +1,5 @@
-//! The Requests view (docs/0082 §6, D10): the owner as the dashboard's
-//! developer. Every figure comes from this app's records (source
+//! The Requests view (docs/0082 §6, D10): the dashboard's
+//! developer view. Every figure comes from this app's records (source
 //! follows audience, 0082 §4), and it is the only place `auth` and
 //! `local` records appear (D16). Under the [`query`] bar, five bands in
 //! one scroll: [`glance`], [`trend`], [`ranking`], [`diagnostics`]

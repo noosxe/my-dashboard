@@ -1,7 +1,7 @@
 # audit.txt — the 0065 D3 audit receipt (Phase 1, #440). Runs the
 # deterministic tree rules over every major surface and fails on
 # FAIL-severity findings only. Findings/incomplete lines print for the
-# owner checklist (0065 Appendix A, part 3) — triage them in the PR,
+# human-check list (0065 Appendix A, part 3) — triage them in the PR,
 # never silently.
 #
 # Every hop is a click on a stable accesskit id carrying the atomic

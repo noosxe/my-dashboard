@@ -44,7 +44,7 @@
         # Hermetic font config for the GUI in the *dev shell* (mirrors
         # upstream). The installed package deliberately does NOT pin
         # fonts: it uses the system fontconfig so user font settings and
-        # NixOS `fonts.packages` are respected (#147, owner decision).
+        # NixOS `fonts.packages` are respected (#147, decision).
         uiFont = pkgs.ibm-plex.override { families = [ "sans" ]; };
         fontsConf = pkgs.makeFontsConf { fontDirectories = [ uiFont ]; };
 
@@ -201,7 +201,7 @@
         # build on darwin — that is what a hash refresh needs — but the
         # full build stops at gpui-pre-apple Metal shader compilation,
         # which cannot see the host xcrun from inside the sandbox. Darwins
-        # build the app via the dev shell, not nix (owner decision).
+        # build the app via the dev shell, not nix (decision).
         legacyPackages.my-dashboard = my-dashboard;
 
         devShells.default =

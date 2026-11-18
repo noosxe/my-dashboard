@@ -36,8 +36,8 @@ use derive::{Band, Controls, Landed, RequestQuery, SpendGroup, ViewData, ViewKey
 use honesty::Honesty;
 use range::{BUDGET_MODULE, DEFAULT_PRESET, READ_SPAN};
 
-/// The page's two views (D1), one per audience: Budget for the owner as
-/// a user (GitHub's reporting), Requests for the owner as the
+/// The page's two views (D1), one per audience: Budget for the user
+/// (GitHub's reporting), Requests for the
 /// dashboard's developer (this app's records) — source follows audience
 /// (0082 §4). The choice is component-local, never nav state, and not
 /// persisted: the page always opens on Budget. Switching keeps the

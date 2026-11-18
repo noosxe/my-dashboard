@@ -147,7 +147,7 @@ impl DashboardShell {
         let focus_handle = cx.focus_handle();
         // Boot focus: without a focused node, key actions dispatch from
         // the tree root and never reach this shell's handlers
-        // (owner-verified bug on Hyprland — a 0002 keybind was dead
+        // (verified bug on Hyprland — a 0002 keybind was dead
         // from first launch).
         window.focus(&focus_handle, cx);
         Self {
@@ -350,7 +350,7 @@ fn crumb_row(items: Vec<ShellCrumb>, muted: Hsla, foreground: Hsla) -> AnyElemen
 
 impl Render for DashboardShell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // Chrome is decoration-driven (owner decision, 0004 PR #13 —
+        // Chrome is decoration-driven (decision, 0004 PR #13 —
         // supersedes 0002 D7's runtime toggle): if the window is
         // client-decorated the app owns the whole chrome (full title
         // bar; gpui-component renders min/max/close there); if the
@@ -951,7 +951,7 @@ impl toasts::Toast {
 }
 
 /// docs/0060 D2: the activation gate — a hub raise reaches the OS
-/// notification center only while the owner is not looking at the app.
+/// notification center only while the user is not looking at the app.
 fn deliver_to_os(window_active: bool) -> bool {
     !window_active
 }

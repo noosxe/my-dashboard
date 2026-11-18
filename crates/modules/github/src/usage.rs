@@ -1027,7 +1027,7 @@ mod tests {
         book.on_response(Bucket::Primary, true, Some(snap(5000, 2, 2_000)), 1_000);
         // In-flight starts are bookkept (session counters, sub-book
         // slots) but the shown values stay verbatim — no prediction
-        // is folded into the display (owner decision, #323 review).
+        // is folded into the display (decision, #323 review).
         book.on_request_start(Bucket::Primary, false);
         book.on_request_start(Bucket::Primary, false);
         book.on_request_start(Bucket::Primary, true);

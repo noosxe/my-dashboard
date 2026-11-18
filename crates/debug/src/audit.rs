@@ -4,7 +4,7 @@
 //!
 //! Design virtues lifted from axe-core: rules are deterministic and
 //! biased toward zero false positives; anything a rule cannot decide is
-//! reported [`Severity::Incomplete`] and routed to the owner checklist
+//! reported [`Severity::Incomplete`] and routed to the human-check list
 //! instead of hard-failing. [`Severity::Fail`] is reserved for what the
 //! app's own rules already mandate (docs/0010 D10 role+label, real
 //! bounds). [`Severity::Finding`] flags the "look at this" class
@@ -78,9 +78,9 @@ const INTERACTIVE_ROLES: [&str; 14] = [
 pub enum Severity {
     /// Mechanical violation of a mandated rule — receipt-red.
     Fail,
-    /// Suspicious but decidable only with eyes — owner checklist.
+    /// Suspicious but decidable only with eyes — human-check list.
     Finding,
-    /// The rule cannot decide on this input — owner checklist.
+    /// The rule cannot decide on this input — human-check list.
     Incomplete,
 }
 
@@ -426,7 +426,7 @@ fn check_gap(
 
 /// Sibling overlap rule: siblings shouldn't stack unless they are
 /// overlays. Small intersections are rendering noise; real stacking is
-/// a finding for the owner (it hides hit targets).
+/// a finding for the human check (it hides hit targets).
 fn rule_overlap(parent: &AuditNode, arena: &[AuditNode], report: &mut AuditReport) {
     let children: Vec<&AuditNode> = parent
         .children

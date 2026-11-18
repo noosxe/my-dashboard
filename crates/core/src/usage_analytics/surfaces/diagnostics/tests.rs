@@ -219,7 +219,7 @@ fn ported_glance_splits_per_transport_without_pooling() {
     assert_eq!(t(0), (3, Some(100), Some(900)));
     assert_eq!(t(1), (2, Some(1200), Some(1500)));
     assert_eq!(t(2), (1, Some(200), Some(200)));
-    // Changed (#698, owner decision): every transport keeps its tile,
+    // Changed (#698, decision): every transport keeps its tile,
     // in fixed order; one with nothing in range reads empty.
     assert_eq!(t(3), (0, None, None));
     // The facet narrows the strip to its own transport's figures.

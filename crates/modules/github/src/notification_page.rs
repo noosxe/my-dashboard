@@ -4,12 +4,12 @@
 //! button), it replaces the module content with the notification's
 //! metadata — kind/reason badges, subject title, repo, age, read state —
 //! plus the kind-aware web hand-off and, for Issue/PR subjects, the
-//! `Open #n` links into the native pages (owner decision, docs/0026 §4.2) —
+//! `Open #n` links into the native pages (decision, docs/0026 §4.2) —
 //! with the latest-comment jump (docs/0026 D9, #154): when
 //! `latest_comment_url` parses to a REST comment id, a jump link hands off
 //! into the native page anchored at that comment (scroll-to + highlight).
 //!
-//! Read state (docs/0026 D3/D4, owner decisions §4.1/§4.3): the page
+//! Read state (docs/0026 D3/D4, decisions §4.1/§4.3): the page
 //! fires `PATCH /notifications/threads/{id}` the instant it starts
 //! loading its contents — before the thread GET returns — and flips its
 //! rendered state to Read optimistically. GitHub's API has no
@@ -22,7 +22,7 @@
 //! leaves the inbox entirely) is always offered, Read included (done ≠
 //! read). A settled done emits `DoneSettled`: the host closes the page
 //! back to the repo view and refetches — the github.com-like behavior,
-//! owner decision §4.4. A failed done re-arms the button as retry.
+//! decision §4.4. A failed done re-arms the button as retry.
 //!
 //! Data: the page paints instantly from the carried row and upgrades via
 //! the page-owned `GET /notifications/threads/{id}` (`Kind::ThreadDetail`,
@@ -65,14 +65,14 @@ pub(crate) enum NotificationPageEvent {
     /// The open-time mark-read settled OK — the host refetches the repo +
     /// global unread lists (docs/0026 D3 refetch-after-mutation).
     MarkSettled,
-    /// The done write settled OK (docs/0026 D8, owner decision §4.4):
+    /// The done write settled OK (docs/0026 D8, decision §4.4):
     /// the host closes this page back to the repo view and refetches
     /// the unread lists — the github.com-like behavior (the thread is
     /// gone from the inbox entirely).
     DoneSettled,
-    /// Issue/PR hand-off (docs/0026 D6, owner decision §4.2): the host
+    /// Issue/PR hand-off (docs/0026 D6, decision §4.2): the host
     /// closes this page and opens the native detail page with a
-    /// Issue/PR hand-off (docs/0026 D6, owner decision §4.2): the host
+    /// Issue/PR hand-off (docs/0026 D6, decision §4.2): the host
     /// closes this page and opens the native detail page with a
     /// synthesized seed row.
     OpenSubject {
@@ -262,8 +262,8 @@ impl NotificationDetailPage {
 
     /// The done write (docs/0026 D8): DELETE — no optimistic flip, the
     /// page just awaits its own removal; a settled done emits
-    /// `DoneSettled` and the host closes the page + refetches (owner
-    /// decision §4.4).
+    /// `DoneSettled` and the host closes the page + refetches (decision
+    /// §4.4).
     fn fire_mark_done(&mut self, cx: &mut Context<Self>) {
         if !self.state.read(cx).auth.connected() {
             return; // the page is about to be torn down by the auth gate
@@ -287,7 +287,7 @@ impl NotificationDetailPage {
         if result.network.is_none() && (200..300).contains(&result.status) {
             log::info!("thread-mutation: mark-done settled ({})", result.status);
             self.done = MarkState::Idle;
-            // The github.com-like close (owner decision §4.4): the host
+            // The github.com-like close (decision §4.4): the host
             // closes this page and runs the post-write refetch.
             cx.emit(NotificationPageEvent::DoneSettled);
         } else {
@@ -599,7 +599,7 @@ impl NotificationDetailPage {
                 )
             })
             // Mark as done (docs/0026 D8): always offered —
-            // Read included, done ≠ read (owner decision §4.5's
+            // Read included, done ≠ read (decision §4.5's
             // page-level half). Disabled only while its DELETE
             // is in flight; a failure re-arms it as retry.
             .child(
@@ -1332,7 +1332,7 @@ mod tests {
 
     #[gpui::test]
     fn mark_done_settles_and_emits_done_settled(cx: &mut gpui::TestAppContext) {
-        // docs/0026 D8, owner decision §4.4: a real click fires the DELETE
+        // docs/0026 D8, decision §4.4: a real click fires the DELETE
         // (after the open-time PATCH + thread GET); 204 settles and emits
         // DoneSettled — the host's cue to close the page + refetch.
         let mock = lane_mock(0, 200, thread_payload("PullRequest", Some("u"), false));

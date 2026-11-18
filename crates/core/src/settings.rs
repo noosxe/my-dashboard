@@ -128,7 +128,7 @@ pub struct AppSettings {
     /// behavior (numeric badge, all levels, nothing muted).
     pub notifications: Option<NotificationsSettings>,
     /// Agent data bridge kill switch (docs/0068 D2); `None` = factory
-    /// default, **on** (owner decision, docs/0068 §9). `Some(false)` at
+    /// default, **on** (decision, docs/0068 §9). `Some(false)` at
     /// startup never binds `agent.sock`. No settings UI in v1 — edit
     /// `settings.json` by hand and restart the app.
     pub agent_bridge: Option<bool>,

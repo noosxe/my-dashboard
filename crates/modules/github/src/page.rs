@@ -1706,7 +1706,7 @@ impl GithubPage {
                         .update(cx, |s, _| s.mark_refetch_specs(Surface::NotificationPage));
                     this.run_specs(specs, window, cx);
                 }
-                // docs/0026 D8, owner decision §4.4: a settled done
+                // docs/0026 D8, decision §4.4: a settled done
                 // closes the page back to the repo view (the github.com
                 // inbox behavior — the thread is gone from the inbox
                 // entirely) and refetches so the row + card drop.
@@ -1930,7 +1930,7 @@ impl GithubPage {
         }
     }
 
-    /// Row-level mark-as-done (docs/0026 D8, #153, owner decision
+    /// Row-level mark-as-done (docs/0026 D8, #153, decision
     /// §4.5): the repo-view rows fire the DELETE directly — no page
     /// takeover. A settled done runs the post-write refetch
     /// (`mark_refetch_specs`) through the stored window handle (the
@@ -2465,7 +2465,7 @@ impl GithubPage {
                                     .text_color(cx.theme().muted_foreground)
                                     .child(relative_age(n.updated_at.as_deref())),
                             )
-                            // Row-level done (docs/0026 D8, #153, owner
+                            // Row-level done (docs/0026 D8, #153,
                             // decision §4.5): icon-only, disabled while
                             // this row's DELETE is in flight. The guard
                             // div swallows the click — gpui bubbles clicks
@@ -2529,8 +2529,8 @@ pub(crate) fn notification_url(repo_full_name: &str) -> String {
 /// as before. `rendered` is the node slice the query capped at 100, so
 /// the arithmetic fits either side of the i64/usize border. Pure —
 /// table-tested.
-/// One GitHub-style label chip (docs/0042 D7 as amended by owner
-/// feedback; the 0022 Q2 / #119 pill treatment): the label's own color
+/// One GitHub-style label chip (docs/0042 D7 as amended in
+/// review; the 0022 Q2 / #119 pill treatment): the label's own color
 /// when the API carried one — the docs/0002-sanctioned `data_color`
 /// exception, all construction inside `dashboard_core::data_color` —
 /// else the muted token pill. Shared with the issue page's rail, the
@@ -7337,7 +7337,7 @@ mod tests {
 
     #[gpui::test]
     fn row_done_button_dones_without_opening_the_page(cx: &mut TestAppContext) {
-        // docs/0026 D8 (#153, owner decision §4.5): the row's icon button
+        // docs/0026 D8 (#153, decision §4.5): the row's icon button
         // fires the DELETE directly — no page takeover — and the
         // post-write refetch (global + repo slice) drops the row from
         // the unread list.
@@ -7979,7 +7979,7 @@ mod tests {
     }
 
     /// Back to the repo place (docs/0048 D5) lands ON the repo view: the
-    /// open issue/PR sub-page closes with the restore (owner report — the
+    /// open issue/PR sub-page closes with the restore (report — the
     /// sub-page stayed mounted, so Back appeared dead). The restore's
     /// re-select still dedups against the landed trail head.
     #[gpui::test]
