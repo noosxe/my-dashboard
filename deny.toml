@@ -17,7 +17,7 @@ targets = [
 all-features = true
 
 [advisories]
-# Owner decision (2026-10-22): advisories FAIL the build. Vulnerabilities
+# Policy (2026-10-22): advisories FAIL the build. Vulnerabilities
 # always fail; unmaintained, unsound and yanked are raised from cargo-
 # deny's defaults so they fail too, transitive ones included.
 yanked = "deny"
@@ -36,6 +36,10 @@ ignore = [
     { id = "RUSTSEC-2026-0371", reason = "zbus_names: via zbus 5 (accesskit, atspi, ashpd) (#640)" },
     { id = "RUSTSEC-2026-0370", reason = "zvariant: via zbus 5, merged into zbus 6 (#640)" },
     { id = "RUSTSEC-2026-0372", reason = "zvariant_derive: via zbus 5 (#640)" },
+    # Unmaintained, no safe upgrade. Also a direct dependency of
+    # dashboard-core: our own migration is tracked in #937, the upstream
+    # copies in #640.
+    { id = "RUSTSEC-2026-0543", reason = "chrono: direct in dashboard-core (#937) and via gpui-pre, gpui-base, gpui-component, flexi_logger (#640)" },
 ]
 
 [licenses]
