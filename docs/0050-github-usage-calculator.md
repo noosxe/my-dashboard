@@ -43,7 +43,7 @@ prediction regardless — the display contract below is unchanged.)
 Every response we already receive carries the authoritative budget state;
 the calculator's job is to *collect* it and *display* it **verbatim** —
 shown values are exactly what GitHub last reported, with no local
-prediction folded in (owner decision, #323 review). In-flight counting
+prediction folded in (decision, #323 review). In-flight counting
 stays in the book as data for the deferred usage-analytics task.
 
 ## 2. Verified facts (anchors)
@@ -398,7 +398,7 @@ Single implementation issue (cohesive, one seam):
   Q10:* one per bucket, each gating only its own transport.
 - Account switch resets the ledger; same-account token rotation doesn't.
 
-## Human checks (owner)
+## Human checks
 
 - [ ] Walk Home → GitHub module: chip appears; leave: chip gone.
 - [ ] Trigger a refresh and watch the matching bucket's number move per

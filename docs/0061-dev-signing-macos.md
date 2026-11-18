@@ -1,6 +1,6 @@
 # 0061 — Development-profile signing for macOS dev builds
 
-**Owner:** product owner. **Date:** 2026-09-30.
+**Date:** 2026-09-30.
 
 ## 1. Problem
 
@@ -12,14 +12,14 @@ bundle is a *new* app as far as macOS is concerned, and the
 notification permission can re-prompt or silently drop posts
 (docs/0060 D4). Release/distribution signing (Developer ID,
 notarization) is explicitly a later conversation; this doc covers
-signing **dev builds with the owner's personal Apple Development
+signing **dev builds with a personal Apple Development
 certificate** so the identity is stable across rebuilds.
 
 ## 2. Verified facts (F)
 
 - **F1 Keychain baseline.** Before this work, `security find-identity
-  -v -p codesigning` found **zero** identities on the owner's machine.
-  The owner created one via Xcode 27 (Settings → Accounts → personal
+  -v -p codesigning` found **zero** identities on the dev machine.
+  One was created via Xcode 27 (Settings → Accounts → personal
   team → Manage Certificates → **Apple Development**):
   `Apple Development: <name> (<TEAMID>)`. Apple: development
   certificates "belong to individuals"; Xcode-based creation requires
@@ -69,7 +69,7 @@ certificate** so the identity is stable across rebuilds.
   `openssl x509`); a failed read is a warning, never an error.
 - **D4 — Nothing distribution-shaped.** No entitlements, no hardened
   runtime, no secure timestamp, no provisioning profile. Those belong
-  to the release-signing conversation (owner: later).
+  to the release-signing conversation (decided: later).
 - **D5 — Plain `cargo run` stays ad-hoc.** The signed loop is
   bundle-and-sign; there is no cargo post-build hook, and an in-place
   re-signed bare binary still could not post notifications (F3), so it
@@ -106,7 +106,7 @@ certificate** so the identity is stable across rebuilds.
   the cwd, `codesign -v` passes, the plist carries `CFBundleIconFile`,
   `git check-ignore` matches the produced app, and the refactored
   `macos-app.sh` still builds, signs, installs, and opens unchanged.
-## 5. Human checks (owner)
+## 5. Human checks
 
 - [ ] `./scripts/macos-app.sh --dev` twice in a row (with a rebuild
       between): the second run must **not** re-trigger the macOS
@@ -126,8 +126,8 @@ certificate** so the identity is stable across rebuilds.
 ## 6. Non-goals (parked, not done here)
 
 - Release/distribution signing: Developer ID, notarization, DMG
-  packaging, secure timestamps, hardened runtime — the owner deferred
-  this conversation — the D6 drag-install artifact is local-only and
+  packaging, secure timestamps, hardened runtime — this conversation is
+  deferred — the D6 drag-install artifact is local-only and
   does not change that.
 - nix-built darwin package signing (the flake package is Linux-only
   today).

@@ -14,7 +14,7 @@ Two problems, one PR's worth of work:
    badge reboots at zero and "what did I miss" has no answer. The issue
    names four policy holes: storage decision, retention/TTL, read-state
    semantics, and the degrade-latch interaction.
-2. **Owner direction**: the only durable SQLite store we have is
+2. **Direction**: the only durable SQLite store we have is
    analytics-scoped (docs/0057: `usage.db`, one table, one consumer).
    Rather than inventing a second engine, file, writer thread, and degrade
    story per future need, the DB becomes **the app database**: shared
@@ -55,7 +55,7 @@ Two problems, one PR's worth of work:
 - **F7 — persistence seams in the tree**: settings/drafts/cache are JSON
   files under `state/` (docs/0004); nothing else uses SQLite. docs/0057 §7
   explicitly deferred "adopting the sink in other modules" — this design
-  lifts that non-goal by owner direction.
+  lifts that non-goal by direction.
 
 ## 3. Decisions
 
@@ -177,7 +177,7 @@ Two problems, one PR's worth of work:
   raise 2 (one dismissed via panel) → quit → relaunch → badge 1 with the
   survivor listed, ages sane; mute a source → its raises never reappear
   after restart.
-- Human checks (owner): restart during everyday use never loses unread;
+- Human checks: restart during everyday use never loses unread;
   clock-skew scenario (change system clock back a day) → ages clamp, no
   panic; `usage.db` inspected after a week stays small (prune works).
 
@@ -210,7 +210,7 @@ Two problems, one PR's worth of work:
   log persists.
 - Cross-device sync of any kind.
 
-## 9. Review resolutions (owner)
+## 9. Review resolutions
 
 1. Numbers stand (D5/D6): 500-row persisted cap; restore limited to the
    newest 100 (`LOG_CAP` semantics).

@@ -129,7 +129,7 @@ Gated rows render as their own section above the queued/running check rows:
   their reserved tail; waiting rows prepend.
 - Rollup chip: waiting count gets its own slot; a PR whose only CI activity is
   gated shows *waiting*, not *passing* or *no checks*.
-- **Waiting runs count as checks** (owner decision 2026-11-06, #783): the
+- **Waiting runs count as checks** (decision 2026-11-06, #783): the
   Checks tab counter and the pane header's total both include them, though
   they aren't rollup members. A gated-only PR reads "Checks (2)" over "2 checks
   · 2 waiting" (docs/0016 D7), not "Checks (0)".
@@ -220,7 +220,7 @@ page CI pane, which is where the trigger case lives. Repo-level surfaces
 service-layer functions are shaped so a later surface can reuse the sweep
 without rework (owner/repo + head_sha in, waiting runs out).
 
-## 4. Owner decisions (open questions for design review)
+## 4. Decisions (open questions for design review)
 
 1. **Reject UX** (env gate): inline row button + confirm popover with comment
    field (proposed, D4) — or comment-free one-click reject with an undo-less

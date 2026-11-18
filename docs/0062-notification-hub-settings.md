@@ -168,7 +168,7 @@ three and defers the fourth (§3 D6 — upstream-hardcoded).
      still shows the mirror line; unmute → the next raise appears again.
   5. Panel gear navigates to the subpage; restart the app → all three
      settings survived.
-- Human checks (owner): subpage reads well in both themes; dot badge legible;
+- Human checks: subpage reads well in both themes; dot badge legible;
   mute copy honest; panel row source tags don't crowd the layout; VoiceOver
   reads the trigger count in dot mode.
 

@@ -12,7 +12,7 @@
 
 ## 1. Context & problem
 
-The usage calculator (docs/0050) answers *what is left*. The owner's
+The usage calculator (docs/0050) answers *what is left*. The
 question set for analytics is retrospective: **which pages eat the
 quota, how much is spent per quota cycle, and which requests are
 rarely worth their cost.** None of that is answerable from the current

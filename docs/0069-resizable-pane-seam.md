@@ -28,7 +28,7 @@ own split answer. The architecture audit (#486, finding for #490)
 flagged exactly this: build the seam once, before the second ad-hoc
 split appears.
 
-**Owner decision (this PR's review): the inspector pane is in scope** —
+**Decision (this PR's review): the inspector pane is in scope** —
 the seam must support a right-hand inspector as a named pane role. That
 decision is recorded here and drives D2/D6; it does not mean an
 inspector ships now.
@@ -69,7 +69,7 @@ inspector ships now.
 - **Inspector** — right side, secondary tooling bound to the primary
   (checks detail next to the PR, record drill-down next to usage). Same
   resize/persist contract as master, mirrored: the user may resize it;
-  the primary absorbs the delta. In scope as a role (owner decision,
+  the primary absorbs the delta. In scope as a role (decision,
   §1); **no consumer ships until a surface needs one** (D6).
 
 Roles are a naming and constraint convention over the same machinery —
@@ -143,7 +143,7 @@ pane of an `h_resizable` group, role `Inspector`, a11y name
 `<page>_inspector_px`, same clamp/restore as D4. It appears only when
 its surface has something to inspect (absent ≡ not rendered, not
 zero-width). No inspector ships with the pilot: PR checks drill-down is
-the first candidate and gets its own issue when the owner wants it.
+the first candidate and gets its own issue when it is wanted.
 The scaffold must make adding one a small, boring change — that is the
 point of deciding now.
 
@@ -171,7 +171,7 @@ doc.
   - Restart the session (persisted shell state): sidebar restores at
     the saved width, clamped into bounds.
   - 900×600 window: min-window check — primary never starves (D2).
-- Manual (owner): drag feel, double-click-to-default if the upstream
+- Manual: drag feel, double-click-to-default if the upstream
   handle provides it (not required), light/dark handle visibility.
 
 ## 6. Supersessions and follow-ups
@@ -180,5 +180,5 @@ doc.
   implementation PR updates 0018's text in the same PR.
 - **Extends 0004 §4.3** with the `files_sidebar_px` key.
 - Implementation issue (files from this PR): pilot per D3–D5.
-- Deferred, tagged: first inspector consumer (D6) — file when the owner
-  picks the surface; PR checks drill-down is the candidate.
+- Deferred, tagged: first inspector consumer (D6) — file when the surface
+  is picked; PR checks drill-down is the candidate.

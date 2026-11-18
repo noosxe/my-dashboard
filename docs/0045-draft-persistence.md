@@ -208,7 +208,7 @@ every mechanism):
 4. new-PR creator (`title`, `body`) — the letter of #199 says "new
    issues"; the PR creator is the same form chrome with the same loss
    profile and the same D7 wording in docs/0044, so excluding it would
-   be an artificial asymmetry. Flagged here for the owner to strike
+   be an artificial asymmetry. Flagged here to strike
    when reviewing this doc.
 
 **Out (§9 follow-up candidates):**
@@ -307,7 +307,7 @@ probes in §4.5. Disclosed in the PR body; no OS-level input injection.
 6. The hint row shows exactly when a restore happened and yields to the
    first edit.
 
-## 8. Human checks (owner)
+## 8. Human checks
 
 - [ ] Type a comment, quit the app (Cmd/Ctrl+Q) within a second, relaunch, reopen the issue — text is there (modulo the last ≤500 ms)
 - [ ] Type a comment, navigate to another PR/issue and back — text restored, hint visible; edit → hint gone

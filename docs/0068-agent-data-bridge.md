@@ -2,7 +2,7 @@
 
 2026-10-06
 
-The owner wants AI agents to operate the dashboard the same way the owner can
+The goal is for AI agents to operate the dashboard the same way a user can
 — **from the data layer, not by navigating views**: enumerate repos, check PR
 statuses, analyze GitHub API usage from the analytics pipeline, and generally
 "anything I can do programmatically", exposed step-by-step over MCP
@@ -39,7 +39,7 @@ ledger's origin taxonomy (docs/0053 D2) for agent-attributed API accounting.
   `Surface::Agent` / `Trigger::Agent` variants in the github module's
   taxonomy (docs/0053 D2), so the usage page can separate agent spend from
   UI spend — and the `api_usage` op can report it.
-- **D7** — closed op set; **no raw GraphQL passthrough** (owner decision,
+- **D7** — closed op set; **no raw GraphQL passthrough** (decision,
   2026-10-06): new capabilities arrive as curated ops, never as an escape
   hatch.
 
@@ -66,10 +66,10 @@ ledger's origin taxonomy (docs/0053 D2) for agent-attributed API accounting.
   a future work item; the debug bridge is already Unix-only — same stance).
 - **No webhooks / push channel** — the polling model (docs/0029 §2) stands;
   agents poll the bridge like the UI polls GitHub.
-- **No raw GraphQL/REST passthrough** (D7, owner decision 2026-10-06) — a
+- **No raw GraphQL/REST passthrough** (D7, decision 2026-10-06) — a
   `query` escape hatch would bypass the curated op set and let one agent
   call burn unbounded quota. Decided: none, not deferred.
-- **No write operations at all** (owner decision 2026-10-06) — the bridge
+- **No write operations at all** (decision 2026-10-06) — the bridge
   is read-only by design; state entities accept no mutations through it.
   Writes, if ever wanted, need a fresh design doc (draft→apply gating,
   audit log), not an extension of this one.
@@ -140,8 +140,8 @@ of phase 1 is therefore an exercise in "what can this read", not "what can
 this trigger". Phase 2 adds explicit-fetch ops (`refresh: true`) which
 dispatch through the module's existing one-shot paths with
 `Surface::Agent`/`Trigger::Agent` (D6) — quota-metered, attributable.
-There is no write phase: mutations are ruled out of scope entirely (owner
-decision 2026-10-06) — the bridge never calls a mutating path.
+There is no write phase: mutations are ruled out of scope entirely (decision
+2026-10-06) — the bridge never calls a mutating path.
 
 **D5 — mandatory envelope metadata on every response.** Every success
 result carries:
@@ -187,7 +187,7 @@ dependency). Tool descriptions state freshness semantics ("reads the cached
 snapshot, up to ~5 min old"). The same binary's `--call OP JSON` mode is
 the human-check CLI (agent-bridge answer to `dashboard-debug` verbs), and is
 what committed verification scripts will replay. Client wiring is out of
-scope (owner decision 2026-10-06): the binary is a standard stdio MCP
+scope (decision 2026-10-06): the binary is a standard stdio MCP
 server; any conforming client connects it as a plain command, nothing
 app-side.
 
@@ -251,10 +251,10 @@ single dispatch site, reviewable as "what can this see".
 
 ## 9. Resolved questions
 
-All raised questions were resolved on the design PR (owner, 2026-10-06):
+All raised questions were resolved on the design PR (2026-10-06):
 
 - **Kill-switch default: on.** `agent_bridge = true` by default — the
-  owner asked for this surface; the per-run token file is the security
+  this surface was requested; the per-run token file is the security
   boundary, the flag is the breaker.
 - **Raw GraphQL passthrough: none** (D7).
 - **Mutations: out of scope entirely** — the bridge is read-only by design.

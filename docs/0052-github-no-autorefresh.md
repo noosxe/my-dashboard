@@ -28,7 +28,7 @@
   amended), 0035 (list-surface refresh — amended), 0036 (backoff —
   unchanged), 0037 (freshness core — unchanged), 0038 (engaged tier —
   superseded), 0051 (view-driven fetches)
-- **Closes the design need of:** #326 (narrowed by the owner to: no
+- **Closes the design need of:** #326 (narrowed to: no
   autorefresh anywhere; introduce fetch on app refocus)
 
 ## 1. Context & problem
@@ -37,7 +37,7 @@
 snapshot's 5-minute cycle — but deliberately left the pre-existing
 refresh heartbeats in place (docs/0051 D7, verified live post-merge:
 an open module page kept refetching its home lane on the engaged
-cadence). The owner's direction for #326:
+cadence). The direction for #326:
 
 1. **No autorefresh anywhere.** Nothing may fetch on a timer.
 2. **Fetch on app refocus.** Regaining window focus is the

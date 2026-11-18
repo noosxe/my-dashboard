@@ -33,7 +33,7 @@ session paid an environment tax first:
 
 The escape hatch proven repeatedly this quarter — a throwaway
 **headless sway** + `DASHBOARD_STATE_DIR` — works and touches nothing
-of the owner's session. This doc makes it a first-class workflow:
+of the user's session. This doc makes it a first-class workflow:
 `dashboard-debug session`, frame-aware waiting, named snapshots and
 diffs, screenshots, replayable scripts, a doctor, and scripted
 teardown hygiene.
@@ -186,8 +186,8 @@ Service). The one host-visible side effect of the bridge —
   `session.json` **before** any bridge call can flip it.
 - `session stop` restores the recorded value over the session bus
   using the crate's existing zbus stack (no `busctl` dependency).
-- Restore targets the *recorded* value, never a hard `false` — an
-  owner actually running a screen reader must not have it switched
+- Restore targets the *recorded* value, never a hard `false` — a
+  user actually running a screen reader must not have it switched
   off by our teardown.
 - Crash-safety: `doctor` (D13) reports drift ("flag is true but this
   session recorded false — run `session stop` or reset manually"),
@@ -362,7 +362,7 @@ the original 4005/4006 error is kept — there is nothing to aim at.
 `dashboard-debug --session <n> screenshot [--name stem]` runs `grim`
 against the session's `WAYLAND_DISPLAY`, writing
 `screenshots/<stem>-<n>.png` (auto-incrementing counter per stem;
-default stem `shot`). Prints the path. The owner gets a *picture*
+default stem `shot`). Prints the path. The user gets a *picture*
 before pulling while still doing the real human check after; the
 host session is never captured (grim talks to the session's
 compositor only). If `grim` is missing or headless screencopy fails,
@@ -538,7 +538,7 @@ off-scale sibling gaps against the D10 spacing scale (FINDING, ±1px
 tolerance, 64px ceiling), sibling overlaps (FINDING, overlay roles and
 `overlay-*`/`popover-*` ids exempt), duplicate sibling labels
 (FINDING). Exit 1 only on FAIL; findings/incomplete print for the
-owner checklist — axe-style: deterministic, zero-false-positive bias,
+human-check list — axe-style: deterministic, zero-false-positive bias,
 undecidable results route to humans. Tab-order coverage is not
 duplicated here: `tree --tab-stops` already exits nonzero on traps and
 unclosed cycles; receipts pair the two (`audit` then `tab-stops`).
@@ -654,8 +654,7 @@ failure, not a spawn mystery.
 
 ## 9. Proposed implementation steps
 
-Three focused issues (split for reviewability; may be squashed by
-the owner at filing time):
+Three focused issues (split for reviewability; may be squashed at filing time):
 
 1. **Sessions core** — D1–D5 + D14 discovery + flake deps (sway,
    grim): start/status/stop/env, record-and-restore, name/dir
