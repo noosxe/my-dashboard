@@ -3,7 +3,7 @@
 - **Date:** 2026-09-03
 - **Depends on:** 0003 (module architecture, shell layout), 0005 (GitHub fetch model),
   0007 (fetch specs, tick cadence), 0010 (debug bridge, D10 id/role rule)
-- **Closes the design need of:** owner request — "global app statusbar … goes right
+- **Closes the design need of:** request — "global app statusbar … goes right
   below both main columns … show in-flight requests on its right side (e.g. a GitHub
   REST/GraphQL request shows a loading indicator in the right section)"
 
@@ -19,7 +19,7 @@ loop (notifications every tick, the GraphQL snapshot every 5th), repo-scoped fet
 view open, and manual refresh. From the outside the app gives no live signal that work
 is happening — only log lines and the eventual data change.
 
-Owner request (this design):
+Request (this design):
 
 1. **Global status bar** — one bar for the whole app, rendered **right below both main
    columns**, built on gpui-component's `StatusBar`.
@@ -326,7 +326,7 @@ docs/
 6. Spinner node addressable in `dashboard-debug tree` as `status-spinner-github`.
 7. Gates green; this doc + README index merged with the implementation PR.
 
-## 9. Human checks (owner)
+## 9. Human checks
 
 - Bar placement: a strip under both columns, inside the frame, with its own top
   border and background; looks native next to the columns at both sidebar states.

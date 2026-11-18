@@ -1,14 +1,14 @@
 # 0009 — GitHub module: official `Select` + `List` components
 
 Two hand-rolled UI pieces in the GitHub module page are replaced with
-gpui-component primitives, both search-enabled (owner request):
+gpui-component primitives, both search-enabled (request):
 
 | Piece | Today (docs/0005 §6.3) | Becomes |
 |---|---|---|
 | Org selector | inline popover: `render_org_dropdown` trigger + `render_org_overlay` (manual last-child overlay, `occlude()`, backdrop, hardcoded geometry) | `Select` + `SelectState<SearchableVec<SharedString>>`, `.searchable(true)` |
 | Repo list | eager `div#repo-list` with `overflow_y_scroll` + manual row divs (`render_repo_row`) | `List` + `ListState<RepoListDelegate>`, `.searchable(true)` (virtualized) |
 
-Owner decision: `Select`, **not** `Combobox` — Select is the
+Decision: `Select`, **not** `Combobox` — Select is the
 non-editable picker; Combobox adds editable-query semantics and extra
 complexity we don't need.
 

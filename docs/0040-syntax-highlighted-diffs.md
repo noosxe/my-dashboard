@@ -355,7 +355,7 @@ picks one and tests it).
    row container only.
 6. Binary size delta from syntect recorded in the impl PR (§7 D7).
 
-## 8. Human checks (owner)
+## 8. Human checks
 
 - Eyeball a familiar PR: colors read like an editor, not like a
   Christmas tree; diff semantics (add/remove/hunk) still unmistakable.

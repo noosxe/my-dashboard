@@ -282,7 +282,7 @@ mutation → refetch. Bridge-blocked checks fall back to the human list.
   disabled-grays) when the viewer lacks the right.
 - All gates green; docs updated in the same PR.
 
-## 8. Human checks (owner)
+## 8. Human checks
 
 - [ ] Emoji glyphs render on your setup (no tofu) — else we flip D4's
       contingency to shortcodes.
@@ -326,7 +326,7 @@ implementation; nothing diverged from the design. Notes beyond the text:
 Workspace: 251 tests green (was 243); clippy/fmt clean. Human checks
 (§8) ride the PR body.
 
-### 2026-09-07 (owner feedback): the picker is a popup menu
+### 2026-09-07 (review feedback): the picker is a popup menu
 
 The inline picker card (D4) read heavy — a full column of eight rows
 pushed into the timeline flow. It is now gpui-component's `PopupMenu`

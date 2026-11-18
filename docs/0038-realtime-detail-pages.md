@@ -26,7 +26,7 @@ heartbeat plus a focus trigger — and recorded the ceiling as a decision
 (#226): websocket/evented updates were "out of scope at this app's scale and
 are not planned". Since then the app grew into its actual shape: a
 **monitoring dashboard** (0036's recon called it — a second-screen surface the
-owner watches rather than an editor they type into). For a monitoring app the
+the user watches rather than an editor they type into). For a monitoring app the
 polling ceiling is felt where the eyes are: an open detail page that updates
 only when the user alt-tabs. That is the gap #226 names.
 
@@ -227,7 +227,7 @@ parsed into `RateLimit` logs). Even at a pessimistic 8 primary points per
 detail pair that is ~1 000 of 5 000 points/hour — under 20% of the budget for
 the hottest possible usage, against a 60s-idle cost of ~15% of that. 15s was
 considered and rejected: it doubles the burn for a latency improvement
-(30s→15s) that no watcher can perceive (Q2 for the owner's taste).
+(30s→15s) that no watcher can perceive (Q2: a matter of taste).
 
 The implementation PR records how the per-query cost stays observable (§7)
 — if a live session's numbers surprise, `ENGAGED_GQL_MIN_AGE` is the

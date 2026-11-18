@@ -10,16 +10,16 @@ An idiomatic settings surface for the app:
 
 - A top-level **Settings** destination (`Page::Settings`) opened from a gear
   menu item in the **sidebar content**, last after the module items
-  (moved from the sidebar footer — owner request; and later, if wanted, a
+  (moved from the sidebar footer — request; and later, if wanted, a
   keybinding).
-- The page itself is a **two-column layout** (owner requirement): left — a
+- The page itself is a **two-column layout** (requirement): left — a
   scrollable subnav listing the settings subpages; right — the active
   subpage's controls. This mirrors the GitHub module page's 2-column shape,
   and — decisively — **gpui-component already ships exactly this component**
   (`Settings` in `crates/ui/src/setting/`): sidebar subnav with search,
   virtualized page body, per-page "reset" machinery, resizable split, and a
   stacked fallback at narrow widths. We adopt it rather than hand-roll.
-- Subpages come from two sources (owner requirement): a few **app-specific
+- Subpages come from two sources (requirement): a few **app-specific
   pages** (core-owned) and one **per-module page for modules that opt in**.
 - v1 app pages: **Appearance** (theme mode + theme) and **About**. v1 module
   page: **GitHub** (account state + disconnect). Later app page: **Notifications**
@@ -41,7 +41,7 @@ Sidebar-footer gear button is the baseline. Add a keybinding (`ctrl-,` /
 - **Your call:** keybinding in v1, or footer-only?
 - **Decision (shipped):** button-only in v1 — no keybinding yet. The entry
   point later moved out of the footer into the sidebar content as the last
-  menu item after the modules (owner request).
+  menu item after the modules (request).
 
 ### Q2 — App-page scope for v1
 - **Proposal:** `Appearance` + `About` only. A `General` page (startup
@@ -201,7 +201,7 @@ All paths relative to the gpui-component checkout.
 ### 3.6 Corrections found during implementation
 
 - **Mode is System/Light/Dark; the mode persists only on a manual
-  choice** (owner request, landed with the Mocha iteration). `ThemeMode`
+  choice** (request, landed with the Mocha iteration). `ThemeMode`
   has no `System` variant, so **"System" is a pseudo-value** of the
   dropdown (`MODE_SYSTEM`), not a mode:
   - selecting System clears `theme_mode` (→ `None`, un-persists) and
@@ -236,7 +236,7 @@ All paths relative to the gpui-component checkout.
   `Default Light` / `Default Dark` only, and user palettes come from
   `<config>/themes/`. A persisted `theme_name_dark` or a Dark-palette
   picker choice overrides the default.
-- **Slot palettes, orthogonal mode (owner request):** the single theme
+- **Slot palettes, orthogonal mode (request):** the single theme
   picker became two pickers — **Light palette** and **Dark palette** —
   whose options are filtered by the theme's own mode. A choice writes
   only that slot (`install_slot_theme`) and persists `theme_name_light`
@@ -255,7 +255,7 @@ All paths relative to the gpui-component checkout.
   - The `Sidebar` handles the icon-rail collapsed mode for content
     children (label hides, tooltip shows), so no per-item state is needed.
   - (First cut shipped this as a ghost gear `Button` in a `SidebarFooter`;
-    moved into the content per owner request.)
+    moved into the content per request.)
 - Breadcrumb for the page: single non-clickable "Settings" crumb (subpage
   selection is internal to the `Settings` component — it is not nav state;
   see §4.5).
@@ -338,7 +338,7 @@ impl Render for SettingsPage {
     `CARGO_PKG_VERSION`), module list row (icons + titles from the
     registry), links row (`SettingFieldElement`-style buttons: repository
     URL, license).
-  - (No Storage group: folder-open rows were dropped pre-merge at owner
+  - (No Storage group: folder-open rows were dropped pre-merge at
     request — see Q6.)
 - App-level persistence (pending Q3 shape, app-owned part): `AppSettings`
   global + `state/settings.json` via `DebouncedSave`; loaded in
@@ -380,7 +380,7 @@ impl Render for SettingsPage {
     `sign_in_allowed` fn (table-tested in settings.rs).
   - Kept deliberately thin: token/keychain UX already lives in the module's
     own page; settings links to it rather than duplicating the connect flow.
-- Group **Notifications** (stretch, only if owner wants): poll interval
+- Group **Notifications** (stretch, only if wanted): poll interval
   `number_input` — currently a compile-time const (`TICK = 60s`, §10 of
   0005); making it runtime means threading a setting through the service
   loop. Default: defer to a follow-up iteration.

@@ -212,7 +212,7 @@ Single issue, ordered so each step ships green:
 3. Host heartbeat + focus observer + beat/focus gating tests (2, 3).
 4. Docs: this file gains the shipped section; README row updates.
 
-## 7. Open questions (owner)
+## 7. Open questions
 
 - **(a) 60s heartbeat** — right cadence for "live enough"? Default: yes.
 - **(b) 15s focus threshold** — filters alt-tab churn; too aggressive?

@@ -4,7 +4,7 @@
 - **Depends on:** 0003 (Navigator/crumbs contract, §4.3), 0005 (GitHub module),
   0007 (snapshot state model), 0009 (org Select + repo List, selection flow D4/D5),
   0010 (debug bridge, D10 id/role rule)
-- **Closes the design need of:** owner request — "currently we show `Home > GitHub`;
+- **Closes the design need of:** request — "currently we show `Home > GitHub`;
   when a repo is chosen it must show `Home > GitHub > <repo-name>`; this will be
   later used to navigate back to the repo from the repo's own subpages"
 
@@ -19,7 +19,7 @@ The GitHub module has exactly the state a crumb needs: `GithubState.selected`
 (`owner/repo`, session-only, service.rs:537) is set on repo confirm (0009 D4) and
 cleared on org switch (0009 D5) and sign-out. But the chrome ignores it: with a
 repo open, the right column shows that repo's PRs/issues/notifications while the
-breadcrumb still says `Home > GitHub`. The owner wants the selected repo surfaced
+breadcrumb still says `Home > GitHub`. The selected repo should be surfaced
 as a third crumb, and wants that crumb to become the back-navigation anchor once
 repos grow their own subpages (e.g. an issues view).
 
@@ -105,7 +105,7 @@ Recommendations in *italics*; silence = follow recommendation.
 
 **Q1 — Crumb label: short `name` or `full_name`?** The repo list rows show `name`
 (0009 D2); the right-column header shows `full_name`. *Recommendation: short
-`name`* — it matches the owner's `<repo-name>` phrasing, the list rows the user
+`name`* — it matches the requested `<repo-name>` phrasing, the list rows the user
 just clicked, and keeps the chrome compact for the future
 `Home > GitHub > repo > Issues` chain. `full_name` is the fallback if you want
 owner disambiguation in the chrome.
@@ -388,7 +388,7 @@ With the app running (`cargo run`, a11y bus up):
    (zero warnings), `cargo test --workspace`; this doc + README row merged with
    the implementation PR.
 
-## 10. Human checks (owner)
+## 10. Human checks
 
 - [ ] Click a repo in the list: third crumb appears with the repo's short name;
       long names clip gracefully (no row growth, no wrap, no window jitter).

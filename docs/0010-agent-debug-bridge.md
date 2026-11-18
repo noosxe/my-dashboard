@@ -11,7 +11,7 @@ for AI agents (and humans driving a terminal):
   like `enigo`/`xdotool` is disqualified — plus Wayland blocks foreign
   synthetic input by design).
 
-Owner decisions (2026-09-02), recorded:
+Decisions (2026-09-02), recorded:
 
 - **v1 = seven commands** (§3 D6 table): `tree.dump`, `input.dispatch`,
   `input.click_node`, `input.focus_node`, `window.list`, `window.geometry`,
@@ -240,7 +240,7 @@ us.
 
 1. connects to the session bus and asks `org.a11y.Bus` for the a11y bus
    address (absent → diagnostic `4004` naming the at-spi2 requirement);
-2. reads `ScreenReaderEnabled` — **if false, sets it true** (the owner's
+2. reads `ScreenReaderEnabled` — **if false, sets it true** (the user's
    auto-enable decision, #46 review). This is the session-wide "an
    assistive tech is present" signal; on compositors without an
    Orca-style watcher (e.g. Hyprland) it only makes accesskit-based apps
@@ -572,12 +572,12 @@ Nothing records outside fixture mode: only the fixture transport calls
 ## 8. Follow-ups
 
 - MCP bridge (rmcp shim over the socket) — only if CLI falls short
-  (owner decision above).
+  (decision above).
 - `state.query` — module-defined entity dumps via `write_a11y_info` /
   a registry (D10 extension point).
 - `screenshot` command over the socket.
 - Offscreen "shadow window" driving (upstream `VisualTestAppContext`
   pattern) for fully invisible automation.
 - macOS: same in-process core; AT-SPI self-connection swaps for
-  NSAccessibility (activation + node actions); owner-deferred.
+  NSAccessibility (activation + node actions); deferred.
 - Upstream knobs that would delete our workarounds — #43.

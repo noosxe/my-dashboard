@@ -11,7 +11,7 @@
 
 ## 1. Summary
 
-Owner-directed UX fix. Today a 401 only *arms* `pending_refresh`, which the
+UX fix. Today a 401 only *arms* `pending_refresh`, which the
 tick loop drains at the **top of the next tick** — up to 60 s later — and a
 successful refresh then triggers a full `needs_bootstrap` refetch instead of
 retrying the request that failed. For an interactive dashboard (a click
@@ -51,7 +51,7 @@ it armed in — the old top-of-next-tick drain hop is deleted.
   hand.
 - The proactive drain has the same next-tick hop: `plan_tick` arms, the
   drain block runs at the top of the *following* tick.
-- Owner report: unacceptable for an interactive app; the dashboard is used
+- Report: unacceptable for an interactive app; the dashboard is used
   in the foreground, not as a background poller.
 
 ## 3. Design
@@ -234,7 +234,7 @@ Small-Q format per house style; silence rule on merge.
 - **Q4 — `Transient` fails fast, no in-gate retry loop.** Waiters get a
   network-error result immediately (existing stale-data UX), the chance is
   unburnt, and the next interaction retries. No silent waits anywhere —
-  the owner's complaint was exactly a silent 60 s wait.
+  the complaint was exactly a silent 60 s wait.
 - **Q5 — FIFO dispatch, not FIFO completion.** The queue drains in 401
   order (original receiver first); the executor may interleave executions.
   Serialization would buy nothing — the requests are independent.

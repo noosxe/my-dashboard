@@ -53,8 +53,8 @@ considered and declined. docs/0007's stale-but-present is the module's backbone,
 offline cold start is a supported mode — a user on a plane wants to *read* their cached
 dashboard, and an overlay that demands a sync we cannot perform hides the only thing of
 value on screen. The chip already states the magnitude at every age ("last synced 5d
-ago"); hiding data adds no information. If the owner wants a stronger treatment at
-extreme ages, that is a follow-up on top of this substrate, not a blocker for it.
+ago"); hiding data adds no information. If a stronger treatment at
+extreme ages is wanted, it is a follow-up on top of this substrate, not a blocker for it.
 
 **D5 — No deletion TTL.** The issue's "no TTL" framing is answered presentation-only:
 blobs keep persisting (docs/0007 D7; sign-out clears — Q5). Deleting cached data on a

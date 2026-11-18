@@ -4,7 +4,7 @@
 | --- | --- |
 | Issue | #187 (docs/0029 §3 "the biggest gap") |
 | Date | 2026-09-15 |
-| Status | design — pending owner review |
+| Status | design — pending review |
 | Depends on | docs/0016 (PR detail page), docs/0018 (Files tab sidebar + diff pane), docs/0017 (markdown bodies), docs/0019 (row-affordance conventions), docs/0010 (debug bridge) |
 
 ## 1. Context
@@ -237,7 +237,7 @@ Thread header row: `path:line` chip (or "File-level"), resolved ✓ chip with
 `viewerCanResolve` → Resolve, `viewerCanUnresolve` → Unresolve buttons
 running `resolveReviewThread` / `unresolveReviewThread` → threads refetch.
 `resolutionReason` stays unset (input is optional; the picker is a
-follow-up if the owner wants it). One busy-op invariant and node-id-keyed
+follow-up if wanted). One busy-op invariant and node-id-keyed
 state as everywhere else (0019 D7).
 
 ### D6 — Suggested changes: render + copy + permalink, never apply
@@ -326,7 +326,7 @@ Two stages, one per implementation issue (split of #187):
 Stage 1 alone already turns the Files tab into a review *reader*; stage 2
 makes it a review *surface*. Both keep the gates and the bridge contract.
 
-## 7. Open questions (owner)
+## 7. Open questions
 
 - **Q1 — local-draft reviews (D4)**: draft list lives in page state and dies
   with the page; server-PENDING is never used. Acceptable? (Lean: yes —

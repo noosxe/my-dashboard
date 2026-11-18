@@ -9,7 +9,7 @@ a `Collapsible` header per file, diff body inline underneath. With more
 than a handful of files this becomes a wall of diffs — there is no
 overview, no navigation, and opening a file pushes all others down.
 
-The product owner wants GitHub-style master–detail instead:
+The goal is GitHub-style master–detail instead:
 
 - a **left sidebar** inside the Files tab content area;
 - at its top a **Select** choosing between **List view** and **Tree view**;
@@ -264,7 +264,7 @@ colors — clippy.toml lints enforce.
   rows and the diff pane; clicking a list row mounts its diff; the
   Tree view renders folders; filtering narrows rows; Tab round-trip
   keeps geometry; drift 0; no panics. Color/visual nuances stay with
-  the owner's human check.
+  the human check.
 
 ## 6. Implementation plan
 
@@ -279,7 +279,7 @@ Single stage, one PR:
 3. Docs: 0016 D8 amendment (superseded → 0018) and 0018 shipped note
    ride along; README index row for 0018.
 
-## 7. Open questions (owner)
+## 7. Open questions
 
 1. Tree folders expanded by default — proposed yes (small PRs read
    flat); happy to start collapsed top-level instead.

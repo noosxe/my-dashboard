@@ -4,7 +4,7 @@
 | --- | --- |
 | Issue | #218 (consumers: #188 auto-refresh detail pages, #194 refresh on focus, #193 cache TTL / staleness marking, #192 last-synced indicator) |
 | Date | 2026-09-16 |
-| Status | design — pending owner review |
+| Status | design — pending review |
 | Depends on | docs/0029 §2/§4 (freshness roadmap), docs/0028 (`AuthGate` — the existing single-flight precedent), docs/0016 D2/D8 + docs/0030 D1 (page-owned fetch state machines) |
 
 ## 1. Context
@@ -230,13 +230,13 @@ indicator will carry the ids/roles per 0010 D10, and can read
 1. This design doc (docs-only PR).
 2. After merge: one implementation issue off #218 (the scope is a single
    focused PR): the `Fetch<T>` record, `run_read_deduped`, PR-page +
-   issue-page adoption, the tests above. Owner go-ahead per the
+   issue-page adoption, the tests above. Go-ahead per the
    big-feature workflow.
 3. Consumers follow as their own tickets land (#188 → #194 folded in →
    #192 → #193), each reading the record instead of growing a new
    lifecycle.
 
-## 7. Open questions (owner)
+## 7. Open questions
 
 1. **Issue-page detail in the same implementation PR?** D5 includes it;
    dropping it would make the first PR smaller but leave the two detail
@@ -263,7 +263,7 @@ indicator will carry the ids/roles per 0010 D10, and can read
   clearing their guard when the run lands. An intermediate build dispatched
   them through the wrapper instead — its re-arm saw the holder's key
   (`insert` → `false`), skipped *every* page fetch, and stuck the detail
-  record in-flight; caught in owner testing (#222) and pinned by
+  record in-flight; caught in human testing (#222) and pinned by
   `fetch_detail_lands_through_the_guard`. PR page detail/files/threads and
   the issue page detail use this shape; their `FilesFetch`/`ThreadsFetch`
   enums and `detail`/`loading`/`load_error` triples are gone.

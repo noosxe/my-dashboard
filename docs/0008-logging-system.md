@@ -11,7 +11,7 @@ The app is a black box between launches. Diagnostics today are 28 ad-hoc
 appear when the binary happens to be run from a terminal, carry no
 timestamps or levels, vanish on close, and say nothing about the healthy
 path: what launched, what connected, what fetched, what applied. The
-owner's report format has already been "I see no data in the app" —
+report format has already been "I see no data in the app" —
 answering that today means re-instrumenting by hand.
 
 What's needed: real levels, a persisted log with rotation, everything

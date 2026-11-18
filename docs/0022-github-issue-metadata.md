@@ -308,7 +308,7 @@ every new interactive element shipped per D9.
 
 ## 12. Shipped — data-colored label chips (2026-09-07, issue #119)
 
-docs/0020 Q2 resolved by owner decision: **data-colored chips**, with the
+docs/0020 Q2 resolved by decision: **data-colored chips**, with the
 token-discipline exception made *once*, in a dedicated core module.
 
 - **D1 — the exception's home.** `dashboard_core::data_color` is the single

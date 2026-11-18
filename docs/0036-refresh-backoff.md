@@ -23,7 +23,7 @@ parked as #225 for a cost-driven revisit:
   "the activation trigger catches up on return anyway; pausing adds a
   state machine for a ~1 request/60 s saving".
 
-The owner has asked to pick #225 up. This doc revisits both halves and
+The request is to pick #225 up. This doc revisits both halves and
 takes one and deliberately rejects the other — with the evidence
 in-tree.
 
@@ -92,7 +92,7 @@ is real but lives in the failure paths (D2/D3) — a *successful* poll
 costs 1 request/60 s and is the point of the app. If upstream gpui ever
 grows a minimized/occlusion query, a one-beat check slots in behind the
 nav gate; until then this stays rejected rather than approximated.
-**Owner sign-off requested on this rejection (Q1).**
+**Sign-off requested on this rejection (Q1).**
 
 **D2 — Per-lane exponential backoff on the `Fetch` record.** The record
 grows two fields:
@@ -171,7 +171,7 @@ selectors, no labels.
 3. docs/0036 §8 Shipped + docs/README row (row already present from
    this PR) with the implementation PR.
 
-## 7. Open questions (owner)
+## 7. Open questions
 
 - **Q1**: D1 rejects pause-while-minimized outright — the pinned gpui
   has no minimized/occlusion signal (verified in the registry source),

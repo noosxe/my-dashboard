@@ -4,8 +4,8 @@
 
 The PR detail page (0016) renders the description, comment, and review bodies
 as raw markdown text. Real PR bodies are markdown: Dependabot bodies carry
-lists and links, CI bots post tables, humans use everything else. The owner
-asks for rendered markdown; edit mode keeps plain-text editing (that part is
+lists and links, CI bots post tables, humans use everything else. The request
+is for rendered markdown; edit mode keeps plain-text editing (that part is
 expected — it is GitHub's own model: rendered view, raw source editor).
 
 ## 2. Scope
@@ -63,9 +63,9 @@ expected — it is GitHub's own model: rendered view, raw source editor).
 - Theme has the mono token and semantic colors (0016 D10); clippy.toml
   bans literal colors and ad-hoc text sizes/line heights.
 - The bridge dumps interactive nodes only (0010): markdown text is invisible
-  to `tree`; verification relies on geometry, logs, and the owner's eyes.
+  to `tree`; verification relies on geometry, logs, and eyes-on review.
 
-## 4. Owner decisions (requested 2026-09-04)
+## 4. Decisions (requested 2026-09-04)
 
 - Render markdown on the PR description (this doc's reason to exist).
 - Edit mode stays plain-text markdown editing (confirmed in the request).
@@ -203,14 +203,14 @@ ranges inside it, not separate nodes — the bridge will not show them
   once, mixed links/email/plain) and the kind→URL mapping (#169).
 - Run-style mapping tests (strong/em/strike/code/link → `RunStyle`).
 - Renderer smoke via the existing `#[gpui::test]` pattern where cheap;
-  geometry/interaction is bridge + owner territory (below).
+  geometry/interaction is bridge + human-check territory (below).
 
-### D10 — Bridge verification & owner checks
+### D10 — Bridge verification & human checks
 
 - Agent (bridge): page renders a rich body (#55 Dependabot: lists + links)
   with sane geometry, no panic, description card taller than raw text but
   inside the scroll region (0016 layout fix holds); tab round-trips fine.
-- Owner (human, PR checklist): links open the browser; tables/code/quotes/
+- Human (PR checklist): links open the browser; tables/code/quotes/
   task lists look right on a body of their choosing; edit → save round-trip
   re-renders; a comment they post renders.
 

@@ -4,7 +4,7 @@
 | --- | --- |
 | Issue | #89 (deferred from docs/0016 Q4, 2026-09-03) |
 | Date | 2026-09-04 |
-| Status | design — pending owner review |
+| Status | design — pending review |
 | Depends on | docs/0016 (PR detail page, stages 1–2 shipped), docs/0017 (markdown bodies), docs/0010 (debug bridge) |
 
 ## 1. Context
@@ -212,7 +212,7 @@ Single stage, one PR (code + this doc's shipped notes):
    buttons, edit card, confirm card, `(edited)` marker); tests.
 4. `docs/README.md` — index row.
 
-## 7. Open questions (owner)
+## 7. Open questions
 
 - **Q1 — inline two-step delete confirm** (no modal): OK? The app has no
   modal vocabulary; this keeps the interaction inside the card.
@@ -229,7 +229,7 @@ Single stage, one PR (code + this doc's shipped notes):
 
 Implemented as designed in one stage. The §7 open questions resolved to
 the doc's leans (inline confirm, `(edited)` marker kept, review-delete
-copy as written, no bodyless-review exception), per the owner's
+copy as written, no bodyless-review exception), per the
 go-ahead.
 
 Implementation notes beyond the design text:

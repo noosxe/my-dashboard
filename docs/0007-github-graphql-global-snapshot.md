@@ -4,7 +4,7 @@
 - **Depends on:** 0005 (module contract, GitHub service layer), 0004 (paths,
   persistence primitives, debounced saves)
 - **Closes the design need of:** #28 (pr-count walk → GraphQL aggregation),
-  expanded by owner direction to a full global-snapshot architecture
+  expanded by direction to a full global-snapshot architecture
 - **Superseded in part (docs/0051):** the global snapshot query and its
   5-minute cycle were removed — GitHub's connection-cap cost formula
   billed it ~302 points/page (~604 per bootstrap, self rate-limiting
@@ -23,7 +23,7 @@ costs, all rooted in REST's one-resource-per-request model:
    cadence ≈ 1,200 REST requests/hour of the 5,000 budget.
 2. **The walk runs serially** (`spawn_tick_loop` awaits specs in order), so
    fresh counts arrive after ~N×RTT; the card repaints once per tick, after
-   the slowest repo (#28 owner note — lever 2).
+   the slowest repo (#28 note — lever 2).
 3. **Silent caps**: PR counts cap at 100 (`prs.len()` of page 1), the repos
    list stops at page 1 (100 repos, `MAX_PAGES` override `None`), and repo
    views wait for the next tick after selection before showing PRs.

@@ -33,7 +33,7 @@ designed states (`TokenRejected`, `KeychainError`).
 - The app contains no token-expiry logic: the only `expires_in` in the
   codebase is the **device-code window** (900 s), correctly used solely as
   the connect-flow polling deadline.
-- Owner enabled expiring tokens when registering the app; the OAuth App
+- Expiring tokens were enabled when registering the app; the OAuth App
   settings now show no way to disable it. Upstream docs document only
   **Opt-in** for OAuth Apps ("Activating optional features for OAuth
   apps", no opt-out step), and note that enabling affects *newly issued*

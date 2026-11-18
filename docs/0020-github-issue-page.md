@@ -6,7 +6,7 @@
   (debug bridge, D10 id rule), 0013 (tracked fetches), 0014 (crumb prefix +
   suffix rule), 0016 (PR detail page — the takeover/write-path template),
   0017 (markdown bodies), 0019 (per-node comment gates + inline edit/delete)
-- **Closes the design need of:** owner request — an issue detail page
+- **Closes the design need of:** request — an issue detail page
   "similar to PR in whichever ways necessary"
 
 ## 1. Context & problem
@@ -142,7 +142,7 @@ markdown renderer, `Select` (close-reason). Theme semantic
   new cards/action bars get test-only selector keys from day one; fixture
   payloads must wrap in the envelope the parser expects.
 
-## 4. Owner questions (lean recorded; doc updated on answer)
+## 4. Questions (lean recorded; doc updated on answer)
 
 | Q | Question | Lean |
 | --- | --- | --- |
@@ -304,8 +304,8 @@ crumb derivation, row click swap) → docs §8 shipped notes. Reused unchanged:
 markdown renderer, `inline_edit_card`, `delete_confirm_card`, comment-gate
 parsing, mutation transport, takeover mechanics.
 
-Crates touched: `dashboard-module-github` only. (If the owner prefers it
-split — read-path PR, then write-path PR — the seam is D4's comment box: the
+Crates touched: `dashboard-module-github` only. (If preferred,
+a split — read-path PR, then write-path PR — the seam is D4's comment box: the
 read path lands complete without it.)
 
 ## 7. Testing
@@ -364,7 +364,7 @@ machine — until it's fixed these run as manual human checks in the PR body.)
    --all-targets` (zero warnings), `cargo test --workspace`; doc + README
    index row merged with this PR.
 
-## 10. Human checks (owner)
+## 10. Human checks
 
 - [ ] Open issues of several shapes: open, closed-completed,
       closed-not-planned, locked; confirm badge copy and rail states.
@@ -386,7 +386,7 @@ machine — until it's fixed these run as manual human checks in the PR body.)
   shipped in docs/0021 (#118); cross-referenced/referenced rows remain a
   follow-up there.
 - ~~Data-colored label chips (needs a token-discipline exception decision).~~
-  → resolved by owner decision: shipped in docs/0022 §12 (#119); the
+  → resolved by decision: shipped in docs/0022 §12 (#119); the
   exception lives in `dashboard_core::data_color`.
 - ~~Title editing; milestone display; label/assignee management.~~ →
   designed and shipped in docs/0022 (#120).
@@ -400,7 +400,7 @@ machine — until it's fixed these run as manual human checks in the PR body.)
 
 Implemented as designed in one PR (one stage; the §6 read/write split
 wasn't needed). The §4 questions resolved to the doc's leans per the
-owner's merge of this doc.
+merge of this doc.
 
 Implementation notes beyond the design text:
 

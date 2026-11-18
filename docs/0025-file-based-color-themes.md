@@ -184,7 +184,7 @@ presets). The Whiskers builder that #143 originally shipped is removed
 - Probe: not needed — no interactive surface changes; the picker is
   upstream-rendered and already covered by docs/0006 tests.
 
-## 6. Human checks (owner)
+## 6. Human checks
 
 - [ ] Drop a valid theme file into `~/.config/my-dashboard/themes/` → it
       appears in the matching slot's picker without restart; select it;
