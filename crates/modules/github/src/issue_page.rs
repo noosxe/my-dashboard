@@ -55,6 +55,7 @@ use crate::pr_page::{
     MentionSelectPrev, MutationError, body_card, cap_row, delete_confirm_card, inline_edit_card,
     split_repo,
 };
+use crate::rate_pause::run_unless_paused;
 use crate::reaction_menu::reaction_row_label;
 use crate::service::{
     FetchSpec, GithubState, IssuePendingKind, Kind, Mutation, run_mutation, run_spec_tracked,
@@ -168,6 +169,7 @@ use crate::pickers::{
 };
 
 mod detail_read;
+mod pause_gate;
 #[cfg(test)]
 mod test_rig;
 mod write_refetch;
@@ -362,6 +364,9 @@ impl IssueDetailPage {
     fn fetch_detail(&mut self, origin: Origin, cx: &mut Context<Self>) {
         if !self.state.read(cx).auth.connected() {
             return; // the page is about to be torn down by the auth gate
+        }
+        if self.hold_detail_for_pause(cx) {
+            return;
         }
         let state = self.state.clone();
         let spec = Self::detail_spec(&self.repo, self.number, origin);
@@ -1118,7 +1123,7 @@ impl IssueDetailPage {
         }
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result = run_spec_tracked(state, spec, cx).await;
+            let result = run_unless_paused(state, spec, cx).await;
             let _ = this.update(cx, |page, cx| page.apply_source_result(source, result, cx));
         })
         .detach();
@@ -1145,12 +1150,13 @@ impl IssueDetailPage {
             let m = m.clone();
             self.set_source_failed(source, format!("Network error: {m}"));
         } else if result.status != 200 {
-            let status = result.status;
-            self.state.update(cx, |s, cx| {
+            let (status, kind) = (result.status, result.kind);
+            let copy = self.state.update(cx, |s, cx| {
                 s.apply(result);
                 cx.notify();
+                s.http_failure_copy(kind, status)
             });
-            self.set_source_failed(source, format!("GitHub answered HTTP {status}"));
+            self.set_source_failed(source, copy);
         } else if let Some(body) = result.body {
             match serde_json::from_str::<gql::Envelope<gql::RepoPickerData>>(body.as_str()) {
                 Ok(env) => {

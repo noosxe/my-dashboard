@@ -152,7 +152,7 @@ impl RateLimitPause {
 
 mod arm;
 mod classify;
-mod hold;
+pub(crate) mod hold;
 pub(crate) use arm::null_read_copy;
 pub(crate) use classify::{GqlFailure, classify_errors, pause_until, paused_copy};
 pub(crate) use hold::run_unless_paused;

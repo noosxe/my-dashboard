@@ -50,6 +50,7 @@ use crate::usage::{Origin, Surface, Trigger};
 use dashboard_core::freshness::{Freshness, freshness_row, relative_age};
 use std::time::Duration;
 
+use crate::rate_pause::{Lane, run_unless_paused};
 use crate::service::{Fetch, FetchSpec, GithubState, Kind, ThreadOp, run_spec_tracked};
 
 /// The fixed label lane in notification detail rows (0002 D10).
@@ -210,7 +211,7 @@ impl NotificationDetailPage {
         self.read = true; // optimistic (D3)
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result = run_spec_tracked(state, spec, cx).await;
+            let result = run_unless_paused(state, spec, cx).await;
             let _ = this.update(cx, |page, cx| page.apply_mark_result(result, cx));
         })
         .detach();
@@ -244,20 +245,27 @@ impl NotificationDetailPage {
             // docs/0058 §13 adoption: a failed user action raises — Error
             // sticks until dismissed; retrying the same action refreshes
             // the same toast via the per-thread key (D4 replace-on-id).
+            let copy = self.mark_failure_copy("read", cx);
             dashboard_core::toasts::raise(
                 cx,
-                dashboard_core::toasts::Toast::new(
-                    dashboard_core::toasts::Level::Error,
-                    "Couldn't mark the notification as read — try again.",
-                )
-                .source("github")
-                .dedupe_key(format!("thread-mark-read-{}", self.thread_id())),
+                dashboard_core::toasts::Toast::new(dashboard_core::toasts::Level::Error, copy)
+                    .source("github")
+                    .dedupe_key(format!("thread-mark-read-{}", self.thread_id())),
             );
             // Revert the optimistic flip (D3); the button arms as retry.
             self.mark = MarkState::Failed;
             self.read = false;
         }
         cx.notify();
+    }
+
+    /// The failure toast's words. While the REST budget is paused the
+    /// retry would be held too, so the toast says when it resumes (#887).
+    fn mark_failure_copy(&self, what: &str, cx: &Context<Self>) -> String {
+        match self.state.read(cx).paused_note(Lane::Rest) {
+            Some(note) => format!("Couldn't mark the notification as {what} — {note}."),
+            None => format!("Couldn't mark the notification as {what} — try again."),
+        }
     }
 
     /// The done write (docs/0026 D8): DELETE — no optimistic flip, the
@@ -274,7 +282,7 @@ impl NotificationDetailPage {
         self.done = MarkState::InFlight;
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result = run_spec_tracked(state, spec, cx).await;
+            let result = run_unless_paused(state, spec, cx).await;
             let _ = this.update(cx, |page, cx| page.apply_done_result(result, cx));
         })
         .detach();
@@ -306,14 +314,12 @@ impl NotificationDetailPage {
             }
             // docs/0058 §13 adoption — the mark-read convention above,
             // keyed per thread for the done action.
+            let copy = self.mark_failure_copy("done", cx);
             dashboard_core::toasts::raise(
                 cx,
-                dashboard_core::toasts::Toast::new(
-                    dashboard_core::toasts::Level::Error,
-                    "Couldn't mark the notification as done — try again.",
-                )
-                .source("github")
-                .dedupe_key(format!("thread-mark-done-{}", self.thread_id())),
+                dashboard_core::toasts::Toast::new(dashboard_core::toasts::Level::Error, copy)
+                    .source("github")
+                    .dedupe_key(format!("thread-mark-done-{}", self.thread_id())),
             );
             // The page stays; the button re-arms as the retry (D8).
             self.done = MarkState::Failed;
@@ -343,6 +349,16 @@ impl NotificationDetailPage {
 
     fn fetch_thread(&mut self, origin: Origin, cx: &mut Context<Self>) {
         if !self.state.read(cx).auth.connected() {
+            return;
+        }
+        // #887: a paused REST budget holds the read; a thread that never
+        // landed shows the pause as its error, landed data stays.
+        if let Some(note) = self.state.read(cx).paused_note(Lane::Rest) {
+            if self.thread.is_idle() {
+                self.thread.fail(note);
+            }
+            log::debug!("thread-detail: held — REST budget paused");
+            cx.notify();
             return;
         }
         let state = self.state.clone();
@@ -390,12 +406,13 @@ impl NotificationDetailPage {
             self.thread.land_unchanged();
         } else if result.status != 200 {
             // Shared auth/rate-limit handling (page-owned convention).
-            let status = result.status;
-            self.state.update(cx, |s, cx| {
+            let (status, kind) = (result.status, result.kind);
+            let copy = self.state.update(cx, |s, cx| {
                 s.apply(result);
                 cx.notify();
+                s.http_failure_copy(kind, status)
             });
-            self.thread.fail(format!("GitHub answered HTTP {status}"));
+            self.thread.fail(copy);
         } else if let Some(body) = result.body {
             // docs/0038 D4: the 200 never reaches `apply`, so stamp the
             // etag here or no refresh ever revalidates (#803).
@@ -913,6 +930,19 @@ mod tests {
         gpui::Entity<NotificationDetailPage>,
         &mut gpui::VisualTestContext,
     ) {
+        probe_page_paused(cx, seed, mock, false)
+    }
+
+    /// `probe_page`, with the REST budget paused before the page opens.
+    fn probe_page_paused(
+        cx: &mut gpui::TestAppContext,
+        seed: api::Notification,
+        mock: std::sync::Arc<LaneMock>,
+        rest_paused: bool,
+    ) -> (
+        gpui::Entity<NotificationDetailPage>,
+        &mut gpui::VisualTestContext,
+    ) {
         cx.update(gpui_component::init);
         cx.update(dashboard_core::status::init);
         // docs/0058 §13 raise sites (failing marks) land in the hub —
@@ -931,10 +961,53 @@ mod tests {
                     DraftStore::at_tmp("notification-page-1"),
                 )
             });
-            entity.update(cx, |s, _| s.auth = AuthStatus::Connected);
+            entity.update(cx, |s, _| {
+                s.auth = AuthStatus::Connected;
+                if rest_paused {
+                    s.rate_limited_until.arm(
+                        crate::rate_pause::Lane::Rest,
+                        crate::usage::budget_now() + 3600,
+                    );
+                }
+            });
             entity
         });
         cx.add_window_view(|window, cx| NotificationDetailPage::new(state, seed, window, cx))
+    }
+
+    #[gpui::test]
+    fn a_paused_rest_budget_holds_the_thread_and_the_marks(cx: &mut gpui::TestAppContext) {
+        // #887: no request goes out; the thread says why, and the mark's
+        // toast carries the pause note instead of "try again".
+        let mock = lane_mock(0, 200, thread_payload("PullRequest", Some("u"), true));
+        let (page, vcx) = probe_page_paused(
+            cx,
+            probe_seed(true, "PullRequest", Some("u")),
+            mock.clone(),
+            true,
+        );
+        vcx.run_until_parked();
+        assert_eq!(mock.verbs(), vec![], "nothing is sent while paused");
+        let error = vcx.read(|cx| page.read(cx).thread.load_error().map(str::to_string));
+        assert!(
+            error.is_some_and(|e| e.starts_with("REST paused · resumes ")),
+            "the thread carries the pause note"
+        );
+        assert_eq!(vcx.read(|cx| page.read(cx).mark), MarkState::Failed);
+        let toast = vcx.update(|_, cx| {
+            dashboard_core::toasts::hub(cx)
+                .read(cx)
+                .log()
+                .iter()
+                .map(|e| e.toast.message.to_string())
+                .collect::<Vec<_>>()
+        });
+        assert!(
+            toast
+                .iter()
+                .any(|m| m.contains("REST paused · resumes ") && !m.contains("try again")),
+            "{toast:?}"
+        );
     }
 
     #[gpui::test]

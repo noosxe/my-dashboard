@@ -27,10 +27,11 @@ pub(super) fn land_detail_result(
     if result.status != 200 {
         // Forward failures through `apply` so the shared 401/403
         // handling runs exactly as for every other fetch (0020 D2).
-        let status = result.status;
+        let (status, kind) = (result.status, result.kind);
         s.apply(result);
         cx.notify();
-        s.fail_issue_detail_read(repo, number, format!("GitHub answered HTTP {status}"));
+        let copy = s.http_failure_copy(kind, status);
+        s.fail_issue_detail_read(repo, number, copy);
         return None;
     }
     let Some(body) = result.body else {
