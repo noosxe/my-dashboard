@@ -51,7 +51,7 @@ fn copy_is_pluralised() {
 #[gpui::test]
 fn disconnect_without_drafts_signs_out_at_once(cx: &mut TestAppContext) {
     let (page, vcx) = open_pr_page(cx);
-    vcx.update(|window, cx| page.update(cx, |p, cx| p.request_disconnect(window, cx)));
+    vcx.update(|_, cx| page.update(cx, |p, cx| p.request_disconnect(cx)));
     assert_eq!(auth(&page, vcx), AuthStatus::Disconnected);
 }
 
@@ -59,14 +59,14 @@ fn disconnect_without_drafts_signs_out_at_once(cx: &mut TestAppContext) {
 fn disconnect_with_drafts_asks_first(cx: &mut TestAppContext) {
     let (page, vcx) = open_pr_page(cx);
     seed(&page, vcx, 2);
-    vcx.update(|window, cx| page.update(cx, |p, cx| p.request_disconnect(window, cx)));
+    vcx.update(|_, cx| page.update(cx, |p, cx| p.request_disconnect(cx)));
     assert_eq!(auth(&page, vcx), AuthStatus::Connected, "still signed in");
     assert_eq!(
         vcx.update(|_, cx| page.read(cx).pending_disconnect_drafts(cx)),
         Some(2)
     );
 
-    vcx.update(|window, cx| page.update(cx, |p, cx| p.cancel_disconnect(window, cx)));
+    vcx.update(|_, cx| page.update(cx, |p, cx| p.cancel_disconnect(cx)));
     assert_eq!(auth(&page, vcx), AuthStatus::Connected);
     assert!(
         vcx.update(|_, cx| page.read(cx).pr.is_some()),
@@ -82,8 +82,8 @@ fn disconnect_with_drafts_asks_first(cx: &mut TestAppContext) {
 fn a_confirmed_disconnect_is_quiet(cx: &mut TestAppContext) {
     let (page, vcx) = open_pr_page(cx);
     seed(&page, vcx, 1);
-    vcx.update(|window, cx| page.update(cx, |p, cx| p.request_disconnect(window, cx)));
-    vcx.update(|window, cx| page.update(cx, |p, cx| p.confirm_disconnect(window, cx)));
+    vcx.update(|_, cx| page.update(cx, |p, cx| p.request_disconnect(cx)));
+    vcx.update(|_, cx| page.update(cx, |p, cx| p.confirm_disconnect(cx)));
     assert_eq!(auth(&page, vcx), AuthStatus::Disconnected);
     assert!(vcx.update(|_, cx| page.read(cx).pr.is_none()));
     vcx.update(|window, cx| page.update(cx, |p, cx| p.sync_from_state_in(window, cx)));

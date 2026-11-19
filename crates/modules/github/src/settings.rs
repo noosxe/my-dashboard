@@ -87,12 +87,8 @@ pub(crate) fn page(
                             .disabled(!sign_in_allowed(&state.read(cx).auth))
                             .on_click({
                                 let state = state.clone();
-                                move |_, window, cx| {
-                                    service::start_connect(
-                                        state.clone(),
-                                        window.window_handle(),
-                                        cx,
-                                    );
+                                move |_, _, cx| {
+                                    service::start_connect(state.clone(), cx);
                                 }
                             })
                             .into_any_element()
@@ -146,9 +142,9 @@ fn disconnect_control(
                             .with_size(size)
                             .on_click({
                                 let page = page.clone();
-                                move |_, window, cx| {
+                                move |_, _, cx| {
                                     if let Some(page) = page.upgrade() {
-                                        page.update(cx, |p, cx| p.confirm_disconnect(window, cx));
+                                        page.update(cx, |p, cx| p.confirm_disconnect(cx));
                                     }
                                 }
                             }),
@@ -160,9 +156,9 @@ fn disconnect_control(
                             .with_size(size)
                             .on_click({
                                 let page = page.clone();
-                                move |_, window, cx| {
+                                move |_, _, cx| {
                                     if let Some(page) = page.upgrade() {
-                                        page.update(cx, |p, cx| p.cancel_disconnect(window, cx));
+                                        page.update(cx, |p, cx| p.cancel_disconnect(cx));
                                     }
                                 }
                             }),
@@ -178,9 +174,9 @@ fn disconnect_control(
         .on_click({
             let state = state.clone();
             let page = page.clone();
-            move |_, window, cx| match page.upgrade() {
-                Some(page) => page.update(cx, |p, cx| p.request_disconnect(window, cx)),
-                None => service::sign_out_now(state.clone(), window.window_handle(), cx),
+            move |_, _, cx| match page.upgrade() {
+                Some(page) => page.update(cx, |p, cx| p.request_disconnect(cx)),
+                None => service::sign_out_now(state.clone(), cx),
             }
         })
         .into_any_element()

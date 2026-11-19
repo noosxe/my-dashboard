@@ -8,7 +8,7 @@
 //!   closes and a toast says how many drafts went
 //!   (`report_dropped_review_drafts`).
 
-use gpui::{App, Context, Window};
+use gpui::{App, Context};
 
 use dashboard_core::toasts::{self, Level, Toast};
 
@@ -45,29 +45,27 @@ impl GithubPage {
     }
 
     /// Settings' Disconnect: sign out now, or ask when drafts would go.
-    pub(crate) fn request_disconnect(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn request_disconnect(&mut self, cx: &mut Context<Self>) {
         if self.open_review_drafts(cx) == 0 {
-            service::sign_out_now(self.state.clone(), window.window_handle(), cx);
+            service::sign_out_now(self.state.clone(), cx);
             return;
         }
         self.disconnect_confirm = true;
         cx.notify();
-        window.refresh();
     }
 
     /// "Discard and disconnect": the drafts go on purpose, so the page
     /// closes first and the auth-loss toast stays quiet.
-    pub(crate) fn confirm_disconnect(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn confirm_disconnect(&mut self, cx: &mut Context<Self>) {
         self.disconnect_confirm = false;
         self.pr = None;
-        service::sign_out_now(self.state.clone(), window.window_handle(), cx);
+        service::sign_out_now(self.state.clone(), cx);
     }
 
     /// "Stay connected".
-    pub(crate) fn cancel_disconnect(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn cancel_disconnect(&mut self, cx: &mut Context<Self>) {
         self.disconnect_confirm = false;
         cx.notify();
-        window.refresh();
     }
 
     /// Auth was lost under an open PR page: say what the close dropped.
