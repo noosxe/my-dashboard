@@ -290,6 +290,7 @@ fn notifications_indicator(cx: &App, nav: &Entity<crate::nav::Navigator>) -> Any
                 hub.update(cx, |hub, cx| {
                     if *open {
                         hub.open_panel();
+                        hub.arm_panel_wake(cx);
                     } else {
                         hub.close_panel();
                     }
