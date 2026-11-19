@@ -201,7 +201,7 @@ impl GithubCard {
         });
     }
 
-    fn connect(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    fn connect(&mut self, cx: &mut Context<Self>) {
         start_connect(self.state.clone(), cx);
     }
 }
@@ -349,7 +349,7 @@ fn centered(
             Button::new("card-connect")
                 .label(label)
                 .small()
-                .on_click(cx.listener(|this, _, window, cx| this.connect(window, cx))),
+                .on_click(cx.listener(|this, _, _, cx| this.connect(cx))),
         );
     }
     col.into_any_element()
