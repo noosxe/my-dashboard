@@ -18,9 +18,12 @@ use crate::http::{Http, HttpError, SharedToken};
 use crate::page::GithubPage;
 use crate::service::{GithubCache, GithubState};
 
-fn open_pr_page(cx: &mut TestAppContext) -> (Entity<GithubPage>, &mut VisualTestContext) {
+pub(in crate::page) fn open_pr_page(
+    cx: &mut TestAppContext,
+) -> (Entity<GithubPage>, &mut VisualTestContext) {
     cx.update(gpui_component::init);
     cx.update(dashboard_core::status::init);
+    cx.update(dashboard_core::toasts::init);
     let cx = cx.add_empty_window();
     let page = cx.update(|window, cx| {
         let failures = (0..6).map(|_| Err(HttpError("probe".into()))).collect();

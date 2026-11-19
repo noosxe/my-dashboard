@@ -173,6 +173,9 @@ pub(crate) struct GithubPage {
     /// The shell navigation the PR page's discard confirm is holding
     /// (#841); see `shell_leave.rs`.
     shell_resume: Option<LeaveResume>,
+    /// Settings' Disconnect is asking whether open review drafts may go
+    /// (#841); see `sign_out_guard.rs`.
+    disconnect_confirm: bool,
     /// The open issue sub-page (docs/0020 D1) — the PR page's sibling;
     /// mutually exclusive with `pr` (opening one closes the other), same
     /// takeover and close semantics.
@@ -498,6 +501,7 @@ impl GithubPage {
             repo_list,
             pr: None,
             shell_resume: None,
+            disconnect_confirm: false,
             issue: None,
             creator: None,
             notification: None,
@@ -1124,6 +1128,7 @@ impl GithubPage {
         // the connect panel owns the module again. The crumb reconcile at
         // the end of this sync clears the suffix (disconnected = no crumbs).
         if self.pr.is_some() && !self.state.read(cx).auth.connected() {
+            self.report_dropped_review_drafts(cx);
             self.pr = None;
         }
         // The issue page tears down under the same rule (docs/0020 D1).
@@ -4728,6 +4733,8 @@ pub(crate) fn stale_chip_label(
 
 mod filter_menu;
 mod shell_leave;
+mod sign_out_guard;
+pub(crate) use sign_out_guard::disconnect_prompt;
 
 #[cfg(test)]
 mod list_return_tests;
