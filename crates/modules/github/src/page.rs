@@ -357,11 +357,7 @@ impl GithubPage {
                 // docs/0047 D3/D9: the home lane follows the account — the
                 // switch refetches (the docs/0031 dedup absorbs a
                 // collision with a just-fired fetch).
-                this.fetch_home_prs(
-                    Origin::new(Surface::ModuleHome, Trigger::ViewShown),
-                    window,
-                    cx,
-                );
+                this.fetch_home_prs(Origin::new(Surface::ModuleHome, Trigger::ViewShown), cx);
                 // Label choices are repo-local (docs/0042 D2) — a new
                 // org drops them with the selection.
                 this.filters.prs.label = None;
@@ -382,18 +378,14 @@ impl GithubPage {
 
         // Repo selection (0009 D4): click / Enter = confirm → the same
         // fetch path the manual rows used.
-        cx.subscribe_in(
-            &repo_list,
-            window,
-            |this, _, event: &ListEvent, window, cx| {
-                if let ListEvent::Confirm(ix) = event {
-                    let full_name = this.repo_list.read(cx).delegate().repo_full_name(*ix);
-                    if let Some(full_name) = full_name {
-                        this.select_repo(full_name, window, cx);
-                    }
+        cx.subscribe_in(&repo_list, window, |this, _, event: &ListEvent, _, cx| {
+            if let ListEvent::Confirm(ix) = event {
+                let full_name = this.repo_list.read(cx).delegate().repo_full_name(*ix);
+                if let Some(full_name) = full_name {
+                    this.select_repo(full_name, cx);
                 }
-            },
-        )
+            }
+        })
         .detach();
 
         // Background data arrival (0009 D6): orgs/repos land on the state
@@ -708,7 +700,7 @@ impl GithubPage {
     /// The home lane's first page for the current account (docs/0047
     /// D3) — module open / account switch / manual refresh all funnel
     /// here; the docs/0031 dedup absorbs repeats.
-    fn fetch_home_prs(&mut self, origin: Origin, _window: &mut Window, cx: &mut Context<Self>) {
+    fn fetch_home_prs(&mut self, origin: Origin, cx: &mut Context<Self>) {
         let Some((login, scope)) = self.home_account(cx) else {
             return;
         };
@@ -722,12 +714,7 @@ impl GithubPage {
     /// module open re-shows the surface the bell summarizes; the
     /// state-side gate (pause, backoff, `FOCUS_MIN_AGE`) decides whether
     /// a spec comes back at all.
-    fn fetch_notifications_if_stale(
-        &mut self,
-        origin: Origin,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn fetch_notifications_if_stale(&mut self, origin: Origin, cx: &mut Context<Self>) {
         let specs = self.state.update(cx, |s, _| {
             s.notifications_spec_if_stale(crate::service::FOCUS_MIN_AGE, origin)
                 .map(|spec| vec![spec])
@@ -761,7 +748,7 @@ impl GithubPage {
     /// "Load more" (docs/0047 D4): the next page for the current
     /// account, from its snapshot's cursor. No cursor → no-op (the
     /// button isn't rendered then either).
-    fn load_more_home_prs(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    fn load_more_home_prs(&mut self, cx: &mut Context<Self>) {
         let Some((login, scope)) = self.home_account(cx) else {
             return;
         };
@@ -919,18 +906,15 @@ impl GithubPage {
                                                     .label("Retry")
                                                     .ghost()
                                                     .small()
-                                                    .on_click(cx.listener(
-                                                        |this, _, window, cx| {
-                                                            this.fetch_home_prs(
-                                                                Origin::new(
-                                                                    Surface::ModuleHome,
-                                                                    Trigger::Manual,
-                                                                ),
-                                                                window,
-                                                                cx,
-                                                            );
-                                                        },
-                                                    )),
+                                                    .on_click(cx.listener(|this, _, _, cx| {
+                                                        this.fetch_home_prs(
+                                                            Origin::new(
+                                                                Surface::ModuleHome,
+                                                                Trigger::Manual,
+                                                            ),
+                                                            cx,
+                                                        );
+                                                    })),
                                             )
                                             .into_any_element()
                                     } else if !landed {
@@ -981,11 +965,9 @@ impl GithubPage {
                                                     .label("Load more")
                                                     .ghost()
                                                     .small()
-                                                    .on_click(cx.listener(
-                                                        |this, _, window, cx| {
-                                                            this.load_more_home_prs(window, cx);
-                                                        },
-                                                    )),
+                                                    .on_click(cx.listener(|this, _, _, cx| {
+                                                        this.load_more_home_prs(cx);
+                                                    })),
                                             )
                                         })
                                         .children(
@@ -1166,11 +1148,7 @@ impl GithubPage {
             // docs/0047 D3: orgs arriving (or the resolved choice
             // changing) is the module-open trigger for the home lane.
             if org_changed {
-                self.fetch_home_prs(
-                    Origin::new(Surface::ModuleHome, Trigger::ViewShown),
-                    window,
-                    cx,
-                );
+                self.fetch_home_prs(Origin::new(Surface::ModuleHome, Trigger::ViewShown), cx);
             }
             log::debug!(
                 "org select synced: {} orgs, selected: {:?}",
@@ -1232,7 +1210,7 @@ impl GithubPage {
         if let Some(repo) = repo {
             let selected = self.state.read(cx).selected.as_deref();
             if selected != Some(repo.as_str()) {
-                self.select_repo_inner(SharedString::from(repo), window, cx);
+                self.select_repo_inner(SharedString::from(repo), cx);
             }
         }
         match place {
@@ -1256,7 +1234,7 @@ impl GithubPage {
                 // fresh lane is not a refetch storm. A same-tab restore
                 // (Pulls after the reset) is the switch's no-op arm.
                 let name = SharedString::from(name.clone());
-                self.select_repo_inner(name, window, cx);
+                self.select_repo_inner(name, cx);
                 self.switch_repo_tab(*tab, window, cx);
             }
             GithubPlace::Pr(repo, number) => {
@@ -1278,13 +1256,8 @@ impl GithubPage {
         }
     }
 
-    fn select_repo(
-        &mut self,
-        full_name: SharedString,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.select_repo_inner(full_name.clone(), window, cx);
+    fn select_repo(&mut self, full_name: SharedString, cx: &mut Context<Self>) {
+        self.select_repo_inner(full_name.clone(), cx);
         // The inner reset landed the tab on Pulls first (docs/0077 D1),
         // so the selection visit is the pulls place.
         self.record_place(GithubPlace::Repo(full_name.to_string(), self.tab), cx);
@@ -1294,12 +1267,7 @@ impl GithubPage {
     /// activation a deep restore performs silently (docs/0048 D5: the
     /// deep route is the trail head; an ancestor visit would push and
     /// truncate the forward tail).
-    fn select_repo_inner(
-        &mut self,
-        full_name: SharedString,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn select_repo_inner(&mut self, full_name: SharedString, cx: &mut Context<Self>) {
         // Docs/0007 D6: the view paints immediately from the in-memory
         // snapshot; these specs are the edge-freshness repo-scoped
         // snapshot plus the one-shot repo notifications fetch.
@@ -1645,17 +1613,9 @@ impl GithubPage {
     /// collision with the edge fetch).
     fn reenter_root(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.return_to_root(window, cx);
-        self.fetch_home_prs(
-            Origin::new(Surface::ModuleHome, Trigger::ViewShown),
-            window,
-            cx,
-        );
+        self.fetch_home_prs(Origin::new(Surface::ModuleHome, Trigger::ViewShown), cx);
         // docs/0052 D5: crumb re-entry is a view-shown edge too.
-        self.fetch_notifications_if_stale(
-            Origin::new(Surface::ModuleHome, Trigger::ViewShown),
-            window,
-            cx,
-        );
+        self.fetch_notifications_if_stale(Origin::new(Surface::ModuleHome, Trigger::ViewShown), cx);
     }
 
     /// Close the PR sub-page: back to the repo view (selection survives —
@@ -3635,10 +3595,10 @@ impl GithubPage {
             .label("Retry")
             .ghost()
             .xsmall()
-            .on_click(cx.listener(move |this, _, window, cx| {
+            .on_click(cx.listener(move |this, _, _, cx| {
                 let origin = Origin::new(Surface::RepoView, Trigger::Manual);
                 if more {
-                    this.load_more_commits(origin, window, cx);
+                    this.load_more_commits(origin, cx);
                     return;
                 }
                 let Some(full) = this.state.read(cx).selected.clone() else {
@@ -3656,12 +3616,7 @@ impl GithubPage {
     /// `Trigger::Paginate` from the list's scroll threshold,
     /// `Trigger::Manual` from the tail's Retry. The spec builder holds
     /// the single-flight lock, the cap and the rate-limit gate.
-    pub(crate) fn load_more_commits(
-        &mut self,
-        origin: Origin,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(crate) fn load_more_commits(&mut self, origin: Origin, cx: &mut Context<Self>) {
         let Some(full) = self.state.read(cx).selected.clone() else {
             return;
         };
@@ -3760,9 +3715,9 @@ impl GithubPage {
         cx.subscribe_in(
             &select,
             window,
-            |this, _, event: &SelectEvent<RefSearchDelegate>, window, cx| {
+            |this, _, event: &SelectEvent<RefSearchDelegate>, _, cx| {
                 if let SelectEvent::Confirm(Some(name)) = event {
-                    this.pick_ref(name.to_string(), window, cx);
+                    this.pick_ref(name.to_string(), cx);
                 }
             },
         )
@@ -3983,7 +3938,7 @@ impl GithubPage {
     /// docs/0081 D7 — a branch was picked: switch the tab's book and
     /// offer its page 1. A held book paints at once and is age-gated
     /// (`FOCUS_MIN_AGE`); a fresh one fetches `RepoCommitsRef`.
-    pub(crate) fn pick_ref(&mut self, name: String, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn pick_ref(&mut self, name: String, cx: &mut Context<Self>) {
         let Some(full) = self.state.read(cx).selected.clone() else {
             return;
         };
@@ -3994,14 +3949,14 @@ impl GithubPage {
         log::info!("commits: {full} now on {name}");
         self.commits_ref = rk;
         cx.notify();
-        self.offer_commits_book(&full, window, cx);
+        self.offer_commits_book(&full, cx);
     }
 
     /// Offer the Commits tab's current `(ref, filter)` book (docs/0081
     /// D7/§14): stamp it most recently used, then its page 1 through
     /// the `FOCUS_MIN_AGE` gate as `ViewShown` — a held book paints at
     /// once and stays quiet, a fresh one fetches.
-    fn offer_commits_book(&mut self, full: &str, _window: &mut Window, cx: &mut Context<Self>) {
+    fn offer_commits_book(&mut self, full: &str, cx: &mut Context<Self>) {
         let (connected, gated) = {
             let s = self.state.read(cx);
             (s.auth.connected(), s.gated_for(Kind::RepoCommits.lane()))
@@ -4042,7 +3997,7 @@ impl GithubPage {
 
     /// docs/0081 §14 — flip the "mine" toggle: switch to that filter's
     /// book for the same ref and offer its page 1 (`history(author:)`).
-    pub(crate) fn toggle_commits_mine(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn toggle_commits_mine(&mut self, cx: &mut Context<Self>) {
         let Some(full) = self.state.read(cx).selected.clone() else {
             return;
         };
@@ -4059,7 +4014,7 @@ impl GithubPage {
             }
         );
         cx.notify();
-        self.offer_commits_book(&full, window, cx);
+        self.offer_commits_book(&full, cx);
     }
 
     /// The "Mine" toggle in the Commits body header (docs/0081 §14): a
@@ -4085,8 +4040,8 @@ impl GithubPage {
             } else {
                 "Available once your account has loaded"
             })
-            .on_click(cx.listener(|this, _, window, cx| {
-                this.toggle_commits_mine(window, cx);
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.toggle_commits_mine(cx);
             }))
     }
 
@@ -5062,9 +5017,9 @@ mod tests {
                 p.set_pr_author(AuthorFilter::Mine, cx);
             });
         });
-        vcx.update(|window, cx| {
+        vcx.update(|_, cx| {
             page.update(cx, |p, cx| {
-                p.select_repo("acme/two".into(), window, cx);
+                p.select_repo("acme/two".into(), cx);
             });
         });
         vcx.update(|_, cx| {
@@ -5697,8 +5652,8 @@ mod tests {
         let _ = state;
 
         // Repo open: the pulls lane fires; the tab is the D1 default.
-        vcx.update(|window, cx| {
-            page.update(cx, |p, cx| p.select_repo("acme/one".into(), window, cx));
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| p.select_repo("acme/one".into(), cx));
         });
         vcx.run_until_parked();
         let recorded = mock.recorded();
@@ -5755,8 +5710,8 @@ mod tests {
 
         // Repo switch: the tab resets to Pulls and the new repo's lane
         // fires (docs/0077 D1/D3).
-        vcx.update(|window, cx| {
-            page.update(cx, |p, cx| p.select_repo("acme/two".into(), window, cx));
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| p.select_repo("acme/two".into(), cx));
         });
         vcx.run_until_parked();
         let recorded = mock.recorded();
@@ -5858,8 +5813,8 @@ mod tests {
                 .count()
         };
 
-        vcx.update(|window, cx| {
-            page.update(cx, |p, cx| p.select_repo("acme/one".into(), window, cx));
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| p.select_repo("acme/one".into(), cx));
         });
         vcx.run_until_parked();
         assert_eq!(commits_flights(), 0, "repo open never fetches commits");
@@ -5909,11 +5864,11 @@ mod tests {
         });
 
         // Load-more: single flight, pinned to the tip, `Paginate`.
-        vcx.update(|window, cx| {
+        vcx.update(|_, cx| {
             page.update(cx, |p, cx| {
                 let origin = Origin::new(Surface::RepoView, Trigger::Paginate);
-                p.load_more_commits(origin, window, cx);
-                p.load_more_commits(origin, window, cx);
+                p.load_more_commits(origin, cx);
+                p.load_more_commits(origin, cx);
             });
         });
         vcx.run_until_parked();
@@ -6048,8 +6003,8 @@ mod tests {
         };
 
         // Parked between flights: the mock answers in arrival order.
-        vcx.update(|window, cx| {
-            page.update(cx, |p, cx| p.select_repo("acme/one".into(), window, cx));
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| p.select_repo("acme/one".into(), cx));
         });
         vcx.run_until_parked();
         vcx.update(|window, cx| {
@@ -6082,7 +6037,7 @@ mod tests {
         });
 
         // Picking a branch: its own book, fetched once, list follows.
-        vcx.update(|window, cx| page.update(cx, |p, cx| p.pick_ref("feat".into(), window, cx)));
+        vcx.update(|_, cx| page.update(cx, |p, cx| p.pick_ref("feat".into(), cx)));
         vcx.run_until_parked();
         resync(vcx);
         assert_eq!(flights("RepoCommitsRef"), 1, "a fresh book fetches");
@@ -6104,9 +6059,9 @@ mod tests {
 
         // Back to main and over to feat again: held, fresh books paint
         // with no flight.
-        vcx.update(|window, cx| {
+        vcx.update(|_, cx| {
             page.update(cx, |p, cx| {
-                p.pick_ref("main".into(), window, cx);
+                p.pick_ref("main".into(), cx);
                 assert_eq!(p.commits_ref, RefKey::Default, "main is the default book");
             })
         });
@@ -6124,15 +6079,13 @@ mod tests {
                 .len();
             assert_eq!(rows_len, 2);
         });
-        vcx.update(|window, cx| page.update(cx, |p, cx| p.pick_ref("feat".into(), window, cx)));
+        vcx.update(|_, cx| page.update(cx, |p, cx| p.pick_ref("feat".into(), cx)));
         vcx.run_until_parked();
         assert_eq!(flights("RepoCommitsRef"), 1, "a held book is age-gated");
         assert_eq!(flights("RepoCommits"), 1);
 
         // A repo selection resets the tab to the default ref.
-        vcx.update(|window, cx| {
-            page.update(cx, |p, cx| p.select_repo("acme/one".into(), window, cx))
-        });
+        vcx.update(|_, cx| page.update(cx, |p, cx| p.select_repo("acme/one".into(), cx)));
         vcx.run_until_parked();
         resync(vcx);
         vcx.update(|_, cx| assert_eq!(page.read(cx).commits_ref, RefKey::Default));
@@ -6265,12 +6218,12 @@ mod tests {
             })
         };
         let toggle = |cx: &mut gpui::VisualTestContext| {
-            cx.update(|window, cx| page.update(cx, |p, cx| p.toggle_commits_mine(window, cx)));
+            cx.update(|_, cx| page.update(cx, |p, cx| p.toggle_commits_mine(cx)));
             cx.run_until_parked();
         };
 
-        vcx.update(|window, cx| {
-            page.update(cx, |p, cx| p.select_repo("acme/one".into(), window, cx));
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| p.select_repo("acme/one".into(), cx));
         });
         vcx.run_until_parked();
         vcx.update(|window, cx| {
@@ -6315,7 +6268,7 @@ mod tests {
         // On again, then a branch pick keeps the filter.
         toggle(vcx);
         assert_eq!(flights().len(), 2, "a held mine book is age-gated");
-        vcx.update(|window, cx| page.update(cx, |p, cx| p.pick_ref("feat".into(), window, cx)));
+        vcx.update(|_, cx| page.update(cx, |p, cx| p.pick_ref("feat".into(), cx)));
         vcx.run_until_parked();
         assert_eq!(
             flights().last().cloned(),
@@ -6324,9 +6277,7 @@ mod tests {
         assert_eq!(rows(vcx), std::slice::from_ref(&f));
 
         // A repo selection resets the toggle with the ref.
-        vcx.update(|window, cx| {
-            page.update(cx, |p, cx| p.select_repo("acme/one".into(), window, cx))
-        });
+        vcx.update(|_, cx| page.update(cx, |p, cx| p.select_repo("acme/one".into(), cx)));
         vcx.run_until_parked();
         vcx.update(|_, cx| {
             let p = page.read(cx);
@@ -6401,8 +6352,8 @@ mod tests {
         let (page, vcx) = cx
             .add_window_view(|window, cx| GithubPage::new(state.clone(), nav.clone(), window, cx));
 
-        vcx.update(|window, cx| {
-            page.update(cx, |p, cx| p.select_repo("acme/one".into(), window, cx));
+        vcx.update(|_, cx| {
+            page.update(cx, |p, cx| p.select_repo("acme/one".into(), cx));
         });
         vcx.run_until_parked();
         let _ = vcx.debug_bounds("repo-rows-refresh"); // flush frames
@@ -6553,11 +6504,10 @@ mod tests {
         });
 
         // Never landed: the view-shown fire dispatches the page.
-        cx.update(|window, cx| {
+        cx.update(|_, cx| {
             page.update(cx, |p, cx| {
                 p.fetch_notifications_if_stale(
                     Origin::new(Surface::ModuleHome, Trigger::ViewShown),
-                    window,
                     cx,
                 )
             })
@@ -6575,11 +6525,10 @@ mod tests {
         }
 
         // Landed just now: inside the 15 s floor — no dispatch.
-        cx.update(|window, cx| {
+        cx.update(|_, cx| {
             page.update(cx, |p, cx| {
                 p.fetch_notifications_if_stale(
                     Origin::new(Surface::ModuleHome, Trigger::ViewShown),
-                    window,
                     cx,
                 )
             })
@@ -6591,11 +6540,10 @@ mod tests {
         state.update(cx, |s, _| {
             s.notifications_landed = Some(Instant::now() - Duration::from_secs(20))
         });
-        cx.update(|window, cx| {
+        cx.update(|_, cx| {
             page.update(cx, |p, cx| {
                 p.fetch_notifications_if_stale(
                     Origin::new(Surface::ModuleHome, Trigger::ViewShown),
-                    window,
                     cx,
                 )
             })
@@ -6983,7 +6931,7 @@ mod tests {
             });
 
             // Switch repos: the creator drops (draft belongs to its repo).
-            page.update(cx, |p, cx| p.select_repo("acme/two".into(), window, cx));
+            page.update(cx, |p, cx| p.select_repo("acme/two".into(), cx));
             assert!(page.read(cx).creator.is_none(), "creator dropped on switch");
             assert!(!page.read(cx).creator_open);
 
@@ -7677,10 +7625,10 @@ mod tests {
         ];
         let (page, _state, vcx) = home_probe_page(cx, script, true);
         flush(vcx);
-        vcx.update(|window, cx| {
+        vcx.update(|_, cx| {
             page.update(cx, |page, cx| {
                 page.org = Some("acme".into());
-                page.fetch_home_prs(Origin::BACKGROUND, window, cx);
+                page.fetch_home_prs(Origin::BACKGROUND, cx);
             });
         });
         flush(vcx);
@@ -7935,7 +7883,7 @@ mod tests {
 
             // Repo visit recorded.
             page.update(cx, |p, cx| {
-                p.select_repo("acme/one".into(), window, cx);
+                p.select_repo("acme/one".into(), cx);
             });
             nav.read_with(cx, |nav, _| {
                 assert_eq!(nav.history_entries_last_key(), "github:repo:acme/one:pulls");
@@ -8060,7 +8008,7 @@ mod tests {
             // repo → issue → Back: the restore lands on the repo place and
             // the issue page closes with it.
             page.update(cx, |p, cx| {
-                p.select_repo("acme/one".into(), window, cx);
+                p.select_repo("acme/one".into(), cx);
             });
             page.update(cx, |p, cx| {
                 p.open_issue("acme/one", &issue, None, window, cx)
@@ -8144,7 +8092,7 @@ mod tests {
 
             // Selection records the pulls place (the reset lands first).
             page.update(cx, |p, cx| {
-                p.select_repo("acme/one".into(), window, cx);
+                p.select_repo("acme/one".into(), cx);
             });
             nav.read_with(cx, |nav, _| {
                 assert_eq!(nav.history_entries_last_key(), "github:repo:acme/one:pulls");

@@ -242,16 +242,12 @@ impl ListDelegate for CommitsDelegate {
         self.may_page()
     }
 
-    fn load_more(&mut self, window: &mut Window, cx: &mut Context<ListState<Self>>) {
+    fn load_more(&mut self, _window: &mut Window, cx: &mut Context<ListState<Self>>) {
         let Some(page) = self.page.upgrade() else {
             return;
         };
         page.update(cx, |p, cx| {
-            p.load_more_commits(
-                Origin::new(Surface::RepoView, Trigger::Paginate),
-                window,
-                cx,
-            )
+            p.load_more_commits(Origin::new(Surface::RepoView, Trigger::Paginate), cx)
         });
     }
 }
