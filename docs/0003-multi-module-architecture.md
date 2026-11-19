@@ -38,7 +38,7 @@ Recommendations in *italics*; silence = follow recommendation.
 prove the contract, replaced by real ones later:
 - **Clock** — state entity ticked by a 1 s background timer; overview shows
   compact time, main page shows large time. Proves: async service → one entity
-  → two live views. Needs `chrono` (clock feature only).
+  → two live views. Needs `jiff` (system time zone only).
 - **Notes** — static welcome text; main page has a "Details" sub-page.
   Proves: sub-page navigation + breadcrumb reporting + crumb-click back.
 
@@ -299,7 +299,7 @@ crates/
 ├── app/                    dashboard-app (bin) → core, module-clock, module-notes
 ├── core/                   dashboard-core    → gpui, gpui-component
 └── modules/
-    ├── clock/              dashboard-module-clock  → core, chrono (clock)
+    ├── clock/              dashboard-module-clock  → core, jiff
     └── notes/              dashboard-module-notes  → core
 ```
 
@@ -331,7 +331,7 @@ Branch `feat/0003-module-framework`, stacked on this doc PR.
 dashboard-core = { path = "crates/core" }
 dashboard-module-clock = { path = "crates/modules/clock" }
 dashboard-module-notes = { path = "crates/modules/notes" }
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
+jiff = { version = "1", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo"] }
 # members += crates/core, crates/modules/clock, crates/modules/notes
 ```
 
@@ -393,10 +393,10 @@ impl Module for ClockModule {
     fn init(_nav: &Entity<Navigator>, _window: &mut Window, cx: &mut App)
         -> ModuleEntry {
         // 1. state entity
-        let state = cx.new(|_| ClockState { now: chrono::Local::now() });
+        let state = cx.new(|_| ClockState { now: jiff::Zoned::now() });
         // 2. service: 1s timer writes to state (BackgroundExecutor)
         cx.spawn(async move |cx| loop {
-            cx.update(|cx| state.update(cx, |s, _| s.now = chrono::Local::now()))
+            cx.update(|cx| state.update(cx, |s, _| s.now = jiff::Zoned::now()))
                 .ok();
             cx.background_executor()
                 .timer(std::time::Duration::from_secs(1)).await;
