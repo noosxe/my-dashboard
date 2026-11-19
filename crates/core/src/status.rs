@@ -156,12 +156,21 @@ pub fn tracker(cx: &App) -> Entity<InFlight> {
 
 /// A fetch run started (D4). Returns the id to hand back to [`end`].
 pub fn begin(cx: &mut App, module: SharedString) -> u64 {
-    tracker(cx).update(cx, |this, _| this.0.begin(module))
+    tracker(cx).update(cx, |this, cx| {
+        let id = this.0.begin(module);
+        // The shell observes this entity to repaint its status bar; an
+        // observer only fires on a notify.
+        cx.notify();
+        id
+    })
 }
 
 /// A fetch run finished.
 pub fn end(cx: &mut App, id: u64) {
-    tracker(cx).update(cx, |this, _| this.0.end(id));
+    tracker(cx).update(cx, |this, cx| {
+        this.0.end(id);
+        cx.notify();
+    });
 }
 
 // ---------------------------------------------------------------------------
