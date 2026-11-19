@@ -170,6 +170,8 @@ Bodies are immutable per fetch; parsing on every frame (gpui re-renders)
 would waste the most expensive step. Memoize at the card level with gpui
 element state (`with_element_state` keyed by the card id): store
 `(body_hash: u64, Vec<Block>)`, re-parse only when the hash differs.
+*Amended by 0086: gpui-fast re-renders only notified views, so the
+frame-rate premise is weaker; the memoization is still right.*
 Refetch naturally invalidates (new body → new hash). Service stays pure —
 no state plumbing through `GithubState`.
 

@@ -7,6 +7,9 @@
 > **Amended 2026-10-23** (D9): UI receipts are captured only here, never
 > on the macOS host; signed-in surfaces use the docs/0081 §12.1 fixtures.
 
+> **Amended by 0086:** the receipt recipes were re-verified on the gpui-fast
+> stack; behaviour is unchanged.
+
 ## 1. Context
 
 docs/0065 receipts (audit, tab-stops, critique) require a Linux session:

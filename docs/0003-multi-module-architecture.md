@@ -142,6 +142,15 @@ in this phase — `Button::tooltip("Close")` (verified: `button.rs:341`).*
     callbacks. Verified by render-tracing: zero unfocused renders before,
     ~1/s after.
 
+> **Amended by 0086 (gpui-fast):** the per-write `window.refresh()` is gone.
+> On the retained-mode backend it is a whole-window redraw with view
+> retention off, so it is disallowed by lint and each state write now
+> ends in `cx.notify()` on the owning entity (0086 §3). What this
+> section guards against, an unfocused-but-visible Wayland window not
+> presenting, was not exercised by the trial (headless compositor): it
+> is a human check on the migration PR, and a regression there is a new
+> issue, not a reason to bring the refresh back unexamined.
+
 ## 4. Design
 
 ### 4.1 Module model

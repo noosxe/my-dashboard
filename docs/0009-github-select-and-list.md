@@ -63,6 +63,9 @@ Everything below was read out of the checkout; nothing is remembered.
   per-section item counts change (`new_sections != self.sections`), so
   filter-result and data-refresh count changes propagate automatically;
   visible-row *content* re-renders every frame regardless.
+  *Amended by 0086: under gpui-fast a view re-runs `render` only when
+  notified, so rows re-render on a notify of the page or an entity it
+  observes, not every frame.*
 - Selection & input: click = select + confirm; keyboard up/down/enter/
   secondary-enter/escape are bound to the `"List"` key context by
   `list::init` (called from `gpui_component::init`, which main.rs

@@ -236,6 +236,8 @@ entry (unchanged semantics).
   `state.update` on the main thread ending in the 0003 §3.12
   `window.refresh()` call; HTTP runs only on the background executor —
   same shape as `start_connect`.
+  *Amended by 0086: the closing call is `cx.notify()` on the state
+  entity, not `window.refresh()`.*
 
 ### 4.5 Logging (0008 event catalog additions — superseded by 0028 §3.5)
 

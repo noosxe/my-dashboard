@@ -189,6 +189,8 @@ Q5–Q10 stand per the silence rule on merge.
   still empty — so the home card shows fresh counts within ~60 s of open.
   All timers follow the tick-loop pattern: state writes end with the §3.12
   unfocused-refresh call (`window_handle.update(... refresh())`).
+  *Amended by 0086: state writes end in `cx.notify()` instead; the 10 s
+  tick no longer repaints the window.*
 - **Q8 — Unfocused window:** 0003 §3.12 pattern is mandatory here (the
   card counts tick while the dashboard is unfocused — the exact scenario
   that bit us with the clock).

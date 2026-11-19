@@ -51,19 +51,29 @@ they apply to all new code:
    shows goes through `cx.notify()` on the entity that owns the view
    (or an entity the view `cx.observe`s). A plain `Cell` or field
    mutated from a paint callback counts: notify the page.
-2. **`Window::refresh()` is not a redraw request for cached views.** It
-   marks the window dirty; it does not re-run a cached view's render.
-   Never use it as the only trigger. Where a notify already precedes
-   it, it is redundant.
+2. **`Window::refresh()` is not a repaint trigger.** It forces a
+   whole-window redraw with view retention switched off for that frame,
+   so every view re-runs `render`. That defeats the retained-mode saving
+   this migration is for, and it is tied to no state, so it also hides a
+   missed notify instead of fixing it. Never use it as the trigger for a
+   state change; notify the owner (rule 1). Where a notify already
+   precedes it, it is redundant.
+   *Amended during implementation:* the first draft said refresh "does
+   not re-run a cached view's render" (the trial's reading). On
+   gpui-fast 0.1.16 it does: `refreshing` makes `reusable_record` return
+   no reusable record, and a probe showed a `.cached(..)` child
+   re-rendering after both `Window::refresh` and `App::refresh_windows`
+   but not on an idle frame. The ban stands for the cost reason above.
 3. **A time-driven label needs its own render wake**: a timer that
    calls `cx.notify()` on the view at the label's granularity (the
    pattern the home card and module page already use, docs/0052 D6).
    Nothing global repaints on its behalf.
 
 `cx.refresh_windows()` (used by the theme restyle in `settings.rs`) is
-the same class of call as rule 2. Whether it re-styles cached views
-must be checked on the trial stack in the implementation PR (§4.4); if
-not, the theme-change path notifies instead.
+the same class of call as rule 2. It was checked on this stack (§4.4):
+a theme switch restyles a cached view that reads the theme in `render`
+(`theme_refresh_tests`), so the theme path keeps it. It stays off the
+lint list because a user-initiated global restyle is what it is for.
 
 ### 3.1 Enforcement options
 
@@ -113,9 +123,10 @@ The `reqwest_client` dependency stays on `gpui-pre-reqwest-client`
 The end-of-beat `window.refresh()` in the GitHub service tick loop
 (`service.rs`) is the one site that did real work under the old
 backend: it was a global repaint every 10 s when no result applied
-(gated, paused, offline, nothing planned). Under gpui-fast it repaints
-nothing cached. It is removed, and the labels that leaned on it get
-their own wakes (§4.3). The other eleven sites already follow a notify
+(gated, paused, offline, nothing planned). Under gpui-fast it is still a
+whole-window redraw with retention off, a recurring 10 s cost that
+cancels part of the saving, and the timer-less labels leaned on it. It
+is removed, and those labels get their own wakes (§4.3). The other eleven sites already follow a notify
 (trial audit) and are either removed as redundant or kept with a
 justified `#[allow]`.
 

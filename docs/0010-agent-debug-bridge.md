@@ -1,5 +1,8 @@
 # 0010 — Agent Debug Bridge (attach, tree dump, non-disruptive input)
 
+> **Amended by 0086:** the bridge and its receipts were re-verified on the
+> gpui-fast stack; behaviour is unchanged.
+
 Today, debugging the running app means logs and screenshots. What's missing
 for AI agents (and humans driving a terminal):
 
