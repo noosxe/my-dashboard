@@ -48,6 +48,11 @@ pub type SettingsProvider = Rc<dyn Fn(&mut Window, &mut App) -> Option<SettingPa
 /// lifecycle, modules own scope. Must be cheap: one entity read.
 pub type StatusItemFn = Arc<dyn Fn(&crate::nav::Page, &App) -> Option<gpui::AnyElement>>;
 
+/// Continuation of a navigation a module vetoed through
+/// [`ModuleNav::can_leave`]: calling it commits that navigation without
+/// asking again. Dropping it cancels.
+pub type LeaveResume = Box<dyn FnOnce(&mut Window, &mut App)>;
+
 /// History support for a module (docs/0048 D3): how the shell
 /// re-activates a trail entry the module recorded. The impl captures the
 /// module's entities; the payload is whatever the module handed to
@@ -55,6 +60,16 @@ pub type StatusItemFn = Arc<dyn Fn(&crate::nav::Page, &App) -> Option<gpui::AnyE
 /// downcasts it, and a stale payload must degrade to the module root
 /// rather than panic.
 pub trait ModuleNav: 'static {
+    /// Veto point before the shell commits a navigation that would take
+    /// the user off this module's open page (sidebar jump, history
+    /// Back/Forward). Return `true` to let it go ahead. Return `false`
+    /// after asking the user something (an unsent-drafts confirm); the
+    /// module then owns `resume` and calls it if the user agrees, or
+    /// drops it if they decline. The default never vetoes.
+    fn can_leave(&self, _resume: LeaveResume, _window: &mut Window, _cx: &mut App) -> bool {
+        true
+    }
+
     /// Activate a payload previously handed to `visit` — the same code
     /// path as the user clicking (0031 dedup and caches apply).
     fn restore(&self, payload: &Arc<dyn Any + Send + Sync>, window: &mut Window, cx: &mut App);

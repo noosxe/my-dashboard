@@ -337,3 +337,24 @@ final shapes now authoritative:
   `go_forward` the keyboard actions drive — global semantics, matching
   browsers (they work anywhere in the window, over pickers and inputs
   too). The §9 follow-up is closed by this.
+
+### Amendment — the leave veto (#841)
+
+`ModuleNav` gains `can_leave(resume, window, cx) -> bool`, default
+`true`. The shell calls it on the module page on screen *before* it
+commits a sidebar/crumb jump to a different page, or a Back/Forward
+cursor move (`shell/leave.rs`). Nothing has changed yet when it runs:
+the page, the trail cursor and the module's state are untouched.
+
+- `true` — the shell goes ahead exactly as in D5/D6.
+- `false` — the module is asking the user (the GitHub PR page's
+  unsent-drafts confirm, docs/0043 D7). It owns `resume`, a
+  continuation that commits the same navigation without asking again:
+  the module calls it when the user agrees and drops it when they
+  decline, which cancels the navigation with the trail unmoved.
+  A newer vetoed navigation replaces an older parked one.
+
+Same-page jumps (the module crumb mid-module) are not vetoed by the
+shell: they are the module's own re-entry (docs/0014 §5 D7) and the
+module guards them itself. A Back/Forward that cannot move (start or end
+of the trail) does not ask.
