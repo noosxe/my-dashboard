@@ -18,6 +18,8 @@ use gpui_component::{
     v_flex,
 };
 
+mod leave;
+
 use crate::home;
 use crate::module::ModuleIcon;
 use crate::nav::{self, CrumbAction, Navigator, Page, Route};
@@ -217,7 +219,7 @@ impl DashboardShell {
     /// then `go` records the destination visit. Same-branch jumps
     /// (the module crumb mid-module) skip the collapse — the module's
     /// own `Reentered` handler returns to root (docs/0014 §5 D7).
-    fn navigate(&mut self, page: Page, window: &mut Window, cx: &mut Context<Self>) {
+    fn navigate_committed(&mut self, page: Page, window: &mut Window, cx: &mut Context<Self>) {
         let current = self.nav.read(cx).page.clone();
         if let Page::Module(id) = &current
             && current != page
@@ -270,20 +272,6 @@ impl DashboardShell {
     pub fn open_about(&mut self, cx: &mut Context<Self>) {
         self.about_open = true;
         cx.notify();
-    }
-
-    fn go_back(&mut self, _: &nav::Back, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(route) = self.nav.update(cx, |nav, cx| nav.back(cx)) {
-            self.focus_root(window, cx);
-            self.activate_route(&route, window, cx);
-        }
-    }
-
-    fn go_forward(&mut self, _: &nav::Forward, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(route) = self.nav.update(cx, |nav, cx| nav.forward(cx)) {
-            self.focus_root(window, cx);
-            self.activate_route(&route, window, cx);
-        }
     }
 }
 
