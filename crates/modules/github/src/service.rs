@@ -6732,11 +6732,12 @@ pub fn start_connect(state: Entity<GithubState>, window: AnyWindowHandle, cx: &m
             start.expires_in_secs
         );
         cx.update(|cx| {
-            state.update(cx, |s, _| {
+            state.update(cx, |s, cx| {
                 s.auth = AuthStatus::ConnectFlow(ConnectPhase::AwaitApproval {
                     user_code: start.user_code.clone(),
                     verification_uri: start.verification_uri.clone(),
                 });
+                cx.notify();
             });
             cx.open_url(&start.verification_uri);
         });
