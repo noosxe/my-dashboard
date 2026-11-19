@@ -54,12 +54,24 @@ anyhow = "1"
 # re-verification checklist, an app smoke, and re-sync the vendored
 # theme presets (cp themes/*.json minus aurora.json →
 # crates/core/assets/themes/presets/, docs/0074 D8).
-gpui = { package = "gpui-pre", version = "=0.3.12" }
-gpui_platform = { package = "gpui-pre-platform", version = "=0.3.12", features = [
+#
+# TRIAL (#525): the GPUI Fast backend. Our direct `gpui`/`gpui_platform`
+# pins move to the gpui-fast family (same library names, so `use gpui::…`
+# is unchanged) and gpui-component's `gpui-fast` feature swaps its own
+# `gpui` the same way (an extern-crate alias, not a type bridge), so every
+# crate that speaks `gpui` speaks the one implementation. gpui-fast 0.1.16
+# is the pair gpui-component v0.10.0 pins (0.1.17 exists); it is built on a
+# newer zed snapshot than gpui-pre 0.3.12. gpui-component/base/assets still
+# list gpui-pre as a non-optional dependency, so it compiles but no code
+# reaches it. The http-client, scheduler and util crates stay gpui-pre
+# in both families, which is why `reqwest_client` below needs no change.
+gpui = { package = "gpui-fast", version = "=0.1.16" }
+gpui_platform = { package = "gpui-fast-platform", version = "=0.1.16", features = [
     "font-kit", "x11", "wayland",
 ] }
 # Concrete gpui HttpClient — serves remote avatar images (docs/0005 §6.3,
-# doc 0012 D1). Same gpui-pre family as gpui; exact-pinned with it.
+# doc 0012 D1). Implements gpui-pre-http-client's HttpClient, the same crate
+# gpui-fast depends on; exact-pinned with it.
 reqwest_client = { package = "gpui-pre-reqwest-client", version = "=0.3.12" }
 # Repo renamed longbridge/gpui-kit (release page); the old URL 301s — kept
 # for now to avoid re-resolving the whole family in one lockfile regen.
@@ -67,7 +79,7 @@ reqwest_client = { package = "gpui-pre-reqwest-client", version = "=0.3.12" }
 # the full grammar pack (35 languages, cc-built). Feature names upstream;
 # deliberate full-pack enable over cherry-picking. syntect retires in 0070
 # part 2.
-gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "f697c3133d55c64fa8a5b67926147fb3dadd276d", features = ["tree-sitter", "tree-sitter-languages"] } # v0.10.0
+gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "f697c3133d55c64fa8a5b67926147fb3dadd276d", features = ["tree-sitter", "tree-sitter-languages", "gpui-fast"] } # v0.10.0
 # The nav-history primitive (docs/0048 D1): gpui_base::History — same
 # pinned checkout as gpui-component, so the family stays on one rev.
 gpui_base = { package = "gpui-base", git = "https://github.com/longbridge/gpui-component", rev = "f697c3133d55c64fa8a5b67926147fb3dadd276d" }
@@ -136,8 +148,9 @@ debug = "limited"
 # Specs use the real gpui-pre-* package names (`gpui` is a package rename).
 [profile.dev.package]
 gpui-pre = { opt-level = 3 }
-gpui-pre-platform = { opt-level = 3 }
 gpui-pre-macros = { opt-level = 3 }
+gpui-fast = { opt-level = 3 }
+gpui-fast-platform = { opt-level = 3 }
 taffy = { opt-level = 3 }
 rustybuzz = { opt-level = 3 }
 ttf-parser = { opt-level = 3 }
