@@ -5492,8 +5492,8 @@ pub(crate) fn timeline_order(
     reviews: &[gql::PrReview],
 ) -> Vec<(TimelineKind, usize)> {
     fn stamp(ts: Option<&str>) -> u64 {
-        ts.and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            .map(|t| t.timestamp().max(0) as u64)
+        ts.and_then(|s| s.parse::<jiff::Timestamp>().ok())
+            .map(|t| t.as_second().max(0) as u64)
             .unwrap_or(0)
     }
     let mut entries: Vec<(u64, TimelineKind, usize)> = comments
@@ -5576,8 +5576,8 @@ pub(crate) fn delete_row(
 /// edited (same stamp rule as `timeline_order`). Pure — table-tested.
 pub(crate) fn row_is_edited(created: Option<&str>, updated: Option<&str>) -> bool {
     fn stamp(ts: Option<&str>) -> Option<i64> {
-        ts.and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            .map(|t| t.timestamp())
+        ts.and_then(|s| s.parse::<jiff::Timestamp>().ok())
+            .map(|t| t.as_second())
     }
     match (stamp(created), stamp(updated)) {
         (Some(c), Some(u)) => u > c,

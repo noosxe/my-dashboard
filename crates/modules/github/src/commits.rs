@@ -9,7 +9,6 @@
 //! quick filter changes. The delegate never dispatches a fetch itself —
 //! `load_more` hops to the page, which owns the spec runner.
 
-use chrono::{DateTime, NaiveDate, TimeZone};
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::{
@@ -18,6 +17,8 @@ use gpui_component::{
     searchable_list::{SearchableListDelegate, SearchableListItem, SearchableVec},
     tag::Tag,
 };
+use jiff::civil::Date;
+use jiff::tz::TimeZone;
 
 use crate::card::GIT_BRANCH;
 use crate::commit_row::{author_name, commit_row, day_header};
@@ -31,23 +32,24 @@ use crate::usage::{Origin, Surface, Trigger};
 /// doesn't parse — they keep their place under an undated header.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct DaySection {
-    pub day: Option<NaiveDate>,
+    pub day: Option<Date>,
     pub start: usize,
     pub len: usize,
 }
 
 /// The local calendar day a commit landed on (D5 groups by the reader's
 /// day, not UTC's).
-fn commit_day<Tz: TimeZone>(row: &CommitRow, tz: &Tz) -> Option<NaiveDate> {
-    DateTime::parse_from_rfc3339(&row.committed_date)
+fn commit_day(row: &CommitRow, tz: &TimeZone) -> Option<Date> {
+    row.committed_date
+        .parse::<jiff::Timestamp>()
         .ok()
-        .map(|t| t.with_timezone(tz).date_naive())
+        .map(|t| tz.to_datetime(t).date())
 }
 
 /// Group newest-first rows into consecutive day sections (D5). Derived
 /// from the held rows each sync, so a day split across a page boundary
 /// merges as soon as the next page lands.
-pub(crate) fn day_sections<Tz: TimeZone>(rows: &[CommitRow], tz: &Tz) -> Vec<DaySection> {
+pub(crate) fn day_sections(rows: &[CommitRow], tz: &TimeZone) -> Vec<DaySection> {
     let mut sections: Vec<DaySection> = Vec::new();
     for (ix, row) in rows.iter().enumerate() {
         let day = commit_day(row, tz);
@@ -64,17 +66,17 @@ pub(crate) fn day_sections<Tz: TimeZone>(rows: &[CommitRow], tz: &Tz) -> Vec<Day
 }
 
 /// The day header's text (D5): "Commits on Oct 21, 2026".
-pub(crate) fn day_label(day: Option<NaiveDate>) -> String {
+pub(crate) fn day_label(day: Option<Date>) -> String {
     match day {
-        Some(d) => format!("Commits on {}", d.format("%b %-d, %Y")),
+        Some(d) => format!("Commits on {}", d.strftime("%b %-d, %Y")),
         None => "Commits on an unknown date".to_string(),
     }
 }
 
 /// The header's debug id day (D6): `commits-day-<yyyy-mm-dd>`.
-pub(crate) fn day_key(day: Option<NaiveDate>) -> String {
+pub(crate) fn day_key(day: Option<Date>) -> String {
     match day {
-        Some(d) => d.format("%Y-%m-%d").to_string(),
+        Some(d) => d.strftime("%Y-%m-%d").to_string(),
         None => "unknown".to_string(),
     }
 }
@@ -133,7 +135,7 @@ impl CommitsDelegate {
         if filtered == self.rows && query == self.query && can_more == self.can_more {
             return false;
         }
-        self.sections = day_sections(&filtered, &chrono::Local);
+        self.sections = day_sections(&filtered, &TimeZone::system());
         self.rows = filtered;
         self.query = query.to_string();
         self.can_more = can_more;
@@ -478,8 +480,9 @@ mod tests {
     use super::{CommitsDelegate, day_key, day_label, day_sections, filter_commits};
     use crate::commit_row::commit_label;
     use crate::gql::{self, CommitRow};
-    use chrono::{FixedOffset, NaiveDate};
     use gpui::WeakEntity;
+    use jiff::civil::date;
+    use jiff::tz::{Offset, TimeZone};
 
     fn row(oid: &str, headline: &str, date: &str) -> CommitRow {
         CommitRow {
@@ -509,7 +512,7 @@ mod tests {
     #[test]
     fn sections_group_by_local_day_across_midnight() {
         // UTC+2: 23:30Z on the 20th is 01:30 on the 21st locally.
-        let tz = FixedOffset::east_opt(2 * 3600).unwrap();
+        let tz = Offset::from_hours(2).unwrap().to_time_zone();
         let rows = vec![
             row(&oid(1), "a", "2026-10-21T10:00:00Z"),
             row(&oid(2), "b", "2026-10-20T23:30:00Z"),
@@ -518,24 +521,24 @@ mod tests {
         ];
         let s = day_sections(&rows, &tz);
         assert_eq!(s.len(), 3);
-        assert_eq!(s[0].day, NaiveDate::from_ymd_opt(2026, 10, 21));
+        assert_eq!(s[0].day, Some(date(2026, 10, 21)));
         assert_eq!(
             (s[0].start, s[0].len),
             (0, 2),
             "the 23:30Z commit is local Oct 21"
         );
-        assert_eq!(s[1].day, NaiveDate::from_ymd_opt(2026, 10, 20));
+        assert_eq!(s[1].day, Some(date(2026, 10, 20)));
         assert_eq!((s[1].start, s[1].len), (2, 1));
         assert_eq!((s[2].start, s[2].len), (3, 1));
         // The same rows in UTC split differently — the grouping is local.
-        let utc = FixedOffset::east_opt(0).unwrap();
+        let utc = TimeZone::UTC;
         assert_eq!(day_sections(&rows, &utc).len(), 3);
         assert_eq!(day_sections(&rows, &utc)[0].len, 1);
     }
 
     #[test]
     fn sections_merge_a_day_split_across_a_page_boundary() {
-        let tz = FixedOffset::east_opt(0).unwrap();
+        let tz = TimeZone::UTC;
         let mut rows = vec![
             row(&oid(1), "a", "2026-10-21T10:00:00Z"),
             row(&oid(2), "b", "2026-10-20T12:00:00Z"),
@@ -556,7 +559,7 @@ mod tests {
 
     #[test]
     fn unparseable_dates_keep_their_place() {
-        let tz = FixedOffset::east_opt(0).unwrap();
+        let tz = TimeZone::UTC;
         let rows = vec![
             row(&oid(1), "a", "2026-10-21T10:00:00Z"),
             row(&oid(2), "b", "garbage"),
@@ -570,14 +573,11 @@ mod tests {
     #[test]
     fn day_labels_read_like_github() {
         assert_eq!(
-            day_label(NaiveDate::from_ymd_opt(2026, 10, 21)),
+            day_label(Some(date(2026, 10, 21))),
             "Commits on Oct 21, 2026"
         );
-        assert_eq!(
-            day_label(NaiveDate::from_ymd_opt(2026, 1, 3)),
-            "Commits on Jan 3, 2026"
-        );
-        assert_eq!(day_key(NaiveDate::from_ymd_opt(2026, 1, 3)), "2026-01-03");
+        assert_eq!(day_label(Some(date(2026, 1, 3))), "Commits on Jan 3, 2026");
+        assert_eq!(day_key(Some(date(2026, 1, 3))), "2026-01-03");
     }
 
     #[test]

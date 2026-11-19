@@ -99,7 +99,7 @@ pub(crate) fn action_copy(
 
 /// The later of two RFC 3339 timestamps; an unparseable one loses.
 fn newest<'a>(a: Option<&'a str>, b: Option<&'a str>) -> Option<&'a str> {
-    let parse = |s: &str| chrono::DateTime::parse_from_rfc3339(s).ok();
+    let parse = |s: &str| s.parse::<jiff::Timestamp>().ok();
     match (
         a.and_then(parse).map(|t| (t, a)),
         b.and_then(parse).map(|t| (t, b)),

@@ -3187,8 +3187,8 @@ pub(crate) fn lock_reason_label(reason: Option<&str>) -> &'static str {
 /// newer than its created stamp (0019 D4). Pure — table-tested.
 pub(crate) fn row_is_edited(created: Option<&str>, updated: Option<&str>) -> bool {
     fn stamp(ts: Option<&str>) -> Option<i64> {
-        ts.and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            .map(|t| t.timestamp())
+        ts.and_then(|s| s.parse::<jiff::Timestamp>().ok())
+            .map(|t| t.as_second())
     }
     match (stamp(created), stamp(updated)) {
         (Some(c), Some(u)) => u > c,
@@ -3238,8 +3238,8 @@ fn row_key(row: &TimelineRow<'_>) -> (Option<i64>, u8) {
 }
 
 fn parse_stamp(ts: Option<&str>) -> Option<i64> {
-    ts.and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-        .map(|t| t.timestamp())
+    ts.and_then(|s| s.parse::<jiff::Timestamp>().ok())
+        .map(|t| t.as_second())
 }
 
 /// docs/0021 D3 — muted row copy. A label name renders as the rail's chip

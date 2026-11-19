@@ -259,12 +259,14 @@ fn spoken_duration(secs: u64) -> String {
 
 /// `14:03` from an epoch, local time.
 pub(crate) fn local_hhmm(epoch: u64) -> String {
-    use chrono::TimeZone as _;
-    chrono::Local
-        .timestamp_opt(epoch as i64, 0)
-        .single()
-        .map(|t| t.format("%H:%M").to_string())
-        .unwrap_or_else(|| "??:??".into())
+    jiff::Timestamp::from_second(epoch as i64)
+        .map(|t| {
+            jiff::tz::TimeZone::system()
+                .to_datetime(t)
+                .strftime("%H:%M")
+                .to_string()
+        })
+        .unwrap_or_else(|_| "??:??".into())
 }
 
 #[cfg(test)]

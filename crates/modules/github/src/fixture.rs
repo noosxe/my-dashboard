@@ -166,8 +166,8 @@ impl FixtureHttp {
             return body;
         };
         let g = bucket.at(now);
-        let reset = chrono::DateTime::from_timestamp(g.reset_epoch as i64, 0)
-            .map(|t| t.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+        let reset = jiff::Timestamp::from_second(g.reset_epoch as i64)
+            .map(|t| t.to_string())
             .unwrap_or_default();
         data.insert(
             "rateLimit".into(),
@@ -525,8 +525,8 @@ mod tests {
             (Some(188), Some(3))
         );
         assert_eq!(body["data"]["viewer"]["login"], "fixture-user");
-        let reset = chrono::DateTime::parse_from_rfc3339(rl["resetAt"].as_str().unwrap()).unwrap();
-        assert_eq!(reset.timestamp() as u64, rate.reset_epoch);
+        let reset: jiff::Timestamp = rl["resetAt"].as_str().unwrap().parse().unwrap();
+        assert_eq!(reset.as_second() as u64, rate.reset_epoch);
 
         let rest = http
             .request(Verb::Get, "https://api.github.com/user", None, None)

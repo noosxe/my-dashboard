@@ -4,7 +4,7 @@ use crate::gql;
 const REPO: &str = "acme/widgets";
 
 fn ago(days: i64) -> String {
-    (chrono::Utc::now() - chrono::Duration::days(days)).to_rfc3339()
+    (jiff::Timestamp::now() - jiff::SignedDuration::from_hours(days * 24)).to_string()
 }
 
 fn summary(draft: bool, updated: Option<String>, url: &str) -> gql::PullRequest {

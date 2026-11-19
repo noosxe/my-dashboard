@@ -415,9 +415,11 @@ fn graphql_budget(body: Option<&str>, headers: Option<RateLimit>) -> Option<Budg
     let body = body?;
     let env: Envelope = serde_json::from_str(body).ok()?;
     let rl = env.data?.rate_limit?;
-    let reset_at = chrono::DateTime::parse_from_rfc3339(&rl.reset_at)
+    let reset_at = rl
+        .reset_at
+        .parse::<jiff::Timestamp>()
         .ok()?
-        .timestamp()
+        .as_second()
         .max(0) as u64;
     Some(BudgetSnapshot {
         limit: headers.map_or(0, |r| r.limit),
@@ -812,9 +814,11 @@ fn graphql_flight_cost(body: Option<&str>) -> Option<(u32, u32, u64, Option<u32>
     }
     let env: Envelope = serde_json::from_str(body?).ok()?;
     let rl = env.data?.rate_limit?;
-    let reset = chrono::DateTime::parse_from_rfc3339(&rl.reset_at)
+    let reset = rl
+        .reset_at
+        .parse::<jiff::Timestamp>()
         .ok()?
-        .timestamp()
+        .as_second()
         .max(0) as u64;
     Some((
         rl.cost.max(0) as u32,
