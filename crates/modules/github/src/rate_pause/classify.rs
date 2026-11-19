@@ -101,5 +101,14 @@ pub(crate) fn paused_copy(lane: Lane, until: u64) -> String {
     format!("{} paused · resumes {}", lane.name(), local_hhmm(until))
 }
 
+/// Whether `message` is a [`paused_copy`] note, so a load-error cell can
+/// say when the lane resumes instead of advising a retry the pause holds
+/// (#888).
+pub(crate) fn is_paused_copy(message: &str) -> bool {
+    [Lane::Rest, Lane::Graphql]
+        .iter()
+        .any(|lane| message.starts_with(&format!("{} paused · resumes ", lane.name())))
+}
+
 #[cfg(test)]
 mod tests;
