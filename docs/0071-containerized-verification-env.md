@@ -233,6 +233,15 @@ beacon's issue 201 under a GraphQL pause: the detail read is held (no
 `IssueDetail` request in `requests`) and the page says so instead of a
 fetch error (#887), with `audit`, `tab-stops` and `critique`.
 
+`pr-shell-leave.txt` (session `shellleave`, the committed fixtures, pinned
+clock) queues a review draft on PR 107's Files tab, then jumps to Settings
+from the sidebar and presses Back: each shows the discard confirm with the
+page still up (`audit`, `critique`); Keep editing cancels, and Discard
+resumes the held jump (#841, docs/0043 D7). Settings' Disconnect confirm
+and the auth-loss toast have no receipt: the former is reachable only
+past the sidebar veto, the latter needs a revoked token the fixture
+transport cannot simulate; both are unit-tested.
+
 `fixture-generations.txt` (session `fixgen`, 1280x800, same fixtures and
 clock; no UI is driven) walks the fixture transport's change simulation
 (docs/0084 §8, docs/0081 §12.1): a REST read of PR 101 answers 200, then
