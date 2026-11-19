@@ -516,8 +516,8 @@ pub struct Repo {
 fn stamp_epoch(stamp: &Option<String>) -> u64 {
     stamp
         .as_deref()
-        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-        .map(|t| t.timestamp().max(0) as u64)
+        .and_then(|s| s.parse::<jiff::Timestamp>().ok())
+        .map(|t| t.as_second().max(0) as u64)
         .unwrap_or(0)
 }
 
@@ -3572,9 +3572,10 @@ impl RateLimitField {
     /// Window-reset epoch from the RFC-3339 `resetAt`; an unparseable
     /// timestamp falls back to now+60s (conservative pause, Q9).
     pub fn reset_epoch(&self) -> u64 {
-        chrono::DateTime::parse_from_rfc3339(&self.reset_at)
+        self.reset_at
+            .parse::<jiff::Timestamp>()
             .ok()
-            .map(|t| t.timestamp().max(0) as u64)
+            .map(|t| t.as_second().max(0) as u64)
             .unwrap_or_else(|| {
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)

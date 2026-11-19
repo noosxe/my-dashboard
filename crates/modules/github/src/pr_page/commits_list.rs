@@ -34,7 +34,7 @@ impl PrCommitsDelegate {
         if rows == self.rows {
             return false;
         }
-        self.sections = day_sections(&rows, &chrono::Local);
+        self.sections = day_sections(&rows, &jiff::tz::TimeZone::system());
         self.rows = rows;
         true
     }

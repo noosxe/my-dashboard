@@ -1468,12 +1468,12 @@ dependencies = [
 name = "dashboard-module-github"
 version = "0.1.0"
 dependencies = [
- "chrono",
  "dashboard-agent",
  "dashboard-core",
  "futures",
  "gpui-component",
  "gpui-pre",
+ "jiff",
  "keyring",
  "linkify",
  "log",

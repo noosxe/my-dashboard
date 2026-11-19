@@ -25,8 +25,8 @@ pub(super) enum Entry {
 }
 
 fn stamp(ts: Option<&str>) -> i64 {
-    ts.and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-        .map_or(0, |t| t.timestamp())
+    ts.and_then(|s| s.parse::<jiff::Timestamp>().ok())
+        .map_or(0, |t| t.as_second())
 }
 
 /// The visible cards and the events in one ascending order. Stable: at an

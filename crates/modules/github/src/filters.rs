@@ -107,8 +107,8 @@ pub(crate) struct RepoViewFilters {
 /// RFC-3339 → sort key; an unparseable/missing stamp sorts oldest
 /// (defensive, matching `relative_age`'s treatment of blank stamps).
 fn epoch(at: Option<&str>) -> i64 {
-    at.and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-        .map(|t| t.timestamp())
+    at.and_then(|s| s.parse::<jiff::Timestamp>().ok())
+        .map(|t| t.as_second())
         .unwrap_or(i64::MIN)
 }
 

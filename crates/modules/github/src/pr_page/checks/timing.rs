@@ -1,7 +1,6 @@
 //! A check row's time label (docs/0016 D7, #792), from `CheckRun.startedAt`
 //! and `completedAt`. Status contexts have neither and show nothing.
 
-use chrono::DateTime;
 use dashboard_core::freshness::relative_age;
 
 use crate::gql::{CheckState, PrCheck};
@@ -19,9 +18,9 @@ fn format_duration(secs: i64) -> String {
 /// start and end, and a skewed clock an end before the start: neither is a
 /// duration, so both show nothing.
 fn run_duration(started_at: &str, completed_at: &str) -> Option<String> {
-    let started = DateTime::parse_from_rfc3339(started_at).ok()?;
-    let completed = DateTime::parse_from_rfc3339(completed_at).ok()?;
-    let secs = (completed - started).num_seconds();
+    let started: jiff::Timestamp = started_at.parse().ok()?;
+    let completed: jiff::Timestamp = completed_at.parse().ok()?;
+    let secs = completed.duration_since(started).as_secs();
     (secs > 0).then(|| format_duration(secs))
 }
 
@@ -98,10 +97,10 @@ mod tests {
 
     #[test]
     fn a_running_row_says_when_it_started() {
-        let started = (chrono::Utc::now() - chrono::Duration::minutes(3)).to_rfc3339();
+        let started = (jiff::Timestamp::now() - jiff::SignedDuration::from_mins(3)).to_string();
         let c = check(CheckState::Pending, Some(&started), None);
         assert_eq!(check_timing(&c).as_deref(), Some("started 3m ago"));
-        let just = chrono::Utc::now().to_rfc3339();
+        let just = jiff::Timestamp::now().to_string();
         let c = check(CheckState::Pending, Some(&just), None);
         assert_eq!(check_timing(&c).as_deref(), Some("started just now"));
     }

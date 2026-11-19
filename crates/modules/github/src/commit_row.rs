@@ -2,7 +2,6 @@
 //! (docs/0081 D5/D6, #793): the two-line row, its accessible name, the
 //! copy-SHA button and the day header, so both lists read the same.
 
-use chrono::DateTime;
 use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::{
@@ -86,10 +85,13 @@ pub(crate) fn commit_row(row: &CommitRow, cx: &App) -> ListItem {
     );
     let ci_text = rollup.map(|s| ci_row_glyph(s, cx).2);
     let label = commit_label(row, &relative, ci_text);
-    let absolute = DateTime::parse_from_rfc3339(&row.committed_date)
+    let absolute = row
+        .committed_date
+        .parse::<jiff::Timestamp>()
         .map(|t| {
-            t.with_timezone(&chrono::Local)
-                .format("%b %-d, %Y, %H:%M")
+            jiff::tz::TimeZone::system()
+                .to_datetime(t)
+                .strftime("%b %-d, %Y, %H:%M")
                 .to_string()
         })
         .unwrap_or_default();
@@ -276,7 +278,7 @@ impl RenderOnce for CopyShaButton {
 /// where the same day can head two sections (the PR list keeps commit
 /// order, and committer dates aren't monotonic), so ids stay unique.
 pub(crate) fn day_header(
-    day: Option<chrono::NaiveDate>,
+    day: Option<jiff::civil::Date>,
     repeat: Option<usize>,
     cx: &App,
 ) -> Stateful<Div> {
