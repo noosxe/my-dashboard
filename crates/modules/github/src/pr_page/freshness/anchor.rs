@@ -13,7 +13,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use gpui::{Pixels, ScrollHandle, Window, px};
+use gpui::{Context, Pixels, ScrollHandle, px};
 
 use crate::pr_page::PrDetailPage;
 
@@ -111,7 +111,12 @@ impl PrDetailPage {
     /// At the start of a frame: after a landing the first frame paints the
     /// new cards, which gives them bounds; the next frame starts here by
     /// putting the remembered card back, before it lays anything out.
-    pub(in crate::pr_page) fn restore_timeline_anchor(&mut self, window: &mut Window) {
+    ///
+    /// The follow-up frame is asked for with `cx.notify()`, not
+    /// `window.refresh()`: a retained-mode backend (gpui-fast) redraws a
+    /// view only when something it tracks changed, so a bare refresh would
+    /// never run this render again and the card would stay shifted.
+    pub(in crate::pr_page) fn restore_timeline_anchor(&mut self, cx: &mut Context<Self>) {
         let Some(pending) = self.timeline_anchor.as_mut() else {
             return;
         };
@@ -121,7 +126,7 @@ impl PrDetailPage {
         }
         if !pending.painted {
             pending.painted = true;
-            window.refresh();
+            cx.notify();
             return;
         }
         let pending = self.timeline_anchor.take().expect("checked above");
@@ -130,7 +135,7 @@ impl PrDetailPage {
             &self.timeline_keys.borrow(),
             &pending.anchor,
         ) {
-            window.refresh();
+            cx.notify();
         }
     }
 }

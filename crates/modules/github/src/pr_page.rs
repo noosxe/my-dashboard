@@ -5330,7 +5330,7 @@ impl Focusable for PrDetailPage {
 impl Render for PrDetailPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.apply_rail_focus(window, cx);
-        self.restore_timeline_anchor(window);
+        self.restore_timeline_anchor(cx);
         self.sync_comment_actions(window, cx);
         self.sync_diff(cx);
         self.sync_commits_list(cx);
