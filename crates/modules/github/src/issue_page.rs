@@ -171,6 +171,8 @@ use crate::pickers::{
 mod detail_read;
 mod pause_gate;
 #[cfg(test)]
+mod render_wake_tests;
+#[cfg(test)]
 mod test_rig;
 mod write_refetch;
 mod xref;
@@ -186,6 +188,8 @@ impl IssueDetailPage {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        // docs/0086 §4.3: the "synced Nm ago" label advances on its own.
+        crate::render_wake::spawn(cx, |_, _| true);
         let timeline_scroll = ScrollHandle::new();
         let comment = cx.new(|cx| {
             TextareaState::new(window, cx)

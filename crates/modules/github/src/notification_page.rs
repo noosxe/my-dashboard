@@ -136,6 +136,8 @@ impl NotificationDetailPage {
         cx: &mut Context<Self>,
     ) -> Self {
         let _ = window;
+        // docs/0086 §4.3: the "synced Nm ago" label advances on its own.
+        crate::render_wake::spawn(cx, |_, _| true);
         // docs/0026 D3/§4.3: the mark fires before anything renders — the
         // thread GET (fired right after) runs in parallel and may land
         // first or second; neither waits for the other.
@@ -1059,6 +1061,17 @@ mod tests {
         });
         assert!(read);
         assert_eq!(mark, MarkState::Idle);
+    }
+
+    #[gpui::test]
+    fn the_page_re_renders_when_the_clock_advances(cx: &mut gpui::TestAppContext) {
+        // docs/0086 §4.3: the "synced Nm ago" label has its own render
+        // wake; nothing else notifies an idle page.
+        let mock = lane_mock(0, 200, thread_payload("Issue", Some("u"), false));
+        let (page, vcx) = probe_page(cx, probe_seed(false, "Issue", Some("u")), mock);
+        vcx.run_until_parked();
+        let seen = crate::render_wake::testing::notifies_over(&page, vcx, 2);
+        assert_eq!(seen, 2, "one re-render per wake");
     }
 
     #[gpui::test]

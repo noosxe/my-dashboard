@@ -33,6 +33,7 @@ pub mod pr_page;
 mod pr_summary;
 mod rate_pause;
 mod reaction_menu;
+mod render_wake;
 mod run_jobs;
 pub mod service;
 pub mod settings;

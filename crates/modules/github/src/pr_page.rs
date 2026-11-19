@@ -854,6 +854,9 @@ impl PrDetailPage {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        // docs/0086 §4.3: "synced Nm ago" while the PR is not watched; the
+        // 5 s loop covers it while watched.
+        crate::render_wake::spawn(cx, |page: &Self, cx| !page.watched(cx));
         let timeline_scroll = ScrollHandle::new();
         let comment = cx.new(|cx| {
             TextareaState::new(window, cx)
@@ -6966,6 +6969,39 @@ mod tests {
             vcx.debug_bounds("pr-synced").is_some(),
             "a landed record renders the label"
         );
+    }
+
+    /// docs/0086 §4.3: while the PR is not watched (here: the module is
+    /// not on screen) the 5 s loop is idle, so "synced Nm ago" needs the
+    /// render wake; while it is watched the loop owns the repaint.
+    #[gpui::test]
+    fn unwatched_page_re_renders_when_the_clock_advances(cx: &mut gpui::TestAppContext) {
+        cx.update(dashboard_core::status::init);
+        cx.update(gpui_component::init);
+        cx.update(|cx| cx.background_executor().allow_parking());
+        let state: gpui::Entity<GithubState> = cx.update(|cx| {
+            let client: std::sync::Arc<dyn crate::http::Http> = std::sync::Arc::new(ProbeHttp);
+            let store: std::sync::Arc<dyn crate::auth::TokenStore> =
+                std::sync::Arc::new(ProbeStore);
+            cx.new(|_| {
+                GithubState::new(
+                    client,
+                    store,
+                    Default::default(),
+                    Default::default(),
+                    GithubCache::new(dashboard_core::paths::AppPaths::init()),
+                    DraftStore::at_tmp("pr-page-wake"),
+                )
+            })
+        });
+        cx.update(|cx| state.update(cx, |s, _| s.auth = crate::service::AuthStatus::Connected));
+        let (page, vcx) = cx.add_window_view(|window, cx| {
+            PrDetailPage::new(state, "o/r".into(), 7, None, window, cx)
+        });
+        vcx.run_until_parked();
+        assert!(!vcx.read(|cx| page.read(cx).watched(cx)));
+        let seen = crate::render_wake::testing::notifies_over(&page, vcx, 2);
+        assert!(seen >= 2, "each wake re-renders an unwatched page ({seen})");
     }
 
     #[gpui::test]

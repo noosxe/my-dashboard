@@ -20,12 +20,16 @@
 //! Every raise is mirrored to the log (D8) so the information never
 //! lives only inside a possibly role-less overlay.
 
-use gpui::{App, AppContext as _, Context, Entity, Global, SharedString, Window};
+use gpui::{App, AppContext as _, Context, Entity, Global, SharedString, Task, Window};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::usage_records::now_epoch_ms;
+
+/// The open notification panel's render wake (docs/0086 §4.3): the
+/// relative times have minute granularity, like the card's 30 s wake.
+pub const PANEL_WAKE: Duration = Duration::from_secs(30);
 
 /// Pending-queue cap (docs/0058 D4): drop-oldest so a raiser storm stays
 /// bounded even if no window ever opens.
@@ -307,6 +311,8 @@ pub struct ToastHub {
     /// docs/0059 D3/D4: panel open flag + the open-time snapshot of rows.
     panel_open: bool,
     panel_view: Vec<HubEntry>,
+    /// docs/0086 §4.3: the open panel's relative-time wake; dropped on close.
+    panel_wake: Option<Task<()>>,
 }
 
 impl ToastHub {
@@ -438,10 +444,32 @@ impl ToastHub {
         self.panel_view.len()
     }
 
+    /// docs/0086 §4.3: while the panel is open its rows show relative
+    /// times ("3m ago") that nothing else repaints, so notify the hub
+    /// every [`PANEL_WAKE`]. Call after [`Self::open_panel`]; closing the
+    /// panel drops the timer.
+    pub fn arm_panel_wake(&mut self, cx: &mut Context<Self>) {
+        self.panel_wake = Some(cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(PANEL_WAKE).await;
+                let open = this.update(cx, |hub, cx| {
+                    if hub.panel_open {
+                        cx.notify();
+                    }
+                    hub.panel_open
+                });
+                if !open.unwrap_or(false) {
+                    break;
+                }
+            }
+        }));
+    }
+
     /// Human action: the panel closed (outside click / Esc / re-click).
     /// The snapshot dies with it; the next open re-snapshots.
     pub fn close_panel(&mut self) {
         self.panel_open = false;
+        self.panel_wake = None;
         self.panel_view.clear();
     }
 
@@ -619,6 +647,7 @@ pub fn init(cx: &mut App) {
         log: Arc::new(NoopLog),
         panel_open: false,
         panel_view: Vec::new(),
+        panel_wake: None,
     });
     register_source(APP_SOURCE, "App", cx);
     cx.set_global(ToastsGlobal(hub));
@@ -833,6 +862,38 @@ mod tests {
             assert_eq!(hub.update(cx, |hub, _| hub.open_panel()), 1);
             assert_eq!(hub.read(cx).panel_snapshot()[0].toast.message, "third");
         });
+    }
+
+    /// docs/0086 §4.3: an open panel re-renders as the clock advances (its
+    /// rows show relative times); a closed one stops waking.
+    #[gpui::test]
+    fn open_panel_wakes_for_relative_times(cx: &mut gpui::TestAppContext) {
+        let seen = std::rc::Rc::new(std::cell::Cell::new(0usize));
+        let hub = cx.update(|cx| {
+            init(cx);
+            hub(cx)
+        });
+        let _sub = cx.update(|cx| {
+            let seen = seen.clone();
+            cx.observe(&hub, move |_, _| seen.set(seen.get() + 1))
+        });
+        cx.update(|cx| {
+            hub.update(cx, |hub, cx| {
+                hub.open_panel();
+                hub.arm_panel_wake(cx);
+            })
+        });
+        let step = PANEL_WAKE + Duration::from_millis(1);
+        cx.executor().advance_clock(step);
+        cx.run_until_parked();
+        assert_eq!(seen.get(), 1, "one wake, one re-render");
+        cx.executor().advance_clock(step);
+        cx.run_until_parked();
+        assert_eq!(seen.get(), 2);
+        cx.update(|cx| hub.update(cx, |hub, _| hub.close_panel()));
+        cx.executor().advance_clock(step);
+        cx.run_until_parked();
+        assert_eq!(seen.get(), 2, "a closed panel never wakes");
     }
 
     #[gpui::test]
@@ -1219,6 +1280,7 @@ mod tests {
                 entries: Vec::new(),
                 log: Arc::new(NoopLog),
                 panel_open: false,
+                panel_wake: None,
                 panel_view: Vec::new(),
             });
             hub.update(cx, |hub, cx| hub.restore_unread(store.load_unread(), cx));
