@@ -396,14 +396,6 @@ impl Element for MentionPopup {
     }
 }
 
-impl IntoElement for MentionPopup {
-    type Element = Self;
-
-    fn into_element(self) -> Self::Element {
-        self
-    }
-}
-
 /// D1/D4: the kit's themed popover surface, listbox roles, per-row ids
 /// (docs/0010 D10) — the bridge sees "Mention suggestions" and its rows.
 /// Clicking a row accepts it: the closure captures the token start and
