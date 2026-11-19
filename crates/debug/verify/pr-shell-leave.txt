@@ -1,0 +1,80 @@
+# pr-shell-leave.txt — shell-driven navigation asks before it drops
+# unsent review drafts (docs/0043 D7, docs/0048 amendment, #841): a
+# sidebar jump and history Back show the PR page's discard confirm;
+# Keep editing cancels the navigation, Discard resumes it.
+#
+# Prerequisites: the containerized env (docs/0071) with the GitHub
+# fixtures and the pinned clock, and a session named `shellleave` at 1280x800:
+#   export DASHBOARD_GITHUB_FIXTURE=/work/crates/debug/verify/fixtures/github
+#   export DASHBOARD_FIXED_NOW=2026-10-23T12:00:00Z
+#   dashboard-debug session start --name shellleave --size 1280x800 \
+#     --binary /tmp/target/debug/my-dashboard
+# Run (in-container): dashboard-debug run crates/debug/verify/pr-shell-leave.txt
+#
+# The queueing steps repeat pr-esc-order.txt (coordinates frozen for this
+# fixture set at 1280x800).
+
+--session shellleave
+
+assert-label "Open GitHub module"
+click 11447690740305500471 --wait-frame
+assert-label "Filter repositories"
+click 349678605523893363
+type beacon
+key down
+key enter
+wait-label "PR #108: Loader: a PR that fails its detail read"
+mouse down 900 376
+mouse up 900 376 --wait-frame
+wait-label "Conversation (252)"
+key esc
+wait-label "PR #108: Loader: a PR that fails its detail read"
+mouse down 900 564
+mouse up 900 564 --wait-frame
+wait-label "Conversation (3)"
+mouse down 639 155
+mouse up 639 155 --wait-frame
+wait-label "Add annotation to line 11"
+mouse down 595 294
+mouse up 595 294 --wait-frame
+wait-label "Leave a review comment"
+mouse down 875 645
+mouse up 875 645 --wait-frame
+type "Please handle the empty list"
+mouse down 685 688
+mouse up 685 688 --wait-frame
+wait-label "Submit review"
+
+# Sidebar jump to Settings: the page stays, the confirm opens.
+click-label "Settings" --role TreeItem
+wait-label "Discard 1 review draft?"
+assert-label "Keep editing"
+assert-label "Submit review"
+snapshot sidebar-confirm
+audit
+critique sidebar-confirm
+
+# Keep editing: the jump is cancelled, nothing moved, the draft stays.
+click-label "Keep editing"
+assert-no-label "Discard 1 review draft?"
+assert-label "Submit review"
+assert-label "Files changed (3)"
+
+# History Back (PR place → repo place, inside the module) asks too.
+click-label "Back"
+wait-label "Discard 1 review draft?"
+assert-label "Submit review"
+snapshot back-confirm
+audit
+critique back-confirm
+click-label "Keep editing"
+assert-label "Submit review"
+
+# Discard resumes the held jump: Settings opens and the page is gone.
+click-label "Settings" --role TreeItem
+wait-label "Discard 1 review draft?"
+click-label "Discard" --exact
+wait-frame
+assert-no-label "Submit review"
+assert-no-label "Discard 1 review draft?"
+snapshot after-discard
