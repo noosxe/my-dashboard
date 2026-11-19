@@ -254,10 +254,14 @@ drafts (queued review comments, the finish-review summary, or text in the
 line composer). Then an inline confirm asks "Discard N review drafts?"
 with **Discard** and **Keep editing**; Esc on the confirm is Keep
 editing. The same confirm guards the repo crumb and the module crumb.
-Navigation the shell commits before the module hears of it (a sidebar
-jump to another module, history Back/Forward) and sign-out cannot ask
-first and drop the drafts (tracked in #841). The drafts stay session-only; persisting them
-is #281's scope.
+It guards shell-driven navigation too — a sidebar jump to another
+module and history Back/Forward, including Back/Forward from the PR page
+to the repo view inside the module: the shell asks the module before it
+commits (`ModuleNav::can_leave`, docs/0048 amendment), the PR page
+answers no and shows this confirm, **Discard** resumes the navigation
+and **Keep editing** (or Esc) cancels it with the trail unmoved. Sign-out
+cannot ask first and still drops the drafts (tracked in #841). The
+drafts stay session-only; persisting them is #281's scope.
 
 ### D8 — ids, roles, probe keys (0010 D10)
 

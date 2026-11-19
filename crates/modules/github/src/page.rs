@@ -97,7 +97,7 @@ impl RepoTab {
         }
     }
 }
-use dashboard_core::module::ModuleNav;
+use dashboard_core::module::{LeaveResume, ModuleNav};
 use dashboard_core::nav::{Crumb, NavEvent, Navigator, Page, Route};
 
 use crate::api;
@@ -170,6 +170,9 @@ pub(crate) struct GithubPage {
     /// owns the module content (full takeover — org Select + repo list
     /// unmount; they remount with selection intact on close).
     pr: Option<Entity<pr_page::PrDetailPage>>,
+    /// The shell navigation the PR page's discard confirm is holding
+    /// (#841); see `shell_leave.rs`.
+    shell_resume: Option<LeaveResume>,
     /// The open issue sub-page (docs/0020 D1) — the PR page's sibling;
     /// mutually exclusive with `pr` (opening one closes the other), same
     /// takeover and close semantics.
@@ -289,6 +292,13 @@ pub(crate) struct GithubNav {
 }
 
 impl ModuleNav for GithubNav {
+    fn can_leave(&self, resume: LeaveResume, window: &mut Window, cx: &mut App) -> bool {
+        let Some(page) = self.page.upgrade() else {
+            return true;
+        };
+        page.update(cx, |this, cx| this.shell_may_leave(resume, window, cx))
+    }
+
     fn restore(
         &self,
         payload: &Arc<dyn std::any::Any + Send + Sync>,
@@ -487,6 +497,7 @@ impl GithubPage {
             org_select,
             repo_list,
             pr: None,
+            shell_resume: None,
             issue: None,
             creator: None,
             notification: None,
@@ -1434,6 +1445,7 @@ impl GithubPage {
                         LeaveIntent::ModuleRoot => this.reenter_root(window, cx),
                         // The page emits `OpenSubject` for this intent.
                         LeaveIntent::Subject => {}
+                        LeaveIntent::Shell => this.resume_shell_navigation(window, cx),
                     },
                     // docs/0085 D6: a cross-reference row; the leave guard
                     // already ran on the page.
@@ -4715,6 +4727,7 @@ pub(crate) fn stale_chip_label(
 }
 
 mod filter_menu;
+mod shell_leave;
 
 #[cfg(test)]
 mod list_return_tests;
@@ -4742,7 +4755,7 @@ mod tests {
 
     /// docs/0042 §6 fixture: labels + review requests + authors on one
     /// repo; the viewer login is "me".
-    fn pr(number: i64, title: &str, author: Option<&str>) -> gql::PullRequest {
+    pub(super) fn pr(number: i64, title: &str, author: Option<&str>) -> gql::PullRequest {
         gql::PullRequest {
             key: format!("acme/one#{number}"),
             database_id: None,

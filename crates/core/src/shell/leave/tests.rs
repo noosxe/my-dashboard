@@ -39,12 +39,7 @@ impl ModuleNav for VetoNav {
         }
     }
 
-    fn restore(
-        &self,
-        _: &Arc<dyn std::any::Any + Send + Sync>,
-        _: &mut Window,
-        _: &mut gpui::App,
-    ) {
+    fn restore(&self, _: &Arc<dyn std::any::Any + Send + Sync>, _: &mut Window, _: &mut gpui::App) {
         LOG.with(|l| l.borrow_mut().push("restore"));
     }
 
@@ -143,12 +138,18 @@ fn a_dropped_resume_cancels_the_jump(cx: &mut TestAppContext) {
 fn a_vetoed_back_keeps_the_cursor_until_resumed(cx: &mut TestAppContext) {
     let (nav, shell, vcx) = setup(cx);
     vcx.update(|w, cx| shell.update(cx, |s, cx| s.go_back(&crate::nav::Back, w, cx)));
-    assert!(vcx.update(|_, cx| nav.read(cx).can_back()), "cursor unmoved");
+    assert!(
+        vcx.update(|_, cx| nav.read(cx).can_back()),
+        "cursor unmoved"
+    );
     assert!(LOG.with(|l| l.borrow().is_empty()));
 
     let resume = PARKED.with(|p| p.borrow_mut().take()).expect("parked");
     vcx.update(|w, cx| resume(w, cx));
-    assert!(vcx.update(|_, cx| nav.read(cx).can_forward()), "Back landed");
+    assert!(
+        vcx.update(|_, cx| nav.read(cx).can_forward()),
+        "Back landed"
+    );
     // The resume committed without asking a second time.
     assert!(PARKED.with(|p| p.borrow().is_none()));
 }
@@ -160,5 +161,8 @@ fn without_a_veto_navigation_goes_straight_through(cx: &mut TestAppContext) {
     vcx.update(|w, cx| shell.update(cx, |s, cx| s.navigate(Page::Settings, w, cx)));
     assert_eq!(page_of(&nav, vcx), Page::Settings);
     vcx.update(|w, cx| shell.update(cx, |s, cx| s.go_back(&crate::nav::Back, w, cx)));
-    assert_eq!(LOG.with(|l| l.borrow().clone()), vec!["collapse", "restore"]);
+    assert_eq!(
+        LOG.with(|l| l.borrow().clone()),
+        vec!["collapse", "restore"]
+    );
 }
