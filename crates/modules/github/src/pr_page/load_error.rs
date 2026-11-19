@@ -2,6 +2,7 @@
 //! what went wrong in plain words and offers Retry in place. The raw
 //! status stays in the app's logs, as for the check log (#815).
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
     AnyElement, App, InteractiveElement as _, IntoElement, ParentElement, SharedString, Styled,
     Window, div,
@@ -72,13 +73,17 @@ pub(super) fn error_cell(
                 .text_center()
                 .child(message.to_string()),
         )
-        .child(
-            Button::new(SharedString::from(format!("{id}-retry")))
-                .outline()
-                .small()
-                .label("Retry")
-                .on_click(move |_, window, cx| on_retry(window, cx)),
-        )
+        // #888: Retry is held while the budget is paused; the note
+        // already says when it resumes, so the cell offers nothing to press.
+        .when(!crate::rate_pause::is_paused_copy(message), |cell| {
+            cell.child(
+                Button::new(SharedString::from(format!("{id}-retry")))
+                    .outline()
+                    .small()
+                    .label("Retry")
+                    .on_click(move |_, window, cx| on_retry(window, cx)),
+            )
+        })
         .into_any_element()
 }
 
@@ -104,6 +109,14 @@ mod tests {
             copy.contains("removed") && copy.contains("access"),
             "{copy}"
         );
+    }
+
+    #[test]
+    fn only_a_pause_note_is_a_paused_copy() {
+        use crate::rate_pause::{Lane, is_paused_copy, paused_copy};
+        assert!(is_paused_copy(&paused_copy(Lane::Graphql, 1_800_000_000)));
+        assert!(is_paused_copy(&paused_copy(Lane::Rest, 1_800_000_000)));
+        assert!(!is_paused_copy("GitHub is limiting requests right now."));
     }
 
     #[test]

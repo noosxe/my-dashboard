@@ -3341,11 +3341,15 @@ fn error_cell(message: &str, cx: &Context<IssueDetailPage>) -> AnyElement {
         .text_sm()
         .text_color(cx.theme().danger)
         .child(message.to_string())
-        .child(
-            div()
-                .text_color(cx.theme().muted_foreground)
-                .child("Use the refresh button in the header to retry"),
-        )
+        // #888: refresh is held while the budget is paused; the note
+        // already says when it resumes.
+        .when(!crate::rate_pause::is_paused_copy(message), |cell| {
+            cell.child(
+                div()
+                    .text_color(cx.theme().muted_foreground)
+                    .child("Use the refresh button in the header to retry"),
+            )
+        })
         .into_any_element()
 }
 
