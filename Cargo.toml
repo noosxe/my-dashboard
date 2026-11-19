@@ -77,7 +77,6 @@ dashboard-agent = { path = "crates/agent" }
 dashboard-debug = { path = "crates/debug" }
 dashboard-module-github = { path = "crates/modules/github" }
 dashboard-module-favicon = { path = "crates/modules/favicon" }
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # Dates and times (RUSTSEC-2026-0543 moves us off chrono). `tz-system` +
 # `tzdb-zoneinfo` resolve the local zone from the OS; no bundled tz
 # database, no serde, no logging.
