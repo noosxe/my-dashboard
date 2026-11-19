@@ -248,8 +248,9 @@ impl Module for GithubModule {
         // state entity and rebuilds the page per settings render, so
         // values are always live.
         let settings_state = state.clone();
+        let settings_page = main_page.downgrade();
         let settings: SettingsProvider =
-            Rc::new(move |_window, cx| Some(settings::page(&settings_state, cx)));
+            Rc::new(move |_window, cx| Some(settings::page(&settings_state, &settings_page, cx)));
 
         // History support (docs/0048 D3): restore re-clicks through the
         // page's own open/select handlers; collapse is the existing

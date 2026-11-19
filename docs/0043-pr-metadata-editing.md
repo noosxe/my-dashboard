@@ -259,9 +259,22 @@ module and history Back/Forward, including Back/Forward from the PR page
 to the repo view inside the module: the shell asks the module before it
 commits (`ModuleNav::can_leave`, docs/0048 amendment), the PR page
 answers no and shows this confirm, **Discard** resumes the navigation
-and **Keep editing** (or Esc) cancels it with the trail unmoved. Sign-out
-cannot ask first and still drops the drafts (tracked in #841). The
-drafts stay session-only; persisting them is #281's scope.
+and **Keep editing** (or Esc) cancels it with the trail unmoved.
+
+Sign-out drops the drafts, because they are session-scoped to a
+connected session (docs/0024 D7); parking them across sign-ins could
+re-attach them to another account's page. It asks where it still can:
+
+- **Disconnect in Settings** has its token, so with drafts queued the
+  first click swaps the button for "Disconnecting discards N unsent
+  review drafts." with **Discard and disconnect** and **Stay connected**.
+  Without drafts it signs out at once.
+- **Auth loss** (a revoked or expired token) cannot ask. The page closes
+  as before and a `github` toast says "N unsent review drafts discarded"
+  (singular for one). Nothing is raised when no drafts were queued, nor
+  after a confirmed Disconnect.
+
+The drafts stay session-only; persisting them is #281's scope.
 
 ### D8 — ids, roles, probe keys (0010 D10)
 

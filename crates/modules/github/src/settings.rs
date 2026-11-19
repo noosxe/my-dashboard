@@ -7,7 +7,10 @@
 //! reflect current state (including `window.refresh()` repaints fired by the
 //! service paths).
 
-use gpui::{App, Entity, IntoElement, ParentElement as _, Styled as _};
+use gpui::{
+    App, Entity, InteractiveElement as _, IntoElement, ParentElement as _,
+    StatefulInteractiveElement as _, Styled as _, WeakEntity,
+};
 use gpui_component::{
     ActiveTheme, Disableable as _, Icon, Sizable as _,
     avatar::Avatar,
@@ -20,6 +23,7 @@ use gpui_component::{
 
 use crate::card::{GITHUB_MARK, github_mark};
 use crate::gql;
+use crate::page::GithubPage;
 use crate::service::{self, AuthStatus, ConnectPhase, GithubState};
 
 /// May a new sign-in flow start from settings right now? Sign-in is
@@ -43,8 +47,13 @@ fn sign_in_allowed(auth: &AuthStatus) -> bool {
 }
 
 /// Build the module's settings page from the live state entity.
-pub fn page(state: &Entity<GithubState>, cx: &App) -> SettingPage {
+pub(crate) fn page(
+    state: &Entity<GithubState>,
+    page: &WeakEntity<GithubPage>,
+    cx: &App,
+) -> SettingPage {
     let state = state.clone();
+    let page = page.clone();
 
     let (status_title, status_detail) = {
         let state = state.read(cx);
@@ -96,29 +105,85 @@ pub fn page(state: &Entity<GithubState>, cx: &App) -> SettingPage {
                 "Disconnect",
                 SettingField::render({
                     let state = state.clone();
+                    let page = page.clone();
                     move |options, _, cx| {
-                        Button::new("github-disconnect")
-                            .danger()
-                            .label("Disconnect")
-                            .with_size(options.size())
-                            .disabled(state.read(cx).auth == AuthStatus::Disconnected)
-                            .on_click({
-                                let state = state.clone();
-                                move |_, window, cx| {
-                                    service::sign_out_now(
-                                        state.clone(),
-                                        window.window_handle(),
-                                        cx,
-                                    );
-                                }
-                            })
-                            .into_any_element()
+                        disconnect_control(&state, &page, options.size(), cx)
                     }
                 }),
             )
             .description("Remove the token from the keychain and clear cached data.")
             .keywords(["sign out", "logout", "revoke", "token"]),
         ]))
+}
+
+/// The Disconnect control. With unsent review drafts on an open PR page
+/// the first click turns it into a confirm (#841); otherwise it signs out
+/// at once.
+fn disconnect_control(
+    state: &Entity<GithubState>,
+    page: &WeakEntity<GithubPage>,
+    size: gpui_component::Size,
+    cx: &App,
+) -> gpui::AnyElement {
+    if let Some(count) = page
+        .upgrade()
+        .and_then(|p| p.read(cx).pending_disconnect_drafts(cx))
+    {
+        let prompt = crate::page::disconnect_prompt(count);
+        return v_flex()
+            .id("github-disconnect-confirm")
+            .role(gpui::accesskit::Role::Group)
+            .aria_label(prompt.clone())
+            .gap_2()
+            .child(Label::new(prompt).text_color(cx.theme().warning))
+            .child(
+                h_flex()
+                    .gap_2()
+                    .child(
+                        Button::new("github-disconnect-go")
+                            .danger()
+                            .label("Discard and disconnect")
+                            .with_size(size)
+                            .on_click({
+                                let page = page.clone();
+                                move |_, window, cx| {
+                                    if let Some(page) = page.upgrade() {
+                                        page.update(cx, |p, cx| p.confirm_disconnect(window, cx));
+                                    }
+                                }
+                            }),
+                    )
+                    .child(
+                        Button::new("github-disconnect-keep")
+                            .ghost()
+                            .label("Stay connected")
+                            .with_size(size)
+                            .on_click({
+                                let page = page.clone();
+                                move |_, window, cx| {
+                                    if let Some(page) = page.upgrade() {
+                                        page.update(cx, |p, cx| p.cancel_disconnect(window, cx));
+                                    }
+                                }
+                            }),
+                    ),
+            )
+            .into_any_element();
+    }
+    Button::new("github-disconnect")
+        .danger()
+        .label("Disconnect")
+        .with_size(size)
+        .disabled(state.read(cx).auth == AuthStatus::Disconnected)
+        .on_click({
+            let state = state.clone();
+            let page = page.clone();
+            move |_, window, cx| match page.upgrade() {
+                Some(page) => page.update(cx, |p, cx| p.request_disconnect(window, cx)),
+                None => service::sign_out_now(state.clone(), window.window_handle(), cx),
+            }
+        })
+        .into_any_element()
 }
 
 // ---------------------------------------------------------------------------

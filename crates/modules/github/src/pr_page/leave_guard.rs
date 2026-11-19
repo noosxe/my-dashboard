@@ -48,7 +48,7 @@ pub(crate) enum LeaveIntent {
 
 impl PrDetailPage {
     /// Unsent review drafts a departure would drop.
-    pub(crate) fn review_draft_count(&self, cx: &Context<Self>) -> usize {
+    pub(crate) fn review_draft_count(&self, cx: &gpui::App) -> usize {
         let text = |editor: Option<&gpui::Entity<gpui_component::input::TextareaState>>| {
             editor
                 .map(|e| e.read(cx).value().to_string())
