@@ -107,21 +107,22 @@ pub(super) fn time_ticks(from_ms: u64, to_ms: u64, tz_offset_ms: i64) -> Vec<Tim
     let unit = step.min(DAY_MS) as i64;
     let local_from = from_ms as i64 + off;
     let first = (local_from + unit - 1).div_euclid(unit) * unit - off;
-    let zone = chrono::FixedOffset::east_opt((off / 1_000) as i32)
-        .unwrap_or_else(|| chrono::FixedOffset::east_opt(0).expect("UTC"));
+    let zone =
+        jiff::tz::Offset::from_seconds((off / 1_000) as i32).unwrap_or(jiff::tz::Offset::UTC);
     let mut out = Vec::new();
     let mut t = first.max(0) as u64;
     while t <= to_ms {
-        let local =
-            chrono::DateTime::from_timestamp_millis(t as i64).map(|d| d.with_timezone(&zone));
+        let local = jiff::Timestamp::from_millisecond(t as i64)
+            .ok()
+            .map(|d| zone.to_datetime(d));
         let midnight = (t as i64 + off).rem_euclid(DAY_MS as i64) == 0;
         let label = local.map_or_else(
             || "—".to_string(),
             |d| {
                 if step >= DAY_MS || midnight {
-                    d.format("%b %-d").to_string()
+                    d.strftime("%b %-d").to_string()
                 } else {
-                    d.format("%H:%M").to_string()
+                    d.strftime("%H:%M").to_string()
                 }
             },
         );

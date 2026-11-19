@@ -108,22 +108,20 @@ pub const FIXED_NOW_ENV: &str = "DASHBOARD_FIXED_NOW";
 
 /// The pinned instant, when this is a debug build running under
 /// `DASHBOARD_FIXED_NOW`; `None` otherwise (always `None` in release).
-pub fn fixed_now() -> Option<chrono::DateTime<chrono::Utc>> {
-    static PINNED: std::sync::OnceLock<Option<chrono::DateTime<chrono::Utc>>> =
-        std::sync::OnceLock::new();
+pub fn fixed_now() -> Option<jiff::Timestamp> {
+    static PINNED: std::sync::OnceLock<Option<jiff::Timestamp>> = std::sync::OnceLock::new();
     *PINNED.get_or_init(|| {
         if !cfg!(debug_assertions) {
             return None;
         }
         std::env::var(FIXED_NOW_ENV)
             .ok()
-            .and_then(|v| chrono::DateTime::parse_from_rfc3339(&v).ok())
-            .map(|t| t.with_timezone(&chrono::Utc))
+            .and_then(|v| v.parse::<jiff::Timestamp>().ok())
     })
 }
 
-fn wall_now() -> chrono::DateTime<chrono::Utc> {
-    fixed_now().unwrap_or_else(chrono::Utc::now)
+fn wall_now() -> jiff::Timestamp {
+    fixed_now().unwrap_or_else(jiff::Timestamp::now)
 }
 
 /// Epoch milliseconds on the capture clock (docs/0081 §12.1): the
@@ -136,7 +134,7 @@ fn wall_now() -> chrono::DateTime<chrono::Utc> {
 /// stay on the wall clock.
 pub fn clock_epoch_ms() -> u64 {
     match fixed_now() {
-        Some(t) => t.timestamp_millis().max(0) as u64,
+        Some(t) => t.as_millisecond().max(0) as u64,
         None => std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)
@@ -147,12 +145,10 @@ pub fn clock_epoch_ms() -> u64 {
 /// GitHub-side relative timestamp for rows — "now" / "3m" / "2h" /
 /// "5d"; empty when the payload carries no parseable timestamp.
 pub fn relative_age(updated_at: Option<&str>) -> String {
-    let Some(ts) = updated_at.and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok()) else {
+    let Some(ts) = updated_at.and_then(|s| s.parse::<jiff::Timestamp>().ok()) else {
         return String::new();
     };
-    let secs = (wall_now() - ts.with_timezone(&chrono::Utc))
-        .num_seconds()
-        .max(0);
+    let secs = wall_now().duration_since(ts).as_secs().max(0);
     match secs {
         0..=59 => "now".into(),
         60..=3599 => format!("{}m", secs / 60),
@@ -280,9 +276,9 @@ mod tests {
     fn relative_age_buckets() {
         // Moved from the github module with the helper (docs/0037 D1).
         assert_eq!(relative_age(None), "");
-        let now = chrono::Utc::now();
-        assert_eq!(relative_age(Some(&now.to_rfc3339())), "now");
-        let hours_ago = (chrono::Utc::now() - chrono::Duration::hours(2)).to_rfc3339();
+        let now = jiff::Timestamp::now();
+        assert_eq!(relative_age(Some(&now.to_string())), "now");
+        let hours_ago = (jiff::Timestamp::now() - jiff::SignedDuration::from_hours(2)).to_string();
         assert_eq!(relative_age(Some(&hours_ago)), "2h");
     }
 

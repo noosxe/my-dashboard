@@ -52,23 +52,27 @@ impl Honesty {
     }
 }
 
+/// `epoch_ms` in the system zone, through a strtime pattern; `—` when
+/// the instant is out of range.
+pub(super) fn local_stamp(epoch_ms: u64, pattern: &str) -> String {
+    jiff::Timestamp::from_millisecond(epoch_ms as i64).map_or_else(
+        |_| "—".into(),
+        |t| {
+            jiff::tz::TimeZone::system()
+                .to_datetime(t)
+                .strftime(pattern)
+                .to_string()
+        },
+    )
+}
+
 pub(super) fn format_clock(epoch_ms: u64) -> String {
-    use chrono::TimeZone;
-    chrono::Local
-        .timestamp_millis_opt(epoch_ms as i64)
-        .single()
-        .map(|t| t.format("%H:%M").to_string())
-        .unwrap_or_else(|| "—".into())
+    local_stamp(epoch_ms, "%H:%M")
 }
 
 /// The line's dated stamp (D3): `Nov 4, 19:21`.
 pub(super) fn format_date_time(epoch_ms: u64) -> String {
-    use chrono::TimeZone;
-    chrono::Local
-        .timestamp_millis_opt(epoch_ms as i64)
-        .single()
-        .map(|t| t.format("%b %-d, %H:%M").to_string())
-        .unwrap_or_else(|| "—".into())
+    local_stamp(epoch_ms, "%b %-d, %H:%M")
 }
 
 /// Thousands-grouped counts: `1,087 requests`.
@@ -89,6 +93,24 @@ mod tests {
     use super::*;
 
     const AS_OF: u64 = 10_000_000_000;
+
+    #[test]
+    fn local_stamps_follow_the_local_offset() {
+        // Independent of the date library: derive the wall clock from
+        // the epoch and the offset the page itself reports.
+        let ms = 1_793_836_800_000u64 + 19 * 3_600_000 + 21 * 60_000;
+        let local = ms as i64 + super::super::derive::local_offset_ms(ms);
+        let day_ms = local.rem_euclid(86_400_000);
+        let clock = format!("{:02}:{:02}", day_ms / 3_600_000, day_ms / 60_000 % 60);
+        assert_eq!(format_clock(ms), clock);
+        let stamp = format_date_time(ms);
+        let (date, time) = stamp.split_once(", ").expect("dated stamp");
+        assert_eq!(time, clock);
+        assert!(
+            date.len() >= 5 && date.chars().take(3).all(|c| c.is_ascii_alphabetic()),
+            "{date}"
+        );
+    }
 
     fn honesty(requests: usize, oldest_ms: Option<u64>) -> Honesty {
         Honesty {

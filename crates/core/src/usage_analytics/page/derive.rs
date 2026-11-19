@@ -241,11 +241,9 @@ fn cards(rows: &[UsageRecord], as_of_ms: u64, preset: Preset, pauses: BudgetPaus
 /// The local UTC offset at `as_of`, for D8's per-day columns: the
 /// calculator reads no clock, so the page passes it (D15a).
 pub(super) fn local_offset_ms(as_of_ms: u64) -> i64 {
-    use chrono::{Offset, TimeZone};
-    chrono::Local
-        .timestamp_millis_opt(as_of_ms as i64)
-        .single()
-        .map_or(0, |t| i64::from(t.offset().fix().local_minus_utc()) * 1_000)
+    jiff::Timestamp::from_millisecond(as_of_ms as i64).map_or(0, |t| {
+        i64::from(jiff::tz::TimeZone::system().to_offset(t).seconds()) * 1_000
+    })
 }
 
 /// The D7 default (Q6): the budget with the smaller remaining fraction.
