@@ -16,6 +16,8 @@ pub mod shell;
 pub mod status;
 pub mod store;
 pub(crate) mod theme_presets;
+#[cfg(test)]
+mod theme_refresh_tests;
 pub mod toasts;
 pub mod ui;
 pub mod usage_analytics;
