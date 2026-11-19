@@ -183,6 +183,10 @@ showing only the shared http-client/scheduler/util crates (or nothing).
 At that bump, the `gpui-pre` entries in `[profile.dev.package]` and
 any leftover pins go.
 
+Dropping gpui-pre also removes the cheap rollback path of §7 (flipping
+the feature off and returning to the pinned `gpui-pre` packages), so the
+drop waits until gpui-fast has shipped for a while.
+
 ## 6. Non-goals
 
 Each becomes a GitHub issue labelled `deferred` before the
@@ -216,7 +220,12 @@ needs no new dependency resolution beyond the lockfile restore.
 4. **GPU perf receipt:** `scripts/verify.sh --gpu`, the same
    docs/0041 §10 workload, at least three runs per side to tighten the
    scroll figure; recorded in the PR body.
-5. **Human check:** run the app; watch the home card, PR header (watched
+5. **macOS (the trial ran on Linux only):** the app builds and runs on
+   macOS on the gpui-fast stack, and the Metal shaders compile at build
+   time (this settles the README note in §4.6). A short human smoke
+   there: idle clock labels, scrolling a long PR page, and a theme
+   switch.
+6. **Human check (Linux):** run the app; watch the home card, PR header (watched
    and unwatched), issue page, notification page and panel, and the
    usage chip for several minutes while idle, including with the
    network off; scroll a long PR page; resize the diff seam; sign in
