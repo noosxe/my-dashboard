@@ -1889,12 +1889,15 @@ impl Render for FaviconPage {
         // whatever the sidebar's state. A flip re-renders once.
         let wide = self.wide.get();
         let measured = self.wide.clone();
+        let page = cx.entity();
         let measure = canvas(
-            move |bounds, window, _| {
+            move |bounds, _, cx| {
                 let now = bounds.size.width >= px(RAIL_BREAKPOINT);
                 if measured.get() != now {
                     measured.set(now);
-                    window.refresh();
+                    // `wide` is a plain Cell: a retained-mode backend
+                    // re-renders the page only when it is notified.
+                    page.update(cx, |_, cx| cx.notify());
                 }
             },
             |_, _, _, _| {},
