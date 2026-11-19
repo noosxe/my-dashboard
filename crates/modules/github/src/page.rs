@@ -619,8 +619,8 @@ impl GithubPage {
                 let window = self.window;
                 let page = cx.entity();
                 cx.spawn(async move |_this, cx| {
-                    let _ = window.update(cx, |_, window, cx| {
-                        page.update(cx, |this, cx| this.run_specs(vec![spec], window, cx));
+                    let _ = window.update(cx, |_, _, cx| {
+                        page.update(cx, |this, cx| this.run_specs(vec![spec], cx));
                     });
                 })
                 .detach();
@@ -644,8 +644,8 @@ impl GithubPage {
                 let window = self.window;
                 let page = cx.entity();
                 cx.spawn(async move |_this, cx| {
-                    let _ = window.update(cx, |_, window, cx| {
-                        page.update(cx, |this, cx| this.run_specs(specs, window, cx));
+                    let _ = window.update(cx, |_, _, cx| {
+                        page.update(cx, |this, cx| this.run_specs(specs, cx));
                     });
                 })
                 .detach();
@@ -708,14 +708,14 @@ impl GithubPage {
     /// The home lane's first page for the current account (docs/0047
     /// D3) — module open / account switch / manual refresh all funnel
     /// here; the docs/0031 dedup absorbs repeats.
-    fn fetch_home_prs(&mut self, origin: Origin, window: &mut Window, cx: &mut Context<Self>) {
+    fn fetch_home_prs(&mut self, origin: Origin, _window: &mut Window, cx: &mut Context<Self>) {
         let Some((login, scope)) = self.home_account(cx) else {
             return;
         };
         let specs = self
             .state
             .update(cx, |s, _| vec![s.home_open_spec(&login, scope, origin)]);
-        self.run_specs(specs, window, cx);
+        self.run_specs(specs, cx);
     }
 
     /// docs/0052 D5: the global notifications lane's view-shown fire —
@@ -725,7 +725,7 @@ impl GithubPage {
     fn fetch_notifications_if_stale(
         &mut self,
         origin: Origin,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let specs = self.state.update(cx, |s, _| {
@@ -733,7 +733,7 @@ impl GithubPage {
                 .map(|spec| vec![spec])
                 .unwrap_or_default()
         });
-        self.run_specs(specs, window, cx);
+        self.run_specs(specs, cx);
     }
 
     /// The windowless view-shown hop (docs/0052 D5): the nav observer
@@ -751,8 +751,8 @@ impl GithubPage {
         let window = self.window;
         let page = cx.entity();
         cx.spawn(async move |_this, cx| {
-            let _ = window.update(cx, |_, window, cx| {
-                page.update(cx, |this, cx| this.run_specs(specs, window, cx));
+            let _ = window.update(cx, |_, _, cx| {
+                page.update(cx, |this, cx| this.run_specs(specs, cx));
             });
         })
         .detach();
@@ -761,7 +761,7 @@ impl GithubPage {
     /// "Load more" (docs/0047 D4): the next page for the current
     /// account, from its snapshot's cursor. No cursor → no-op (the
     /// button isn't rendered then either).
-    fn load_more_home_prs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn load_more_home_prs(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some((login, scope)) = self.home_account(cx) else {
             return;
         };
@@ -773,7 +773,7 @@ impl GithubPage {
             cursor.map(|c| vec![s.home_more_spec(&login, scope, &c)])
         });
         if let Some(specs) = specs {
-            self.run_specs(specs, window, cx);
+            self.run_specs(specs, cx);
         }
     }
 
@@ -869,23 +869,18 @@ impl GithubPage {
                                 )
                             }),
                     )
-                    .child(freshness_row(
-                        "home-prs",
-                        &clock,
-                        cx,
-                        move |this, window, cx| {
-                            if let Some((login, scope)) = refresh.clone() {
-                                let specs = this.state.update(cx, |s, _| {
-                                    vec![s.home_open_spec(
-                                        &login,
-                                        scope,
-                                        Origin::new(Surface::ModuleHome, Trigger::Manual),
-                                    )]
-                                });
-                                this.run_specs(specs, window, cx);
-                            }
-                        },
-                    )),
+                    .child(freshness_row("home-prs", &clock, cx, move |this, _, cx| {
+                        if let Some((login, scope)) = refresh.clone() {
+                            let specs = this.state.update(cx, |s, _| {
+                                vec![s.home_open_spec(
+                                    &login,
+                                    scope,
+                                    Origin::new(Surface::ModuleHome, Trigger::Manual),
+                                )]
+                            });
+                            this.run_specs(specs, cx);
+                        }
+                    })),
             )
             .child(
                 div()
@@ -1302,7 +1297,7 @@ impl GithubPage {
     fn select_repo_inner(
         &mut self,
         full_name: SharedString,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         // Docs/0007 D6: the view paints immediately from the in-memory
@@ -1347,7 +1342,7 @@ impl GithubPage {
             cx.notify();
             spec
         });
-        self.run_specs(vec![spec], window, cx);
+        self.run_specs(vec![spec], cx);
     }
 
     /// Tab switch (docs/0077 D1/D3): state write + notify, then offer
@@ -1403,7 +1398,7 @@ impl GithubPage {
         }) else {
             return;
         };
-        self.run_specs(vec![spec], window, cx);
+        self.run_specs(vec![spec], cx);
     }
 
     /// Open the in-app PR page for a snapshot row (docs/0016 D1): the
@@ -1721,7 +1716,7 @@ impl GithubPage {
                     let specs = this
                         .state
                         .update(cx, |s, _| s.mark_refetch_specs(Surface::NotificationPage));
-                    this.run_specs(specs, window, cx);
+                    this.run_specs(specs, cx);
                 }
                 // docs/0026 D8, decision §4.4: a settled done
                 // closes the page back to the repo view (the github.com
@@ -1731,7 +1726,7 @@ impl GithubPage {
                     let specs = this
                         .state
                         .update(cx, |s, _| s.mark_refetch_specs(Surface::NotificationPage));
-                    this.run_specs(specs, window, cx);
+                    this.run_specs(specs, cx);
                     this.close_notification(cx);
                 }
                 NotificationPageEvent::OpenSubject {
@@ -1817,7 +1812,7 @@ impl GithubPage {
                                 Origin::new(Surface::RepoView, Trigger::ViewShown),
                             )
                         });
-                        this.run_specs(vec![spec], window, cx);
+                        this.run_specs(vec![spec], cx);
                         // A synthesized minimal row (gql::created_issue_from_body)
                         // — initial paint only; the detail page re-fetches.
                         this.open_issue(&repo, issue, None, window, cx);
@@ -1909,7 +1904,7 @@ impl GithubPage {
                                 Origin::new(Surface::RepoView, Trigger::ViewShown),
                             )
                         });
-                        this.run_specs(vec![spec], window, cx);
+                        this.run_specs(vec![spec], cx);
                         // A synthesized minimal row (gql::created_pr_from_body)
                         // — initial paint only; the detail page re-fetches.
                         this.open_pr(&repo, pr, None, window, cx);
@@ -1985,7 +1980,7 @@ impl GithubPage {
                 );
                 // Post-write refetch on the main thread, window in hand
                 // (`run_specs` refreshes the frame at the end).
-                let _ = window_handle.update(cx, |_, window, cx| {
+                let _ = window_handle.update(cx, |_, _, cx| {
                     page.update(cx, |this, cx| {
                         this.row_done_inflight.remove(&id);
                         let specs = this
@@ -1998,7 +1993,7 @@ impl GithubPage {
                         if let Some(full) = full {
                             this.state.update(cx, |s, _| s.invalidate_repo_lanes(&full));
                         }
-                        this.run_specs(specs, window, cx);
+                        this.run_specs(specs, cx);
                     });
                 });
             } else {
@@ -2024,19 +2019,14 @@ impl GithubPage {
     }
 
     /// Page-local counterpart of the tick loop: run specs on the background
-    /// executor, apply on the main thread, then the §3.12 refresh.
-    fn run_specs(&mut self, specs: Vec<FetchSpec>, window: &mut Window, cx: &mut Context<Self>) {
-        self.run_specs_on(specs, window.window_handle(), cx);
+    /// executor, apply on the main thread, then notify the state (docs/0086 §3).
+    fn run_specs(&mut self, specs: Vec<FetchSpec>, cx: &mut Context<Self>) {
+        self.run_specs_on(specs, cx);
     }
 
     /// The handle-taking core (docs/0051 D4): observer-time triggers have
     /// no `&mut Window` — they pass the page's stored handle instead.
-    fn run_specs_on(
-        &mut self,
-        specs: Vec<FetchSpec>,
-        window_handle: AnyWindowHandle,
-        cx: &mut Context<Self>,
-    ) {
+    fn run_specs_on(&mut self, specs: Vec<FetchSpec>, cx: &mut Context<Self>) {
         if specs.is_empty() {
             return;
         }
@@ -2076,7 +2066,6 @@ impl GithubPage {
                     })
                 });
             }
-            let _ = window_handle.update(cx, |_, window, _| window.refresh());
         })
         .detach();
     }
@@ -2119,7 +2108,7 @@ impl GithubPage {
                 Origin::new(Surface::ModuleHome, Trigger::ViewShown),
             )]
         });
-        self.run_specs_on(specs, self.window, cx);
+        self.run_specs_on(specs, cx);
     }
 
     /// Repo-view PR row (docs/0012 D4): the shared body without the repo
@@ -3048,7 +3037,7 @@ impl GithubPage {
                             {
                                 let full = repo.full_name.clone();
                                 let lane = self.tab.lane();
-                                move |this, window, cx| {
+                                move |this, _, cx| {
                                     // User-invoked (docs/0052): the active
                                     // lane's spec, Trigger::Manual — ignoring
                                     // age/backoff (docs/0077 D3) and the
@@ -3059,7 +3048,7 @@ impl GithubPage {
                                         &this.commits_key(cx),
                                         Origin::new(Surface::RepoView, Trigger::Manual),
                                     );
-                                    this.run_specs(vec![spec], window, cx);
+                                    this.run_specs(vec![spec], cx);
                                 }
                             },
                         )),
@@ -3659,7 +3648,7 @@ impl GithubPage {
                     .state
                     .read(cx)
                     .commits_spec(&full, &this.commits_key(cx), origin);
-                this.run_specs(vec![spec], window, cx);
+                this.run_specs(vec![spec], cx);
             }))
     }
 
@@ -3670,7 +3659,7 @@ impl GithubPage {
     pub(crate) fn load_more_commits(
         &mut self,
         origin: Origin,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let Some(full) = self.state.read(cx).selected.clone() else {
@@ -3687,7 +3676,7 @@ impl GithubPage {
         });
         if let Some(spec) = spec {
             log::debug!("commits: next page of {full} ({})", origin.trigger.as_str());
-            self.run_specs(vec![spec], window, cx);
+            self.run_specs(vec![spec], cx);
         }
     }
 
@@ -4012,7 +4001,7 @@ impl GithubPage {
     /// D7/§14): stamp it most recently used, then its page 1 through
     /// the `FOCUS_MIN_AGE` gate as `ViewShown` — a held book paints at
     /// once and stays quiet, a fresh one fetches.
-    fn offer_commits_book(&mut self, full: &str, window: &mut Window, cx: &mut Context<Self>) {
+    fn offer_commits_book(&mut self, full: &str, _window: &mut Window, cx: &mut Context<Self>) {
         let (connected, gated) = {
             let s = self.state.read(cx);
             (s.auth.connected(), s.gated_for(Kind::RepoCommits.lane()))
@@ -4031,7 +4020,7 @@ impl GithubPage {
             )
         });
         if let Some(spec) = spec {
-            self.run_specs(vec![spec], window, cx);
+            self.run_specs(vec![spec], cx);
         }
     }
 
@@ -4707,8 +4696,8 @@ fn connect_panel(auth: &AuthStatus, cx: &mut Context<GithubPage>) -> AnyElement 
         panel = panel.child(
             Button::new("page-connect")
                 .label(label)
-                .on_click(cx.listener(|this, _, window, cx| {
-                    start_connect(this.state.clone(), window.window_handle(), cx);
+                .on_click(cx.listener(|this, _, _, cx| {
+                    start_connect(this.state.clone(), cx);
                 })),
         );
     }

@@ -11,4 +11,9 @@ disallowed-methods = [
   "gpui::rgb",
   "gpui::rgba",
   "gpui::hsla",
+  # Retained-mode backend (docs/0086 §3): `Window::refresh` marks the window
+  # dirty but does not re-run a cached view's render. Notify the owning
+  # entity with `cx.notify()` instead; an `#[allow]` needs a comment naming
+  # the notify that precedes the call.
+  "gpui::Window::refresh",
 ]

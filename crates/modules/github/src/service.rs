@@ -16,8 +16,8 @@
 //!   involved;
 //! - thin gpui orchestration at the bottom (`spawn_tick_loop`,
 //!   `run_spec_tracked` with the docs/0028 refresh gate, `start_connect`,
-//!   `sign_out_now`) — every state write ends with the 0003 §3.12
-//!   unfocused refresh.
+//!   `sign_out_now`) — every state write ends with a `cx.notify()` on the
+//!   state entity (docs/0086 §3).
 
 use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::path::PathBuf;
@@ -25,7 +25,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use futures::channel::oneshot;
-use gpui::AnyWindowHandle;
 use gpui::AsyncApp;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -5690,7 +5689,7 @@ pub(crate) fn etag_key(kind: Kind, ident: Option<&str>) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// gpui orchestration — thin; ends every state write with the §3.12 refresh.
+// gpui orchestration — thin; ends every state write with a `cx.notify()` (docs/0086 §3).
 // ---------------------------------------------------------------------------
 
 /// Run one spec with the global in-flight tracker around it (docs/0013
@@ -6614,7 +6613,7 @@ pub(crate) async fn run_mutation(
 /// duties — pause clearing, token arming, the free usage probe, the
 /// bootstrap arm; a proactive refresh armed by planning drains in the
 /// same tick (docs/0028 §3.4).
-pub fn spawn_tick_loop(state: Entity<GithubState>, window: AnyWindowHandle, cx: &mut App) {
+pub fn spawn_tick_loop(state: Entity<GithubState>, cx: &mut App) {
     cx.spawn(async move |cx| {
         let mut tick: u64 = 0;
         loop {
@@ -6675,7 +6674,6 @@ pub fn spawn_tick_loop(state: Entity<GithubState>, window: AnyWindowHandle, cx: 
                         .for_each(|toast| dashboard_core::toasts::raise(cx, toast));
                 });
             }
-            let _ = window.update(cx, |_, window, _| window.refresh());
             cx.background_executor().timer(TICK).await;
         }
     })
@@ -6685,7 +6683,7 @@ pub fn spawn_tick_loop(state: Entity<GithubState>, window: AnyWindowHandle, cx: 
 /// Device-flow connect (§6.2): request code → show + auto-open browser →
 /// poll honoring interval/deadline → install token. Terminal phases
 /// (Denied/Expired/Failed) stay visible for the UI's Retry affordance.
-pub fn start_connect(state: Entity<GithubState>, window: AnyWindowHandle, cx: &mut App) {
+pub fn start_connect(state: Entity<GithubState>, cx: &mut App) {
     state.update(cx, |s, cx| {
         s.auth = AuthStatus::ConnectFlow(ConnectPhase::RequestingCode);
         cx.notify();
@@ -6719,7 +6717,7 @@ pub fn start_connect(state: Entity<GithubState>, window: AnyWindowHandle, cx: &m
         let start = match start {
             Ok(s) => s,
             Err(AuthError::Network(m)) | Err(AuthError::Malformed(m)) => {
-                set_connect_phase(&state, &window, cx, ConnectPhase::Failed(m));
+                set_connect_phase(&state, cx, ConnectPhase::Failed(m));
                 return;
             }
         };
@@ -6741,7 +6739,6 @@ pub fn start_connect(state: Entity<GithubState>, window: AnyWindowHandle, cx: &m
             });
             cx.open_url(&start.verification_uri);
         });
-        let _ = window.update(cx, |_, window, _| window.refresh());
 
         // Step 3 — poll until token, expiry, denial or deadline.
         let deadline = Instant::now() + Duration::from_secs(start.expires_in_secs);
@@ -6751,7 +6748,7 @@ pub fn start_connect(state: Entity<GithubState>, window: AnyWindowHandle, cx: &m
                 .timer(Duration::from_secs(interval))
                 .await;
             if Instant::now() > deadline {
-                set_connect_phase(&state, &window, cx, ConnectPhase::Expired);
+                set_connect_phase(&state, cx, ConnectPhase::Expired);
                 return;
             }
             let outcome = {
@@ -6794,7 +6791,6 @@ pub fn start_connect(state: Entity<GithubState>, window: AnyWindowHandle, cx: &m
                         _ => {
                             set_connect_phase(
                                 &state,
-                                &window,
                                 cx,
                                 ConnectPhase::Failed(
                                     "could not store the token in the OS keychain".into(),
@@ -6803,22 +6799,21 @@ pub fn start_connect(state: Entity<GithubState>, window: AnyWindowHandle, cx: &m
                             return;
                         }
                     }
-                    let _ = window.update(cx, |_, window, _| window.refresh());
                     return;
                 }
                 PollOutcome::Pending { interval_secs } => interval = interval_secs,
                 PollOutcome::SlowDown { interval_secs } => interval = interval_secs,
                 PollOutcome::Expired => {
-                    set_connect_phase(&state, &window, cx, ConnectPhase::Expired);
+                    set_connect_phase(&state, cx, ConnectPhase::Expired);
                     return;
                 }
                 PollOutcome::Denied => {
-                    set_connect_phase(&state, &window, cx, ConnectPhase::Denied);
+                    set_connect_phase(&state, cx, ConnectPhase::Denied);
                     return;
                 }
                 PollOutcome::Network(_) => continue, // transient; deadline bounds us
                 PollOutcome::Malformed(m) => {
-                    set_connect_phase(&state, &window, cx, ConnectPhase::Failed(m));
+                    set_connect_phase(&state, cx, ConnectPhase::Failed(m));
                     return;
                 }
             }
@@ -6827,12 +6822,7 @@ pub fn start_connect(state: Entity<GithubState>, window: AnyWindowHandle, cx: &m
     .detach();
 }
 
-fn set_connect_phase(
-    state: &Entity<GithubState>,
-    window: &AnyWindowHandle,
-    cx: &mut gpui::AsyncApp,
-    phase: ConnectPhase,
-) {
+fn set_connect_phase(state: &Entity<GithubState>, cx: &mut gpui::AsyncApp, phase: ConnectPhase) {
     cx.update(|cx| {
         state.update(cx, |s, cx| {
             if let ConnectPhase::Failed(why) = &phase {
@@ -6842,17 +6832,15 @@ fn set_connect_phase(
             cx.notify();
         });
     });
-    let _ = window.update(cx, |_, window, _| window.refresh());
 }
 
 /// Sign-out orchestration (Q5): state wipe + refresh.
-pub fn sign_out_now(state: Entity<GithubState>, window: AnyWindowHandle, cx: &mut App) {
+pub fn sign_out_now(state: Entity<GithubState>, cx: &mut App) {
     log::info!("signed out — token and caches cleared");
     state.update(cx, |s, cx| {
         s.sign_out();
         cx.notify();
     });
-    let _ = window.update(cx, |_, window, _| window.refresh());
 }
 
 // ---------------------------------------------------------------------------

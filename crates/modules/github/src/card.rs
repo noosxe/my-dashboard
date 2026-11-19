@@ -38,7 +38,6 @@ pub(crate) struct GithubCard {
     /// Auth edge tracking: a reconnect while home is showing refetches
     /// even when retained totals exist.
     last_connected: bool,
-    window: AnyWindowHandle,
 }
 
 impl GithubCard {
@@ -57,7 +56,6 @@ impl GithubCard {
             nav: nav.clone(),
             last_home_active: home_active,
             last_connected: connected,
-            window: window.window_handle(),
         };
         if home_active && connected {
             // Construction while home shows = the card's view-shown.
@@ -143,7 +141,6 @@ impl GithubCard {
             return;
         }
         let state = self.state.clone();
-        let window = self.window;
         cx.spawn(async move |_this, cx| {
             if let Some(result) = run_read_deduped(state.clone(), spec, cx).await {
                 cx.update(|cx| {
@@ -152,7 +149,6 @@ impl GithubCard {
                         cx.notify();
                     })
                 });
-                let _ = window.update(cx, |_, window, _| window.refresh());
             }
         })
         .detach();
@@ -186,7 +182,6 @@ impl GithubCard {
             return;
         };
         let state = self.state.clone();
-        let window = self.window;
         cx.spawn(async move |_this, cx| {
             if let Some(result) = run_read_deduped(state.clone(), spec, cx).await {
                 cx.update(|cx| {
@@ -195,7 +190,6 @@ impl GithubCard {
                         cx.notify();
                     })
                 });
-                let _ = window.update(cx, |_, window, _| window.refresh());
             }
         })
         .detach();
@@ -207,8 +201,8 @@ impl GithubCard {
         });
     }
 
-    fn connect(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        start_connect(self.state.clone(), window.window_handle(), cx);
+    fn connect(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        start_connect(self.state.clone(), cx);
     }
 }
 

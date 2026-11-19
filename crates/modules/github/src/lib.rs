@@ -76,8 +76,6 @@ impl Module for GithubModule {
         paths: &dashboard_core::AppPaths,
         cx: &mut App,
     ) -> ModuleEntry {
-        let window_handle = window.window_handle();
-
         // Esc closes the open PR sub-page (docs/0016 D1): scoped to the
         // PR page's key context so it never fires elsewhere; the PR page
         // Esc closes the open sub-page (docs/0016 D1, docs/0020 D1):
@@ -233,7 +231,7 @@ impl Module for GithubModule {
         // 10 s service loop (docs/0038 D7) — self-gates on
         // auth/rate-limit state and refreshes per tick (0003 §3.12
         // pattern, docs/0005 Q8); the lanes decide what actually fires.
-        spawn_tick_loop(state.clone(), window_handle, cx);
+        spawn_tick_loop(state.clone(), cx);
 
         // Agent data bridge (docs/0068 D3, #468): the module's read-only
         // ops — zero-network-flight reads of held state. Resolution is
