@@ -9,7 +9,7 @@
 # RUST_TOOLCHAIN in .github/workflows/ci-jobs.yml and Cargo.toml
 # `rust-version` (scripts/check-toolchain-pins.sh, docs/0027 D4) — and
 # recreate the cargo cache volume (docs/0071 D6) in the same change.
-FROM rust:1.98.0@sha256:620dbcd124499c59e2406d3741574b5c5838cf9eb9656f0c3a03948f79b02959
+FROM rust:1.98.0@sha256:620dbcd124499c59e2406d3741574b5c5838cf9eb9656f0c3a03948f79b02959 AS verify
 
 # GUI dev stack — keep in lockstep with the apt list in
 # .github/workflows/ci-jobs.yml (docs/0027 D1: only what the base image does
@@ -74,3 +74,15 @@ RUN chmod +x /usr/local/bin/verify-entrypoint
 WORKDIR /work
 ENTRYPOINT ["/usr/local/bin/verify-entrypoint"]
 CMD ["bash"]
+
+# Opt-in GPU stage (docs/0071 D10): the default stage above is what
+# scripts/verify.sh builds and runs; `verify.sh --gpu` builds this one
+# on top, so the default image stays byte-identical. Mesa's Vulkan
+# drivers (radv, intel, lvp ICDs) let a passed-in render node serve
+# GPUI's Vulkan; vulkan-tools gives `vulkaninfo` as the proof of which
+# device is in use.
+FROM verify AS verify-gpu
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      mesa-vulkan-drivers vulkan-tools \
+ && rm -rf /var/lib/apt/lists/*
