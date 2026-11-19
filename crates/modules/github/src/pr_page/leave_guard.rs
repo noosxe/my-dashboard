@@ -6,9 +6,11 @@
 //! not persisted here (#281).
 //!
 //! Paths that go through the guard: Esc with nothing else open, the repo
-//! crumb, the module crumb, and a cross-reference row that opens another page. Navigation that the shell has already
-//! committed before the module hears of it (a sidebar jump to another
-//! module, history Back/Forward) and sign-out cannot ask first.
+//! crumb, the module crumb, a cross-reference row that opens another
+//! page, and shell-driven navigation (a sidebar jump to another module,
+//! history Back/Forward), which the shell asks about before it commits
+//! (`ModuleNav::can_leave`, docs/0048). Sign-out is handled by the host
+//! page (`page/shell_leave.rs`).
 
 use gpui::{
     AnyElement, Context, InteractiveElement as _, IntoElement as _, ParentElement as _,
@@ -37,6 +39,11 @@ pub(crate) enum LeaveIntent {
     /// The page emits `OpenSubject`, not `Leave`: the target rides in
     /// `PrDetailPage::pending_subject`, which keeps this enum `Copy`.
     Subject,
+    /// The shell is about to navigate away (sidebar jump, history
+    /// Back/Forward, #841). The continuation rides on the host
+    /// (`GithubPage::shell_resume`): it holds the shell's own closure,
+    /// which cannot live in this `Copy` enum.
+    Shell,
 }
 
 impl PrDetailPage {
@@ -52,6 +59,18 @@ impl PrDetailPage {
             &text(self.finish_summary.as_ref()),
             &text(self.line_composer.as_ref().map(|c| &c.editor)),
         )
+    }
+
+    /// Test seam for the host page's tests: one queued line draft.
+    #[cfg(test)]
+    pub(crate) fn seed_review_draft(&mut self, body: &str) {
+        self.drafts.push(super::LineDraft {
+            path: "src/lib.rs".into(),
+            side: crate::gql::DiffSide::Right,
+            line: 3,
+            start: None,
+            body: body.into(),
+        });
     }
 
     /// Ask to leave. `true` — nothing would be lost, go ahead. `false` —
@@ -74,7 +93,7 @@ impl PrDetailPage {
     }
 
     /// Keep editing / Esc: the confirm closes, drafts and page stay.
-    pub(super) fn cancel_leave_confirm(
+    pub(crate) fn cancel_leave_confirm(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -88,7 +107,7 @@ impl PrDetailPage {
         was_open
     }
 
-    fn confirm_discard(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn confirm_discard(&mut self, cx: &mut Context<Self>) {
         match self.leave_confirm.take() {
             Some(LeaveIntent::Subject) => self.emit_pending_subject(cx),
             Some(intent) => cx.emit(PrPageEvent::Leave(intent)),
