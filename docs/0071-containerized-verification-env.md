@@ -130,13 +130,60 @@ through the GitHub fixture mode (docs/0081 §12.1:
 not through a real account. A surface that can't be reached that way
 gets a fixture extension, not a host capture.
 
+### D10 — Opt-in GPU mode, for performance measurements only *(amendment)*
+
+The default container has no GPU: headless sway renders with pixman and
+GPUI's Vulkan has no hardware device, so any CPU figure measured there is
+dominated by software rasterization. To compare builds on hardware, run
+`scripts/verify.sh --gpu <render-node|auto> <cmd…>`:
+
+- `<render-node>` is a `/dev/dri/renderD*` path; `auto` picks the first
+  node whose `device/vendor` is `0x1002` (a Mesa-driven AMD node, since the
+  numbering of render nodes varies per boot). The wrapper passes it with
+  `--device`, adds the node's group with `--group-add` so a non-root
+  container user can open it, and sets `WLR_RENDERER=gles2` plus
+  `WLR_RENDER_DRM_DEVICE=<node>`. The compositor must leave pixman: a
+  hardware Vulkan client presents through dmabuf, which pixman cannot
+  import. The entrypoint honors a preset `WLR_RENDERER` and defaults to
+  pixman otherwise.
+- The image comes from a second Dockerfile stage, `verify-gpu`, built on
+  top of the default one with `mesa-vulkan-drivers` and `vulkan-tools`
+  (tagged `my-dashboard-verify-gpu`). The default stage and the default
+  invocation are unchanged.
+
+**When to use it:** performance measurements only (CPU per frame, frame
+counts, main-thread against total CPU). **Never** for goldens, `audit`
+or any receipt that must be reproducible: pixels and timing depend on
+the host's driver.
+
+**Proof that the app is on the hardware.** Inside the same container:
+
+```sh
+scripts/verify.sh --gpu auto sh -c '
+  vulkaninfo --summary | grep -E "deviceName|driverName"
+  pid=$(pgrep -f target/.*/my-dashboard | head -1)
+  grep -c libvulkan_radeon /proc/$pid/maps    # the hardware ICD is loaded
+  ls -l /proc/$pid/fd | grep renderD          # the app holds the render node
+'
+```
+
+`vulkaninfo` lists the hardware device next to `llvmpipe`; the app's
+`maps` show the Mesa hardware ICD and its `fd` table the render node. In
+the default mode the process has no render-node fd.
+
+**Caveats.** A headless output has no real vsync and no scanout, so
+absolute frame times are not desktop numbers; relative comparisons
+between two builds in the same mode hold. Results depend on the driver
+version in the image and on whatever else uses the GPU. Don't mix
+numbers from the two modes.
+
 ## 3. The pieces
 
 | File | Role |
 |---|---|
-| `docker/Dockerfile` | The environment: digest-pinned base, apt set (D3), shim (D4), env (D6) |
-| `docker/entrypoint.sh` | Session bootstrap (D5) |
-| `scripts/verify.sh` | Host-side canonical entry (D7): build-if-stale, run with mounts |
+| `docker/Dockerfile` | The environment: digest-pinned base, apt set (D3), shim (D4), env (D6); `verify-gpu` stage (D10) |
+| `docker/entrypoint.sh` | Session bootstrap (D5); `WLR_RENDERER` overridable (D10) |
+| `scripts/verify.sh` | Host-side canonical entry (D7): build-if-stale, run with mounts; `--gpu` (D10) |
 
 ## 4. Canonical recipes
 
