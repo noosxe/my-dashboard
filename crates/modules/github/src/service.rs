@@ -6606,20 +6606,7 @@ pub(crate) async fn run_mutation(
     // #721: a write is user-initiated, but a request the paused budget
     // would refuse changes nothing: answer 429 without sending, and let
     // the caller's failure copy say the budget is paused.
-    if cx.update(|cx| state.read(cx).pause_in_force(Lane::Graphql).is_some()) {
-        log::debug!("{}: held — GraphQL budget paused", spec.kind.kind_name());
-        return SpecResult {
-            kind: spec.kind,
-            ident: spec.ident,
-            status: 429,
-            etag: None,
-            rate: None,
-            body: None,
-            network: None,
-            cursor: None,
-        };
-    }
-    run_spec_tracked(state, spec, cx).await
+    crate::rate_pause::run_unless_paused(state, spec, cx).await
 }
 
 /// The 10-second service loop (docs/0005 Q7/Q8, docs/0052 D1): plan →
