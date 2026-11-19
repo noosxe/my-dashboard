@@ -116,12 +116,7 @@ pub(in crate::usage_analytics::page) fn instant(ms: u64, dated: bool) -> String 
 
 /// A local day: `Nov 5`.
 pub(in crate::usage_analytics::page) fn day(epoch_ms: u64) -> String {
-    use chrono::TimeZone;
-    chrono::Local
-        .timestamp_millis_opt(epoch_ms as i64)
-        .single()
-        .map(|t| t.format("%b %-d").to_string())
-        .unwrap_or_else(|| "—".into())
+    honesty::local_stamp(epoch_ms, "%b %-d")
 }
 
 pub(in crate::usage_analytics::page) use honesty::format_clock as clock;

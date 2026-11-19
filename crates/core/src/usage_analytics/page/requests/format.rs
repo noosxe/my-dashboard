@@ -98,16 +98,16 @@ fn plural(n: u32) -> &'static str {
 /// `tz_offset_ms`.
 pub(super) fn log_time(ts_ms: u64, as_of_ms: u64, tz_offset_ms: i64) -> String {
     let day = |t: u64| (t as i64 + tz_offset_ms).div_euclid(DAY_MS);
-    let zone = chrono::FixedOffset::east_opt((tz_offset_ms / 1_000) as i32)
-        .unwrap_or_else(|| chrono::FixedOffset::east_opt(0).expect("UTC"));
-    let Some(t) = chrono::DateTime::from_timestamp_millis(ts_ms as i64) else {
+    let zone = jiff::tz::Offset::from_seconds((tz_offset_ms / 1_000) as i32)
+        .unwrap_or(jiff::tz::Offset::UTC);
+    let Ok(t) = jiff::Timestamp::from_millisecond(ts_ms as i64) else {
         return "—".into();
     };
-    let t = t.with_timezone(&zone);
+    let t = zone.to_datetime(t);
     if day(ts_ms) == day(as_of_ms) {
-        t.format("%H:%M:%S").to_string()
+        t.strftime("%H:%M:%S").to_string()
     } else {
-        t.format("%b %-d, %H:%M:%S").to_string()
+        t.strftime("%b %-d, %H:%M:%S").to_string()
     }
 }
 
