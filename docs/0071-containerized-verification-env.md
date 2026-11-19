@@ -228,6 +228,11 @@ copy. `pr-paused-note.txt` (session `prpaused`, the committed fixtures with
 GraphQL pause: the detail read is held and the page names the pause beside
 Refresh (#721, #751), with `audit` and `tab-stops`.
 
+`issue-paused.txt` (session `issuepaused`, the committed fixtures, pinned clock) opens
+beacon's issue 201 under a GraphQL pause: the detail read is held (no
+`IssueDetail` request in `requests`) and the page says so instead of a
+fetch error (#887), with `audit`, `tab-stops` and `critique`.
+
 `fixture-generations.txt` (session `fixgen`, 1280x800, same fixtures and
 clock; no UI is driven) walks the fixture transport's change simulation
 (docs/0084 §8, docs/0081 §12.1): a REST read of PR 101 answers 200, then

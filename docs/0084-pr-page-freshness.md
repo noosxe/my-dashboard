@@ -275,6 +275,7 @@ These caused staleness on their own. They shipped as stage 0, in one PR
 | #876 | The detail selects `commits(first:100)`, the oldest 100 | New pushes never show on long PRs | `commits(last: 100)`, cap row at the top |
 | #721 | Detail opens, threads, files, writes and the log watch ignore the pause | A refused request, then a fetch error that never names the pause | Paused lanes hold the dispatch; the page shows the pause note |
 | #751 | A null `repository` always reads "removed"; page-owned 200s never arm the pause; `Retry-After` is never read | A rate limit looks like a deleted PR | `rate_pause/classify.rs`; see docs/0050 D4 |
+| #887 | The issue page (detail open, issue writes, picker reads) and the notification thread (thread GET, mark read/done, the repo-view row's mark done) ignored the pause | A refused request, then "GitHub answered HTTP 429" | The same hold: `rate_pause::run_unless_paused` answers a paused lane's run with a local 429; a cold issue document or thread shows the pause note as its error and a landed one keeps its data; failure copy comes from `http_failure_copy`; a failed mark's toast says when the budget resumes |
 
 Two smaller findings aren't filed: the header age can read newer than
 the rendered detail, and the mergeable re-poll stops quietly when a

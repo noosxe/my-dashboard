@@ -1959,7 +1959,7 @@ impl GithubPage {
         let window_handle = self.window;
         let page = cx.entity();
         cx.spawn(async move |_this, cx| {
-            let result = run_spec_tracked(state.clone(), spec, cx).await;
+            let result = crate::rate_pause::run_unless_paused(state.clone(), spec, cx).await;
             let settled = result.network.is_none() && (200..300).contains(&result.status);
             if settled {
                 log::info!(

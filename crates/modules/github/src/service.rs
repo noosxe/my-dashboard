@@ -4749,9 +4749,9 @@ impl GithubState {
         if let Some(m) = &result.network {
             failed = Some(format!("Network error: {m}"));
         } else if result.status != 200 {
-            let status = result.status;
+            let (status, kind) = (result.status, result.kind);
             self.apply(result);
-            failed = Some(format!("GitHub answered HTTP {status}"));
+            failed = Some(self.http_failure_copy(kind, status));
         } else if let Some(message) = result.body.as_deref().and_then(|body| {
             serde_json::from_str::<gql::Envelope<serde_json::Value>>(body)
                 .ok()

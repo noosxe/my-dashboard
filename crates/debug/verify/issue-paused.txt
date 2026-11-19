@@ -1,0 +1,40 @@
+# issue-paused.txt — the issue page under a GraphQL pause (#887): the
+# detail read is held instead of sent, and the page says so with the
+# chip's words instead of "GitHub answered HTTP …".
+#
+# Prerequisites: the containerized env (docs/0071), the committed fixtures,
+# the pinned clock, and a session named `issuepaused` at 1280x800:
+#   export DASHBOARD_GITHUB_FIXTURE=/work/crates/debug/verify/fixtures/github
+#   export DASHBOARD_FIXED_NOW=2026-10-23T12:00:00Z
+#   dashboard-debug session start --name issuepaused --size 1280x800 \
+#     --binary /tmp/target/debug/my-dashboard
+# Run (in-container): dashboard-debug run crates/debug/verify/issue-paused.txt
+
+--session issuepaused
+
+assert-label "Open GitHub module"
+click 11447690740305500471 --wait-frame
+wait-label "Filter repositories"
+click 349678605523893363
+type beacon
+key down
+key enter
+wait-label "Open issues"
+click-label "Open issues" --role Tab
+wait-label "Issue #201"
+
+# Exhaust GraphQL, let a refresh carry the zero to the pause, then open
+# an issue whose document never landed: the read must be held.
+fixture budget 0 --budget graphql
+click-label "Refresh"
+wait-label "GraphQL: paused"
+click-label "Issue #201" --role ListItem
+# The pause note is the cell's text, not a labelled node: the status
+# bar chip carries the same words, so the receipt reads the frame.
+sleep 2
+wait-label "GraphQL: paused"
+assert-no-label "HTTP"
+snapshot issue-paused
+audit
+tab-stops
+critique issue-paused
