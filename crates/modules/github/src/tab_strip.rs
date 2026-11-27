@@ -1,16 +1,16 @@
-//! A named tab strip (#734, reworked at gpui-kit v0.10.0).
+//! A named tab strip (#734, reworked at gpui-kit v0.10.0 and v0.11.0).
 //!
 //! The pinned `Tabs` owns the keyboard contract (ARIA tabs, manual
 //! activation): the list is one Tab stop on the selected tab, Left/Right
 //! (Up/Down on a vertical list) move focus and wrap, Home/End jump to the
 //! ends, Enter/Space select, disabled tabs are skipped, and Tab leaves
-//! the list. The strip adds an accessible name that carries the
-//! selection ("Pull request sections: Commits") and a focus handle that
-//! is not a Tab stop: the upstream tab does not take focus on a pointer
-//! click, so the click hands focus to the strip, as in a browser. The
-//! content the tab switch replaces may hold the focus, and a focus left
-//! on an unmounted element makes Tab do nothing. The handle draws no
-//! focus ring: the tab keeps the ring for keyboard focus.
+//! the list. A pointer press focuses the pressed tab (gpui-kit v0.11.0),
+//! so a switch never leaves focus on the content it unmounts.
+//!
+//! The strip adds an accessible name that carries the selection ("Pull
+//! request sections: Commits") and a focus handle that is not a Tab stop,
+//! for the page to move focus to when the focused element goes away
+//! without a press on a tab (#818). The handle draws no focus ring.
 
 use gpui::prelude::*;
 use gpui::{App, Context, FocusHandle, SharedString, Window, accesskit::Role, div};
@@ -81,7 +81,6 @@ where
         .get(selected)
         .map(TabText::accessible)
         .unwrap_or_default();
-    let click_focus = focus.clone();
     let muted = cx.theme().muted_foreground;
     let bar = TabBar::new(SharedString::from(format!("{id}-bar")))
         .underline()
@@ -107,9 +106,6 @@ where
         .aria_label(format!("{name}: {current}"))
         .w_full()
         .track_focus(focus)
-        // The pointer press, not the click: a keyboard activation must
-        // keep focus on the tab it came from.
-        .capture_any_mouse_down(move |_, window, cx| window.focus(&click_focus, cx))
         .child(bar)
 }
 
@@ -207,6 +203,43 @@ mod tests {
         press(vcx, "enter");
         assert_eq!(selected(vcx), 0);
         // The next Tab leaves the strip.
+        vcx.simulate_keystrokes("tab");
+        vcx.update(|window, _| assert!(after.is_focused(window), "Tab leaves the strip"));
+    }
+
+    /// The upstream behaviour the strip relies on instead of handing focus
+    /// over itself: without it, a tab switch leaves focus on the content it
+    /// unmounts (#700).
+    #[gpui::test]
+    fn pointer_press_focuses_the_tab(cx: &mut TestAppContext) {
+        cx.update(gpui_component::init);
+        let mut probe = None;
+        let (_root, vcx) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|cx| Harness {
+                selected: 2,
+                strip: cx.focus_handle().tab_stop(false),
+                before: cx.focus_handle().tab_stop(true),
+                after: cx.focus_handle().tab_stop(true),
+            });
+            probe = Some(view.clone());
+            Root::new(view, window, cx)
+        });
+        let view = probe.unwrap();
+        let (strip, before, after) = vcx.read(|cx| {
+            let h = view.read(cx);
+            (h.strip.clone(), h.before.clone(), h.after.clone())
+        });
+        vcx.update(|window, cx| window.focus(&before, cx));
+        vcx.run_until_parked();
+        // Inside the first tab's label, at the strip's left edge.
+        let bounds = vcx.debug_bounds("probe-tabs").unwrap();
+        let first = gpui::point(bounds.left() + gpui::px(8.), bounds.center().y);
+        vcx.simulate_click(first, gpui::Modifiers::default());
+        assert_eq!(vcx.read(|cx| view.read(cx).selected), 0);
+        vcx.update(|window, cx| {
+            assert!(strip.contains_focused(window, cx), "focus is in the strip");
+            assert!(!strip.is_focused(window), "on the tab, not the wrapper");
+        });
         vcx.simulate_keystrokes("tab");
         vcx.update(|window, _| assert!(after.is_focused(window), "Tab leaves the strip"));
     }

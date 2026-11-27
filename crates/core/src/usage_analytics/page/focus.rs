@@ -2,10 +2,11 @@
 //! view's controls; a focus handle left on one of them belongs to no
 //! rendered element, so key dispatch falls back to the window root,
 //! which is outside the shell's Tab binding: Tab stops moving and the
-//! `tree --tab-stops` cycle never closes (#700). A pointer switch made
-//! while a view control holds focus therefore hands focus to the view
-//! switch, the control the user just used. A keyboard switch already
-//! sits there.
+//! `tree --tab-stops` cycle never closes (#700). A switch made while a
+//! view control still holds focus therefore hands focus to the view
+//! switch, the control just used. A pointer press or a keyboard pick
+//! already moved focus to the switch's own tab, so this covers a switch
+//! with no press (an assistive-technology activation).
 
 use gpui::{App, Context, FocusHandle, Window};
 
