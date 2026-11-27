@@ -464,7 +464,7 @@ walks a full cycle from a focused composer (the description editor, the
 comment box, a thread reply), which is the receipt that Tab leaves it. It
 also audits all four tabs of #101 and #102. A `tab-stops` walk moves focus
 off the strip, so the script re-takes it with a click on a tab (a pointer
-press hands focus to the strip) or five Tabs from a freshly opened page (two branch copy buttons, then the header buttons):
+press focuses that tab) or five Tabs from a freshly opened page (two branch copy buttons, then the header buttons):
 
 ```sh
 scripts/verify.sh sh -c '

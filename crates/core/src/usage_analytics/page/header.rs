@@ -116,8 +116,9 @@ impl UsagePage {
 /// segments, takes the pointer and owns the keyboard path (gpui-kit
 /// v0.10.0: one Tab stop, arrows move focus, Enter/Space select). The
 /// wrapper carries the accessible name and a focus handle that is not a
-/// Tab stop: a pointer pick leaves the focus nowhere the upstream tab
-/// takes it, so the view switch hands it to the wrapper (see `focus.rs`).
+/// Tab stop. A pointer press focuses the segment itself (gpui-kit
+/// v0.11.0); the view switch hands focus to the wrapper only for a switch
+/// with no press (see `focus.rs`).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn segmented_stop<F>(
     id: &'static str,

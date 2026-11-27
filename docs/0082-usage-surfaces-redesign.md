@@ -966,8 +966,8 @@ Every band has the three states (0065 rubric #18, [DG]):
     and wrap, Home and End jump to the ends, and Enter or Space select
     (manual activation). The page's wrapper is now a plain group that
     carries the accessible name with the selection ("Range: 24h") and a
-    focus handle that is not a Tab stop, which the D19 hand-over below
-    still needs: a pointer press on an upstream tab does not focus it.
+    focus handle that is not a Tab stop, for the D19 hand-over below.
+    From gpui-kit v0.11.0 a pointer press focuses the pressed segment.
   - The views' tables (#697, #698) must keep the cycle closing. Up to
     gpui-kit v0.9.0 the `DataTable` bound Tab and Shift-Tab to
     "next/previous column" and never let focus leave, so the D7
@@ -980,9 +980,11 @@ Every band has the three states (0065 rubric #18, [DG]):
     outgoing view's controls, and a focus handle left on one of them
     belongs to no rendered element: key dispatch falls back to the
     window root, outside the shell's Tab binding, so Tab stops moving.
-    A pointer switch made while one of the outgoing view's controls
-    holds focus hands focus to the view switch, the control just used,
-    which then shows its focus ring. A keyboard switch is already
+    A switch made while one of the outgoing view's controls
+    holds focus hands focus to the view switch, the control just used.
+    Since gpui-kit v0.11.0 a pointer press has already focused the
+    pressed segment, so the hand-over is for a switch with no press
+    (an assistive-technology activation). A keyboard switch is already
     there; focus anywhere else stays put.
 - **Tables implement `cell_label`** with their existing cell text
   (closes the app side of #351). Select options carry labels: both
