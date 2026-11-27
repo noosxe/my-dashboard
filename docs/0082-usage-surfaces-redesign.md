@@ -1144,8 +1144,8 @@ receipt**: the HTML mockups don't replace any receipt below.
   the Q13 header and every band with rows and cells. After one wheel
   scrolls the page to its end it asserts `usage-requests-log`, the Q8
   log filling the viewport. It opens Diagnostics by keyboard (audit
-  and Tab cycle), and receipts D19's focus hand-over on a pointer view
-  switch, then the switch's arrow keys.
+  and Tab cycle), and receipts where focus lands on a pointer view
+  switch (the pressed segment, D19), then the switch's arrow keys.
 - `usage-freeze.txt` flips the range 24h → 7d → 24h over the same seed,
   by accesskit id rather than pixel coordinates. The "as of" line
   survives, the page never shows "Reading history", and the count

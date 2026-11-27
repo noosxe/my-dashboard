@@ -136,8 +136,8 @@ tab-stops
 key esc
 wait-label "More actions for the description"
 
-# Conversation: the comment box is a Tab stop and Tab leaves it. A click on
-# the tab takes focus onto the strip, the walk's fixed starting point.
+# Conversation: the comment box is a Tab stop and Tab leaves it. A click
+# focuses the pressed tab, the walk's fixed starting point.
 mouse down 340 155
 mouse up 340 155 --wait-frame
 key tab

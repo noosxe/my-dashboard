@@ -256,7 +256,7 @@
         "h": 24.0
       },
       "focusable": true,
-      "focused": true
+      "focused": false
     },
     {
       "accesskit_id": "12848625020169117508",
@@ -282,7 +282,7 @@
         "h": 32.0
       },
       "focusable": true,
-      "focused": false
+      "focused": true
     },
     {
       "accesskit_id": "13452571570012892832",

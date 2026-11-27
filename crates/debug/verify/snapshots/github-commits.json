@@ -38,19 +38,6 @@
       "focused": false
     },
     {
-      "accesskit_id": "1052848785596177040",
-      "role": "Button",
-      "label": "Copy SHA 3c6ef36",
-      "bounds": {
-        "x": 1215.0,
-        "y": 445.0,
-        "w": 20.0,
-        "h": 20.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
       "accesskit_id": "1148588164780908553",
       "role": "Button",
       "label": "Clear",
@@ -59,32 +46,6 @@
         "y": 99.0,
         "w": 12.0,
         "h": 12.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "1290211610510169173",
-      "role": "Button",
-      "label": "Copy SHA b54cda2",
-      "bounds": {
-        "x": 1215.0,
-        "y": 708.0,
-        "w": 20.0,
-        "h": 20.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "1785305798340292667",
-      "role": "Button",
-      "label": "Copy SHA 1715607",
-      "bounds": {
-        "x": 1215.0,
-        "y": 651.0,
-        "w": 20.0,
-        "h": 20.0
       },
       "focusable": true,
       "focused": false
@@ -181,6 +142,19 @@
       "focused": false
     },
     {
+      "accesskit_id": "5658164739425530809",
+      "role": "Button",
+      "label": "Copy SHA 78dde6c",
+      "bounds": {
+        "x": 1215.0,
+        "y": 594.0,
+        "w": 20.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
       "accesskit_id": "5756661827210976504",
       "role": "Tab",
       "label": "Commits",
@@ -238,19 +212,6 @@
         "h": 24.0
       },
       "focusable": true,
-      "focused": true
-    },
-    {
-      "accesskit_id": "6977368322737877482",
-      "role": "Button",
-      "label": "Copy SHA 9e3779b",
-      "bounds": {
-        "x": 1215.0,
-        "y": 388.0,
-        "w": 20.0,
-        "h": 20.0
-      },
-      "focusable": true,
       "focused": false
     },
     {
@@ -264,6 +225,19 @@
         "h": 35.0
       },
       "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "7058755576414101055",
+      "role": "Button",
+      "label": "Copy SHA 1715607",
+      "bounds": {
+        "x": 1215.0,
+        "y": 651.0,
+        "w": 20.0,
+        "h": 20.0
+      },
+      "focusable": true,
       "focused": false
     },
     {
@@ -290,19 +264,6 @@
         "h": 35.0
       },
       "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "7476251668663497568",
-      "role": "Button",
-      "label": "Copy SHA daa66d1",
-      "bounds": {
-        "x": 1215.0,
-        "y": 537.0,
-        "w": 20.0,
-        "h": 20.0
-      },
-      "focusable": true,
       "focused": false
     },
     {
@@ -342,6 +303,19 @@
         "h": 57.0
       },
       "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9700489133668088885",
+      "role": "Button",
+      "label": "Copy SHA 9e3779b",
+      "bounds": {
+        "x": 1215.0,
+        "y": 388.0,
+        "w": 20.0,
+        "h": 20.0
+      },
+      "focusable": true,
       "focused": false
     },
     {
@@ -407,6 +381,19 @@
         "h": 28.0
       },
       "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "11477088582085144574",
+      "role": "Button",
+      "label": "Copy SHA b54cda2",
+      "bounds": {
+        "x": 1215.0,
+        "y": 708.0,
+        "w": 20.0,
+        "h": 20.0
+      },
+      "focusable": true,
       "focused": false
     },
     {
@@ -483,32 +470,6 @@
       "focused": false
     },
     {
-      "accesskit_id": "13161086394993227935",
-      "role": "Button",
-      "label": "Copy SHA 78dde6c",
-      "bounds": {
-        "x": 1215.0,
-        "y": 594.0,
-        "w": 20.0,
-        "h": 20.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "13199029707320333244",
-      "role": "Button",
-      "label": "Copy SHA 0000000",
-      "bounds": {
-        "x": 1215.0,
-        "y": 331.0,
-        "w": 20.0,
-        "h": 20.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
       "accesskit_id": "13230988437995010117",
       "role": "ListItem",
       "label": null,
@@ -532,7 +493,7 @@
         "h": 24.0
       },
       "focusable": true,
-      "focused": false
+      "focused": true
     },
     {
       "accesskit_id": "13460365343519204478",
@@ -691,6 +652,19 @@
       "focused": false
     },
     {
+      "accesskit_id": "16669858377891960248",
+      "role": "Button",
+      "label": "Copy SHA 0000000",
+      "bounds": {
+        "x": 1215.0,
+        "y": 331.0,
+        "w": 20.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
       "accesskit_id": "16834563995578148124",
       "role": "ListItem",
       "label": "GitHub",
@@ -704,6 +678,19 @@
       "focused": false
     },
     {
+      "accesskit_id": "16910098397172089678",
+      "role": "Button",
+      "label": "Copy SHA 3c6ef36",
+      "bounds": {
+        "x": 1215.0,
+        "y": 445.0,
+        "w": 20.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
       "accesskit_id": "17103739242800327612",
       "role": "Group",
       "label": "favicon: inspector spacing follows the 4px scale (#695) — Dev Box, committed 1d, Verified, CI: passing, 1715607",
@@ -714,6 +701,19 @@
         "h": 57.0
       },
       "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17107814901821273475",
+      "role": "Button",
+      "label": "Copy SHA daa66d1",
+      "bounds": {
+        "x": 1215.0,
+        "y": 537.0,
+        "w": 20.0,
+        "h": 20.0
+      },
+      "focusable": true,
       "focused": false
     },
     {
