@@ -229,7 +229,7 @@
         "w": 80.0,
         "h": 32.0
       },
-      "focusable": false,
+      "focusable": true,
       "focused": false
     },
     {
@@ -307,7 +307,7 @@
         "w": 70.0,
         "h": 32.0
       },
-      "focusable": false,
+      "focusable": true,
       "focused": false
     },
     {
@@ -463,7 +463,7 @@
         "w": 49.0,
         "h": 32.0
       },
-      "focusable": false,
+      "focusable": true,
       "focused": false
     },
     {
@@ -476,7 +476,7 @@
         "w": 49.0,
         "h": 32.0
       },
-      "focusable": false,
+      "focusable": true,
       "focused": false
     },
     {
@@ -697,7 +697,7 @@
         "w": 58.0,
         "h": 32.0
       },
-      "focusable": false,
+      "focusable": true,
       "focused": false
     },
     {
@@ -827,7 +827,7 @@
         "w": 49.0,
         "h": 32.0
       },
-      "focusable": false,
+      "focusable": true,
       "focused": false
     },
     {
@@ -853,7 +853,7 @@
         "w": 41.0,
         "h": 32.0
       },
-      "focusable": false,
+      "focusable": true,
       "focused": false
     },
     {
@@ -1157,7 +1157,7 @@
     },
     {
       "accesskit_id": "15780479207519761739",
-      "role": "TabList",
+      "role": "Group",
       "label": "Budget: GraphQL",
       "bounds": {
         "x": 346.0,
@@ -1256,7 +1256,7 @@
         "w": 83.0,
         "h": 32.0
       },
-      "focusable": false,
+      "focusable": true,
       "focused": false
     },
     {
@@ -1300,7 +1300,7 @@
     },
     {
       "accesskit_id": "16698708412780674693",
-      "role": "TabList",
+      "role": "Group",
       "label": "Usage view: Budget",
       "bounds": {
         "x": 288.0,
@@ -1386,7 +1386,7 @@
         "w": 41.0,
         "h": 32.0
       },
-      "focusable": false,
+      "focusable": true,
       "focused": false
     },
     {
@@ -1399,12 +1399,12 @@
         "w": 124.0,
         "h": 32.0
       },
-      "focusable": false,
+      "focusable": true,
       "focused": false
     },
     {
       "accesskit_id": "18371451918428087409",
-      "role": "TabList",
+      "role": "Group",
       "label": "Range: 24h",
       "bounds": {
         "x": 840.0,
