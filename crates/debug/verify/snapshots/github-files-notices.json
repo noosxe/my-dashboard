@@ -25,53 +25,35 @@
       "focused": false
     },
     {
-      "accesskit_id": "795281189567943664",
-      "role": "Group",
-      "label": "Branches: main ← feature/trailing-commas",
-      "bounds": {
-        "x": 591.0,
-        "y": 103.0,
-        "w": 230.0,
-        "h": 20.0
-      },
+      "accesskit_id": "652646130259596313",
+      "role": "TextRun",
+      "label": null,
+      "bounds": null,
       "focusable": false,
       "focused": false
     },
     {
-      "accesskit_id": "872805323400431190",
-      "role": "ListItem",
+      "accesskit_id": "995453263474361130",
+      "role": "TabList",
       "label": null,
       "bounds": {
-        "x": 297.0,
-        "y": 362.0,
-        "w": 194.0,
-        "h": 27.0
+        "x": 288.0,
+        "y": 137.0,
+        "w": 955.0,
+        "h": 36.0
       },
       "focusable": false,
       "focused": false
     },
     {
-      "accesskit_id": "1116072149906428275",
-      "role": "Splitter",
-      "label": "Resize files sidebar",
+      "accesskit_id": "1072193724208166418",
+      "role": "Image",
+      "label": "added file",
       "bounds": {
-        "x": 496.0,
-        "y": 186.0,
-        "w": 5.0,
-        "h": 620.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "1180947396144610906",
-      "role": "Label",
-      "label": "2 unresolved",
-      "bounds": {
-        "x": 301.0,
-        "y": 217.0,
-        "w": 186.0,
-        "h": 19.0
+        "x": 453.0,
+        "y": 366.0,
+        "w": 26.0,
+        "h": 18.0
       },
       "focusable": false,
       "focused": false
@@ -90,81 +72,16 @@
       "focused": false
     },
     {
-      "accesskit_id": "2087541564107347004",
-      "role": "TextInput",
-      "label": "Filter files…",
-      "bounds": {
-        "x": 306.0,
-        "y": 278.0,
-        "w": 176.0,
-        "h": 20.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "2274344565539768838",
+      "accesskit_id": "1976169022798983970",
       "role": "Image",
-      "label": "added file",
+      "label": "modified file",
       "bounds": {
         "x": 453.0,
-        "y": 393.0,
+        "y": 312.0,
         "w": 26.0,
         "h": 18.0
       },
       "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "2832445530142108597",
-      "role": "ListItem",
-      "label": null,
-      "bounds": {
-        "x": 297.0,
-        "y": 335.0,
-        "w": 194.0,
-        "h": 27.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "3400697193165112097",
-      "role": "Tab",
-      "label": "Files changed (4)",
-      "bounds": {
-        "x": 539.0,
-        "y": 137.0,
-        "w": 104.0,
-        "h": 36.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
-      "accesskit_id": "3643398615140383656",
-      "role": "Group",
-      "label": "Couldn't render this diff — crates/manifest/src/lexer.rs",
-      "bounds": {
-        "x": 508.0,
-        "y": 185.0,
-        "w": 735.0,
-        "h": 590.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "3820481982806606174",
-      "role": "Tab",
-      "label": "Conversation (0)",
-      "bounds": {
-        "x": 288.0,
-        "y": 137.0,
-        "w": 83.0,
-        "h": 36.0
-      },
-      "focusable": true,
       "focused": false
     },
     {
@@ -181,6 +98,32 @@
       "focused": false
     },
     {
+      "accesskit_id": "4424840680275410851",
+      "role": "Group",
+      "label": null,
+      "bounds": {
+        "x": 272.0,
+        "y": 53.0,
+        "w": 987.0,
+        "h": 770.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "4541945637715181521",
+      "role": "Tab",
+      "label": "Files changed (4)",
+      "bounds": {
+        "x": 539.0,
+        "y": 137.0,
+        "w": 104.0,
+        "h": 36.0
+      },
+      "focusable": true,
+      "focused": true
+    },
+    {
       "accesskit_id": "4602998836821200419",
       "role": "TreeItem",
       "label": "Usage",
@@ -194,43 +137,56 @@
       "focused": false
     },
     {
-      "accesskit_id": "5475247600156097162",
-      "role": "TabList",
-      "label": null,
+      "accesskit_id": "4961730427356675598",
+      "role": "Tab",
+      "label": "Conversation (0)",
       "bounds": {
         "x": 288.0,
         "y": 137.0,
-        "w": 955.0,
-        "h": 36.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "6288348909681315402",
-      "role": "ListItem",
-      "label": null,
-      "bounds": {
-        "x": 297.0,
-        "y": 389.0,
-        "w": 194.0,
-        "h": 27.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "6545223395291672954",
-      "role": "Group",
-      "label": "Pull request sections: Files changed (4)",
-      "bounds": {
-        "x": 288.0,
-        "y": 137.0,
-        "w": 955.0,
+        "w": 83.0,
         "h": 36.0
       },
       "focusable": true,
-      "focused": true
+      "focused": false
+    },
+    {
+      "accesskit_id": "5463309103210298834",
+      "role": "Button",
+      "label": "Copy branch name feature/trailing-commas",
+      "bounds": {
+        "x": 646.0,
+        "y": 103.0,
+        "w": 175.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6749644918844889556",
+      "role": "TextInput",
+      "label": "Filter files…",
+      "bounds": {
+        "x": 306.0,
+        "y": 278.0,
+        "w": 176.0,
+        "h": 20.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "6792393391320940657",
+      "role": "Label",
+      "label": "<age label>",
+      "bounds": {
+        "x": 1088.0,
+        "y": 71.0,
+        "w": 87.0,
+        "h": 19.0
+      },
+      "focusable": false,
+      "focused": false
     },
     {
       "accesskit_id": "7124659103195741453",
@@ -246,11 +202,11 @@
       "focused": false
     },
     {
-      "accesskit_id": "7191678516993685174",
+      "accesskit_id": "7482535471167152738",
       "role": "Button",
-      "label": "Open pull request on GitHub",
+      "label": "Refresh",
       "bounds": {
-        "x": 1219.0,
+        "x": 1183.0,
         "y": 69.0,
         "w": 24.0,
         "h": 24.0
@@ -259,59 +215,64 @@
       "focused": false
     },
     {
-      "accesskit_id": "7615872970577468454",
-      "role": "Image",
-      "label": "modified file",
+      "accesskit_id": "7907834881722434410",
+      "role": "Button",
+      "label": "Copy branch name main",
       "bounds": {
-        "x": 453.0,
-        "y": 339.0,
-        "w": 26.0,
-        "h": 18.0
+        "x": 591.0,
+        "y": 103.0,
+        "w": 37.0,
+        "h": 20.0
       },
-      "focusable": false,
+      "focusable": true,
       "focused": false
     },
     {
-      "accesskit_id": "8513665148732385421",
-      "role": "TextRun",
-      "label": null,
-      "bounds": null,
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "9674893559307777140",
-      "role": "Label",
-      "label": "<age label>",
+      "accesskit_id": "9222798850377857266",
+      "role": "Splitter",
+      "label": "Resize files sidebar",
       "bounds": {
-        "x": 1088.0,
-        "y": 71.0,
-        "w": 87.0,
+        "x": 496.0,
+        "y": 186.0,
+        "w": 5.0,
+        "h": 620.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "9287674096616039897",
+      "role": "Label",
+      "label": "2 unresolved",
+      "bounds": {
+        "x": 301.0,
+        "y": 217.0,
+        "w": 186.0,
         "h": 19.0
       },
       "focusable": false,
       "focused": false
     },
     {
-      "accesskit_id": "9689540147615460661",
-      "role": "Tab",
-      "label": "Checks (0)",
+      "accesskit_id": "9802655124503540701",
+      "role": "ListItem",
+      "label": null,
       "bounds": {
-        "x": 477.0,
-        "y": 137.0,
-        "w": 46.0,
-        "h": 36.0
+        "x": 297.0,
+        "y": 308.0,
+        "w": 194.0,
+        "h": 27.0
       },
-      "focusable": true,
+      "focusable": false,
       "focused": false
     },
     {
-      "accesskit_id": "10483868734410982652",
+      "accesskit_id": "9950702131361961257",
       "role": "Image",
-      "label": "modified file",
+      "label": "added file",
       "bounds": {
         "x": 453.0,
-        "y": 312.0,
+        "y": 393.0,
         "w": 26.0,
         "h": 18.0
       },
@@ -332,6 +293,19 @@
       "focused": false
     },
     {
+      "accesskit_id": "10830788592165530085",
+      "role": "Tab",
+      "label": "Checks (0)",
+      "bounds": {
+        "x": 477.0,
+        "y": 137.0,
+        "w": 46.0,
+        "h": 36.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
       "accesskit_id": "10834513746264126060",
       "role": "Link",
       "label": "Home",
@@ -345,16 +319,16 @@
       "focused": false
     },
     {
-      "accesskit_id": "11407376683352483629",
-      "role": "Button",
-      "label": "Copy branch name feature/trailing-commas",
+      "accesskit_id": "10924620154138632682",
+      "role": "ListItem",
+      "label": null,
       "bounds": {
-        "x": 646.0,
-        "y": 103.0,
-        "w": 175.0,
-        "h": 20.0
+        "x": 297.0,
+        "y": 362.0,
+        "w": 194.0,
+        "h": 27.0
       },
-      "focusable": true,
+      "focusable": false,
       "focused": false
     },
     {
@@ -371,14 +345,14 @@
       "focused": false
     },
     {
-      "accesskit_id": "11498356736245344864",
-      "role": "Button",
-      "label": "Conversations not shown in the diff (1)",
+      "accesskit_id": "11997859950651813870",
+      "role": "Group",
+      "label": "Pull request sections: Files changed (4)",
       "bounds": {
-        "x": 520.0,
-        "y": 779.0,
-        "w": 276.0,
-        "h": 24.0
+        "x": 288.0,
+        "y": 137.0,
+        "w": 955.0,
+        "h": 36.0
       },
       "focusable": true,
       "focused": false
@@ -397,14 +371,40 @@
       "focused": false
     },
     {
-      "accesskit_id": "12805667341728708149",
-      "role": "List",
+      "accesskit_id": "12884260360947418953",
+      "role": "ListItem",
       "label": null,
       "bounds": {
         "x": 297.0,
-        "y": 308.0,
+        "y": 335.0,
         "w": 194.0,
-        "h": 490.0
+        "h": 27.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "12997432684763903401",
+      "role": "Group",
+      "label": "Couldn't render this diff — crates/manifest/src/lexer.rs",
+      "bounds": {
+        "x": 508.0,
+        "y": 185.0,
+        "w": 735.0,
+        "h": 590.0
+      },
+      "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "13136173697118643497",
+      "role": "Button",
+      "label": "Open this file's diff on GitHub",
+      "bounds": {
+        "x": 808.0,
+        "y": 517.0,
+        "w": 135.0,
+        "h": 24.0
       },
       "focusable": true,
       "focused": false
@@ -423,19 +423,6 @@
       "focused": false
     },
     {
-      "accesskit_id": "13571189755685759732",
-      "role": "Button",
-      "label": "Open this file's diff on GitHub",
-      "bounds": {
-        "x": 808.0,
-        "y": 517.0,
-        "w": 135.0,
-        "h": 24.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
       "accesskit_id": "13573312146739392893",
       "role": "TreeItem",
       "label": "Settings",
@@ -449,19 +436,6 @@
       "focused": false
     },
     {
-      "accesskit_id": "13851902461864619205",
-      "role": "Button",
-      "label": "Copy branch name main",
-      "bounds": {
-        "x": 591.0,
-        "y": 103.0,
-        "w": 37.0,
-        "h": 20.0
-      },
-      "focusable": true,
-      "focused": false
-    },
-    {
       "accesskit_id": "14739289555652244253",
       "role": "Link",
       "label": "beacon",
@@ -472,6 +446,32 @@
         "h": 23.0
       },
       "focusable": false,
+      "focused": false
+    },
+    {
+      "accesskit_id": "14993685211723110311",
+      "role": "List",
+      "label": null,
+      "bounds": {
+        "x": 297.0,
+        "y": 308.0,
+        "w": 194.0,
+        "h": 490.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "15089067534390771289",
+      "role": "Button",
+      "label": "Open pull request on GitHub",
+      "bounds": {
+        "x": 1219.0,
+        "y": 69.0,
+        "w": 24.0,
+        "h": 24.0
+      },
+      "focusable": true,
       "focused": false
     },
     {
@@ -501,29 +501,29 @@
       "focused": false
     },
     {
-      "accesskit_id": "15978383102065809225",
-      "role": "Tab",
-      "label": "Commits (3)",
+      "accesskit_id": "16340163740486625758",
+      "role": "ListItem",
+      "label": null,
       "bounds": {
-        "x": 387.0,
-        "y": 137.0,
-        "w": 74.0,
-        "h": 36.0
+        "x": 297.0,
+        "y": 389.0,
+        "w": 194.0,
+        "h": 27.0
       },
-      "focusable": true,
+      "focusable": false,
       "focused": false
     },
     {
-      "accesskit_id": "16271922669361582964",
+      "accesskit_id": "16359525095357767660",
       "role": "Group",
-      "label": null,
+      "label": "Branches: main ← feature/trailing-commas",
       "bounds": {
-        "x": 272.0,
-        "y": 53.0,
-        "w": 987.0,
-        "h": 770.0
+        "x": 591.0,
+        "y": 103.0,
+        "w": 230.0,
+        "h": 20.0
       },
-      "focusable": true,
+      "focusable": false,
       "focused": false
     },
     {
@@ -540,7 +540,20 @@
       "focused": false
     },
     {
-      "accesskit_id": "16947299303446437631",
+      "accesskit_id": "17119631546615878649",
+      "role": "Tab",
+      "label": "Commits (3)",
+      "bounds": {
+        "x": 387.0,
+        "y": 137.0,
+        "w": 74.0,
+        "h": 36.0
+      },
+      "focusable": true,
+      "focused": false
+    },
+    {
+      "accesskit_id": "17328975194697691433",
       "role": "ComboBox",
       "label": "Files view mode",
       "bounds": {
@@ -553,40 +566,27 @@
       "focused": false
     },
     {
-      "accesskit_id": "17239271206726341706",
-      "role": "Image",
-      "label": "added file",
-      "bounds": {
-        "x": 453.0,
-        "y": 366.0,
-        "w": 26.0,
-        "h": 18.0
-      },
-      "focusable": false,
-      "focused": false
-    },
-    {
-      "accesskit_id": "18031890527546727102",
+      "accesskit_id": "17695313277181720178",
       "role": "Button",
-      "label": "Refresh",
+      "label": "Conversations not shown in the diff (1)",
       "bounds": {
-        "x": 1183.0,
-        "y": 69.0,
-        "w": 24.0,
+        "x": 520.0,
+        "y": 779.0,
+        "w": 276.0,
         "h": 24.0
       },
       "focusable": true,
       "focused": false
     },
     {
-      "accesskit_id": "18197584367407781960",
-      "role": "ListItem",
-      "label": null,
+      "accesskit_id": "18311862779309009339",
+      "role": "Image",
+      "label": "modified file",
       "bounds": {
-        "x": 297.0,
-        "y": 308.0,
-        "w": 194.0,
-        "h": 27.0
+        "x": 453.0,
+        "y": 339.0,
+        "w": 26.0,
+        "h": 18.0
       },
       "focusable": false,
       "focused": false

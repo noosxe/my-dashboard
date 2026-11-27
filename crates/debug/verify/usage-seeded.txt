@@ -46,13 +46,14 @@ audit
 tab-stops
 assert-baseline usage-requests-seeded
 
-# D19: a view switch made while a view control holds focus hands focus
-# to the view switch, so Tab keeps moving (#700). Focus the Requests
-# view's `Group by` as a pointer pick leaves it, then switch by pointer.
+# D19: a view switch made while a view control holds focus must not strand
+# focus on the control it unmounts, so Tab keeps moving (#700). Focus the
+# Requests view's `Group by` as a pointer pick leaves it, then switch by
+# pointer: the press focuses the pressed segment.
 focus 18074687497992549444
 click 4134901895912816400 --wait-frame
 wait-label "1,071 requests · as of"
-assert-focus 16698708412780674693
+assert-focus 4134901895912816400
 tab-stops
 
 # Back to Requests by keyboard: the view switch is one Tab stop whose
