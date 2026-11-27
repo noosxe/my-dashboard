@@ -114,13 +114,13 @@
           src = lib.cleanSource ./.;
           cargoLock = {
             lockFile = ./Cargo.lock;
-            # 0.10.0 = gpui-component git rev f697c313 in Cargo.lock (the
-            # gpui-kit v0.10.0 bump); hashes below are the vendored-tarball FODs.
+            # 0.11.0 = gpui-component git rev e97fe438 in Cargo.lock (the
+            # gpui-kit v0.11.0 bump); hashes below are the vendored-tarball FODs.
             outputHashes = {
-              "gpui-base-0.10.0" = "sha256-HFusW4pyLtqV+vyGhDCzXRmw+IMyrXvw33HFLqwRDUo=";
-              "gpui-component-0.10.0" = "sha256-HFusW4pyLtqV+vyGhDCzXRmw+IMyrXvw33HFLqwRDUo=";
-              "gpui-component-macros-0.10.0" = "sha256-HFusW4pyLtqV+vyGhDCzXRmw+IMyrXvw33HFLqwRDUo=";
-              "gpui-kit-assets-0.10.0" = "sha256-HFusW4pyLtqV+vyGhDCzXRmw+IMyrXvw33HFLqwRDUo=";
+              "gpui-base-0.11.0" = "sha256-3XuIUQA7cyyyWXlY+LhKbw1KUFUypaUj3gd0muXsCmA=";
+              "gpui-component-0.11.0" = "sha256-3XuIUQA7cyyyWXlY+LhKbw1KUFUypaUj3gd0muXsCmA=";
+              "gpui-component-macros-0.11.0" = "sha256-3XuIUQA7cyyyWXlY+LhKbw1KUFUypaUj3gd0muXsCmA=";
+              "gpui-kit-assets-0.11.0" = "sha256-3XuIUQA7cyyyWXlY+LhKbw1KUFUypaUj3gd0muXsCmA=";
             };
           };
 
