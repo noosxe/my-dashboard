@@ -64,6 +64,7 @@ they apply to all new code:
    no reusable record, and a probe showed a `.cached(..)` child
    re-rendering after both `Window::refresh` and `App::refresh_windows`
    but not on an idle frame. The ban stands for the cost reason above.
+   The same code path is in 0.1.19 (§4.5).
 3. **A time-driven label needs its own render wake**: a timer that
    calls `cx.notify()` on the view at the label's granularity (the
    pattern the home card and module page already use, docs/0052 D6).
@@ -154,11 +155,25 @@ restyle check from §3 lands here too.
 
 ### 4.5 Dependency pins
 
-v0.10.0 pins `gpui-fast =0.1.16`; we stay on that pair. Upstream
-gpui-kit main has already moved to 0.1.17 (longbridge/gpui-kit#4027)
-but has not released it. We take 0.1.17 with the next gpui-kit
-release, as a normal deliberate bump (the Cargo.toml bump checklist).
-No git-rev pin to get it early (§6).
+The migration shipped on gpui-kit v0.10.0, which pins
+`gpui-fast =0.1.16`. Since the v0.11.0 bump the pins are:
+
+| Dependency | Pin |
+|---|---|
+| gpui-component, gpui-base, gpui-kit-assets | git rev `e97fe43` (v0.11.0) |
+| `gpui` (`gpui-fast`), `gpui_platform` (`gpui-fast-platform`) | `=0.1.19` |
+| `reqwest_client` (`gpui-pre-reqwest-client`) | `=0.3.14` |
+
+v0.11.0 asks for `gpui-fast` by caret (`0.1.19`). We keep an exact pin:
+the rendering contract (§3) and the receipts are verified against one
+backend version, so it moves through a manifest change in a deliberate
+bump, not through a lockfile regeneration. Cargo allows one version per
+compatible range, so the exact pin also decides what gpui-component's
+caret resolves to. It does not reach `gpui-fast-macros`, which
+`gpui-fast` asks for by caret and only `Cargo.lock` holds.
+
+Bumps follow the checklist in the `Cargo.toml` comment block. No
+git-rev pin to get a backend release early (§6).
 
 ### 4.6 Docs
 
@@ -180,19 +195,25 @@ No git-rev pin to get it early (§6).
 ## 5. gpui-pre stays in the graph
 
 gpui-base, gpui-component and gpui-kit-assets depend on `gpui-pre`
-unconditionally, so it is compiled even though no first-party code
-reaches it (the http-client, scheduler and util crates are shared by
-both families). We migrate now and leave it. The cost is compile time
+unconditionally (still so at v0.11.0), so it is compiled even though no
+first-party code reaches it (the http-client and util crates are shared
+by both families). It is also the one path that still brings in the
+unmaintained `chrono` (RUSTSEC-2026-0543, ignored in `deny.toml`). We
+migrate now and leave it. The cost is compile time
 and graph size; the alternative, patching or forking gpui-component to
 make it optional, is a maintenance burden larger than the cost.
 
-Upstream tracks making it optional as item 1 of longbridge/gpui-kit#3863.
-**Condition for dropping it:** a released gpui-kit whose gpui-base,
-gpui-component and gpui-kit-assets compile without `gpui-pre` when the
-`gpui-fast` feature is on, confirmed by `cargo tree -i gpui-pre`
-showing only the shared http-client/scheduler/util crates (or nothing).
-At that bump, the `gpui-pre` entries in `[profile.dev.package]` and
-any leftover pins go.
+Upstream tracked making it optional as item 1 of
+longbridge/gpui-kit#3863 and fixed it on main in
+longbridge/gpui-kit#4164, which ships in the release after v0.11.0:
+`gpui-pre` becomes a default feature of the same name, so a build with
+`default-features = false` and `gpui-fast` skips it.
+**Condition for dropping it:** a released gpui-kit with that change,
+confirmed by `cargo tree -i gpui-pre` finding nothing (shared support
+crates such as `gpui-pre-util` remain). At that bump, every dependency
+on the gpui-kit crates turns default features off (one left on brings
+`gpui-pre` back), and the `gpui-pre` entries in `[profile.dev.package]`,
+any leftover pins and the RUSTSEC-2026-0543 ignore go. Tracked in #947.
 
 Dropping gpui-pre also removes the cheap rollback path of §7 (flipping
 the feature off and returning to the pinned `gpui-pre` packages), so the
@@ -205,7 +226,8 @@ implementation merges (AGENTS.md).
 
 - Dropping `gpui-pre` from the graph (§5).
 - A git-rev pin of gpui-kit to get `gpui-fast` 0.1.17 before its
-  release (§4.5).
+  release (§4.5). *Moot since the v0.11.0 bump*, which carries a later
+  backend (#948).
 
 ## 7. Rollback
 
@@ -217,6 +239,9 @@ harmless under the old backend and may stay; the lint and the removed
 tick refresh are the only things that would need reverting with it.
 Because gpui-pre stays in the lockfile resolution graph, the revert
 needs no new dependency resolution beyond the lockfile restore.
+*After later bumps* (§4.5) the flip commit no longer reverts cleanly:
+roll back by hand, turning the feature off and pointing `gpui` and
+`gpui_platform` at the `gpui-pre` version the pinned gpui-kit uses.
 
 ## 8. Verification plan
 

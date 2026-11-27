@@ -28,7 +28,7 @@ rust-version = "1.98.0"
 
 [workspace.dependencies]
 anyhow = "1"
-# GPUI stack at gpui-kit v0.10.0 (gpui-fast 0.1.16 backend, gpui-pre 0.3.12
+# GPUI stack at gpui-kit v0.11.0 (gpui-fast 0.1.19 backend, gpui-pre 0.3.14
 # for the shared crates; v0.6.0
 # was the "GPUI Kit" rebrand:
 # upstream republished the zed gpui family to crates.io as gpui-pre-*
@@ -40,7 +40,9 @@ anyhow = "1"
 # stance for startup too: our manual `cx.open_window` + `Root::new` wrap is
 # exactly what the umbrella's `gpui_kit::open_window` does internally, and
 # `Root::new`/`Root::update` remain public (base/src/root.rs :175/:211; still
-# public at v0.10.0), so no startup churn rides the bump.
+# public at v0.11.0), so no startup churn rides the bump. v0.11.0 made X11 a
+# default feature of the gpui-kit umbrella; we ask `gpui_platform` for `x11`
+# and `wayland` ourselves.
 #
 # Exact pins (=), not caret (#126): each gpui-pre release is a snapshot of a
 # DIFFERENT zed rev — "same-ish version" is not the same code, so a pin that
@@ -48,10 +50,12 @@ anyhow = "1"
 # never remembered details). The caret already bit at birth: #124's manifest
 # said 0.3.1 and its own lockfile resolved 0.3.3, and 0.3.4 (zed@6916400) is
 # published now — one lockfile regen away from a silent behavior change.
-# Upstream pins its own family the same way (=0.3.12 in its workspace
-# Cargo.toml at v0.10.0) and now pins the exact snapshot per release
-# (gpui-kit #3163). Bumps are deliberate PRs: flip all three to the same new
-# =x.y.z together, run the full gates, the #125 upstream-quirk
+# Upstream pins its own family the same way (=0.3.14 in its workspace
+# Cargo.toml at v0.11.0) and now pins the exact snapshot per release
+# (gpui-kit #3163). Bumps are deliberate PRs: move the gpui-component,
+# gpui-base and gpui-kit-assets rev (also in deny.toml `allow-git` and the
+# flake.nix `outputHashes`), the gpui-fast pair and `reqwest_client` to what
+# the release resolves, run the full gates, the #125 upstream-quirk
 # re-verification checklist, an app smoke, and re-sync the vendored
 # theme presets (cp themes/*.json minus aurora.json →
 # crates/core/assets/themes/presets/, docs/0074 D8).
@@ -60,36 +64,44 @@ anyhow = "1"
 # `gpui`/`gpui_platform` deps are the gpui-fast packages (same library
 # names, so `use gpui::…` is unchanged), and gpui-component's `gpui-fast`
 # feature swaps its own `gpui` the same way, so every crate that speaks
-# `gpui` speaks the one implementation. =0.1.16 is the pair gpui-component
-# v0.10.0 pins; we take 0.1.17 with the next gpui-kit release, as a normal
-# bump from the checklist above, not through a git-rev pin.
+# `gpui` speaks the one implementation.
+#
+# =0.1.19 is what gpui-kit v0.11.0 was released with. Upstream asks for a
+# caret "0.1.19" there; we keep an exact pin so the render backend moves
+# only through a manifest change in a deliberate bump, never through a
+# lockfile regeneration: the rendering contract and the receipts are
+# verified against one version. Cargo allows one version per compatible
+# range, so this pin also decides what gpui-component's caret resolves to.
+# It does not reach every sibling: gpui-fast asks for gpui-fast-macros by
+# caret, which only Cargo.lock holds.
 #
 # gpui-component/base/assets still list gpui-pre as a non-optional
-# dependency, so gpui-pre compiles but no first-party code reaches it; the
-# http-client, scheduler and util crates are shared by both families, which
+# dependency at v0.11.0, so gpui-pre compiles but no first-party code reaches
+# it; the http-client and util crates are shared by both families, which
 # is why `reqwest_client` below stays on gpui-pre-reqwest-client. Drop
 # gpui-pre (and its `[profile.dev.package]` entries) once a released
-# gpui-kit compiles without it under the `gpui-fast` feature (docs/0086 §5).
+# gpui-kit compiles without it under the `gpui-fast` feature (docs/0086 §5,
+# #947; merged upstream, not yet released).
 # Rendering contract for this backend: docs/0086 §3 and AGENTS.md.
-gpui = { package = "gpui-fast", version = "=0.1.16" }
-gpui_platform = { package = "gpui-fast-platform", version = "=0.1.16", features = [
+gpui = { package = "gpui-fast", version = "=0.1.19" }
+gpui_platform = { package = "gpui-fast-platform", version = "=0.1.19", features = [
     "font-kit", "x11", "wayland",
 ] }
 # Concrete gpui HttpClient — serves remote avatar images (docs/0005 §6.3,
 # doc 0012 D1). Implements gpui-pre-http-client's HttpClient, the same crate
 # gpui-fast depends on; exact-pinned with it.
-reqwest_client = { package = "gpui-pre-reqwest-client", version = "=0.3.12" }
+reqwest_client = { package = "gpui-pre-reqwest-client", version = "=0.3.14" }
 # Repo renamed longbridge/gpui-kit (release page); the old URL 301s — kept
 # for now to avoid re-resolving the whole family in one lockfile regen.
 # docs/0070 D2: tree-sitter syntax for the Diff component — runtime plus
 # the full grammar pack (35 languages, cc-built). Feature names upstream;
 # deliberate full-pack enable over cherry-picking. syntect retires in 0070
 # part 2.
-gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "f697c3133d55c64fa8a5b67926147fb3dadd276d", features = ["tree-sitter", "tree-sitter-languages", "gpui-fast"] } # v0.10.0
+gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "e97fe438129c5e4ccab504f2e6fafd9a4e396bba", features = ["tree-sitter", "tree-sitter-languages", "gpui-fast"] } # v0.11.0
 # The nav-history primitive (docs/0048 D1): gpui_base::History — same
 # pinned checkout as gpui-component, so the family stays on one rev.
-gpui_base = { package = "gpui-base", git = "https://github.com/longbridge/gpui-component", rev = "f697c3133d55c64fa8a5b67926147fb3dadd276d" }
-gpui-kit-assets = { git = "https://github.com/longbridge/gpui-component", rev = "f697c3133d55c64fa8a5b67926147fb3dadd276d" } # v0.10.0
+gpui_base = { package = "gpui-base", git = "https://github.com/longbridge/gpui-component", rev = "e97fe438129c5e4ccab504f2e6fafd9a4e396bba" }
+gpui-kit-assets = { git = "https://github.com/longbridge/gpui-component", rev = "e97fe438129c5e4ccab504f2e6fafd9a4e396bba" } # v0.11.0
 dashboard-core = { path = "crates/core" }
 dashboard-agent = { path = "crates/agent" }
 dashboard-debug = { path = "crates/debug" }

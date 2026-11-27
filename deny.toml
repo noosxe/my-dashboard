@@ -36,9 +36,12 @@ ignore = [
     { id = "RUSTSEC-2026-0371", reason = "zbus_names: via zbus 5 (accesskit, atspi, ashpd) (#640)" },
     { id = "RUSTSEC-2026-0370", reason = "zvariant: via zbus 5, merged into zbus 6 (#640)" },
     { id = "RUSTSEC-2026-0372", reason = "zvariant_derive: via zbus 5 (#640)" },
-    # Unmaintained, no safe upgrade. Only transitive now (this workspace
-    # moved to jiff in #937); the upstream copies are tracked in #640.
-    { id = "RUSTSEC-2026-0543", reason = "chrono: via gpui-pre, gpui-base, gpui-component, flexi_logger (#640)" },
+    # Unmaintained, no safe upgrade. This workspace moved to jiff in #937,
+    # gpui-base and gpui-component at gpui-kit v0.11.0, and flexi_logger no
+    # longer uses it either. The one path left is gpui-pre (and its
+    # gpui-pre-scheduler), compiled only because upstream still lists it as
+    # a non-optional dependency: delete this entry with it (#947).
+    { id = "RUSTSEC-2026-0543", reason = "chrono: via gpui-pre and gpui-pre-scheduler only (#640, #947)" },
 ]
 
 [licenses]
@@ -94,5 +97,5 @@ unknown-git = "deny"
 required-git-spec = "rev"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 allow-git = [
-    "https://github.com/longbridge/gpui-component?rev=f697c3133d55c64fa8a5b67926147fb3dadd276d",
+    "https://github.com/longbridge/gpui-component?rev=e97fe438129c5e4ccab504f2e6fafd9a4e396bba",
 ]
